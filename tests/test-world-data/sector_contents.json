@@ -1,0 +1,122 @@
+{
+  "meta": {
+    "sector_count": 10,
+    "seed": 12345,
+    "base_port_density": 0.4,
+    "initial_port_build_rate": 0.75,
+    "port_percentage_effective": 0.3,
+    "planets_enabled": false,
+    "planet_percentage": 0.0,
+    "complementary_pairs": {
+      "enabled": true,
+      "radius": 2,
+      "target_coverage": 0.7,
+      "actual_coverage": 0.667
+    },
+    "pricing_bands": {
+      "sell_min": 0.75,
+      "sell_max": 1.10,
+      "buy_min": 0.90,
+      "buy_max": 1.30
+    },
+    "port_inventory": {
+      "default_cap": 1000,
+      "starting_fill": 0.70,
+      "regen_fraction_stock": 0.25,
+      "regen_fraction_demand": 0.25
+    },
+    "commodities": {
+      "FO": "fuel_ore",
+      "OG": "organics",
+      "EQ": "equipment"
+    }
+  },
+  "sectors": [
+    {
+      "id": 0,
+      "port": null,
+      "planets": []
+    },
+    {
+      "id": 1,
+      "port": {
+        "class": 1,
+        "code": "BBS",
+        "buys": ["fuel_ore", "organics"],
+        "sells": ["equipment"],
+        "stock": {"FO": 0, "OG": 0, "EQ": 700},
+        "stock_max": {"FO": 0, "OG": 0, "EQ": 1000},
+        "demand": {"FO": 700, "OG": 700, "EQ": 0},
+        "demand_max": {"FO": 1000, "OG": 1000, "EQ": 0}
+      },
+      "planets": []
+    },
+    {
+      "id": 2,
+      "port": null,
+      "planets": []
+    },
+    {
+      "id": 3,
+      "port": {
+        "class": 6,
+        "code": "BSS",
+        "buys": ["fuel_ore"],
+        "sells": ["organics", "equipment"],
+        "stock": {"FO": 0, "OG": 700, "EQ": 700},
+        "stock_max": {"FO": 0, "OG": 1000, "EQ": 1000},
+        "demand": {"FO": 700, "OG": 0, "EQ": 0},
+        "demand_max": {"FO": 1000, "OG": 0, "EQ": 0}
+      },
+      "planets": []
+    },
+    {
+      "id": 4,
+      "port": null,
+      "planets": []
+    },
+    {
+      "id": 5,
+      "port": {
+        "class": 2,
+        "code": "BSB",
+        "buys": ["fuel_ore", "equipment"],
+        "sells": ["organics"],
+        "stock": {"FO": 0, "OG": 700, "EQ": 0},
+        "stock_max": {"FO": 0, "OG": 1000, "EQ": 0},
+        "demand": {"FO": 700, "OG": 0, "EQ": 700},
+        "demand_max": {"FO": 1000, "OG": 0, "EQ": 1000}
+      },
+      "planets": []
+    },
+    {
+      "id": 6,
+      "port": null,
+      "planets": []
+    },
+    {
+      "id": 7,
+      "port": null,
+      "planets": []
+    },
+    {
+      "id": 8,
+      "port": null,
+      "planets": []
+    },
+    {
+      "id": 9,
+      "port": {
+        "class": 8,
+        "code": "BBB",
+        "buys": ["fuel_ore", "organics", "equipment"],
+        "sells": [],
+        "stock": {"FO": 0, "OG": 0, "EQ": 0},
+        "stock_max": {"FO": 0, "OG": 0, "EQ": 0},
+        "demand": {"FO": 700, "OG": 700, "EQ": 700},
+        "demand_max": {"FO": 1000, "OG": 1000, "EQ": 1000}
+      },
+      "planets": []
+    }
+  ]
+}

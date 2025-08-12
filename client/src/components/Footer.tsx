@@ -1,0 +1,120 @@
+import { RTVIEvent, type TransportState } from "@pipecat-ai/client-js";
+import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react";
+import { Badge, XIcon } from "@pipecat-ai/voice-ui-kit";
+import { useCallback, useState } from "react";
+import { useGameManager } from "../hooks/useGameManager";
+import { DotDivider } from "./primitives/DotDivider";
+import { WarpBadge } from "./WarpBadge";
+
+export const Footer = () => {
+  const { game, getAllCargo } = useGameManager();
+
+  const client = usePipecatClient();
+  const [transportState, setTransportState] =
+    useState<TransportState>("disconnected");
+
+  useRTVIClientEvent(RTVIEvent.TransportStateChanged, (newState) => {
+    setTransportState(newState);
+  });
+
+  const statusBadgeProps = useCallback(() => {
+    let props = {
+      color: "secondary",
+      variant: "bracket",
+      className: "",
+    };
+    switch (transportState) {
+      case "disconnected":
+      case "initialized":
+      case "initializing":
+        props = {
+          color: "secondary",
+          variant: "bracket",
+          className: "",
+        };
+        break;
+      case "authenticating":
+      case "authenticated":
+      case "connecting":
+        props = {
+          color: "warning",
+          variant: "bracket",
+          className: "animate-pulse",
+        };
+        break;
+      default:
+        props = {
+          color: "active",
+          variant: "bracket",
+          className: "",
+        };
+        break;
+    }
+    return props;
+  }, [transportState]);
+
+  return (
+    <footer className="flex flex-row p-panel justify-between items-center vkui:border-t text-sm vkui:bg-card">
+      <div className="flex flex-row gap-4">
+        <div className="flex flex-row gap-2 items-center">
+          <span className="vkui:font-bold">Ship:</span>
+          <div className="flex flex-row gap-2 items-center">
+            <span className={game.ship ? "opacity-100" : "opacity-40"}>
+              {game.ship?.name ?? "Unknown"}
+            </span>
+          </div>
+        </div>
+        <div className="flex flex-row gap-2 items-center">
+          <span className="vkui:font-bold">Warp:</span>
+          <WarpBadge />
+        </div>
+      </div>
+      <div className="flex flex-row gap-2 items-center">
+        <Badge size="sm" variant="elbow" color="primary">
+          $ Credits:{" "}
+          <span className={game.credits > 0 ? "opacity-100" : "opacity-40"}>
+            {game.credits.toLocaleString()}
+          </span>
+        </Badge>
+        <DotDivider />
+        {Object.entries(getAllCargo()).map(([resource, amount]) => (
+          <Badge key={resource} size="sm" variant="elbow" color="primary">
+            {resource.charAt(0).toUpperCase() + resource.slice(1)}:{" "}
+            <span
+              className={amount && amount > 0 ? "opacity-100" : "opacity-40"}
+            >
+              {amount}
+            </span>
+          </Badge>
+        ))}
+        <DotDivider />
+        <Badge size="sm" variant="elbow" color="primary">
+          Capacity:{" "}
+          <span className={game.ship ? "opacity-100" : "opacity-40"}>
+            {game.ship?.capcity ?? "---"}
+          </span>
+        </Badge>
+      </div>
+      <div className="flex flex-row gap-4">
+        <Badge {...statusBadgeProps()}>Status: {transportState}</Badge>
+        <Badge
+          color="secondary"
+          variant="elbow"
+          onClick={() => {
+            if (["connected", "ready"].includes(transportState)) {
+              client?.disconnect();
+            }
+          }}
+          className={
+            ["connected", "ready"].includes(transportState)
+              ? "opacity-100 hover:text-amber-500 cursor-pointer user-select-none"
+              : "opacity-40"
+          }
+        >
+          <XIcon size={20} />
+          Eject
+        </Badge>
+      </div>
+    </footer>
+  );
+};

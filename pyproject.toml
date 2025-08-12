@@ -1,0 +1,30 @@
+[project]
+name = "gradient-bang"
+version = "0.1.0"
+description = "Game of the Millennium"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.27.0",  # Relax version
+    "fastapi>=0.116.1",
+    "python-dotenv>=1.1.1",
+    "uvicorn[standard]>=0.35.0",
+    "rich>=13.0.0",
+    "websockets>=13.1,<15.0",  # Match pipecat-ai's requirement
+    "textual>=0.86.0",
+    "pipecat-ai[speechmatics,openai,cartesia,webrtc,silero,local-smart-turn]==0.0.79",
+    "pipecat-ai-small-webrtc-prebuilt"
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.27.0",  # Match main dependency
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.1.0",
+]
+
+[tool.uv]
+# Override specific sub-dependencies to fix compatibility issues
+override-dependencies = [
+    "numba==0.61.2",  # Pin to version that supports Python 3.12
+    "openai==1.99.5",  
+]
