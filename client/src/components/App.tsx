@@ -16,9 +16,10 @@ import { ControlBar } from "./ControlBar";
 import { ConversationPanel } from "./ConversationPanel";
 import { DebugPanel } from "./DebugPanel";
 import { Footer } from "./Footer";
+import { HighlightOverlay } from "./HighlightOverlay";
 import { ImagePanel } from "./ImagePanel";
 import { MovementHistoryPanel } from "./MovementHistoryPanel";
-import { PanelMenu } from "./PanelMenu";
+import { PanelMenu, type PanelMenuItem } from "./PanelMenu";
 import { PortHistoryPanel } from "./PortHistoryPanel";
 import { ShipPanel } from "./ShipPanel";
 import { StartScreen } from "./StartScreen";
@@ -28,9 +29,8 @@ export const App = ({ onConnect }: { onConnect?: () => void }) => {
   const [connectedState, setConnectedState] = useState<
     "disconnected" | "connecting" | "connected"
   >("disconnected");
-  const [currentPanel, setCurrentPanel] = useState<
-    "movement" | "port" | "debug"
-  >("movement");
+  const [currentPanel, setCurrentPanel] =
+    useState<PanelMenuItem>("movement_history");
 
   useRTVIClientEvent(RTVIEvent.TransportStateChanged, (newState) => {
     switch (newState) {
@@ -99,9 +99,9 @@ export const App = ({ onConnect }: { onConnect?: () => void }) => {
               className="w-10"
             />
             <ResizablePanel minSize={30} defaultSize={40}>
-              {currentPanel === "movement" ? (
+              {currentPanel === "movement_history" ? (
                 <MovementHistoryPanel />
-              ) : currentPanel === "port" ? (
+              ) : currentPanel === "ports_discovered" ? (
                 <PortHistoryPanel />
               ) : (
                 <DebugPanel />
@@ -115,6 +115,8 @@ export const App = ({ onConnect }: { onConnect?: () => void }) => {
         </div>
       </main>
       <Footer />
+
+      <HighlightOverlay />
     </div>
   );
 };

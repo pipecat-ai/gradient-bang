@@ -10,6 +10,7 @@ import {
 import { App } from "./components/App";
 import { Error } from "./components/Error";
 import { GameProvider } from "./GameContext";
+import { UIProvider } from "./UIContext";
 
 import "./index.css";
 
@@ -32,7 +33,9 @@ createRoot(document.getElementById("root")!).render(
           <Error onRetry={handleConnect}>{error}</Error>
         ) : (
           <GameProvider>
-            <App onConnect={handleConnect} />
+            <UIProvider>
+              <App onConnect={handleConnect} />
+            </UIProvider>
           </GameProvider>
         )
       }

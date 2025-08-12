@@ -8,11 +8,16 @@ import {
 } from "@pipecat-ai/voice-ui-kit";
 import type { Ship } from "../GameContext";
 import { useGameManager } from "../hooks/useGameManager";
+import { usePanelRef } from "../hooks/usePanelRef";
+import { useUI } from "../hooks/useUI";
 
 export const DebugPanel = () => {
   const { dispatch, moveToSector } = useGameManager();
+  const { highlightPanel, switchAndHighlight } = useUI();
+  const panelRef = usePanelRef("debug");
   return (
     <Card
+      ref={panelRef}
       noElbows={false}
       background="scanlines"
       className="flex w-full h-full"
@@ -22,6 +27,7 @@ export const DebugPanel = () => {
       </CardHeader>
       <CardContent className="flex flex-col gap-2 overflow-y-auto">
         <Button
+          size="sm"
           onClick={() =>
             dispatch({
               type: "SET_SHIP",
@@ -34,9 +40,10 @@ export const DebugPanel = () => {
             })
           }
         >
-          Set Ship to Kestral
+          Set Ship to Kestrel
         </Button>
         <Button
+          size="sm"
           onClick={() =>
             dispatch({
               type: "ADD_CREDITS",
@@ -47,6 +54,7 @@ export const DebugPanel = () => {
           Give 1000 credits
         </Button>
         <Button
+          size="sm"
           onClick={() => {
             moveToSector("777", {
               port_info: {
@@ -57,8 +65,41 @@ export const DebugPanel = () => {
         >
           Arrive at Port
         </Button>
+        <Button
+          size="sm"
+          onClick={() => {
+            switchAndHighlight("movement_history");
+          }}
+        >
+          Switch & Highlight Movement
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => {
+            highlightPanel("task_output");
+          }}
+        >
+          Highlight Task Panel
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => {
+            highlightPanel("debug");
+          }}
+        >
+          Highlight Current Panel
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => {
+            highlightPanel(null);
+          }}
+        >
+          Clear Highlight
+        </Button>
         <Divider decoration="plus" className="my-2" />
         <Button
+          size="sm"
           variant="destructive"
           onClick={() =>
             dispatch({
