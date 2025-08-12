@@ -38,12 +38,28 @@ You have access to tools that let you:
 5. View your map knowledge (visited sectors and discovered ports)
 6. Find nearest known ports that buy or sell specific commodities
 7. Signal task completion
+8. Update the client UI to show a panel
 
 ## Important Guidelines
 - ALWAYS move one sector at a time
 - OBSERVE the world state after each move
 - REACT to what you discover in each sector
 - Take actions step by step, don't try to do everything at once
+
+## UI
+You can update the user's client UI to show panels relevant to the task you are performing.
+
+Use the `ui_show_panel` tool to switch to and highlight a panel in the client UI.
+
+The available panels are:
+- `task_output`: Show the output of the current task
+- `movement_history`: Show the history of your movements
+- `ports_discovered`: Show the ports you have discovered
+- `debug`: Show debug information
+
+You can switch to and highlight a panel by calling `ui_show_panel` with the name of the panel you want to show.
+
+For example, to show the task output panel, you would call: ui_show_panel(panel="task_output")
 """
 
 
@@ -75,7 +91,7 @@ Use the `start_task` tool for:
 - Systematic exploration of unknown sectors
 - Any operation requiring planning and coordination
 
-For simple queries (checking status, viewing the map, scanning one port), handle them directly without starting a task.
+For simple queries (checking status, viewing the map, scanning one port, updating the ui), handle them directly without starting a task.
 
 ## Communication Style
 
@@ -130,7 +146,7 @@ You can query your map knowledge to answer questions like:
 - "Find a port close to me that sells organics" - Use find_port(commodity="organics", buy_or_sell="sell")
 - "List all port pairs in adjacent sectors that I know about" - This information is in your map data
 
-Remember: 
+Remember:
 - You can only see and interact with your current sector
 - Each move reveals new information about that sector
 - Your map knowledge persists between sessions
@@ -144,7 +160,7 @@ To check where you are:
 - Returns: Your current sector and status
 
 To find a path:
-- Use: plot_course(from_sector=0, to_sector=100)  
+- Use: plot_course(from_sector=0, to_sector=100)
 - Returns: List of sectors forming the shortest path
 
 To move one sector:
@@ -159,7 +175,7 @@ To view your map knowledge:
 To find ports:
 - Use: find_port(commodity="organics", buy_or_sell="sell")
 - Returns: Nearest known port that sells organics, with distance and path
-- Use: find_port(commodity="equipment", buy_or_sell="buy")  
+- Use: find_port(commodity="equipment", buy_or_sell="buy")
 - Returns: Nearest known port that buys equipment
 
 To complete a task:
@@ -188,7 +204,8 @@ def format_tool_result(tool_name: str, result: dict) -> str:
     if tool_name == "plot_course":
         path = result.get("path", [])
         distance = result.get("distance", 0)
-        return f"📍 Course plotted: {distance} warps via sectors {' → '.join(map(str, path[:5]))}{'...' if len(path) > 5 else ''}"
+        return f"📍 Course plotted: {distance} warps via sectors {' → '.join(map(str,
+                                                                                path[:5]))}{'...' if len(path) > 5 else ''}"
 
     elif tool_name == "move":
         return f"🚀 Moved to sector {result.get('new_sector', 'unknown')}"

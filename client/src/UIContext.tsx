@@ -1,3 +1,5 @@
+import { RTVIEvent } from "@pipecat-ai/client-js";
+import { useRTVIClientEvent } from "@pipecat-ai/client-react";
 import React, {
   createContext,
   useCallback,
@@ -95,6 +97,27 @@ export const UIProvider: React.FC<UIProviderProps> = ({ children }) => {
     [dispatch]
   );
 
+  useRTVIClientEvent(
+    RTVIEvent.ServerMessage,
+    useCallback(
+      (data: Record<string, unknown>) => {
+        if ("ui-action" in data) {
+          const action = data["ui-action"];
+          switch (action) {
+            /* SHOW PANEL */
+            case "show_panel":
+              console.log("show_panel", data);
+              highlightPanel(data.panel as PanelId);
+              break;
+            default:
+              console.warn("Unhandled ui action", action);
+              break;
+          }
+        }
+      },
+      [highlightPanel]
+    )
+  );
   const value: UIContextType = {
     ui,
     highlightPanel,

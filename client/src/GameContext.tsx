@@ -265,6 +265,8 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
             case "move":
               moveToSector(data.new_sector as string, data.sector_contents);
               break;
+
+            /* DEFAULT */
             default:
               console.warn("Unhandled game action", action);
               break;

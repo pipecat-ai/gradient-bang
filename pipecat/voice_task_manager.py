@@ -382,6 +382,17 @@ class VoiceTaskManager:
             logger.error(f"stop_task failed: {e}")
             return {"success": False, "error": str(e)}
 
+    async def tool_ui_show_panel(self, params: FunctionCallParams):
+        try:
+            logger.info(f"show_panel: {params.arguments}")
+            await params.llm.push_frame(
+                RTVIServerMessageFrame({"ui-action": "show_panel", **params.arguments})
+            )
+            return {"success": True, "message": "Panel shown"}
+        except Exception as e:
+            logger.error(f"ui_show_panel failed: {e}")
+            return {"success": False, "error": str(e)}
+
     def get_tools_schema(self) -> ToolsSchema:
         move_schema = FunctionSchema(
             name="move",
@@ -390,8 +401,7 @@ class VoiceTaskManager:
                 "to_sector": {
                     "type": "integer",
                     "description": "Adjacent sector ID to move to",
-                }
-            },
+                }},
             required=["to_sector"],
         )
 
@@ -432,6 +442,18 @@ class VoiceTaskManager:
             required=[],
         )
 
+        ui_show_panel_schema = FunctionSchema(
+            name="ui_show_panel",
+            description="Switch to and highlight a panel in the client UI",
+            properties={
+                "panel": {
+                    "type": "string",
+                    "description": "Name of the panel to switch to. One of 'task_output', 'movement_history', 'ports_discovered' or 'debug'",
+                },
+            },
+            required=["panel"],
+        )
+
         return ToolsSchema(
             standard_tools=[
                 move_schema,
@@ -439,5 +461,6 @@ class VoiceTaskManager:
                 my_map_schema,
                 start_task_schema,
                 stop_task_schema,
+                ui_show_panel_schema,
             ]
         )
