@@ -7,7 +7,7 @@ import asyncio
 import os
 import sys
 from typing import Optional
-
+ 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -44,6 +44,8 @@ from pipecat.processors.frame_processor import FrameProcessor
 
 from utils.prompts import GAME_DESCRIPTION, CHAT_INSTRUCTIONS
 from voice_task_manager import VoiceTaskManager
+
+
 
 load_dotenv()
 
@@ -153,6 +155,7 @@ async def run_bot(transport):
     llm.register_function("my_map", task_manager.tool_my_map)
     llm.register_function("start_task", task_manager.tool_start_task)
     llm.register_function("stop_task", task_manager.tool_stop_task)
+    llm.register_function("ui_show_panel", task_manager.tool_ui_show_panel)
 
     # System prompt
     messages = [
@@ -211,7 +214,8 @@ async def run_bot(transport):
             if text:
                 # Process the text message as user input
                 logger.info(f"Processing custom message: {text}")
-                # Send the text as a TranscriptionFrame which will be processed by the context aggregator
+                # Send the text as a TranscriptionFrame which will be processed by the
+                # context aggregator
                 await task.queue_frames(
                     [
                         StartInterruptionFrame(),

@@ -5,6 +5,7 @@ import {
   PanelTitle,
 } from "@pipecat-ai/voice-ui-kit";
 import { useGameManager } from "../hooks/useGameManager";
+import { usePanelRef } from "../hooks/usePanelRef";
 
 const TaskRow = ({
   timestamp,
@@ -23,8 +24,10 @@ const TaskRow = ({
 
 export const TaskOutputPanel = () => {
   const { game } = useGameManager();
+  const panelRef = usePanelRef("task_output");
   return (
     <Card
+      ref={panelRef}
       noElbows={false}
       background="scanlines"
       className="flex w-full h-full"

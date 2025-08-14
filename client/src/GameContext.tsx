@@ -61,7 +61,8 @@ type GameAction =
   | { type: "ADD_TASK"; task: Task }
   | { type: "ADD_MOVEMENT_HISTORY"; movementHistory: MovementHistory }
   | { type: "RESET_GAME" }
-  | { type: "ADD_CREDITS"; credits: number };
+  | { type: "ADD_CREDITS"; credits: number }
+  | { type: "SET_HIGHLIGHTED_COMPONENT"; component: string | null };
 
 // Initial game state
 const initialState: GameState = {
@@ -133,7 +134,6 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         ...state,
         credits: state.credits + action.credits,
       };
-
     default:
       return state;
   }
@@ -265,6 +265,8 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
             case "move":
               moveToSector(data.new_sector as string, data.sector_contents);
               break;
+
+            /* DEFAULT */
             default:
               console.warn("Unhandled game action", action);
               break;

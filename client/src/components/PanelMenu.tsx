@@ -1,30 +1,50 @@
 import { Button } from "@pipecat-ai/voice-ui-kit";
 import { Bug, MapPinned, RouteIcon } from "lucide-react";
+import { useLayoutEffect } from "react";
+import { useUI } from "../hooks/useUI";
+
+export type PanelMenuItem = "movement_history" | "ports_discovered" | "debug";
+
+const isPanelMenuItem = (value: string | null): value is PanelMenuItem => {
+  return (
+    value === "movement_history" ||
+    value === "ports_discovered" ||
+    value === "debug"
+  );
+};
 
 export const PanelMenu = ({
   currentPanel,
   setCurrentPanel,
 }: {
-  currentPanel: "movement" | "port" | "debug";
-  setCurrentPanel: (panel: "movement" | "port" | "debug") => void;
+  currentPanel: PanelMenuItem;
+  setCurrentPanel: (panel: PanelMenuItem) => void;
 }) => {
+  const { ui } = useUI();
+
+  useLayoutEffect(() => {
+    if (ui.highlightedPanel && isPanelMenuItem(ui.highlightedPanel)) {
+      setCurrentPanel(ui.highlightedPanel);
+    }
+  }, [ui.highlightedPanel, setCurrentPanel]);
+
   return (
     <div className="flex flex-col h-full gap-2">
       <Button
-        variant={currentPanel === "movement" ? "outline" : "ghost"}
+        variant={currentPanel === "movement_history" ? "outline" : "ghost"}
         isIcon={true}
         size="lg"
-        onClick={() => setCurrentPanel("movement")}
-        className={currentPanel === "movement" ? "vkui:text-agent" : ""}
+        onClick={() => setCurrentPanel("movement_history")}
+        className={currentPanel === "movement_history" ? "vkui:text-agent" : ""}
       >
         <RouteIcon size={20} />
       </Button>
       <Button
-        variant={currentPanel === "port" ? "outline" : "ghost"}
+        variant={currentPanel === "ports_discovered" ? "outline" : "ghost"}
         isIcon={true}
         size="lg"
-        onClick={() => setCurrentPanel("port")}
-        className={currentPanel === "port" ? "vkui:text-agent" : ""}
+        onClick={() => setCurrentPanel("ports_discovered")}
+        className={currentPanel === "ports_discovered" ? "vkui:text-agent" : ""}
       >
         <MapPinned size={20} />
       </Button>

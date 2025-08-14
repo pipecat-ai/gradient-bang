@@ -7,6 +7,7 @@ import {
 } from "@pipecat-ai/voice-ui-kit";
 import type { MovementHistory } from "../GameContext";
 import { useGameManager } from "../hooks/useGameManager";
+import { usePanelRef } from "../hooks/usePanelRef";
 
 const MovementHistoryRow = ({ item }: { item: MovementHistory }) => {
   return (
@@ -23,8 +24,11 @@ const MovementHistoryRow = ({ item }: { item: MovementHistory }) => {
 
 export const MovementHistoryPanel = () => {
   const { game } = useGameManager();
+  const panelRef = usePanelRef("movement_history");
+
   return (
     <Card
+      ref={panelRef}
       noElbows={false}
       background="scanlines"
       className="flex w-full h-full"
