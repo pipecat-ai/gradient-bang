@@ -62,7 +62,7 @@ All game interactions use **AsyncGameClient** (utils/api_client.py). The client:
 
 ### NPC System (OODA Loop)
 NPCs operate using an Observe-Orient-Decide-Act loop:
-1. **AsyncLLMAgent** (utils/llm_interface.py) manages the conversation with OpenAI
+1. **TaskAgent** (utils/task_agent.py) manages the conversation with OpenAI
 2. **AsyncToolExecutor** (utils/game_tools.py) executes game actions
 3. Tools available: plot_course, move, my_status, my_map, find_port, wait_for_time, finished
 

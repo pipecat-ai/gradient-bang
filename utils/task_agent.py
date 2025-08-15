@@ -2,6 +2,8 @@
 
 import json
 from typing import Dict, Any, Optional, Callable
+
+from utils.api_client import AsyncGameClient
 from utils.base_llm_agent import BaseLLMAgent, LLMConfig
 from utils.game_tools import get_tool_definitions, AsyncToolExecutor
 from utils.prompts import GAME_DESCRIPTION, TASK_EXECUTION_INSTRUCTIONS
@@ -60,7 +62,8 @@ class TaskAgent(BaseLLMAgent):
     def __init__(
         self,
         config: LLMConfig,
-        tool_executor: AsyncToolExecutor,
+        game_client: AsyncGameClient,
+        character_id: str,
         verbose_prompts: bool = False,
         output_callback: Optional[Callable[[str], None]] = None,
     ):
@@ -68,14 +71,14 @@ class TaskAgent(BaseLLMAgent):
 
         Args:
             config: LLM configuration
-            tool_executor: Async tool executor for game actions
             verbose_prompts: Whether to print messages as they're added
             output_callback: Optional callback for output lines (for TUI integration)
         """
         super().__init__(config, verbose_prompts, output_callback)
-        self.tool_executor = tool_executor
         self.system_prompt = create_task_system_prompt()
         self.cancelled = False
+
+        self.tool_executor = AsyncToolExecutor(game_client, character_id)
 
     def cancel(self):
         """Set cancellation flag to stop task execution."""
@@ -118,7 +121,9 @@ class TaskAgent(BaseLLMAgent):
 
         return tool_messages
 
-    def _log_tool_result(self, tool_name: str, result: Dict[str, Any], tool_args: Dict[str, Any] = None):
+    def _log_tool_result(
+        self, tool_name: str, result: Dict[str, Any], tool_args: Dict[str, Any] = None
+    ):
         """Log special events based on tool results."""
         if tool_name == "move" and result.get("success"):
             move_info = {
@@ -202,10 +207,14 @@ class TaskAgent(BaseLLMAgent):
                         f"(total: {result.get('total_price', 0)} cr)"
                     )
                 else:
-                    self._output(f"Trade check failed: {result.get('error', 'Cannot trade')}")
+                    self._output(
+                        f"Trade check failed: {result.get('error', 'Cannot trade')}"
+                    )
             else:
-                self._output(f"Trade check error: {result.get('error', 'Unknown error')}")
-        
+                self._output(
+                    f"Trade check error: {result.get('error', 'Unknown error')}"
+                )
+
         elif tool_name == "trade":
             if result.get("success"):
                 trade_type = result.get("trade_type", "trade")
@@ -214,13 +223,13 @@ class TaskAgent(BaseLLMAgent):
                 price = result.get("price_per_unit", 0)
                 total = result.get("total_price", 0)
                 new_credits = result.get("new_credits", 0)
-                
+
                 self._output(
                     f"Trade executed: {trade_type} {quantity} {commodity} "
                     f"at {price} cr/unit (total: {total} cr). "
                     f"New balance: {new_credits} cr"
                 )
-                
+
                 # Also log cargo changes if available
                 if "new_cargo" in result:
                     cargo = result["new_cargo"]
@@ -231,7 +240,7 @@ class TaskAgent(BaseLLMAgent):
                     )
             else:
                 self._output(f"Trade failed: {result.get('error', 'Unknown error')}")
-        
+
         elif tool_name == "find_profitable_route":
             if result.get("success"):
                 if result.get("found_route"):
@@ -243,8 +252,10 @@ class TaskAgent(BaseLLMAgent):
                 else:
                     self._output("No profitable routes found within range")
             else:
-                self._output(f"Route finding error: {result.get('error', 'Unknown error')}")
-        
+                self._output(
+                    f"Route finding error: {result.get('error', 'Unknown error')}"
+                )
+
         elif tool_name == "finished":
             self._output(f"Task finished: {result.get('message', 'Done')}")
 

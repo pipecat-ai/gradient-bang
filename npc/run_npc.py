@@ -18,28 +18,24 @@ import asyncio
 from datetime import datetime
 from pathlib import Path
 import json
+from loguru import logger
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.api_client import AsyncGameClient
-from utils.llm_interface import AsyncLLMAgent, LLMConfig
-from utils.game_tools import AsyncToolExecutor
+from utils.task_agent import TaskAgent
+from utils.base_llm_agent import LLMConfig
 
 
 VERBOSE = os.getenv("NPC_VERBOSE", "true").lower() == "true"
 
-
-def log(message: str, data: dict = None):
-    """Print a timestamped log message."""
-    if not VERBOSE:
-        return
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    if data:
-        # Compact JSON representation on same line
-        print(f"{timestamp} {message}: {json.dumps(data, separators=(',', ':'))}")
-    else:
-        print(f"{timestamp} {message}")
+# Configure loguru
+logger.remove()  # Remove default handler
+if VERBOSE:
+    logger.add(sys.stderr, format="{time:HH:mm:ss} {message}", level="INFO")
+else:
+    logger.add(sys.stderr, format="{time:HH:mm:ss} {message}", level="WARNING")
 
 
 async def main():
@@ -97,55 +93,34 @@ Environment Variables:
 
     # Check for API key
     if not os.getenv("OPENAI_API_KEY"):
-        log("ERROR", {"message": "OPENAI_API_KEY environment variable not set"})
+        logger.error("OPENAI_API_KEY environment variable not set")
         print("Please set it with: export OPENAI_API_KEY='your-key-here'")
         sys.exit(1)
 
     # Determine verbosity levels
-    verbose_prompts = (
-        args.verbose_prompts
-        or os.getenv("NPC_VERBOSE_PROMPTS", "false").lower() == "true"
-    )
+    verbose_prompts = args.verbose_prompts
 
     try:
         # Create async game client
-        log("CONNECT", {"server": args.server})
+        logger.info(f"CONNECT server={args.server}")
         async with AsyncGameClient(base_url=args.server) as game_client:
-
             # Join the game
-            log("JOIN", {"character": args.character_id})
+            logger.info(f"JOIN character={args.character_id}")
             status = await game_client.join(args.character_id)
 
-            log("JOINED", {"sector": status.sector})
+            logger.info(f"JOINED sector={status.sector}")
+            logger.info(f"Status:\n{json.dumps(status.model_dump(), indent=2)}")
 
-            # Display sector contents
-            if status.sector_contents:
-                contents = status.sector_contents
-                sector_info = {
-                    "warps": contents.adjacent_sectors
-                }
-                if contents.port:
-                    sector_info["port"] = {
-                        "class": contents.port.class_num,
-                        "code": contents.port.code,
-                        "buys": contents.port.buys,
-                        "sells": contents.port.sells
-                    }
-                if contents.other_players:
-                    sector_info["players"] = list(contents.other_players)
-                log("SECTOR", sector_info)
-
-            # Create tool executor
-            tool_executor = AsyncToolExecutor(game_client, args.character_id)
-
-            # Configure LLM
-            llm_config = LLMConfig(api_key=os.getenv("OPENAI_API_KEY"), model=args.model)
+            llm_config = LLMConfig(
+                api_key=os.getenv("OPENAI_API_KEY"), model=args.model
+            )
 
             # Create LLM agent
-            log("INIT_AGENT", {"model": args.model})
-            agent = AsyncLLMAgent(
+            logger.info(f"INIT_AGENT model={args.model}")
+            agent = TaskAgent(
                 config=llm_config,
-                tool_executor=tool_executor,
+                game_client=game_client,
+                character_id=args.character_id,
                 verbose_prompts=verbose_prompts,
             )
 
@@ -155,7 +130,7 @@ Environment Variables:
                 "time": datetime.now().isoformat(),
             }
 
-            log("TASK_START", {"task": args.task})
+            logger.info(f"TASK_START task='{args.task}'")
             success = await agent.run_task(
                 task=args.task,
                 initial_state=initial_state,
@@ -164,26 +139,27 @@ Environment Variables:
 
             # Report results
             if success:
-                log("TASK_COMPLETE", {"status": "success"})
+                logger.info("TASK_COMPLETE status=success")
             else:
-                log("TASK_INCOMPLETE", {"max_iterations": args.max_iterations})
+                logger.warning(f"TASK_INCOMPLETE max_iterations={args.max_iterations}")
 
             # Get final status
             final_status = await game_client.my_status(args.character_id)
-            log("FINAL_POSITION", {"sector": final_status.sector})
+            logger.info(f"FINAL_POSITION sector={final_status.sector}")
 
     except KeyboardInterrupt:
-        log("INTERRUPTED", {"reason": "user_abort"})
+        logger.info("INTERRUPTED reason=user_abort")
         sys.exit(130)
 
     except Exception as e:
-        log("ERROR", {"message": str(e), "type": type(e).__name__})
+        logger.error(f"ERROR: {str(e)} (type={type(e).__name__})")
         if verbose_prompts:
             import traceback
+
             traceback.print_exc()
         sys.exit(1)
 
-    log("SESSION_END")
+    logger.info("SESSION_END")
     return 0
 
 
