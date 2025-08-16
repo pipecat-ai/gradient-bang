@@ -16,11 +16,12 @@
 }
 
 :root {
-  --vkui-font-sans: "TX-02", sans-serif;
-  --vkui-font-mono: "TX-02", sans-serif;
-  --vkui-radius-element: 0px;
-  --vkui-color-agent: oklch(86.5% 0.127 207.078);
-  --vkui-color-client: oklch(87.1% 0.15 154.449);
+  --font-sans: "TX-02", sans-serif;
+  --font-mono: "TX-02", sans-serif;
+  --radius-element: 0px;
+  --color-agent: oklch(86.5% 0.127 207.078);
+  --color-client: oklch(87.1% 0.15 154.449);
+  --radius-base: 0;
 }
 
 *:not(.normal-case) {
@@ -33,7 +34,7 @@
 
 html,
 body {
-  background-color: var(--vkui-color-background);
+  background-color: var(--color-background);
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -251,7 +252,7 @@ body {
 .dotted-bg {
   background-image: radial-gradient(
     circle,
-    var(--vkui-color-input) 1px,
+    var(--color-input) 1px,
     transparent 1px
   );
   background-size: 6px 6px;
@@ -268,7 +269,7 @@ body {
   height: 40px;
   background-image: radial-gradient(
     circle,
-    var(--vkui-color-background) 2px,
+    var(--color-background) 2px,
     transparent 1px
   );
   background-size: 4px 4px;
@@ -281,7 +282,7 @@ body {
 
 .retro-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: var(--vkui-color-input) transparent;
+  scrollbar-color: var(--color-input) transparent;
 }
 
 .conversation-message {

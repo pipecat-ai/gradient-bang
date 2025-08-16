@@ -16,7 +16,7 @@ const TaskRow = ({
 }) => {
   return (
     <div className="flex flex-row gap-2 w-full text-xs">
-      <div className="flex flex-row gap-2 vkui:text-subtle">[{timestamp}]</div>
+      <div className="flex flex-row gap-2 text-subtle">[{timestamp}]</div>
       <div className="flex flex-row gap-2 normal-case">{outputText}</div>
     </div>
   );

@@ -12,10 +12,10 @@ import { usePanelRef } from "../hooks/usePanelRef";
 const MovementHistoryRow = ({ item }: { item: MovementHistory }) => {
   return (
     <tr>
-      <td className="py-0.5 vkui:text-subtle">[{item.timestamp}]</td>
+      <td className="py-0.5 text-subtle">[{item.timestamp}]</td>
       <td className="py-0.5">{item.from}</td>
       <td className="py-0.5">{item.to}</td>
-      <td className="py-0.5 vkui:text-agent">
+      <td className="py-0.5 text-agent">
         {item.port && <CheckIcon size={16} />}
       </td>
     </tr>
@@ -38,7 +38,7 @@ export const MovementHistoryPanel = () => {
       </CardHeader>
       <CardContent className="flex flex-col gap-2 overflow-y-auto">
         <table className="w-full text-xs">
-          <thead className="text-left vkui:bg-background border-b">
+          <thead className="text-left bg-background border-b">
             <tr>
               <th className="py-1">Timestamp</th>
               <th>From</th>

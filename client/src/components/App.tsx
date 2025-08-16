@@ -49,7 +49,7 @@ export const App = ({ onConnect }: { onConnect?: () => void }) => {
   });
 
   return (
-    <div className="min-h-screen grid grid-rows-[1fr_auto] w-full vkui:bg-background">
+    <div className="min-h-screen grid grid-rows-[1fr_auto] w-full bg-background">
       <main className="flex flex-col overflow-y-scroll h-full">
         {/* Main Game UI*/}
         <div className="grid grid-cols-[var(--width-image)_auto] gap-panel p-panel flex-1">

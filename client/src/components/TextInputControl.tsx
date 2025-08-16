@@ -33,7 +33,7 @@ export const TextInputControl = () => {
       <Input
         variant="ghost"
         size="lg"
-        className="vkui:rounded-none normal-case placeholder:opacity-50 placeholder:uppercase vkui:text-sm"
+        className="rounded-none normal-case placeholder:opacity-50 placeholder:uppercase text-sm"
         placeholder="Enter command"
         value={command}
         disabled={isDispatching || transportState !== "ready"}
@@ -52,7 +52,7 @@ export const TextInputControl = () => {
         isLoading={isDispatching}
         loader="stripes"
         size="lg"
-        className="vkui:border-l-0"
+        className="border-l-0"
       >
         <ArrowRightIcon />
       </Button>

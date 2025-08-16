@@ -1,3 +1,3 @@
 export const DotDivider = () => {
-  return <div className="w-1 h-1 vkui:bg-border" />;
+  return <div className="w-1 h-1 bg-border" />;
 };
