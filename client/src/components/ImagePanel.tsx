@@ -13,7 +13,7 @@ export const ImagePanel = () => {
   return (
     <div className="flex flex-col gap-panel h-full w-full">
       <Card
-        className="relative vkui:py-0 vkui:bg-transparent overflow-hidden h-full"
+        className="relative py-0 bg-transparent overflow-hidden h-full"
         noElbows={false}
       >
         <div className="w-image h-full">

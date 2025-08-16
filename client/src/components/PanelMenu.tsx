@@ -35,7 +35,7 @@ export const PanelMenu = ({
         isIcon={true}
         size="lg"
         onClick={() => setCurrentPanel("movement_history")}
-        className={currentPanel === "movement_history" ? "vkui:text-agent" : ""}
+        className={currentPanel === "movement_history" ? "text-agent" : ""}
       >
         <RouteIcon size={20} />
       </Button>
@@ -44,7 +44,7 @@ export const PanelMenu = ({
         isIcon={true}
         size="lg"
         onClick={() => setCurrentPanel("ports_discovered")}
-        className={currentPanel === "ports_discovered" ? "vkui:text-agent" : ""}
+        className={currentPanel === "ports_discovered" ? "text-agent" : ""}
       >
         <MapPinned size={20} />
       </Button>
@@ -53,7 +53,7 @@ export const PanelMenu = ({
         isIcon={true}
         size="lg"
         onClick={() => setCurrentPanel("debug")}
-        className={currentPanel === "debug" ? "vkui:text-agent" : "opacity-30"}
+        className={currentPanel === "debug" ? "text-agent" : "opacity-30"}
       >
         <Bug size={20} />
       </Button>

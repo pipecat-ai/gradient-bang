@@ -54,10 +54,10 @@ export const Footer = () => {
   }, [transportState]);
 
   return (
-    <footer className="flex flex-row p-panel justify-between items-center vkui:border-t text-sm vkui:bg-card">
+    <footer className="flex flex-row p-panel justify-between items-center border-t text-sm bg-card">
       <div className="flex flex-row gap-4">
         <div className="flex flex-row gap-2 items-center">
-          <span className="vkui:font-bold">Ship:</span>
+          <span className="font-bold">Ship:</span>
           <div className="flex flex-row gap-2 items-center">
             <span className={game.ship ? "opacity-100" : "opacity-40"}>
               {game.ship?.name ?? "Unknown"}
@@ -65,7 +65,7 @@ export const Footer = () => {
           </div>
         </div>
         <div className="flex flex-row gap-2 items-center">
-          <span className="vkui:font-bold">Warp:</span>
+          <span className="font-bold">Warp:</span>
           <WarpBadge />
         </div>
       </div>

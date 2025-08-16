@@ -27,14 +27,10 @@ export const WarpBadge = () => {
 
   return (
     <Badge size="sm" variant="elbow" color="primary">
-      <Progress
-        {...progressProps}
-        size="default"
-        className="mx-1 vkui:h-[3px]"
-      />
+      <Progress {...progressProps} size="default" className="mx-1 h-[3px]" />
       <div>
         {ship?.warp ?? 0}
-        <span className="vkui:text-subtle">/</span>
+        <span className="text-subtle">/</span>
         {ship?.warpCapacity ?? 0}
       </div>
     </Badge>

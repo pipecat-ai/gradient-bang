@@ -5,7 +5,7 @@ export const PortBadge = ({ isAtPort }: { isAtPort: boolean }) => {
     <Badge
       size="lg"
       variant="bracket"
-      className={isAtPort ? "flex-1" : "flex-1 vkui:text-subtle"}
+      className={isAtPort ? "flex-1" : "flex-1 text-subtle"}
       color={isAtPort ? "agent" : "primary"}
     >
       {isAtPort ? "At Port" : "No Port"}

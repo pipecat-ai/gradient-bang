@@ -50,10 +50,10 @@ const ConversationRow = ({
       <div
         className={`${
           sender === Sender.AGENT
-            ? "vkui:text-agent"
+            ? "text-agent"
             : sender === Sender.CLIENT
-            ? "vkui:text-client"
-            : "vkui:text-warning"
+            ? "text-client"
+            : "text-warning"
         } font-extrabold text-[11px]`}
       >
         <span className="opacity-50">[{timestamp || "incoming"}]</span> {sender}
