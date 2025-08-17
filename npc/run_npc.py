@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.api_client import AsyncGameClient
 from utils.task_agent import TaskAgent
 from utils.base_llm_agent import LLMConfig
+from utils.game_tools import AsyncToolExecutor
 
 
 VERBOSE = os.getenv("NPC_VERBOSE", "true").lower() == "true"
@@ -115,13 +116,15 @@ Environment Variables:
                 api_key=os.getenv("OPENAI_API_KEY"), model=args.model
             )
 
+            # Create tool executor
+            tool_executor = AsyncToolExecutor(game_client, args.character_id)
+
             # Create LLM agent
             logger.info(f"INIT_AGENT model={args.model}")
             agent = TaskAgent(
                 config=llm_config,
-                game_client=game_client,
-                character_id=args.character_id,
                 verbose_prompts=verbose_prompts,
+                tool_executor=tool_executor,
             )
 
             # Prepare initial state
