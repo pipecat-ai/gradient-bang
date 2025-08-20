@@ -685,7 +685,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.116.1" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "loguru", specifier = ">=0.7.0" },
-    { name = "pipecat-ai", extras = ["speechmatics", "openai", "cartesia", "webrtc", "silero", "local-smart-turn"], specifier = "==0.0.79" },
+    { name = "pipecat-ai", extras = ["speechmatics", "openai", "cartesia", "webrtc", "silero", "local-smart-turn"], specifier = "==0.0.80" },
     { name = "pipecat-ai-small-webrtc-prebuilt" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
     { name = "rich", specifier = ">=13.0.0" },
@@ -1530,7 +1530,7 @@ wheels = [
 
 [[package]]
 name = "pipecat-ai"
-version = "0.0.79"
+version = "0.0.80"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -1539,6 +1539,7 @@ dependencies = [
     { name = "loguru" },
     { name = "markdown" },
     { name = "nltk" },
+    { name = "numba" },
     { name = "numpy" },
     { name = "openai" },
     { name = "pillow" },
@@ -1548,9 +1549,9 @@ dependencies = [
     { name = "resampy" },
     { name = "soxr" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ed/75/9653d7bc3ceff5fe577977306f92c117fecf64b047dae8da3fdc1434d3b1/pipecat_ai-0.0.79.tar.gz", hash = "sha256:f47fe5a332a944c5bc7764f3b5a839772632533ae26d7e942283a937c5715954", size = 2944547, upload-time = "2025-08-08T00:13:50.825Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c5/a4/bc9dc94434481af77cd8c88cc396c5f1bd5ca3fd4c0ad3db02238d0bac54/pipecat_ai-0.0.80.tar.gz", hash = "sha256:93a2a40a5c1eae17ec92e8237ee8a387cbad4c6e64d9a0909aed97d87804f0e1", size = 2958096, upload-time = "2025-08-13T16:43:14.052Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7e/d1/a84df2c7e92ec4b902a1c245dbe045eda6895882b780d2165da12a8bd89b/pipecat_ai-0.0.79-py3-none-any.whl", hash = "sha256:7df3a7fd7df07f472acb28373ddd49979bba259e5ee41fbb19853df569672568", size = 2636629, upload-time = "2025-08-08T00:13:48.335Z" },
+    { url = "https://files.pythonhosted.org/packages/29/44/bb0ea9856ec99b6acc27c0ff1b70c2d5f32f7f51b82235952e8a2d39b29f/pipecat_ai-0.0.80-py3-none-any.whl", hash = "sha256:c827bc51289fb627fd9a3766526f6a71870357795145dfde819b9b4259c18578", size = 2640149, upload-time = "2025-08-13T16:43:11.918Z" },
 ]
 
 [package.optional-dependencies]

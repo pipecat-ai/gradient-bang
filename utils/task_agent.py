@@ -4,10 +4,24 @@ import json
 from enum import Enum
 from typing import Dict, Any, Optional, Callable, Tuple
 
+from loguru import logger
+
 from utils.api_client import AsyncGameClient
 from utils.base_llm_agent import BaseLLMAgent, LLMConfig
 from utils.game_tools import get_tool_definitions, AsyncToolExecutor
 from utils.prompts import GAME_DESCRIPTION, TASK_EXECUTION_INSTRUCTIONS
+from utils.tools_schema import (
+    MyMap,
+    MyStatus,
+    PlotCourse,
+    Move,
+    StartTask,
+    StopTask,
+    CheckTrade,
+    BuyWarpPower,
+    TransferWarpPower,
+    TaskFinished,
+)
 
 
 class TaskOutputType(Enum):
@@ -72,47 +86,58 @@ def create_task_instruction_user_message(task: str, initial_state: dict) -> str:
 class TaskAgent(BaseLLMAgent):
     """Task execution agent using OODA loop for complex game tasks."""
 
-    def __init__(
-        self,
-        config: LLMConfig,
-        verbose_prompts: bool = False,
-        output_callback: Optional[Callable[[str], None]] = None,
-        tool_executor: Optional[AsyncToolExecutor] = None,
-    ):
-        """Initialize the task agent.
-
-        Args:
-            config: LLM configuration
-            verbose_prompts: Whether to print messages as they're added
-            output_callback: Optional callback for output lines (for TUI integration)
-            tool_executor: Tool executor for executing game actions
-        """
-        super().__init__(config, verbose_prompts, output_callback, tool_executor)
+    def __init__(self, **kwargs):
+        """Initialize the task agent."""
+        super().__init__(**kwargs)
         self.system_message = create_task_system_message()
         self.finished = False
         self.finished_message = None
 
-    async def process_tool_call(self, tool_call: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], bool]:
+        # for now let's define all tools for the task agent
+        self.set_tools(
+            [
+                MyMap,
+                MyStatus,
+                PlotCourse,
+                Move,
+                StartTask,
+                StopTask,
+                CheckTrade,
+                BuyWarpPower,
+                TransferWarpPower,
+                TaskFinished,
+            ]
+        )
+
+    async def process_tool_call(
+        self, tool_call: Dict[str, Any]
+    ) -> Tuple[Optional[Dict[str, Any]], bool]:
         """Override to handle 'finished' tool specially.
-        
+
         Args:
             tool_call: Tool call from assistant message
-            
+
         Returns:
             (tool_message, should_continue) - tool_message is None if tool wasn't executed
         """
         tool_name = tool_call["function"]["name"]
-        
+        tool_args = json.loads(tool_call["function"]["arguments"])
+
+        self._output(
+            f"Executing {tool_name}({json.dumps(tool_args)})", TaskOutputType.TOOL_CALL
+        )
+
         # Special handling for "finished" - don't execute, just extract message
         if tool_name == "finished":
-            tool_args = json.loads(tool_call["function"]["arguments"])
             self.finished = True
             self.finished_message = tool_args.get("message", "Done")
             self._output(f"{self.finished_message}", TaskOutputType.FINISHED)
             return (None, False)  # Don't add to history, stop processing
-            
+
         # For all other tools, use base implementation
-        return await super().process_tool_call(tool_call)
+        tool_message, should_continue = await super().process_tool_call(tool_call)
+        self._output(f"{json.dumps(tool_message)}", TaskOutputType.TOOL_RESULT)
+        return (tool_message, should_continue)
 
     async def run_task(
         self, task: str, initial_state: Dict[str, Any], max_iterations: int = 50
@@ -148,23 +173,27 @@ class TaskAgent(BaseLLMAgent):
 
             try:
                 assistant_message = await self.get_assistant_response(
-                    tools=get_tool_definitions(), reasoning_effort="minimal"
+                    reasoning_effort="minimal"
                 )
             except Exception as e:
-                self._output(f"Error getting assistant response: {str(e)}", TaskOutputType.ERROR)
+                self._output(
+                    f"Error getting assistant response: {str(e)}", TaskOutputType.ERROR
+                )
                 return False
 
             # Check if the task was marked as finished during tool execution
             if self.finished:
                 return True
-                
+
             # Check cancellation after tool execution
             if self.cancelled:
                 self._output("Task cancelled", TaskOutputType.FINISHED)
                 return False
-            
+
             # Log any non-tool response
-            if not assistant_message.get("tool_calls") and assistant_message.get("content"):
+            if not assistant_message.get("tool_calls") and assistant_message.get(
+                "content"
+            ):
                 self._output(assistant_message["content"], TaskOutputType.MESSAGE)
 
         self._output(f"Task reached maximum iterations ({max_iterations})")

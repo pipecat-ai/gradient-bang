@@ -4,9 +4,11 @@ import os
 import json
 from typing import Dict, Any, Optional, List, Callable, Tuple
 from dataclasses import dataclass
-from datetime import datetime
 from openai import AsyncOpenAI
 from loguru import logger
+from utils.api_client import AsyncGameClient
+
+from utils.tools_schema import get_openai_tools_list
 
 
 @dataclass
@@ -23,9 +25,11 @@ class BaseLLMAgent:
     def __init__(
         self,
         config: LLMConfig,
+        game_client: AsyncGameClient,
+        character_id: str,
         verbose_prompts: bool = False,
         output_callback: Optional[Callable[[str, Optional[str]], None]] = None,
-        tool_executor: Optional[Any] = None,
+        tools_list: Optional[List[Any]] = None,
     ):
         """Initialize the base LLM agent.
 
@@ -45,9 +49,26 @@ class BaseLLMAgent:
         self.config = config
         self.verbose_prompts = verbose_prompts
         self.output_callback = output_callback
-        self.tool_executor = tool_executor
         self.cancelled = False
         self.messages: List[Dict[str, Any]] = []
+        self.game_client = game_client
+        self.character_id = character_id
+        self.tools: Dict[str, Callable[Any]] = {}
+        self.openai_tools: List[Dict[str, Any]] = []
+
+        if tools_list:
+            self.set_tools(tools_list)
+
+    def set_tools(self, tools_list):
+        """tools_list is a list of tool classes from tools_schema.py
+        todo: rename that file"""
+
+        self.openai_tools = get_openai_tools_list(self.game_client, tools_list)
+        self.tools: Dict[str, Callable[Any]] = {}
+        for tool_class in tools_list:
+            self.tools[tool_class.schema().name] = tool_class(
+                game_client=self.game_client
+            )
 
     def add_message(self, message: Dict[str, Any]):
         """Add a message to the conversation history."""
@@ -87,7 +108,7 @@ class BaseLLMAgent:
         else:
             if message_type:
                 # Handle both string and Enum types
-                if hasattr(message_type, 'value'):
+                if hasattr(message_type, "value"):
                     # It's an Enum
                     type_str = message_type.value
                 else:
@@ -99,7 +120,6 @@ class BaseLLMAgent:
 
     async def get_assistant_response(
         self,
-        tools: Optional[List[Dict[str, Any]]] = None,
         reasoning_effort: Optional[str] = "minimal",
     ) -> Dict[str, Any]:
         """Get a response from the assistant using the current message history.
@@ -120,8 +140,8 @@ class BaseLLMAgent:
         if reasoning_effort and "gpt-5" in self.config.model:
             kwargs["reasoning_effort"] = reasoning_effort
 
-        if tools:
-            kwargs["tools"] = tools
+        if self.openai_tools:
+            kwargs["tools"] = self.openai_tools
 
         response = await self.client.chat.completions.create(**kwargs)
         assistant_message = response.choices[0].message
@@ -143,17 +163,27 @@ class BaseLLMAgent:
 
         # Always add the assistant message to history
         self.add_message(message_dict)
-        
-        # Automatically execute tools if we have a tool executor and there are tool calls
-        if assistant_message.tool_calls and self.tool_executor:
+
+        # Automatically execute tools
+        if assistant_message.tool_calls:
             for tool_call in message_dict["tool_calls"]:
                 tool_message, should_continue = await self.process_tool_call(tool_call)
-                
+
                 if tool_message:
                     self.add_message(tool_message)
-                    
+
                 if not should_continue:
                     break
+
+        # if assistant_message.tool_calls and self.tool_executor:
+        #     for tool_call in message_dict["tool_calls"]:
+        #         tool_message, should_continue = await self.process_tool_call(tool_call)
+
+        #         if tool_message:
+        #             self.add_message(tool_message)
+
+        #         if not should_continue:
+        #             break
 
         return message_dict
 
@@ -161,62 +191,37 @@ class BaseLLMAgent:
         """Set cancellation flag to stop execution."""
         self.cancelled = True
         self._output("Execution cancelled")
-        
+
     def reset_cancellation(self):
         """Reset cancellation flag."""
         self.cancelled = False
-        
-    async def process_tool_call(self, tool_call: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], bool]:
+
+    async def process_tool_call(
+        self, tool_call: Dict[str, Any]
+    ) -> Tuple[Optional[Dict[str, Any]], bool]:
         """Process a single tool call.
-        
+
         Args:
             tool_call: Tool call from assistant message
-            
+
         Returns:
             (tool_message, should_continue) - tool_message is None if tool wasn't executed,
             should_continue is False to stop processing remaining tools
+
+        # todo: add hooks here for logging, or leave the logging like it is now (require overriding of this method to log?)
         """
         if self.cancelled:
             self._output("Cancelled during tool execution")
             return (None, False)
-            
+
         tool_name = tool_call["function"]["name"]
         tool_args = json.loads(tool_call["function"]["arguments"])
-        
-        # Import TaskOutputType if available
-        try:
-            from utils.task_agent import TaskOutputType
-            self._output(f"Executing {tool_name}({json.dumps(tool_args)})", TaskOutputType.TOOL_CALL)
-        except ImportError:
-            self._output(f"Executing {tool_name}({json.dumps(tool_args)})")
-        
-        result = await self.tool_executor.execute_tool(tool_name, tool_args)
-        self._log_tool_result(tool_name, result, tool_args)
-        
+
+        result = await self.tools[tool_name](**tool_args)
+
         tool_message = self.format_tool_message(tool_call["id"], result)
         return (tool_message, True)
-        
-    def _log_tool_result(self, tool_name: str, result: Dict[str, Any], tool_args: Dict[str, Any] = None):
-        """Log tool execution result.
-        
-        Args:
-            tool_name: Name of the tool that was executed
-            result: Result from tool execution
-            tool_args: Arguments passed to the tool
-        """
-        # Import TaskOutputType if available
-        try:
-            from utils.task_agent import TaskOutputType
-            if not result.get("success"):
-                self._output(f"Tool error ({tool_name}): {result.get('error', 'Unknown error')}", TaskOutputType.ERROR)
-            else:
-                self._output(f"{json.dumps(result)}", TaskOutputType.TOOL_RESULT)
-        except ImportError:
-            if not result.get("success"):
-                self._output(f"Tool error ({tool_name}): {result.get('error', 'Unknown error')}")
-            else:
-                self._output(f"{tool_name} -> {json.dumps(result)}")
-    
+
     def format_tool_message(self, tool_call_id: str, result: Any) -> Dict[str, Any]:
         """Format a tool result as a message.
 

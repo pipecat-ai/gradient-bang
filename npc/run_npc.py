@@ -109,27 +109,25 @@ Environment Variables:
             logger.info(f"JOIN character={args.character_id}")
             status = await game_client.join(args.character_id)
 
-            logger.info(f"JOINED sector={status.sector}")
-            logger.info(f"Status:\n{json.dumps(status.model_dump(), indent=2)}")
+            logger.info(f"JOINED sector={status['sector']}")
+            logger.info(f"Status:\n{json.dumps(status, indent=2)}")
 
             llm_config = LLMConfig(
                 api_key=os.getenv("OPENAI_API_KEY"), model=args.model
             )
-
-            # Create tool executor
-            tool_executor = AsyncToolExecutor(game_client, args.character_id)
 
             # Create LLM agent
             logger.info(f"INIT_AGENT model={args.model}")
             agent = TaskAgent(
                 config=llm_config,
                 verbose_prompts=verbose_prompts,
-                tool_executor=tool_executor,
+                game_client=game_client,
+                character_id=args.character_id,
             )
 
             # Prepare initial state
             initial_state = {
-                "status": status.model_dump(),
+                "status": status,
                 "time": datetime.now().isoformat(),
             }
 
@@ -148,7 +146,7 @@ Environment Variables:
 
             # Get final status
             final_status = await game_client.my_status(args.character_id)
-            logger.info(f"FINAL_POSITION sector={final_status.sector}")
+            logger.info(f"FINAL_POSITION sector={final_status['sector']}")
 
     except KeyboardInterrupt:
         logger.info("INTERRUPTED reason=user_abort")
