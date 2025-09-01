@@ -92,6 +92,7 @@ async def run_bot(transport):
 
     # khk TODO
     #   :
+    #   - implement task progress buffer context for each voice inference, as in the TUI
     #   - look again to be sure task_complete_callback is good code
     #   - check that messages are similar to those we're using in the tui
     task_manager = VoiceTaskManager(
