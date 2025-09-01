@@ -37,7 +37,6 @@ class BaseLLMAgent:
             config: LLM configuration
             verbose_prompts: Whether to print messages as they're added
             output_callback: Optional callback for output lines (for TUI integration)
-            tool_executor: Optional tool executor for executing game actions
         """
         api_key = config.api_key or os.getenv("OPENAI_API_KEY")
         if not api_key:
@@ -66,9 +65,7 @@ class BaseLLMAgent:
         self.openai_tools = get_openai_tools_list(self.game_client, tools_list)
         self.tools: Dict[str, Callable[Any]] = {}
         for tool_class in tools_list:
-            self.tools[tool_class.schema().name] = tool_class(
-                game_client=self.game_client
-            )
+            self.tools[tool_class.schema().name] = tool_class(game_client=self.game_client)
 
     def add_message(self, message: Dict[str, Any]):
         """Add a message to the conversation history."""
@@ -95,9 +92,7 @@ class BaseLLMAgent:
         elif message["role"] == "tool":
             try:
                 result = json.loads(message["content"])
-                self._output(
-                    f"TOOL_RESULT [{message['tool_call_id']}]: {json.dumps(result)[:200]}"
-                )
+                self._output(f"TOOL_RESULT [{message['tool_call_id']}]: {json.dumps(result)[:200]}")
             except Exception as e:
                 self._output(f"TOOL_EXCEPTION [{message['tool_call_id']}]: {str(e)}")
 
@@ -174,16 +169,6 @@ class BaseLLMAgent:
 
                 if not should_continue:
                     break
-
-        # if assistant_message.tool_calls and self.tool_executor:
-        #     for tool_call in message_dict["tool_calls"]:
-        #         tool_message, should_continue = await self.process_tool_call(tool_call)
-
-        #         if tool_message:
-        #             self.add_message(tool_message)
-
-        #         if not should_continue:
-        #             break
 
         return message_dict
 

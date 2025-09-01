@@ -26,7 +26,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.api_client import AsyncGameClient
 from utils.task_agent import TaskAgent
 from utils.base_llm_agent import LLMConfig
-from utils.game_tools import AsyncToolExecutor
 
 
 VERBOSE = os.getenv("NPC_VERBOSE", "true").lower() == "true"
@@ -61,9 +60,7 @@ Environment Variables:
 
     parser.add_argument("character_id", help="Unique identifier for the NPC character")
 
-    parser.add_argument(
-        "task", help="Natural language description of the task to complete"
-    )
+    parser.add_argument("task", help="Natural language description of the task to complete")
 
     parser.add_argument(
         "--server",
@@ -112,9 +109,7 @@ Environment Variables:
             logger.info(f"JOINED sector={status['sector']}")
             logger.info(f"Status:\n{json.dumps(status, indent=2)}")
 
-            llm_config = LLMConfig(
-                api_key=os.getenv("OPENAI_API_KEY"), model=args.model
-            )
+            llm_config = LLMConfig(api_key=os.getenv("OPENAI_API_KEY"), model=args.model)
 
             # Create LLM agent
             logger.info(f"INIT_AGENT model={args.model}")

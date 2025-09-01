@@ -9,7 +9,6 @@ from pipecat.adapters.services.open_ai_adapter import OpenAILLMAdapter
 
 from utils.api_client import AsyncGameClient
 
-
 from openai.types.chat import ChatCompletionToolParam
 
 
@@ -37,7 +36,7 @@ class GameClientTool:
 
 
 class MyStatus(GameClientTool):
-    def __call__(self, tool_call):
+    def __call__(self, **args):
         return self.game_client.my_status()
 
     @classmethod

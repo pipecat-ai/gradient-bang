@@ -2,13 +2,10 @@
 
 import json
 from enum import Enum
-from typing import Dict, Any, Optional, Callable, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 
-from loguru import logger
 
-from utils.api_client import AsyncGameClient
-from utils.base_llm_agent import BaseLLMAgent, LLMConfig
-from utils.game_tools import get_tool_definitions, AsyncToolExecutor
+from utils.base_llm_agent import BaseLLMAgent
 from utils.prompts import GAME_DESCRIPTION, TASK_EXECUTION_INSTRUCTIONS
 from utils.tools_schema import (
     MyMap,
@@ -47,12 +44,11 @@ def create_task_system_message() -> str:
 """
 
 
-def create_task_instruction_user_message(task: str, initial_state: dict) -> str:
+def create_task_instruction_user_message(task: str) -> str:
     """Create a task-specific prompt for the LLM.
 
     Args:
         task: The task to be completed.
-        initial_state: Initial game state (sector, time, etc.).
 
     Returns:
         Formatted prompt for the current decision point.
@@ -68,19 +64,31 @@ def create_task_instruction_user_message(task: str, initial_state: dict) -> str:
         "",
         "When you have completed the task, call the `finished` tool with a message to be returned to the user who initiated the task.",
         "",
-        "You do not need to make an initial call to the `my_status` tool. Here is the result of the most recent my_status() call:",
-        "",
-        f"{json.dumps(initial_state.get('status', {}))}",
-        "",
-        f"The current time is: {initial_state.get('time', 'unknown')}",
-        "",
         "# Task Instructions",
         "",
         f"{task}",
         "",
     ]
-
     return "\n".join(prompt_parts)
+
+
+def create_initial_status_messages(initial_state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    tool_call = {
+        "role": "assistant",
+        "tool_calls": [
+            {
+                "id": "call_ulwjyWabbDDwS6uHOAoWZKGG",
+                "type": "function",
+                "function": {"name": "my_status", "arguments": "{}"},
+            }
+        ],
+    }
+    tool_result = {
+        "role": "tool",
+        "tool_call_id": "call_ulwjyWabbDDwS6uHOAoWZKGG",
+        "content": json.dumps(initial_state.get("status", {})),
+    }
+    return [tool_call, tool_result]
 
 
 class TaskAgent(BaseLLMAgent):
@@ -112,7 +120,7 @@ class TaskAgent(BaseLLMAgent):
     async def process_tool_call(
         self, tool_call: Dict[str, Any]
     ) -> Tuple[Optional[Dict[str, Any]], bool]:
-        """Override to handle 'finished' tool specially.
+        """Override base class method to exit the task when the 'finished' tool is called.
 
         Args:
             tool_call: Tool call from assistant message
@@ -123,9 +131,7 @@ class TaskAgent(BaseLLMAgent):
         tool_name = tool_call["function"]["name"]
         tool_args = json.loads(tool_call["function"]["arguments"])
 
-        self._output(
-            f"Executing {tool_name}({json.dumps(tool_args)})", TaskOutputType.TOOL_CALL
-        )
+        self._output(f"Executing {tool_name}({json.dumps(tool_args)})", TaskOutputType.TOOL_CALL)
 
         # Special handling for "finished" - don't execute, just extract message
         if tool_name == "finished":
@@ -155,14 +161,15 @@ class TaskAgent(BaseLLMAgent):
         self.reset_cancellation()
         self.clear_messages()
 
-        system_message = {"role": "system", "content": self.system_message}
-        self.add_message(system_message)
-
-        user_message = {
-            "role": "user",
-            "content": create_task_instruction_user_message(task, initial_state),
-        }
-        self.add_message(user_message)
+        self.add_message({"role": "system", "content": self.system_message})
+        self.add_message(
+            {
+                "role": "user",
+                "content": create_task_instruction_user_message(task),
+            }
+        )
+        for message in create_initial_status_messages(initial_state):
+            self.add_message(message)
 
         for iteration in range(max_iterations):
             if self.cancelled:
@@ -172,13 +179,9 @@ class TaskAgent(BaseLLMAgent):
             self._output(f"Step {iteration + 1}", TaskOutputType.STEP)
 
             try:
-                assistant_message = await self.get_assistant_response(
-                    reasoning_effort="minimal"
-                )
+                assistant_message = await self.get_assistant_response(reasoning_effort="minimal")
             except Exception as e:
-                self._output(
-                    f"Error getting assistant response: {str(e)}", TaskOutputType.ERROR
-                )
+                self._output(f"Error getting assistant response: {str(e)}", TaskOutputType.ERROR)
                 return False
 
             # Check if the task was marked as finished during tool execution
@@ -191,9 +194,7 @@ class TaskAgent(BaseLLMAgent):
                 return False
 
             # Log any non-tool response
-            if not assistant_message.get("tool_calls") and assistant_message.get(
-                "content"
-            ):
+            if not assistant_message.get("tool_calls") and assistant_message.get("content"):
                 self._output(assistant_message["content"], TaskOutputType.MESSAGE)
 
         self._output(f"Task reached maximum iterations ({max_iterations})")
