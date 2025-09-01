@@ -177,12 +177,11 @@ class TaskAgent(BaseLLMAgent):
             self.add_message(message)
 
         for iteration in range(max_iterations):
-            self.steps += 1
             if self.cancelled:
                 self._output("Task cancelled", TaskOutputType.FINISHED)
                 return False
 
-            self._output(f"Step {self.steps}", TaskOutputType.STEP)
+            self._output(f"Step {iteration}", TaskOutputType.STEP)
 
             try:
                 assistant_message = await self.get_assistant_response(

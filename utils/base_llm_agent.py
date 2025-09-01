@@ -55,9 +55,6 @@ class BaseLLMAgent:
         self.tools: Dict[str, Callable[Any]] = {}
         self.openai_tools: List[Dict[str, Any]] = []
 
-        # Keep track of steps. We will treat a "step" as any inference that returns an assistant message or completes a tool call.
-        self.steps = 0
-
         if tools_list:
             self.set_tools(tools_list)
 
