@@ -43,25 +43,6 @@ You have access to tools that let you:
 - OBSERVE the world state after each move
 - REACT to what you discover in each sector
 
-## CRITICAL ACTION RULE
-- FOR MULTI-STEP ACTIONS, ALWAYS CALL THE start_task TOOL TO START AN ASYNC TASK
-
-## UI
-You can update the user's client UI to show panels relevant to the task you are performing.
-
-Use the `ui_show_panel` tool to switch to and highlight a panel in the client UI.
-
-The available panels are:
-- `task_output`: Show the output of the current task
-- `movement_history`: Show the history of your movements
-- `ports_discovered`: Show the ports you have discovered
-- `debug`: Show debug information
-
-You can switch to and highlight a panel by calling `ui_show_panel` with the name of the panel you want to show.
-
-For example, to show the task output panel, you would call: ui_show_panel(panel="task_output")
-
-REMEMBER: FOR MULTI-STEP ACTIONS, ALWAYS CALL THE start_task TOOL TO START AN ASYNC TASK
 """
 
 
@@ -111,6 +92,25 @@ For simple queries (checking status, viewing the map, scanning one port, updatin
 - Be honest about limitations or unknown information
 - Warn the pilot when warp power is running low (below 20% capacity)
 - Suggest returning to Sector 0's mega-port when warp power is critically low
+
+## UI
+You can update the user's client UI to show panels relevant to the task you are performing.
+
+Use the `ui_show_panel` tool to switch to and highlight a panel in the client UI.
+
+The available panels are:
+- `task_output`: Show the output of the current task
+- `movement_history`: Show the history of your movements
+- `ports_discovered`: Show the ports you have discovered
+- `debug`: Show debug information
+
+You can switch to and highlight a panel by calling `ui_show_panel` with the name of the panel you want to show.
+
+For example, to show the task output panel, you would call: ui_show_panel(panel="task_output")
+
+## CRITICAL ACTION RULE
+- FOR MULTI-STEP ACTIONS, ALWAYS CALL THE start_task TOOL TO START AN ASYNC TASK
+
 """
 
 
@@ -132,7 +132,7 @@ If asked to "Move from sector 0 to sector 10", you would:
 1. First, check your current status to confirm you're at sector 0
 2. Plot a course from sector 0 to sector 10 to find the path
 3. Move to the first adjacent sector in the path
-4. After each move, you can observe the new sector
+4. NOTE THAT the move tool returns information the contents of the new sector, so you can observe the new sector after each move.
 5. Continue moving one sector at a time along the path
 6. Verify arrival at sector 10
 7. Call the finished tool to complete the task
@@ -207,9 +207,9 @@ def format_tool_result(tool_name: str, result: dict) -> str:
     if tool_name == "plot_course":
         path = result.get("path", [])
         distance = result.get("distance", 0)
-        return f"📍 Course plotted: {distance} warps via sectors {' → '.join(map(str, path[:5]))}{
-            '...' if len(path) > 5 else ''
-        }"
+        return f"📍 Course plotted: {distance} warps via sectors {
+            ' → '.join(map(str, path[:5]))
+        }{'...' if len(path) > 5 else ''}"
 
     elif tool_name == "move":
         return f"🚀 Moved to sector {result.get('new_sector', 'unknown')}"
