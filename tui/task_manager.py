@@ -1,4 +1,9 @@
-"""Task manager for coordinating between chat and task agents."""
+"""Task manager for coordinating task execution for the TUI.
+
+Refactored to use the same tool+agent structure as npc/run_npc.py.
+This removes dependencies on the old ChatAgent/AsyncToolExecutor and
+routes all task execution through utils.task_agent.TaskAgent.
+"""
 
 import asyncio
 from typing import Optional, Callable, Dict, Any
@@ -6,22 +11,21 @@ from collections import deque
 from utils.task_agent import TaskAgent
 from utils.chat_agent import ChatAgent
 from utils.base_llm_agent import LLMConfig
-from utils.game_tools import AsyncToolExecutor
 from utils.api_client import AsyncGameClient
 
 
 class TaskManager:
-    """Manages task execution and communication between agents."""
+    """Manages task execution and streaming output via TaskAgent."""
 
     def __init__(
         self,
         game_client: AsyncGameClient,
         character_id: str,
-        chat_config: Optional[LLMConfig] = None,
+        chat_config: Optional[LLMConfig] = None,  # Unused; kept for compatibility
         task_config: Optional[LLMConfig] = None,
         output_callback: Optional[Callable[[str], None]] = None,
         progress_callback: Optional[Callable[[str, str], None]] = None,
-        task_complete_callback: Optional[Callable[[bool], None]] = None,
+        task_complete_callback: Optional[Callable[[bool, bool], None]] = None,
         status_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ):
         """Initialize the task manager.
@@ -39,8 +43,7 @@ class TaskManager:
         self.game_client = game_client
         self.character_id = character_id
 
-        # Use different models for each agent
-        self.chat_config = chat_config or LLMConfig(model="gpt-4.1")
+        # Model config (task agent only)
         self.task_config = task_config or LLMConfig(model="gpt-5")
 
         self.output_callback = output_callback
@@ -51,20 +54,23 @@ class TaskManager:
         # Create task agent with gpt-5 for complex planning
         self.task_agent = TaskAgent(
             config=self.task_config,
-            tool_executor=self.tool_executor,
-            verbose_prompts=False,
+            game_client=self.game_client,
+            character_id=self.character_id,
+            verbose_prompts=True,
             output_callback=self._task_output_handler,
         )
 
-        # Create chat agent with gpt-4.1 for faster responses, sharing the tool executor
+        # Create chat agent for quick interactions
         self.chat_agent = ChatAgent(
-            config=self.chat_config,
-            task_agent=self.task_agent,
+            config=chat_config or LLMConfig(model="gpt-4.1"),
+            game_client=self.game_client,
+            character_id=self.character_id,
             task_callback=self._start_task_async,
             cancel_task_callback=self.cancel_task,
             get_task_progress_callback=self.get_task_progress,
             verbose_prompts=False,
-            debug_callback=None,  # Will be set by PlayerApp
+            output_callback=None,
+            debug_callback=None,
             status_callback=status_callback,
         )
 
@@ -74,7 +80,7 @@ class TaskManager:
         self.task_running = False
         self.cancelled_via_tool = False
 
-    def _task_output_handler(self, text: str):
+    def _task_output_handler(self, text: str, _message_type: Optional[str] = None):
         """Handle output from the task agent.
 
         Args:
@@ -95,9 +101,7 @@ class TaskManager:
             elif "Step" in text:
                 self.progress_callback(text, "step")
 
-    def _start_task_async(
-        self, task_description: str, game_state: Dict[str, Any]
-    ) -> asyncio.Task:
+    def _start_task_async(self, task_description: str, game_state: Dict[str, Any]) -> asyncio.Task:
         """Start a task asynchronously.
 
         Args:
@@ -116,9 +120,7 @@ class TaskManager:
         if self.progress_callback:
             self.progress_callback(task_description, "start")
 
-        self.current_task = asyncio.create_task(
-            self._run_task(task_description, game_state)
-        )
+        self.current_task = asyncio.create_task(self._run_task(task_description, game_state))
 
         return self.current_task
 
@@ -146,9 +148,7 @@ class TaskManager:
                     was_cancelled = True
                     self._task_output_handler("Task was cancelled by user")
                     if self.progress_callback:
-                        self.progress_callback(
-                            "Task was cancelled by user", "cancelled"
-                        )
+                        self.progress_callback("Task was cancelled by user", "cancelled")
                 else:
                     self._task_output_handler("Task failed")
                     if self.progress_callback:
@@ -218,55 +218,37 @@ class TaskManager:
         return self.task_running and self.current_task and not self.current_task.done()
 
     async def initialize(self):
-        """Initialize the chat agent conversation."""
-        self.chat_agent.initialize_conversation()
-
-        # Get initial status for welcome message
+        """Prepare a welcome string based on current status."""
         try:
             status = await self.game_client.my_status()
-
-            # Convert sector_contents to dict if it's a Pydantic model
-            sector_contents_dict = {}
-            if status.sector_contents:
-                if hasattr(status.sector_contents, "model_dump"):
-                    sector_contents_dict = status.sector_contents.model_dump()
-                elif hasattr(status.sector_contents, "dict"):
-                    sector_contents_dict = status.sector_contents.dict()
-                elif hasattr(status.sector_contents, "__dict__"):
-                    sector_contents_dict = status.sector_contents.__dict__
-                else:
-                    sector_contents_dict = dict(status.sector_contents)
-
-            initial_state = {
-                "current_sector": status.sector,
-                "sector_contents": sector_contents_dict,
-            }
-
-            # Process initial status as a message
-            welcome_prompt = f"I've just connected to the ship. Current status: Sector {status.sector}"
-            if status.sector_contents and status.sector_contents.port:
-                port = status.sector_contents.port
-                welcome_prompt += f" with a Class {port.class_num} port"
-
-            return await self.chat_agent.process_message(welcome_prompt)
-
+            sector = status.get("sector", 0)
+            contents = status.get("sector_contents") or {}
+            port = contents.get("port") or {}
+            if isinstance(port, dict) and port:
+                cls = port.get("class") or port.get("class_num")
+                return f"Connected. Current status: Sector {sector} with a Class {cls} port."
+            return f"Connected. Current status: Sector {sector}."
         except Exception as e:
             return f"Error initializing: {str(e)}"
 
     async def process_chat_message(self, message: str) -> str:
-        """Process a chat message from the user.
+        """Send the chat message to the ChatAgent"""
+        response = await self.chat_agent.process_message(
+            user_input=message, task_progress=self.get_task_progress()
+        )
+        return response
+        # Build initial game state
+        # try:
+        #     status = await self.game_client.my_status()
+        # except Exception as e:
+        #     status = {"error": str(e)}
 
-        Args:
-            message: User's chat message
+        # initial_state = {
+        #     "status": status,
+        # }
 
-        Returns:
-            Assistant's response
-        """
-        # Get any task progress to include
-        task_progress = self.get_task_progress()
-
-        # Process message with chat agent
-        return await self.chat_agent.process_message(message, task_progress)
+        # self._start_task_async(message, initial_state)
+        # return f"Task started: {message}"
 
     async def cleanup(self):
         """Clean up resources."""

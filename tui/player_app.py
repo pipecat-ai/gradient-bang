@@ -195,16 +195,16 @@ class PlayerApp(App):
             
             # Join the game
             status = await self.game_client.join(self.character_id)
-            self.current_sector = status.sector
+            self.current_sector = status.get("sector", 0)
             
-            # Update status bar with initial state
-            self.status_bar.update_from_status(status.model_dump())
+            # Update status bar with initial state (dict-based)
+            self.status_bar.update_from_status(status)
             
             # Create separate LLM configs for chat and task agents
             chat_config = LLMConfig(model=self.chat_model)  # Faster, cheaper for chat
             task_config = LLMConfig(model=self.task_model)   # More capable for complex tasks
             
-            # Create task manager with separate configs
+            # Create task manager (chat + task agents)
             self.task_manager = TaskManager(
                 game_client=self.game_client,
                 character_id=self.character_id,
@@ -215,10 +215,10 @@ class PlayerApp(App):
                 task_complete_callback=lambda was_cancelled, via_stop_tool: asyncio.create_task(self._on_task_complete(was_cancelled, via_stop_tool)),
                 status_callback=self._status_update_callback
             )
-            
-            # Set debug callback for chat agent
+
+            # Wire debug callback
             self.task_manager.chat_agent.debug_callback = self._debug_callback
-            
+
             # Initialize chat agent and get welcome message
             welcome = await self.task_manager.initialize()
             self.chat_widget.add_message("assistant", welcome)
@@ -254,15 +254,14 @@ class PlayerApp(App):
         # Update map if sector changed and add to movement history
         if "sector" in status_data and status_data["sector"] != self.current_sector:
             old_sector = self.current_sector
-            new_sector = status_data["sector"]
+            new_sector = status_data.get("sector", old_sector)
             
             # Check if new sector has a port and get its code
             port_code = ""
-            if "sector_contents" in status_data:
-                contents = status_data["sector_contents"]
-                if contents and contents.get("port"):
-                    port = contents["port"]
-                    # Get the port code (BBB pattern)
+            contents = status_data.get("sector_contents") or {}
+            if isinstance(contents, dict):
+                port = contents.get("port") or {}
+                if isinstance(port, dict):
                     port_code = port.get("code", "")
             
             # Add to movement history
@@ -311,22 +310,26 @@ class PlayerApp(App):
             return
         
         try:
-            # Get current status
+            # Get current status (dict-based)
             status = await self.game_client.my_status()
             
             # Check for movement
-            if status.sector != self.current_sector:
+            new_sector = status.get("sector", self.current_sector)
+            if new_sector != self.current_sector:
                 # Get port code if present
                 port_code = ""
-                if status.sector_contents and status.sector_contents.port:
-                    port_code = status.sector_contents.port.code
+                contents = status.get("sector_contents") or {}
+                if isinstance(contents, dict):
+                    port = contents.get("port") or {}
+                    if isinstance(port, dict):
+                        port_code = port.get("code", "")
                 
                 self.movement_history.add_movement(
                     self.current_sector,
-                    status.sector,
+                    new_sector,
                     port_code
                 )
-                self.current_sector = status.sector
+                self.current_sector = new_sector
             
             # Get map data
             map_data = await self.game_client.my_map()
@@ -337,6 +340,34 @@ class PlayerApp(App):
             
         except Exception as e:
             self.log.error(f"Error updating state: {e}")
+
+    def show_panel(self, panel: str) -> None:
+        """Switch visibility to a given panel and highlight it.
+
+        Args:
+            panel: One of 'task_output', 'movement_history', 'ports_discovered', 'debug'
+        """
+        # Normalize ids
+        panels = {
+            "task_output": self.task_output,
+            "movement_history": self.movement_history,
+            "ports_discovered": self.port_history,
+            "debug": self.debug_widget,
+        }
+
+        # Show requested, hide others
+        for key, widget in panels.items():
+            if widget is None:
+                continue
+            widget.styles.display = "block" if key == panel else "none"
+        
+        # Map and progress track the right-panel modes; keep them visible unless debugging
+        if panel == "debug":
+            self.map_widget.styles.display = "none"
+            self.progress_widget.styles.display = "none"
+        else:
+            self.map_widget.styles.display = "block"
+            self.progress_widget.styles.display = "block"
     
     async def _on_task_complete(self, was_cancelled: bool = False, via_stop_tool: bool = False) -> None:
         """Handle task completion by triggering chat inference with buffered output.
@@ -357,24 +388,15 @@ class PlayerApp(App):
         task_progress = self.task_manager.get_task_progress()
         
         if task_progress:
-            try:
-                # Use different prompt based on whether task was cancelled
-                if was_cancelled:
-                    prompt = "The task was cancelled. Please acknowledge the cancellation and summarize what was done before stopping."
-                else:
-                    prompt = "Task completed. Please summarize what was accomplished."
-                
-                # Process a summary message with the task progress
-                response = await self.task_manager.chat_agent.process_message(
-                    prompt,
-                    task_progress
-                )
-                
-                # Add response to chat
-                self.chat_widget.add_message("assistant", response)
-                
-            except Exception as e:
-                self.chat_widget.add_message("system", f"Error processing task completion: {str(e)}")
+            # Prefer the TaskAgent's finished message if provided
+            finished = getattr(self.task_manager.task_agent, "finished_message", None)
+            if was_cancelled:
+                summary = "Task cancelled. Summary of progress so far:\n" + task_progress
+            elif finished:
+                summary = finished
+            else:
+                summary = "Task completed.\n" + task_progress
+            self.chat_widget.add_message("assistant", summary)
     
     async def on_chat_message(self, message: ChatMessage) -> None:
         """Handle chat messages from the user.

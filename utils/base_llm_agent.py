@@ -168,9 +168,11 @@ class BaseLLMAgent:
                     self.add_message(tool_message)
 
                 if not should_continue:
-                    break
+                    return message_dict
 
-        return message_dict
+                return await self.get_assistant_response(reasoning_effort=reasoning_effort)
+        else:
+            return message_dict
 
     def cancel(self):
         """Set cancellation flag to stop execution."""
@@ -202,7 +204,11 @@ class BaseLLMAgent:
         tool_name = tool_call["function"]["name"]
         tool_args = json.loads(tool_call["function"]["arguments"])
 
-        result = await self.tools[tool_name](**tool_args)
+        try:
+            result = await self.tools[tool_name](**tool_args)
+        except Exception as e:
+            self._output(f"Error executing tool {tool_name}: {str(e)}")
+            return ({"error": str(e)}, False)
 
         tool_message = self.format_tool_message(tool_call["id"], result)
         return (tool_message, True)

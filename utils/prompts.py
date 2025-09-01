@@ -1,7 +1,5 @@
 """Prompt templates and game descriptions for Gradient Bang LLM agents."""
 
-import json
-
 GAME_DESCRIPTION = """
 # Gradient Bang - Space Trading Game
 
@@ -44,7 +42,9 @@ You have access to tools that let you:
 - ALWAYS move one sector at a time
 - OBSERVE the world state after each move
 - REACT to what you discover in each sector
-- Take actions step by step, don't try to do everything at once
+
+## CRITICAL ACTION RULE
+- FOR MULTI-STEP ACTIONS, ALWAYS CALL THE start_task TOOL TO START AN ASYNC TASK
 
 ## UI
 You can update the user's client UI to show panels relevant to the task you are performing.
@@ -60,6 +60,8 @@ The available panels are:
 You can switch to and highlight a panel by calling `ui_show_panel` with the name of the panel you want to show.
 
 For example, to show the task output panel, you would call: ui_show_panel(panel="task_output")
+
+REMEMBER: FOR MULTI-STEP ACTIONS, ALWAYS CALL THE start_task TOOL TO START AN ASYNC TASK
 """
 
 
@@ -204,8 +206,9 @@ def format_tool_result(tool_name: str, result: dict) -> str:
     if tool_name == "plot_course":
         path = result.get("path", [])
         distance = result.get("distance", 0)
-        return f"📍 Course plotted: {distance} warps via sectors {' → '.join(map(str,
-                                                                                path[:5]))}{'...' if len(path) > 5 else ''}"
+        return f"📍 Course plotted: {distance} warps via sectors {' → '.join(map(str, path[:5]))}{
+            '...' if len(path) > 5 else ''
+        }"
 
     elif tool_name == "move":
         return f"🚀 Moved to sector {result.get('new_sector', 'unknown')}"
