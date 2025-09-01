@@ -31,6 +31,9 @@ class TaskOutputType(Enum):
     TOOL_RESULT = "TOOL_RESULT"
     ERROR = "ERROR"
 
+    def __str__(self):
+        return self.value
+
 
 def create_task_system_message() -> str:
     """Create the system prompt for the LLM.

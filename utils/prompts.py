@@ -98,6 +98,7 @@ For simple queries (checking status, viewing the map, scanning one port, updatin
 ## Communication Style
 
 - Be concise but informative
+- Keep your sentences short and to the point
 - Use clear language about game mechanics
 - Acknowledge when starting or stopping tasks
 - Report errors clearly and suggest alternatives
