@@ -75,7 +75,9 @@ def create_task_instruction_user_message(task: str) -> str:
     return "\n".join(prompt_parts)
 
 
-def create_initial_status_messages(initial_state: Dict[str, Any]) -> List[Dict[str, Any]]:
+def create_initial_status_messages(
+    initial_state: Dict[str, Any],
+) -> List[Dict[str, Any]]:
     tool_call = {
         "role": "assistant",
         "tool_calls": [
@@ -111,8 +113,6 @@ class TaskAgent(BaseLLMAgent):
                 MyStatus,
                 PlotCourse,
                 Move,
-                StartTask,
-                StopTask,
                 CheckTrade,
                 BuyWarpPower,
                 TransferWarpPower,
@@ -134,7 +134,9 @@ class TaskAgent(BaseLLMAgent):
         tool_name = tool_call["function"]["name"]
         tool_args = json.loads(tool_call["function"]["arguments"])
 
-        self._output(f"Executing {tool_name}({json.dumps(tool_args)})", TaskOutputType.TOOL_CALL)
+        self._output(
+            f"Executing {tool_name}({json.dumps(tool_args)})", TaskOutputType.TOOL_CALL
+        )
 
         # Special handling for "finished" - don't execute, just extract message
         if tool_name == "finished":
@@ -179,12 +181,16 @@ class TaskAgent(BaseLLMAgent):
                 self._output("Task cancelled", TaskOutputType.FINISHED)
                 return False
 
-            self._output(f"Step {iteration + 1}", TaskOutputType.STEP)
+            self._output(f"Step {iteration}", TaskOutputType.STEP)
 
             try:
-                assistant_message = await self.get_assistant_response(reasoning_effort="minimal")
+                assistant_message = await self.get_assistant_response(
+                    reasoning_effort="minimal"
+                )
             except Exception as e:
-                self._output(f"Error getting assistant response: {str(e)}", TaskOutputType.ERROR)
+                self._output(
+                    f"Error getting assistant response: {str(e)}", TaskOutputType.ERROR
+                )
                 return False
 
             # Check if the task was marked as finished during tool execution
@@ -197,7 +203,9 @@ class TaskAgent(BaseLLMAgent):
                 return False
 
             # Log any non-tool response
-            if not assistant_message.get("tool_calls") and assistant_message.get("content"):
+            if not assistant_message.get("tool_calls") and assistant_message.get(
+                "content"
+            ):
                 self._output(assistant_message["content"], TaskOutputType.MESSAGE)
 
         self._output(f"Task reached maximum iterations ({max_iterations})")

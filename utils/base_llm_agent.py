@@ -65,7 +65,9 @@ class BaseLLMAgent:
         self.openai_tools = get_openai_tools_list(self.game_client, tools_list)
         self.tools: Dict[str, Callable[Any]] = {}
         for tool_class in tools_list:
-            self.tools[tool_class.schema().name] = tool_class(game_client=self.game_client)
+            self.tools[tool_class.schema().name] = tool_class(
+                game_client=self.game_client
+            )
 
     def add_message(self, message: Dict[str, Any]):
         """Add a message to the conversation history."""
@@ -92,7 +94,9 @@ class BaseLLMAgent:
         elif message["role"] == "tool":
             try:
                 result = json.loads(message["content"])
-                self._output(f"TOOL_RESULT [{message['tool_call_id']}]: {json.dumps(result)[:200]}")
+                self._output(
+                    f"TOOL_RESULT [{message['tool_call_id']}]: {json.dumps(result)[:200]}"
+                )
             except Exception as e:
                 self._output(f"TOOL_EXCEPTION [{message['tool_call_id']}]: {str(e)}")
 
@@ -170,9 +174,7 @@ class BaseLLMAgent:
                 if not should_continue:
                     return message_dict
 
-                return await self.get_assistant_response(reasoning_effort=reasoning_effort)
-        else:
-            return message_dict
+        return message_dict
 
     def cancel(self):
         """Set cancellation flag to stop execution."""
