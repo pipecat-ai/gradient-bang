@@ -4,79 +4,6 @@ from typing import List, Optional, Dict, Any
 import httpx
 import logging
 import asyncio
-from pydantic import BaseModel, Field
-
-
-class PlotCourseRequest(BaseModel):
-    """Request for plotting a course between sectors."""
-    from_sector: int = Field(..., alias="from")
-    to_sector: int = Field(..., alias="to")
-
-
-class PlotCourseResponse(BaseModel):
-    """Response from plotting a course."""
-    from_sector: int
-    to_sector: int
-    path: List[int]
-    distance: int
-
-
-class PortInfo(BaseModel):
-    """Port information."""
-    class_num: int = Field(..., alias="class")
-    code: str
-    buys: List[str]
-    sells: List[str]
-    stock: Dict[str, int]
-    max_capacity: Dict[str, int]
-    prices: Optional[Dict[str, Optional[int]]] = None
-
-
-class PlanetInfo(BaseModel):
-    """Planet information."""
-    id: str
-    class_code: str
-    class_name: str
-
-
-class PlayerInfo(BaseModel):
-    """Information about another player visible in a sector."""
-    character_id: str
-    ship_type: str
-    ship_name: str
-
-
-class SectorContents(BaseModel):
-    """Contents of a sector visible to players."""
-    port: Optional[PortInfo] = None
-    planets: List[PlanetInfo] = Field(default_factory=list)
-    other_players: List[PlayerInfo] = Field(default_factory=list)
-    adjacent_sectors: List[int] = Field(default_factory=list)
-
-
-class ShipStatus(BaseModel):
-    """Ship status information."""
-    ship_type: str
-    ship_name: str
-    cargo: Dict[str, int]
-    cargo_capacity: int
-    cargo_used: int
-    warp_power: int
-    warp_power_capacity: int
-    shields: int
-    max_shields: int
-    fighters: int
-    max_fighters: int
-    credits: int
-
-
-class CharacterStatus(BaseModel):
-    """Character status information with sector contents."""
-    id: str
-    sector: int
-    last_active: str
-    sector_contents: SectorContents
-    ship: ShipStatus
 
 
 logger = logging.getLogger(__name__)
@@ -99,7 +26,7 @@ class AsyncGameClient:
         self._map_cache: Dict[str, Dict[str, Any]] = {}
         self._current_character: Optional[str] = character_id
         self._current_sector: Optional[int] = None
-        self._ship_status: Optional[ShipStatus] = None
+        self._ship_status: Optional[Dict[str, Any]] = None
         
         # Locks for thread-safe operations
         self._cache_lock = asyncio.Lock()
@@ -116,7 +43,7 @@ class AsyncGameClient:
         return self._current_character
     
     @property
-    def ship_status(self) -> Optional[ShipStatus]:
+    def ship_status(self) -> Optional[Dict[str, Any]]:
         """Get the current ship status."""
         return self._ship_status
     
@@ -132,7 +59,7 @@ class AsyncGameClient:
         """Close the HTTP client."""
         await self.client.aclose()
     
-    async def join(self, character_id: str, ship_type: Optional[str] = None) -> CharacterStatus:
+    async def join(self, character_id: str, ship_type: Optional[str] = None) -> Dict[str, Any]:
         """Join the game with a character.
         
         Args:
@@ -154,13 +81,13 @@ class AsyncGameClient:
             json=payload
         )
         response.raise_for_status()
-        status = CharacterStatus(**response.json())
+        status = response.json()
         
         async with self._status_lock:
             # Set current character and sector, fetch initial map data
             self._current_character = character_id
-            self._current_sector = status.sector
-            self._ship_status = status.ship
+            self._current_sector = status["sector"]
+            self._ship_status = status["ship"]
         
         await self._fetch_and_cache_map(character_id)
         
@@ -169,12 +96,12 @@ class AsyncGameClient:
         
         return status
     
-    async def move(self, character_id: str, to_sector: int) -> CharacterStatus:
+    async def move(self, to_sector: int, character_id: Optional[str] = None) -> Dict[str, Any]:
         """Move a character to an adjacent sector.
         
         Args:
-            character_id: Character to move
             to_sector: Destination sector (must be adjacent)
+            character_id: Character to move (defaults to current character)
             
         Returns:
             Character status after move
@@ -182,12 +109,17 @@ class AsyncGameClient:
         Raises:
             httpx.HTTPStatusError: If the request fails (e.g., non-adjacent sector)
         """
+        if character_id is None:
+            character_id = self._current_character
+        if character_id is None:
+            raise ValueError("No character specified or tracked")
+        
         # Ensure we have map data before moving
         await self._ensure_map_cached(character_id)
         
         response = await self.client.post(
             f"{self.base_url}/api/move",
-            json={"character_id": character_id, "to": to_sector}
+            json={"character_id": character_id, "to_sector": to_sector}
         )
         
         # Check for errors and include response body in exception
@@ -199,20 +131,20 @@ class AsyncGameClient:
                 error_msg = response.text or f"HTTP {response.status_code}"
             raise Exception(f"Move failed (HTTP {response.status_code}): {error_msg}")
         
-        status = CharacterStatus(**response.json())
+        status = response.json()
         
         # Update current sector if this is the tracked character
         async with self._status_lock:
             if character_id == self._current_character:
-                self._current_sector = status.sector
-            self._ship_status = status.ship
+                self._current_sector = status["sector"]
+            self._ship_status = status["ship"]
         
         # Update map cache with new sector information
         await self._update_map_cache_from_status(character_id, status)
         
         return status
     
-    async def my_status(self, character_id: Optional[str] = None, force_refresh: bool = False) -> CharacterStatus:
+    async def my_status(self, character_id: Optional[str] = None, force_refresh: bool = False) -> Dict[str, Any]:
         """Get current status of a character.
         
         Args:
@@ -240,14 +172,14 @@ class AsyncGameClient:
             json={"character_id": character_id}
         )
         response.raise_for_status()
-        status = CharacterStatus(**response.json())
+        status = response.json()
         
         # Update map cache with current sector information
         await self._update_map_cache_from_status(character_id, status)
         
         return status
     
-    async def plot_course(self, from_sector: int, to_sector: int) -> PlotCourseResponse:
+    async def plot_course(self, from_sector: int, to_sector: int) -> Dict[str, Any]:
         """Plot a course between two sectors.
         
         Args:
@@ -262,10 +194,10 @@ class AsyncGameClient:
         """
         response = await self.client.post(
             f"{self.base_url}/api/plot-course",
-            json={"from": from_sector, "to": to_sector}
+            json={"from_sector": from_sector, "to_sector": to_sector}
         )
         response.raise_for_status()
-        return PlotCourseResponse(**response.json())
+        return response.json()
     
     async def server_status(self) -> Dict[str, Any]:
         """Get server status information.
@@ -329,7 +261,7 @@ class AsyncGameClient:
         # Lock is already held by caller if needed
         self._map_cache[character_id] = response.json()
     
-    async def _update_map_cache_from_status(self, character_id: str, status: CharacterStatus):
+    async def _update_map_cache_from_status(self, character_id: str, status: Dict[str, Any]):
         """Update the map cache with information from a status response.
         
         Args:
@@ -346,36 +278,38 @@ class AsyncGameClient:
             map_data = self._map_cache[character_id]
             sectors_visited = map_data.setdefault("sectors_visited", {})
         
-            sector_key = f"sector_{status.sector}"
+            sector_key = f"sector_{status['sector']}"
             sector_info = sectors_visited.setdefault(sector_key, {})
         
             # Update sector information
-            sector_info["sector_id"] = status.sector
-            sector_info["last_visited"] = status.last_active
-            sector_info["adjacent_sectors"] = status.sector_contents.adjacent_sectors
+            sector_info["sector_id"] = status["sector"]
+            sector_info["last_visited"] = status["last_active"]
+            sector_contents = status.get("sector_contents", {})
+            sector_info["adjacent_sectors"] = sector_contents.get("adjacent_sectors", [])
             
             # Update port information if present
-            if status.sector_contents.port:
-                port = status.sector_contents.port
+            port = sector_contents.get("port")
+            if port:
                 sector_info["port_info"] = {
-                    "class_num": port.class_num,  # Use same field name as server
-                    "code": port.code,
-                    "buys": port.buys,
-                    "sells": port.sells,
-                    "stock": port.stock,
-                    "max_capacity": port.max_capacity,
-                    "prices": port.prices
+                    "class_num": port.get("class"),  # Use same field name as server
+                    "code": port.get("code"),
+                    "buys": port.get("buys", []),
+                    "sells": port.get("sells", []),
+                    "stock": port.get("stock", {}),
+                    "max_capacity": port.get("max_capacity", {}),
+                    "prices": port.get("prices")
                 }
             
             # Update planet information if present
-            if status.sector_contents.planets:
+            planets = sector_contents.get("planets", [])
+            if planets:
                 sector_info["planets"] = [
                     {
-                        "id": planet.id,
-                        "class_code": planet.class_code,
-                        "class_name": planet.class_name
+                        "id": planet.get("id"),
+                        "class_code": planet.get("class_code"),
+                        "class_name": planet.get("class_name")
                     }
-                    for planet in status.sector_contents.planets
+                    for planet in planets
                 ]
     
     async def find_nearest_known_port(self, from_sector: int) -> Optional[Dict[str, Any]]:
@@ -426,12 +360,12 @@ class AsyncGameClient:
         for port_data in all_ports:
             try:
                 course = await self.plot_course(from_sector, port_data["sector"])
-                if course.distance < min_distance:
-                    min_distance = course.distance
+                if course["distance"] < min_distance:
+                    min_distance = course["distance"]
                     nearest = {
                         "sector": port_data["sector"],
-                        "distance": course.distance,
-                        "path": course.path,
+                        "distance": course["distance"],
+                        "path": course["path"],
                         "port": port_data["port"],
                         "last_visited": port_data["last_visited"]
                     }
@@ -682,6 +616,86 @@ class AsyncGameClient:
             pass
         
         return result
+    
+    async def buy_warp_power(self, units: int, character_id: Optional[str] = None) -> Dict[str, Any]:
+        """Buy warp power at the special depot in sector 0.
+        
+        Args:
+            units: Number of warp power units to buy
+            character_id: Character buying warp power (defaults to current character)
+            
+        Returns:
+            Transaction result
+            
+        Raises:
+            httpx.HTTPStatusError: If the request fails
+        """
+        if character_id is None:
+            character_id = self._current_character
+        if character_id is None:
+            raise ValueError("No character specified or tracked")
+        
+        response = await self.client.post(
+            f"{self.base_url}/api/buy-warp-power",
+            json={
+                "character_id": character_id,
+                "units": units
+            }
+        )
+        response.raise_for_status()
+        return response.json()
+    
+    async def transfer_warp_power(self, to_character_id: str, units: int, character_id: Optional[str] = None) -> Dict[str, Any]:
+        """Transfer warp power to another character in the same sector.
+        
+        Args:
+            to_character_id: Character ID to transfer warp power to
+            units: Number of warp power units to transfer
+            character_id: Character transferring warp power (defaults to current character)
+            
+        Returns:
+            Transfer result
+            
+        Raises:
+            httpx.HTTPStatusError: If the request fails
+        """
+        if character_id is None:
+            character_id = self._current_character
+        if character_id is None:
+            raise ValueError("No character specified or tracked")
+        
+        response = await self.client.post(
+            f"{self.base_url}/api/transfer-warp-power",
+            json={
+                "from_character_id": character_id,
+                "to_character_id": to_character_id,
+                "units": units
+            }
+        )
+        response.raise_for_status()
+        return response.json()
+    
+    async def start_task(self, task_description: str, context: Optional[str] = None) -> Dict[str, Any]:
+        """Start a complex multi-step task.
+        
+        Args:
+            task_description: Natural language description of the task
+            context: Optional context or clarifications
+            
+        Returns:
+            Task status
+        """
+        # This would typically interact with an NPC/agent system
+        return {"status": "started", "task": task_description, "context": context}
+    
+    async def stop_task(self) -> Dict[str, Any]:
+        """Cancel the currently running task.
+        
+        Returns:
+            Cancellation status
+        """
+        # This would typically interact with an NPC/agent system
+        return {"status": "cancelled"}
     
     async def find_profitable_route(
         self,

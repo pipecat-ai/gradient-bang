@@ -1,137 +1,81 @@
 import asyncio
 from collections import deque
-from typing import Optional, Callable, List, Dict, Any
+from typing import Optional, Callable, Dict, Any
 from loguru import logger
 
 from pipecat.services.llm_service import FunctionCallParams
-from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
-from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
+from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame, RTVIProcessor
 
-from utils.game_tools import AsyncToolExecutor
 from utils.api_client import AsyncGameClient
 from utils.base_llm_agent import LLMConfig
 from utils.task_agent import TaskAgent
+from utils.tools_schema import (
+    MyMap,
+    MyStatus,
+    PlotCourse,
+    Move,
+    StartTask,
+    StopTask,
+    CheckTrade,
+    Trade,
+    BuyWarpPower,
+    TransferWarpPower,
+    UI_SHOW_PANEL_SCHEMA,
+)
 
 
 class VoiceTaskManager:
     def __init__(
         self,
         character_id: str,
-        output_callback: Optional[Callable[[str], None]] = None,
-        progress_callback: Optional[Callable[[str, str], None]] = None,
+        rtvi_processor: RTVIProcessor,
         task_complete_callback: Optional[Callable[[bool, bool], None]] = None,
-        task_callback: Optional[Callable[[str, str], asyncio.Task]] = None,
-        cancel_task_callback: Optional[Callable[[], None]] = None,
-        get_task_progress_callback: Optional[Callable[[], str]] = None,
         verbose_prompts: bool = False,
-        debug_callback: Optional[
-            Callable[[List[Dict[str, Any]], Optional[str]], None]
-        ] = None,
     ):
         """Initialize the task manager.
 
         Args:
             character_id: Character ID being controlled
-            output_callback: Callback for task output lines
-            progress_callback: Callback for progress updates (action, description)
+            rtvi_processor: RTVI processor, which we use for pushing frames
             task_complete_callback: Callback when task completes (receives was_cancelled flag)
         """
         self.character_id = character_id
+        # Create a game client; base_url comes from default or env via AsyncGameClient
         self.game_client = AsyncGameClient(character_id=character_id)
 
         self.task_config = LLMConfig(model="gpt-5")
 
-        self.output_callback = output_callback
-        self.progress_callback = progress_callback
         self.task_complete_callback = task_complete_callback
-
-        # Create tool executor
-        self.tool_executor = AsyncToolExecutor(self.game_client, character_id)
 
         # Create task agent with gpt-5 for complex planning
         self.task_agent = TaskAgent(
             config=self.task_config,
-            tool_executor=self.tool_executor,
-            verbose_prompts=False,
+            game_client=self.game_client,
+            character_id=self.character_id,
+            verbose_prompts=verbose_prompts,
             output_callback=self._task_output_handler,
         )
 
         # Task management
+        self.rtvi_processor = rtvi_processor
         self.current_task: Optional[asyncio.Task] = None
         self.task_buffer: deque = deque(maxlen=1000)
         self.task_running = False
         self.cancelled_via_tool = False
-        self.task_callback = task_callback
-        self.cancel_task_callback = cancel_task_callback
-        self.get_task_progress_callback = get_task_progress_callback
-        self.debug_callback = debug_callback
 
-    def _task_output_handler(self, text: str):
-        """Handle output from the task agent.
-
-        Args:
-            text: Output text from task agent
-        """
-
-        # Add to buffer for chat context
-        self.task_buffer.append(text)
-
-        # Send to UI callback if provided
-        if self.output_callback:
-            self.output_callback(text)
-
-        # Update progress if applicable
-        if self.progress_callback:
-            # Extract action from output (simplified - could be more sophisticated)
-            if "Executing" in text:
-                self.progress_callback(text, "action")
-            elif "Step" in text:
-                self.progress_callback(text, "step")
-
-    def _build_sector_info(self, contents) -> dict:
-        """Build sector info from sector contents.
-
-        Args:
-            contents: Sector contents from the server
-
-        Returns:
-            Dictionary with port and player information
-        """
-        sector_info = {}
-        if contents:
-            port_info = None
-            if hasattr(contents, "port") and contents.port:
-                port = contents.port
-                port_info = {
-                    "class": getattr(port, "class_num", getattr(port, "class", "?")),
-                    "code": port.code,
-                    "buys": port.buys,
-                    "sells": port.sells,
-                    "stock": getattr(port, "stock", {}),
-                    "demand": getattr(port, "demand", {}),
-                }
-            sector_info["port_info"] = port_info
-
-            players = getattr(contents, "other_players", []) or []
-            try:
-                # Handle both cases: list of player objects or list of strings
-                if players and hasattr(players[0], "name"):
-                    sector_info["other_players"] = [player.name for player in players]
-                else:
-                    # Already a list of strings (player names)
-                    sector_info["other_players"] = (
-                        players if isinstance(players, list) else []
-                    )
-            except (TypeError, AttributeError, IndexError):
-                sector_info["other_players"] = []
-
-            adjacent = getattr(contents, "adjacent_sectors", [])
-            if not isinstance(adjacent, list):
-                adjacent = []
-            sector_info["adjacent_sectors"] = adjacent
-
-        return sector_info
+        # Build generic tool dispatch map for common game tools
+        # Start/stop/ui_show_panel are handled inline in execute_tool_call
+        self._tool_dispatch = {
+            "my_status": self.game_client.my_status,
+            "my_map": self.game_client.my_map,
+            "plot_course": self.game_client.plot_course,
+            "move": self.game_client.move,
+            "check_trade": self.game_client.check_trade,
+            "trade": self.game_client.trade,
+            "buy_warp_power": self.game_client.buy_warp_power,
+            "transfer_warp_power": self.game_client.transfer_warp_power,
+        }
 
     async def join(self):
         logger.info(f"Joining game as character: {self.character_id}")
@@ -143,9 +87,39 @@ class VoiceTaskManager:
     # Task management
     #
 
-    def _start_task_async(
-        self, task_description: str, game_state: Dict[str, Any]
-    ) -> asyncio.Task:
+    def _task_output_handler(self, text: str, message_type: Optional[str] = None):
+        """Handle output from the task agent.
+
+        Args:
+            text: Output text from task agent
+            message_type: Type of message (e.g., step, finished, error)
+        """
+        # Normalize enum types to JSON-safe strings
+        mt: Optional[str]
+        if hasattr(message_type, "value"):
+            mt = getattr(message_type, "value")  # Enum -> its value
+        elif message_type is None:
+            mt = None
+        else:
+            mt = str(message_type)
+
+        logger.info(f"!!! task output: {text} | {mt}")
+
+        # Add to buffer for chat context
+        self.task_buffer.append(text)
+        asyncio.create_task(
+            self.rtvi_processor.push_frame(
+                RTVIServerMessageFrame(
+                    data={
+                        "gg-action": "task-output",
+                        "text": text,
+                        "task_message_type": mt,
+                    }
+                )
+            )
+        )
+
+    def _start_task_async(self, task_description: str, game_state: Dict[str, Any]) -> asyncio.Task:
         """Start a task asynchronously.
 
         Args:
@@ -161,13 +135,7 @@ class VoiceTaskManager:
         self.task_buffer.clear()
         self.task_running = True
 
-        if self.progress_callback:
-            self.progress_callback(task_description, "start")
-
-        self.current_task = asyncio.create_task(
-            self._run_task(task_description, game_state)
-        )
-
+        self.current_task = asyncio.create_task(self._run_task(task_description, game_state))
         return self.current_task
 
     async def _run_task(self, task_description: str, game_state: Dict[str, Any]):
@@ -180,39 +148,27 @@ class VoiceTaskManager:
         was_cancelled = False
 
         try:
+            logger.info(f"!!! running task: {task_description}")
             success = await self.task_agent.run_task(
                 task=task_description, initial_state=game_state, max_iterations=50
             )
+            logger.info(f"!!! task result: {success}")
 
             if success:
-                self._task_output_handler("Task completed successfully")
-                if self.progress_callback:
-                    self.progress_callback("Task completed successfully", "complete")
+                self._task_output_handler("Task completed successfully", "complete")
             else:
                 # Check if it was cancelled vs failed
                 if self.task_agent.cancelled:
                     was_cancelled = True
-                    self._task_output_handler("Task was cancelled by user")
-                    if self.progress_callback:
-                        self.progress_callback(
-                            "Task was cancelled by user", "cancelled"
-                        )
+                    self._task_output_handler("Task was cancelled by user", "cancelled")
                 else:
-                    self._task_output_handler("Task failed")
-                    if self.progress_callback:
-                        self.progress_callback("Task failed", "failed")
+                    self._task_output_handler("Task failed", "failed")
 
         except asyncio.CancelledError:
             was_cancelled = True
-            self._task_output_handler("Task was cancelled")
-            if self.progress_callback:
-                self.progress_callback("Task was cancelled", "cancelled")
-            # Don't re-raise - let the finally block execute
-
+            self._task_output_handler("Task was cancelled", "cancelled")
         except Exception as e:
-            self._task_output_handler(f"Task error: {str(e)}")
-            if self.progress_callback:
-                self.progress_callback(f"Error: {str(e)}", "error")
+            self._task_output_handler(f"Task error: {str(e)}", "error")
 
         finally:
             self.task_running = False
@@ -240,92 +196,61 @@ class VoiceTaskManager:
             self.current_task.cancel()
             self.task_running = False
             # Add immediate feedback
-            self._task_output_handler("Cancellation requested - stopping task...")
+            self._task_output_handler("Cancellation requested - stopping task...", "cancelled")
 
     #
     # Tools
     #
 
-    async def tool_move(self, params: FunctionCallParams):
-        try:
-            result = await self.game_client.move(
-                self.character_id, params.arguments["to_sector"]
-            )
+    async def execute_tool_call(self, params: FunctionCallParams):
+        """Generic executor for all declared tools.
 
-            # Convert Pydantic model to dict for JSON serialization
-            response = {
-                "success": True,
-                "old_sector": self.game_client.current_sector,  # Track previous sector
-                "new_sector": result.sector,
-                "character_id": result.id,
-                "sector_contents": self._build_sector_info(result.sector_contents),
-            }
-            logger.debug(
-                f"Move successful: {response['old_sector']} -> {response['new_sector']}"
-            )
-            await params.llm.push_frame(
-                RTVIServerMessageFrame({"gg-action": "move", **response})
-            )
-            await params.result_callback(response)
+        Dispatches to AsyncGameClient methods or manager handlers, then sends
+        a single RTVI server message with gg-action=<tool_name> and either
+        {result: ...} on success or {error: ...} on failure. Always calls
+        params.result_callback with the same payload.
+        """
+        # Try to discover the tool name from params (Pipecat provides name)
+        tool_name = getattr(params, "name", None) or getattr(params, "function_name", None)
+        if not tool_name:
+            # Fallback: try to peek at arguments for an injected name (not expected)
+            tool_name = "unknown"
+
+        try:
+            # Special tools managed by the voice task manager
+            if tool_name == "start_task":
+                result = await self._handle_start_task(params)
+                payload = {"result": result}
+            elif tool_name == "stop_task":
+                result = await self._handle_stop_task(params)
+                payload = {"result": result}
+            elif tool_name == "ui_show_panel":
+                result = await self._handle_ui_show_panel(params)
+                payload = {"result": result}
+            else:
+                # Dispatch to AsyncGameClient methods
+                if tool_name not in self._tool_dispatch:
+                    raise ValueError(f"Unknown tool: {tool_name}")
+
+                # Normalize argument order based on AsyncGameClient signatures
+                func = self._tool_dispatch[tool_name]
+                arguments = params.arguments
+                result = await func(**arguments)
+                payload = {"result": result}
+
+            await params.llm.push_frame(RTVIServerMessageFrame({"gg-action": tool_name, **payload}))
+            await params.result_callback(payload)
         except Exception as e:
-            logger.error(f"Move failed: {e}")
-            result = {"success": False, "error": str(e)}
+            logger.error(f"tool '{tool_name}' failed: {e}")
+            error_payload = {"error": str(e)}
             await params.llm.push_frame(
-                RTVIServerMessageFrame({"gg-action": "move", **result})
+                RTVIServerMessageFrame({"gg-action": tool_name, **error_payload})
             )
-            await params.result_callback(result)
+            await params.result_callback(error_payload)
 
-    async def tool_my_status(self, params: FunctionCallParams):
-        """Execute my-status tool."""
+    async def _handle_start_task(self, params: FunctionCallParams):
         try:
-            logger.debug(f"Calling my_status for character: {self.character_id}")
-            result = await self.game_client.my_status()
-
-            # Build sector contents info
-            sector_info = self._build_sector_info(result.sector_contents)
-
-            response = {
-                "success": True,
-                "current_sector": result.sector,
-                "character_id": result.id,
-                "sector_contents": sector_info,
-            }
-            logger.debug(f"my_status success: sector {result.sector}")
-            await params.llm.push_frame(
-                RTVIServerMessageFrame({"gg-action": "my_status", **response})
-            )
-            await params.result_callback(response)
-        except Exception as e:
-            logger.error(f"my_status failed: {e}")
-            result = {"success": False, "error": str(e)}
-            await params.llm.push_frame(
-                RTVIServerMessageFrame({"gg-action": "my_status", **result})
-            )
-            await params.result_callback(result)
-
-    async def tool_my_map(self, params: FunctionCallParams):
-        """Execute my-map tool."""
-        try:
-            response = await self.game_client.my_map()
-            # Response should already be a dict from my_map
-            result = {"success": True, **response}
-            logger.debug(
-                f"my_map success: {len(response.get('sectors_visited', {}))} sectors known"
-            )
-            await params.llm.push_frame(
-                RTVIServerMessageFrame({"gg-action": "my_map", **result})
-            )
-            await params.result_callback(result)
-        except Exception as e:
-            logger.error(f"my_map failed: {e}")
-            result = {"success": False, "error": str(e)}
-            await params.llm.push_frame(
-                RTVIServerMessageFrame({"gg-action": "my_map", **result})
-            )
-            await params.result_callback(result)
-
-    async def tool_start_task(self, params: FunctionCallParams):
-        try:
+            logger.info(f"!!! start_task: {params.arguments}")
             if self.current_task and not self.current_task.done():
                 return {
                     "success": False,
@@ -334,55 +259,28 @@ class VoiceTaskManager:
 
             task_desc = params.arguments.get("task_description", "")
             context = params.arguments.get("context", "")
-
-            status = await self.game_client.my_status()
-            game_state = {
-                "current_sector": status.sector,
-                "credits": 1000,  # Mock until server provides
-                "cargo": {"fuel_ore": 0, "organics": 0, "equipment": 0},
-            }
-
-            self.current_task = self._start_task_async(
-                f"{context}\n{task_desc}" if context else task_desc, game_state
-            )
+            game_state = await self.game_client.my_status()
+            task_content = f"{context}\n{task_desc}" if context else task_desc
+            self.task_buffer.clear()
+            self.task_running = True
+            self.current_task = asyncio.create_task(self._run_task(task_content, game_state))
             return {"success": True, "message": "Task started"}
-
         except Exception as e:
             logger.error(f"start_task failed: {e}")
             return {"success": False, "error": str(e)}
 
-    async def tool_stop_task(self, params: FunctionCallParams):
+    async def _handle_stop_task(self, params: FunctionCallParams):
         try:
             if self.current_task and not self.current_task.done():
-                # Get any task progress before cancelling
-                task_progress = ""
-                if self.get_task_progress_callback:
-                    task_progress = self.get_task_progress_callback()
-
-                # Use the cancel callback which properly sets the TaskAgent's cancelled flag
-                if self.cancel_task_callback:
-                    self.cancel_task_callback()
-                else:
-                    # Fallback to direct cancellation if no callback
-                    self.current_task.cancel()
-
-                await self.game_client.my_status(force_refresh=True)
-
-                # Include task progress and instruction in the tool response
-                return {
-                    "success": True,
-                    "message": "Task cancelled",
-                    "task_progress": task_progress,
-                    "text_instruction": "The task was cancelled. Please acknowledge the cancellation and summarize what was done before stopping.",
-                }
+                self.current_task.cancel()
+                return {"success": True, "message": "Task cancelled"}
             else:
                 return {"success": False, "error": "No task is currently running"}
-
         except Exception as e:
             logger.error(f"stop_task failed: {e}")
             return {"success": False, "error": str(e)}
 
-    async def tool_ui_show_panel(self, params: FunctionCallParams):
+    async def _handle_ui_show_panel(self, params: FunctionCallParams):
         try:
             logger.info(f"show_panel: {params.arguments}")
             await params.llm.push_frame(
@@ -394,73 +292,19 @@ class VoiceTaskManager:
             return {"success": False, "error": str(e)}
 
     def get_tools_schema(self) -> ToolsSchema:
-        move_schema = FunctionSchema(
-            name="move",
-            description="Move your ship to an adjacent sector. You can only move one sector at a time.",
-            properties={
-                "to_sector": {
-                    "type": "integer",
-                    "description": "Adjacent sector ID to move to",
-                }},
-            required=["to_sector"],
-        )
-
-        my_status_schema = FunctionSchema(
-            name="my_status",
-            description="Get your current status including current sector position",
-            properties={},
-            required=[],
-        )
-
-        my_map_schema = FunctionSchema(
-            name="my_map",
-            description="Get your map knowledge including all visited sectors, known ports, and discovered connections",
-            properties={},
-            required=[],
-        )
-
-        start_task_schema = FunctionSchema(
-            name="start_task",
-            description="Start a complex multi-step task for navigation, trading, or exploration",
-            properties={
-                "task_description": {
-                    "type": "string",
-                    "description": "Natural language description of the task to execute",
-                },
-                "context": {
-                    "type": "string",
-                    "description": "Relevant conversation history or clarifications",
-                },
-            },
-            required=["task_description"],
-        )
-
-        stop_task_schema = FunctionSchema(
-            name="stop_task",
-            description="Cancel the currently running task",
-            properties={},
-            required=[],
-        )
-
-        ui_show_panel_schema = FunctionSchema(
-            name="ui_show_panel",
-            description="Switch to and highlight a panel in the client UI",
-            properties={
-                "panel": {
-                    "type": "string",
-                    "description": "Name of the panel to switch to. One of 'task_output', 'movement_history', 'ports_discovered' or 'debug'",
-                },
-            },
-            required=["panel"],
-        )
-
+        # Use the central tool schemas for consistency with TUI/NPC
         return ToolsSchema(
             standard_tools=[
-                move_schema,
-                my_status_schema,
-                my_map_schema,
-                start_task_schema,
-                stop_task_schema,
-                ui_show_panel_schema,
+                MyStatus.schema(),
+                MyMap.schema(),
+                PlotCourse.schema(),
+                Move.schema(),
+                CheckTrade.schema(),
+                Trade.schema(),
+                BuyWarpPower.schema(),
+                TransferWarpPower.schema(),
+                StartTask.schema(),
+                StopTask.schema(),
+                UI_SHOW_PANEL_SCHEMA,
             ]
         )

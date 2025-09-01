@@ -2,7 +2,7 @@
 
 from typing import Optional
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Vertical, ScrollableContainer
 from textual.widgets import Static, ProgressBar
 from textual.reactive import reactive
 from datetime import datetime, timedelta
@@ -19,10 +19,12 @@ class ProgressWidget(Vertical):
     
     def compose(self) -> ComposeResult:
         """Create child widgets."""
-        yield Static("Task Status: Idle", id="task-status")
-        yield Static("", id="task-description")
-        yield Static("", id="last-action")
-        yield Static("", id="elapsed-time")
+        # Wrap contents in a scrollable container so long status text can be scrolled
+        with ScrollableContainer(id="progress-scroll"):
+            yield Static("Task Status: Idle", id="task-status")
+            yield Static("", id="task-description")
+            yield Static("", id="last-action")
+            yield Static("", id="elapsed-time")
     
     def on_mount(self) -> None:
         """Initialize when mounted."""

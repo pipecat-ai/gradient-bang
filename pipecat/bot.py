@@ -6,8 +6,7 @@ Based on Pipecat's 07-interruptible.py example.
 import asyncio
 import os
 import sys
-from typing import Optional
- 
+
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -15,8 +14,6 @@ from dotenv import load_dotenv
 from loguru import logger
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
-from pipecat.audio.turn.smart_turn.local_smart_turn_v2 import LocalSmartTurnAnalyzerV2
 from pipecat.frames.frames import (
     TranscriptionFrame,
     StartInterruptionFrame,
@@ -26,6 +23,7 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.services.openai.base_llm import BaseOpenAILLMService
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 from pipecat.processors.frameworks.rtvi import (
     RTVIConfig,
@@ -37,14 +35,11 @@ from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.speechmatics.stt import SpeechmaticsSTTService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.base_transport import TransportParams
-from pipecat.transports.network.small_webrtc import SmallWebRTCTransport
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
-from pipecat.processors.frame_processor import FrameProcessor
 
 from utils.prompts import GAME_DESCRIPTION, CHAT_INSTRUCTIONS
 from voice_task_manager import VoiceTaskManager
-
 
 
 load_dotenv()
@@ -66,33 +61,10 @@ async def run_bot(transport):
     # Create RTVI processor with config
     rtvi = RTVIProcessor(config=RTVIConfig(config=[]))
 
-    task_progress_buffer = []
-
-    def progress_callback(action, description):
-        """Synchronous callback that schedules async frame push."""
-        logger.info(f"Task progress: {action} - {description}")
-        task_progress_buffer.append({"action": action, "description": description})
-        # Schedule the async operation without waiting
-        asyncio.create_task(
-            rtvi.push_frame(
-                RTVIServerMessageFrame(
-                    {
-                        "gg-action": "task-progress",
-                        "action": action,
-                        "description": description,
-                    }
-                )
-            )
-        )
-
-    def task_complete_callback(was_cancelled, via_stop_tool=False):
-        """Synchronous callback that schedules async frame push."""
-        logger.info(
-            f"Task complete: cancelled={was_cancelled}, via_stop_tool={via_stop_tool}"
-        )
+    def task_complete_callback(was_cancelled: bool, via_stop_tool: bool = False):
+        """Notify client and request a brief summary from the LLM."""
 
         async def _complete():
-            logger.info("Task complete: pushing frames")
             await rtvi.push_frame(
                 RTVIServerMessageFrame(
                     {
@@ -102,20 +74,13 @@ async def run_bot(transport):
                     }
                 )
             )
-            # Format task progress buffer as a string
-            task_log = "\n".join(
-                [
-                    f"{item['action']}: {item['description']}"
-                    for item in task_progress_buffer
-                ]
-            )
 
-            if was_cancelled:
-                prompt = f"The task was cancelled. Please acknowledge the cancellation and summarize what was done before stopping.\n<task_log>\n{task_log}\n</task_log>"
-            else:
-                prompt = f"Task completed. Please summarize what was accomplished.\n<task_log>\n{task_log}\n</task_log>"
-            task_progress_buffer.clear()
-            logger.info("Okay, pushing LLMMessagesAppendFrame")
+            # Ask the LLM to summarize completion
+            prompt = (
+                "The task was cancelled. Please acknowledge the cancellation and summarize what was done before stopping."
+                if was_cancelled
+                else "Task completed. Please summarize what was accomplished."
+            )
             await rtvi.push_frame(
                 LLMMessagesAppendFrame(
                     messages=[{"role": "user", "content": prompt}],
@@ -125,10 +90,13 @@ async def run_bot(transport):
 
         asyncio.create_task(_complete())
 
+    # khk TODO
+    #   :
+    #   - look again to be sure task_complete_callback is good code
+    #   - check that messages are similar to those we're using in the tui
     task_manager = VoiceTaskManager(
         character_id="TraderP",
-        output_callback=None,
-        progress_callback=progress_callback,
+        rtvi_processor=rtvi,
         task_complete_callback=task_complete_callback,
     )
     await task_manager.join()
@@ -149,13 +117,11 @@ async def run_bot(transport):
     llm = OpenAILLMService(
         api_key=os.getenv("OPENAI_API_KEY"),
         model="gpt-4.1",
+        params=BaseOpenAILLMService.InputParams(
+            extra={"service_tier": "priority"},
+        ),
     )
-    llm.register_function("move", task_manager.tool_move)
-    llm.register_function("my_status", task_manager.tool_my_status)
-    llm.register_function("my_map", task_manager.tool_my_map)
-    llm.register_function("start_task", task_manager.tool_start_task)
-    llm.register_function("stop_task", task_manager.tool_stop_task)
-    llm.register_function("ui_show_panel", task_manager.tool_ui_show_panel)
+    llm.register_function(None, task_manager.execute_tool_call)
 
     # System prompt
     messages = [
