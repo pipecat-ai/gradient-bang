@@ -67,6 +67,10 @@ class PlayerApp(App):
         height: 100%;
     }
     
+    #progress-scroll {
+        height: 100%;
+    }
+    
     #progress-widget {
         height: 6;
         border: solid yellow;
