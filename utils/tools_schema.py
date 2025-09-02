@@ -182,7 +182,7 @@ class Trade(GameClientTool):
     def schema(cls):
         return FunctionSchema(
             name="trade",
-            description="Execute a trade transaction at the current port",
+            description="Execute a trade transaction at the current port (buy or sell commodities)",
             properties={
                 "commodity": {
                     "type": "string",
@@ -204,19 +204,19 @@ class Trade(GameClientTool):
         )
 
 
-class BuyWarpPower(GameClientTool):
+class RechargeWarpPower(GameClientTool):
     def __call__(self, **args):
-        return self.game_client.buy_warp_power(**args)
+        return self.game_client.recharge_warp_power(**args)
 
     @classmethod
     def schema(cls):
         return FunctionSchema(
-            name="buy_warp_power",
-            description="Buy warp power at the special depot in sector 0 (2 credits per unit)",
+            name="recharge_warp_power",
+            description="Recharge warp power at the special depot in sector 0 (2 credits per unit)",
             properties={
                 "units": {
                     "type": "integer",
-                    "description": "Number of warp power units to buy",
+                    "description": "Number of warp power units to recharge",
                     "minimum": 1,
                 }
             },

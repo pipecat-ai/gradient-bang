@@ -19,7 +19,7 @@ from utils.tools_schema import (
     StopTask,
     CheckTrade,
     Trade,
-    BuyWarpPower,
+    RechargeWarpPower,
     TransferWarpPower,
     UI_SHOW_PANEL_SCHEMA,
 )
@@ -73,7 +73,7 @@ class VoiceTaskManager:
             "move": self.game_client.move,
             "check_trade": self.game_client.check_trade,
             "trade": self.game_client.trade,
-            "buy_warp_power": self.game_client.buy_warp_power,
+            "recharge_warp_power": self.game_client.recharge_warp_power,
             "transfer_warp_power": self.game_client.transfer_warp_power,
         }
 
@@ -301,7 +301,7 @@ class VoiceTaskManager:
                 Move.schema(),
                 CheckTrade.schema(),
                 Trade.schema(),
-                BuyWarpPower.schema(),
+                RechargeWarpPower.schema(),
                 TransferWarpPower.schema(),
                 StartTask.schema(),
                 StopTask.schema(),

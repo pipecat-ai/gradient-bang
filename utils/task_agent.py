@@ -12,10 +12,9 @@ from utils.tools_schema import (
     MyStatus,
     PlotCourse,
     Move,
-    StartTask,
-    StopTask,
     CheckTrade,
-    BuyWarpPower,
+    Trade,
+    RechargeWarpPower,
     TransferWarpPower,
     TaskFinished,
 )
@@ -115,7 +114,8 @@ class TaskAgent(BaseLLMAgent):
                 PlotCourse,
                 Move,
                 CheckTrade,
-                BuyWarpPower,
+                Trade,
+                RechargeWarpPower,
                 TransferWarpPower,
                 TaskFinished,
             ]
@@ -186,9 +186,7 @@ class TaskAgent(BaseLLMAgent):
                 if token_usage_totals:
                     filtered = {k: v for k, v in token_usage_totals.items() if v != 0}
                     if filtered:
-                        self._output(
-                            json.dumps(filtered), TaskOutputType.TOKEN_USAGE
-                        )
+                        self._output(json.dumps(filtered), TaskOutputType.TOKEN_USAGE)
                 self._output("Task cancelled", TaskOutputType.FINISHED)
                 return False
 
@@ -206,9 +204,7 @@ class TaskAgent(BaseLLMAgent):
                 if token_usage_totals:
                     filtered = {k: v for k, v in token_usage_totals.items() if v != 0}
                     if filtered:
-                        self._output(
-                            json.dumps(filtered), TaskOutputType.TOKEN_USAGE
-                        )
+                        self._output(json.dumps(filtered), TaskOutputType.TOKEN_USAGE)
                 return False
 
             # Accumulate token usage for this assistant response
@@ -226,9 +222,7 @@ class TaskAgent(BaseLLMAgent):
                 if token_usage_totals:
                     filtered = {k: v for k, v in token_usage_totals.items() if v != 0}
                     if filtered:
-                        self._output(
-                            json.dumps(filtered), TaskOutputType.TOKEN_USAGE
-                        )
+                        self._output(json.dumps(filtered), TaskOutputType.TOKEN_USAGE)
                 return True
 
             # Check cancellation after tool execution
@@ -236,9 +230,7 @@ class TaskAgent(BaseLLMAgent):
                 if token_usage_totals:
                     filtered = {k: v for k, v in token_usage_totals.items() if v != 0}
                     if filtered:
-                        self._output(
-                            json.dumps(filtered), TaskOutputType.TOKEN_USAGE
-                        )
+                        self._output(json.dumps(filtered), TaskOutputType.TOKEN_USAGE)
                 self._output("Task cancelled", TaskOutputType.FINISHED)
                 return False
 

@@ -145,6 +145,7 @@ class BaseLLMAgent:
         # Only add reasoning_effort for models that support it (gpt-5)
         if reasoning_effort and "gpt-5" in self.config.model:
             kwargs["reasoning_effort"] = reasoning_effort
+            kwargs["verbosity"] = "low"
 
         if self.openai_tools:
             kwargs["tools"] = self.openai_tools

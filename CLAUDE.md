@@ -85,7 +85,7 @@ Available tools:
 - `move`: Move to adjacent sector
 - `trade`: Buy/sell commodities at ports
 - `check_trade`: Preview trade without executing
-- `buy_warp_power`: Refuel at sector 0
+- `recharge_warp_power`: Refuel at sector 0
 - `transfer_warp_power`: Give fuel to another player
 - `start_task`/`stop_task`: Manage complex multi-step tasks
 
@@ -108,7 +108,7 @@ All endpoints accept and return JSON dictionaries:
 - `POST /api/plot_course` - Find path (params: `from_sector`, `to_sector`)
 - `POST /api/trade` - Execute trade (params: `character_id`, `commodity`, `quantity`, `trade_type`)
 - `POST /api/check_trade` - Preview trade
-- `POST /api/buy_warp_power` - Buy fuel at sector 0
+- `POST /api/recharge_warp_power` - Buy fuel at sector 0
 - `POST /api/transfer_warp_power` - Transfer fuel to another player
 
 ## Important Conventions

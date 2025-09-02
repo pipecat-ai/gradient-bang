@@ -809,6 +809,15 @@ async def check_trade(request: dict):
 @app.post("/api/trade")
 async def trade(request: dict):
     """Execute a trade transaction (buy only for Stage 3)."""
+    # Extract parameters
+    character_id = request.get("character_id")
+    commodity = request.get("commodity")
+    quantity = request.get("quantity")
+    trade_type = request.get("trade_type")
+
+    if not all([character_id, commodity, quantity, trade_type]):
+        raise HTTPException(status_code=400, detail="Missing required parameters")
+
     # Verify character exists
     if character_id not in game_world.characters:
         raise HTTPException(status_code=404, detail="Character not found")
@@ -1063,12 +1072,12 @@ async def trade(request: dict):
         raise HTTPException(status_code=500, detail=f"Transaction failed: {str(e)}")
 
 
-# Removed Pydantic models for BuyWarpPowerRequest and BuyWarpPowerResponse - using plain dictionaries
+# Removed Pydantic models for RechargeWarpPowerRequest and RechargeWarpPowerResponse - using plain dictionaries
 
 
-@app.post("/api/buy_warp_power")
-async def buy_warp_power(request: dict):
-    """Buy warp power at the special depot in sector 0.
+@app.post("/api/recharge_warp_power")
+async def recharge_warp_power(request: dict):
+    """Recharge warp power at the special depot in sector 0.
     
     Sector 0 has a special warp power depot that sells warp power at 2 credits per unit.
     This provides a reliable way for players to recharge their ships.
@@ -1097,7 +1106,7 @@ async def buy_warp_power(request: dict):
     knowledge = game_world.knowledge_manager.load_knowledge(character_id)
     ship_stats = get_ship_stats(ShipType(knowledge.ship_config.ship_type))
     
-    # Calculate how much warp power can be bought
+    # Calculate how much warp power can be recharged
     current_warp_power = knowledge.ship_config.current_warp_power
     warp_power_capacity = ship_stats.warp_power_capacity
     max_units = warp_power_capacity - current_warp_power
@@ -1114,7 +1123,7 @@ async def buy_warp_power(request: dict):
             "message": "Warp power is already at maximum"
         }
     
-    # Determine actual units to buy
+    # Determine actual units to recharge
     units_to_buy = min(units, max_units)
     
     # Fixed price: 2 credits per warp power unit at sector 0 depot

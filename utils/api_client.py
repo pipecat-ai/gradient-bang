@@ -608,12 +608,12 @@ class AsyncGameClient:
         
         return result
     
-    async def buy_warp_power(self, units: int, character_id: Optional[str] = None) -> Dict[str, Any]:
-        """Buy warp power at the special depot in sector 0.
+    async def recharge_warp_power(self, units: int, character_id: Optional[str] = None) -> Dict[str, Any]:
+        """Recharge warp power at the special depot in sector 0.
         
         Args:
-            units: Number of warp power units to buy
-            character_id: Character buying warp power (defaults to current character)
+            units: Number of warp power units to recharge
+            character_id: Character recharging warp power (defaults to current character)
             
         Returns:
             Transaction result
@@ -627,7 +627,7 @@ class AsyncGameClient:
             raise ValueError("No character specified or tracked")
         
         response = await self.client.post(
-            f"{self.base_url}/api/buy_warp_power",
+            f"{self.base_url}/api/recharge_warp_power",
             json={
                 "character_id": character_id,
                 "units": units

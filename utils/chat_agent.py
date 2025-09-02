@@ -20,7 +20,7 @@ from utils.tools_schema import (
     StopTask,
     CheckTrade,
     Trade,
-    BuyWarpPower,
+    RechargeWarpPower,
     TransferWarpPower,
 )
 
@@ -69,7 +69,7 @@ class ChatAgent(BaseLLMAgent):
                 Move,
                 CheckTrade,
                 Trade,
-                BuyWarpPower,
+                RechargeWarpPower,
                 TransferWarpPower,
                 StartTask,
                 StopTask,
@@ -137,7 +137,7 @@ class ChatAgent(BaseLLMAgent):
         # Attempt to notify UI of status-impacting results
         try:
             if (
-                tool_name in {"move", "trade", "buy_warp_power", "transfer_warp_power", "my_status"}
+                tool_name in {"move", "trade", "recharge_warp_power", "transfer_warp_power", "my_status"}
                 and self.status_callback
             ):
                 content = (
