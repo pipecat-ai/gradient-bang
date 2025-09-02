@@ -164,6 +164,9 @@ class TaskAgent(BaseLLMAgent):
         Returns:
             True if task completed successfully, False otherwise
         """
+        # todo: should we move/add the guard about not running a task if one is already running here?
+        self.finished = False
+        self.finished_message = None
         self.reset_cancellation()
         self.clear_messages()
 
