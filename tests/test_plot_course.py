@@ -1,4 +1,4 @@
-"""Tests for the /api/plot-course endpoint."""
+"""Tests for the /api/plot_course endpoint."""
 
 import pytest
 import json
@@ -51,7 +51,7 @@ def test_root_endpoint(client):
 def test_plot_course_simple_path(client):
     """Test finding a simple path between adjacent sectors."""
     response = client.post(
-        "/api/plot-course",
+        "/api/plot_course",
         json={"from": 0, "to": 1}
     )
     assert response.status_code == 200
@@ -67,7 +67,7 @@ def test_plot_course_simple_path(client):
 def test_plot_course_same_sector(client):
     """Test that plotting course to same sector returns single-element path."""
     response = client.post(
-        "/api/plot-course",
+        "/api/plot_course",
         json={"from": 3, "to": 3}
     )
     assert response.status_code == 200
@@ -79,7 +79,7 @@ def test_plot_course_same_sector(client):
 def test_plot_course_long_path(client):
     """Test finding a path between distant sectors."""
     response = client.post(
-        "/api/plot-course",
+        "/api/plot_course",
         json={"from": 0, "to": 9}
     )
     assert response.status_code == 200
@@ -94,7 +94,7 @@ def test_plot_course_long_path(client):
 def test_plot_course_invalid_from_sector(client):
     """Test that invalid from_sector returns 400 error."""
     response = client.post(
-        "/api/plot-course",
+        "/api/plot_course",
         json={"from": 10000, "to": 0}
     )
     assert response.status_code == 400
@@ -104,7 +104,7 @@ def test_plot_course_invalid_from_sector(client):
 def test_plot_course_invalid_to_sector(client):
     """Test that invalid to_sector returns 400 error."""
     response = client.post(
-        "/api/plot-course",
+        "/api/plot_course",
         json={"from": 0, "to": 10000}
     )
     assert response.status_code == 400
@@ -114,7 +114,7 @@ def test_plot_course_invalid_to_sector(client):
 def test_plot_course_negative_sectors(client):
     """Test that negative sector numbers are rejected."""
     response = client.post(
-        "/api/plot-course",
+        "/api/plot_course",
         json={"from": -1, "to": 10}
     )
     assert response.status_code == 422  # Pydantic validation error
@@ -123,13 +123,13 @@ def test_plot_course_negative_sectors(client):
 def test_plot_course_missing_parameters(client):
     """Test that missing parameters return validation error."""
     response = client.post(
-        "/api/plot-course",
+        "/api/plot_course",
         json={"from": 0}
     )
     assert response.status_code == 422
     
     response = client.post(
-        "/api/plot-course",
+        "/api/plot_course",
         json={"to": 10}
     )
     assert response.status_code == 422
@@ -138,7 +138,7 @@ def test_plot_course_missing_parameters(client):
 def test_plot_course_path_continuity(client):
     """Test that returned paths are continuous (each step is a valid warp)."""
     response = client.post(
-        "/api/plot-course",
+        "/api/plot_course",
         json={"from": 0, "to": 8}
     )
     assert response.status_code == 200

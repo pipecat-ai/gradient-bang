@@ -24,7 +24,7 @@ As characters move through the universe, they learn what ports are in each secto
 
 Create a data structure that stores sector connections and port information each character has seen, along with the last time they visited each sector. Save each character's data structure in a JSON file in a file named for the character's ID in a directory world-data/character-map-knowledge. Each time the character visits a sector, update the data structure and save it to the file.
 
-Implement a /api/my-map endpoint that returns the map knowledge for a character.
+Implement a /api/my_map endpoint that returns the map knowledge for a character.
 
 Add this endpoint to the tools that are available to the LLM utilities. I want to be able to pass a task to run_npc.py that uses this endpoint.
 

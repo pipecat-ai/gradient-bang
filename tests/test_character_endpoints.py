@@ -1,4 +1,4 @@
-"""Tests for character-related endpoints: /api/join, /api/move, /api/my-status."""
+"""Tests for character-related endpoints: /api/join, /api/move, /api/my_status."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -133,7 +133,7 @@ def test_my_status_existing_character(client, test_character_id):
     
     # Get status
     status_response = client.post(
-        "/api/my-status",
+        "/api/my_status",
         json={"character_id": test_character_id}
     )
     assert status_response.status_code == 200
@@ -148,7 +148,7 @@ def test_my_status_existing_character(client, test_character_id):
 def test_my_status_nonexistent_character(client):
     """Test getting status of non-existent character returns 404."""
     response = client.post(
-        "/api/my-status",
+        "/api/my_status",
         json={"character_id": "nonexistent_player"}
     )
     assert response.status_code == 404
@@ -268,12 +268,12 @@ def test_multiple_characters(client):
     assert move1.json()["sector"] == 1
     
     # Char2 should still be at sector 0
-    status2 = client.post("/api/my-status", json={"character_id": char2})
+    status2 = client.post("/api/my_status", json={"character_id": char2})
     assert status2.status_code == 200
     assert status2.json()["sector"] == 0
     
     # Char1 should be at sector 1
-    status1 = client.post("/api/my-status", json={"character_id": char1})
+    status1 = client.post("/api/my_status", json={"character_id": char1})
     assert status1.status_code == 200
     assert status1.json()["sector"] == 1
 
@@ -311,7 +311,7 @@ def test_sector_contents_with_other_players(client):
     
     # Check player1's view - should see player2
     response = client.post(
-        "/api/my-status",
+        "/api/my_status",
         json={"character_id": "player1"}
     )
     assert response.status_code == 200
@@ -322,7 +322,7 @@ def test_sector_contents_with_other_players(client):
     
     # Check player2's view - should see player1
     response = client.post(
-        "/api/my-status",
+        "/api/my_status",
         json={"character_id": "player2"}
     )
     assert response.status_code == 200
@@ -345,7 +345,7 @@ def test_last_active_updates(client, test_character_id):
     time.sleep(0.1)
     
     # Check status - should update last_active
-    status_response = client.post("/api/my-status", json={"character_id": test_character_id})
+    status_response = client.post("/api/my_status", json={"character_id": test_character_id})
     assert status_response.status_code == 200
     status_time = status_response.json()["last_active"]
     

@@ -103,9 +103,9 @@ The `/api/firehose` endpoint broadcasts all game events (joins, movements) in re
 All endpoints accept and return JSON dictionaries:
 - `POST /api/join` - Join/rejoin the game
 - `POST /api/move` - Move to adjacent sector (params: `character_id`, `to_sector`)
-- `POST /api/my-status` - Get current status (params: `character_id`)
-- `POST /api/my-map` - Get map knowledge (params: `character_id`)
-- `POST /api/plot-course` - Find path (params: `from_sector`, `to_sector`)
+- `POST /api/my_status` - Get current status (params: `character_id`)
+- `POST /api/my_map` - Get map knowledge (params: `character_id`)
+- `POST /api/plot_course` - Find path (params: `from_sector`, `to_sector`)
 - `POST /api/trade` - Execute trade (params: `character_id`, `commodity`, `quantity`, `trade_type`)
 - `POST /api/check_trade` - Preview trade
 - `POST /api/buy_warp_power` - Buy fuel at sector 0

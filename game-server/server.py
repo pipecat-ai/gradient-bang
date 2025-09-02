@@ -348,7 +348,7 @@ async def root():
     }
 
 
-@app.post("/api/plot-course")
+@app.post("/api/plot_course")
 async def plot_course(request: dict):
     """Calculate shortest path between two sectors."""
     if not game_world.universe_graph:
@@ -626,7 +626,7 @@ async def move(request: dict):
 
 # Removed Pydantic model for StatusRequest - using plain dictionary
 
-@app.post("/api/my-status")
+@app.post("/api/my_status")
 async def my_status(request: dict):
     """Get the current status of a character."""
     character_id = request.get("character_id")
@@ -651,7 +651,7 @@ async def my_status(request: dict):
 
 # Removed Pydantic model for MapRequest - using plain dictionary
 
-@app.post("/api/my-map")
+@app.post("/api/my_map")
 async def my_map(request: dict):
     """Get the map knowledge for a character."""
     character_id = request.get("character_id")

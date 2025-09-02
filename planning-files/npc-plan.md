@@ -24,10 +24,10 @@ The NPC has a state that is updated after each OODA loop iteration.
 
 The LLM has access to the following tools:
 
-- PlotCourse - Calls the /api/plot-course endpoint.
+- PlotCourse - Calls the /api/plot_course endpoint.
 - WaitForTime - Pauses the NPC for the specified number of seconds.
 - Move - Calls the /api/move endpoint.
-- MyStatus - Calls the /api/my-status endpoint
+- MyStatus - Calls the /api/my_status endpoint
 - Finished - Ends the current task loop
 
 ## Implementation

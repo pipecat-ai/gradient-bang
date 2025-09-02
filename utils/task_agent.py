@@ -30,6 +30,7 @@ class TaskOutputType(Enum):
     TOOL_CALL = "TOOL_CALL"
     TOOL_RESULT = "TOOL_RESULT"
     ERROR = "ERROR"
+    TOKEN_USAGE = "TOKEN_USAGE"
 
     def __str__(self):
         return self.value
@@ -176,8 +177,18 @@ class TaskAgent(BaseLLMAgent):
         for message in create_initial_status_messages(initial_state):
             self.add_message(message)
 
+        # Accumulate token usage across all assistant responses
+        token_usage_totals: Dict[str, int] = {}
+
         for iteration in range(max_iterations):
             if self.cancelled:
+                # Emit token usage summary before exiting
+                if token_usage_totals:
+                    filtered = {k: v for k, v in token_usage_totals.items() if v != 0}
+                    if filtered:
+                        self._output(
+                            json.dumps(filtered), TaskOutputType.TOKEN_USAGE
+                        )
                 self._output("Task cancelled", TaskOutputType.FINISHED)
                 return False
 
@@ -191,14 +202,43 @@ class TaskAgent(BaseLLMAgent):
                 self._output(
                     f"Error getting assistant response: {str(e)}", TaskOutputType.ERROR
                 )
+                # Emit token usage summary before exiting
+                if token_usage_totals:
+                    filtered = {k: v for k, v in token_usage_totals.items() if v != 0}
+                    if filtered:
+                        self._output(
+                            json.dumps(filtered), TaskOutputType.TOKEN_USAGE
+                        )
                 return False
+
+            # Accumulate token usage for this assistant response
+            usage = assistant_message.get("token_usage")
+            if isinstance(usage, dict):
+                for k, v in usage.items():
+                    try:
+                        token_usage_totals[k] = token_usage_totals.get(k, 0) + int(v)
+                    except Exception:
+                        # Ignore non-integer values
+                        pass
 
             # Check if the task was marked as finished during tool execution
             if self.finished:
+                if token_usage_totals:
+                    filtered = {k: v for k, v in token_usage_totals.items() if v != 0}
+                    if filtered:
+                        self._output(
+                            json.dumps(filtered), TaskOutputType.TOKEN_USAGE
+                        )
                 return True
 
             # Check cancellation after tool execution
             if self.cancelled:
+                if token_usage_totals:
+                    filtered = {k: v for k, v in token_usage_totals.items() if v != 0}
+                    if filtered:
+                        self._output(
+                            json.dumps(filtered), TaskOutputType.TOKEN_USAGE
+                        )
                 self._output("Task cancelled", TaskOutputType.FINISHED)
                 return False
 
@@ -208,5 +248,9 @@ class TaskAgent(BaseLLMAgent):
             ):
                 self._output(assistant_message["content"], TaskOutputType.MESSAGE)
 
+        if token_usage_totals:
+            filtered = {k: v for k, v in token_usage_totals.items() if v != 0}
+            if filtered:
+                self._output(json.dumps(filtered), TaskOutputType.TOKEN_USAGE)
         self._output(f"Task reached maximum iterations ({max_iterations})")
         return False

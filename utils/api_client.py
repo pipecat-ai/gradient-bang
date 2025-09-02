@@ -121,16 +121,7 @@ class AsyncGameClient:
             f"{self.base_url}/api/move",
             json={"character_id": character_id, "to_sector": to_sector}
         )
-        
-        # Check for errors and include response body in exception
-        if response.status_code >= 400:
-            try:
-                error_detail = response.json()
-                error_msg = error_detail.get("detail", str(error_detail))
-            except:
-                error_msg = response.text or f"HTTP {response.status_code}"
-            raise Exception(f"Move failed (HTTP {response.status_code}): {error_msg}")
-        
+        response.raise_for_status()
         status = response.json()
         
         # Update current sector if this is the tracked character
@@ -168,7 +159,7 @@ class AsyncGameClient:
             await self._ensure_map_cached(character_id)
         
         response = await self.client.post(
-            f"{self.base_url}/api/my-status",
+            f"{self.base_url}/api/my_status",
             json={"character_id": character_id}
         )
         response.raise_for_status()
@@ -193,7 +184,7 @@ class AsyncGameClient:
             httpx.HTTPStatusError: If the request fails
         """
         response = await self.client.post(
-            f"{self.base_url}/api/plot-course",
+            f"{self.base_url}/api/plot_course",
             json={"from_sector": from_sector, "to_sector": to_sector}
         )
         response.raise_for_status()
@@ -253,7 +244,7 @@ class AsyncGameClient:
             character_id: Character to fetch map data for
         """
         response = await self.client.post(
-            f"{self.base_url}/api/my-map",
+            f"{self.base_url}/api/my_map",
             json={"character_id": character_id}
         )
         response.raise_for_status()
@@ -636,7 +627,7 @@ class AsyncGameClient:
             raise ValueError("No character specified or tracked")
         
         response = await self.client.post(
-            f"{self.base_url}/api/buy-warp-power",
+            f"{self.base_url}/api/buy_warp_power",
             json={
                 "character_id": character_id,
                 "units": units
@@ -665,7 +656,7 @@ class AsyncGameClient:
             raise ValueError("No character specified or tracked")
         
         response = await self.client.post(
-            f"{self.base_url}/api/transfer-warp-power",
+            f"{self.base_url}/api/transfer_warp_power",
             json={
                 "from_character_id": character_id,
                 "to_character_id": to_character_id,

@@ -2,7 +2,9 @@
 
 import os
 import json
+import httpx
 from typing import Dict, Any, Optional, List, Callable, Tuple
+import httpx
 from dataclasses import dataclass
 from openai import AsyncOpenAI
 from loguru import logger
@@ -78,27 +80,32 @@ class BaseLLMAgent:
 
     def _log_message(self, message: Dict[str, Any]):
         """Log a message for debugging."""
-        if message["role"] == "system":
-            self._output(f"SYSTEM_MSG: {message['content'][:200]}...")
-        elif message["role"] == "user":
-            self._output(f"USER_MSG: {message.get('content', '')}")
-        elif message["role"] == "assistant":
-            if message.get("content"):
-                self._output(f"ASSISTANT_MSG: {message['content']}")
-            if "tool_calls" in message:
-                for tool_call in message["tool_calls"]:
-                    args = json.loads(tool_call["function"]["arguments"])
+        try:
+            if message["role"] == "system":
+                self._output(f"SYSTEM_MSG: {message['content'][:200]}...")
+            elif message["role"] == "user":
+                self._output(f"USER_MSG: {message.get('content', '')}")
+            elif message["role"] == "assistant":
+                if message.get("content"):
+                    self._output(f"ASSISTANT_MSG: {message['content']}")
+                if "tool_calls" in message:
+                    for tool_call in message["tool_calls"]:
+                        args = json.loads(tool_call["function"]["arguments"])
+                        self._output(
+                            f"TOOL_CALL [{tool_call['id']}]: {tool_call['function']['name']}: {json.dumps(args)}"
+                        )
+            elif message["role"] == "tool":
+                try:
+                    result = json.loads(message["content"])
                     self._output(
-                        f"TOOL_CALL [{tool_call['id']}]: {tool_call['function']['name']}: {json.dumps(args)}"
+                        f"TOOL_RESULT [{message['tool_call_id']}]: {json.dumps(result)[:200]}"
                     )
-        elif message["role"] == "tool":
-            try:
-                result = json.loads(message["content"])
-                self._output(
-                    f"TOOL_RESULT [{message['tool_call_id']}]: {json.dumps(result)[:200]}"
-                )
-            except Exception as e:
-                self._output(f"TOOL_EXCEPTION [{message['tool_call_id']}]: {str(e)}")
+                except Exception as e:
+                    self._output(
+                        f"TOOL_EXCEPTION [{message['tool_call_id']}]: {str(e)}"
+                    )
+        except Exception:
+            self._output(f"GENERIC_LOG: {message}")
 
     def _output(self, text: str, message_type: Optional[str] = None):
         """Output text, using callback if available, else log."""
@@ -144,6 +151,8 @@ class BaseLLMAgent:
 
         response = await self.client.chat.completions.create(**kwargs)
         assistant_message = response.choices[0].message
+        if self.verbose_prompts:
+            self._log_message(response.model_dump())
 
         message_dict = {"role": "assistant", "content": assistant_message.content or ""}
 
@@ -159,6 +168,42 @@ class BaseLLMAgent:
                 }
                 for tc in assistant_message.tool_calls
             ]
+
+        # Collect dynamic token usage categories from the response
+        try:
+            usage = getattr(response, "usage", None)
+            usage_data = (
+                usage.model_dump()
+                if hasattr(usage, "model_dump")
+                else (dict(usage) if isinstance(usage, dict) else None)
+            )
+        except Exception:
+            usage_data = None
+
+        token_usage: Dict[str, int] = {}
+        if isinstance(usage_data, dict):
+            for key, value in usage_data.items():
+                if isinstance(value, int):
+                    iv = int(value)
+                    if iv != 0:
+                        token_usage[key] = token_usage.get(key, 0) + iv
+                elif isinstance(value, dict):
+                    for subkey, subval in value.items():
+                        if isinstance(subval, int):
+                            iv = int(subval)
+                            if iv != 0:
+                                token_usage[subkey] = token_usage.get(subkey, 0) + iv
+
+        if token_usage:
+            message_dict["token_usage"] = token_usage
+            if self.verbose_prompts:
+                # Single JSON-formatted system message for per-turn token usage
+                self._log_message(
+                    {
+                        "role": "system",
+                        "content": json.dumps({"token_usage": token_usage}),
+                    }
+                )
 
         # Always add the assistant message to history
         self.add_message(message_dict)
@@ -209,8 +254,34 @@ class BaseLLMAgent:
         try:
             result = await self.tools[tool_name](**tool_args)
         except Exception as e:
+            detail_msg = None
+            if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
+                # Prefer JSON detail, then raw response text; avoid logging status text
+                try:
+                    body = e.response.json()
+                except Exception:
+                    body = None
+                if isinstance(body, dict) and body.get("detail"):
+                    detail_msg = body["detail"]
+                else:
+                    try:
+                        text = e.response.text.strip()
+                    except Exception:
+                        text = None
+                    if text:
+                        detail_msg = text
+
+            if detail_msg is not None:
+                # Return plain detail string as the tool result content
+                tool_message = self.format_tool_message(
+                    tool_call["id"], {"error": detail_msg}
+                )
+                return (tool_message, False)
+
+            # Fallback to current behavior with logging
             self._output(f"Error executing tool {tool_name}: {str(e)}")
-            return ({"error": str(e)}, False)
+            tool_message = self.format_tool_message(tool_call["id"], {"error": str(e)})
+            return (tool_message, False)
 
         tool_message = self.format_tool_message(tool_call["id"], result)
         return (tool_message, True)
