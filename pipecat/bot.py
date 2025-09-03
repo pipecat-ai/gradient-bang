@@ -45,7 +45,7 @@ from voice_task_manager import VoiceTaskManager
 load_dotenv()
 
 logger.remove()
-logger.add(sys.stderr, level="DEBUG")
+logger.add(sys.stderr, level="INFO")
 
 
 def create_chat_system_prompt() -> str:
@@ -100,7 +100,7 @@ async def run_bot(transport):
         rtvi_processor=rtvi,
         task_complete_callback=task_complete_callback,
     )
-    await task_manager.join()
+    initial_status = await task_manager.join()
 
     # Initialize STT service
     stt = SpeechmaticsSTTService(
@@ -155,8 +155,8 @@ async def run_bot(transport):
         pipeline,
         params=PipelineParams(
             allow_interruptions=True,
-            enable_metrics=True,
-            enable_usage_metrics=True,
+            enable_metrics=False,
+            enable_usage_metrics=False,
         ),
         observers=[RTVIObserver(rtvi)],
     )
@@ -164,6 +164,15 @@ async def run_bot(transport):
     @rtvi.event_handler("on_client_ready")
     async def on_client_ready(rtvi):
         await rtvi.set_bot_ready()
+        # Send player status
+        await rtvi.push_frame(
+            RTVIServerMessageFrame(
+                {
+                    "gg-action": "my_status",
+                    "status": initial_status,
+                }
+            )
+        )
         # Kick off the conversation
         await task.queue_frames([context_aggregator.user().get_context_frame()])
 
@@ -176,6 +185,19 @@ async def run_bot(transport):
         msg_type = message.type
         msg_data = message.data if hasattr(message, "data") else {}
 
+        # Client requested my status
+        if msg_type == "get-my-status":
+            # Get current status from the task manager
+            status = await task_manager.game_client.my_status()
+            await rtvi.push_frame(
+                RTVIServerMessageFrame(
+                    {
+                        "gg-action": "my_status",
+                        "status": status,
+                    }
+                )
+            )
+        # Client sent a custom message
         if msg_type == "custom-message":
             text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""
             if text:
