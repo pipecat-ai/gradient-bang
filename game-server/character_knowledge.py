@@ -45,6 +45,7 @@ class MapKnowledge(BaseModel):
     last_update: Optional[str] = None
     ship_config: ShipConfiguration = Field(default_factory=ShipConfiguration)
     credits: int = 1000  # Starting credits
+    current_sector: Optional[int] = None  # Persist last known sector
 
 
 class CharacterKnowledgeManager:
@@ -110,6 +111,10 @@ class CharacterKnowledgeManager:
         # Sanitize character ID for filename
         safe_id = "".join(c if c.isalnum() or c in "_-" else "_" for c in character_id)
         return self.data_dir / f"{safe_id}.json"
+
+    def has_knowledge(self, character_id: str) -> bool:
+        """Check whether we have persisted knowledge for a character."""
+        return self.get_file_path(character_id).exists()
     
     def load_knowledge(self, character_id: str) -> MapKnowledge:
         """Load map knowledge for a character.
@@ -222,7 +227,22 @@ class CharacterKnowledgeManager:
         
         knowledge.sectors_visited[sector_key] = sector_knowledge
         knowledge.last_update = now
+        knowledge.current_sector = sector_id
         self.save_knowledge(knowledge)
+
+    def update_current_sector(self, character_id: str, sector_id: int) -> None:
+        """Persist the character's current sector without other updates."""
+        lock = self._locks.setdefault(character_id, threading.Lock())
+        with lock:
+            knowledge = self.load_knowledge(character_id)
+            knowledge.current_sector = sector_id
+            knowledge.last_update = datetime.now(timezone.utc).isoformat()
+            self.save_knowledge(knowledge)
+
+    def get_current_sector(self, character_id: str) -> Optional[int]:
+        """Return the last known sector for a character, if any."""
+        knowledge = self.load_knowledge(character_id)
+        return knowledge.current_sector
     
     def get_known_ports(self, character_id: str) -> List[Dict[str, Any]]:
         """Get all ports known by a character.

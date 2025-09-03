@@ -2,7 +2,7 @@
 
 import json
 from enum import Enum
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Dict, Any, Optional, Tuple, List, Callable
 
 
 from utils.base_llm_agent import BaseLLMAgent
@@ -100,12 +100,19 @@ def create_initial_status_messages(
 class TaskAgent(BaseLLMAgent):
     """Task execution agent using OODA loop for complex game tasks."""
 
-    def __init__(self, **kwargs):
+    def __init__(
+        self,
+        tool_call_event_callback: Optional[Callable[[str, Any], None]] = None,
+        tool_result_event_callback: Optional[Callable[[str, Any], None]] = None,
+        **kwargs,
+    ):
         """Initialize the task agent."""
         super().__init__(**kwargs)
         self.system_message = create_task_system_message()
         self.finished = False
         self.finished_message = None
+        self.tool_call_event_callback = tool_call_event_callback
+        self.tool_result_event_callback = tool_result_event_callback
 
         # for now let's define all tools for the task agent
         self.set_tools(
@@ -141,6 +148,9 @@ class TaskAgent(BaseLLMAgent):
             f"Executing {tool_name}({json.dumps(tool_args)})", TaskOutputType.TOOL_CALL
         )
 
+        if self.tool_call_event_callback:
+            await self.tool_call_event_callback(tool_name, tool_args)
+
         # Special handling for "finished" - don't execute, just extract message
         if tool_name == "finished":
             self.finished = True
@@ -151,6 +161,10 @@ class TaskAgent(BaseLLMAgent):
         # For all other tools, use base implementation
         tool_message, should_continue = await super().process_tool_call(tool_call)
         self._output(f"{json.dumps(tool_message)}", TaskOutputType.TOOL_RESULT)
+
+        if self.tool_result_event_callback:
+            await self.tool_result_event_callback(tool_name, tool_message)
+
         return (tool_message, should_continue)
 
     async def run_task(
