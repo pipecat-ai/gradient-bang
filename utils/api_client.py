@@ -300,8 +300,14 @@ class AsyncGameClient:
         async with self._cache_lock:
             if force_refresh or character_id not in self._map_cache:
                 await self._fetch_and_cache_map(character_id)
-            
-            return self._map_cache.get(character_id, {})
+            # Ensure top-level sector reflects most recent status
+            map_data = self._map_cache.get(character_id, {})
+            if self._current_character == character_id and self._current_sector is not None:
+                try:
+                    map_data["sector"] = self._current_sector
+                except Exception:
+                    pass
+            return map_data
     
     async def _ensure_map_cached(self, character_id: str):
         """Ensure map data is cached for a character.
@@ -336,10 +342,22 @@ class AsyncGameClient:
             
             # Update the cached map with new sector information
             map_data = self._map_cache[character_id]
+            # Keep top-level sector in sync with status
+            try:
+                map_data["sector"] = status.get("sector", map_data.get("sector"))
+            except Exception:
+                pass
             sectors_visited = map_data.setdefault("sectors_visited", {})
-        
-            sector_key = f"sector_{status['sector']}"
-            sector_info = sectors_visited.setdefault(sector_key, {})
+
+            # Prefer numeric string keys to match server shape (e.g., "15")
+            numeric_key = str(status["sector"])  # e.g., "15"
+            legacy_key = f"sector_{status['sector']}"  # old client-side key
+
+            # Migrate legacy key to numeric if present
+            if legacy_key in sectors_visited and numeric_key not in sectors_visited:
+                sectors_visited[numeric_key] = sectors_visited.pop(legacy_key)
+
+            sector_info = sectors_visited.setdefault(numeric_key, {})
         
             # Update sector information
             sector_info["sector_id"] = status["sector"]
@@ -387,9 +405,8 @@ class AsyncGameClient:
         map_knowledge = self._map_cache.get(self._current_character, {})
         sectors_visited = map_knowledge.get("sectors_visited", {})
         
-        # Check if from_sector has been visited
-        from_sector_key = f"sector_{from_sector}"
-        if from_sector_key not in sectors_visited:
+        # Check if from_sector has been visited (support numeric and legacy keys)
+        if str(from_sector) not in sectors_visited and f"sector_{from_sector}" not in sectors_visited:
             raise ValueError(f"Sector {from_sector} has not been visited")
         
         # Find all ports
@@ -477,9 +494,8 @@ class AsyncGameClient:
         map_knowledge = self._map_cache.get(self._current_character, {})
         sectors_visited = map_knowledge.get("sectors_visited", {})
         
-        # Check if from_sector has been visited
-        from_sector_key = f"sector_{from_sector}"
-        if from_sector_key not in sectors_visited:
+        # Check if from_sector has been visited (support numeric and legacy keys)
+        if str(from_sector) not in sectors_visited and f"sector_{from_sector}" not in sectors_visited:
             raise ValueError(f"Sector {from_sector} has not been visited")
         
         # Find all ports that match the criteria

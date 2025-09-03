@@ -15,9 +15,20 @@ async def handle(request: dict, world) -> dict:
     credits = request.get("credits")
     sector = request.get("sector")
 
-    is_new = character_id not in world.characters
-    if is_new:
-        start_sector = sector if sector is not None else 0
+    is_connected = character_id in world.characters
+    # Determine if we have prior knowledge on disk
+    has_saved = world.knowledge_manager.has_knowledge(character_id)
+    if not is_connected:
+        # Decide the starting sector
+        if sector is not None:
+            start_sector = sector
+        elif has_saved:
+            # Use last known sector if available
+            last_sector = world.knowledge_manager.get_current_sector(character_id)
+            start_sector = last_sector if last_sector is not None else 0
+        else:
+            start_sector = 0
+
         if start_sector < 0 or start_sector >= world.universe_graph.sector_count:
             raise HTTPException(status_code=400, detail=f"Invalid sector: {start_sector}")
 
@@ -25,12 +36,15 @@ async def handle(request: dict, world) -> dict:
         character = Character(character_id, sector=start_sector)
         world.characters[character_id] = character
 
-        validated_ship_type = None
-        if ship_type:
-            validated_ship_type = validate_ship_type(ship_type)
-            if not validated_ship_type:
-                raise HTTPException(status_code=400, detail=f"Invalid ship type: {ship_type}")
-        world.knowledge_manager.initialize_ship(character_id, validated_ship_type)
+        # Initialize ship only for brand-new characters (no saved knowledge)
+        if not has_saved:
+            validated_ship_type = None
+            if ship_type:
+                validated_ship_type = validate_ship_type(ship_type)
+                if not validated_ship_type:
+                    raise HTTPException(status_code=400, detail=f"Invalid ship type: {ship_type}")
+            world.knowledge_manager.initialize_ship(character_id, validated_ship_type)
+
         if credits is not None:
             world.knowledge_manager.update_credits(character_id, credits)
 
