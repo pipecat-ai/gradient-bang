@@ -101,6 +101,7 @@ async def run_bot(transport):
         task_complete_callback=task_complete_callback,
     )
     initial_status = await task_manager.join()
+    initial_map_data = await task_manager.game_client.my_map()
 
     # Initialize STT service
     stt = SpeechmaticsSTTService(
@@ -163,16 +164,17 @@ async def run_bot(transport):
 
     @rtvi.event_handler("on_client_ready")
     async def on_client_ready(rtvi):
-        await rtvi.set_bot_ready()
-        # Send player status
+        # Dispatch initialization data to client
         await rtvi.push_frame(
             RTVIServerMessageFrame(
                 {
-                    "gg-action": "my_status",
+                    "gg-action": "init",
                     "status": initial_status,
+                    "map_data": initial_map_data,
                 }
             )
         )
+        await rtvi.set_bot_ready()
         # Kick off the conversation
         await task.queue_frames([context_aggregator.user().get_context_frame()])
 
