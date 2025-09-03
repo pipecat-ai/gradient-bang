@@ -115,6 +115,21 @@ class VoiceTaskManager:
     # Task management
     #
 
+    def get_task_progress(self) -> str:
+        """Get buffered task progress for chat context.
+
+        Returns:
+            Formatted task progress string
+        """
+        if not self.task_buffer:
+            return ""
+
+        # Get all buffered lines and clear buffer
+        lines = list(self.task_buffer)
+        self.task_buffer.clear()
+
+        return "\n".join(lines)
+
     def _task_output_handler(self, text: str, message_type: Optional[str] = None):
         """Handle output from the task agent.
 
