@@ -1,15 +1,21 @@
+import { MapPinLineIcon, PathIcon, RocketIcon } from "@phosphor-icons/react";
 import { Button } from "@pipecat-ai/voice-ui-kit";
-import { Bug, MapPinned, RouteIcon } from "lucide-react";
+import { Bug } from "lucide-react";
 import { useLayoutEffect } from "react";
 import { useUI } from "../hooks/useUI";
 
-export type PanelMenuItem = "movement_history" | "ports_discovered" | "debug";
+export type PanelMenuItem =
+  | "movement_history"
+  | "ports_discovered"
+  | "debug"
+  | "ship";
 
 const isPanelMenuItem = (value: string | null): value is PanelMenuItem => {
   return (
     value === "movement_history" ||
     value === "ports_discovered" ||
-    value === "debug"
+    value === "debug" ||
+    value === "ship"
   );
 };
 
@@ -37,7 +43,7 @@ export const PanelMenu = ({
         onClick={() => setCurrentPanel("movement_history")}
         className={currentPanel === "movement_history" ? "text-agent" : ""}
       >
-        <RouteIcon size={20} />
+        <PathIcon size={24} />
       </Button>
       <Button
         variant={currentPanel === "ports_discovered" ? "outline" : "ghost"}
@@ -46,7 +52,16 @@ export const PanelMenu = ({
         onClick={() => setCurrentPanel("ports_discovered")}
         className={currentPanel === "ports_discovered" ? "text-agent" : ""}
       >
-        <MapPinned size={20} />
+        <MapPinLineIcon size={24} weight="duotone" />
+      </Button>
+      <Button
+        variant={currentPanel === "ship" ? "outline" : "ghost"}
+        isIcon={true}
+        size="lg"
+        onClick={() => setCurrentPanel("ship")}
+        className={currentPanel === "ship" ? "text-agent" : ""}
+      >
+        <RocketIcon size={24} weight="duotone" />
       </Button>
       <Button
         variant={currentPanel === "debug" ? "outline" : "ghost"}

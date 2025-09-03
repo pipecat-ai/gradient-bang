@@ -11,7 +11,8 @@ export type PanelId =
   | "movement_history"
   | "ports_discovered"
   | "debug"
-  | "task_output";
+  | "task_output"
+  | "ship";
 
 interface UIState {
   highlightedPanel: PanelId | null;

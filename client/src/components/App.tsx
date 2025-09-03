@@ -20,8 +20,9 @@ import { HighlightOverlay } from "./HighlightOverlay";
 import { ImagePanel } from "./ImagePanel";
 import { MovementHistoryPanel } from "./MovementHistoryPanel";
 import { PanelMenu, type PanelMenuItem } from "./PanelMenu";
+import { ShipPanel } from "./panels/ShipPanel";
 import { PortHistoryPanel } from "./PortHistoryPanel";
-import { ShipPanel } from "./ShipPanel";
+import { ShipOSDPanel } from "./ShipOSDPanel";
 import { StartScreen } from "./StartScreen";
 import { TaskOutputPanel } from "./TaskOutputPanel";
 
@@ -36,8 +37,6 @@ export const App = ({ onConnect }: { onConnect?: () => void }) => {
       client.initDevices();
     }
   }, [client]);
-
-  console.log("AAA", isConnecting, isConnected);
 
   return (
     <div className="min-h-screen grid grid-rows-[1fr_auto] w-full bg-background">
@@ -75,7 +74,7 @@ export const App = ({ onConnect }: { onConnect?: () => void }) => {
 
         {/* User Controls & Game Text*/}
         <div className="grid grid-cols-[var(--width-shippanel)_auto] gap-panel p-panel h-[var(--height-bottombar)]">
-          <ShipPanel />
+          <ShipOSDPanel />
           <ResizablePanelGroup direction="horizontal" className="gap-2">
             <ResizablePanel minSize={40} defaultSize={60}>
               <TaskOutputPanel />
@@ -85,13 +84,14 @@ export const App = ({ onConnect }: { onConnect?: () => void }) => {
               noBorder={false}
               size="md"
               icon={<GripIcon className="rotate-90" />}
-              className="w-10"
             />
             <ResizablePanel minSize={30} defaultSize={40}>
               {currentPanel === "movement_history" ? (
                 <MovementHistoryPanel />
               ) : currentPanel === "ports_discovered" ? (
                 <PortHistoryPanel />
+              ) : currentPanel === "ship" ? (
+                <ShipPanel />
               ) : (
                 <DebugPanel />
               )}

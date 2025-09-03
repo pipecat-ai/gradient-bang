@@ -71,7 +71,7 @@ export const Footer = () => {
         </div>
       </div>
       <div className="flex flex-row gap-2 items-center">
-        <Badge size="sm" variant="elbow" color="primary">
+        <Badge size="md" variant="elbow" color="primary">
           $ Credits:{" "}
           <span
             className={
@@ -80,12 +80,12 @@ export const Footer = () => {
                 : "opacity-40"
             }
           >
-            {game.ship?.credits?.toLocaleString()}
+            {game?.ship?.credits ? game.ship?.credits?.toLocaleString() : "---"}
           </span>
         </Badge>
         <DotDivider />
         {Object.entries(getAllCargo()).map(([resource, amount]) => (
-          <Badge key={resource} size="sm" variant="elbow" color="primary">
+          <Badge key={resource} size="md" variant="elbow" color="primary">
             {resource.charAt(0).toUpperCase() + resource.slice(1)}:{" "}
             <span
               className={amount && amount > 0 ? "opacity-100" : "opacity-40"}
@@ -95,7 +95,7 @@ export const Footer = () => {
           </Badge>
         ))}
         <DotDivider />
-        <Badge size="sm" variant="elbow" color="primary">
+        <Badge size="md" variant="elbow" color="primary">
           Capacity:{" "}
           <span className={game.ship ? "opacity-100" : "opacity-40"}>
             {game.ship?.cargo_capacity ?? "---"}
