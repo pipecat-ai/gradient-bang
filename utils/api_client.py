@@ -6,6 +6,13 @@ import logging
 import asyncio
 import json
 import uuid
+from .port_helpers import (
+    sells_commodity,
+    buys_commodity,
+    list_sells,
+    list_buys,
+    last_seen_price,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -341,17 +348,10 @@ class AsyncGameClient:
             sector_info["adjacent_sectors"] = sector_contents.get("adjacent_sectors", [])
             
             # Update port information if present
+            # Pass through the server's minimal snapshot unchanged
             port = sector_contents.get("port")
             if port:
-                sector_info["port_info"] = {
-                    "class_num": port.get("class"),  # Use same field name as server
-                    "code": port.get("code"),
-                    "buys": port.get("buys", []),
-                    "sells": port.get("sells", []),
-                    "stock": port.get("stock", {}),
-                    "max_capacity": port.get("max_capacity", {}),
-                    "prices": port.get("prices")
-                }
+                sector_info["port_info"] = port
             
             # Update planet information if present
             planets = sector_contents.get("planets", [])
@@ -487,14 +487,14 @@ class AsyncGameClient:
         for sector_key, sector_info in sectors_visited.items():
             port_info = sector_info.get("port_info")
             if port_info:
-                # Check if port has the commodity
-                if buy_or_sell == "sell" and commodity in port_info.get("sells", []):
+                # Check if port has the commodity using code-derived helpers
+                if buy_or_sell == "sell" and sells_commodity(port_info, commodity):
                     matching_ports.append({
                         "sector": sector_info["sector_id"],
                         "port": port_info,
                         "last_visited": sector_info.get("last_visited")
                     })
-                elif buy_or_sell == "buy" and commodity in port_info.get("buys", []):
+                elif buy_or_sell == "buy" and buys_commodity(port_info, commodity):
                     matching_ports.append({
                         "sector": sector_info["sector_id"],
                         "port": port_info,
@@ -881,48 +881,45 @@ class AsyncGameClient:
             if distance > max_distance:
                 continue
             
-            # Check what we can buy here
-            if port.get("sells") and "prices" in port:
-                for commodity in port["sells"]:
-                    if commodity not in port["prices"]:
+            # Check what we can buy here (from port sells list)
+            sells = list_sells(port)
+            for commodity in sells:
+                buy_price = last_seen_price(port, commodity)
+                if buy_price is None:
+                    continue
+                
+                # Find ports that buy this commodity
+                for other_port_info in ports:
+                    if other_port_info["sector"] == port_sector:
                         continue
                     
-                    buy_price = port["prices"][commodity].get("sell")
-                    if buy_price is None:
-                        continue
-                    
-                    # Find ports that buy this commodity
-                    for other_port_info in ports:
-                        if other_port_info["sector"] == port_sector:
+                    other_port = other_port_info["port"]
+                    if buys_commodity(other_port, commodity):
+                        sell_price = last_seen_price(other_port, commodity)
+                        if sell_price is None:
                             continue
                         
-                        other_port = other_port_info["port"]
-                        if commodity in other_port.get("buys", []) and "prices" in other_port:
-                            sell_price = other_port["prices"][commodity].get("buy")
-                            if sell_price is None:
-                                continue
-                            
-                            # Calculate profit
-                            profit_per_unit = sell_price - buy_price
-                            if profit_per_unit > 0:
-                                # Consider distance
-                                total_distance = distance + other_port_info.get("distance", float('inf'))
-                                if total_distance <= max_distance * 2:
-                                    profit_efficiency = profit_per_unit / max(1, total_distance)
-                                    
-                                    if profit_efficiency > best_profit:
-                                        best_profit = profit_efficiency
-                                        best_route = {
-                                            "buy_sector": port_sector,
-                                            "buy_port": port,
-                                            "sell_sector": other_port_info["sector"],
-                                            "sell_port": other_port,
-                                            "commodity": commodity,
-                                            "buy_price": buy_price,
-                                            "sell_price": sell_price,
-                                            "profit_per_unit": profit_per_unit,
-                                            "total_distance": total_distance,
-                                            "profit_efficiency": profit_efficiency
-                                        }
+                        # Calculate profit
+                        profit_per_unit = sell_price - buy_price
+                        if profit_per_unit > 0:
+                            # Consider distance
+                            total_distance = distance + other_port_info.get("distance", float('inf'))
+                            if total_distance <= max_distance * 2:
+                                profit_efficiency = profit_per_unit / max(1, total_distance)
+                                
+                                if profit_efficiency > best_profit:
+                                    best_profit = profit_efficiency
+                                    best_route = {
+                                        "buy_sector": port_sector,
+                                        "buy_port": port,
+                                        "sell_sector": other_port_info["sector"],
+                                        "sell_port": other_port,
+                                        "commodity": commodity,
+                                        "buy_price": buy_price,
+                                        "sell_price": sell_price,
+                                        "profit_per_unit": profit_per_unit,
+                                        "total_distance": total_distance,
+                                        "profit_efficiency": profit_efficiency
+                                    }
         
         return best_route

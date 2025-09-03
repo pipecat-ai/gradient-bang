@@ -30,6 +30,7 @@ export interface Port {
 export interface Port {
   code: string;
   last_seen_prices: Record<Resource, number>;
+  last_seen_stock: Record<Resource, number>;
   observed_at: string;
 }
 

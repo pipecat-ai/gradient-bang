@@ -76,14 +76,21 @@ class PortHistoryWidget(Vertical):
                         continue
                 
                 port = sector_info["port_info"]
-                # The server and our cache both use "class_num" field
-                port_class = port.get("class_num", "?")
-                port_class = str(port_class) if port_class != "?" else "?"
-                    
+                # The minimal snapshot may not include class; keep '?' if absent
+                port_class = str(port.get("class_num", "?"))
+
+                # Derive buys/sells from code using shared helpers
+                try:
+                    from utils.port_helpers import list_buys, list_sells
+                    buys_list = list_buys(port)
+                    sells_list = list_sells(port)
+                except Exception:
+                    buys_list, sells_list = [], []
+
                 new_ports[sector_id] = {
                     "class": port_class,
-                    "buys": ", ".join(port.get("buys", [])) if port.get("buys") else "-",
-                    "sells": ", ".join(port.get("sells", [])) if port.get("sells") else "-"
+                    "buys": ", ".join(buys_list) if buys_list else "-",
+                    "sells": ", ".join(sells_list) if sells_list else "-",
                 }
         
         # Update if changed
