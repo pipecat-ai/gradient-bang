@@ -42,7 +42,11 @@ class VoiceTaskManager:
         """
         self.character_id = character_id
         # Create a game client; base_url comes from default or env via AsyncGameClient
-        self.game_client = AsyncGameClient(character_id=character_id)
+        self.game_client = AsyncGameClient(
+            character_id=character_id,
+            base_url="http://localhost:8001",
+            transport="websocket",
+        )
 
         self.task_config = LLMConfig(model="gpt-5")
 
@@ -119,7 +123,9 @@ class VoiceTaskManager:
             )
         )
 
-    def _start_task_async(self, task_description: str, game_state: Dict[str, Any]) -> asyncio.Task:
+    def _start_task_async(
+        self, task_description: str, game_state: Dict[str, Any]
+    ) -> asyncio.Task:
         """Start a task asynchronously.
 
         Args:
@@ -135,7 +141,9 @@ class VoiceTaskManager:
         self.task_buffer.clear()
         self.task_running = True
 
-        self.current_task = asyncio.create_task(self._run_task(task_description, game_state))
+        self.current_task = asyncio.create_task(
+            self._run_task(task_description, game_state)
+        )
         return self.current_task
 
     async def _run_task(self, task_description: str, game_state: Dict[str, Any]):
@@ -196,7 +204,9 @@ class VoiceTaskManager:
             self.current_task.cancel()
             self.task_running = False
             # Add immediate feedback
-            self._task_output_handler("Cancellation requested - stopping task...", "cancelled")
+            self._task_output_handler(
+                "Cancellation requested - stopping task...", "cancelled"
+            )
 
     #
     # Tools
@@ -211,7 +221,9 @@ class VoiceTaskManager:
         params.result_callback with the same payload.
         """
         # Try to discover the tool name from params (Pipecat provides name)
-        tool_name = getattr(params, "name", None) or getattr(params, "function_name", None)
+        tool_name = getattr(params, "name", None) or getattr(
+            params, "function_name", None
+        )
         if not tool_name:
             # Fallback: try to peek at arguments for an injected name (not expected)
             tool_name = "unknown"
@@ -238,7 +250,9 @@ class VoiceTaskManager:
                 result = await func(**arguments)
                 payload = {"result": result}
 
-            await params.llm.push_frame(RTVIServerMessageFrame({"gg-action": tool_name, **payload}))
+            await params.llm.push_frame(
+                RTVIServerMessageFrame({"gg-action": tool_name, **payload})
+            )
             await params.result_callback(payload)
         except Exception as e:
             logger.error(f"tool '{tool_name}' failed: {e}")
@@ -263,7 +277,9 @@ class VoiceTaskManager:
             task_content = f"{context}\n{task_desc}" if context else task_desc
             self.task_buffer.clear()
             self.task_running = True
-            self.current_task = asyncio.create_task(self._run_task(task_content, game_state))
+            self.current_task = asyncio.create_task(
+                self._run_task(task_content, game_state)
+            )
             return {"success": True, "message": "Task started"}
         except Exception as e:
             logger.error(f"start_task failed: {e}")
