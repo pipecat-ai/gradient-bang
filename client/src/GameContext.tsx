@@ -37,18 +37,6 @@ export interface Ship {
   credits: number;
 }
 
-export interface Task {
-  timestamp: string;
-  outputText: string;
-}
-
-export interface MovementHistory {
-  timestamp: string;
-  from: string;
-  to: string;
-  port?: boolean;
-}
-
 export interface GameState {
   id: string;
   ship?: Ship;
@@ -179,42 +167,6 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
     [mapStore]
   );
 
-  /*const handleImageBySector = useCallback(
-    (hasPort: boolean) => {
-      if (hasPort) {
-        setImage(PortImage);
-      } else {
-        setImage(null);
-      }
-    },
-    [setImage]
-  );
-
-  const moveToSector = useCallback(
-    (sector: string, sectorInfo: unknown) => {
-      dispatch({
-        type: "ADD_MOVEMENT_HISTORY",
-        movementHistory: {
-          timestamp: new Date().toLocaleTimeString("en-GB", {
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit",
-            hour12: false,
-          }),
-          from: game.sector ?? "???",
-          to: sector,
-          port: (sectorInfo as Record<string, unknown>).port_info as boolean,
-        } as MovementHistory,
-      });
-      dispatch({ type: "SET_SECTOR", sector });
-      //dispatch({ type: "SET_SECTOR_INFO", sectorInfo });
-      handleImageBySector(
-        (sectorInfo as Record<string, unknown>).port_info as boolean
-      );
-    },
-    [dispatch, handleImageBySector, game.sector]
-  );*/
-
   const getCargo = useCallback(
     (resource: string) => {
       return game.ship?.cargo[resource] ?? 0;
@@ -258,7 +210,7 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
                 newStatus.sector_contents
               );
 
-              // Handle any map data as part of update
+              // Handle any map data (typically as part of init)
               handleMapData(data.map_data);
               break;
             }

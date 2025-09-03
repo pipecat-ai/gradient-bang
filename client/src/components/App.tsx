@@ -37,6 +37,8 @@ export const App = ({ onConnect }: { onConnect?: () => void }) => {
     }
   }, [client]);
 
+  console.log("AAA", isConnecting, isConnected);
+
   return (
     <div className="min-h-screen grid grid-rows-[1fr_auto] w-full bg-background">
       <main className="flex flex-col overflow-y-scroll h-full">
@@ -53,7 +55,7 @@ export const App = ({ onConnect }: { onConnect?: () => void }) => {
               {!isConnected ? (
                 <StartScreen>
                   <Button
-                    variant={isConnecting ? "default" : "active"}
+                    variant={isConnecting ? "primary" : "active"}
                     loader="stripes"
                     onClick={onConnect}
                     isLoading={isConnecting}
