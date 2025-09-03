@@ -1,4 +1,5 @@
-import { ArrowRightIcon, Button, Input } from "@pipecat-ai/voice-ui-kit";
+import { Button, Input } from "@pipecat-ai/voice-ui-kit";
+import { ArrowRightIcon } from "lucide-react";
 
 import {
   usePipecatClient,

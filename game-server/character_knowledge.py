@@ -9,9 +9,12 @@ including visited sectors, discovered ports, and learned connections.
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+import os
+import threading
 from typing import Dict, List, Set, Optional, Any
 from pydantic import BaseModel, Field
 from ships import ShipType, get_ship_stats
+from core.config import get_world_data_path
 
 
 class SectorKnowledge(BaseModel):
@@ -54,8 +57,8 @@ class CharacterKnowledgeManager:
             data_dir: Directory to store character knowledge files
         """
         if data_dir is None:
-            # Default to world-data/character-map-knowledge
-            self.data_dir = Path(__file__).parent.parent / "world-data" / "character-map-knowledge"
+            # Default to WORLD_DATA_DIR/character-map-knowledge
+            self.data_dir = get_world_data_path() / "character-map-knowledge"
         else:
             self.data_dir = data_dir
         
@@ -64,6 +67,8 @@ class CharacterKnowledgeManager:
         
         # Cache for loaded knowledge
         self.cache: Dict[str, MapKnowledge] = {}
+        # Per-character locks for in-process concurrency
+        self._locks: Dict[str, threading.Lock] = {}
     
     def initialize_ship(self, character_id: str, ship_type: Optional[ShipType] = None):
         """Initialize or update a character's ship configuration.
@@ -147,9 +152,10 @@ class CharacterKnowledgeManager:
         file_path = self.get_file_path(knowledge.character_id)
         
         try:
-            with open(file_path, "w") as f:
+            tmp = file_path.with_suffix(".tmp")
+            with open(tmp, "w") as f:
                 json.dump(knowledge.model_dump(), f, indent=2)
-            
+            tmp.replace(file_path)
             # Update cache
             self.cache[knowledge.character_id] = knowledge
         except Exception as e:
@@ -172,7 +178,9 @@ class CharacterKnowledgeManager:
             planets: Planet information if present
             adjacent_sectors: Adjacent sectors discovered
         """
-        knowledge = self.load_knowledge(character_id)
+        lock = self._locks.setdefault(character_id, threading.Lock())
+        with lock:
+            knowledge = self.load_knowledge(character_id)
         
         now = datetime.now(timezone.utc).isoformat()
         sector_key = str(sector_id)
@@ -214,8 +222,6 @@ class CharacterKnowledgeManager:
         
         knowledge.sectors_visited[sector_key] = sector_knowledge
         knowledge.last_update = now
-        
-        # Save to disk
         self.save_knowledge(knowledge)
     
     def get_known_ports(self, character_id: str) -> List[Dict[str, Any]]:
@@ -342,9 +348,11 @@ class CharacterKnowledgeManager:
             character_id: Character ID
             credits: New credit amount
         """
-        knowledge = self.load_knowledge(character_id)
-        knowledge.credits = credits
-        self.save_knowledge(knowledge)
+        lock = self._locks.setdefault(character_id, threading.Lock())
+        with lock:
+            knowledge = self.load_knowledge(character_id)
+            knowledge.credits = credits
+            self.save_knowledge(knowledge)
     
     def get_credits(self, character_id: str) -> int:
         """Get a character's current credits.
@@ -366,10 +374,12 @@ class CharacterKnowledgeManager:
             commodity: Commodity type (fuel_ore, organics, equipment)
             quantity_delta: Change in quantity (positive for add, negative for remove)
         """
-        knowledge = self.load_knowledge(character_id)
-        current = knowledge.ship_config.cargo.get(commodity, 0)
-        knowledge.ship_config.cargo[commodity] = max(0, current + quantity_delta)
-        self.save_knowledge(knowledge)
+        lock = self._locks.setdefault(character_id, threading.Lock())
+        with lock:
+            knowledge = self.load_knowledge(character_id)
+            current = knowledge.ship_config.cargo.get(commodity, 0)
+            knowledge.ship_config.cargo[commodity] = max(0, current + quantity_delta)
+            self.save_knowledge(knowledge)
     
     def get_cargo(self, character_id: str) -> Dict[str, int]:
         """Get a character's current cargo.

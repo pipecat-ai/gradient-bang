@@ -4,7 +4,7 @@ export const StartScreen = ({ children }: { children: React.ReactNode }) => {
   return (
     <>
       <CardHeader>
-        <CardTitle className="text-2xl">Trade Wars</CardTitle>
+        <CardTitle className="text-2xl">Gradiant Bang</CardTitle>
       </CardHeader>
       <CardContent>
         <p>Welcome message goes here</p>

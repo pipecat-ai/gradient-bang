@@ -1,28 +1,40 @@
 import { RTVIEvent } from "@pipecat-ai/client-js";
-import { useRTVIClientEvent } from "@pipecat-ai/client-react";
+import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react";
 import type { ReactNode } from "react";
 import React, { createContext, useCallback, useReducer } from "react";
 
-import PortImage from "./images/port-1.png";
-import ShipKestrel from "./images/ship-kestrel.png";
+// Stores
+import useMovementHistoryStore from "./stores/history";
+import type { IncomingSectorData } from "./stores/map";
+import useMapStore from "./stores/map";
+import useSectorStore, { type SectorContents } from "./stores/sector";
+import useTaskStore, { type TaskOutput } from "./stores/tasks";
 
-const ShipImageMap = {
-  kestrel: ShipKestrel,
-};
+const ServerMessageKey = "gg-action";
 
+/**
+ * CLIENT INTERFACES
+ */
 export interface Cargo {
-  fo: number;
-  og: number;
-  eq: number;
+  fuel_ore: number;
+  organics: number;
+  equipment: number;
   [key: string]: number | undefined;
 }
 
 export interface Ship {
-  name: string;
-  warp: number;
-  warpCapacity: number;
-  capcity: number;
+  ship_name: string;
+  ship_type: string;
   cargo: Cargo;
+  cargo_capacity: number;
+  cargo_used: number;
+  warp_power: number;
+  warp_power_capacity: number;
+  shields: number;
+  max_shields: number;
+  fighters: number;
+  max_fighters: number;
+  credits: number;
 }
 
 export interface Task {
@@ -38,102 +50,56 @@ export interface MovementHistory {
 }
 
 export interface GameState {
-  credits: number;
+  id: string;
   ship?: Ship;
-  sector?: string | null;
-  image?: string | null;
-  taskStatus: "idle" | "working" | "completed" | "failed";
-  tasks: Task[];
-  movementHistory: MovementHistory[];
-  sectorInfo: unknown;
 }
 
-// Define action types for the reducer
+/**
+ * SERVER MESSAGE TYPINGS
+ */
+type StatusUpdate = {
+  id: string;
+  sector: number;
+  ship?: Ship;
+  sector_contents?: SectorContents;
+  last_active?: string;
+};
+
 type GameAction =
+  | { type: "SET_STATUS"; status: StatusUpdate | Partial<StatusUpdate> }
   | { type: "SET_SHIP"; ship: Ship }
-  | { type: "SET_SECTOR"; sector: string | null }
-  | { type: "SET_SECTOR_INFO"; sectorInfo: unknown }
-  | { type: "SET_IMAGE"; image: string | null }
-  | {
-      type: "SET_TASK_STATUS";
-      taskStatus: "idle" | "working" | "completed" | "failed";
-    }
-  | { type: "ADD_TASK"; task: Task }
-  | { type: "ADD_MOVEMENT_HISTORY"; movementHistory: MovementHistory }
   | { type: "RESET_GAME" }
-  | { type: "ADD_CREDITS"; credits: number }
   | { type: "SET_HIGHLIGHTED_COMPONENT"; component: string | null };
 
 // Initial game state
 const initialState: GameState = {
+  id: "Unknown",
   ship: undefined,
-  credits: 0,
-  sector: null,
-  movementHistory: [],
-  taskStatus: "idle",
-  tasks: [],
-  sectorInfo: {},
 };
 
-// Game reducer function
+/**
+ * GAME REDUCER
+ */
 function gameReducer(state: GameState, action: GameAction): GameState {
   switch (action.type) {
-    case "SET_SHIP": {
-      const image =
-        ShipImageMap[
-          action.ship.name.toLowerCase() as keyof typeof ShipImageMap
-        ];
+    case "SET_STATUS":
+      console.log("[GAME] Updating status", action);
       return {
         ...state,
-        ship: action.ship,
-        image: image,
+        ...(action.status as Partial<StatusUpdate>),
+      };
+
+    case "SET_SHIP": {
+      console.log("[GAME] Updating ship", action);
+      return {
+        ...state,
+        ship: { ...state.ship, ...action.ship },
       };
     }
-
-    case "SET_SECTOR":
-      return {
-        ...state,
-        sector: action.sector,
-      };
-
-    case "SET_SECTOR_INFO":
-      return {
-        ...state,
-        sectorInfo: action.sectorInfo,
-      };
-
-    case "SET_IMAGE":
-      return {
-        ...state,
-        image: action.image,
-      };
-
-    case "SET_TASK_STATUS":
-      return {
-        ...state,
-        taskStatus: action.taskStatus,
-      };
-
-    case "ADD_TASK":
-      return {
-        ...state,
-        tasks: [...state.tasks, action.task],
-      };
-
-    case "ADD_MOVEMENT_HISTORY":
-      return {
-        ...state,
-        movementHistory: [...state.movementHistory, action.movementHistory],
-      };
 
     case "RESET_GAME":
       return initialState;
 
-    case "ADD_CREDITS":
-      return {
-        ...state,
-        credits: state.credits + action.credits,
-      };
     default:
       return state;
   }
@@ -144,16 +110,10 @@ export interface GameContextType {
   game: GameState;
   dispatch: React.Dispatch<GameAction>;
   setShip: (ship: Ship) => void;
-  moveToSector: (sector: string, sectorInfo: unknown) => void;
-  setImage: (image: string | null) => void;
-  setTaskStatus: (
-    taskStatus: "idle" | "working" | "completed" | "failed"
-  ) => void;
-  addTask: (task: Task) => void;
-  addMovementHistory: (movementHistory: MovementHistory) => void;
   resetGame: () => void;
   getCargo: (resource: string) => number;
   getAllCargo: () => Cargo;
+  getStatusFromServer: () => void;
 }
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
@@ -168,13 +128,11 @@ interface GameProviderProps {
 
 export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
   const [game, dispatch] = useReducer(gameReducer, initialState);
-
-  const setImage = useCallback(
-    (image: string | null) => {
-      dispatch({ type: "SET_IMAGE", image });
-    },
-    [dispatch]
-  );
+  const sectorStore = useSectorStore();
+  const movementHistoryStore = useMovementHistoryStore();
+  const mapStore = useMapStore();
+  const taskStore = useTaskStore();
+  const client = usePipecatClient();
 
   const setShip = useCallback(
     (ship: Ship) => {
@@ -183,7 +141,45 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
     [dispatch]
   );
 
-  const handleImageBySector = useCallback(
+  const handleMovement = useCallback(
+    (data: StatusUpdate) => {
+      console.log("[GAME] Handling movement", data);
+      // 1. Update the current sector
+      sectorStore.setSector(data.sector, data.sector_contents);
+
+      // 2. Update movement history
+      movementHistoryStore.addMovementHistory({
+        timestamp: new Date().toLocaleTimeString("en-GB", {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false,
+        }),
+        from: data.sector,
+        to: data.sector,
+        port: data.sector_contents?.port,
+      });
+
+      // Finally, update our current state
+      dispatch({ type: "SET_STATUS", status: data });
+    },
+    [sectorStore, movementHistoryStore]
+  );
+
+  const handleMapData = useCallback(
+    (data: unknown) => {
+      if (data && typeof data === "object" && "sectors_visited" in data) {
+        console.log("[GAME] Map data", data);
+
+        mapStore.importSectorsFromData(
+          data.sectors_visited as Record<string, IncomingSectorData>
+        );
+      }
+    },
+    [mapStore]
+  );
+
+  /*const handleImageBySector = useCallback(
     (hasPort: boolean) => {
       if (hasPort) {
         setImage(PortImage);
@@ -211,13 +207,13 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
         } as MovementHistory,
       });
       dispatch({ type: "SET_SECTOR", sector });
-      dispatch({ type: "SET_SECTOR_INFO", sectorInfo });
+      //dispatch({ type: "SET_SECTOR_INFO", sectorInfo });
       handleImageBySector(
         (sectorInfo as Record<string, unknown>).port_info as boolean
       );
     },
     [dispatch, handleImageBySector, game.sector]
-  );
+  );*/
 
   const getCargo = useCallback(
     (resource: string) => {
@@ -227,66 +223,117 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
   );
 
   const getAllCargo = useCallback(() => {
-    return game.ship?.cargo ?? { fo: 0, og: 0, eq: 0 };
+    return game.ship?.cargo ?? { fuel_ore: 0, organics: 0, equipment: 0 };
   }, [game.ship]);
 
-  const setTaskStatus = (
-    taskStatus: "idle" | "working" | "completed" | "failed"
-  ) => {
-    dispatch({ type: "SET_TASK_STATUS", taskStatus });
-  };
-
-  const addTask = (task: Task) => {
-    dispatch({ type: "ADD_TASK", task });
-  };
-
-  const addMovementHistory = (movementHistory: MovementHistory) => {
-    dispatch({ type: "ADD_MOVEMENT_HISTORY", movementHistory });
-  };
+  const getStatusFromServer = useCallback(() => {
+    client?.sendClientMessage("get-my-status", { id: game.id });
+  }, [client, game]);
 
   const resetGame = () => {
     dispatch({ type: "RESET_GAME" });
   };
 
+  /**
+   * SERVER MESSAGE HANDLER / REDUCER
+   */
   useRTVIClientEvent(
     RTVIEvent.ServerMessage,
     useCallback(
       (data: Record<string, unknown>) => {
-        console.log(data);
-        if ("gg-action" in data) {
-          const action = data["gg-action"];
+        if (ServerMessageKey in data) {
+          const action = data[ServerMessageKey];
+          console.log("[GAME] Server message received", action, data);
           switch (action) {
-            /* STATUS UPDATES */
-            case "my_status":
-              moveToSector(data.current_sector as string, data.sector_contents);
+            // ----- INIT & STATUS
+            case "init":
+            case "my_status": {
+              const newStatus: StatusUpdate = data.result as StatusUpdate;
+              dispatch({
+                type: "SET_STATUS",
+                status: newStatus,
+              });
+              sectorStore.setSector(
+                newStatus.sector,
+                newStatus.sector_contents
+              );
+
+              // Handle any map data as part of update
+              handleMapData(data.map_data);
+              break;
+            }
+
+            // ----- MOVEMENT
+            case "move": {
+              handleMovement(data.result as StatusUpdate);
+              break;
+            }
+
+            // ----- MAP DATA
+            case "my_map": {
+              handleMapData(data.result);
+              break;
+            }
+
+            // ----- WARP POWER
+            case "recharge_warp_power": {
+              dispatch({
+                type: "SET_SHIP",
+                ship: {
+                  warp_power: (data.result as Record<string, unknown>)
+                    .new_warp_power as number,
+                  warp_power_capacity: (data.result as Record<string, unknown>)
+                    .warp_power_capacity as number,
+                  credits: (data.result as Record<string, unknown>)
+                    .new_credits as number,
+                } as Ship,
+              });
+              break;
+            }
+
+            // ----- TASKS
+            case "start_task":
+              taskStore.setActive(true);
+              break;
+            case "stop_task":
+              taskStore.setActive(false);
+              taskStore.setStatus("cancelled");
+              break;
+            case "task-complete":
+              taskStore.setActive(false);
+              if (
+                data.result &&
+                "was_cancelled" in (data.result as Record<string, unknown>)
+              ) {
+                taskStore.setStatus("cancelled");
+              } else {
+                taskStore.setStatus("completed");
+              }
+              break;
+            case "task-output":
+              taskStore.addTaskOutput({
+                ...(data as Record<string, unknown>),
+                timestamp: new Date().toISOString(),
+              } as TaskOutput);
               break;
 
-            /* MOVEMENT */
-            case "move":
-              moveToSector(data.new_sector as string, data.sector_contents);
-              break;
-
-            /* DEFAULT */
+            // ----- DEFAULT
             default:
               console.warn("Unhandled game action", action);
               break;
           }
         }
       },
-      [moveToSector]
+      [sectorStore, handleMovement, handleMapData, taskStore]
     )
   );
 
   const value: GameContextType = {
     game,
+    getStatusFromServer,
     dispatch,
     setShip,
-    moveToSector,
-    setImage,
-    addTask,
-    addMovementHistory,
     resetGame,
-    setTaskStatus,
     getCargo,
     getAllCargo,
   };

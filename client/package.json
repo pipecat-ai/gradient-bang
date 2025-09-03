@@ -13,7 +13,7 @@
     "@pipecat-ai/client-js": "^1.2.0",
     "@pipecat-ai/client-react": "^1.0.1",
     "@pipecat-ai/small-webrtc-transport": "^1.2.0",
-    "@pipecat-ai/voice-ui-kit": "0.2.0",
+    "@pipecat-ai/voice-ui-kit": "0.3.0-rc.0",
     "@tailwindcss/vite": "^4.1.11",
     "lucide-react": "^0.539.0",
     "nanoid": "^5.1.5",
@@ -21,7 +21,8 @@
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
     "tailwindcss": "^4.1.11",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "zustand": "^5.0.8"
   },
   "devDependencies": {
     "@eslint/js": "^9.30.1",

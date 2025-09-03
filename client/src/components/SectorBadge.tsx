@@ -1,18 +1,18 @@
 import { Badge } from "@pipecat-ai/voice-ui-kit";
-import { useGameManager } from "../hooks/useGameManager";
+import useSectorStore from "../stores/sector";
 
 export const SectorBadge = () => {
-  const { game } = useGameManager();
+  const { sector } = useSectorStore();
 
   return (
-    <Badge variant="bracket" color="primary" className="flex-1" size="lg">
+    <Badge variant="bracket" className="flex-1" size="lg">
       Sector:
       <span
         className={
-          game.sector !== null ? "opacity-100 font-extrabold" : "opacity-40"
+          sector !== null ? "opacity-100 font-extrabold" : "opacity-40"
         }
       >
-        {game.sector ?? "unknown"}
+        {sector ?? "unknown"}
       </span>
     </Badge>
   );

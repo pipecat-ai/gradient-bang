@@ -1,0 +1,39 @@
+import { create } from "zustand";
+import type { Port } from "./port";
+import usePortStore from "./port";
+
+interface SectorState {
+  sector?: number;
+  setSector: (sector: number, sectorContents?: SectorContents) => void;
+  sector_contents: SectorContents;
+  setSectorContents: (sectorContents: SectorContents) => void;
+  isAtPort: () => boolean;
+}
+
+export interface SectorContents {
+  port?: Port;
+  planets?: [];
+  other_players?: [];
+  adjacent_sectors: number[];
+}
+
+const useSectorStore = create<SectorState>((set, get) => ({
+  sector: undefined,
+  sector_contents: {
+    port: undefined,
+    adjacent_sectors: [],
+    planets: [],
+    other_players: [],
+  },
+  setSector: (sector: number, sectorContents?: SectorContents) => {
+    set({ sector, ...(sectorContents && { sector_contents: sectorContents }) });
+    if (sectorContents?.port) {
+      usePortStore.getState().setPort(sectorContents.port);
+    }
+  },
+  setSectorContents: (sectorContents: SectorContents) =>
+    set({ sector_contents: sectorContents }),
+  isAtPort: () => !!get().sector_contents.port,
+}));
+
+export default useSectorStore;

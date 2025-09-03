@@ -60,12 +60,21 @@ Environment Variables:
 
     parser.add_argument("character_id", help="Unique identifier for the NPC character")
 
-    parser.add_argument("task", help="Natural language description of the task to complete")
+    parser.add_argument(
+        "task", help="Natural language description of the task to complete"
+    )
 
     parser.add_argument(
         "--server",
         default=os.getenv("GAME_SERVER_URL", "http://localhost:8000"),
         help="Game server URL (default: %(default)s)",
+    )
+
+    parser.add_argument(
+        "--transport",
+        choices=["http", "websocket"],
+        default=os.getenv("NPC_TRANSPORT", "http"),
+        help="Transport protocol: http or websocket (default: %(default)s)",
     )
 
     parser.add_argument(
@@ -101,15 +110,19 @@ Environment Variables:
     try:
         # Create async game client
         logger.info(f"CONNECT server={args.server}")
-        async with AsyncGameClient(base_url=args.server) as game_client:
+        async with AsyncGameClient(
+            base_url=args.server, transport=args.transport
+        ) as game_client:
             # Join the game
             logger.info(f"JOIN character={args.character_id}")
             status = await game_client.join(args.character_id)
 
-            logger.info(f"JOINED sector={status['sector']}")
+            logger.info(f"JOINED sector={status['sector']} transport={args.transport}")
             logger.info(f"Status:\n{json.dumps(status, indent=2)}")
 
-            llm_config = LLMConfig(api_key=os.getenv("OPENAI_API_KEY"), model=args.model)
+            llm_config = LLMConfig(
+                api_key=os.getenv("OPENAI_API_KEY"), model=args.model
+            )
 
             # Create LLM agent
             logger.info(f"INIT_AGENT model={args.model}")

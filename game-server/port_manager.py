@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Dict, Optional, Any
 from datetime import datetime, timezone
 from dataclasses import dataclass, asdict
+import threading
+from core.config import get_world_data_path
 
 
 @dataclass
@@ -23,6 +25,26 @@ class PortState:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return asdict(self)
+
+    @staticmethod
+    def _idx_map() -> Dict[str, int]:
+        return {"FO": 0, "OG": 1, "EQ": 2}
+
+    def buys(self, commodity_key: str) -> bool:
+        idx = self._idx_map().get(commodity_key, -1)
+        return idx >= 0 and self.code[idx] == "B"
+
+    def sells(self, commodity_key: str) -> bool:
+        idx = self._idx_map().get(commodity_key, -1)
+        return idx >= 0 and self.code[idx] == "S"
+
+    def available_to_sell(self, commodity_key: str) -> int:
+        return self.stock.get(commodity_key, 0) if self.sells(commodity_key) else 0
+
+    def available_to_buy(self, commodity_key: str) -> int:
+        if not self.buys(commodity_key):
+            return 0
+        return max(0, self.max_capacity.get(commodity_key, 0) - self.stock.get(commodity_key, 0))
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "PortState":
@@ -79,8 +101,8 @@ class PortManager:
             universe_contents: Loaded sector_contents.json data
         """
         if data_dir is None:
-            # Default to world-data/port-states
-            self.data_dir = Path(__file__).parent.parent / "world-data" / "port-states"
+            # Default to WORLD_DATA_DIR/port-states
+            self.data_dir = get_world_data_path() / "port-states"
         else:
             self.data_dir = data_dir
         
@@ -89,6 +111,8 @@ class PortManager:
         
         # Cache for loaded states
         self.cache: Dict[int, PortState] = {}
+        # Per-sector locks for concurrency in-process
+        self._locks: Dict[int, threading.Lock] = {}
         
         # Reference to universe data for initialization
         self.universe_contents = universe_contents
@@ -150,9 +174,10 @@ class PortManager:
         
         file_path = self.get_file_path(state.sector_id)
         try:
-            with open(file_path, "w") as f:
+            tmp = file_path.with_suffix(".tmp")
+            with open(tmp, "w") as f:
                 json.dump(state.to_dict(), f, indent=2)
-            
+            tmp.replace(file_path)
             # Update cache
             self.cache[state.sector_id] = state
         except Exception as e:
@@ -176,22 +201,22 @@ class PortManager:
         Returns:
             Updated port state or None if no port
         """
-        state = self.load_port_state(sector_id)
-        if not state:
-            return None
-        
-        # Update stock based on transaction type
-        if commodity_key in state.stock:
-            if transaction_type == "buy":  # Player buys from port, port stock decreases
-                state.stock[commodity_key] = max(0, state.stock[commodity_key] - quantity)
-            else:  # Player sells to port, port stock increases
-                state.stock[commodity_key] = min(
-                    state.max_capacity[commodity_key],
-                    state.stock[commodity_key] + quantity
-                )
-        
-        self.save_port_state(state)
-        return state
+        # Concurrency: guard per-sector
+        lock = self._locks.setdefault(sector_id, threading.Lock())
+        with lock:
+            state = self.load_port_state(sector_id)
+            if not state:
+                return None
+            if commodity_key in state.stock:
+                if transaction_type == "buy":  # Player buys from port, port stock decreases
+                    state.stock[commodity_key] = max(0, state.stock[commodity_key] - quantity)
+                else:  # Player sells to port, port stock increases
+                    state.stock[commodity_key] = min(
+                        state.max_capacity[commodity_key],
+                        state.stock[commodity_key] + quantity
+                    )
+            self.save_port_state(state)
+            return state
     
     def reset_all_ports(self) -> int:
         """Reset all ports to their initial universe state.
@@ -244,20 +269,25 @@ class PortManager:
                 state = self.load_port_state(sector_id)
                 
                 if state:
-                    # Regenerate stock for commodities the port sells
+                    # Regenerate based on port behavior:
+                    # - Sells: increase on-hand stock toward max_capacity
+                    # - Buys: increase buying capacity, which in our representation
+                    #         means decreasing on-hand stock toward 0
                     for com_key in ["FO", "OG", "EQ"]:
                         idx = {"FO": 0, "OG": 1, "EQ": 2}[com_key]
-                        if state.code[idx] == "S":  # Port sells this
-                            regen_amount = int(state.stock_max[com_key] * fraction)
+                        max_cap = state.max_capacity.get(com_key, 0)
+                        regen_amount = int(max_cap * fraction)
+                        if regen_amount <= 0:
+                            continue
+                        if state.code[idx] == "S":  # Port sells this commodity
                             state.stock[com_key] = min(
-                                state.stock_max[com_key],
-                                state.stock[com_key] + regen_amount
+                                max_cap,
+                                state.stock.get(com_key, 0) + regen_amount,
                             )
-                        elif state.code[idx] == "B":  # Port buys this
-                            regen_amount = int(state.demand_max[com_key] * fraction)
-                            state.demand[com_key] = min(
-                                state.demand_max[com_key],
-                                state.demand[com_key] + regen_amount
+                        elif state.code[idx] == "B":  # Port buys this commodity
+                            state.stock[com_key] = max(
+                                0,
+                                state.stock.get(com_key, 0) - regen_amount,
                             )
                     
                     self.save_port_state(state)
