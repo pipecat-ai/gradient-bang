@@ -4,45 +4,72 @@ import {
   CardHeader,
   PanelTitle,
 } from "@pipecat-ai/voice-ui-kit";
-import { useGameManager } from "../hooks/useGameManager";
+import { useEffect, useRef } from "react";
 import { usePanelRef } from "../hooks/usePanelRef";
+import useTaskStore from "../stores/tasks";
+
+const formatTimestamp = (isoString: string) => {
+  return new Date(isoString).toLocaleString("en-GB", {
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+};
 
 const TaskRow = ({
   timestamp,
   outputText,
 }: {
   timestamp: string;
-  outputText: string;
+  outputText?: string;
 }) => {
   return (
-    <div className="flex flex-row gap-2 w-full text-xs">
-      <div className="flex flex-row gap-2 text-subtle">[{timestamp}]</div>
+    <div className="flex flex-row gap-3 w-full text-[11px]">
+      <div className="flex text-subtle font-bold">
+        [{formatTimestamp(timestamp)}]
+      </div>
       <div className="flex flex-row gap-2 normal-case">{outputText}</div>
     </div>
   );
 };
 
 export const TaskOutputPanel = () => {
-  const { game } = useGameManager();
   const panelRef = usePanelRef("task_output");
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  const { getTasks } = useTaskStore();
+
+  const tasks = getTasks();
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [tasks]);
+
   return (
     <Card
       ref={panelRef}
-      noElbows={false}
+      withElbows={true}
       background="scanlines"
       className="flex w-full h-full"
     >
       <CardHeader>
         <PanelTitle>Task Output</PanelTitle>
       </CardHeader>
-      <CardContent className="flex flex-col gap-2 overflow-y-auto">
-        {game.tasks.map((task) => (
-          <TaskRow
-            key={task.timestamp}
-            timestamp={task.timestamp}
-            outputText={task.outputText}
-          />
-        ))}
+      <CardContent className="flex flex-col gap-2 overflow-y-auto h-full">
+        <div className="relative h-full w-full dotted-overlay-bottom">
+          <div className="absolute inset-0 overflow-y-auto flex flex-col gap-3 retro-scrollbar">
+            {tasks.map((task) => (
+              <TaskRow
+                key={task.timestamp}
+                timestamp={task.timestamp}
+                outputText={task.text || ""}
+              />
+            ))}
+            <div ref={bottomRef} />
+          </div>
+        </div>
       </CardContent>
     </Card>
   );

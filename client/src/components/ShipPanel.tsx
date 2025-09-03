@@ -10,7 +10,7 @@ import { TaskStatusBadge } from "./TaskStatusBadge";
 
 export const ShipPanel = () => {
   return (
-    <Card className="h-full bg-background" noElbows={false}>
+    <Card className="h-full bg-background" withElbows={true}>
       <CardHeader className="flex flex-row justify-between">
         <PanelTitle>Ship OSD</PanelTitle>
         <PanelTitle className="text-border">v12.1</PanelTitle>

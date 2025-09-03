@@ -1,4 +1,3 @@
-import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import {
@@ -15,30 +14,28 @@ import { UIProvider } from "./UIContext";
 import "./index.css";
 
 createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <PipecatAppBase
-      connectParams={{
-        webrtcUrl: "/api/offer",
-      }}
-      transportType="smallwebrtc"
-      themeProps={{ defaultTheme: "dark" }}
-    >
-      {({ client, handleConnect, error }) =>
-        !client ? (
-          // Await for the client and JS to initialize
-          <FullScreenContainer>
-            <StripeLoader />
-          </FullScreenContainer>
-        ) : error ? (
-          <Error onRetry={handleConnect}>{error}</Error>
-        ) : (
-          <GameProvider>
-            <UIProvider>
-              <App onConnect={handleConnect} />
-            </UIProvider>
-          </GameProvider>
-        )
-      }
-    </PipecatAppBase>
-  </StrictMode>
+  <PipecatAppBase
+    connectParams={{
+      webrtcUrl: "/api/offer",
+    }}
+    transportType="smallwebrtc"
+    themeProps={{ defaultTheme: "dark" }}
+  >
+    {({ client, handleConnect, error }) =>
+      !client ? (
+        // Await for the client and JS to initialize
+        <FullScreenContainer>
+          <StripeLoader />
+        </FullScreenContainer>
+      ) : error ? (
+        <Error onRetry={handleConnect}>{error}</Error>
+      ) : (
+        <GameProvider>
+          <UIProvider>
+            <App onConnect={handleConnect} />
+          </UIProvider>
+        </GameProvider>
+      )
+    }
+  </PipecatAppBase>
 );

@@ -1,31 +1,36 @@
 import { Badge } from "@pipecat-ai/voice-ui-kit";
 import { useMemo } from "react";
-import { useGameManager } from "../hooks/useGameManager";
+import useTaskStore from "../stores/tasks";
 
 export const TaskStatusBadge = () => {
-  const { game } = useGameManager();
+  const { active, status } = useTaskStore();
 
   const badgeColor = useMemo(() => {
-    switch (game.taskStatus) {
-      case "idle":
+    if (!active && !status) return "secondary";
+    if (!status && active) return "warning";
+    switch (status) {
+      case "paused":
         return "primary";
-      case "working":
-        return "warning";
       case "completed":
         return "active";
+      case "cancelled":
       case "failed":
         return "inactive";
     }
-  }, [game.taskStatus]);
+  }, [status, active]);
+
+  const badgeLabel = useMemo(() => {
+    if (!active && !status) return "idle";
+    if (!status && active) return "working";
+    return status || "idle";
+  }, [status, active]);
 
   return (
     <Badge
-      className={`w-full ${
-        game.taskStatus === "working" ? "animate-pulse" : ""
-      }`}
+      className={`w-full ${active ? "animate-pulse" : ""}`}
       color={badgeColor}
     >
-      <span className="font-extrabold">{game.taskStatus}</span>
+      <span className="font-extrabold">{badgeLabel}</span>
     </Badge>
   );
 };
