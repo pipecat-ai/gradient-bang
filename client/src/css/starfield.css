@@ -1,0 +1,63 @@
+/* ============================================================================
+   ANIMATION OVERLAY STYLES
+   ============================================================================ */
+#warpOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 100;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+#warpOverlay.active {
+  opacity: 1;
+}
+
+#whiteFlash {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: white;
+  pointer-events: none;
+  z-index: 1001;
+  opacity: 0;
+}
+/* ============================================================================
+   UTILITY STYLES
+   ============================================================================ */
+
+/* Fullscreen background image behind WebGL canvas */
+#bgImage {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover; /* preserve aspect while covering */
+  z-index: 0; /* behind the renderer canvas (z-index: 1) */
+  pointer-events: none;
+}
+
+/* Subtle vignette overlay */
+#vignette {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 10; /* Above the three.js canvas but below UI */
+  background: radial-gradient(
+    ellipse at center,
+    transparent 0%,
+    transparent 60%,
+    rgba(0, 0, 0, 0.1) 75%,
+    rgba(0, 0, 0, 0.3) 90%,
+    rgba(0, 0, 0, 0.6) 100%
+  );
+  opacity: 0.8;
+}

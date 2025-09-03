@@ -44,7 +44,19 @@ body {
   height: 100vh;
 }
 
-/** FX (Not VKUI related) **/
+/** UI **/
+.lhs-perspective {
+  transform: perspective(400px) rotateY(9deg);
+  transform-origin: left center;
+  backface-visibility: hidden;
+}
+.rhs-perspective {
+  transform: perspective(400px) rotateY(-9deg);
+  transform-origin: right center;
+  backface-visibility: hidden;
+}
+
+/** FX **/
 
 .glitch {
   position: relative;
@@ -342,3 +354,5 @@ body {
 .highlight-animation {
   animation: highlight-focus 1.2s ease-out forwards;
 }
+
+@import "./starfield.css";

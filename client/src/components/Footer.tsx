@@ -1,15 +1,16 @@
 import { RTVIEvent, type TransportState } from "@pipecat-ai/client-js";
 import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react";
-import { Badge } from "@pipecat-ai/voice-ui-kit";
+import { Badge, Button } from "@pipecat-ai/voice-ui-kit";
 import { XIcon } from "lucide-react";
 import { useCallback, useState } from "react";
 import { useGameManager } from "../hooks/useGameManager";
+import useStarfieldStore from "../stores/starfield";
 import { DotDivider } from "./primitives/DotDivider";
 import { WarpBadge } from "./WarpBadge";
 
 export const Footer = () => {
   const { game, getAllCargo } = useGameManager();
-
+  const { getInstance } = useStarfieldStore();
   const client = usePipecatClient();
   const [transportState, setTransportState] =
     useState<TransportState>("disconnected");
@@ -121,6 +122,36 @@ export const Footer = () => {
           <XIcon size={20} />
           Eject
         </Badge>
+        <Button
+          size="sm"
+          onClick={() => {
+            const instance = getInstance();
+            if (instance) {
+              console.log(instance.logConfig());
+            }
+          }}
+        >
+          Log config
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => {
+            const instance = getInstance();
+            if (!instance) return;
+            instance.warpToSector({
+              id: "1",
+              gameObjects: [
+                {
+                  id: "port_1",
+                  type: "port",
+                  name: "Port",
+                },
+              ],
+            });
+          }}
+        >
+          Warp to sector 1
+        </Button>
       </div>
     </footer>
   );

@@ -33,6 +33,7 @@ const useSectorStore = create<SectorState>((set, get) => ({
   },
   setSectorContents: (sectorContents: SectorContents) =>
     set({ sector_contents: sectorContents }),
+  getSectorContents: () => get().sector_contents,
   isAtPort: () => !!get().sector_contents.port,
 }));
 
