@@ -14,6 +14,7 @@ from utils.tools_schema import (
     Move,
     CheckTrade,
     Trade,
+    SendMessage,
     RechargeWarpPower,
     TransferWarpPower,
     TaskFinished,
@@ -115,6 +116,7 @@ class TaskAgent(BaseLLMAgent):
                 Move,
                 CheckTrade,
                 Trade,
+                SendMessage,
                 RechargeWarpPower,
                 TransferWarpPower,
                 TaskFinished,
@@ -152,7 +154,10 @@ class TaskAgent(BaseLLMAgent):
         return (tool_message, should_continue)
 
     async def run_task(
-        self, task: str, initial_state: Dict[str, Any], max_iterations: int = 50
+        self,
+        task: str,
+        initial_state: Optional[Dict[str, Any]] = None,
+        max_iterations: int = 50,
     ) -> bool:
         """Run a complete task until finished or max iterations reached.
 
@@ -177,8 +182,9 @@ class TaskAgent(BaseLLMAgent):
                 "content": create_task_instruction_user_message(task),
             }
         )
-        for message in create_initial_status_messages(initial_state):
-            self.add_message(message)
+        if initial_state:
+            for message in create_initial_status_messages(initial_state):
+                self.add_message(message)
 
         # Accumulate token usage across all assistant responses
         token_usage_totals: Dict[str, int] = {}

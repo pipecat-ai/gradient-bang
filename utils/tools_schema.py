@@ -234,7 +234,7 @@ class TransferWarpPower(GameClientTool):
             name="transfer_warp_power",
             description="Transfer warp power to another character in the same sector",
             properties={
-                "to_character_id": {
+                "to_name": {
                     "type": "string",
                     "description": "Character ID to transfer warp power to",
                     "minLength": 1,
@@ -249,6 +249,32 @@ class TransferWarpPower(GameClientTool):
             required=["to_character_id", "units"],
         )
 
+
+
+class SendMessage(GameClientTool):
+    def __call__(self, **args):
+        return self.game_client.send_message(**args)
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="send_message",
+            description="Send a chat message (broadcast or direct)",
+            properties={
+                "content": {"type": "string", "description": "Message text (max 512 chars)"},
+                "msg_type": {
+                    "type": "string",
+                    "enum": ["broadcast", "direct"],
+                    "description": "Message type",
+                    "default": "broadcast",
+                },
+                "to_name": {
+                    "type": "string",
+                    "description": "Recipient character name (required for direct)",
+                },
+            },
+            required=["content"],
+        )
 
 ##
 

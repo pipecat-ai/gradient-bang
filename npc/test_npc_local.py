@@ -7,6 +7,8 @@ executed as part of the automated test suite.
 """
 
 import asyncio
+import pytest
+pytestmark = pytest.mark.skip("Manual local test; skipped under pytest")
 import sys
 from pathlib import Path
 
@@ -14,7 +16,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.api_client import AsyncGameClient
-from utils.game_tools import AsyncToolExecutor
+try:
+    from utils.game_tools import AsyncToolExecutor  # type: ignore
+except Exception:  # pragma: no cover
+    AsyncToolExecutor = None  # type: ignore
 
 
 async def main() -> int:
@@ -115,4 +120,3 @@ async def main() -> int:
 
 if __name__ == "__main__":  # pragma: no cover - manual execution
     sys.exit(asyncio.run(main()))
-
