@@ -1,6 +1,7 @@
 import { RTVIEvent, type TransportState } from "@pipecat-ai/client-js";
 import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react";
-import { Badge, XIcon } from "@pipecat-ai/voice-ui-kit";
+import { Badge } from "@pipecat-ai/voice-ui-kit";
+import { XIcon } from "lucide-react";
 import { useCallback, useState } from "react";
 import { useGameManager } from "../hooks/useGameManager";
 import { DotDivider } from "./primitives/DotDivider";
@@ -60,7 +61,7 @@ export const Footer = () => {
           <span className="font-bold">Ship:</span>
           <div className="flex flex-row gap-2 items-center">
             <span className={game.ship ? "opacity-100" : "opacity-40"}>
-              {game.ship?.name ?? "Unknown"}
+              {game.ship?.ship_name ?? "Unknown"}
             </span>
           </div>
         </div>
@@ -72,8 +73,14 @@ export const Footer = () => {
       <div className="flex flex-row gap-2 items-center">
         <Badge size="sm" variant="elbow" color="primary">
           $ Credits:{" "}
-          <span className={game.credits > 0 ? "opacity-100" : "opacity-40"}>
-            {game.credits.toLocaleString()}
+          <span
+            className={
+              game.ship?.credits && game.ship.credits > 0
+                ? "opacity-100"
+                : "opacity-40"
+            }
+          >
+            {game.ship?.credits?.toLocaleString()}
           </span>
         </Badge>
         <DotDivider />
@@ -91,7 +98,7 @@ export const Footer = () => {
         <Badge size="sm" variant="elbow" color="primary">
           Capacity:{" "}
           <span className={game.ship ? "opacity-100" : "opacity-40"}>
-            {game.ship?.capcity ?? "---"}
+            {game.ship?.cargo_capacity ?? "---"}
           </span>
         </Badge>
       </div>

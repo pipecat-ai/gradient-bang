@@ -2,16 +2,16 @@ import {
   Button,
   Card,
   Divider,
-  GripIcon,
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
+  usePipecatConnectionState,
 } from "@pipecat-ai/voice-ui-kit";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import { RTVIEvent } from "@pipecat-ai/client-js";
-import { useRTVIClientEvent } from "@pipecat-ai/client-react";
+import { usePipecatClient } from "@pipecat-ai/client-react";
+import { GripIcon } from "lucide-react";
 import { ControlBar } from "./ControlBar";
 import { ConversationPanel } from "./ConversationPanel";
 import { DebugPanel } from "./DebugPanel";
@@ -26,27 +26,16 @@ import { StartScreen } from "./StartScreen";
 import { TaskOutputPanel } from "./TaskOutputPanel";
 
 export const App = ({ onConnect }: { onConnect?: () => void }) => {
-  const [connectedState, setConnectedState] = useState<
-    "disconnected" | "connecting" | "connected"
-  >("disconnected");
+  const { isConnecting, isConnected } = usePipecatConnectionState();
+  const client = usePipecatClient();
   const [currentPanel, setCurrentPanel] =
     useState<PanelMenuItem>("movement_history");
 
-  useRTVIClientEvent(RTVIEvent.TransportStateChanged, (newState) => {
-    switch (newState) {
-      case "ready":
-        setConnectedState("connected");
-        break;
-      case "connecting":
-      case "authenticating":
-      case "authenticated":
-        setConnectedState("connecting");
-        break;
-      default:
-        setConnectedState("disconnected");
-        break;
+  useEffect(() => {
+    if (client) {
+      client.initDevices();
     }
-  });
+  }, [client]);
 
   return (
     <div className="min-h-screen grid grid-rows-[1fr_auto] w-full bg-background">
@@ -61,15 +50,13 @@ export const App = ({ onConnect }: { onConnect?: () => void }) => {
             className="flex-1 flex flex-col justify-center items-center gap-panel min-h-0"
           >
             <Card background="stripes" className="flex-1 w-full">
-              {["disconnected", "connecting"].includes(connectedState) ? (
+              {!isConnected ? (
                 <StartScreen>
                   <Button
-                    variant={
-                      connectedState === "connecting" ? "default" : "active"
-                    }
+                    variant={isConnecting ? "default" : "active"}
                     loader="stripes"
                     onClick={onConnect}
-                    isLoading={connectedState === "connecting"}
+                    isLoading={isConnecting}
                   >
                     INITIATE PROTOCOL
                   </Button>

@@ -18,8 +18,8 @@ importers:
         specifier: ^1.2.0
         version: 1.2.0(@pipecat-ai/client-js@1.2.0)
       '@pipecat-ai/voice-ui-kit':
-        specifier: 0.2.0
-        version: 0.2.0(@daily-co/daily-js@0.77.0)(@pipecat-ai/client-js@1.2.0)(@pipecat-ai/client-react@1.0.1(@babel/core@7.28.3)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.2.0)(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(@pipecat-ai/small-webrtc-transport@1.2.0(@pipecat-ai/client-js@1.2.0))(@types/react-dom@19.1.7(@types/react@19.1.10))(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
+        specifier: 0.3.0-rc.0
+        version: 0.3.0-rc.0(@daily-co/daily-js@0.77.0)(@pipecat-ai/client-js@1.2.0)(@pipecat-ai/client-react@1.0.1(@babel/core@7.28.3)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.2.0)(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(@pipecat-ai/small-webrtc-transport@1.2.0(@pipecat-ai/client-js@1.2.0))(@types/react-dom@19.1.7(@types/react@19.1.10))(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@tailwindcss/vite':
         specifier: ^4.1.11
         version: 4.1.12(vite@7.1.2(jiti@2.5.1)(lightningcss@1.30.1))
@@ -44,6 +44,9 @@ importers:
       uuid:
         specifier: ^11.1.0
         version: 11.1.0
+      zustand:
+        specifier: ^5.0.8
+        version: 5.0.8(@types/react@19.1.10)(react@19.1.1)
     devDependencies:
       '@eslint/js':
         specifier: ^9.30.1
@@ -458,8 +461,8 @@ packages:
     peerDependencies:
       '@pipecat-ai/client-js': ~1.2.0
 
-  '@pipecat-ai/voice-ui-kit@0.2.0':
-    resolution: {integrity: sha512-6xvH/g52JDLOw0KqH9IO7QajRCPTPNbrxkNNDEl3chwki8gia0M2HNbUWx/23m4c9Ql+CYs531fUfwmcp6ajeg==}
+  '@pipecat-ai/voice-ui-kit@0.3.0-rc.0':
+    resolution: {integrity: sha512-yFBSOAJPklk7yuMfDlw1il59x+AaTd1JcqHqJLnl2f5F+V2BOok3hZlhRv8IzYtx3uzQBWBFB87h4d/GtaZZ2Q==}
     engines: {node: '>=18'}
     peerDependencies:
       '@daily-co/daily-js': '>=0.80.0'
@@ -661,6 +664,19 @@ packages:
 
   '@radix-ui/react-primitive@2.1.3':
     resolution: {integrity: sha512-m9gTwRkhy2lvCPe6QJp4d3G1TYEUHn/FzJUtq9MjH46an1wJU+GdoGC5VLof8RX8Ft/DlpshApkhswDLZzHIcQ==}
+    peerDependencies:
+      '@types/react': '*'
+      '@types/react-dom': '*'
+      react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+      react-dom: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      '@types/react-dom':
+        optional: true
+
+  '@radix-ui/react-progress@1.1.7':
+    resolution: {integrity: sha512-vPdg/tF6YC/ynuBIJlk1mm7Le0VgW6ub6J2UWnTQ7/D23KXcPI1qy+0vBkgKgd38RCMJavBXpB83HPNFMTb0Fg==}
     peerDependencies:
       '@types/react': '*'
       '@types/react-dom': '*'
@@ -2187,6 +2203,24 @@ packages:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
 
+  zustand@5.0.8:
+    resolution: {integrity: sha512-gyPKpIaxY9XcO2vSMrLbiER7QMAMGOQZVRdJ6Zi782jkbzZygq5GI9nG8g+sMgitRtndwaBSl7uiqC49o1SSiw==}
+    engines: {node: '>=12.20.0'}
+    peerDependencies:
+      '@types/react': '>=18.0.0'
+      immer: '>=9.0.6'
+      react: '>=18.0.0'
+      use-sync-external-store: '>=1.2.0'
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      immer:
+        optional: true
+      react:
+        optional: true
+      use-sync-external-store:
+        optional: true
+
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
@@ -2534,13 +2568,14 @@ snapshots:
       '@pipecat-ai/client-js': 1.2.0
       dequal: 2.0.3
 
-  '@pipecat-ai/voice-ui-kit@0.2.0(@daily-co/daily-js@0.77.0)(@pipecat-ai/client-js@1.2.0)(@pipecat-ai/client-react@1.0.1(@babel/core@7.28.3)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.2.0)(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(@pipecat-ai/small-webrtc-transport@1.2.0(@pipecat-ai/client-js@1.2.0))(@types/react-dom@19.1.7(@types/react@19.1.10))(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)':
+  '@pipecat-ai/voice-ui-kit@0.3.0-rc.0(@daily-co/daily-js@0.77.0)(@pipecat-ai/client-js@1.2.0)(@pipecat-ai/client-react@1.0.1(@babel/core@7.28.3)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.2.0)(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(@pipecat-ai/small-webrtc-transport@1.2.0(@pipecat-ai/client-js@1.2.0))(@types/react-dom@19.1.7(@types/react@19.1.10))(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)':
     dependencies:
       '@daily-co/daily-js': 0.77.0
       '@pipecat-ai/client-js': 1.2.0
       '@pipecat-ai/client-react': 1.0.1(@babel/core@7.28.3)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.2.0)(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-dropdown-menu': 2.1.16(@types/react-dom@19.1.7(@types/react@19.1.10))(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-popover': 1.1.15(@types/react-dom@19.1.7(@types/react@19.1.10))(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
+      '@radix-ui/react-progress': 1.1.7(@types/react-dom@19.1.7(@types/react@19.1.10))(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-select': 2.2.6(@types/react-dom@19.1.7(@types/react@19.1.10))(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-slot': 1.2.3(@types/react@19.1.10)(react@19.1.1)
       '@radix-ui/react-tabs': 1.1.13(@types/react-dom@19.1.7(@types/react@19.1.10))(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
@@ -2747,6 +2782,16 @@ snapshots:
   '@radix-ui/react-primitive@2.1.3(@types/react-dom@19.1.7(@types/react@19.1.10))(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)':
     dependencies:
       '@radix-ui/react-slot': 1.2.3(@types/react@19.1.10)(react@19.1.1)
+      react: 19.1.1
+      react-dom: 19.1.1(react@19.1.1)
+    optionalDependencies:
+      '@types/react': 19.1.10
+      '@types/react-dom': 19.1.7(@types/react@19.1.10)
+
+  '@radix-ui/react-progress@1.1.7(@types/react-dom@19.1.7(@types/react@19.1.10))(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)':
+    dependencies:
+      '@radix-ui/react-context': 1.1.2(@types/react@19.1.10)(react@19.1.1)
+      '@radix-ui/react-primitive': 2.1.3(@types/react-dom@19.1.7(@types/react@19.1.10))(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       react: 19.1.1
       react-dom: 19.1.1(react@19.1.1)
     optionalDependencies:
@@ -4343,5 +4388,10 @@ snapshots:
   yallist@5.0.0: {}
 
   yocto-queue@0.1.0: {}
+
+  zustand@5.0.8(@types/react@19.1.10)(react@19.1.1):
+    optionalDependencies:
+      '@types/react': 19.1.10
+      react: 19.1.1
 
   zwitch@2.0.4: {}
