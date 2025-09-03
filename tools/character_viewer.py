@@ -572,7 +572,16 @@ class CharacterViewer(App):
             
             if sector_contents.port:
                 port_info = sector_contents.port
-                port_str = f"Sector {current_sector}: {port_info.code} - Buys: {', '.join(port_info.buys) if port_info.buys else 'nothing'}, Sells: {', '.join(port_info.sells) if port_info.sells else 'nothing'}"
+                # Derive buys/sells from code using shared helpers
+                try:
+                    from utils.port_helpers import list_buys, list_sells
+                    buys_list = list_buys(port_info.model_dump())
+                    sells_list = list_sells(port_info.model_dump())
+                except Exception:
+                    buys_list, sells_list = [], []
+                buys_str = ", ".join(buys_list) if buys_list else "nothing"
+                sells_str = ", ".join(sells_list) if sells_list else "nothing"
+                port_str = f"Sector {current_sector}: {port_info.code} - Buys: {buys_str}, Sells: {sells_str}"
                 if not self.port_history or self.port_history[-1] != port_str:
                     self.port_history.append(port_str)
                     port_log = self.query_one("#port-log", RichLog)

@@ -281,11 +281,19 @@ class MapWidget(Vertical):
             if current_info.get("port_info"):
                 port = current_info["port_info"]
                 map_lines.append("")
-                map_lines.append(f"Current Port: Class {port.get('class')} (Code: {port.get('code')})")
-                if port.get("buys"):
-                    map_lines.append(f"Buys: {', '.join(port['buys'])}")
-                if port.get("sells"):
-                    map_lines.append(f"Sells: {', '.join(port['sells'])}")
+                port_code = port.get('code')
+                map_lines.append(f"Current Port: Code {port_code}")
+                # Derive buys/sells from code using shared helpers
+                try:
+                    from utils.port_helpers import list_buys, list_sells
+                    buys_list = list_buys(port)
+                    sells_list = list_sells(port)
+                except Exception:
+                    buys_list, sells_list = [], []
+                if buys_list:
+                    map_lines.append(f"Buys: {', '.join(buys_list)}")
+                if sells_list:
+                    map_lines.append(f"Sells: {', '.join(sells_list)}")
         
         self.map_display.update("\n".join(map_lines))
         self.header.update(f"Local Map (Sector {self.current_sector})")
