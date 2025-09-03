@@ -15,6 +15,7 @@ from loguru import logger
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
+    Frame,
     TranscriptionFrame,
     StartInterruptionFrame,
     StopInterruptionFrame,
@@ -24,13 +25,17 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.services.openai.base_llm import BaseOpenAILLMService
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
+from pipecat.processors.aggregators.openai_llm_context import (
+    OpenAILLMContext,
+    OpenAILLMContextFrame,
+)
 from pipecat.processors.frameworks.rtvi import (
     RTVIConfig,
     RTVIObserver,
     RTVIProcessor,
     RTVIServerMessageFrame,
 )
+from pipecat.processors.frame_processor import FrameProcessor, FrameDirection
 from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.speechmatics.stt import SpeechmaticsSTTService
 from pipecat.services.openai.llm import OpenAILLMService
@@ -38,7 +43,7 @@ from pipecat.transports.base_transport import TransportParams
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
 
-from utils.prompts import GAME_DESCRIPTION, CHAT_INSTRUCTIONS
+from utils.prompts import GAME_DESCRIPTION, CHAT_INSTRUCTIONS, VOICE_INSTRUCTIONS
 from voice_task_manager import VoiceTaskManager
 
 
@@ -48,11 +53,34 @@ logger.remove()
 logger.add(sys.stderr, level="INFO")
 
 
+class TaskProgressInserter(FrameProcessor):
+    def __init__(self, voice_task_manager: VoiceTaskManager):
+        super().__init__()
+        self._voice_task_manager = voice_task_manager
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+
+        if isinstance(frame, OpenAILLMContextFrame):
+            task_buffer = self._voice_task_manager.get_task_progress()
+            if task_buffer.strip():
+                frame.context.messages.insert(
+                    len(frame.context.messages) - 1,
+                    {
+                        "role": "user",
+                        "content": f"Task Progress:\n{task_buffer}",
+                    },
+                )
+
+        await self.push_frame(frame, direction)
+
+
 def create_chat_system_prompt() -> str:
     """Create the system prompt for the chat agent."""
     return f"""{GAME_DESCRIPTION}
-
-{CHAT_INSTRUCTIONS}"""
+{CHAT_INSTRUCTIONS}
+{VOICE_INSTRUCTIONS}
+"""
 
 
 async def run_bot(transport):
@@ -125,6 +153,8 @@ async def run_bot(transport):
     )
     llm.register_function(None, task_manager.execute_tool_call)
 
+    task_progress = TaskProgressInserter(task_manager)
+
     # System prompt
     messages = [
         {
@@ -144,6 +174,7 @@ async def run_bot(transport):
             stt,
             rtvi,  # Add RTVI processor for transcription events
             context_aggregator.user(),
+            task_progress,
             llm,
             tts,
             transport.output(),
