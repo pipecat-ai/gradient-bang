@@ -59,6 +59,8 @@ class VoiceTaskManager:
             character_id=self.character_id,
             verbose_prompts=verbose_prompts,
             output_callback=self._task_output_handler,
+            tool_call_event_callback=self._on_tool_call_event,
+            tool_result_event_callback=self._on_tool_result_event,
         )
 
         # Task management
@@ -86,6 +88,28 @@ class VoiceTaskManager:
         result = await self.game_client.join(self.character_id)
         logger.info(f"Join successful: {result}")
         return result
+
+    async def _on_tool_call_event(self, tool_name: str, arguments: Any):
+        await self.rtvi_processor.push_frame(
+            RTVIServerMessageFrame(
+                {
+                    "gg-action": "tool_call",
+                    "tool_name": tool_name,
+                    "payload": {"arguments": arguments},
+                }
+            )
+        )
+
+    async def _on_tool_result_event(self, tool_name: str, payload: Any):
+        await self.rtvi_processor.push_frame(
+            RTVIServerMessageFrame(
+                {
+                    "gg-action": "tool_result",
+                    "tool_name": tool_name,
+                    "payload": payload,
+                }
+            )
+        )
 
     #
     # Task management
@@ -229,6 +253,12 @@ class VoiceTaskManager:
             tool_name = "unknown"
 
         try:
+            # Gather arguments for the call (for pre-call event)
+            arguments = params.arguments
+
+            # Emit a pre-call notification
+            await self._on_tool_call_event(tool_name, arguments)
+
             # Special tools managed by the voice task manager
             if tool_name == "start_task":
                 result = await self._handle_start_task(params)
@@ -246,20 +276,18 @@ class VoiceTaskManager:
 
                 # Normalize argument order based on AsyncGameClient signatures
                 func = self._tool_dispatch[tool_name]
-                arguments = params.arguments
                 result = await func(**arguments)
                 payload = {"result": result}
 
-            await params.llm.push_frame(
-                RTVIServerMessageFrame({"gg-action": tool_name, **payload})
-            )
+            # Emit a standardized tool_result message
+            await self._on_tool_result_event(tool_name, payload)
+
             await params.result_callback(payload)
         except Exception as e:
             logger.error(f"tool '{tool_name}' failed: {e}")
             error_payload = {"error": str(e)}
-            await params.llm.push_frame(
-                RTVIServerMessageFrame({"gg-action": tool_name, **error_payload})
-            )
+            # Emit a standardized error as tool_result
+            await self._on_tool_result_event(tool_name, error_payload)
             await params.result_callback(error_payload)
 
     async def _handle_start_task(self, params: FunctionCallParams):
