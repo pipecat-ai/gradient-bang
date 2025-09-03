@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 from ships import ShipType, get_ship_stats
-from trading import get_port_prices
+from trading import get_port_prices, get_port_stock
 
 
 def log_trade(
@@ -19,7 +19,9 @@ def log_trade(
     credits_after: int,
 ) -> None:
     """Append a trade (or warp power) transaction to JSONL trade history."""
-    trade_log_path = Path(__file__).parent.parent.parent / "world-data" / "trade_history.jsonl"
+    trade_log_path = (
+        Path(__file__).parent.parent.parent / "world-data" / "trade_history.jsonl"
+    )
 
     trade_record = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -62,13 +64,15 @@ def build_ship_status(world, character_id: str) -> Dict[str, Any]:
     }
 
 
-def sector_contents(world, sector_id: int, current_character_id: Optional[str] = None) -> Dict[str, Any]:
+def sector_contents(
+    world, sector_id: int, current_character_id: Optional[str] = None
+) -> Dict[str, Any]:
     """Compute contents of a sector visible to a character.
 
-    Returns minimal port snapshot (code, last_seen_prices), planets, other players, adjacency.
+    Returns minimal port snapshot (code, last_seen_prices, last_seen_stock), planets, other players, adjacency.
     """
 
-    # Port info (minimal snapshot)
+    # Port info (minimal snapshot) -- todo: write tests and refactor this. there's much more logic here than there needs to be
     port_info = None
     if world.port_manager:
         port_state = world.port_manager.load_port_state(sector_id)
@@ -89,12 +93,19 @@ def sector_contents(world, sector_id: int, current_character_id: Optional[str] =
                 else:
                     full_port_for_pricing["sells"].append(name)
             prices = get_port_prices(full_port_for_pricing)
+            stock = get_port_stock(full_port_for_pricing)
             if sector_id == 0:
                 prices["warp_power_depot"] = {
                     "price_per_unit": 2,
                     "note": "Special warp power depot - recharge your ship",
                 }
-            port_info = {"code": port_state.code, "last_seen_prices": prices, "observed_at": datetime.now(timezone.utc).isoformat()}
+            port_info = {
+                "code": port_state.code,
+                "last_seen_prices": prices,
+                "last_seen_stock": stock,
+                "observed_at": datetime.now(timezone.utc).isoformat(),
+            }
+            print(f"!!! Port info for sector {sector_id}: {port_info}")
 
     # Planets
     planets = []
