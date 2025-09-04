@@ -247,9 +247,15 @@ export const RAND_NEB: NebulaPalette =
 // PLANET IMAGES
 // ============================================================================
 export const PLANET_IMAGES: readonly string[] = [
-  "./assets/test-image.png",
-  "./assets/test-image-2.png",
-  "./assets/test-image-3.png",
+  "./assets/skybox-1.png",
+  "./assets/skybox-2.png",
+  "./assets/skybox-3.png",
+  "./assets/skybox-4.png",
+  "./assets/skybox-5.png",
+  "./assets/skybox-6.png",
+  "./assets/skybox-7.png",
+  "./assets/skybox-8.png",
+  "./assets/skybox-9.png",
 ] as const;
 
 // ============================================================================
@@ -307,7 +313,7 @@ export const DEFAULT_GALAXY_CONFIG: GalaxyStarfieldConfig = {
   nearFadeEndMultiplier: 2, // Multiplier for star near-fade distance
 
   // === CAMERA SWAY ===
-  cameraSwayIntensity: 2, // Spaceship sway intensity (0-2)
+  cameraSwayIntensity: 10, // Spaceship sway intensity (0-2)
   cameraSwaySpeed: 0.15, // Sway animation speed multiplier (slower = smoother)
   cameraSwayEnabled: true, // Enable/disable camera sway
   cameraZoomFactor: 0.5, // How much to zoom toward selected objects (0.1-0.5)
@@ -318,7 +324,7 @@ export const DEFAULT_GALAXY_CONFIG: GalaxyStarfieldConfig = {
   shakeTransitionTimeSec: 0.5, // Time to fade between idle and shake
 
   // === WARP EFFECT ===
-  warpDurationSec: 10, // Warp sequence duration in seconds
+  warpDurationSec: 5, // Warp sequence duration in seconds
   warpFOVMax: 140, // Maximum FOV during warp effect
 
   // === NEBULA SETTINGS ===

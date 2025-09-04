@@ -3,7 +3,7 @@
  * Renders animated tunnel/warp trails on a 2D canvas overlay
  */
 
-import { type Trail, TrailPool } from "../utils/TrailPool";
+import { type Trail, TrailPool, type TrailPoolStats } from "../utils/TrailPool";
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -72,11 +72,6 @@ export class WarpOverlay {
   private cacheHits: number;
   private cacheMisses: number;
 
-  // Performance optimization: Cached values (for future use)
-  // private _lastPhase: string | null;
-  // private _lastIntensity: number;
-  // private _lastCanvasSize: CanvasSize;
-
   // Performance optimization: Canvas clearing optimization
   private _lastRenderTime: number;
   private _renderThreshold: number;
@@ -93,13 +88,35 @@ export class WarpOverlay {
 
   // Performance optimization: Pre-computed constants
   private _goldenAngle: number;
-  // private _pi2: number; // Reserved for future use
-  // private _piHalf: number; // Reserved for future use
+  private _pi2: number;
+
+  // Performance optimization: Trigonometric lookup tables
+  private _sinCache: Map<number, number>;
+  private _cosCache: Map<number, number>;
+  private _trigCacheSize: number;
+  private _trigCachePrecision: number;
+
+  // Canvas center and radius calculations
+  private centerX: number;
+  private centerY: number;
+  private maxRadius: number;
 
   constructor() {
+    // Try to find existing canvas first
     this.canvas = document.getElementById(
       "warpOverlay"
     ) as HTMLCanvasElement | null;
+
+    // If canvas doesn't exist, create it
+    if (!this.canvas) {
+      console.warn(
+        "WarpOverlay: Canvas 'warpOverlay' not found, creating new canvas"
+      );
+      this.canvas = document.createElement("canvas");
+      this.canvas.id = "warpOverlay";
+      document.body.appendChild(this.canvas);
+    }
+
     this.ctx = this.canvas?.getContext("2d") || null;
     this.trailPool = new TrailPool({ initialSize: 400 }); // Initialize with 400 trails
     this.trails = [];
@@ -114,11 +131,6 @@ export class WarpOverlay {
     this.maxCacheSize = 50;
     this.cacheHits = 0;
     this.cacheMisses = 0;
-
-    // Performance optimization: Cached values (commented out - for future use)
-    // this._lastPhase = null;
-    // this._lastIntensity = -1;
-    // this._lastCanvasSize = { width: 0, height: 0 };
 
     // Performance optimization: Canvas clearing optimization
     this._lastRenderTime = 0;
@@ -136,10 +148,26 @@ export class WarpOverlay {
 
     // Performance optimization: Pre-computed constants
     this._goldenAngle = Math.PI * (3 - Math.sqrt(5));
-    // this._pi2 = Math.PI * 2; // Reserved for future use
-    // this._piHalf = Math.PI / 2; // Reserved for future use
+    this._pi2 = Math.PI * 2;
+
+    // Performance optimization: Trigonometric lookup tables
+    this._sinCache = new Map();
+    this._cosCache = new Map();
+    this._trigCacheSize = 1000; // Cache size for trig functions
+    this._trigCachePrecision = 0.001; // Precision for cache keys
+
+    // Canvas center and radius calculations
+    this.centerX = 0;
+    this.centerY = 0;
+    this.maxRadius = 0;
 
     this.setupCanvas();
+
+    // Ensure canvas is visible and properly positioned
+    if (this.canvas) {
+      this.canvas.style.display = "block";
+      this.canvas.style.visibility = "visible";
+    }
   }
 
   /**
@@ -157,8 +185,14 @@ export class WarpOverlay {
     // Resize canvas to match window
     this.resizeCanvas();
 
-    // Add resize listener
-    window.addEventListener("resize", () => this.resizeCanvas());
+    // Add resize listener with debouncing
+    let resizeTimeout: number;
+    window.addEventListener("resize", () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = window.setTimeout(() => {
+        requestAnimationFrame(() => this.resizeCanvas());
+      }, 100);
+    });
   }
 
   /**
@@ -167,8 +201,12 @@ export class WarpOverlay {
   private setupCanvasBlending(): void {
     if (!this.ctx) return;
 
+    // Use screen blending for proper light effects
     this.ctx.globalCompositeOperation = "screen";
     this.ctx.imageSmoothingEnabled = false;
+
+    // Ensure proper alpha handling
+    this.ctx.globalAlpha = 1.0;
   }
 
   /**
@@ -184,16 +222,88 @@ export class WarpOverlay {
     if (this.canvas.width !== width || this.canvas.height !== height) {
       this.canvas.width = width;
       this.canvas.height = height;
-      // this._lastCanvasSize = { width, height }; // For future use
+
+      // Update center coordinates and max radius
+      this.centerX = width / 2;
+      this.centerY = height / 2;
+      this.maxRadius = Math.sqrt(
+        this.centerX * this.centerX + this.centerY * this.centerY
+      );
+
       this._needsFullClear = true;
 
-      // Update canvas styles
+      // Update canvas styles - ensure it's positioned over the 3D scene
       this.canvas.style.position = "absolute";
       this.canvas.style.top = "0";
       this.canvas.style.left = "0";
       this.canvas.style.pointerEvents = "none";
-      this.canvas.style.zIndex = "10";
+      this.canvas.style.zIndex = "1000"; // Higher z-index to ensure it's on top
+      this.canvas.style.mixBlendMode = "screen"; // CSS blend mode as backup
+
+      // Clear gradient cache when canvas size changes
+      this.clearCache();
     }
+  }
+
+  /**
+   * Activate warp effect
+   */
+  public activate(): void {
+    this.active = true;
+    if (this.canvas) {
+      this.canvas.classList.add("active");
+    }
+
+    // Reset trail pool and get fresh trails
+    this.trailPool.resetAll();
+    this.trails = [];
+
+    // Generate spinning vortex trails for tunnel effect using object pool
+    const trailCount = 400; // More trails for denser tunnel
+
+    for (let i = 0; i < trailCount; i++) {
+      const trail = this.trailPool.get();
+      if (trail) {
+        const angle = i * this._goldenAngle; // Spiral distribution
+        const radius = Math.sqrt(i / trailCount) * this._pi2; // Expanding radius
+
+        // Initialize trail properties
+        trail.baseAngle = angle;
+        trail.angle = angle;
+        trail.radius = radius;
+        trail.speed = 2 + Math.random() * 5;
+        trail.length = 0;
+        trail.maxLength = 200 + Math.random() * 600; // Longer trails for tunnel
+        trail.opacity = Math.random() * 0.8 + 0.2;
+        trail.thickness = Math.random() * 1.5 + 0.5;
+        trail.delay = i * 0.05; // Faster staggered appearance
+        trail.rotationSpeed = 0.5 + Math.random() * 0.5; // Much faster rotation
+        trail.distance = 5 + Math.random() * 30; // Start closer to center
+        trail.layer = Math.floor(Math.random() * 3); // Multiple layers for depth
+
+        this.trails.push(trail);
+      }
+    }
+
+    console.debug("WarpOverlay: Activated");
+  }
+
+  /**
+   * Deactivate warp effect
+   */
+  public deactivate(): void {
+    this.active = false;
+    if (this.canvas) {
+      this.canvas.classList.remove("active");
+    }
+
+    // Return all trails to the pool when deactivating
+    if (this.trails.length > 0) {
+      this.trailPool.resetAll();
+      this.trails = [];
+    }
+
+    console.debug("WarpOverlay: Deactivated");
   }
 
   /**
@@ -235,7 +345,7 @@ export class WarpOverlay {
     for (let i = 0; i < trailCount; i++) {
       const trail = this.trailPool.get();
       if (trail) {
-        this.initializeTrail(trail, i, trailCount);
+        this.initializeTrail(trail, i);
         this.trails.push(trail);
       }
     }
@@ -244,11 +354,7 @@ export class WarpOverlay {
   /**
    * Initialize a trail with random properties
    */
-  private initializeTrail(
-    trail: Trail,
-    index: number,
-    _totalTrails: number
-  ): void {
+  private initializeTrail(trail: Trail, index: number): void {
     // Use golden angle for even distribution
     trail.baseAngle = index * this._goldenAngle;
     trail.angle = trail.baseAngle;
@@ -275,156 +381,220 @@ export class WarpOverlay {
   }
 
   /**
-   * Update and render the warp effect
+   * Update and render the warp effect (main method - matches JS version)
    */
-  public update(phase: string, intensity: number): void {
-    if (!this.active || !this.ctx || !this.canvas) return;
-
-    // Performance check
-    const now = performance.now();
-    if (now - this._lastRenderTime < this._renderThreshold) {
-      return; // Skip frame for performance
-    }
-
-    this.setIntensity(intensity);
-    this._lastRenderTime = now;
-
-    // Clear canvas
-    this.clearCanvas();
-
-    // Update and render trails
-    this.updateTrails(phase);
-    this.renderTrails();
-
-    // Update performance tracking
-    this.updatePerformanceTracking(performance.now() - now);
+  public update(
+    phase: string,
+    phaseProgress: number,
+    deltaSeconds: number
+  ): void {
+    // Call the full update method for consistent behavior
+    this.updateFull(phase, phaseProgress, deltaSeconds);
   }
 
   /**
-   * Update trail positions and properties
+   * Main update method with full rendering logic (from JS version)
    */
-  private updateTrails(_phase: string): void {
-    const centerX = this.canvas!.width / 2;
-    const centerY = this.canvas!.height / 2;
+  public updateFull(
+    phase: string,
+    phaseProgress: number,
+    deltaSeconds: number
+  ): void {
+    const startTime = performance.now();
 
-    for (const trail of this.trails) {
-      // Update trail animation based on phase
-      trail.angle += trail.rotationSpeed;
-      trail.radius += trail.speed * this.intensity;
-      trail.length = Math.min(trail.length + trail.speed, trail.maxLength);
+    if (!this.active && this.intensity <= 0) return;
 
-      // Reset trails that have moved too far
-      if (trail.radius > Math.max(centerX, centerY) * 2) {
-        this.resetTrail(trail);
+    // Performance optimization: Skip render if too soon
+    if (this.shouldSkipRender()) return;
+
+    const dt = Math.max(0, deltaSeconds || 0.016);
+    const dtFrames = dt * 60.0; // preserve existing visual tuning
+
+    // Update intensity based on phase
+    if (this.active) {
+      if (phase === "CLIMAX") {
+        this.intensity = Math.min(1.5, this.intensity + 3.0 * dt);
+      } else if (phase === "BUILDUP") {
+        this.intensity = Math.min(1, this.intensity + 0.9 * dt);
+      } else if (phase === "CHARGING") {
+        this.intensity = Math.min(0.5, this.intensity + 0.6 * dt);
+      } else {
+        this.intensity = Math.min(0.3, this.intensity + 0.3 * dt);
       }
-    }
-  }
-
-  /**
-   * Render all trails to canvas
-   */
-  private renderTrails(): void {
-    if (!this.ctx) return;
-
-    this.ctx.save();
-    this.ctx.globalAlpha = this.intensity * this.opacityMultiplier;
-
-    for (const trail of this.trails) {
-      this.renderTrail(trail);
+    } else {
+      this.intensity = Math.max(0, this.intensity - 1.2 * dt);
     }
 
-    this.ctx.restore();
-  }
+    // Clear canvas with optimization
+    this.clearCanvasOptimized();
 
-  /**
-   * Render individual trail
-   */
-  private renderTrail(trail: Trail): void {
-    if (!this.ctx || !this.canvas) return;
-
-    const centerX = this.canvas.width / 2;
-    const centerY = this.canvas.height / 2;
-
-    // Calculate trail position
-    const x = centerX + Math.cos(trail.angle) * trail.radius;
-    const y = centerY + Math.sin(trail.angle) * trail.radius;
-
-    // Create gradient for trail
-    const gradient = this.getTrailGradient(x, y, trail);
-
-    // Draw trail
-    this.ctx.save();
-    this.ctx.globalAlpha = trail.opacity * this.intensity;
-    this.ctx.strokeStyle = gradient;
-    this.ctx.lineWidth = trail.thickness;
-    this.ctx.lineCap = "round";
-
-    this.ctx.beginPath();
-    this.ctx.moveTo(x, y);
-
-    // Draw trail length
-    const endX = x + Math.cos(trail.angle + Math.PI) * trail.length;
-    const endY = y + Math.sin(trail.angle + Math.PI) * trail.length;
-    this.ctx.lineTo(endX, endY);
-
-    this.ctx.stroke();
-    this.ctx.restore();
-  }
-
-  /**
-   * Get gradient for trail (with caching)
-   */
-  private getTrailGradient(x: number, y: number, trail: Trail): CanvasGradient {
-    const cacheKey = `${Math.floor(x / 10)}_${Math.floor(y / 10)}_${
-      trail.layer
-    }`;
-
-    let gradient = this.gradientCache.get(cacheKey);
-    if (gradient) {
-      this.cacheHits++;
-      return gradient;
+    // Early-out when effect is visually negligible to save CPU
+    if (this.intensity < 0.005) {
+      return;
     }
 
-    this.cacheMisses++;
+    // Create screen bending effect at edges with batched operations
+    if (this.intensity > 0.3) {
+      // Draw distortion rings with cached gradients
+      const ringCount = Math.floor(5 + this.intensity * 5);
 
-    // Create new gradient
-    gradient = this.ctx!.createRadialGradient(x, y, 0, x, y, trail.length);
-
-    // Layer-based colors
-    switch (trail.layer) {
-      case 0:
-        gradient.addColorStop(0, "rgba(100, 200, 255, 1)");
-        gradient.addColorStop(1, "rgba(100, 200, 255, 0)");
-        break;
-      case 1:
-        gradient.addColorStop(0, "rgba(255, 150, 100, 1)");
-        gradient.addColorStop(1, "rgba(255, 150, 100, 0)");
-        break;
-      default:
-        gradient.addColorStop(0, "rgba(200, 100, 255, 1)");
-        gradient.addColorStop(1, "rgba(200, 100, 255, 0)");
-    }
-
-    // Cache gradient
-    if (this.gradientCache.size >= this.maxCacheSize) {
-      // Remove oldest entry
-      const firstKey = this.gradientCache.keys().next().value;
-      if (firstKey !== undefined) {
-        this.gradientCache.delete(firstKey);
+      // Batch all distortion ring operations
+      this.ctx!.save();
+      for (let i = 1; i <= ringCount; i++) {
+        const gradient = this.createDistortionRingGradient(
+          i,
+          ringCount,
+          this.intensity
+        );
+        this.ctx!.fillStyle = gradient;
+        this.ctx!.fillRect(0, 0, this.canvas!.width, this.canvas!.height);
       }
+      this.ctx!.restore();
     }
-    this.gradientCache.set(cacheKey, gradient);
 
-    return gradient;
-  }
+    // Create strong vignette for tunnel effect with cached gradient
+    const vignetteGradient = this.createVignetteGradient(phase, this.intensity);
+    this.ctx!.fillStyle = vignetteGradient;
+    this.ctx!.fillRect(0, 0, this.canvas!.width, this.canvas!.height);
 
-  /**
-   * Reset trail to starting position
-   */
-  private resetTrail(trail: Trail): void {
-    trail.radius = 20 + Math.random() * 50;
-    trail.length = 0;
-    trail.angle = trail.baseAngle + (Math.random() - 0.5) * 0.5;
+    // Draw warp trails with optimized calculations and batched operations
+    this.ctx!.save(); // Batch trail operations
+
+    this.trails.forEach((trail) => {
+      // Delay trail appearance for staggered effect
+      if (phaseProgress * 100 < trail.delay) return;
+
+      // Skip trails with very low opacity (conservative culling)
+      if (trail.opacity * this.intensity < 0.001) return;
+
+      const speedMultiplier =
+        phase === "CLIMAX" ? 3 : phase === "BUILDUP" ? 2 : 1;
+      trail.length = Math.min(
+        trail.maxLength,
+        trail.length + trail.speed * this.intensity * speedMultiplier * dtFrames
+      );
+
+      const startRadius = Math.max(0, 20 * (1 - this.intensity));
+      const endRadius = startRadius + trail.length;
+
+      // Skip trails that are completely off-screen
+      if (endRadius > this.maxRadius * 2) return;
+
+      if (endRadius > startRadius && endRadius < this.maxRadius * 2) {
+        // Cache trigonometric calculations using optimized functions
+        const cosAngle = this.cachedCos(trail.angle);
+        const sinAngle = this.cachedSin(trail.angle);
+
+        const x1 = this.centerX + cosAngle * startRadius;
+        const y1 = this.centerY + sinAngle * startRadius;
+        // const x2 = this.centerX + cosAngle * endRadius; // Unused, keeping for reference
+        // const y2 = this.centerY + sinAngle * endRadius; // Unused, keeping for reference
+
+        // Bend trails at edges for distortion effect
+        const bendFactor = Math.min(
+          1,
+          this.optimizedPow(endRadius / this.maxRadius, 2)
+        ); // Use optimized pow
+        const bendAmount = phase === "CLIMAX" ? 1.0 : 0.5;
+        const bendAngle =
+          trail.angle + bendFactor * bendAmount * this.intensity;
+        const x2Bent = this.centerX + this.cachedCos(bendAngle) * endRadius;
+        const y2Bent = this.centerY + this.cachedSin(bendAngle) * endRadius;
+
+        // Check for finite values before creating gradient
+        if (
+          isFinite(x1) &&
+          isFinite(y1) &&
+          isFinite(x2Bent) &&
+          isFinite(y2Bent)
+        ) {
+          const gradient = this.ctx!.createLinearGradient(
+            x1,
+            y1,
+            x2Bent,
+            y2Bent
+          );
+
+          if (phase === "CLIMAX") {
+            gradient.addColorStop(
+              0,
+              `rgba(255, 255, 255, ${
+                trail.opacity * this.intensity * this.opacityMultiplier
+              })`
+            );
+            gradient.addColorStop(
+              0.3,
+              `rgba(200, 220, 255, ${
+                trail.opacity * 0.8 * this.intensity * this.opacityMultiplier
+              })`
+            );
+            gradient.addColorStop(
+              0.7,
+              `rgba(150, 200, 255, ${
+                trail.opacity * 0.5 * this.intensity * this.opacityMultiplier
+              })`
+            );
+            gradient.addColorStop(1, "rgba(100, 150, 255, 0)");
+          } else {
+            gradient.addColorStop(
+              0,
+              `rgba(150, 200, 255, ${
+                trail.opacity * this.intensity * this.opacityMultiplier
+              })`
+            );
+            gradient.addColorStop(
+              0.3,
+              `rgba(255, 255, 255, ${
+                trail.opacity * 0.8 * this.intensity * this.opacityMultiplier
+              })`
+            );
+            gradient.addColorStop(
+              0.7,
+              `rgba(100, 150, 255, ${
+                trail.opacity * 0.5 * this.intensity * this.opacityMultiplier
+              })`
+            );
+            gradient.addColorStop(1, "rgba(50, 100, 255, 0)");
+          }
+
+          this.ctx!.strokeStyle = gradient;
+          this.ctx!.lineWidth = trail.thickness * (1 + this.intensity * 0.5);
+          this.ctx!.beginPath();
+          this.ctx!.moveTo(x1, y1);
+          this.ctx!.lineTo(x2Bent, y2Bent);
+          this.ctx!.stroke();
+        }
+      }
+
+      // Reset trail when it goes off screen
+      if (endRadius > this.maxRadius * 1.5) {
+        trail.length = 0;
+        trail.speed = 3 + Math.random() * 7;
+        trail.maxLength = 300 + Math.random() * 500;
+        // Note: Trail object is reused from pool, no need to return to pool here
+      }
+    });
+
+    this.ctx!.restore(); // End batch trail operations
+
+    // Add center vortex/pinhole effect with cached gradient
+    if (this.intensity > 0.3) {
+      const vortexGradient = this.createVortexGradient(this.intensity);
+      this.ctx!.fillStyle = vortexGradient;
+      this.ctx!.fillRect(0, 0, this.canvas!.width, this.canvas!.height);
+    }
+
+    // Add center glow during warp with cached gradient
+    const centerGlowGradient = this.createCenterGlowGradient(
+      phase,
+      this.intensity
+    );
+    this.ctx!.fillStyle = centerGlowGradient;
+    this.ctx!.fillRect(0, 0, this.canvas!.width, this.canvas!.height);
+
+    // Performance tracking
+    const frameTime = performance.now() - startTime;
+    this.updateAdaptiveFrameRate(frameTime);
   }
 
   /**
@@ -448,41 +618,333 @@ export class WarpOverlay {
   }
 
   /**
-   * Update performance tracking
+   * Optimized canvas clearing with dirty region tracking
    */
-  private updatePerformanceTracking(frameTime: number): void {
+  private clearCanvasOptimized(): void {
+    if (!this.ctx || !this.canvas) return;
+
+    // Always clear the entire canvas to ensure transparency
+    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    this._needsFullClear = false;
+    this._dirtyRegions = [];
+  }
+
+  /**
+   * Check if we should skip this render frame for performance
+   */
+  private shouldSkipRender(): boolean {
+    const now = performance.now();
+    if (now - this._lastRenderTime < this._renderThreshold) {
+      return true; // Skip render if too soon
+    }
+    this._lastRenderTime = now;
+    return false;
+  }
+
+  /**
+   * Update adaptive frame rate based on performance
+   */
+  private updateAdaptiveFrameRate(frameTime: number): void {
     if (!this._adaptiveFrameRate) return;
 
+    // Add frame time to history
     this._performanceHistory.push({
       frameTime,
       timestamp: performance.now(),
     });
 
-    // Limit history size
     if (this._performanceHistory.length > this._maxPerformanceHistory) {
       this._performanceHistory.shift();
     }
 
-    // Adjust render threshold based on performance
+    // Calculate average frame time
     const avgFrameTime =
       this._performanceHistory.reduce(
         (sum, entry) => sum + entry.frameTime,
         0
       ) / this._performanceHistory.length;
 
-    if (avgFrameTime > this._targetFrameTime * 1.5) {
-      // Performance is poor, reduce frame rate
+    // Adjust render threshold based on performance
+    if (avgFrameTime > this._targetFrameTime * 1.2) {
+      // Performance is poor, increase threshold (lower fps)
       this._renderThreshold = Math.min(
         this._maxFrameTime,
         this._renderThreshold * 1.1
       );
     } else if (avgFrameTime < this._targetFrameTime * 0.8) {
-      // Performance is good, increase frame rate
+      // Performance is good, decrease threshold (higher fps)
       this._renderThreshold = Math.max(
         this._minFrameTime,
         this._renderThreshold * 0.95
       );
     }
+  }
+
+  /**
+   * Cached trigonometric functions for better performance
+   */
+  private cachedSin(angle: number): number {
+    const key = Math.round(angle / this._trigCachePrecision);
+    let value = this._sinCache.get(key);
+    if (value === undefined) {
+      value = Math.sin(angle);
+      if (this._sinCache.size >= this._trigCacheSize) {
+        // Clear cache if too large
+        this._sinCache.clear();
+      }
+      this._sinCache.set(key, value);
+    }
+    return value;
+  }
+
+  private cachedCos(angle: number): number {
+    const key = Math.round(angle / this._trigCachePrecision);
+    let value = this._cosCache.get(key);
+    if (value === undefined) {
+      value = Math.cos(angle);
+      if (this._cosCache.size >= this._trigCacheSize) {
+        // Clear cache if too large
+        this._cosCache.clear();
+      }
+      this._cosCache.set(key, value);
+    }
+    return value;
+  }
+
+  /**
+   * Optimized math operations
+   */
+  private optimizedPow(base: number, exponent: number): number {
+    // Use multiplication for common cases instead of Math.pow
+    if (exponent === 2) return base * base;
+    if (exponent === 3) return base * base * base;
+    if (exponent === 0.5) return Math.sqrt(base);
+    return Math.pow(base, exponent);
+  }
+
+  /**
+   * Clear trigonometric caches
+   */
+  private clearTrigCaches(): void {
+    this._sinCache.clear();
+    this._cosCache.clear();
+  }
+
+  /**
+   * Create and cache vignette gradient
+   */
+  private createVignetteGradient(
+    phase: string,
+    intensity: number
+  ): CanvasGradient {
+    const key = this.getGradientCacheKey("vignette", phase, intensity);
+    let gradient = this.getCachedGradient(key);
+
+    if (!gradient) {
+      gradient = this.ctx!.createRadialGradient(
+        this.centerX,
+        this.centerY,
+        0,
+        this.centerX,
+        this.centerY,
+        this.maxRadius
+      );
+
+      if (phase === "CLIMAX") {
+        // Dramatic tunnel walls during climax - much more subtle
+        gradient.addColorStop(0, `rgba(0, 0, 0, 0)`);
+        gradient.addColorStop(
+          0.3,
+          `rgba(0, 0, 0, ${0.1 * intensity * this.opacityMultiplier})`
+        );
+        gradient.addColorStop(
+          0.6,
+          `rgba(0, 0, 20, ${0.2 * intensity * this.opacityMultiplier})`
+        );
+        gradient.addColorStop(
+          0.8,
+          `rgba(0, 0, 0, ${0.3 * intensity * this.opacityMultiplier})`
+        );
+        gradient.addColorStop(
+          1,
+          `rgba(0, 0, 0, ${0.4 * intensity * this.opacityMultiplier})`
+        );
+      } else {
+        gradient.addColorStop(0, "rgba(0, 0, 0, 0)");
+        gradient.addColorStop(
+          0.4,
+          `rgba(0, 0, 0, ${0.05 * intensity * this.opacityMultiplier})`
+        );
+        gradient.addColorStop(
+          0.7,
+          `rgba(0, 0, 0, ${0.1 * intensity * this.opacityMultiplier})`
+        );
+        gradient.addColorStop(
+          0.9,
+          `rgba(0, 0, 0, ${0.15 * intensity * this.opacityMultiplier})`
+        );
+        gradient.addColorStop(
+          1,
+          `rgba(0, 0, 0, ${0.2 * intensity * this.opacityMultiplier})`
+        );
+      }
+
+      this.cacheGradient(key, gradient);
+    }
+
+    return gradient;
+  }
+
+  /**
+   * Create and cache distortion ring gradient
+   */
+  private createDistortionRingGradient(
+    ringIndex: number,
+    ringCount: number,
+    intensity: number
+  ): CanvasGradient {
+    const key = this.getGradientCacheKey("distortion", "ring", intensity, {
+      ringIndex,
+      ringCount,
+    });
+    let gradient = this.getCachedGradient(key);
+
+    if (!gradient) {
+      const radius = (this.maxRadius / ringCount) * ringIndex;
+      gradient = this.ctx!.createRadialGradient(
+        this.centerX,
+        this.centerY,
+        radius * 0.7,
+        this.centerX,
+        this.centerY,
+        radius
+      );
+      gradient.addColorStop(0, "rgba(0, 0, 0, 0)");
+      gradient.addColorStop(
+        1,
+        `rgba(100, 150, 255, ${
+          0.1 * intensity * this.opacityMultiplier * (1 - ringIndex / ringCount)
+        })`
+      );
+
+      this.cacheGradient(key, gradient);
+    }
+
+    return gradient;
+  }
+
+  /**
+   * Create and cache center vortex gradient
+   */
+  private createVortexGradient(intensity: number): CanvasGradient {
+    const key = this.getGradientCacheKey("vortex", "center", intensity);
+    let gradient = this.getCachedGradient(key);
+
+    if (!gradient) {
+      gradient = this.ctx!.createRadialGradient(
+        this.centerX,
+        this.centerY,
+        0,
+        this.centerX,
+        this.centerY,
+        50 * intensity
+      );
+      gradient.addColorStop(
+        0,
+        `rgba(0, 0, 0, ${intensity * this.opacityMultiplier})`
+      );
+      gradient.addColorStop(
+        0.5,
+        `rgba(20, 50, 100, ${intensity * 0.5 * this.opacityMultiplier})`
+      );
+      gradient.addColorStop(1, "rgba(50, 100, 200, 0)");
+
+      this.cacheGradient(key, gradient);
+    }
+
+    return gradient;
+  }
+
+  /**
+   * Create and cache center glow gradient
+   */
+  private createCenterGlowGradient(
+    phase: string,
+    intensity: number
+  ): CanvasGradient {
+    const key = this.getGradientCacheKey("glow", phase, intensity);
+    let gradient = this.getCachedGradient(key);
+
+    if (!gradient) {
+      const glowIntensity = phase === "CLIMAX" ? 0.8 : 0.3;
+      gradient = this.ctx!.createRadialGradient(
+        this.centerX,
+        this.centerY,
+        0,
+        this.centerX,
+        this.centerY,
+        150
+      );
+      gradient.addColorStop(
+        0,
+        `rgba(200, 220, 255, ${
+          glowIntensity * intensity * this.opacityMultiplier
+        })`
+      );
+      gradient.addColorStop(
+        0.5,
+        `rgba(150, 200, 255, ${
+          glowIntensity * 0.5 * intensity * this.opacityMultiplier
+        })`
+      );
+      gradient.addColorStop(1, "rgba(100, 150, 255, 0)");
+
+      this.cacheGradient(key, gradient);
+    }
+
+    return gradient;
+  }
+
+  /**
+   * Gradient cache management
+   */
+  private getGradientCacheKey(
+    type: string,
+    phase: string,
+    intensity: number,
+    additionalParams: Record<string, unknown> = {}
+  ): string {
+    // Create a cache key based on parameters that affect gradient appearance
+    const intensityQuantized = Math.floor(intensity * 20) / 20; // Quantize to reduce cache size
+    const params = Object.entries(additionalParams)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => `${k}:${v}`)
+      .join(",");
+
+    return `${type}_${phase}_${intensityQuantized}_${this.canvas!.width}x${
+      this.canvas!.height
+    }_${params}`;
+  }
+
+  private getCachedGradient(key: string): CanvasGradient | null {
+    const gradient = this.gradientCache.get(key);
+    if (gradient) {
+      this.cacheHits++;
+      return gradient;
+    }
+    this.cacheMisses++;
+    return null;
+  }
+
+  private cacheGradient(key: string, gradient: CanvasGradient): void {
+    // Implement LRU cache eviction
+    if (this.gradientCache.size >= this.maxCacheSize) {
+      const firstKey = this.gradientCache.keys().next().value;
+      if (firstKey !== undefined) {
+        this.gradientCache.delete(firstKey);
+      }
+    }
+    this.gradientCache.set(key, gradient);
   }
 
   /**
@@ -514,6 +976,23 @@ export class WarpOverlay {
     averageFrameTime: number;
     currentThreshold: number;
     trailCount: number;
+    cacheSize: number;
+    cacheHits: number;
+    cacheMisses: number;
+    hitRate: string;
+    maxCacheSize: number;
+    trailPool: Record<string, unknown>;
+    activeTrails: number;
+    trigCache: {
+      sinCacheSize: number;
+      cosCacheSize: number;
+    };
+    adaptiveFrameRate: {
+      enabled: boolean;
+      currentThreshold: string;
+      avgFrameTime: string;
+      performanceHistorySize: number;
+    };
   } {
     const totalCacheRequests = this.cacheHits + this.cacheMisses;
     const cacheHitRate =
@@ -527,11 +1006,36 @@ export class WarpOverlay {
           ) / this._performanceHistory.length
         : 0;
 
+    const totalRequests = this.cacheHits + this.cacheMisses;
+    const hitRate =
+      totalRequests > 0
+        ? ((this.cacheHits / totalRequests) * 100).toFixed(1)
+        : "0";
+
+    const trailStats = this.trailPool.getStats();
+
     return {
       cacheHitRate,
       averageFrameTime: avgFrameTime,
       currentThreshold: this._renderThreshold,
       trailCount: this.trails.length,
+      cacheSize: this.gradientCache.size,
+      cacheHits: this.cacheHits,
+      cacheMisses: this.cacheMisses,
+      hitRate: `${hitRate}%`,
+      maxCacheSize: this.maxCacheSize,
+      trailPool: trailStats as unknown as Record<string, unknown>,
+      activeTrails: this.trails.length,
+      trigCache: {
+        sinCacheSize: this._sinCache.size,
+        cosCacheSize: this._cosCache.size,
+      },
+      adaptiveFrameRate: {
+        enabled: this._adaptiveFrameRate,
+        currentThreshold: this._renderThreshold.toFixed(1),
+        avgFrameTime: avgFrameTime.toFixed(2),
+        performanceHistorySize: this._performanceHistory.length,
+      },
     };
   }
 
@@ -562,9 +1066,8 @@ export class WarpOverlay {
 
     this.canvas.width = width;
     this.canvas.height = height;
-    //this._lastCanvasSize = { width, height };
     this._needsFullClear = true;
-    this.clearCache(); // Clear cache on resize
+    this.clearCache();
   }
 
   /**
@@ -588,6 +1091,7 @@ export class WarpOverlay {
     this.stop();
     this.trailPool.dispose();
     this.clearCache();
+    this.clearTrigCaches();
 
     // Remove event listeners
     window.removeEventListener("resize", () => this.resizeCanvas());
@@ -601,7 +1105,7 @@ export class WarpOverlay {
   /**
    * Get trail pool statistics
    */
-  public getTrailPoolStats(): any {
+  public getTrailPoolStats(): TrailPoolStats {
     return this.trailPool.getStats();
   }
 

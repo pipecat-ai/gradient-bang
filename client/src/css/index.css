@@ -10,18 +10,24 @@
 
 @theme {
   --spacing-panel: calc(var(--spacing) * 2);
+  --height-ui: 440px;
+
   --width-shippanel: 260px;
-  --width-image: 460px;
-  --height-bottombar: 300px;
+  --width-image: 400px;
 }
 
 :root {
   --font-sans: "TX-02", sans-serif;
   --font-mono: "TX-02", sans-serif;
+
+  --color-card-background: red;
+  --color-border: oklch(1 0 0 / 20%);
   --radius-element: 0px;
   --color-agent: oklch(86.5% 0.127 207.078);
   --color-client: oklch(87.1% 0.15 154.449);
   --radius-base: 0;
+
+  --grid-opacity: 0.25;
 }
 
 *:not(.normal-case) {
@@ -38,22 +44,28 @@ body {
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+  background: black;
 }
 
 #root {
+  position: relative;
+  z-index: 99999;
   height: 100vh;
 }
 
 /** UI **/
 .lhs-perspective {
-  transform: perspective(400px) rotateY(9deg);
+  transform: perspective(400px) rotateY(9deg) scaleX(1.2);
   transform-origin: left center;
   backface-visibility: hidden;
+  transform-style: preserve-3d;
 }
 .rhs-perspective {
-  transform: perspective(400px) rotateY(-9deg);
+  transform: perspective(400px) rotateY(-9deg) scaleX(1.2);
   transform-origin: right center;
   backface-visibility: hidden;
+  transform-style: preserve-3d;
 }
 
 /** FX **/
@@ -353,6 +365,55 @@ body {
 
 .highlight-animation {
   animation: highlight-focus 1.2s ease-out forwards;
+}
+
+/* Numerical Badge Animations */
+@keyframes counter-tick {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes flash-glow {
+  0% {
+    box-shadow: 0 0 0 0 var(--color-active);
+  }
+  50% {
+    box-shadow: 0 0 0 4px var(--color-active);
+  }
+  100% {
+    box-shadow: 0 0 0 0 var(--color-active);
+  }
+}
+
+@keyframes flash-glow-inactive {
+  0% {
+    box-shadow: 0 0 0 0 var(--color-inactive);
+  }
+  50% {
+    box-shadow: 0 0 0 4px var(--color-inactive);
+  }
+  100% {
+    box-shadow: 0 0 0 0 var(--color-inactive);
+  }
+}
+
+.numerical-badge-animating {
+  animation: counter-tick 0.1s ease-out;
+}
+
+.numerical-badge-flashing {
+  animation: flash-glow 0.8s ease-out;
+}
+
+.numerical-badge-flashing-inactive {
+  animation: flash-glow-inactive 0.8s ease-out;
 }
 
 @import "./starfield.css";

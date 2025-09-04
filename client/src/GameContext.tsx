@@ -4,10 +4,12 @@ import type { ReactNode } from "react";
 import React, { createContext, useCallback, useReducer } from "react";
 
 // Stores
+import { useUI } from "./hooks/useUI";
 import useMovementHistoryStore from "./stores/history";
 import type { IncomingSectorData } from "./stores/map";
 import useMapStore from "./stores/map";
 import useSectorStore, { type SectorContents } from "./stores/sector";
+import useStarfieldStore from "./stores/starfield";
 import useTaskStore, { type TaskOutput } from "./stores/tasks";
 
 const ServerMessageKey = "gg-action";
@@ -81,7 +83,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       console.log("[GAME] Updating ship", action);
       return {
         ...state,
-        ship: { ...state.ship, ...action.ship },
+        ship: state.ship ? { ...state.ship, ...action.ship } : action.ship,
       };
     }
 
@@ -120,7 +122,9 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
   const movementHistoryStore = useMovementHistoryStore();
   const mapStore = useMapStore();
   const taskStore = useTaskStore();
+  const starfieldStore = useStarfieldStore();
   const client = usePipecatClient();
+  const { resetActivePanels } = useUI();
 
   const setShip = useCallback(
     (ship: Ship) => {
@@ -194,8 +198,18 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
     useCallback(
       (data: Record<string, unknown>) => {
         if (ServerMessageKey in data) {
-          const action = data[ServerMessageKey];
+          let action = data[ServerMessageKey];
+
           console.log("[GAME] Server message received", action, data);
+
+          // Transform if this is a tool call result
+          if (action === "tool_result" && "tool_name" in data) {
+            console.log("[GAME] Server message transformed to", action, data);
+            action = data.tool_name as string;
+            data = data.payload as Record<string, unknown>;
+            console.log("[GAME] Transformed result", action, data);
+          }
+
           switch (action) {
             // ----- INIT & STATUS
             case "init":
@@ -217,13 +231,49 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
 
             // ----- MOVEMENT
             case "move": {
-              handleMovement(data.result as StatusUpdate);
+              console.log("[MOVE] Movement", data);
+
+              // Reset any active HUD panels on movement
+              resetActivePanels();
+
+              // Check if this is the result of a tool call
+              if (data.content) {
+                const d = JSON.parse(data.content as string);
+                handleMovement(d as StatusUpdate);
+              } else {
+                handleMovement(data.result as StatusUpdate);
+              }
               break;
             }
 
             // ----- MAP DATA
             case "my_map": {
               handleMapData(data.result);
+              break;
+            }
+
+            // ----- TRADE
+            case "trade": {
+              const tradeResult = data.result as StatusUpdate & {
+                new_cargo: Cargo;
+                new_credits: number;
+              };
+              dispatch({
+                type: "SET_SHIP",
+                ship: {
+                  cargo: tradeResult.new_cargo,
+                  credits: tradeResult.new_credits,
+                } as Ship,
+              });
+              break;
+            }
+
+            case "check_trade": {
+              const instance = starfieldStore.getInstance();
+              if (!instance) return;
+              const go = instance.getAllGameObjects()[0];
+              if (!go) return;
+              instance.selectGameObject(go.id);
               break;
             }
 
@@ -276,7 +326,7 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
           }
         }
       },
-      [sectorStore, handleMovement, handleMapData, taskStore]
+      [sectorStore, handleMovement, handleMapData, taskStore, starfieldStore]
     )
   );
 

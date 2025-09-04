@@ -6,11 +6,13 @@ import React, {
   useReducer,
   type ReactNode,
 } from "react";
+import usePortStore from "./stores/port";
+import useStarfieldStore from "./stores/starfield";
 
 export type PanelId =
   | "movement_history"
   | "ports_discovered"
-  | "debug"
+  | "port"
   | "task_output"
   | "ship";
 
@@ -28,7 +30,8 @@ const initialState: UIState = {
   panelRefs: {
     movement_history: null,
     ports_discovered: null,
-    debug: null,
+    port: null,
+    ship: null,
     task_output: null,
   },
 };
@@ -59,6 +62,7 @@ interface UIContextType {
   ui: UIState;
   highlightPanel: (panel: PanelId | null) => void;
   registerPanelRef: (id: PanelId, ref: HTMLElement | null) => void;
+  resetActivePanels: () => void;
   switchAndHighlight: (panel: PanelId) => void;
 }
 
@@ -72,7 +76,8 @@ interface UIProviderProps {
 
 export const UIProvider: React.FC<UIProviderProps> = ({ children }) => {
   const [ui, dispatch] = useReducer(uiReducer, initialState);
-
+  const { getInstance } = useStarfieldStore();
+  const portStore = usePortStore();
   const highlightPanel = useCallback(
     (panel: PanelId | null) => {
       dispatch({ type: "SET_HIGHLIGHTED_PANEL", panel });
@@ -98,16 +103,32 @@ export const UIProvider: React.FC<UIProviderProps> = ({ children }) => {
     [dispatch]
   );
 
+  const resetActivePanels = useCallback(() => {
+    portStore.setActive(false);
+  }, [portStore]);
+
   useRTVIClientEvent(
     RTVIEvent.ServerMessage,
     useCallback(
       (data: Record<string, unknown>) => {
         if ("ui-action" in data) {
+          // Always reset any active HUD panels on UI action
+          resetActivePanels();
           const action = data["ui-action"];
           switch (action) {
             /* SHOW PANEL */
             case "show_panel":
-              console.log("show_panel", data);
+              console.log("[PANEL] show_panel", data);
+              // --- TRADE PANEL
+              if (data.panel === "trade") {
+                // Select port game object in Starfield
+                const instance = getInstance();
+                if (!instance) return;
+                const go = instance.getAllGameObjects()[0];
+                if (!go) return;
+                instance.selectGameObject(go.id);
+                portStore.setActive(true);
+              }
               highlightPanel(data.panel as PanelId);
               break;
             default:
@@ -116,13 +137,14 @@ export const UIProvider: React.FC<UIProviderProps> = ({ children }) => {
           }
         }
       },
-      [highlightPanel]
+      [highlightPanel, getInstance, portStore, resetActivePanels]
     )
   );
   const value: UIContextType = {
     ui,
     highlightPanel,
     registerPanelRef,
+    resetActivePanels,
     switchAndHighlight,
   };
 

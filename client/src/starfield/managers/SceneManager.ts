@@ -35,7 +35,7 @@ interface SceneHistoryEntry {
 }
 
 export class SceneManager {
-  private currentSceneId: number;
+  public currentSceneId: number;
   private sceneHistory: SceneHistoryEntry[];
   private namedConfigs: Map<string, StoredConfig>;
 
@@ -53,7 +53,7 @@ export class SceneManager {
     customConfig: Partial<GalaxyStarfieldConfig> = {},
     mergeWithRandom: boolean = true
   ): StoredConfig {
-    console.log(`Storing named config: ${configId}`);
+    console.debug(`Storing named config: ${configId}`);
 
     let finalConfig: StoredConfig;
 
@@ -82,7 +82,7 @@ export class SceneManager {
     // Store the config - store a deep copy to preserve all values exactly
     this.namedConfigs.set(configId, JSON.parse(JSON.stringify(finalConfig)));
 
-    console.log(`Named config "${configId}" stored successfully`);
+    console.debug(`Named config "${configId}" stored successfully`);
     return finalConfig;
   }
 
@@ -96,8 +96,8 @@ export class SceneManager {
       return null;
     }
 
-    console.log(`Retrieved named config: ${configId}`);
-    console.log(`Sector "${configId}" configuration:`, config);
+    console.debug(`Retrieved named config: ${configId}`);
+    console.debug(`Sector "${configId}" configuration:`, config);
     // Return a deep copy to prevent modification and preserve all values exactly
     return JSON.parse(JSON.stringify(config));
   }
@@ -139,7 +139,7 @@ export class SceneManager {
 
     // Store a deep copy to preserve all values exactly
     this.namedConfigs.set(configId, JSON.parse(JSON.stringify(updatedConfig)));
-    console.log(`Named config "${configId}" updated successfully`);
+    console.debug(`Named config "${configId}" updated successfully`);
 
     return updatedConfig;
   }
@@ -150,7 +150,7 @@ export class SceneManager {
   deleteNamedConfig(configId: string): boolean {
     const deleted = this.namedConfigs.delete(configId);
     if (deleted) {
-      console.log(`Named config "${configId}" deleted successfully`);
+      console.debug(`Named config "${configId}" deleted successfully`);
     } else {
       console.warn(`Cannot delete: named config "${configId}" not found`);
     }
@@ -192,7 +192,7 @@ export class SceneManager {
       this.sceneHistory.shift();
     }
 
-    console.log(
+    console.debug(
       `Scene ${this.currentSceneId} created from named config: ${configId}`
     );
     return sceneConfig;
@@ -306,7 +306,7 @@ export class SceneManager {
 
     // Planet properties - completely fresh random values
     config.planetImageUrl = randomPlanet;
-    config.planetScale = Math.random() * 4 + 2; // 2 to 6
+    config.planetScale = Math.random() * 3 + 1.5; // 2 to 6
     config.planetSpawnRangeX = Math.random() * 200 + 300; // 300 to 500
     config.planetSpawnRangeY = Math.random() * 200 + 300; // 300 to 500
 
@@ -316,8 +316,6 @@ export class SceneManager {
 
     // Star properties - completely fresh random values
     config.starSize = Math.random() * 0.5 + 0.75; // 0.75 to 1.25
-    config.twinkleSpeed = Math.random() * 0.001 + 0.0002; // 0.0002 to 0.0012
-    config.twinkleIntensity = Math.random() * 0.5 + 0.1; // 0.1 to 0.6
 
     return config;
   }
@@ -357,7 +355,7 @@ export class SceneManager {
       });
     }
 
-    console.log(`Generated ${gameObjects.length} game objects for new scene`);
+    console.debug(`Generated ${gameObjects.length} game objects for new scene`);
     return gameObjects;
   }
 

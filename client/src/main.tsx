@@ -21,11 +21,11 @@ createRoot(document.getElementById("root")!).render(
       error ? (
         <Error onRetry={handleConnect}>{error}</Error>
       ) : (
-        <GameProvider>
-          <UIProvider>
+        <UIProvider>
+          <GameProvider>
             <App onConnect={handleConnect} />
-          </UIProvider>
-        </GameProvider>
+          </GameProvider>
+        </UIProvider>
       )
     }
   </PipecatAppBase>

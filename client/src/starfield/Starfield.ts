@@ -177,6 +177,9 @@ export class GalaxyStarfield {
   // Pending sector config for warping
   private _pendingSectorConfig: Partial<GalaxyStarfieldConfig> | null;
 
+  // Current active scene ID
+  private _currentSceneId: string | null;
+
   // Reusable objects to prevent garbage collection
   private _frameState: FrameState;
 
@@ -277,8 +280,10 @@ export class GalaxyStarfield {
     this.currentShakeIntensity = 0;
     this.currentForwardOffset = 0;
     this.tunnelEffectValue = 0;
-    this.lastWidth = window.innerWidth;
-    this.lastHeight = window.innerHeight;
+    // Initialize with container dimensions (fallback to window if container not ready)
+    const containerRect = this._targetElement?.getBoundingClientRect();
+    this.lastWidth = containerRect?.width || window.innerWidth;
+    this.lastHeight = containerRect?.height || window.innerHeight;
 
     // Visibility and pause state management
     this.isPaused = false;
@@ -287,6 +292,9 @@ export class GalaxyStarfield {
 
     // Pending sector config for warping
     this._pendingSectorConfig = null;
+
+    // Current active scene ID
+    this._currentSceneId = null;
 
     // Reusable frameState object to prevent allocation in animation loop
     this._frameState = {
@@ -465,26 +473,32 @@ export class GalaxyStarfield {
     const debouncedResize = () => {
       clearTimeout(resizeTimeout);
       resizeTimeout = window.setTimeout(() => {
-        requestAnimationFrame(() => this.onWindowResize());
+        requestAnimationFrame(() => this.onContainerResize());
       }, 100);
     };
-    window.addEventListener("resize", debouncedResize);
 
-    if (window.ResizeObserver) {
+    // Use ResizeObserver to watch the target container element
+    if (window.ResizeObserver && this._targetElement) {
       try {
         const resizeObserver = new ResizeObserver((entries) => {
           requestAnimationFrame(() => {
             if (entries.length > 0) {
-              this.onWindowResize();
+              this.onContainerResize();
             }
           });
         });
-        resizeObserver.observe(document.body);
+        resizeObserver.observe(this._targetElement);
+        console.debug("ResizeObserver initialized for target container");
       } catch (e) {
         console.debug(
-          "ResizeObserver not fully supported, using window resize only"
+          "ResizeObserver not fully supported, falling back to window resize"
         );
+        window.addEventListener("resize", debouncedResize);
       }
+    } else {
+      // Fallback to window resize if ResizeObserver is not available
+      console.debug("ResizeObserver not available, using window resize");
+      window.addEventListener("resize", debouncedResize);
     }
   }
 
@@ -572,13 +586,11 @@ export class GalaxyStarfield {
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.FogExp2(0x000000, this.config.fogDensity);
 
-    // Create camera
-    this.camera = new THREE.PerspectiveCamera(
-      60,
-      window.innerWidth / window.innerHeight,
-      0.1,
-      1000
-    );
+    // Create camera with container dimensions (fallback to window if container not ready)
+    const containerRect = this._targetElement?.getBoundingClientRect();
+    const width = containerRect?.width || window.innerWidth;
+    const height = containerRect?.height || window.innerHeight;
+    this.camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 1000);
     this.camera.position.z = 0;
 
     // Configure camera to see both layers: 0 (stars) and 1 (background/mask)
@@ -660,7 +672,7 @@ export class GalaxyStarfield {
 
     // Ensure correct color management with modern Three.js
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setSize(width, height);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.setClearColor(0x000000, 1);
     this.renderer.domElement.style.position = "absolute";
@@ -738,6 +750,11 @@ export class GalaxyStarfield {
   }
 
   private setupPostProcessing(): void {
+    // Get container dimensions for resolution uniforms (fallback to window if container not ready)
+    const containerRect = this._targetElement?.getBoundingClientRect();
+    const width = containerRect?.width || window.innerWidth;
+    const height = containerRect?.height || window.innerHeight;
+
     // Implementation identical to JS version
     this.composer = new EffectComposer(this.renderer);
     if ("multisampling" in this.composer) {
@@ -753,7 +770,7 @@ export class GalaxyStarfield {
         tDiffuse: { value: null },
         time: { value: 0 },
         resolution: {
-          value: new THREE.Vector2(window.innerWidth, window.innerHeight),
+          value: new THREE.Vector2(width, height),
         },
         intensity: { value: this.config.terminalIntensity },
         cellSize: { value: this.config.terminalCellSize },
@@ -810,7 +827,7 @@ export class GalaxyStarfield {
       uniforms: {
         tDiffuse: { value: null },
         resolution: {
-          value: new THREE.Vector2(window.innerWidth, window.innerHeight),
+          value: new THREE.Vector2(width, height),
         },
         intensity: { value: this.config.sharpenIntensity || 0.5 },
         radius: { value: this.config.sharpenRadius || 1.0 },
@@ -1042,9 +1059,9 @@ export class GalaxyStarfield {
     const r = {
       CHARGING: { start: 0.0, end: 0.2 },
       BUILDUP: { start: 0.2, end: 0.5 },
-      CLIMAX: { start: 0.5, end: 0.8 },
-      FLASH: { start: 0.8, end: 0.833 },
-      COOLDOWN: { start: 0.833, end: 1.0 },
+      CLIMAX: { start: 0.5, end: 0.65 },
+      FLASH: { start: 0.65, end: 0.85 },
+      COOLDOWN: { start: 0.85, end: 1.0 },
     };
     const phases = {
       CHARGING: {
@@ -1209,19 +1226,21 @@ export class GalaxyStarfield {
         break;
 
       case "FLASH":
-        // White flash with intense shake
+        // Extended white flash with intense shake
         if (this.whiteFlash) {
-          this.whiteFlash.style.opacity = (1 - phaseProgress).toString();
+          // Make the flash more dramatic - start bright and fade out slowly
+          const flashIntensity = Math.max(0, 1 - phaseProgress * 1.5);
+          this.whiteFlash.style.opacity = flashIntensity.toString();
         }
-        this.shakeIntensityMultiplier = 2.0 * (1 - phaseProgress);
+        this.shakeIntensityMultiplier = 2.5 * (1 - phaseProgress);
         this.warpProgress = 1.0;
         this.tunnelEffectValue = 1.0;
         break;
 
       case "COOLDOWN":
-        // Return to normal with strong shake tapering off
         if (this.whiteFlash) {
-          this.whiteFlash.style.opacity = "0";
+          const fadeOutIntensity = Math.max(0, 0.3 * (1 - phaseProgress));
+          this.whiteFlash.style.opacity = fadeOutIntensity.toString();
         }
         this.shakeIntensityMultiplier = (1 - phaseProgress) * 1.0;
         this.warpProgress = 1 - phaseProgress;
@@ -1431,11 +1450,18 @@ export class GalaxyStarfield {
     }
   }
 
-  private onWindowResize(): void {
-    // Check if size actually changed to avoid unnecessary updates
-    const newWidth = window.innerWidth;
-    const newHeight = window.innerHeight;
+  private onContainerResize(): void {
+    if (!this._targetElement) {
+      console.warn("Target element not available for resize");
+      return;
+    }
 
+    // Get the container's dimensions
+    const containerRect = this._targetElement.getBoundingClientRect();
+    const newWidth = containerRect.width;
+    const newHeight = containerRect.height;
+
+    // Check if size actually changed to avoid unnecessary updates
     if (this.lastWidth === newWidth && this.lastHeight === newHeight) {
       return;
     }
@@ -1446,7 +1472,7 @@ export class GalaxyStarfield {
     this.camera.aspect = newWidth / newHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(newWidth, newHeight);
-    this.warpOverlay.resize();
+    this.warpOverlay.resize(newWidth, newHeight);
 
     if (this.composer) {
       this.composer.setSize(newWidth, newHeight);
@@ -1643,7 +1669,10 @@ export class GalaxyStarfield {
   /**
    * Warp to a specific sector with optional configuration
    */
-  public warpToSector(options: WarpOptions): boolean {
+  public warpToSector(
+    options: WarpOptions,
+    bypassAnimation: boolean = false
+  ): boolean {
     if (!this.sceneManager) {
       console.warn("SceneManager not available");
       return false;
@@ -1655,16 +1684,22 @@ export class GalaxyStarfield {
       return false;
     }
 
+    // Check if we're already in the requested scene
+    if (this._currentSceneId === id) {
+      console.debug(`Already in sector ${id}, no warp needed`);
+      return true;
+    }
+
     // Check if we already have a scene with this ID
     if (this.sceneManager.hasNamedConfig(id)) {
       // Load existing sector config
-      console.log(`Loading existing sector config for: ${id}`);
+      console.debug(`Loading existing sector config for: ${id}`);
       const sectorConfig = this.sceneManager.getNamedConfig(id);
       this._pendingSectorConfig = { ...sectorConfig, ...config };
-      console.log(`Loaded sector config:`, this._pendingSectorConfig);
+      console.debug(`Loaded sector config:`, this._pendingSectorConfig);
     } else {
       // Create new sector config and store it
-      console.log(`Creating new sector config for: ${id}`);
+      console.debug(`Creating new sector config for: ${id}`);
       // Generate complete game object configs from base configs
       if (this.gameObjectManager && gameObjects.length > 0) {
         const completeGameObjects = gameObjects.map((baseConfig) => {
@@ -1678,12 +1713,20 @@ export class GalaxyStarfield {
       }
       const sectorConfig = this.sceneManager.storeNamedConfig(id, config, true);
       this._pendingSectorConfig = sectorConfig;
-      console.log(`Created sector config:`, this._pendingSectorConfig);
+      console.debug(`Created sector config:`, this._pendingSectorConfig);
     }
 
+    this.clearGameObjectSelection();
+
     // Start the warp animation
-    //this.startWarp();
-    this.reloadConfig(this._pendingSectorConfig);
+    if (!this._currentSceneId || bypassAnimation) {
+      this.reloadConfig(this._pendingSectorConfig);
+    } else {
+      this.startWarp();
+    }
+
+    // Update current scene ID
+    this._currentSceneId = id;
 
     // Start rendering after scene is ready
     this.startRendering();
@@ -1713,6 +1756,21 @@ export class GalaxyStarfield {
    */
   public getSectorIds(): string[] {
     return this.sceneManager ? this.sceneManager.getNamedConfigIds() : [];
+  }
+
+  /**
+   * Get the current active scene ID
+   */
+  public getCurrentSceneId(): string | null {
+    return this._currentSceneId;
+  }
+
+  /**
+   * Set the current scene ID (useful for initial scene setup)
+   */
+  public setCurrentSceneId(sceneId: string): void {
+    this._currentSceneId = sceneId;
+    console.debug(`Current scene ID set to: ${sceneId}`);
   }
 
   /**
@@ -2033,7 +2091,7 @@ export class GalaxyStarfield {
 
     // Update game object rotations only (positions remain fixed)
     if (this.gameObjectManager) {
-      this.gameObjectManager.updateRotations(this.clock.getElapsedTime());
+      this.gameObjectManager.updateRotations();
     }
 
     // Update layer manager animations
@@ -2142,7 +2200,8 @@ export class GalaxyStarfield {
       console.debug("Creating random scene configuration");
     }
 
-    this.reloadConfig(newConfig);
+    // For random scenes, we don't have a specific scene ID, so set to null
+    this.reloadConfig(newConfig, null);
   }
 
   // ============================================================================

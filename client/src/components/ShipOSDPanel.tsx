@@ -2,15 +2,13 @@ import {
   Card,
   CardContent,
   CardHeader,
-  Divider,
   PanelTitle,
 } from "@pipecat-ai/voice-ui-kit";
 import { ShipOSDVisualizer } from "./ShipOSDVisualizer";
-import { TaskStatusBadge } from "./TaskStatusBadge";
 
 export const ShipOSDPanel = () => {
   return (
-    <Card className="h-full bg-background" withElbows={true}>
+    <Card className="h-full bg-background w-[220px]" withElbows={true}>
       <CardHeader className="flex flex-row justify-between">
         <PanelTitle>Ship OSD</PanelTitle>
         <PanelTitle className="text-border">v12.1</PanelTitle>
@@ -23,17 +21,11 @@ export const ShipOSDPanel = () => {
           peakLineColor="--color-agent"
           peakLineThickness={3}
           peakOffset={6}
-          barMaxHeight={100}
+          barMaxHeight={200}
           barCount={8}
           barWidth={8}
           barOrigin="bottom"
         />
-      </CardContent>
-      <CardContent className="mt-auto flex flex-col gap-2">
-        <Divider childrenClassName="text-xs shrink-0 w-fit opacity-30">
-          Task status
-        </Divider>
-        <TaskStatusBadge />
       </CardContent>
     </Card>
   );

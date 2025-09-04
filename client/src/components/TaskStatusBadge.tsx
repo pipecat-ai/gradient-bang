@@ -6,7 +6,7 @@ export const TaskStatusBadge = () => {
   const { active, status } = useTaskStore();
 
   const badgeColor = useMemo(() => {
-    if (!active && !status) return "ghost";
+    if (!active && !status) return "secondary";
     if (!status && active) return "warning";
     switch (status) {
       case "paused":
@@ -27,6 +27,8 @@ export const TaskStatusBadge = () => {
 
   return (
     <Badge
+      size="lg"
+      variant="elbow"
       className={`w-full ${active ? "animate-pulse" : ""}`}
       color={badgeColor}
     >

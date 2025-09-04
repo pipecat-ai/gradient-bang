@@ -219,7 +219,7 @@ export class CameraLookAtAnimator {
     if (onComplete) {
       const callbackId = Date.now() + Math.random();
       this.pendingCallbacks.set(callbackId, onComplete);
-      console.log(
+      console.debug(
         "CameraLookAt: Callback stored, pending callbacks:",
         this.pendingCallbacks.size
       );
@@ -233,7 +233,7 @@ export class CameraLookAtAnimator {
    * @param {Object} originTarget - Optional target to look at when returning to origin
    */
   public returnToOrigin(originTarget: THREE.Vector3): void {
-    console.log("returnToOrigin called - moving camera to origin");
+    console.debug("returnToOrigin called - moving camera to origin");
 
     // Reset sway offset when starting new camera movement
     this.resetSwayOffset();
@@ -372,7 +372,7 @@ export class CameraLookAtAnimator {
     // Log configuration changes for debugging
     const newConfig = this.getSwayConfig();
     if (JSON.stringify(oldConfig) !== JSON.stringify(newConfig)) {
-      console.log("Camera sway config updated:", newConfig);
+      console.debug("Camera sway config updated:", newConfig);
     }
   }
 
