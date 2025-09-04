@@ -1,6 +1,6 @@
 """
-Interruptible bot using SmallWebRTCTransport.
-Based on Pipecat's 07-interruptible.py example.
+Interruptible bot using LocalMacTransport (or other transports via runner args).
+Uses RTVI for client messages and manages task/tools.
 """
 
 import asyncio
@@ -18,6 +18,7 @@ if _REPO_ROOT not in sys.path:
 from dotenv import load_dotenv
 from loguru import logger
 
+from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
     Frame,
@@ -25,6 +26,8 @@ from pipecat.frames.frames import (
     StartInterruptionFrame,
     StopInterruptionFrame,
     LLMMessagesAppendFrame,
+    StartFrame,
+    StopFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -34,7 +37,6 @@ from pipecat.processors.aggregators.openai_llm_context import (
     OpenAILLMContext,
     OpenAILLMContextFrame,
 )
-from pipecat.services.rime.tts import RimeTTSService
 from pipecat.processors.frameworks.rtvi import (
     RTVIConfig,
     RTVIObserver,
@@ -95,7 +97,6 @@ def create_chat_system_prompt() -> str:
 
 async def run_bot(transport, runner_args: RunnerArguments):
     """Main bot function that creates and runs the pipeline."""
-
     # Create RTVI processor with config
     rtvi = RTVIProcessor(config=RTVIConfig(config=[]))
 
@@ -128,11 +129,7 @@ async def run_bot(transport, runner_args: RunnerArguments):
 
         asyncio.create_task(_complete())
 
-    # khk TODO
-    #   :
-    #   - implement task progress buffer context for each voice inference, as in the TUI
-    #   - look again to be sure task_complete_callback is good code
-    #   - check that messages are similar to those we're using in the tui
+    # Create voice task manager
     task_manager = VoiceTaskManager(
         character_id="TraderP",
         rtvi_processor=rtvi,
@@ -142,25 +139,19 @@ async def run_bot(transport, runner_args: RunnerArguments):
     initial_map_data = await task_manager.game_client.my_map()
 
     # Initialize STT service
-    stt = SpeechmaticsSTTService(
-        api_key=os.getenv("SPEECHMATICS_API_KEY"),
-        enable_speaker_diarization=False,
-    )
+    logger.info("Init STT…")
+    stt = SpeechmaticsSTTService(api_key=os.getenv("SPEECHMATICS_API_KEY"), enable_speaker_diarization=False)
 
-    # Initialize TTS service
-    tts = RimeTTSService(
-        api_key=os.getenv("RIME_API_KEY"),
-        voice_id="rex",
-    )
+    # Initialize TTS service (managed session)
+    logger.info("Init TTS (Cartesia)…")
+    cartesia_key = os.getenv("CARTESIA_API_KEY", "")
+    if not cartesia_key:
+        logger.warning("CARTESIA_API_KEY is not set; TTS may fail.")
+    tts = CartesiaTTSService(api_key=cartesia_key, voice_id="79a125e8-cd45-4c13-8a67-188112f4dd22")
 
     # Initialize LLM service
-    llm = OpenAILLMService(
-        api_key=os.getenv("OPENAI_API_KEY"),
-        model="gpt-4.1",
-        params=BaseOpenAILLMService.InputParams(
-            extra={"service_tier": "priority"},
-        ),
-    )
+    logger.info("Init LLM…")
+    llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4.1", params=BaseOpenAILLMService.InputParams(extra={"service_tier": "priority"}))
     llm.register_function(None, task_manager.execute_tool_call)
 
     task_progress = TaskProgressInserter(task_manager)
@@ -178,6 +169,7 @@ async def run_bot(transport, runner_args: RunnerArguments):
     context_aggregator = llm.create_context_aggregator(context)
 
     # Create pipeline
+    logger.info("Create pipeline…")
     pipeline = Pipeline(
         [
             transport.input(),
@@ -193,6 +185,7 @@ async def run_bot(transport, runner_args: RunnerArguments):
     )
 
     # Create task with RTVI observer
+    logger.info("Create task…")
     task = PipelineTask(
         pipeline,
         params=PipelineParams(
@@ -228,39 +221,49 @@ async def run_bot(transport, runner_args: RunnerArguments):
         msg_type = message.type
         msg_data = message.data if hasattr(message, "data") else {}
 
+        # Mute / unmute control
+        if msg_type == "mute-unmute":
+            try:
+                mute = bool((msg_data or {}).get("mute"))
+            except Exception:
+                mute = False
+            # Prefer transport-native mute to avoid tearing down the pipeline
+            try:
+                transport.set_input_muted(mute)
+                logger.info(f"Microphone {'muted' if mute else 'unmuted'} (transport flag)")
+            except Exception:
+                # Fallback to control frames
+                if mute:
+                    await transport.input().push_frame(StopFrame())
+                    logger.info("Microphone muted (StopFrame fallback)")
+                else:
+                    await transport.input().push_frame(StartFrame())
+                    logger.info("Microphone unmuted (StartFrame fallback)")
+            return
+
         # Client requested my status
         if msg_type == "get-my-status":
             # Get current status from the task manager
             status = await task_manager.game_client.my_status()
             await rtvi.push_frame(
                 RTVIServerMessageFrame(
-                    {
-                        "gg-action": "my_status",
-                        "result": status,
-                    }
+                    {"gg-action": "my_status", "result": status}
                 )
             )
+            return
+
         # Client sent a custom message
         if msg_type == "custom-message":
             text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""
             if text:
-                # Process the text message as user input
                 logger.info(f"Processing custom message: {text}")
-                # Send the text as a TranscriptionFrame which will be processed by the
-                # context aggregator
                 await task.queue_frames(
                     [
                         StartInterruptionFrame(),
-                        TranscriptionFrame(
-                            text=text,
-                            user_id="text-input",
-                            timestamp="",
-                        ),
+                        TranscriptionFrame(text=text, user_id="text-input", timestamp=""),
                         StopInterruptionFrame(),
                     ]
                 )
-
-                # Send acknowledgment back to client
                 await rtvi.send_server_message(
                     {"type": "message-received", "text": f"Received: {text}"}
                 )
@@ -269,7 +272,7 @@ async def run_bot(transport, runner_args: RunnerArguments):
     async def on_client_connected(transport, client):
         """Handle new connection."""
         logger.info("Client connected")
-        # Fallback: some clients may not emit RTVI on_client_ready; ensure init flows
+        # Proactively send init in case client_ready doesn't fire in this environment
         try:
             await rtvi.push_frame(
                 RTVIServerMessageFrame(
@@ -281,18 +284,23 @@ async def run_bot(transport, runner_args: RunnerArguments):
                 )
             )
         except Exception:
-            pass
+            logger.exception("Failed to send init on connect")
 
-    @transport.event_handler("on_client_disconnected")
-    async def on_client_disconnected(transport, client):
-        """Handle disconnection."""
-        logger.info("Client disconnected")
-        await task.cancel()
-        logger.info("Bot stopped")
+        @transport.event_handler("on_client_disconnected")
+        async def on_client_disconnected(transport, client):
+            """Handle disconnection."""
+            logger.info("Client disconnected")
+            await task.cancel()
+            logger.info("Bot stopped")
 
-    # Create runner and run the task
+        # Create runner and run the task
     runner = PipelineRunner(handle_sigint=getattr(runner_args, "handle_sigint", False))
-    await runner.run(task)
+    try:
+        logger.info("Starting pipeline runner…")
+        await runner.run(task)
+        logger.info("Pipeline runner finished")
+    except Exception as e:
+        logger.exception(f"Pipeline runner error: {e}")
 
 
 async def bot(runner_args: RunnerArguments):

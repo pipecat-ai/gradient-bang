@@ -191,6 +191,7 @@ class MacInputTransport(BaseInputTransport):
         self._sample_rate = 0
         self._poll_task: Optional[asyncio.Task] = None
         self._stop = False
+        self._muted = False
 
     async def start(self, frame: StartFrame):
         await super().start(frame)
@@ -250,6 +251,10 @@ class MacInputTransport(BaseInputTransport):
         except Exception:
             logger.exception("Error notifying parent of input cancel")
 
+    def set_muted(self, muted: bool) -> None:
+        """Enable/disable microphone capture without stopping the pipeline."""
+        self._muted = bool(muted)
+
     async def _poll_capture(self):
         C = self._vpio.C
         bytes_per_20ms = int(self._sample_rate * 0.02) * self._params.audio_in_channels * 2
@@ -259,6 +264,10 @@ class MacInputTransport(BaseInputTransport):
         cbuf = (C.c_ubyte * read_chunk)()
         while not self._stop:
             try:
+                # If muted, skip capture and yield briefly
+                if self._muted:
+                    await asyncio.sleep(0.01)
+                    continue
                 n = 0
                 try:
                     n = int(self._vpio.lib.vpio_read_capture(cbuf, read_chunk))
@@ -703,3 +712,11 @@ class LocalMacTransport(BaseTransport):
     async def _on_transport_message(self, frame: TransportMessageFrame | TransportMessageUrgentFrame):
         """Emit outgoing transport messages for the TUI/app to consume."""
         await self._call_event_handler("on_transport_message", frame)
+
+    # Convenience: mute/unmute capture without tearing down the pipeline
+    def set_input_muted(self, muted: bool) -> None:
+        if self._input is not None:
+            try:
+                self._input.set_muted(muted)
+            except Exception:
+                pass

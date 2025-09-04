@@ -31,6 +31,11 @@ from tui.widgets.rtvi_list_panel import RTVIListPanel
 class BotPlayerApp(BotTUIBase):
     """TUI app that renders the Player UI and syncs via RTVI messages."""
 
+    # Extend base bindings with mute toggle on F2
+    BINDINGS = BotTUIBase.BINDINGS + [
+        ("f2", "toggle_mute", "Mute / Unmute"),
+    ]
+
     CSS = """
     #status-bar {
         height: 3;
@@ -86,6 +91,9 @@ class BotPlayerApp(BotTUIBase):
         self._agent_text_buf: list[str] = []
         self._client_text_buf: str = ""
         self._map_data: Dict[str, Any] = {}
+        self._muted: bool = False
+        self._mute_counter: int = 0
+        self._pending_mute: Optional[bool] = None
 
         # Widgets (set on mount)
         self.status_bar: Optional[StatusBarWidget] = None
@@ -164,6 +172,68 @@ class BotPlayerApp(BotTUIBase):
 
         # Start transport + bot via base class
         await super().on_mount()
+
+    async def action_toggle_mute(self) -> None:  # type: ignore[override]
+        """Toggle microphone capture via RTVI client-message."""
+        self._muted = not self._muted
+        self._mute_counter += 1
+        # If transport isn't connected yet, defer sending
+        if not getattr(self, "_transport_connected", False):
+            self._pending_mute = self._muted
+            if self.syslog:
+                self.syslog.write_line(
+                    f"[info] Queued {'mute' if self._muted else 'unmute'} until transport is connected"
+                )
+            if self.chat_widget:
+                self.chat_widget.add_message(
+                    "system", f"Audio {'muted' if self._muted else 'unmuted'} (queued)"
+                )
+            return
+        payload = {
+            "label": "rtvi-ai",
+            "type": "client-message",
+            "id": f"mute-{self._mute_counter}",
+            "data": {"t": "mute-unmute", "d": {"mute": self._muted}},
+        }
+        try:
+            await self.transport_mgr.send_app_message(payload)
+            if self.syslog:
+                self.syslog.write_line(
+                    f"[info] {'Muted' if self._muted else 'Unmuted'} (sent client-message)"
+                )
+            if self.chat_widget:
+                self.chat_widget.add_message(
+                    "system", f"Audio {'muted' if self._muted else 'unmuted'}"
+                )
+        except Exception as e:
+            if self.syslog:
+                self.syslog.write_line(f"[error] Failed to send mute toggle: {e}")
+            # Keep it queued to retry on connect
+            self._pending_mute = self._muted
+
+    async def _on_status(self, connected: bool) -> None:  # type: ignore[override]
+        await super()._on_status(connected)
+        # On connect, flush any queued mute state
+        if connected and self._pending_mute is not None:
+            try:
+                self._mute_counter += 1
+                payload = {
+                    "label": "rtvi-ai",
+                    "type": "client-message",
+                    "id": f"mute-{self._mute_counter}",
+                    "data": {"t": "mute-unmute", "d": {"mute": self._pending_mute}},
+                }
+                await self.transport_mgr.send_app_message(payload)
+                self._muted = bool(self._pending_mute)
+                if self.syslog:
+                    self.syslog.write_line(
+                        f"[info] {'Muted' if self._muted else 'Unmuted'} (sent on connect)"
+                    )
+            except Exception as e:
+                if self.syslog:
+                    self.syslog.write_line(f"[error] Failed to send queued mute: {e}")
+            finally:
+                self._pending_mute = None
 
     # Utility to show a specific panel and hide others on the right side
     def show_panel(self, panel: str) -> None:

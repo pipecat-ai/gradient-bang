@@ -69,6 +69,7 @@ class BotTUIBase(App):
         self.rtvi_inbox: Optional[RTVIListPanel] = None
         self.rtvi_outbox: Optional[RTVIListPanel] = None
         self._mounted_once: bool = False
+        self._transport_connected: bool = False
 
     def compose(self) -> ComposeResult:  # type: ignore[override]
         yield Header(show_clock=True)
@@ -128,14 +129,9 @@ class BotTUIBase(App):
         logger.debug("Base on_mount: initial UI state set")
 
     async def _on_status(self, connected: bool) -> None:
+        self._transport_connected = connected
         if self.status:
             self.status.update("Status: connected" if connected else "Status: disconnected")
-        # On first connect, proactively request status like the web client
-        if connected:
-            try:
-                await self.transport_mgr.send_app_message({"type": "get-my-status", "data": {}})
-            except Exception:
-                pass
 
     async def _on_inbound(self, payload: Any) -> None:
         if self.rtvi_inbox:
