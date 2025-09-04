@@ -7,8 +7,13 @@ import asyncio
 import os
 import sys
 
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Ensure imports work whether run as a script, a module, or imported by path
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.path.dirname(os.path.dirname(_THIS_DIR))
+if _THIS_DIR not in sys.path:
+    sys.path.insert(0, _THIS_DIR)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -44,7 +49,12 @@ from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
 
 from utils.prompts import GAME_DESCRIPTION, CHAT_INSTRUCTIONS, VOICE_INSTRUCTIONS
-from voice_task_manager import VoiceTaskManager
+
+try:
+    # Prefer package import when available
+    from pipecat.voice_task_manager import VoiceTaskManager
+except Exception:  # Fallback when imported directly by file path
+    from voice_task_manager import VoiceTaskManager
 
 
 load_dotenv()
@@ -83,7 +93,7 @@ def create_chat_system_prompt() -> str:
 """
 
 
-async def run_bot(transport):
+async def run_bot(transport, runner_args: RunnerArguments):
     """Main bot function that creates and runs the pipeline."""
 
     # Create RTVI processor with config
@@ -268,7 +278,7 @@ async def run_bot(transport):
         logger.info("Bot stopped")
 
     # Create runner and run the task
-    runner = PipelineRunner(handle_sigint=False)
+    runner = PipelineRunner(handle_sigint=getattr(runner_args, "handle_sigint", False))
     await runner.run(task)
 
 
@@ -292,10 +302,33 @@ async def bot(runner_args: RunnerArguments):
     }
 
     transport = await create_transport(runner_args, transport_params)
-    await run_bot(transport)
+    await run_bot(transport, runner_args)
 
 
 if __name__ == "__main__":
-    from pipecat.runner.run import main
+    # Support a simple local run mode for development: `python -m pipecat.bot -t local`
+    # Falls back to the standard runner (pipecat.runner.run::main) otherwise.
+    import argparse
+    from macos.local_mac_transport import LocalMacTransport, LocalMacTransportParams
 
-    main()
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("-t", "--t", default=None)
+    known, _ = parser.parse_known_args()
+
+    if known.t == "local":
+        from pipecat.audio.vad.silero import SileroVADAnalyzer
+        from loguru import logger
+        import asyncio as _asyncio
+
+        logger.info("Using new AEC transport (LocalMacTransport)")
+        params = LocalMacTransportParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            vad_analyzer=SileroVADAnalyzer(),
+        )
+        transport = LocalMacTransport(params=params)
+        _asyncio.run(run_bot(transport, RunnerArguments()))
+    else:
+        from pipecat.runner.run import main
+
+        main()
