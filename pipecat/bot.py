@@ -22,9 +22,6 @@ from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
     Frame,
-    TranscriptionFrame,
-    StartInterruptionFrame,
-    StopInterruptionFrame,
     LLMMessagesAppendFrame,
     StartFrame,
     StopFrame,
@@ -140,7 +137,9 @@ async def run_bot(transport, runner_args: RunnerArguments):
 
     # Initialize STT service
     logger.info("Init STT…")
-    stt = SpeechmaticsSTTService(api_key=os.getenv("SPEECHMATICS_API_KEY"), enable_speaker_diarization=False)
+    stt = SpeechmaticsSTTService(
+        api_key=os.getenv("SPEECHMATICS_API_KEY"), enable_speaker_diarization=False
+    )
 
     # Initialize TTS service (managed session)
     logger.info("Init TTS (Cartesia)…")
@@ -151,7 +150,11 @@ async def run_bot(transport, runner_args: RunnerArguments):
 
     # Initialize LLM service
     logger.info("Init LLM…")
-    llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4.1", params=BaseOpenAILLMService.InputParams(extra={"service_tier": "priority"}))
+    llm = OpenAILLMService(
+        api_key=os.getenv("OPENAI_API_KEY"),
+        model="gpt-4.1",
+        params=BaseOpenAILLMService.InputParams(extra={"service_tier": "priority"}),
+    )
     llm.register_function(None, task_manager.execute_tool_call)
 
     task_progress = TaskProgressInserter(task_manager)
@@ -246,9 +249,7 @@ async def run_bot(transport, runner_args: RunnerArguments):
             # Get current status from the task manager
             status = await task_manager.game_client.my_status()
             await rtvi.push_frame(
-                RTVIServerMessageFrame(
-                    {"gg-action": "my_status", "result": status}
-                )
+                RTVIServerMessageFrame({"gg-action": "my_status", "result": status})
             )
             return
 
@@ -256,14 +257,7 @@ async def run_bot(transport, runner_args: RunnerArguments):
         if msg_type == "custom-message":
             text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""
             if text:
-                logger.info(f"Processing custom message: {text}")
-                await task.queue_frames(
-                    [
-                        StartInterruptionFrame(),
-                        TranscriptionFrame(text=text, user_id="text-input", timestamp=""),
-                        StopInterruptionFrame(),
-                    ]
-                )
+                logger.info(f"!!! TODO: Process custom message: {text}")
                 await rtvi.send_server_message(
                     {"type": "message-received", "text": f"Received: {text}"}
                 )
@@ -294,6 +288,7 @@ async def run_bot(transport, runner_args: RunnerArguments):
             logger.info("Bot stopped")
 
         # Create runner and run the task
+
     runner = PipelineRunner(handle_sigint=getattr(runner_args, "handle_sigint", False))
     try:
         logger.info("Starting pipeline runner…")
