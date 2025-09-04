@@ -15,7 +15,7 @@ interface TaskState {
   addTaskOutput: (taskOutput: TaskOutput) => void;
   getTasks: () => TaskOutput[];
   setActive: (active: boolean) => void;
-  setStatus: (status: TaskStatus) => void;
+  setStatus: (status: TaskStatus | undefined) => void;
 }
 
 const useTaskStore = create<TaskState>((set, get) => ({
@@ -26,7 +26,7 @@ const useTaskStore = create<TaskState>((set, get) => ({
     set((state) => ({ tasks: [...state.tasks, taskOutput] })),
   getTasks: () => get().tasks,
   setActive: (active: boolean) => set({ active }),
-  setStatus: (status: TaskStatus) => set({ status }),
+  setStatus: (status: TaskStatus | undefined) => set({ status }),
 }));
 
 export default useTaskStore;

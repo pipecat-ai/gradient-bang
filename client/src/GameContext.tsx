@@ -11,6 +11,7 @@ import useMapStore from "./stores/map";
 import useSectorStore, { type SectorContents } from "./stores/sector";
 import useStarfieldStore from "./stores/starfield";
 import useTaskStore, { type TaskOutput } from "./stores/tasks";
+import useTradeHistoryStore, { type TradeHistoryItem } from "./stores/trades";
 
 const ServerMessageKey = "gg-action";
 
@@ -125,6 +126,7 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
   const starfieldStore = useStarfieldStore();
   const client = usePipecatClient();
   const { resetActivePanels } = useUI();
+  const tradeHistoryStore = useTradeHistoryStore();
 
   const setShip = useCallback(
     (ship: Ship) => {
@@ -254,7 +256,19 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
 
             // ----- TRADE
             case "trade": {
-              const tradeResult = data.result as StatusUpdate & {
+              let result;
+              // Check if this is the result of a tool call
+              if (data.content) {
+                result = JSON.parse(data.content as string);
+                if (result.error) {
+                  console.error("[GAME] Trade error", result.error);
+                  break;
+                }
+              } else {
+                result = data.result;
+              }
+
+              const tradeResult = result as StatusUpdate & {
                 new_cargo: Cargo;
                 new_credits: number;
               };
@@ -265,6 +279,18 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
                   credits: tradeResult.new_credits,
                 } as Ship,
               });
+              // Add the trade to the trade history
+              const historyResult = result as TradeHistoryItem;
+              tradeHistoryStore.addTrade({
+                timestamp: new Date().toISOString(),
+                trade_type: historyResult.trade_type,
+                commodity: historyResult.commodity,
+                units: historyResult.units,
+                price_per_unit: historyResult.price_per_unit,
+                total_price: historyResult.total_price,
+              } as TradeHistoryItem);
+
+              getStatusFromServer();
               break;
             }
 
@@ -296,6 +322,8 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
             // ----- TASKS
             case "start_task":
               taskStore.setActive(true);
+              taskStore.setStatus(undefined);
+              resetActivePanels();
               break;
             case "stop_task":
               taskStore.setActive(false);
@@ -326,7 +354,16 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
           }
         }
       },
-      [sectorStore, handleMovement, handleMapData, taskStore, starfieldStore]
+      [
+        sectorStore,
+        handleMovement,
+        handleMapData,
+        taskStore,
+        starfieldStore,
+        tradeHistoryStore,
+        getStatusFromServer,
+        resetActivePanels,
+      ]
     )
   );
 

@@ -5,8 +5,8 @@ import { TaskStatusBadge } from "../TaskStatusBadge";
 
 export const RHS = () => {
   return (
-    <div className="w-full rhs-perspective ">
-      <div className="flex flex-col gap-2 w-full h-full">
+    <div className="w-full rhs-perspective">
+      <div className="flex flex-col gap-2 w-full h-full ml-auto max-w-[800px]">
         <div className="flex flex-row gap-2 w-full h-full shadow-xlong">
           <ShipOSDPanel />
           <ConversationPanel />

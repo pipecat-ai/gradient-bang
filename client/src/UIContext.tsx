@@ -14,7 +14,7 @@ export type PanelId =
   | "ports_discovered"
   | "port"
   | "task_output"
-  | "ship";
+  | "trade_history";
 
 interface UIState {
   highlightedPanel: PanelId | null;
@@ -31,7 +31,7 @@ const initialState: UIState = {
     movement_history: null,
     ports_discovered: null,
     port: null,
-    ship: null,
+    trade_history: null,
     task_output: null,
   },
 };

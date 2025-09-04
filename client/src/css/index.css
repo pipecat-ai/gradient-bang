@@ -10,10 +10,10 @@
 
 @theme {
   --spacing-panel: calc(var(--spacing) * 2);
-  --height-ui: 440px;
+  --height-ui: 480px;
 
-  --width-shippanel: 260px;
-  --width-image: 400px;
+  --width-image: 380px;
+  --width-ui: 400px;
 }
 
 :root {
@@ -56,13 +56,13 @@ body {
 
 /** UI **/
 .lhs-perspective {
-  transform: perspective(400px) rotateY(9deg) scaleX(1.2);
+  transform: perspective(400px) rotateY(6.5deg) scaleX(1.2);
   transform-origin: left center;
   backface-visibility: hidden;
   transform-style: preserve-3d;
 }
 .rhs-perspective {
-  transform: perspective(400px) rotateY(-9deg) scaleX(1.2);
+  transform: perspective(400px) rotateY(-6.5deg) scaleX(1.2);
   transform-origin: right center;
   backface-visibility: hidden;
   transform-style: preserve-3d;
@@ -276,12 +276,72 @@ body {
 .dotted-bg {
   background-image: radial-gradient(
     circle,
+    var(--color-subtle) 1px,
+    transparent 1px
+  );
+  background-size: 6px 6px;
+  background-position: 0 0;
+  background-repeat: repeat;
+}
+
+.dotted-border {
+  background-image: radial-gradient(circle, var(--color-input) 1px, red 1px);
+  background-size: 6px 6px;
+  background-position: 0 0;
+  background-repeat: repeat;
+  mask-image: linear-gradient(
+      to right,
+      black 0%,
+      black 20px,
+      transparent 20px,
+      transparent calc(100% - 20px),
+      black calc(100% - 20px)
+    ),
+    linear-gradient(
+      to bottom,
+      black 0%,
+      black 20px,
+      transparent 20px,
+      transparent calc(100% - 20px),
+      black calc(100% - 20px)
+    );
+  mask-composite: intersect;
+  -webkit-mask-image: linear-gradient(
+      to right,
+      black 0%,
+      black 20px,
+      transparent 20px,
+      transparent calc(100% - 20px),
+      black calc(100% - 20px)
+    ),
+    linear-gradient(
+      to bottom,
+      black 0%,
+      black 20px,
+      transparent 20px,
+      transparent calc(100% - 20px),
+      black calc(100% - 20px)
+    );
+  -webkit-mask-composite: source-in;
+}
+
+.dotted-frame {
+  background-image: radial-gradient(
+    circle,
     var(--color-input) 1px,
     transparent 1px
   );
   background-size: 6px 6px;
   background-position: 0 0;
   background-repeat: repeat;
+  mask-image: linear-gradient(to bottom, black 0%, black 70px, transparent 70px),
+    /* Bottom border */
+      linear-gradient(to top, black 0%, black 0, transparent 0),
+    /* Left border */
+      linear-gradient(to right, black 0%, black 70px, transparent 70px),
+    /* Right border */
+      linear-gradient(to left, black 0%, black 70px, transparent 70px);
+  mask-composite: add;
 }
 
 .dotted-overlay-bottom::after {

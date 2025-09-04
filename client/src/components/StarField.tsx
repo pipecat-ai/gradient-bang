@@ -49,6 +49,7 @@ export const StarField = memo(() => {
   }, [sector, getInstance, getSectorContents, active]);
 
   useEffect(() => {
+    getInstance()?.clearGameObjectSelection();
     if (active) {
       getInstance()?.startShake();
     } else {

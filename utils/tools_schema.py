@@ -307,7 +307,7 @@ UI_SHOW_PANEL_SCHEMA = FunctionSchema(
     properties={
         "panel": {
             "type": "string",
-            "description": "Name of the panel to switch to. One of 'task_output', 'movement_history', 'ports_discovered' or 'debug'",
+            "description": "Name of the panel to switch to. One of 'task_output', 'movement_history', 'ports_discovered' or 'trade'",
         },
     },
     required=["panel"],

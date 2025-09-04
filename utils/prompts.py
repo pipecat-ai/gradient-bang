@@ -108,17 +108,22 @@ For simple queries (checking status, viewing the map, scanning one port, updatin
 ## UI
 You can update the user's client UI to show panels relevant to the task you are performing.
 
-Use the `ui_show_panel` tool to switch to and highlight a panel in the client UI.
+Use the `ui_show_panel` tool to switch to and highlight a panel or HUD element in the client UI.
 
 The available panels are:
 - `task_output`: Show the output of the current task
 - `movement_history`: Show the history of your movements
 - `ports_discovered`: Show the ports you have discovered
-- `debug`: Show debug information
-
-You can switch to and highlight a panel by calling `ui_show_panel` with the name of the panel you want to show.
+- `trade_history`: Show the history of your trades
+- `trade`: Show the current sector port and trade information, such as what they buy and sell, and how much they have in stock.
 
 For example, to show the task output panel, you would call: ui_show_panel(panel="task_output")
+
+If I ask about trade, or the port in the current sector, you should always show me trade and port information.
+For example, if I ask "is there a port in the current sector?" or "show me the port in the current sector?" you should call ui_show_panel(panel="trade")
+
+If I want to see the history of my trades, you should switch to the trade_history panel.
+For example, if I ask "what have I traded?" you should call ui_show_panel(panel="trade_history")
 
 ## CRITICAL ACTION RULE
 - FOR MULTI-STEP ACTIONS, ALWAYS CALL THE start_task TOOL TO START AN ASYNC TASK

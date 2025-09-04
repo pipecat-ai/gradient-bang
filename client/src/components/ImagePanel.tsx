@@ -16,6 +16,8 @@ export const ImagePanel = () => {
       >
         <div className="w-image h-full">
           <RetroGlitchImage
+            terminalColor="#b4ff49"
+            imageFit="cover"
             src={currentImage || ""}
             pixelSize={1}
             fillContainer={true}

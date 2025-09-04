@@ -1,4 +1,4 @@
-import { MapPinLineIcon, PathIcon, RocketIcon } from "@phosphor-icons/react";
+import { HandshakeIcon, MapPinLineIcon, PathIcon } from "@phosphor-icons/react";
 import { Button } from "@pipecat-ai/voice-ui-kit";
 import { Bug } from "lucide-react";
 import { useLayoutEffect } from "react";
@@ -6,16 +6,16 @@ import { useUI } from "../hooks/useUI";
 
 export type PanelMenuItem =
   | "movement_history"
-  | "ports_discovered"
+  | "task_output"
   | "debug"
-  | "ship";
+  | "trade_history";
 
 const isPanelMenuItem = (value: string | null): value is PanelMenuItem => {
   return (
     value === "movement_history" ||
-    value === "ports_discovered" ||
+    value === "task_output" ||
     value === "debug" ||
-    value === "ship"
+    value === "trade_history"
   );
 };
 
@@ -37,31 +37,31 @@ export const PanelMenu = ({
   return (
     <div className="flex flex-col h-full gap-2">
       <Button
+        variant={currentPanel === "task_output" ? "outline" : "ghost"}
+        isIcon={true}
+        size="lg"
+        onClick={() => setCurrentPanel("task_output")}
+        className={currentPanel === "task_output" ? "text-agent" : ""}
+      >
+        <PathIcon size={24} />
+      </Button>
+      <Button
         variant={currentPanel === "movement_history" ? "outline" : "ghost"}
         isIcon={true}
         size="lg"
         onClick={() => setCurrentPanel("movement_history")}
         className={currentPanel === "movement_history" ? "text-agent" : ""}
       >
-        <PathIcon size={24} />
-      </Button>
-      <Button
-        variant={currentPanel === "ports_discovered" ? "outline" : "ghost"}
-        isIcon={true}
-        size="lg"
-        onClick={() => setCurrentPanel("ports_discovered")}
-        className={currentPanel === "ports_discovered" ? "text-agent" : ""}
-      >
         <MapPinLineIcon size={24} weight="duotone" />
       </Button>
       <Button
-        variant={currentPanel === "ship" ? "outline" : "ghost"}
+        variant={currentPanel === "trade_history" ? "outline" : "ghost"}
         isIcon={true}
         size="lg"
-        onClick={() => setCurrentPanel("ship")}
-        className={currentPanel === "ship" ? "text-agent" : ""}
+        onClick={() => setCurrentPanel("trade_history")}
+        className={currentPanel === "trade_history" ? "text-agent" : ""}
       >
-        <RocketIcon size={24} weight="duotone" />
+        <HandshakeIcon size={24} weight="duotone" />
       </Button>
       <Button
         variant={currentPanel === "debug" ? "outline" : "ghost"}

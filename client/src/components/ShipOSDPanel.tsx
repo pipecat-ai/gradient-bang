@@ -8,7 +8,7 @@ import { ShipOSDVisualizer } from "./ShipOSDVisualizer";
 
 export const ShipOSDPanel = () => {
   return (
-    <Card className="h-full bg-background w-[220px]" withElbows={true}>
+    <Card className="h-full bg-background w-[280px]" withElbows={true}>
       <CardHeader className="flex flex-row justify-between">
         <PanelTitle>Ship OSD</PanelTitle>
         <PanelTitle className="text-border">v12.1</PanelTitle>

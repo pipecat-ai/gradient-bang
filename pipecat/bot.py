@@ -140,7 +140,7 @@ async def run_bot(transport):
     # Initialize TTS service
     tts = CartesiaTTSService(
         api_key=os.getenv("CARTESIA_API_KEY"),
-        voice_id="79a125e8-cd45-4c13-8a67-188112f4dd22",  # British Lady
+        voice_id="d7862948-75c3-4c7c-ae28-2959fe166f49",
     )
 
     # Initialize LLM service

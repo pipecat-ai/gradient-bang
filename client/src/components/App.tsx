@@ -10,11 +10,12 @@ import { useEffect, useState } from "react";
 import { usePlaySound } from "../hooks/usePlaySound";
 import { Bar } from "./HUD/Bar";
 import { Connect } from "./HUD/Connect";
+import { LHS } from "./HUD/LHS";
 import { RHS } from "./HUD/RHS";
+import { HighlightOverlay } from "./HighlightOverlay";
 import { ImagePanel } from "./ImagePanel";
 import { type PanelMenuItem } from "./PanelMenu";
 import { StarField } from "./StarField";
-import { TaskOutputPanel } from "./TaskOutputPanel";
 import { PortPanel } from "./panels/PortPanel";
 
 export const App = ({ onConnect }: { onConnect?: () => void }) => {
@@ -50,12 +51,10 @@ export const App = ({ onConnect }: { onConnect?: () => void }) => {
         </div>
 
         {/* Main Game UI*/}
-        <main className="flex flex-row p-5 pt-0 h-ui mt-auto">
-          {/* Main Game UI*/}
-          <div className="w-full lhs-perspective">
-            <TaskOutputPanel />
-          </div>
-          <div className="flex flex-col gap-2 shadow-xlong">
+        <main className="flex flex-row p-5 pt-0 h-ui mt-auto ">
+          <LHS />
+          <div className="flex flex-col gap-2 shadow-xlong relative">
+            <div className="dotted-frame absolute -left-20 -right-20 -top-10 bottom-0" />
             <ImagePanel />
             <Divider className="w-full py-1.5" variant="dotted" />
             <UserAudioControl size="lg" variant="outline" />
@@ -64,6 +63,7 @@ export const App = ({ onConnect }: { onConnect?: () => void }) => {
         </main>
       </div>
       <StarField />
+      <HighlightOverlay />
     </>
   );
 };

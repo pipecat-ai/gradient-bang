@@ -9,18 +9,15 @@ export const Connect = ({ onConnect }: { onConnect: () => void }) => {
   const { isConnecting, isConnected } = usePipecatConnectionState();
 
   return (
-    <Card
-      size="xl"
-      background="stripes"
-      className="border-white shadow-xlong animate-pulse"
-    >
+    <Card size="xl" background="stripes" className="shadow-xlong">
       <CardContent className="flex flex-col gap-2 min-w-96">
         <Button
-          loader="stripes"
           onClick={onConnect}
           disabled={isConnecting || isConnected}
           isLoading={isConnecting}
           isFullWidth
+          className="font-extrabold animate-pulse"
+          size="lg"
         >
           {isConnecting
             ? ""
