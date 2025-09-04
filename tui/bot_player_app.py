@@ -219,6 +219,40 @@ class BotPlayerApp(BotTUIBase):
                     self._update_status(result)
                     if map_data:
                         self._update_map(map_data)
+                    # Also broadcast a concise system message to chat and seed movement/history
+                    try:
+                        ship = (result or {}).get("ship", {}) if isinstance(result, dict) else {}
+                        sector = int((result or {}).get("sector", self.current_sector) or 0)
+                        name = ship.get("ship_name") or ship.get("ship_type") or "Ship"
+                        wp = ship.get("warp_power")
+                        wpc = ship.get("warp_power_capacity")
+                        credits = ship.get("credits")
+                        summary_bits = [f"Sector {sector}"]
+                        if wp is not None and wpc is not None:
+                            summary_bits.append(f"Warp {wp}/{wpc}")
+                        if credits is not None:
+                            summary_bits.append(f"Credits {credits}")
+                        if self.chat_widget:
+                            self.chat_widget.add_message(
+                                "system",
+                                f"Connected: {name}. " + ", ".join(summary_bits),
+                            )
+                        # Seed movement panel with current sector context (optional, no-op if zero)
+                        if self.movement_history and sector:
+                            try:
+                                # Extract port code if available in map_data/status
+                                port_code = ""
+                                if isinstance(result, dict):
+                                    contents = result.get("sector_contents") or {}
+                                    if isinstance(contents, dict):
+                                        port = contents.get("port") or {}
+                                        if isinstance(port, dict):
+                                            port_code = str(port.get("code") or "")
+                                self.movement_history.add_movement(sector, sector, port_code)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
                     if self.syslog:
                         self.syslog.write_line(f"[rtvi] action={action} -> status/map updated")
                 elif action == "move":
@@ -455,18 +489,28 @@ class BotPlayerApp(BotTUIBase):
     def _update_status(self, status: Dict[str, Any], record_movement: bool = True) -> None:
         if self.status_bar:
             self.status_bar.update_from_status(status)
+        # Merge any map hints from this status into the local cache
+        try:
+            self._merge_map_from_status(status)
+        except Exception:
+            pass
         # Movement history and current sector update when sector present
         if "sector" in status:
             new_sector = int(status["sector"])
             if record_movement:
                 self._maybe_record_movement(self.current_sector, new_sector)
             self.current_sector = new_sector or self.current_sector
-            # Recenter/refresh local map on sector changes using cached map data
+            # Recenter/refresh local map on sector changes using updated cache
             if self.map_widget:
                 try:
                     self.map_widget.update_map(self.current_sector, self._map_data or {})
                     if self.syslog:
                         self.syslog.write_line(f"[rtvi] map recenter -> sector={self.current_sector}")
+                except Exception:
+                    pass
+            if self.port_history:
+                try:
+                    self.port_history.update_ports(self._map_data or {})
                 except Exception:
                     pass
 
@@ -494,3 +538,41 @@ class BotPlayerApp(BotTUIBase):
         ):
             return
         self.movement_history.add_movement(from_sector, to_sector, "")
+
+    def _merge_map_from_status(self, status: Dict[str, Any]) -> None:
+        """Merge minimal map knowledge from a status payload into cache.
+
+        Recognizes keys:
+        - `sector`: current sector id
+        - `adjacent_sectors`: list[int]
+        - `sector_contents.port` -> stored as `port_info`
+        """
+        if not isinstance(status, dict):
+            return
+        sector = int(status.get("sector") or 0)
+        if sector <= 0:
+            return
+        # Ensure cache structure
+        if not isinstance(self._map_data, dict):
+            self._map_data = {}
+        sv = self._map_data.setdefault("sectors_visited", {})
+        key = f"sector_{sector}"
+        entry = dict(sv.get(key) or {})
+        # Sector id for convenience in tables
+        entry.setdefault("sector_id", sector)
+        # Adjacent sectors from status
+        if isinstance(status.get("adjacent_sectors"), (list, tuple)):
+            try:
+                adj = [int(x) for x in status.get("adjacent_sectors") if int(x) > 0]
+                entry["adjacent_sectors"] = sorted(set(adj))
+            except Exception:
+                pass
+        # Port info normalization: sector_contents.port -> port_info
+        sc = status.get("sector_contents")
+        if isinstance(sc, dict):
+            port = sc.get("port") or sc.get("port_info")
+            if isinstance(port, dict) and port:
+                entry["port_info"] = port
+        # Write back and store
+        sv[key] = entry
+        self._map_data["sectors_visited"] = sv

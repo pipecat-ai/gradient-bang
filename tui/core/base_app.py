@@ -130,6 +130,12 @@ class BotTUIBase(App):
     async def _on_status(self, connected: bool) -> None:
         if self.status:
             self.status.update("Status: connected" if connected else "Status: disconnected")
+        # On first connect, proactively request status like the web client
+        if connected:
+            try:
+                await self.transport_mgr.send_app_message({"type": "get-my-status", "data": {}})
+            except Exception:
+                pass
 
     async def _on_inbound(self, payload: Any) -> None:
         if self.rtvi_inbox:

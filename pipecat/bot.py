@@ -269,6 +269,19 @@ async def run_bot(transport, runner_args: RunnerArguments):
     async def on_client_connected(transport, client):
         """Handle new connection."""
         logger.info("Client connected")
+        # Fallback: some clients may not emit RTVI on_client_ready; ensure init flows
+        try:
+            await rtvi.push_frame(
+                RTVIServerMessageFrame(
+                    {
+                        "gg-action": "init",
+                        "result": initial_status,
+                        "map_data": initial_map_data,
+                    }
+                )
+            )
+        except Exception:
+            pass
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):

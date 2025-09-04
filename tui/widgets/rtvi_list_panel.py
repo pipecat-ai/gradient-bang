@@ -58,7 +58,22 @@ class RTVIListPanel(AutoScrollMixin, PlaceholderListMixin, ListView):
                 item = None
         if not item:
             return None
-        c = item.query_one(Collapsible)
+        # If this is a placeholder/header row, it may not contain a Collapsible
+        c = item.query(Collapsible).first()
+        if c is None:
+            # Fallback: copy plain Static text if present, otherwise nothing
+            s = item.query(Static).first()
+            if s is not None:
+                try:
+                    return str(s.renderable)
+                except Exception:
+                    return None
+            return None
         if c.collapsed:
             return getattr(c, "_compact_text", c.title)
-        return getattr(c, "_pretty_text", str(c.query_one(Static).renderable))
+        # Expanded: prefer pretty text, fallback to Static content
+        pretty = getattr(c, "_pretty_text", None)
+        if isinstance(pretty, str):
+            return pretty
+        s = c.query(Static).first()
+        return str(s.renderable) if s is not None else getattr(c, "title", None)
