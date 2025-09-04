@@ -34,6 +34,7 @@ from pipecat.processors.aggregators.openai_llm_context import (
     OpenAILLMContext,
     OpenAILLMContextFrame,
 )
+from pipecat.services.rime.tts import RimeTTSService
 from pipecat.processors.frameworks.rtvi import (
     RTVIConfig,
     RTVIObserver,
@@ -41,7 +42,6 @@ from pipecat.processors.frameworks.rtvi import (
     RTVIServerMessageFrame,
 )
 from pipecat.processors.frame_processor import FrameProcessor, FrameDirection
-from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.speechmatics.stt import SpeechmaticsSTTService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.base_transport import TransportParams
@@ -148,9 +148,9 @@ async def run_bot(transport, runner_args: RunnerArguments):
     )
 
     # Initialize TTS service
-    tts = CartesiaTTSService(
-        api_key=os.getenv("CARTESIA_API_KEY"),
-        voice_id="79a125e8-cd45-4c13-8a67-188112f4dd22",  # British Lady
+    tts = RimeTTSService(
+        api_key=os.getenv("RIME_API_KEY"),
+        voice_id="rex",
     )
 
     # Initialize LLM service

@@ -77,8 +77,12 @@ class MapWidget(Vertical):
             # Build connections
             adjacent = sector_info.get("adjacent_sectors", [])
             for adj_sector in adjacent:
-                self.sector_connections[sector_id].add(adj_sector)
-                self.sector_connections[adj_sector].add(sector_id)
+                # Respect one-way links: store only outbound edges
+                try:
+                    adj_id = int(adj_sector)
+                except (TypeError, ValueError):
+                    continue
+                self.sector_connections[sector_id].add(adj_id)
     
     def get_sector_display(self, sector: int, is_current: bool = False) -> str:
         """Get display string for a sector including port info.
