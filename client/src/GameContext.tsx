@@ -272,6 +272,7 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
                 new_cargo: Cargo;
                 new_credits: number;
               };
+
               dispatch({
                 type: "SET_SHIP",
                 ship: {
@@ -279,6 +280,7 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
                   credits: tradeResult.new_credits,
                 } as Ship,
               });
+
               // Add the trade to the trade history
               const historyResult = result as TradeHistoryItem;
               tradeHistoryStore.addTrade({
@@ -290,6 +292,7 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
                 total_price: historyResult.total_price,
               } as TradeHistoryItem);
 
+              // Update status
               getStatusFromServer();
               break;
             }

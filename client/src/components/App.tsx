@@ -8,6 +8,7 @@ import {
 import { useEffect, useState } from "react";
 
 import { usePlaySound } from "../hooks/usePlaySound";
+import { AutoPilot } from "./HUD/AutoPilot";
 import { Bar } from "./HUD/Bar";
 import { Connect } from "./HUD/Connect";
 import { LHS } from "./HUD/LHS";
@@ -47,11 +48,12 @@ export const App = ({ onConnect }: { onConnect?: () => void }) => {
         <div className="flex flex-col items-center justify-center">
           {!isConnected && <Connect onConnect={onConnect!} />}
           {/* HUD Panels */}
+          <AutoPilot />
           <PortPanel />
         </div>
 
         {/* Main Game UI*/}
-        <main className="flex flex-row p-5 pt-0 h-ui mt-auto ">
+        <main className="flex flex-row p-2 pt-0 h-ui mt-auto ">
           <LHS />
           <div className="flex flex-col gap-2 shadow-xlong relative">
             <div className="dotted-frame absolute -left-20 -right-20 -top-10 bottom-0" />

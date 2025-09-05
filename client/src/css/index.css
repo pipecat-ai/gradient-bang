@@ -10,9 +10,9 @@
 
 @theme {
   --spacing-panel: calc(var(--spacing) * 2);
-  --height-ui: 480px;
+  --height-ui: 460px;
 
-  --width-image: 380px;
+  --width-image: 330px;
   --width-ui: 400px;
 }
 
