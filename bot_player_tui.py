@@ -16,7 +16,7 @@ import importlib
 sys.path.insert(0, str(Path(__file__).parent))
 
 from tui.bot_player_app import BotPlayerApp
-from tui.core.utils.imports import import_bot_module
+from voice_tui_kit.core.utils.imports import import_bot_module
 
 
 def main():

@@ -15,7 +15,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Header, Footer
 
-from tui.core.base_app import BotTUIBase
+from voice_tui_kit.core.base_app import BotTUIBase
 from tui.widgets.chat_widget import ChatWidget
 from tui.widgets.task_output_widget import TaskOutputWidget
 from tui.widgets.map_widget import MapWidget
@@ -23,9 +23,9 @@ from tui.widgets.history_widgets import MovementHistoryWidget, PortHistoryWidget
 from tui.widgets.progress_widget import ProgressWidget
 from tui.widgets.debug_widget import DebugWidget
 from tui.widgets.status_bar_widget import StatusBarWidget
-from tui.widgets.syslog_panel import SyslogPanel
-from tui.core.utils.json_render import compact_json
-from tui.widgets.rtvi_list_panel import RTVIListPanel
+from voice_tui_kit.widgets.syslog_panel import SyslogPanel
+from voice_tui_kit.core.utils.json_render import compact_json
+from voice_tui_kit.widgets.rtvi_list_panel import RTVIListPanel
 
 
 class BotPlayerApp(BotTUIBase):
