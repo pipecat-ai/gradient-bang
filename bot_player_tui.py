@@ -39,6 +39,7 @@ def main():
         os.environ["TUI_NO_BOT"] = "1"
 
     # Prefer file-path import to avoid collisions with installed 'pipecat' package
+    bot_module = None
     try:
         bot_arg = args.bot_module
         if os.path.exists(bot_arg):
@@ -46,8 +47,9 @@ def main():
         else:
             bot_module = importlib.import_module(bot_arg)
     except Exception as e:
-        print(f"Error importing bot module '{args.bot_module}': {e}")
-        sys.exit(1)
+        # Surface error inside TUI syslog and still launch the UI
+        os.environ["TUI_NO_BOT"] = "1"
+        os.environ["TUI_BOT_IMPORT_ERROR"] = f"Failed to import bot: {e}"
 
     app = BotPlayerApp(bot_module)
     print("Starting Gradient Bang Bot TUI…")
