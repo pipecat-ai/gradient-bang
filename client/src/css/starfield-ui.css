@@ -1,0 +1,483 @@
+/* ============================================================================
+   DEBUG UI STYLES
+   ============================================================================ */
+
+/* Control Buttons */
+.controls {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1002;
+  display: flex;
+  gap: 10px;
+}
+
+button {
+  padding: 10px 20px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  cursor: pointer;
+  font-family: monospace;
+  transition: all 0.3s;
+  backdrop-filter: blur(5px);
+}
+
+button:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+button.stats-active {
+  background: rgba(0, 255, 65, 0.2);
+  border-color: #00ff41;
+  color: #00ff41;
+}
+
+button.active {
+  background: rgba(100, 200, 255, 0.3);
+  border-color: rgba(100, 200, 255, 0.8);
+  box-shadow: 0 0 10px rgba(100, 200, 255, 0.5);
+}
+
+/* Special styling for pause button when active */
+button#pause.active {
+  background: rgba(255, 100, 100, 0.3);
+  border-color: rgba(255, 100, 100, 0.8);
+  box-shadow: 0 0 10px rgba(255, 100, 100, 0.5);
+  color: #ff6464;
+}
+
+/* FPS Display */
+.fps {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  color: #0f0;
+  font-size: 12px;
+  font-family: monospace;
+  z-index: 1002;
+  text-shadow: 0 0 5px rgba(0, 255, 0, 0.5);
+}
+
+/* Phase Indicator */
+.phase-indicator {
+  position: absolute;
+  top: 50px;
+  left: 10px;
+  color: #fff;
+  font-size: 10px;
+  font-family: monospace;
+  z-index: 1002;
+  opacity: 0.5;
+}
+
+/* Hint Text */
+.hint {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 11px;
+  font-family: monospace;
+  z-index: 1002;
+  pointer-events: none;
+  text-align: center;
+}
+
+/* Controls Panel Styling */
+.controls-panel {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1002;
+  width: 350px;
+  max-height: calc(100vh - 20px);
+  background: rgba(0, 0, 0, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  backdrop-filter: blur(10px);
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.controls-header {
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: bold;
+  color: rgba(255, 255, 255, 0.9);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.controls-content {
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+  padding: 8px 0;
+}
+
+.controls-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.controls-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.controls-content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+}
+
+.accordion-section {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  margin: 0 8px;
+}
+
+.accordion-header {
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: bold;
+  color: rgba(255, 255, 255, 0.8);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: background 0.2s;
+  user-select: none;
+}
+
+.accordion-header:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.accordion-header.active {
+  background: rgba(100, 200, 255, 0.2);
+  color: rgba(255, 255, 255, 1);
+}
+
+.accordion-arrow {
+  transition: transform 0.2s;
+  font-size: 10px;
+}
+
+.accordion-header.active .accordion-arrow {
+  transform: rotate(90deg);
+}
+
+.accordion-content {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease, padding 0.3s ease;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 0 16px;
+}
+
+.accordion-content.active {
+  max-height: 800px;
+  padding: 8px 16px;
+}
+
+.control-item {
+  padding: 6px 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: monospace;
+  font-size: 10px;
+}
+
+.control-label {
+  color: rgba(255, 255, 255, 0.6);
+  min-width: 80px;
+  flex-shrink: 0;
+}
+
+.control-input {
+  flex: 1;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.2);
+  outline: none;
+  border-radius: 3px;
+  appearance: none;
+}
+
+.control-input::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgba(100, 200, 255, 0.9);
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.control-input::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgba(100, 200, 255, 0.9);
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.control-value {
+  color: rgba(255, 255, 255, 0.8);
+  min-width: 60px;
+  font-size: 9px;
+  text-align: right;
+}
+
+.control-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: rgba(100, 200, 255, 0.8);
+}
+
+.control-select {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  padding: 4px 8px;
+  font-family: monospace;
+  font-size: 9px;
+  border-radius: 3px;
+}
+
+.control-color {
+  width: 30px;
+  height: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* ============================================================================
+   PERFORMANCE MONITORING PANEL
+   ============================================================================ */
+
+/* Performance container */
+.performance-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.performance-panel {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  width: 320px;
+  background: rgba(0, 0, 0, 0.9);
+  border: 1px solid #00ff41;
+  border-radius: 4px;
+  z-index: 1000;
+  font-family: "Courier New", monospace;
+  font-size: 12px;
+  backdrop-filter: blur(2px);
+}
+
+.perf-content {
+  padding: 8px;
+  transition: height 0.3s ease;
+  overflow: hidden;
+}
+
+#statsContainer {
+  margin-bottom: 12px;
+}
+
+/* Override Stats.js default styles */
+#statsContainer .stats {
+  position: relative !important;
+  top: auto !important;
+  left: auto !important;
+  background: transparent !important;
+  border: 1px solid #00ff41 !important;
+  border-radius: 3px !important;
+}
+
+.perf-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.perf-metric {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 8px;
+  background: rgba(0, 255, 65, 0.05);
+  border: 1px solid rgba(0, 255, 65, 0.3);
+  border-radius: 2px;
+}
+
+.perf-label {
+  color: #00ff41;
+  font-size: 10px;
+  font-weight: bold;
+}
+
+.perf-value {
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: normal;
+  min-width: 40px;
+  text-align: right;
+}
+
+/* High value warning colors */
+.perf-value.warning {
+  color: #ffaa00;
+}
+
+.perf-value.critical {
+  color: #ff4444;
+}
+
+/* Status indicator styling */
+#statusValue {
+  font-weight: bold;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+/* Frame time with ms suffix */
+#perf-frame-time::after {
+  content: "ms";
+  margin-left: 2px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+  .performance-panel {
+    width: 240px;
+    left: 5px;
+    bottom: 5px;
+    font-size: 10px;
+  }
+
+  .perf-metrics {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .perf-metric {
+    padding: 3px 6px;
+  }
+}
+
+/* Checkbox styling for LOD toggles */
+.control-checkbox {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  position: relative;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.control-checkbox:checked {
+  background: #4a9eff;
+  border-color: #4a9eff;
+}
+
+.control-checkbox:checked::after {
+  content: "✓";
+  position: absolute;
+  color: white;
+  font-size: 12px;
+  font-weight: bold;
+  left: 2px;
+  top: -2px;
+}
+
+.control-checkbox:hover {
+  border-color: #4a9eff;
+}
+
+.control-checkbox:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.3);
+}
+
+/* Game Object Controls Styling */
+.control-group {
+  margin: 15px 0;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.control-group h4 {
+  margin: 0 0 10px 0;
+  color: #4a9eff;
+  font-size: 12px;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.control-button {
+  padding: 8px 16px;
+  margin: 5px;
+  background: rgba(74, 158, 255, 0.2);
+  border: 1px solid rgba(74, 158, 255, 0.4);
+  color: #4a9eff;
+  cursor: pointer;
+  font-family: monospace;
+  font-size: 11px;
+  transition: all 0.3s;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.control-button:hover {
+  background: rgba(74, 158, 255, 0.3);
+  border-color: rgba(74, 158, 255, 0.6);
+  box-shadow: 0 0 8px rgba(74, 158, 255, 0.3);
+}
+
+.control-button:active {
+  transform: translateY(1px);
+}
+
+/* Game Object specific styling */
+#gameObjects .control-item {
+  margin-bottom: 12px;
+}
+
+#gameObjects .control-input {
+  width: 120px;
+}
+
+#gameObjects .control-value {
+  min-width: 35px;
+  text-align: center;
+  background: rgba(74, 158, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(74, 158, 255, 0.3);
+}

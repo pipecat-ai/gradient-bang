@@ -7,6 +7,8 @@ interface SectorState {
   setSector: (sector: number, sectorContents?: SectorContents) => void;
   sector_contents: SectorContents;
   setSectorContents: (sectorContents: SectorContents) => void;
+  getSectorContents: () => SectorContents;
+  getSector: () => number | undefined;
   isAtPort: () => boolean;
 }
 
@@ -31,8 +33,10 @@ const useSectorStore = create<SectorState>((set, get) => ({
       usePortStore.getState().setPort(sectorContents.port);
     }
   },
+  getSector: () => get().sector,
   setSectorContents: (sectorContents: SectorContents) =>
     set({ sector_contents: sectorContents }),
+  getSectorContents: () => get().sector_contents,
   isAtPort: () => !!get().sector_contents.port,
 }));
 

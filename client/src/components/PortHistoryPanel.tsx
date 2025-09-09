@@ -26,10 +26,9 @@ const DiscoveredPortHistoryRow = ({
   });
   return (
     <tr>
-      <td className="py-0.5 text-agent">{sector_id}</td>
-      <td className="py-0.5">{port.code}</td>
-      <td className="py-0.5">{port.class}</td>
-      <td className="py-0.5">{visited}</td>
+      <td className="py-1 text-agent w-16 whitespace-nowrap">{sector_id}</td>
+      <td className="py-1 whitespace-nowrap">{port.code}</td>
+      <td className="py-1 text-right w-24 whitespace-nowrap">{visited}</td>
     </tr>
   );
 };
@@ -44,8 +43,7 @@ export const PortHistoryPanel = () => {
     <Card
       ref={panelRef}
       withElbows={true}
-      background="scanlines"
-      className="flex w-full h-full"
+      className="flex w-full h-full bg-black"
     >
       <CardHeader>
         <PanelTitle>Discovered Ports</PanelTitle>
@@ -54,10 +52,11 @@ export const PortHistoryPanel = () => {
         <table className="w-full text-xs">
           <thead className="text-left bg-background border-b">
             <tr>
-              <th className="py-1">Sector</th>
-              <th>Name</th>
-              <th>Class</th>
-              <th>Last Visited</th>
+              <th className="py-1 w-18 whitespace-nowrap">Sector</th>
+              <th className="py-1 whitespace-nowrap">Name</th>
+              <th className="py-1 text-right w-24 whitespace-nowrap">
+                Last Visited
+              </th>
             </tr>
           </thead>
           <tbody>

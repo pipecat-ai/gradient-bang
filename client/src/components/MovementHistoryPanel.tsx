@@ -31,8 +31,7 @@ export const MovementHistoryPanel = () => {
     <Card
       ref={panelRef}
       withElbows={true}
-      background="scanlines"
-      className="flex w-full h-full"
+      className="flex w-full h-full bg-black"
     >
       <CardHeader>
         <PanelTitle>Movement History</PanelTitle>

@@ -1,0 +1,152 @@
+#starfield-container {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  height: calc(100vh - 100px);
+  z-index: 1;
+}
+
+#starfield-container::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 140px;
+  background: radial-gradient(
+    ellipse 70% 60% at center top,
+    black 0%,
+    black 20%,
+    transparent 100%
+  );
+  pointer-events: none;
+  z-index: 999;
+}
+
+#starfield-container::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 30%;
+  background: linear-gradient(to top, black 20%, transparent 100%);
+  pointer-events: none;
+  z-index: 9999;
+}
+
+#starfield {
+  transition: opacity 5s linear;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.starfield-active #starfield {
+  opacity: 1;
+}
+
+.starfield-active #transition {
+  &::before {
+    transform: translateY(-100%);
+    background-color: black;
+  }
+
+  &::after {
+    transform: translateY(100%);
+    background-color: black;
+  }
+}
+
+#transition {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+
+  &::before,
+  &::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    background: var(--color-muted);
+    transition: all 2.5s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 10;
+  }
+
+  &::before {
+    top: 0;
+    height: 50%;
+    transform: translateY(0);
+  }
+
+  &::after {
+    bottom: 0;
+    height: 50%;
+    transform: translateY(0);
+  }
+}
+
+/* ============================================================================
+   ANIMATION OVERLAY STYLES
+   ============================================================================ */
+#warpOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 100;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+#warpOverlay.active {
+  opacity: 1;
+}
+
+#whiteFlash {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: white;
+  pointer-events: none;
+  z-index: 1001;
+  opacity: 0;
+}
+/* ============================================================================
+   UTILITY STYLES
+   ============================================================================ */
+
+/* Fullscreen background image behind WebGL canvas */
+#bgImage {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover; /* preserve aspect while covering */
+  z-index: 0; /* behind the renderer canvas (z-index: 1) */
+  pointer-events: none;
+}
+
+/* Subtle vignette overlay */
+#vignette {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 10; /* Above the three.js canvas but below UI */
+  background: radial-gradient(
+    ellipse at center,
+    transparent 0%,
+    transparent 60%,
+    rgba(0, 0, 0, 0.1) 75%,
+    rgba(0, 0, 0, 0.3) 90%,
+    rgba(0, 0, 0, 0.6) 100%
+  );
+  opacity: 0.8;
+}

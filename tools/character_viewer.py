@@ -589,8 +589,8 @@ class CharacterViewer(App):
             
             adjacent = sector_contents.adjacent_sectors
             for adj_sector in adjacent:
+                # One-way links: record only outbound edge
                 self.sector_connections[current_sector].add(adj_sector)
-                self.sector_connections[adj_sector].add(current_sector)
             
             map_data = await self.game_client.my_map(self.selected_character)
             sectors_visited = map_data.get("sectors_visited", {})
@@ -604,8 +604,8 @@ class CharacterViewer(App):
                 
                 if sector_id and "adjacent_sectors" in sector_info:
                     for adj in sector_info["adjacent_sectors"]:
+                        # One-way links: record only outbound edge
                         self.sector_connections[sector_id].add(adj)
-                        self.sector_connections[adj].add(sector_id)
             
             self.update_map()
             self.update_stats()

@@ -27,6 +27,8 @@ export const TaskStatusBadge = () => {
 
   return (
     <Badge
+      size="lg"
+      variant="elbow"
       className={`w-full ${active ? "animate-pulse" : ""}`}
       color={badgeColor}
     >

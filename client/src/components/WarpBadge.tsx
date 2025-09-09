@@ -8,7 +8,7 @@ export const WarpBadge = () => {
   const ship = game.ship;
 
   const progressProps = useMemo(() => {
-    if (!ship) return { color: "default", percent: 0 };
+    if (!ship) return { color: "primary", percent: 0 };
 
     const warpPercentage = (ship.warp_power / ship.warp_power_capacity) * 100;
 
@@ -22,15 +22,17 @@ export const WarpBadge = () => {
     return {
       color,
       percent: warpPercentage,
+      variant: warpPercentage <= 25 ? "destructive" : "primary",
     };
   }, [ship]);
 
   return (
-    <Badge size="sm" variant="elbow" color="primary">
-      <Progress {...progressProps} size="default" className="mx-1 h-[3px]" />
+    <Badge size="lg" variant="elbow" color={progressProps.variant}>
+      Warp:
+      <Progress {...progressProps} size="xl" className="h-[8px]" />
       <div>
         {ship?.warp_power ?? 0}
-        <span className="text-subtle">/</span>
+        <span className="opacity-30"> / </span>
         {ship?.warp_power_capacity ?? 0}
       </div>
     </Badge>

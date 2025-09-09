@@ -37,6 +37,12 @@ logger = logging.getLogger("server_websocket")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
+# Globals initialized early so they exist for websocket handlers
+_messages = MessageStore(get_world_data_path() / "messages")
+_rate_limit_last: Dict[str, float] = {}
+# Avoid type hint here to not depend on class definition order
+_clients = []
+
 
 @app.get("/")
 async def root():

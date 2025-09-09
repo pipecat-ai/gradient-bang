@@ -122,12 +122,40 @@ interface RetroGlitchImageProps {
    * @default 0
    */
   screenDistortion?: number;
+
+  /**
+   * Terminal color for all green effects (scanlines, glow, text, etc.)
+   * Accepts hex color codes like "#f5ff30" or "#00ff00"
+   * @default "#00ff00"
+   */
+  terminalColor?: string;
+
+  /**
+   * How the image should fit within the container
+   * - "contain": Scale image to fit entirely within container (may have letterboxing)
+   * - "cover": Scale image to fill container while maintaining aspect ratio (may crop)
+   * @default "contain"
+   */
+  imageFit?: "contain" | "cover";
 }
 
 interface Dimensions {
   width: number;
   height: number;
 }
+
+// Utility function to convert hex color to rgba string
+const hexToRgba = (hex: string, alpha: number = 1): string => {
+  // Remove # if present
+  hex = hex.replace("#", "");
+
+  // Parse hex values
+  const r = parseInt(hex.substr(0, 2), 16);
+  const g = parseInt(hex.substr(2, 2), 16);
+  const b = parseInt(hex.substr(4, 2), 16);
+
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
 
 export const RetroGlitchImage: React.FC<RetroGlitchImageProps> = ({
   src,
@@ -143,6 +171,8 @@ export const RetroGlitchImage: React.FC<RetroGlitchImageProps> = ({
   crtScanlineSize = 4,
   centerGlowIntensity = 1.5,
   screenDistortion = 0,
+  terminalColor = "#00ff00",
+  imageFit = "contain",
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -272,18 +302,36 @@ export const RetroGlitchImage: React.FC<RetroGlitchImageProps> = ({
         const imageAspect =
           imageRef.current.naturalWidth / imageRef.current.naturalHeight;
 
-        if (containerAspect > imageAspect) {
-          // Container is wider than image - fit to height
-          scaledHeight = height;
-          scaledWidth = height * imageAspect;
-          offsetX = (width - scaledWidth) / 2;
-          offsetY = 0;
+        if (imageFit === "cover") {
+          // Cover mode: fill container, may crop image
+          if (containerAspect > imageAspect) {
+            // Container is wider than image - fit to width (crop height)
+            scaledWidth = width;
+            scaledHeight = width / imageAspect;
+            offsetX = 0;
+            offsetY = (height - scaledHeight) / 2;
+          } else {
+            // Container is taller than image - fit to height (crop width)
+            scaledHeight = height;
+            scaledWidth = height * imageAspect;
+            offsetX = (width - scaledWidth) / 2;
+            offsetY = 0;
+          }
         } else {
-          // Container is taller than image - fit to width
-          scaledWidth = width;
-          scaledHeight = width / imageAspect;
-          offsetX = 0;
-          offsetY = (height - scaledHeight) / 2;
+          // Contain mode: fit entire image, may have letterboxing
+          if (containerAspect > imageAspect) {
+            // Container is wider than image - fit to height
+            scaledHeight = height;
+            scaledWidth = height * imageAspect;
+            offsetX = (width - scaledWidth) / 2;
+            offsetY = 0;
+          } else {
+            // Container is taller than image - fit to width
+            scaledWidth = width;
+            scaledHeight = width / imageAspect;
+            offsetX = 0;
+            offsetY = (height - scaledHeight) / 2;
+          }
         }
 
         drawWidth = scaledWidth;
@@ -338,13 +386,49 @@ export const RetroGlitchImage: React.FC<RetroGlitchImageProps> = ({
 
       // Draw scaled down image
       tempCtx.imageSmoothingEnabled = false;
-      tempCtx.drawImage(
-        imageRef.current,
-        0,
-        0,
-        pixelatedWidth,
-        pixelatedHeight
-      );
+
+      if (imageFit === "cover" && fillContainer) {
+        // For cover mode, we need to crop the image to fit the container
+        const imageAspect =
+          imageRef.current.naturalWidth / imageRef.current.naturalHeight;
+        const containerAspect = width / height;
+
+        let sourceX = 0,
+          sourceY = 0,
+          sourceWidth = imageRef.current.naturalWidth,
+          sourceHeight = imageRef.current.naturalHeight;
+
+        if (containerAspect > imageAspect) {
+          // Container is wider - crop image height
+          sourceHeight = imageRef.current.naturalWidth / containerAspect;
+          sourceY = (imageRef.current.naturalHeight - sourceHeight) / 2;
+        } else {
+          // Container is taller - crop image width
+          sourceWidth = imageRef.current.naturalHeight * containerAspect;
+          sourceX = (imageRef.current.naturalWidth - sourceWidth) / 2;
+        }
+
+        tempCtx.drawImage(
+          imageRef.current,
+          sourceX,
+          sourceY,
+          sourceWidth,
+          sourceHeight,
+          0,
+          0,
+          pixelatedWidth,
+          pixelatedHeight
+        );
+      } else {
+        // Normal drawing for contain mode or non-fillContainer
+        tempCtx.drawImage(
+          imageRef.current,
+          0,
+          0,
+          pixelatedWidth,
+          pixelatedHeight
+        );
+      }
 
       // Draw back to main canvas scaled up
       ctx.imageSmoothingEnabled = false;
@@ -631,7 +715,7 @@ export const RetroGlitchImage: React.FC<RetroGlitchImageProps> = ({
 
       // Moving scanline - intensity affects visibility
       const scanlineY = (frame * 2) % height;
-      ctx.fillStyle = `rgba(0, 255, 0, ${0.05 + scanlineIntensity * 0.1})`;
+      ctx.fillStyle = hexToRgba(terminalColor, 0.05 + scanlineIntensity * 0.1);
       ctx.fillRect(0, scanlineY, width, 2);
 
       // Slower, bigger scanline - more prominent with higher intensity
@@ -642,12 +726,12 @@ export const RetroGlitchImage: React.FC<RetroGlitchImageProps> = ({
         0,
         slowScanlineY + 50
       );
-      gradient.addColorStop(0, "rgba(0, 255, 0, 0)");
+      gradient.addColorStop(0, hexToRgba(terminalColor, 0));
       gradient.addColorStop(
         0.5,
-        `rgba(0, 255, 0, ${0.1 + scanlineIntensity * 0.2})`
+        hexToRgba(terminalColor, 0.1 + scanlineIntensity * 0.2)
       );
-      gradient.addColorStop(1, "rgba(0, 255, 0, 0)");
+      gradient.addColorStop(1, hexToRgba(terminalColor, 0));
       ctx.fillStyle = gradient;
       ctx.fillRect(0, slowScanlineY - 50, width, 100);
     };
@@ -666,13 +750,13 @@ export const RetroGlitchImage: React.FC<RetroGlitchImageProps> = ({
 
       // Subtle phosphor glow lines (only if scanlines are large enough)
       if (crtScanlineSize >= 3) {
-        overlayCtx.fillStyle = `rgba(0, 255, 0, ${flickerIntensity})`;
+        overlayCtx.fillStyle = hexToRgba(terminalColor, flickerIntensity);
         for (let y = 1; y < height; y += crtScanlineSize) {
           overlayCtx.fillRect(0, y, width, 1);
         }
       }
 
-      // Center phosphor glow - green glow from center
+      // Center phosphor glow - terminal color glow from center
       const centerGlow = overlayCtx.createRadialGradient(
         width / 2,
         height / 2,
@@ -683,14 +767,14 @@ export const RetroGlitchImage: React.FC<RetroGlitchImageProps> = ({
       );
       centerGlow.addColorStop(
         0,
-        `rgba(0, 255, 0, ${0.08 + flickerIntensity * 0.5})`
+        hexToRgba(terminalColor, 0.08 + flickerIntensity * 0.5)
       );
       centerGlow.addColorStop(
         0.3,
-        `rgba(0, 255, 0, ${0.04 + flickerIntensity * 0.3})`
+        hexToRgba(terminalColor, 0.04 + flickerIntensity * 0.3)
       );
-      centerGlow.addColorStop(0.6, "rgba(0, 255, 0, 0.02)");
-      centerGlow.addColorStop(1, "rgba(0, 255, 0, 0)");
+      centerGlow.addColorStop(0.6, hexToRgba(terminalColor, 0.02));
+      centerGlow.addColorStop(1, hexToRgba(terminalColor, 0));
       overlayCtx.fillStyle = centerGlow;
       overlayCtx.fillRect(0, 0, width, height);
 
@@ -734,8 +818,8 @@ export const RetroGlitchImage: React.FC<RetroGlitchImageProps> = ({
           generateStatic();
           ctx.putImageData(staticNoise, 0, 0);
 
-          // Add green tint to static
-          ctx.fillStyle = "rgba(0, 255, 0, 0.1)";
+          // Add terminal color tint to static
+          ctx.fillStyle = hexToRgba(terminalColor, 0.1);
           ctx.fillRect(0, 0, width, height);
         }
       } catch (error) {
@@ -785,7 +869,7 @@ export const RetroGlitchImage: React.FC<RetroGlitchImageProps> = ({
 
         // Add text overlay during transmission
         if (transmissionProgress < 1) {
-          ctx.fillStyle = "rgba(0, 255, 0, 0.8)";
+          ctx.fillStyle = hexToRgba(terminalColor, 0.8);
           ctx.font = "14px TX-02";
 
           const message = src
@@ -833,6 +917,9 @@ export const RetroGlitchImage: React.FC<RetroGlitchImageProps> = ({
     crtScanlineSize,
     centerGlowIntensity,
     screenDistortion,
+    terminalColor,
+    fillContainer,
+    imageFit,
     src, // Add src to dependencies
   ]);
 

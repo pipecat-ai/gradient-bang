@@ -1,7 +1,5 @@
 import { create } from "zustand";
 
-import PortImageSSB from "../images/ports/SSB.png";
-
 export interface ResourceStock {
   FO: number;
   OG: number;
@@ -16,17 +14,6 @@ export const ResourceMap = {
   EQ: "equipment",
 } as const;
 
-/**
-export interface Port {
-  class: number;
-  code: string;
-  stock: ResourceStock;
-  max_capacity: ResourceStock;
-  buys: ResourceList;
-  sells: ResourceList;
-  prices: Record<Resource, number>;
-}**/
-
 export interface Port {
   code: string;
   last_seen_prices: Record<Resource, number>;
@@ -34,21 +21,20 @@ export interface Port {
   observed_at: string;
 }
 
-const portImageMap = {
-  SSB: PortImageSSB,
-};
-
 interface PortState {
   port?: Port;
+  active: boolean;
   setPort: (port: Port) => void;
-  getPortImage: (code: string) => string | undefined;
+  setActive: (active: boolean) => void;
+  isAtPort: () => boolean;
 }
 
-const usePortStore = create<PortState>((set) => ({
+const usePortStore = create<PortState>((set, get) => ({
   port: undefined,
+  active: false,
   setPort: (port: Port) => set({ port }),
-  getPortImage: (code: string) =>
-    portImageMap[code as keyof typeof portImageMap],
+  setActive: (active: boolean) => set({ active }),
+  isAtPort: () => !!get().port,
 }));
 
 export default usePortStore;

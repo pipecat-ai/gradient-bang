@@ -1,10 +1,15 @@
+import { PlugsIcon } from "@phosphor-icons/react";
 import {
   RTVIEvent,
   type BotLLMTextData,
   type TranscriptData,
 } from "@pipecat-ai/client-js";
 import { useRTVIClientEvent } from "@pipecat-ai/client-react";
-import { CardContent } from "@pipecat-ai/voice-ui-kit";
+import {
+  Card,
+  CardContent,
+  usePipecatConnectionState,
+} from "@pipecat-ai/voice-ui-kit";
 import { nanoid } from "nanoid";
 import { useCallback, useState } from "react";
 import Markdown from "react-markdown";
@@ -46,7 +51,7 @@ const ConversationRow = ({
     );
   };
   return (
-    <div className="flex flex-col gap-0.5 text-xs">
+    <div className="flex flex-col gap-0.5 text-[11px]">
       <div
         className={`${
           sender === Sender.AGENT
@@ -74,7 +79,7 @@ export const ConversationPanel = () => {
   const [conversation, setConversation] = useState<ConversationRowProps[]>([]);
   const [bufferedAgentText, setBufferedAgentText] = useState<string[]>([]);
   const [bufferedClientText, setBufferedClientText] = useState<string>();
-
+  const { isConnected } = usePipecatConnectionState();
   const addConversationItem = useCallback((sender: Sender, text: string) => {
     setConversation((prev) => [
       {
@@ -110,8 +115,21 @@ export const ConversationPanel = () => {
     setBufferedClientText(event.text);
   });
 
+  const clxConnected = "flex-1 h-full bg-black/30 border-0";
+  const clxDisconnected = "flex-1 h-full opacity-40";
+
   return (
-    <>
+    <Card
+      background={isConnected ? "background" : "stripes"}
+      className={isConnected ? clxConnected : clxDisconnected}
+    >
+      {!isConnected && (
+        <CardContent className="flex h-full items-center justify-center">
+          <div className="text-center text-xs">
+            <PlugsIcon weight="thin" size={72} className="animate-pulse" />
+          </div>
+        </CardContent>
+      )}
       <CardContent className="flex-1 mb-0">
         <div className="relative h-full w-full dotted-overlay-bottom">
           <div className="absolute inset-0 overflow-y-auto flex flex-col gap-4 retro-scrollbar">
@@ -133,6 +151,6 @@ export const ConversationPanel = () => {
           </div>
         </div>
       </CardContent>
-    </>
+    </Card>
   );
 };
