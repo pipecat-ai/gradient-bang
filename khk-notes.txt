@@ -1,0 +1,7 @@
+In-progres:
+  x Make the Task Status panel scrollable
+  - Work on bot
+
+Next:
+  - Fix the empty Ship AI: message after we start a task
+  
