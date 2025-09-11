@@ -1,0 +1,713 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Local Map (Standalone)</title>
+    <style>
+      :root { color-scheme: dark; }
+      body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0b0b0b; color:#e5e7eb; }
+      .wrap { max-width: 980px; margin: 18px auto; padding: 0 12px; }
+      .row { display:flex; gap:12px; align-items:end; flex-wrap:wrap; }
+      .card { background:#121212; border:1px solid #232323; border-radius:10px; padding:12px; }
+      label { display:block; font-size:12px; opacity:.75; margin-bottom:4px; }
+      input, textarea { background:#0f0f0f; color:#e5e7eb; border:1px solid #2a2a2a; border-radius:8px; padding:8px; width:100%; }
+      textarea { height: 148px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size:12px; }
+      button { background:#1f2937; color:#e5e7eb; border:1px solid #2b2b2b; border-radius:8px; padding:8px 12px; cursor:pointer; }
+      button:hover { background:#263042; }
+      svg { width:100%; height:560px; display:block; background: radial-gradient(1000px 400px at 50% 40%, #0f1012 0%, #0b0b0b 60%); border:1px solid #222; border-radius:12px; }
+      .legend { display:flex; gap:10px; align-items:center; font-size:12px; opacity:.85; }
+      .dot { width:12px; height:12px; border-radius:9999px; display:inline-block; border:1px solid #1f1f1f; }
+      .dot.gray { background:#b0bec5; }
+      .dot.red { background:#ef9a9a; }
+      .dot.yellow { background:#ffd54f; }
+      .muted { opacity:.7; }
+      .small { font-size:12px; }
+      .grid { display:grid; grid-template-columns: 1fr; gap:12px; }
+      @media (min-width: 900px) { .grid { grid-template-columns: 1fr 300px; } }
+    </style>
+    
+  </head>
+  <body>
+    <div class="wrap">
+      <h2 style="margin:6px 0 12px 0;">Local Map (Standalone SVG)</h2>
+      <div class="grid">
+        <div class="card">
+          <svg id="map" viewBox="0 0 800 560">
+            <defs>
+              <marker id="arrow-end" markerUnits="userSpaceOnUse" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" orient="auto-start-reverse">
+                <path d="M 0 0 L 12 6 L 0 12 z" fill="#9aa0a6"></path>
+              </marker>
+            </defs>
+            <g id="viewport">
+              <g id="rings"></g>
+              <g id="edges"></g>
+              <g id="nodes"></g>
+            </g>
+          </svg>
+          <div class="row" style="justify-content:space-between;margin-top:8px;">
+            <div class="legend">
+              <span class="dot yellow"></span> current
+              <span class="dot gray" style="margin-left:10px"></span> visited
+              <span class="dot red" style="margin-left:10px"></span> seen-only
+              <span class="muted" style="margin-left:10px">two-way has arrows at both ends</span>
+            </div>
+            <div class="small muted">Tip: paste JSON or fetch from /api/local_map</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="row" style="align-items:flex-start;">
+            <div style="flex:1 1 120px;">
+              <label>Center Sector</label>
+              <input id="center" type="number" value="0" />
+            </div>
+            <div style="flex:1 1 120px;">
+              <label>Max Hops</label>
+              <input id="hops" type="number" value="3" />
+            </div>
+            <div style="flex:1 1 180px; display:flex; gap:8px; align-items:center;">
+              <input id="useWorld" type="checkbox" checked />
+              <label for="useWorld" style="margin:0;">Use world data (global)</label>
+            </div>
+          </div>
+          <div class="row" style="margin-top:8px;">
+            <button id="fetchBtn">Fetch From /api/local_map</button>
+          </div>
+          <div class="row" style="margin-top:6px; align-items:center;">
+            <label class="small" style="margin:0;">Min separation (px)</label>
+            <input id="minSep" type="range" min="16" max="64" step="1" value="48" style="width:160px;" />
+            <span id="minSepVal" class="small muted">48</span>
+          </div>
+          <div class="row" style="margin-top:6px; align-items:center;">
+            <label class="small" style="margin:0;">Child arc (°)</label>
+            <input id="cohesionArc" type="range" min="10" max="120" step="1" value="80" style="width:160px;" />
+            <span id="cohesionArcVal" class="small muted">80</span>
+          </div>
+          <div class="row" style="margin-top:6px; align-items:center;">
+            <input id="capMode" type="checkbox" checked />
+            <label for="capMode" class="small" style="margin:0;">Node render max</label>
+            <input id="maxNodes" type="number" min="5" max="500" step="1" value="25" style="width:80px; margin-left:8px;" />
+            <span class="small muted">(auto-calc hops)</span>
+          </div>
+          <div class="row" style="margin-top:6px; align-items:center;">
+            <span class="small">Nodes rendered:&nbsp;<strong id="nodeCount">0</strong></span>
+          </div>
+          <div style="margin-top:10px;">
+            <label>JSON Input (node_list or full response)</label>
+            <textarea id="json"></textarea>
+          </div>
+          <div style="margin-top:8px;" class="small muted">
+            Expected shape: { "node_list": [ { "id": 123, "visited": true, "port_type": "SSS", "adjacent": [124, 200] }, ... ] }
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // --- Graph helpers (no deps) ---
+      const TAU = Math.PI * 2;
+      const FAN_ANGLE_DEG = 40; // cap child fan to keep children close to parent
+      const FAN_GAP_RAD = 0.05; // small gap between adjacent parent fans to avoid overlap
+      const NODE_R = 10;        // node circle radius (px)
+      function UI_MIN_NODE_DIST(){
+        const el = document.getElementById('minSep');
+        const v = el ? parseFloat(el.value||'28') : 28;
+        const span = document.getElementById('minSepVal'); if (span) span.textContent = String(Math.round(v));
+        return v;
+      }
+      function UI_COHESION_ARC(){
+        const el = document.getElementById('cohesionArc');
+        const v = el ? parseFloat(el.value||'50') : 50;
+        const span = document.getElementById('cohesionArcVal'); if (span) span.textContent = String(Math.round(v));
+        return v;
+      }
+      // No sibling cohesion or ring cohesion in the per-parent ring layout
+      function buildUndirected(nodes) {
+        const ids = new Set(nodes.map(n => n.id));
+        const u = new Map();
+        for (const n of nodes) {
+          if (!u.has(n.id)) u.set(n.id, new Set());
+          for (const t of n.adjacent || []) {
+            if (!ids.has(t)) continue;
+            if (!u.has(t)) u.set(t, new Set());
+            u.get(n.id).add(t);
+            u.get(t).add(n.id);
+          }
+        }
+        return u;
+      }
+
+      function bfsRings(center, undirected) {
+        if (!undirected.has(center)) undirected.set(center, new Set());
+        const dist = new Map([[center, 0]]);
+        const q = [center];
+        while (q.length) {
+          const cur = q.shift();
+          const d = dist.get(cur);
+          for (const nb of undirected.get(cur) || []) {
+            if (!dist.has(nb)) { dist.set(nb, d + 1); q.push(nb); }
+          }
+        }
+        return dist;
+      }
+
+      function toPairs(nodes) {
+        const idToNode = new Map(nodes.map(n => [n.id, n]));
+        const map = new Map();
+        for (const n of nodes) {
+          for (const t of n.adjacent || []) {
+            if (!idToNode.has(t)) continue;
+            const a = Math.min(n.id, t), b = Math.max(n.id, t);
+            const key = a + '-' + b;
+            const rec = map.get(key) || { a, b, hasAB:false, hasBA:false };
+            if (n.id === a) rec.hasAB = true; else rec.hasBA = true;
+            map.set(key, rec);
+          }
+        }
+        return Array.from(map.values());
+      }
+
+      function buildRings(nodes, centerId) {
+        const undirected = buildUndirected(nodes);
+        const dist = bfsRings(centerId, undirected);
+        const rings = new Map();
+        for (const n of nodes) {
+          if (!dist.has(n.id)) continue;
+          const d = dist.get(n.id);
+          if (!rings.has(d)) rings.set(d, []);
+          rings.get(d).push(n.id);
+        }
+        return { undirected, dist, rings };
+      }
+
+      function chooseParents(nodes, undirected, dist) {
+        const parent = new Map();
+        const children = new Map();
+        const byRing = new Map();
+        for (const [id,d] of dist.entries()) {
+          if (!byRing.has(d)) byRing.set(d, []);
+          byRing.get(d).push(id);
+        }
+        for (const [k, ids] of byRing) ids.sort((a,b)=>a-b);
+        for (let k=1; byRing.has(k); k++) {
+          const prev = byRing.get(k-1) || [];
+          const load = new Map(prev.map(p=>[p, (children.get(p)||[]).length]));
+          for (const u of byRing.get(k)) {
+            const cands = Array.from(undirected.get(u)||[]).filter(v => dist.get(v) === k-1);
+            cands.sort((a,b)=> (load.get(a)||0) - (load.get(b)||0) || a-b);
+            const p = cands.length ? cands[0] : prev[0];
+            parent.set(u,p);
+            const arr = children.get(p)||[]; arr.push(u); children.set(p,arr);
+            load.set(p,(load.get(p)||0)+1);
+          }
+        }
+        return { parent, children };
+      }
+
+      function computeSubtreeSizes(root, children) {
+        const size = new Map();
+        const stack = [root];
+        const order = [];
+        while (stack.length) { const u = stack.pop(); order.push(u); (children.get(u)||[]).forEach(v=>stack.push(v)); }
+        for (let i=order.length-1; i>=0; i--) {
+          const u = order[i];
+          let s = 1;
+          for (const v of (children.get(u)||[])) s += size.get(v)||1;
+          size.set(u, s);
+        }
+        return size;
+      }
+
+      function assignWedges(root, children, size) {
+        const start = new Map();
+        const end = new Map();
+        const angle = new Map();
+        function rec(u, a0, a1) {
+          start.set(u,a0); end.set(u,a1); angle.set(u,(a0+a1)/2);
+          const ch = (children.get(u)||[]).slice();
+          if (!ch.length) return;
+          ch.sort((x,y)=> (size.get(y)-size.get(x)) || (x-y));
+          const total = ch.reduce((acc,v)=>acc+(size.get(v)||1),0);
+          let cur = a0;
+          for (const v of ch) {
+            const span = (a1-a0) * ((size.get(v)||1)/total);
+            rec(v, cur, cur+span);
+            cur += span;
+          }
+        }
+        rec(root, 0, TAU);
+        return { start, end, angle };
+      }
+
+      function refineByBarycenter(root, children, size, dist, undirected, wedges) {
+        const { start, end, angle } = wedges;
+        function neighborsInPrevRing(u) {
+          const k = dist.get(u);
+          const preds = [];
+          for (const nb of (undirected.get(u)||[])) if (dist.get(nb) === k-1) preds.push(nb);
+          return preds;
+        }
+        function rec(u) {
+          const ch = (children.get(u)||[]).slice();
+          if (ch.length === 0) return;
+          const a0 = start.get(u), a1 = end.get(u);
+          // Compute barycenter of previous-ring neighbors (mostly the parent)
+          const scored = ch.map(v => {
+            const preds = neighborsInPrevRing(v);
+            if (preds.length === 0) return { v, score: angle.get(u) };
+            const s = preds.reduce((acc,p)=>acc + (angle.get(p)||angle.get(u)||0), 0) / preds.length;
+            return { v, score: s };
+          });
+          scored.sort((a,b)=> a.score - b.score || (a.v - b.v));
+          const total = ch.reduce((acc,v)=>acc+(size.get(v)||1),0);
+          let cur = a0;
+          for (const {v} of scored) {
+            const span = (a1-a0) * ((size.get(v)||1)/total);
+            start.set(v, cur); end.set(v, cur+span); angle.set(v, (cur + cur+span)/2);
+            cur += span;
+            rec(v);
+          }
+        }
+        rec(root);
+      }
+
+      function enforceParentFan(root, children, size, dist, undirected, wedges) {
+        const { start, end, angle } = wedges;
+        // Process ring by ring so adjacent parents don't overlap their fans
+        const ringMap = new Map();
+        for (const [id, k] of dist.entries()) {
+          if (!ringMap.has(k)) ringMap.set(k, []);
+          ringMap.get(k).push(id);
+        }
+        for (let k = 1; ringMap.has(k); k++) {
+          const parents = ringMap.get(k-1) || [];
+          const orderedParents = parents
+            .slice()
+            .sort((a,b)=> (angle.get(a)||0) - (angle.get(b)||0));
+          if (orderedParents.length === 0) continue;
+          // Build non-overlapping fans around each parent center, constrained by neighbors
+          const centers = orderedParents.map(p => (angle.get(p)||0));
+          const caps = orderedParents.map(()=> (FAN_ANGLE_DEG * Math.PI)/180);
+          // Compute available arc between parent i and i+1 cyclically
+          const arc = (i,j) => {
+            const a = centers[i], b = centers[j];
+            return (b - a + TAU) % TAU;
+          };
+          const leftAvail = new Array(orderedParents.length).fill(0);
+          const rightAvail = new Array(orderedParents.length).fill(0);
+          for (let i=0;i<orderedParents.length;i++) {
+            const prev = (i-1+orderedParents.length) % orderedParents.length;
+            const next = (i+1) % orderedParents.length;
+            rightAvail[i] = Math.max(0, arc(i,next) - FAN_GAP_RAD);
+            leftAvail[i] = Math.max(0, arc(prev,i) - FAN_GAP_RAD);
+            const avail = leftAvail[i] + rightAvail[i];
+            caps[i] = Math.min(caps[i], avail/2);
+          }
+          // Place children of each parent inside its fan
+          for (let idx=0; idx<orderedParents.length; idx++) {
+            const p = orderedParents[idx];
+            let ch = (children.get(p)||[]).slice();
+            if (!ch.length) continue;
+            const c = centers[idx];
+            // If there is only one parent on previous ring (center), spread
+            // all first-hop children around the full circle for clarity.
+            let w = Math.max(0.01, caps[idx]);
+            // Bias fan away from closer neighbor (more weight to larger available side)
+            const L = leftAvail[idx], R = rightAvail[idx];
+            const sideWeight = L + R || 1;
+            const skew = (R - L) / sideWeight; // [-1,1] positive -> more room on right
+            const bias = (k >= 2 ? 0.6 : 0.25) * skew; // stronger push on deeper rings
+            let startA = c - w*(0.5 - bias);
+            if (orderedParents.length === 1) {
+              w = TAU - FAN_GAP_RAD;
+              startA = 0;
+            }
+            // Sifting within fan: order children by barycenter of their same-ring neighbors
+            const angleOf = (id)=> angle.get(id) || 0;
+            ch.sort((a,b)=>{
+              const score = (x)=>{
+                let acc=0, cnt=0;
+                for (const nb of (undirected.get(x)||[])) {
+                  if (dist.get(nb) === k) { acc += angleOf(nb); cnt++; }
+                }
+                return cnt? acc/cnt : c;
+              };
+              return score(a) - score(b);
+            });
+            const count = ch.length;
+            for (let i=0;i<count;i++) {
+              const v = ch[i];
+              const th = startA + (i+0.5)*(w/count);
+              const s = th - (w/(2*count));
+              const e = th + (w/(2*count));
+              start.set(v, (s+TAU)%TAU); end.set(v, (e+TAU)%TAU); angle.set(v, (th+TAU)%TAU);
+            }
+          }
+        }
+      }
+
+      async function layout(nodes, centerId, width, height, opts = {}) {
+        const { undirected, dist } = buildRings(nodes, centerId);
+        const { parent, children } = chooseParents(nodes, undirected, dist);
+        const cx = width/2, cy = height/2;
+        const pos = new Map();
+        pos.set(centerId, { x: cx, y: cy, theta: 0 });
+        const ARC = (UI_COHESION_ARC() * Math.PI)/180;
+        const MIN_NODE_DIST = UI_MIN_NODE_DIST();
+        const LINK = Math.max(80, MIN_NODE_DIST*2);
+        const prefAngle = new Map(); // preferred child angle relative to parent
+        function placeChildren(p){
+          const kids = (children.get(p)||[]);
+          if (!kids.length) return;
+          const P = pos.get(p);
+          const gp = parent.get(p);
+          let baseAng = (gp!=null && pos.has(gp)) ? Math.atan2(P.y - pos.get(gp).y, P.x - pos.get(gp).x) : 0;
+          let span, start;
+          if (p === centerId) {
+            // Root: use full 360° around center for clarity
+            span = TAU; start = 0;
+          } else {
+            span = kids.length>1 ? ARC : 0;
+            start = baseAng - span/2;
+          }
+          kids.forEach((kid,i)=>{
+            const ang = (p === centerId)
+              ? (kids.length>0 ? (TAU * i / kids.length) : 0)
+              : (start + (kids.length>1 ? (span*i/(kids.length-1)) : 0));
+            pos.set(kid, { x: P.x + LINK*Math.cos(ang), y: P.y + LINK*Math.sin(ang), theta: ang });
+            prefAngle.set(kid, ang);
+            placeChildren(kid);
+          });
+        }
+        placeChildren(centerId);
+
+        // Crossing minimization by reordering siblings along each parent's arc
+        function segIntersect(a,b,c,d){
+          function orient(p,q,r){ return (q.x-p.x)*(r.y-p.y) - (q.y-p.y)*(r.x-p.x); }
+          const o1=orient(a,b,c), o2=orient(a,b,d), o3=orient(c,d,a), o4=orient(c,d,b);
+          if (o1===0||o2===0||o3===0||o4===0) return false; // skip collinear for robustness
+          return (o1>0)!=(o2>0) && (o3>0)!=(o4>0);
+        }
+        function countCrossingsForOrder(p, order){
+          const P = pos.get(p); const kids = order;
+          const span = (p===centerId)? TAU : ARC; const baseAng = (p===centerId)? 0 : prefAngle.get(p) || 0;
+          const start = (p===centerId)? 0 : baseAng - span/2;
+          const tmpPos = new Map();
+          kids.forEach((kid,i)=>{
+            const ang = (p===centerId)? (kids.length? (TAU*i/kids.length):0) : (start + (kids.length>1? (span*i/(kids.length-1)) : 0));
+            tmpPos.set(kid, { x: P.x + LINK*Math.cos(ang), y: P.y + LINK*Math.sin(ang) });
+          });
+          let segs=[];
+          for (const kid of kids){
+            for (const nb of (undirected.get(kid)||[])){
+              if (nb===p) continue; if (!pos.has(nb)) continue; // only count edges to already-placed nodes
+              const A = tmpPos.get(kid); const B = pos.get(nb);
+              if (!A||!B) continue; segs.push({a:A,b:B});
+            }
+          }
+          let crossings=0;
+          for (let i=0;i<segs.length;i++){
+            for (let j=i+1;j<segs.length;j++){
+              if (segIntersect(segs[i].a,segs[i].b,segs[j].a,segs[j].b)) crossings++;
+            }
+          }
+          return crossings;
+        }
+        function minimizeOrder(p){
+          const kids = (children.get(p)||[]).slice(); if (kids.length<=1) return;
+          // Try exhaustive if small
+          let best = kids.slice(); let bestScore = countCrossingsForOrder(p,best);
+          if (kids.length<=7){
+            function* permute(arr,l){ if(l===arr.length){ yield arr.slice(); return;} for(let i=l;i<arr.length;i++){ [arr[l],arr[i]]=[arr[i],arr[l]]; yield*permute(arr,l+1); [arr[l],arr[i]]=[arr[i],arr[l]]; } }
+            for (const ord of permute(kids.slice(),0)){ const s=countCrossingsForOrder(p,ord); if (s<bestScore){ bestScore=s; best=ord.slice(); } }
+          } else {
+            let improved=true; best = kids.slice();
+            while(improved){ improved=false; for(let i=0;i<best.length-1;i++){ const ord=best.slice(); [ord[i],ord[i+1]]=[ord[i+1],ord[i]]; const s=countCrossingsForOrder(p,ord); if (s<bestScore){ bestScore=s; best=ord; improved=true; } } }
+          }
+          // Reposition by best order
+          const P = pos.get(p); const span = (p===centerId)? TAU : ARC; const baseAng = (p===centerId)? 0 : prefAngle.get(p)||0; const start=(p===centerId)?0: baseAng - span/2;
+          best.forEach((kid,i)=>{ const ang=(p===centerId)? (best.length? TAU*i/best.length:0) : (start + (best.length>1? (span*i/(best.length-1)) : 0)); pos.set(kid,{ x:P.x+LINK*Math.cos(ang), y:P.y+LINK*Math.sin(ang), theta:ang }); prefAngle.set(kid, ang); });
+        }
+        // Minimize for all parents breadth-first
+        const queue=[centerId]; const seen=new Set([centerId]);
+        while(queue.length){ const p=queue.shift(); minimizeOrder(p); for(const c of (children.get(p)||[])){ if(!seen.has(c)){ seen.add(c); queue.push(c);} } }
+        function estimatedRadiusFor(n){
+          const idw = String(n.id).length * 7; const codew = (n.port_type ? n.port_type.length*6 : 0);
+          return NODE_R + 8 + Math.max(idw, codew)/2;
+        }
+        const radii = new Map(nodes.map(n=>[n.id, estimatedRadiusFor(n)]));
+        const idsAll = nodes.map(n=>n.id);
+        // Precompute edge list (unique undirected pairs)
+        const edges = [];
+        for (const u of idsAll){ for (const v of (undirected.get(u)||[])){ if (pos.has(v) && u < v) edges.push([u,v]); } }
+
+        function segInter(a,b,c,d){
+          function orient(p,q,r){ return (q.x-p.x)*(r.y-p.y) - (q.y-p.y)*(r.x-p.x); }
+          const o1=orient(a,b,c), o2=orient(a,b,d), o3=orient(c,d,a), o4=orient(c,d,b);
+          if (o1===0||o2===0||o3===0||o4===0) return false;
+          return (o1>0)!=(o2>0) && (o3>0)!=(o4>0);
+        }
+        function segHitsCircle(a,b,c,rad){
+          const px=b.x-a.x, py=b.y-a.y; const len2=px*px+py*py||1e-6; let t=((c.x-a.x)*px+(c.y-a.y)*py)/len2; if (t<0.1||t>0.9) return false; const x=a.x+t*px, y=a.y+t*py; const dx=c.x-x, dy=c.y-y; return (dx*dx+dy*dy)<=rad*rad;
+        }
+        function guardMove(id, dx, dy){
+          let lam = 0.5; // small step
+          const A = pos.get(id); if (!A) return {dx:0,dy:0};
+          const nbrs = Array.from(undirected.get(id)||[]);
+          outer: while (lam > 1e-3){
+            const trial = { x: A.x + lam*dx, y: A.y + lam*dy };
+            // Edge-node guard
+            for (const n of nbrs){ const N = pos.get(n); if (!N) continue; for (const cId of idsAll){ if (cId===id || cId===n) continue; const C=pos.get(cId); if (!C) continue; if (segHitsCircle(trial,N,C,NODE_R+4)) { lam/=2; continue outer; } } }
+            // Edge-edge guard
+            for (const n of nbrs){ const N=pos.get(n); if (!N) continue; const a=trial, b=N; for (const [u,v] of edges){ if (u===id||v===id||u===n||v===n) continue; const U=pos.get(u), V=pos.get(v); if (!U||!V) continue; if (segInter(a,b,U,V)) { lam/=2; continue outer; } } }
+            break; // safe
+          }
+          return { dx: lam*dx, dy: lam*dy };
+        }
+
+        const iters = 36;
+        for (let it=0; it<iters; it++){
+          let moved=false;
+          for (let i=0;i<idsAll.length;i++){
+            for (let j=i+1;j<idsAll.length;j++){
+              const ia=idsAll[i], ib=idsAll[j]; const A=pos.get(ia), B=pos.get(ib); if (!A||!B) continue;
+              const dx=B.x-A.x, dy=B.y-A.y; let d=Math.hypot(dx,dy)||0.0001; const need=Math.max(MIN_NODE_DIST, radii.get(ia)+radii.get(ib));
+              if (d<need){ const push=(need-d)/2; const ux=dx/d, uy=dy/d; const aStep=guardMove(ia, -ux*push, -uy*push); const bStep=guardMove(ib, ux*push, uy*push); if (Math.abs(aStep.dx)+Math.abs(aStep.dy)>1e-3){ A.x+=aStep.dx; A.y+=aStep.dy; moved=true; } if (Math.abs(bStep.dx)+Math.abs(bStep.dy)>1e-3){ B.x+=bStep.dx; B.y+=bStep.dy; moved=true; } }
+            }
+          }
+          // Parent-child springs: maintain length and preferred angle
+          for (const id of idsAll){ const p = parent.get(id); if (p==null) continue; const P=pos.get(p), C=pos.get(id); if (!P||!C) continue; // Length spring
+            let dx=C.x-P.x, dy=C.y-P.y; let r=Math.hypot(dx,dy)||1e-6; let ux=dx/r, uy=dy/r; const lenDelta=(LINK - r)*0.25; C.x += ux*lenDelta; C.y += uy*lenDelta; r += lenDelta; // Angular spring
+            const pref = prefAngle.get(id); if (pref != null){ const ang = Math.atan2(C.y-P.y, C.x-P.x); let diff = pref - ang; while (diff > Math.PI) diff -= TAU; while (diff < -Math.PI) diff += TAU; const ANG_ALPHA = 0.18; const newAng = ang + diff*ANG_ALPHA; C.x = P.x + r*Math.cos(newAng); C.y = P.y + r*Math.sin(newAng); }
+            moved = moved || Math.abs(lenDelta) > 0.01; }
+          if (!moved) break;
+        }
+        return { pos, maxRing: 3 };
+      }
+
+      // --- Rendering ---
+      async function render(nodes, centerId) {
+        const svg = document.getElementById('map');
+        const W = svg.viewBox.baseVal.width || 800;
+        const H = svg.viewBox.baseVal.height || 560;
+        const { pos, maxRing } = await layout(nodes, centerId, W, H, {});
+        const ringsG = document.getElementById('rings');
+        const edgesG = document.getElementById('edges');
+        const nodesG = document.getElementById('nodes');
+        const viewport = document.getElementById('viewport');
+        ringsG.innerHTML = edgesG.innerHTML = nodesG.innerHTML = '';
+
+        // no global rings; keep group for potential guides
+
+        // edges (tree vs non-tree with curves)
+        function line(x1,y1,x2,y2, opts={}){
+          const el = document.createElementNS('http://www.w3.org/2000/svg','line');
+          el.setAttribute('x1', x1); el.setAttribute('y1', y1); el.setAttribute('x2', x2); el.setAttribute('y2', y2);
+          el.setAttribute('stroke', opts.stroke || '#9aa0a6');
+          el.setAttribute('stroke-width', opts.strokeWidth || '1.25');
+          if (opts.markerStart) el.setAttribute('marker-start', opts.markerStart);
+          if (opts.markerEnd) el.setAttribute('marker-end', opts.markerEnd);
+          if (opts.opacity) el.setAttribute('opacity', opts.opacity);
+          edgesG.appendChild(el);
+        }
+        function path(d, opts={}){
+          const el = document.createElementNS('http://www.w3.org/2000/svg','path');
+          el.setAttribute('d', d);
+          el.setAttribute('fill','none');
+          el.setAttribute('stroke', opts.stroke || '#8fa3ad');
+          el.setAttribute('stroke-width', opts.strokeWidth || '1');
+          if (opts.markerStart) el.setAttribute('marker-start', opts.markerStart);
+          if (opts.markerEnd) el.setAttribute('marker-end', opts.markerEnd);
+          if (opts.opacity) el.setAttribute('opacity', opts.opacity);
+          edgesG.appendChild(el);
+        }
+
+        const pairs = toPairs(nodes).filter(p => pos.has(p.a) && pos.has(p.b));
+        function segHitsNode(A,B,C,r){
+          const px=B.x-A.x, py=B.y-A.y; const len2=px*px+py*py||1e-6;
+          let t=((C.x-A.x)*px+(C.y-A.y)*py)/len2;
+          // ignore near endpoints so we don't curve every edge
+          if (t < 0.1 || t > 0.9) return false;
+          const x=A.x+t*px, y=A.y+t*py; const dx=C.x-x, dy=C.y-y; return (dx*dx+dy*dy)<=r*r;
+        }
+        function drawEdge(A,B,markerStart,markerEnd){
+          // Trim to node boundary so arrowheads are not hidden under node circles
+          const dx=B.x-A.x, dy=B.y-A.y; let d=Math.hypot(dx,dy)||1e-6; const ux=dx/d, uy=dy/d;
+          const TRIM = NODE_R + 6;
+          const As={ x:A.x+ux*TRIM, y:A.y+uy*TRIM };
+          const Be={ x:B.x-ux*TRIM, y:B.y-uy*TRIM };
+          let worst=null, worstD=Infinity;
+          for (const n of nodes){ const id=n.id; if (id===A.id||id===B.id) continue; const C=pos.get(id); if (!C) continue; if (segHitsNode(As,Be,C,NODE_R+3)){ const mx=(As.x+Be.x)/2, my=(As.y+Be.y)/2; const dd=(C.x-mx)**2+(C.y-my)**2; if (dd<worstD){ worstD=dd; worst=C; } } }
+          if (!worst){ line(As.x,As.y,Be.x,Be.y,{ stroke:'#9aa0a6', strokeWidth:1.25, markerStart, markerEnd, opacity:0.85 }); return; }
+          const mx=(As.x+Be.x)/2, my=(As.y+Be.y)/2; let nx=-(dy/d), ny=(dx/d); const dirx=mx-worst.x, diry=my-worst.y; const s=(dirx*nx+diry*ny)>=0?1:-1; const qx=mx+s*nx*18, qy=my+s*ny*18; const dpath=`M ${As.x} ${As.y} Q ${qx} ${qy} ${Be.x} ${Be.y}`; path(dpath,{ stroke:'#9aa0a6', strokeWidth:1.25, opacity:0.85, markerStart, markerEnd }); }
+        for (const e of pairs) {
+          const A = pos.get(e.a), B = pos.get(e.b);
+          const markerStart = e.hasBA ? 'url(#arrow-end)' : undefined;
+          const markerEnd = e.hasAB ? 'url(#arrow-end)' : undefined;
+          drawEdge(A,B,markerStart,markerEnd);
+        }
+
+        // nodes
+        for (const n of nodes) {
+          if (!pos.has(n.id)) continue;
+          const p = pos.get(n.id);
+          const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+          const circle = document.createElementNS('http://www.w3.org/2000/svg','circle');
+          circle.setAttribute('cx', p.x); circle.setAttribute('cy', p.y); circle.setAttribute('r', String(NODE_R));
+          let fill = n.id === centerId ? '#ffd54f' : (n.visited ? '#b0bec5' : '#ef9a9a');
+          circle.setAttribute('fill', fill); circle.setAttribute('stroke','#1f1f1f'); circle.setAttribute('stroke-width','1');
+          g.appendChild(circle);
+          const t1 = document.createElementNS('http://www.w3.org/2000/svg','text');
+          t1.setAttribute('x', p.x); t1.setAttribute('y', p.y - 14); t1.setAttribute('text-anchor','middle');
+          t1.setAttribute('font-size','10'); t1.setAttribute('fill','#e0e0e0'); t1.textContent = String(n.id);
+          g.appendChild(t1);
+          if (n.port_type) {
+            const t2 = document.createElementNS('http://www.w3.org/2000/svg','text');
+            t2.setAttribute('x', p.x); t2.setAttribute('y', p.y + 18); t2.setAttribute('text-anchor','middle');
+            t2.setAttribute('font-size','9'); t2.setAttribute('fill','#9ccc65'); t2.textContent = n.port_type;
+            g.appendChild(t2);
+          }
+          nodesG.appendChild(g);
+        }
+        // Update node count in UI
+        const nodeCountEl = document.getElementById('nodeCount');
+        if (nodeCountEl) nodeCountEl.textContent = String(Array.from(pos.keys()).length);
+
+        // Fit to viewport: center + scale to fill, preserving aspect
+        let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
+        for (const n of nodes){ const p=pos.get(n.id); if (!p) continue; minX=Math.min(minX,p.x-NODE_R); maxX=Math.max(maxX,p.x+NODE_R); minY=Math.min(minY,p.y-NODE_R); maxY=Math.max(maxY,p.y+NODE_R); }
+        const bx=(minX+maxX)/2, by=(minY+maxY)/2; const bw=Math.max(1,maxX-minX), bh=Math.max(1,maxY-minY);
+        const margin=40; const sx=(W-margin*2)/bw, sy=(H-margin*2)/bh; const s=Math.min(sx,sy,1.8);
+        const tx=W/2 - s*bx, ty=H/2 - s*by; document.getElementById('viewport').setAttribute('transform',`translate(${tx},${ty}) scale(${s})`);
+      }
+
+      // --- UI wiring ---
+      const jsonEl = document.getElementById('json');
+      const centerEl = document.getElementById('center');
+      const hopsEl = document.getElementById('hops');
+      const useWorldEl = document.getElementById('useWorld');
+
+      // Cache player name and world data
+      let savedCharacter = null;
+      let worldCache = null; // {dirAdj, undAdj, portMap}
+
+      async function loadWorldData() {
+        if (worldCache) return worldCache;
+        const [uRes, cRes] = await Promise.all([
+          fetch('world-data/universe_structure.json'),
+          fetch('world-data/sector_contents.json').catch(()=>null)
+        ]);
+        if (!uRes.ok) throw new Error('Could not load world-data/universe_structure.json');
+        const univ = await uRes.json();
+        let contents = null;
+        if (cRes && cRes.ok) contents = await cRes.json();
+        const dir = new Map();
+        for (const s of univ.sectors) dir.set(s.id, s.warps.map(w=>w.to));
+        const und = new Map();
+        for (const [sid, outs] of dir) {
+          if (!und.has(sid)) und.set(sid, new Set());
+          for (const t of outs) {
+            if (!und.has(t)) und.set(t, new Set());
+            und.get(sid).add(t); und.get(t).add(sid);
+          }
+        }
+        const portMap = new Map();
+        if (contents) for (const s of contents.sectors) portMap.set(s.id, s.port && s.port.code ? s.port.code : null);
+        worldCache = { dirAdj: dir, undAdj: und, portMap };
+        return worldCache;
+      }
+
+      function buildLocalFromWorld(centerId, hops, world) {
+        const dist = new Map([[centerId,0]]);
+        const q = [centerId];
+        while (q.length) {
+          const u = q.shift();
+          if (dist.get(u) >= hops) continue;
+          for (const v of (world.undAdj.get(u) || [])) {
+            if (!dist.has(v)) { dist.set(v, dist.get(u)+1); q.push(v); }
+          }
+        }
+        const included = new Set(Array.from(dist.keys()));
+        const node_list = [];
+        for (const id of Array.from(included).sort((a,b)=>a-b)) {
+          const outs = world.dirAdj.get(id) || [];
+          node_list.push({ id, visited: true, port_type: world.portMap.get(id) || null, adjacent: outs.filter(t=>included.has(t)) });
+        }
+        return { node_list };
+      }
+      // update minSep label on input
+      const minSepEl = document.getElementById('minSep');
+      // Keep last rendered graph to allow re-render on knob changes
+      let lastNodes = null;
+      let lastCenter = null;
+      function rerenderIfPossible(){ if (lastNodes && lastCenter !== null){ render(lastNodes, lastCenter); } }
+      if (minSepEl) minSepEl.addEventListener('input', () => { UI_MIN_NODE_DIST(); rerenderIfPossible(); });
+      const cohArcEl = document.getElementById('cohesionArc'); if (cohArcEl) cohArcEl.addEventListener('input', ()=>{ UI_COHESION_ARC(); rerenderIfPossible(); });
+      const capModeEl = document.getElementById('capMode'); if (capModeEl) capModeEl.addEventListener('change', fetchAndRender);
+      const maxNodesEl = document.getElementById('maxNodes'); if (maxNodesEl) maxNodesEl.addEventListener('input', fetchAndRender);
+
+      async function fetchAndRender(){
+        const centerId = parseInt(centerEl.value || '0', 10);
+        const hopsInput = parseInt(hopsEl.value || '3', 10);
+        const capMode = document.getElementById('capMode')?.checked;
+        const maxNodes = parseInt(document.getElementById('maxNodes')?.value || '25', 10);
+        try{
+          if (useWorldEl.checked){
+            const world = await loadWorldData();
+            let hops = hopsInput;
+            if (capMode){
+              // BFS layer counts from center
+              const q=[centerId]; const dist=new Map([[centerId,0]]);
+              while(q.length){ const u=q.shift(); for(const v of (world.undAdj.get(u)||[])){ if(!dist.has(v)){ dist.set(v, (dist.get(u)||0)+1); q.push(v);} } }
+              const maxLayer = Math.max(...dist.values());
+              const layerCounts = Array.from({length:maxLayer+1}, (_,k)=> Array.from(dist.values()).filter(d=>d===k).length);
+              let cum=0, safe=0;
+              for (let k=0;k<layerCounts.length;k++){ const next=cum+layerCounts[k]; if (next>maxNodes){ break; } cum=next; safe=k; }
+              hops = safe; hopsEl.value = String(hops);
+            }
+            const data = buildLocalFromWorld(centerId, hops, world);
+            document.getElementById('json').value = JSON.stringify(data, null, 2);
+            lastNodes = data.node_list || []; lastCenter = centerId; await render(lastNodes, lastCenter);
+          } else {
+            if (!savedCharacter) { const c = prompt('Character ID to fetch for:', 'JoePlayer'); if (!c) return; savedCharacter = c; }
+            let hops = hopsInput; let finalData=null; let lastData=null; let i=0;
+            if (capMode){
+              while(true){
+                const res = await fetch('/api/local_map', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ character_id: savedCharacter, current_sector: centerId, max_hops: i }) });
+                if (!res.ok) throw new Error('HTTP '+res.status);
+                const data = await res.json();
+                const n = (data.node_list||[]).length;
+                if (n>maxNodes || n=== (lastData? lastData.node_list.length: -1)) { finalData = lastData || data; break; }
+                lastData = data; i++; if (i>12) { finalData = data; break; }
+              }
+              hopsEl.value = String(i>0? i-1: 0);
+            } else {
+              const res = await fetch('/api/local_map', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ character_id: savedCharacter, current_sector: centerId, max_hops: hops }) });
+              if (!res.ok) throw new Error('HTTP '+res.status);
+              finalData = await res.json();
+            }
+            document.getElementById('json').value = JSON.stringify(finalData, null, 2);
+            lastNodes = finalData.node_list || []; lastCenter = centerId; await render(lastNodes, lastCenter);
+          }
+        }catch(e){ alert('Fetch failed. If opening from file:// you may hit CORS or world-data/* not served.\n\nError: '+ e.message); }
+      }
+      document.getElementById('fetchBtn').addEventListener('click', fetchAndRender);
+
+      // Seed with a tiny sample so the page shows something immediately
+      const sample = { node_list: [
+        { id: 39, visited: true, port_type: null, adjacent: [776, 286, 190] },
+        { id: 776, visited: true, port_type: null, adjacent: [39, 578] },
+        { id: 286, visited: false, port_type: 'SSS', adjacent: [39] },
+        { id: 190, visited: true, port_type: 'STD', adjacent: [39, 199, 274] },
+        { id: 199, visited: true, port_type: 'SBB', adjacent: [190, 274] },
+        { id: 274, visited: false, port_type: 'SSS', adjacent: [190, 199, 174] },
+        { id: 174, visited: false, port_type: null, adjacent: [274, 66] },
+        { id: 66, visited: false, port_type: null, adjacent: [174, 177] },
+        { id: 177, visited: false, port_type: null, adjacent: [66] }
+      ]};
+      document.getElementById('json').value = JSON.stringify(sample, null, 2);
+      // Initial render
+      (async () => { await render(sample.node_list, 39); })();
+    </script>
+  </body>
+  </html>

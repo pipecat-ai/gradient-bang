@@ -15,7 +15,7 @@ Usage:
   python generate_universe.py <sector_count> [seed]
 """
 
-import sys, json, random
+import sys, json, random, heapq
 from collections import deque
 
 # ===================== Tunables / Defaults =====================
@@ -31,8 +31,12 @@ PLANET_PERCENTAGE = 0.00  # raise if you re-enable planets
 
 # --- Warps / topology ---
 MIN_WARPS_PER_SECTOR = 1
-MAX_WARPS_PER_SECTOR = 4
-TWO_WAY_PROBABILITY = 0.30  # raise to 0.5-0.7 for friendlier maps
+MAX_WARPS_PER_SECTOR = 2
+TWO_WAY_PROBABILITY = 0.05  # extras: mostly one-way; two-way is special
+DEGREE_CAP_UND = 4  # hard cap for undirected degree (applied to extras; tree respects this too)
+MAX_TREE_DEG = 4    # maximum undirected degree in the spanning backbone (root included)
+RARE_SPUR_TARGET = 100  # aim for ~100 two-hop cul-de-sacs in a 5k universe
+RARE_SPUR_MIN_SEP = 10  # hop separation between spur anchors (fallback to 8, then 6)
 
 # --- Encourage complementary port pairs nearby ---
 ENSURE_COMPLEMENTARY_PAIRS = True
@@ -190,30 +194,238 @@ def main():
         seed = random.randrange(0, 2**32 - 1)
     random.seed(seed)
 
-    # --- Build a connected directed graph (warps) ---
+    # --- Build a connected undirected tree with bounded degree (capacity-limited BFS) ---
+    # Then convert to a two-way directed backbone. This prevents high-degree hubs in the tree.
     warps_outgoing = {s: set() for s in range(sector_count)}
 
-    # Spanning connectivity (two-way link from each new node to a prior node)
-    for s in range(1, sector_count):
-        t = random.randint(0, s - 1)
-        warps_outgoing[s].add(t)
-        warps_outgoing[t].add(s)
+    n = sector_count
+    tree_neighbors = [set() for _ in range(n)]
+    if sector_count == 1:
+        parent = {0: None}
+    else:
+        # Remaining capacity for each node (how many total neighbors it may have)
+        cap = [MAX_TREE_DEG] * n
+        # Choose a random root to avoid density bias near 0
+        root = random.randrange(n)
+        parent = {root: None}
+        # Frontier of nodes that can accept new children (start with root)
+        frontier = [root]
+        # Create a random order of the remaining nodes
+        remaining = [i for i in range(n) if i != root]
+        random.shuffle(remaining)
+        for s in remaining:
+            if not frontier:
+                frontier = [random.choice(list(range(n)))]
+            # Pick a parent from frontier with available capacity
+            p = random.choice(frontier)
+            if cap[p] <= 0:
+                # find someone else with capacity
+                frontier = [f for f in frontier if cap[f] > 0] or [p]
+                p = random.choice(frontier)
+            # Connect p <-> s
+            tree_neighbors[p].add(s)
+            tree_neighbors[s].add(p)
+            warps_outgoing[p].add(s)
+            warps_outgoing[s].add(p)
+            parent[s] = p
+            # Update capacities: one slot consumed for p and for s
+            cap[p] -= 1
+            cap[s] = MAX_TREE_DEG - 1  # one used by parent link
+            # Maintain frontier
+            if cap[p] <= 0 and p in frontier:
+                frontier.remove(p)
+            if cap[s] > 0:
+                frontier.append(s)
 
-    # Extra warps: mix of one-way/two-way
-    for s in range(sector_count):
-        desired_out = random.randint(MIN_WARPS_PER_SECTOR, MAX_WARPS_PER_SECTOR)
-        if len(warps_outgoing[s]) >= desired_out:
+    # --- Identify rare two-hop cul-de-sacs on the tree and seal their interior nodes ---
+    # tree_neighbors already computed from the Prüfer tree above
+
+    # Candidate triples (a,u,v): v is leaf, u has degree 2, a is parent of u
+    candidates = []
+    for v in range(sector_count):
+        if len(tree_neighbors[v]) != 1:
             continue
-        candidates = list(set(range(sector_count)) - {s} - warps_outgoing[s])
-        random.shuffle(candidates)
-        for t in candidates:
-            if len(warps_outgoing[s]) >= desired_out:
-                break
-            warps_outgoing[s].add(t)
-            if random.random() < TWO_WAY_PROBABILITY:
-                warps_outgoing[t].add(s)
+        u = parent.get(v)
+        if u is None:
+            # v might be 0 (root)
+            continue
+        if len(tree_neighbors[u]) != 2:
+            continue
+        a = parent.get(u)
+        if a is None:
+            continue
+        candidates.append((a, u, v))
 
-    # Undirected neighbors (for hop calculations)
+    # Keep at most one triple per anchor a
+    by_anchor = {}
+    for a, u, v in candidates:
+        if a not in by_anchor:
+            by_anchor[a] = (a, u, v)
+
+    anchors = list(by_anchor.keys())
+
+    # Helper: BFS within radius on the tree
+    def bfs_tree_radius(start: int, radius: int) -> set[int]:
+        visited = {start}
+        q = deque([(start, 0)])
+        result = set()
+        while q:
+            n, d = q.popleft()
+            if d == radius:
+                continue
+            for nb in tree_neighbors[n]:
+                if nb not in visited:
+                    visited.add(nb)
+                    result.add(nb)
+                    q.append((nb, d + 1))
+        return result
+
+    # Greedy, spaced selection of anchors
+    selected = []
+    def select_with_minsep(min_sep: int):
+        selected.clear()
+        remaining = set(anchors)
+        # Prefer anchors far from node 0 (coarse spread)
+        # Compute tree rings from 0 for simple priority
+        dist0 = {0: 0}
+        q = deque([0])
+        while q:
+            x = q.popleft()
+            for y in tree_neighbors[x]:
+                if y not in dist0:
+                    dist0[y] = dist0[x] + 1
+                    q.append(y)
+        ordered = sorted(list(remaining), key=lambda a: dist0.get(a, 0), reverse=True)
+        blocked = set()
+        for a in ordered:
+            if a in blocked or a not in remaining:
+                continue
+            selected.append(a)
+            if len(selected) >= RARE_SPUR_TARGET:
+                break
+            # Block anchors within min_sep hops
+            for n in bfs_tree_radius(a, min_sep):
+                if n in remaining:
+                    blocked.add(n)
+        return len(selected)
+
+    ok = select_with_minsep(RARE_SPUR_MIN_SEP)
+    if ok < RARE_SPUR_TARGET:
+        ok = select_with_minsep(max(8, RARE_SPUR_MIN_SEP - 2))
+    if ok < RARE_SPUR_TARGET:
+        select_with_minsep(max(6, RARE_SPUR_MIN_SEP - 4))
+
+    SEALED = set()
+    selected_triples = []
+    for a in selected[:RARE_SPUR_TARGET]:
+        a, u, v = by_anchor[a]
+        SEALED.add(u)
+        SEALED.add(v)
+        selected_triples.append((a, u, v))
+
+    # Compute coarse rings (from node 0 on the tree) for cross-ring discipline
+    ring = {root: 0}
+    q = deque([root])
+    while q:
+        x = q.popleft()
+        for y in tree_neighbors[x]:
+            if y not in ring:
+                ring[y] = ring[x] + 1
+                q.append(y)
+
+    # Precompute depth and parent for LCA approximation on the backbone tree
+    depth = ring.copy()
+    up = parent  # immediate parent mapping from earlier tree build
+
+    def lca_depth(a: int, b: int) -> int:
+        # Bring to same depth
+        da, db = depth.get(a, 0), depth.get(b, 0)
+        while da > db:
+            a = up.get(a)
+            da -= 1
+            if a is None:
+                break
+        while db > da:
+            b = up.get(b)
+            db -= 1
+            if b is None:
+                break
+        # Climb together
+        while a is not None and b is not None and a != b:
+            a = up.get(a)
+            b = up.get(b)
+        return depth.get(a, 0) if a is not None else 0
+
+    # Extra warps: mix of one-way/two-way with guardrails
+    # Maintain dynamic undirected degree for the soft cap
+    und_adj = tree_neighbors  # dynamic undirected adjacency
+    und_deg = [len(neis) for neis in und_adj]
+
+    # Precompute desired extras per node to avoid order bias
+    desired_map = {}
+    for s in range(sector_count):
+        desired_map[s] = random.randint(MIN_WARPS_PER_SECTOR, MAX_WARPS_PER_SECTOR)
+
+    # Round-robin passes to distribute extras evenly
+    max_passes = 4
+    for _pass in range(max_passes):
+        order = list(range(sector_count))
+        random.shuffle(order)
+        changed_any = False
+        for s in order:
+            # Skip extras for sealed nodes to preserve cul-de-sacs
+            if s in SEALED:
+                continue
+            desired_out = desired_map[s]
+            if len(warps_outgoing[s]) >= desired_out:
+                continue
+            if und_deg[s] >= DEGREE_CAP_UND:
+                continue
+            # Build candidates excluding existing edges, self, and sealed nodes; also degree-cap filtered
+            base = set(range(sector_count)) - {s} - warps_outgoing[s] - SEALED
+            base = {t for t in base if und_deg[t] < DEGREE_CAP_UND}
+            if not base:
+                continue
+            # Sort candidates with locality bias and degree fairness
+            def key_t(t):
+                dr = abs(ring.get(s, 0) - ring.get(t, 0))
+                ldepth = lca_depth(s, t)
+                closeness = max(0, min(depth.get(s,0), depth.get(t,0)) - ldepth)
+                return (0 if dr <= 1 else 1, closeness, und_deg[t], random.random())
+            candidates = sorted(list(base), key=key_t)
+            added_this_node = False
+            for t in candidates:
+                if len(warps_outgoing[s]) >= desired_out:
+                    break
+                if und_deg[t] >= DEGREE_CAP_UND:
+                    continue
+                # Hard reject long chords and far subtrees
+                dr = abs(ring.get(s, 0) - ring.get(t, 0))
+                if dr > 1:
+                    continue
+                ldepth = lca_depth(s, t)
+                closeness = max(0, min(depth.get(s,0), depth.get(t,0)) - ldepth)
+                if closeness > 1:
+                    continue
+                # Avoid creating triangles to keep clustering low
+                if any((u in und_adj[t]) for u in und_adj[s]):
+                    continue
+                # Add directed s->t
+                warps_outgoing[s].add(t)
+                und_adj[s].add(t)
+                und_adj[t].add(s)
+                und_deg[s] += 1
+                und_deg[t] += 1
+                # With probability, add reverse to make two-way
+                if random.random() < TWO_WAY_PROBABILITY and und_deg[s] < DEGREE_CAP_UND and und_deg[t] < DEGREE_CAP_UND:
+                    warps_outgoing[t].add(s)
+                changed_any = True
+                added_this_node = True
+                break  # at most one per pass per node to spread edges
+        if not changed_any:
+            break
+
+    # Undirected neighbors (after extras)
     undirected_neighbors = [set() for _ in range(sector_count)]
     for s in range(sector_count):
         for t in warps_outgoing[s]:
@@ -231,10 +443,21 @@ def main():
     )
     actual_two_way_arc_fraction = (two_way_arcs / total_arcs) if total_arcs else 0.0
 
+    # Count two-hop cul-de-sacs preserved after extras
+    def is_culdesac(triple) -> bool:
+        a, u, v = triple
+        return (
+            len(undirected_neighbors[u]) == 2 and a in undirected_neighbors[u] and v in undirected_neighbors[u]
+            and len(undirected_neighbors[v]) == 1 and u in undirected_neighbors[v]
+        )
+    culdesacs = sum(1 for tri in selected_triples if is_culdesac(tri))
+
     # --- Port placement (exact count to hit density target) ---
     target_port_count = round(PORT_PERCENTAGE * sector_count)
+    degrees = [len(neis) for neis in undirected_neighbors]
+    # Prefer low-degree locations for ports (leaves/near-leaves first)
     all_sectors = list(range(sector_count))
-    random.shuffle(all_sectors)
+    all_sectors.sort(key=lambda s: (degrees[s], random.random()))
     port_sectors = set(all_sectors[:target_port_count])
 
     # Assign random classes initially
@@ -312,6 +535,13 @@ def main():
             "two_way_probability_setting": TWO_WAY_PROBABILITY,
             "actual_two_way_arc_fraction": round(actual_two_way_arc_fraction, 3),
             "course_length_hint": COURSE_LENGTH_HINT,
+            "rare_spurs": {
+                "target": RARE_SPUR_TARGET,
+                "selected": len(selected_triples),
+                "preserved": culdesacs,
+                "min_sep": RARE_SPUR_MIN_SEP,
+                "degree_cap": DEGREE_CAP_UND,
+            },
         },
         "sectors": [],
     }
@@ -392,6 +622,7 @@ def main():
     print(
         "Complementary pair coverage (actual): {c:.1%}".format(c=actual_pair_coverage)
     )
+    print(f"Two-hop cul-de-sacs preserved: {culdesacs} (target {RARE_SPUR_TARGET})")
     print("Files created: universe_structure.json, sector_contents.json")
 
 

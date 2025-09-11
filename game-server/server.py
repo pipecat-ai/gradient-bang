@@ -12,6 +12,7 @@ from api import (
     move as api_move,
     my_status as api_my_status,
     my_map as api_my_map,
+    local_map as api_local_map,
     check_trade as api_check_trade,
     trade as api_trade,
     recharge_warp_power as api_recharge,
@@ -59,6 +60,11 @@ async def my_map(request: dict):
     return await api_my_map.handle(request, world)
 
 
+@app.post("/api/local_map")
+async def local_map(request: dict):
+    return await api_local_map.handle(request, world)
+
+
 @app.post("/api/check_trade")
 async def check_trade(request: dict):
     return await api_check_trade.handle(request, world)
@@ -93,4 +99,3 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
