@@ -479,10 +479,62 @@
           else { ux=dx/d; uy=dy/d; }
           if (d >= need) return false;
           const push=(need-d)/2;
-          const aStep=guardMove(ia, -ux*push, -uy*push);
-          const bStep=guardMove(ib, ux*push, uy*push);
-          A.x+=aStep.dx; A.y+=aStep.dy; B.x+=bStep.dx; B.y+=bStep.dy;
-          return Math.abs(aStep.dx)+Math.abs(aStep.dy)+Math.abs(bStep.dx)+Math.abs(bStep.dy) > 1e-3;
+          let aStep=guardMove(ia, -ux*push, -uy*push);
+          let bStep=guardMove(ib, ux*push, uy*push);
+          let moved = false;
+          if (Math.abs(aStep.dx)+Math.abs(aStep.dy) > 1e-3){ A.x+=aStep.dx; A.y+=aStep.dy; moved=true; }
+          if (Math.abs(bStep.dx)+Math.abs(bStep.dy) > 1e-3){ B.x+=bStep.dx; B.y+=bStep.dy; moved=true; }
+          // If still violating and guards clipped moves, try a parent-normal fallback to preserve edges
+          function parentNormalKick(id, sign){
+            const Pid = parent.get(id); const P = pos.get(Pid); const C = pos.get(id);
+            if (!C || !P) return false;
+            let tx=C.x-P.x, ty=C.y-P.y; const len=Math.hypot(tx,ty)||1e-6; tx/=len; ty/=len; // tangent
+            let nx=-ty, ny=tx; // normal
+            // Choose direction that increases separation between A and B
+            const s = ((C.x - (A.x+B.x)/2)*nx + (C.y - (A.y+B.y)/2)*ny) >= 0 ? 1 : -1;
+            const step=guardMove(id, s*nx*1.2, s*ny*1.2);
+            if (Math.abs(step.dx)+Math.abs(step.dy) > 1e-3){ C.x+=step.dx; C.y+=step.dy; return true; }
+            return false;
+          }
+          // Re-evaluate and try fallback kicks up to 2 rounds if still below need
+          dx=B.x-A.x; dy=B.y-A.y; d=Math.hypot(dx,dy);
+          if (d < need-0.5){
+            let any=false;
+            any = parentNormalKick(ia, -1) || any;
+            any = parentNormalKick(ib, +1) || any;
+            if (!any){
+              // last resort: tiny jitter kicks
+              const anga=hashAngle(ia,ib), angb=hashAngle(ib,ia);
+              const ja=guardMove(ia, Math.cos(anga)*0.8, Math.sin(anga)*0.8);
+              const jb=guardMove(ib, Math.cos(angb)*0.8, Math.sin(angb)*0.8);
+              if (Math.abs(ja.dx)+Math.abs(ja.dy)>1e-3){ const C=pos.get(ia); C.x+=ja.dx; C.y+=ja.dy; any=true; }
+              if (Math.abs(jb.dx)+Math.abs(jb.dy)>1e-3){ const C=pos.get(ib); C.x+=jb.dx; C.y+=jb.dy; any=true; }
+            }
+            moved = moved || any;
+          }
+          return moved;
+        }
+        function projectSpacing(idsArr, maxSweeps=20, eps=0.5){
+          const arr = idsArr.slice();
+          for (let pass=0; pass<maxSweeps; pass++){
+            arr.sort(()=>Math.random()-0.5);
+            let moved=false; let maxViol=0;
+            for (let i=0;i<arr.length;i++){
+              for (let j=i+1;j<arr.length;j++){
+                const ia=arr[i], ib=arr[j];
+                const A=pos.get(ia), B=pos.get(ib); if(!A||!B) continue;
+                const need=Math.max(MIN_NODE_DIST, (radii.get(ia)||0)+(radii.get(ib)||0));
+                const d=Math.hypot(B.x-A.x,B.y-A.y);
+                const viol = Math.max(0, need - d);
+                if (viol > eps){ if (safeRepulse(ia, ib, need)) moved=true; }
+                if (viol > maxViol) maxViol = viol;
+              }
+            }
+            if (maxViol <= eps) return true; // satisfied
+            if (!moved) continue; // try again; guards may open space next pass
+          }
+          // give up after cap; best effort
+          return false;
         }
         function guardMove(id, dx, dy){
           let lam = 0.5; // small step
@@ -499,7 +551,58 @@
           return { dx: lam*dx, dy: lam*dy };
         }
 
-        const iters = 36;
+        // --- Projection Solver (inequality spacing + soft springs) ---
+        function buildPairsFor(ids){
+          const arr = ids.slice(); const pairs=[];
+          for (let i=0;i<arr.length;i++){
+            for (let j=i+1;j<arr.length;j++) pairs.push([arr[i],arr[j]]);
+          }
+          return pairs;
+        }
+        function angleWrap(a){ while(a>Math.PI) a-=TAU; while(a<-Math.PI) a+=TAU; return a; }
+        function projectionSolver(ids, opts={}){
+          const eps = opts.eps ?? 0.5;
+          const maxIters = opts.maxIters ?? 8;
+          const lenK = opts.springLenK ?? 0.28;  // parent-child length spring
+          const angK = opts.springAngK ?? 0.16;  // parent-child angular spring
+          const pairs = buildPairsFor(ids);
+          function maxViolation(){
+            let mv=0; for (const [ia,ib] of pairs){ const A=pos.get(ia), B=pos.get(ib); if(!A||!B) continue; const need=Math.max(MIN_NODE_DIST, (radii.get(ia)||0)+(radii.get(ib)||0)); const d=Math.hypot(B.x-A.x,B.y-A.y); const v=Math.max(0, need-d); if(v>mv) mv=v; } return mv;
+          }
+          for (let it=0; it<maxIters; it++){
+            let moved=false;
+            // 1) Enforce spacing via alternating projections
+            for (const [ia, ib] of pairs){
+              const A=pos.get(ia), B=pos.get(ib); if(!A||!B) continue;
+              const need=Math.max(MIN_NODE_DIST, (radii.get(ia)||0)+(radii.get(ib)||0));
+              let dx=B.x-A.x, dy=B.y-A.y; let d=Math.hypot(dx,dy);
+              if (d >= need - eps) continue;
+              let ux, uy;
+              if (d < 1e-6){ const ang=hashAngle(ia,ib); ux=Math.cos(ang); uy=Math.sin(ang); d=1e-6; }
+              else { ux=dx/d; uy=dy/d; }
+              const push=(need-d)/2;
+              const aStep=guardMove(ia, -ux*push, -uy*push);
+              const bStep=guardMove(ib,  ux*push,  uy*push);
+              if (Math.abs(aStep.dx)+Math.abs(aStep.dy)>1e-3){ A.x+=aStep.dx; A.y+=aStep.dy; moved=true; }
+              if (Math.abs(bStep.dx)+Math.abs(bStep.dy)>1e-3){ B.x+=bStep.dx; B.y+=bStep.dy; moved=true; }
+            }
+            // 2) Parent-child soft springs (length + angular preference)
+            for (const id of ids){
+              const p = parent.get(id); if (p==null) continue; const P=pos.get(p), C=pos.get(id); if(!P||!C) continue;
+              // Length spring towards LINK
+              let rx=C.x-P.x, ry=C.y-P.y; let rlen=Math.hypot(rx,ry)||1e-6; let ux=rx/rlen, uy=ry/rlen;
+              let lenDelta=(LINK - rlen)*lenK; if (Math.abs(lenDelta)>0.01){ const s=guardMove(id, ux*lenDelta, uy*lenDelta); C.x+=s.dx; C.y+=s.dy; moved = moved || Math.abs(s.dx)+Math.abs(s.dy)>1e-3; rlen = Math.hypot(C.x-P.x, C.y-P.y)||1e-6; rx=C.x-P.x; ry=C.y-P.y; ux=rx/rlen; uy=ry/rlen; }
+              // Angle spring towards prefAngle
+              const pref = prefAngle.get(id);
+              if (pref != null){ const ang = Math.atan2(ry,rx); const diff = angleWrap(pref - ang); if (Math.abs(diff) > 0.002){ const tangent = { x:-uy, y:ux }; const arcStep = diff * angK * rlen; const s=guardMove(id, tangent.x*arcStep, tangent.y*arcStep); if (Math.abs(s.dx)+Math.abs(s.dy)>1e-3){ C.x+=s.dx; C.y+=s.dy; moved=true; } } }
+            }
+            // 3) Re-project spacing after springs (early-exit if clean)
+            let mv = maxViolation();
+            if (mv <= eps && !moved) break;
+          }
+        }
+
+        const iters = 28;
         for (let it=0; it<iters; it++){
           let moved=false;
           // Apply long-chord bending first, then enforce spacing, then springs
@@ -529,44 +632,13 @@
               let sV=guardMove(v, sv*nv.x*K*alpha, sv*nv.y*K*alpha); V.x+=sV.dx; V.y+=sV.dy; const Ppv=pos.get(parent.get(v)); if(Ppv){ prefAngle.set(v, Math.atan2(V.y-Ppv.y, V.x-Ppv.x)); }
               // Path node pushes
               for(let k=1;k<pathNodes.length-1;k++){ const w=pathNodes[k]; const W=pos.get(w); const prev=pos.get(pathNodes[k-1]), next=pos.get(pathNodes[k+1]); if(!prev||!next) continue; let tx=next.x-prev.x, ty=next.y-prev.y; const tlen=Math.hypot(tx,ty)||1e-6; tx/=tlen; ty/=tlen; let nx=-ty, ny=tx; const t=k/(pathNodes.length-1); const falloff=Math.sin(Math.PI*t); const step=guardMove(w, dir*nx*K*alpha*falloff, dir*ny*K*alpha*falloff); W.x+=step.dx; W.y+=step.dy; const Ppw=pos.get(parent.get(w)); if(Ppw){ prefAngle.set(w, Math.atan2(W.y-Ppw.y, W.x-Ppw.x)); } }
-              // ROI spacing repair (two sweeps)
-              const arr=[...roi];
-              for(let pass=0; pass<6; pass++){
-                for(let i=0;i<arr.length;i++){
-                  for(let j=i+1;j<arr.length;j++){
-                    const ia=arr[i], ib=arr[j];
-                    const need=Math.max(MIN_NODE_DIST, (radii.get(ia)||0)+(radii.get(ib)||0));
-                    safeRepulse(ia, ib, need);
-                  }
-                }
-              }
-              // Re-check spacing inside ROI; if any pair still violates, revert
-              let spacingOK=true; for(let i=0;i<arr.length;i++){ for(let j=i+1;j<arr.length;j++){ const ia=arr[i], ib=arr[j]; const A=pos.get(ia), B=pos.get(ib); const need=Math.max(MIN_NODE_DIST, (radii.get(ia)||0)+(radii.get(ib)||0)); if (Math.hypot(B.x-A.x, B.y-A.y) < need-0.5){ spacingOK=false; break; } } if(!spacingOK) break; }
-              const afterX=roiCrossings(); if(afterX>beforeX || !spacingOK){ for(const [idd,p] of backup){ const Pp=pos.get(idd); Pp.x=p.x; Pp.y=p.y; } } else { moved=true; }
+              // ROI projection solve (spacing + local springs)
+              projectionSolver([...roi], { maxIters: 4, eps: 0.8, springLenK: 0.22, springAngK: 0.14 });
+              const afterX=roiCrossings(); if(afterX>beforeX){ for(const [idd,p] of backup){ const Pp=pos.get(idd); Pp.x=p.x; Pp.y=p.y; } } else { moved=true; }
             }
           }
-          for (let i=0;i<idsAll.length;i++){
-            for (let j=i+1;j<idsAll.length;j++){
-              const ia=idsAll[i], ib=idsAll[j];
-              const need=Math.max(MIN_NODE_DIST, (radii.get(ia)||0)+(radii.get(ib)||0));
-              if (safeRepulse(ia, ib, need)) moved=true;
-            }
-          }
-          // Parent-child springs: maintain length and preferred angle
-          for (const id of idsAll){ const p = parent.get(id); if (p==null) continue; const P=pos.get(p), C=pos.get(id); if (!P||!C) continue; // Length spring
-            let dx=C.x-P.x, dy=C.y-P.y; let r=Math.hypot(dx,dy)||1e-6; let ux=dx/r, uy=dy/r; const lenDelta=(LINK - r)*0.25; C.x += ux*lenDelta; C.y += uy*lenDelta; r += lenDelta; // Angular spring
-            const pref = prefAngle.get(id); if (pref != null){ const ang = Math.atan2(C.y-P.y, C.x-P.x); let diff = pref - ang; while (diff > Math.PI) diff -= TAU; while (diff < -Math.PI) diff += TAU; const ANG_ALPHA = 0.18; const newAng = ang + diff*ANG_ALPHA; C.x = P.x + r*Math.cos(newAng); C.y = P.y + r*Math.sin(newAng); }
-            moved = moved || Math.abs(lenDelta) > 0.01; }
-          // Final global spacing stabilization (multi-sweep)
-          for(let pass=0; pass<6; pass++){
-            let passMoved=false;
-            for (let i=0;i<idsAll.length;i++){
-              for (let j=i+1;j<idsAll.length;j++){
-                const ia=idsAll[i], ib=idsAll[j]; const need=Math.max(MIN_NODE_DIST, (radii.get(ia)||0)+(radii.get(ib)||0)); if (safeRepulse(ia, ib, need)) passMoved=true;
-              }
-            }
-            if (!passMoved) break; else moved=true;
-          }
+          // Global projection solve across all nodes (enforce spacing + springs)
+          projectionSolver(idsAll, { maxIters: 6, eps: 0.5, springLenK: 0.24, springAngK: 0.16 });
           if (!moved) break;
         }
         return { pos, maxRing: 3 };
