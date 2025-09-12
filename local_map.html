@@ -531,7 +531,7 @@
               for(let k=1;k<pathNodes.length-1;k++){ const w=pathNodes[k]; const W=pos.get(w); const prev=pos.get(pathNodes[k-1]), next=pos.get(pathNodes[k+1]); if(!prev||!next) continue; let tx=next.x-prev.x, ty=next.y-prev.y; const tlen=Math.hypot(tx,ty)||1e-6; tx/=tlen; ty/=tlen; let nx=-ty, ny=tx; const t=k/(pathNodes.length-1); const falloff=Math.sin(Math.PI*t); const step=guardMove(w, dir*nx*K*alpha*falloff, dir*ny*K*alpha*falloff); W.x+=step.dx; W.y+=step.dy; const Ppw=pos.get(parent.get(w)); if(Ppw){ prefAngle.set(w, Math.atan2(W.y-Ppw.y, W.x-Ppw.x)); } }
               // ROI spacing repair (two sweeps)
               const arr=[...roi];
-              for(let pass=0; pass<2; pass++){
+              for(let pass=0; pass<6; pass++){
                 for(let i=0;i<arr.length;i++){
                   for(let j=i+1;j<arr.length;j++){
                     const ia=arr[i], ib=arr[j];
@@ -540,7 +540,9 @@
                   }
                 }
               }
-              const afterX=roiCrossings(); if(afterX>beforeX){ for(const [idd,p] of backup){ const Pp=pos.get(idd); Pp.x=p.x; Pp.y=p.y; } } else { moved=true; }
+              // Re-check spacing inside ROI; if any pair still violates, revert
+              let spacingOK=true; for(let i=0;i<arr.length;i++){ for(let j=i+1;j<arr.length;j++){ const ia=arr[i], ib=arr[j]; const A=pos.get(ia), B=pos.get(ib); const need=Math.max(MIN_NODE_DIST, (radii.get(ia)||0)+(radii.get(ib)||0)); if (Math.hypot(B.x-A.x, B.y-A.y) < need-0.5){ spacingOK=false; break; } } if(!spacingOK) break; }
+              const afterX=roiCrossings(); if(afterX>beforeX || !spacingOK){ for(const [idd,p] of backup){ const Pp=pos.get(idd); Pp.x=p.x; Pp.y=p.y; } } else { moved=true; }
             }
           }
           for (let i=0;i<idsAll.length;i++){
@@ -555,6 +557,16 @@
             let dx=C.x-P.x, dy=C.y-P.y; let r=Math.hypot(dx,dy)||1e-6; let ux=dx/r, uy=dy/r; const lenDelta=(LINK - r)*0.25; C.x += ux*lenDelta; C.y += uy*lenDelta; r += lenDelta; // Angular spring
             const pref = prefAngle.get(id); if (pref != null){ const ang = Math.atan2(C.y-P.y, C.x-P.x); let diff = pref - ang; while (diff > Math.PI) diff -= TAU; while (diff < -Math.PI) diff += TAU; const ANG_ALPHA = 0.18; const newAng = ang + diff*ANG_ALPHA; C.x = P.x + r*Math.cos(newAng); C.y = P.y + r*Math.sin(newAng); }
             moved = moved || Math.abs(lenDelta) > 0.01; }
+          // Final global spacing stabilization (multi-sweep)
+          for(let pass=0; pass<6; pass++){
+            let passMoved=false;
+            for (let i=0;i<idsAll.length;i++){
+              for (let j=i+1;j<idsAll.length;j++){
+                const ia=idsAll[i], ib=idsAll[j]; const need=Math.max(MIN_NODE_DIST, (radii.get(ia)||0)+(radii.get(ib)||0)); if (safeRepulse(ia, ib, need)) passMoved=true;
+              }
+            }
+            if (!passMoved) break; else moved=true;
+          }
           if (!moved) break;
         }
         return { pos, maxRing: 3 };
