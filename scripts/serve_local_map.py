@@ -36,6 +36,7 @@ app = FastAPI(title="Local Map Host+Proxy")
 
 ROOT = Path(__file__).resolve().parent.parent
 HTML = ROOT / "local_map.html"
+HTML_CLAUDE = ROOT / "local_map_claude.html"
 
 
 @app.get("/")
@@ -51,6 +52,16 @@ async def index():
 @app.get("/local_map.html")
 async def html_alias():
     return await index()
+
+
+@app.get("/local_map_claude.html")
+async def claude_version():
+    if not HTML_CLAUDE.exists():
+        return PlainTextResponse(
+            f"local_map_claude.html not found at {HTML_CLAUDE}", status_code=404
+        )
+    # Modest cache so reloads pick up changes quickly
+    return FileResponse(str(HTML_CLAUDE), headers={"cache-control": "no-cache"})
 
 
 @app.get("/health")

@@ -1,0 +1,1151 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Local Map (Cytoscape)</title>
+    <style>
+      :root { color-scheme: dark; }
+      body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0b0b0b; color:#e5e7eb; }
+      .wrap { max-width: 980px; margin: 18px auto; padding: 0 12px; }
+      .row { display:flex; gap:12px; align-items:end; flex-wrap:wrap; }
+      .card { background:#121212; border:1px solid #232323; border-radius:10px; padding:12px; min-width:0; }
+      label { display:block; font-size:12px; opacity:.75; margin-bottom:4px; }
+      input, textarea { background:#0f0f0f; color:#e5e7eb; border:1px solid #2a2a2a; border-radius:8px; padding:8px; width:100%; }
+      textarea { height: 148px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size:12px; }
+      button { background:#1f2937; color:#e5e7eb; border:1px solid #2b2b2b; border-radius:8px; padding:8px 12px; cursor:pointer; }
+      button:hover { background:#263042; }
+      svg { width:100%; height:560px; display:block; background: radial-gradient(1000px 400px at 50% 40%, #0f1012 0%, #0b0b0b 60%); border:1px solid #222; border-radius:12px; }
+      .legend { display:flex; gap:10px; align-items:center; font-size:12px; opacity:.85; }
+      .dot { width:12px; height:12px; border-radius:9999px; display:inline-block; border:1px solid #1f1f1f; }
+      .dot.gray { background:#b0bec5; }
+      .dot.red { background:#ef9a9a; }
+      .dot.yellow { background:#ffd54f; }
+      .muted { opacity:.7; }
+      .small { font-size:12px; }
+      .grid { display:grid; grid-template-columns: 1fr; gap:12px; overflow:hidden; }
+      @media (min-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr) 300px; } }
+      #cy { box-sizing: border-box; }
+    </style>
+    <!-- Cytoscape core -->
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
+    <!-- Dependencies for cose-bilkent -->
+    <script src="https://cdn.jsdelivr.net/npm/layout-base@2.0.1/layout-base.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cose-base@2.2.0/cose-base.min.js"></script>
+    <!-- fcose layout -->
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-fcose@2.2.0/cytoscape-fcose.min.js"></script>
+    <!-- cose-bilkent layout -->
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-cose-bilkent@4.1.0/cytoscape-cose-bilkent.min.js"></script>
+  </head>
+  <body>
+    <div class="wrap">
+      <h2 style="margin:6px 0 12px 0;">Local Map (Cytoscape)</h2>
+      <div class="grid">
+        <div class="card" style="overflow:hidden;">
+          <div id="cy" style="width:100%; height:560px; background: radial-gradient(1000px 400px at 50% 40%, #0f1012 0%, #0b0b0b 60%); border:1px solid #222; border-radius:12px; overflow:hidden; position:relative;"></div>
+          <div class="row" style="justify-content:space-between;margin-top:8px;">
+            <div class="legend">
+              <span class="dot yellow"></span> current
+              <span class="dot gray" style="margin-left:10px"></span> visited
+              <span class="dot red" style="margin-left:10px"></span> seen-only
+              <span class="muted" style="margin-left:10px">two-way has arrows at both ends</span>
+            </div>
+            <div class="small muted">Tip: paste JSON or fetch from /api/local_map</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="row" style="align-items:flex-start;">
+            <div style="flex:1 1 120px;">
+              <label>Center Sector</label>
+              <input id="center" type="number" value="0" />
+            </div>
+            <div style="flex:1 1 120px;">
+              <label>Max Hops</label>
+              <input id="hops" type="number" value="3" />
+            </div>
+            <div style="flex:1 1 180px; display:flex; gap:8px; align-items:center;">
+              <input id="useWorld" type="checkbox" checked />
+              <label for="useWorld" style="margin:0;">Use world data (global)</label>
+            </div>
+          </div>
+          <div class="row" style="margin-top:8px;">
+            <button id="fetchBtn">Fetch From /api/local_map</button>
+          </div>
+          <div class="row" style="margin-top:6px; align-items:center; gap:8px;">
+            <button id="prevBtn">◀ Prev</button>
+            <button id="randomBtn">Random Center</button>
+            <button id="nextBtn">Next ▶</button>
+          </div>
+          <div class="row" style="margin-top:6px; align-items:center;">
+            <label class="small" style="margin:0;">Layout Algorithm</label>
+            <select id="layoutAlgo" style="flex:1 1 auto;">
+              <option value="fcose" selected>fCoSE (Fast Compound Spring Embedder)</option>
+              <option value="cose-bilkent">CoSE-Bilkent</option>
+              <option value="planar">Planar (Experimental)</option>
+            </select>
+          </div>
+          <div class="row" style="margin-top:6px;">
+            <button id="relayoutBtn">Re-run Layout</button>
+            <button id="optimizeBtn" style="margin-left:8px;" title="Run multiple layouts and pick the one with fewest edge crossings and node/edge collisions">Optimize</button>
+            <button id="fixRegionsBtn" style="margin-left:8px;" title="Fix nodes that should be inside regions">Fix Regions</button>
+          </div>
+          <div class="row" style="margin-top:6px; align-items:center;">
+            <label class="small" style="margin:0;">Min node distance (px)</label>
+            <input id="minNodeDist" type="range" min="2" max="20" step="1" value="10" style="width:160px;" />
+            <span id="minNodeDistVal" class="small muted">10</span>
+          </div>
+          <div class="row" style="margin-top:6px; align-items:center;">
+            <label class="small" style="margin:0;">Node repulsion</label>
+            <input id="nodeRepulsion" type="range" min="1000" max="20000" step="500" value="8500" style="width:160px;" />
+            <span id="nodeRepulsionVal" class="small muted">8500</span>
+          </div>
+          <div class="row" style="margin-top:6px; align-items:center;">
+            <input id="avoidOverlaps" type="checkbox" checked />
+            <label for="avoidOverlaps" class="small" style="margin:0;">Auto-curve edges around nodes</label>
+            <button id="applyCurvesBtn" style="margin-left:8px;">Apply Curves</button>
+          </div>
+          <div class="row" style="margin-top:6px; align-items:center;">
+            <input id="capMode" type="checkbox" checked />
+            <label for="capMode" class="small" style="margin:0;">Node render max</label>
+            <input id="maxNodes" type="number" min="5" max="500" step="1" value="25" style="width:80px; margin-left:8px;" />
+            <span class="small muted">(auto-calc hops)</span>
+          </div>
+          <div class="row" style="margin-top:6px; align-items:center;">
+            <span class="small">Nodes rendered:&nbsp;<strong id="nodeCount">0</strong></span>
+          </div>
+          <div style="margin-top:10px;">
+            <label>JSON Input (node_list or full response)</label>
+            <textarea id="json"></textarea>
+          </div>
+          <div style="margin-top:8px;" class="small muted">
+            Expected shape: { "node_list": [ { "id": 123, "visited": true, "port_type": "SSS", "adjacent": [124, 200] }, ... ] }
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Global cytoscape instance
+      let cy = null;
+      
+      // Global functions
+      let applyCurvedEdges = null;
+      let fixEnclosedRegions = null;
+      
+      // --- Graph helpers ---
+      const TAU = Math.PI * 2;
+      
+      // Helper functions for graph analysis
+      function buildUndirected(nodes) {
+        const ids = new Set(nodes.map(n => n.id));
+        const u = new Map();
+        for (const n of nodes) {
+          if (!u.has(n.id)) u.set(n.id, new Set());
+          for (const t of n.adjacent || []) {
+            if (!ids.has(t)) continue;
+            if (!u.has(t)) u.set(t, new Set());
+            u.get(n.id).add(t);
+            u.get(t).add(n.id);
+          }
+        }
+        return u;
+      }
+
+      function toPairs(nodes) {
+        const idToNode = new Map(nodes.map(n => [n.id, n]));
+        const map = new Map();
+        for (const n of nodes) {
+          for (const t of n.adjacent || []) {
+            if (!idToNode.has(t)) continue;
+            const a = Math.min(n.id, t), b = Math.max(n.id, t);
+            const key = a + '-' + b;
+            const rec = map.get(key) || { a, b, hasAB:false, hasBA:false };
+            if (n.id === a) rec.hasAB = true; else rec.hasBA = true;
+            map.set(key, rec);
+          }
+        }
+        return Array.from(map.values());
+      }
+
+
+      // --- Cytoscape Rendering ---
+      async function render(nodes, centerId, quickMode = false) {
+        // Prepare elements for Cytoscape
+        const elements = [];
+        
+        // Add nodes
+        for (const n of nodes) {
+          const label = n.port_type ? `${n.id}\n${n.port_type}` : String(n.id);
+          
+          elements.push({
+            data: { 
+              id: String(n.id),
+              label: label,
+              visited: n.visited,
+              port_type: n.port_type,
+              isCenter: n.id === centerId
+            },
+            classes: n.id === centerId ? 'center' : (n.visited ? 'visited' : 'unvisited')
+          });
+        }
+        
+        // Add edges
+        const pairs = toPairs(nodes);
+        for (const e of pairs) {
+          const edgeId = `${e.a}-${e.b}`;
+          let targetArrow = 'none';
+          let sourceArrow = 'none';
+          
+          if (e.hasAB && e.hasBA) {
+            // Bidirectional
+            targetArrow = 'triangle';
+            sourceArrow = 'triangle';
+          } else if (e.hasAB) {
+            // A -> B
+            targetArrow = 'triangle';
+          } else if (e.hasBA) {
+            // B -> A  
+            sourceArrow = 'triangle';
+          }
+          
+          elements.push({
+            data: {
+              id: edgeId,
+              source: String(e.a),
+              target: String(e.b),
+              targetArrow: targetArrow,
+              sourceArrow: sourceArrow
+            }
+          });
+        }
+        
+        // Get layout algorithm and parameters
+        const layoutAlgo = document.getElementById('layoutAlgo').value;
+        const minNodeDist = parseInt(document.getElementById('minNodeDist').value, 10) || 10;
+        const nodeRepulsion = parseInt(document.getElementById('nodeRepulsion').value, 10) || 8500;
+        
+        // Configure layout options for high quality
+        let layoutOptions = {
+          name: layoutAlgo,
+          animate: false,
+          fit: true,
+          padding: 30,
+          randomize: true
+        };
+        
+        if (layoutAlgo === 'fcose') {
+          // fCoSE layout - optimized for quality and no overlaps
+          layoutOptions = {
+            ...layoutOptions,
+            quality: 'proof', // highest quality
+            nodeDimensionsIncludeLabels: true,
+            idealEdgeLength: edge => {
+              // Shorter edges for adjacent nodes in the graph
+              const src = edge.source();
+              const tgt = edge.target();
+              const srcDegree = src.degree();
+              const tgtDegree = tgt.degree();
+              const avgDegree = (srcDegree + tgtDegree) / 2;
+              // Higher degree nodes get more space
+              return Math.max(minNodeDist * 2, Math.min(minNodeDist * 8, 80 + avgDegree * 10));
+            },
+            nodeRepulsion: node => nodeRepulsion * 2.0, // Even stronger repulsion
+            nodeOverlap: minNodeDist + 15, // Larger buffer for edges
+            numIter: quickMode ? 5000 : 15000, // More iterations in quick mode for better quality
+            tile: false,
+            tilingPaddingVertical: 20,
+            tilingPaddingHorizontal: 20,
+            gravity: 0.05, // Even lower gravity
+            gravityRange: 10.0, // Even wider gravity range
+            initialEnergyOnIncremental: 0.05, // Very low initial energy
+            edgeElasticity: edge => 0.2, // Lower elasticity for more flexible edges
+            nestingFactor: 0.1,
+            nodeSeparation: minNodeDist * 2,
+            uniformNodeDimensions: false,
+            packComponents: false, // No disconnected components
+            step: 'all',
+            // Additional parameters for edge crossing minimization
+            sampleSize: 500, // Much larger sample size
+            minTemp: 0.01, // Very low minimum temperature
+            initialTemp: 500, // Higher initial temperature
+            coolingFactor: 0.995, // Even slower cooling
+            // Extra parameters
+            componentSpacing: 150,
+            nodeRepulsionUniformity: 0.3,
+            // New parameters to reduce crossings
+            improveFlow: true,
+            randomizationSeed: Math.floor(Math.random() * 1000)
+          };
+        } else if (layoutAlgo === 'planar') {
+          // Experimental planar layout - start with circle then optimize
+          layoutOptions = {
+            name: 'circle',
+            animate: false,
+            fit: true,
+            padding: 30,
+            spacingFactor: 2,
+            avoidOverlap: true
+          };
+        } else if (layoutAlgo === 'cose-bilkent') {
+          // CoSE-Bilkent layout - optimized for quality
+          layoutOptions = {
+            ...layoutOptions,
+            quality: 'proof',
+            nodeDimensionsIncludeLabels: true,
+            idealEdgeLength: Math.max(minNodeDist * 2, Math.min(minNodeDist * 8, 120)),
+            nodeRepulsion: nodeRepulsion * 2.0,
+            edgeElasticity: 0.2,
+            nestingFactor: 0.1,
+            gravity: 0.05,
+            numIter: quickMode ? 5000 : 15000, // More iterations in quick mode for better quality
+            tile: false,
+            tilingPaddingVertical: 20,
+            tilingPaddingHorizontal: 20,
+            gravityRangeCompound: 2.0,
+            gravityCompound: 0.5,
+            gravityRange: 10.0,
+            initialEnergyOnIncremental: 0.05,
+            nodeSeparation: minNodeDist * 2,
+            uniformNodeDimensions: false,
+            packComponents: false, // No disconnected components
+            // Additional parameters
+            animate: false, // No animation for faster computation
+            // Extra optimization
+            componentSpacing: 150,
+            nodeRepulsionUniformity: 0.3,
+            randomize: true
+          };
+        }
+        
+        // Initialize or update Cytoscape
+        if (cy) {
+          cy.destroy();
+        }
+        
+        cy = cytoscape({
+          container: document.getElementById('cy'),
+          elements: elements,
+          autoungrabify: false,
+          autounselectify: false,
+          boxSelectionEnabled: false,
+          minZoom: 0.5,
+          maxZoom: 3,
+          style: [
+            {
+              selector: 'node',
+              style: {
+                'label': 'data(label)',
+                'text-valign': 'center',
+                'text-halign': 'center',
+                'font-size': '10px',
+                'color': '#e0e0e0',
+                'text-wrap': 'wrap',
+                'text-max-width': '60px',
+                'width': '30px',
+                'height': '30px',
+                'background-color': '#b0bec5',
+                'border-color': '#1f1f1f',
+                'border-width': 1
+              }
+            },
+            {
+              selector: 'node.center',
+              style: {
+                'background-color': '#ffd700',
+                'color': '#000000'  // Black text for better readability on gold background
+              }
+            },
+            {
+              selector: 'node.visited',
+              style: {
+                'background-color': '#b0bec5'
+              }
+            },
+            {
+              selector: 'node.unvisited',
+              style: {
+                'background-color': '#ef9a9a'
+              }
+            },
+            {
+              selector: 'edge',
+              style: {
+                'width': 1.25,
+                'opacity': 0.85,
+                'line-color': '#9aa0a6',
+                'target-arrow-shape': 'data(targetArrow)',
+                'source-arrow-shape': 'data(sourceArrow)',
+                'target-arrow-color': '#9aa0a6',
+                'source-arrow-color': '#9aa0a6',
+                'arrow-scale': 1.2,  // Make arrows slightly larger
+                'curve-style': 'straight'
+              }
+            }
+          ],
+          layout: layoutOptions
+        });
+        
+        // Function to apply edge curves after layout
+        applyCurvedEdges = () => {
+          // Check if auto-curve is enabled
+          const avoidOverlaps = document.getElementById('avoidOverlaps')?.checked;
+          if (!avoidOverlaps || !cy) return;
+          
+          // Reset all edges to straight first
+          cy.edges().style({
+            'curve-style': 'straight'
+          });
+          
+          // After layout is complete, check for edge-node overlaps
+          cy.edges().forEach(edge => {
+            const src = edge.source();
+            const tgt = edge.target();
+            
+            // Check if this edge passes close to any other nodes
+            let needsCurve = false;
+            let closestNodeDist = Infinity;
+            let closestNode = null;
+            
+            cy.nodes().forEach(node => {
+              if (node.id() !== src.id() && node.id() !== tgt.id()) {
+                // Get positions
+                const nodePos = node.position();
+                const srcPos = src.position();
+                const tgtPos = tgt.position();
+                
+                // Calculate distance from point to line segment
+                const A = nodePos.x - srcPos.x;
+                const B = nodePos.y - srcPos.y;
+                const C = tgtPos.x - srcPos.x;
+                const D = tgtPos.y - srcPos.y;
+                
+                const dot = A * C + B * D;
+                const lenSq = C * C + D * D;
+                
+                if (lenSq === 0) return; // Edge has zero length
+                
+                let param = dot / lenSq;
+                
+                // Only consider the middle portion of the edge (not near endpoints)
+                if (param > 0.1 && param < 0.9) {
+                  // Point on the edge closest to the node
+                  const xx = srcPos.x + param * C;
+                  const yy = srcPos.y + param * D;
+                  
+                  const dx = nodePos.x - xx;
+                  const dy = nodePos.y - yy;
+                  const distance = Math.sqrt(dx * dx + dy * dy);
+                  
+                  // Get the minimum node distance setting
+                  const minDist = parseInt(document.getElementById('minNodeDist').value, 10) || 10;
+                  
+                  // Node radius is approximately 15px, plus label space
+                  const nodeRadius = 20;
+                  
+                  // If edge passes through or very close to node
+                  if (distance < nodeRadius + minDist) {
+                    needsCurve = true;
+                    if (distance < closestNodeDist) {
+                      closestNodeDist = distance;
+                      closestNode = node;
+                    }
+                  }
+                }
+              }
+            });
+            
+            if (needsCurve) {
+              // Calculate curve amount based on how close the edge gets
+              const curveAmount = Math.max(50, 80 - closestNodeDist * 2);
+              
+              // Apply bezier curve
+              edge.style({
+                'curve-style': 'bezier',
+                'control-point-distance': curveAmount,
+                'control-point-weight': 0.5
+              });
+            }
+          });
+        };
+        
+        // Function to detect and fix enclosed regions
+        fixEnclosedRegions = () => {
+          if (!cy) return;
+          
+          // Find cycles in the graph
+          const findCycles = () => {
+            const cycles = [];
+            const nodes = cy.nodes();
+            
+            // For small graphs, find 4-cycles (boxes)
+            nodes.forEach(n1 => {
+              const n1Neighbors = n1.neighborhood().nodes();
+              n1Neighbors.forEach(n2 => {
+                if (n2.id() <= n1.id()) return; // Avoid duplicates
+                
+                const n2Neighbors = n2.neighborhood().nodes();
+                n1Neighbors.forEach(n3 => {
+                  if (n3.id() === n2.id() || n3.id() <= n1.id()) return;
+                  
+                  const n3Neighbors = n3.neighborhood().nodes();
+                  n2Neighbors.forEach(n4 => {
+                    if (n4.id() === n1.id() || n4.id() === n3.id() || n4.id() <= n2.id()) return;
+                    
+                    // Check if n4 connects back to n1 and n3
+                    if (n4.neighborhood().nodes().some(n => n.id() === n1.id()) &&
+                        n4.neighborhood().nodes().some(n => n.id() === n3.id())) {
+                      // Found a 4-cycle
+                      cycles.push([n1, n2, n3, n4]);
+                    }
+                  });
+                });
+              });
+            });
+            
+            return cycles;
+          };
+          
+          // Check if a node should be inside a cycle
+          const shouldBeInside = (node, cycle) => {
+            // Check if node is connected to multiple nodes in the cycle
+            let connections = 0;
+            cycle.forEach(cycleNode => {
+              if (node.neighborhood().nodes().some(n => n.id() === cycleNode.id())) {
+                connections++;
+              }
+            });
+            return connections >= 2;
+          };
+          
+          // Place node inside a cycle
+          const placeInside = (node, cycle) => {
+            // Calculate center of the cycle
+            let centerX = 0, centerY = 0;
+            cycle.forEach(n => {
+              const pos = n.position();
+              centerX += pos.x;
+              centerY += pos.y;
+            });
+            centerX /= cycle.length;
+            centerY /= cycle.length;
+            
+            // Move node toward center
+            const currentPos = node.position();
+            const newX = centerX * 0.7 + currentPos.x * 0.3;
+            const newY = centerY * 0.7 + currentPos.y * 0.3;
+            
+            node.position({ x: newX, y: newY });
+          };
+          
+          // Find cycles and fix enclosed nodes
+          const cycles = findCycles();
+          
+          cycles.forEach(cycle => {
+            cy.nodes().forEach(node => {
+              // Skip nodes that are part of the cycle
+              if (cycle.some(n => n.id() === node.id())) return;
+              
+              if (shouldBeInside(node, cycle)) {
+                placeInside(node, cycle);
+              }
+            });
+          });
+        };
+        
+        // Apply curves and fix regions after layout completes
+        cy.on('layoutstop', () => {
+          // For planar layout, apply region fixing
+          if (document.getElementById('layoutAlgo').value === 'planar') {
+            setTimeout(() => {
+              fixEnclosedRegions();
+              
+              // Run a quick force simulation to clean up
+              cy.layout({
+                name: 'fcose',
+                quality: 'default',
+                numIter: 500,
+                animate: false,
+                randomize: false,
+                idealEdgeLength: 100,
+                nodeRepulsion: 5000,
+                edgeElasticity: 0.45
+              }).run();
+            }, 100);
+          }
+          
+          setTimeout(applyCurvedEdges, 200); // Small delay to ensure positions are finalized
+        });
+        
+        // Also apply when manually requested
+        if (document.getElementById('avoidOverlaps')?.checked) {
+          setTimeout(applyCurvedEdges, 200);
+        }
+        
+        // Update node count
+        const nodeCountEl = document.getElementById('nodeCount');
+        if (nodeCountEl) nodeCountEl.textContent = String(nodes.length);
+      }
+
+      // --- UI wiring ---
+      const jsonEl = document.getElementById('json');
+      const centerEl = document.getElementById('center');
+      const hopsEl = document.getElementById('hops');
+      const useWorldEl = document.getElementById('useWorld');
+
+      // Cache player name and world data
+      let savedCharacter = null;
+      let worldCache = null; // {dirAdj, undAdj, portMap}
+
+      async function loadWorldData() {
+        if (worldCache) return worldCache;
+        const [uRes, cRes] = await Promise.all([
+          fetch('world-data/universe_structure.json'),
+          fetch('world-data/sector_contents.json').catch(()=>null)
+        ]);
+        if (!uRes.ok) throw new Error('Could not load world-data/universe_structure.json');
+        const univ = await uRes.json();
+        let contents = null;
+        if (cRes && cRes.ok) contents = await cRes.json();
+        const dir = new Map();
+        for (const s of univ.sectors) dir.set(s.id, s.warps.map(w=>w.to));
+        const und = new Map();
+        for (const [sid, outs] of dir) {
+          if (!und.has(sid)) und.set(sid, new Set());
+          for (const t of outs) {
+            if (!und.has(t)) und.set(t, new Set());
+            und.get(sid).add(t); und.get(t).add(sid);
+          }
+        }
+        const portMap = new Map();
+        if (contents) for (const s of contents.sectors) portMap.set(s.id, s.port && s.port.code ? s.port.code : null);
+        worldCache = { dirAdj: dir, undAdj: und, portMap };
+        return worldCache;
+      }
+
+      function buildLocalFromWorld(centerId, hops, world) {
+        const dist = new Map([[centerId,0]]);
+        const q = [centerId];
+        while (q.length) {
+          const u = q.shift();
+          if (dist.get(u) >= hops) continue;
+          for (const v of (world.undAdj.get(u) || [])) {
+            if (!dist.has(v)) { dist.set(v, dist.get(u)+1); q.push(v); }
+          }
+        }
+        const included = new Set(Array.from(dist.keys()));
+        const node_list = [];
+        for (const id of Array.from(included).sort((a,b)=>a-b)) {
+          const outs = world.dirAdj.get(id) || [];
+          node_list.push({ id, visited: true, port_type: world.portMap.get(id) || null, adjacent: outs.filter(t=>included.has(t)) });
+        }
+        return { node_list };
+      }
+      // Keep last rendered graph to allow re-render on knob changes
+      let lastNodes = null;
+      let lastCenter = null;
+      const history = [];
+      let histIndex = -1;
+      function rerenderIfPossible(){ if (lastNodes && lastCenter !== null){ render(lastNodes, lastCenter); } }
+      
+      // Layout algorithm change
+      const layoutAlgoEl = document.getElementById('layoutAlgo');
+      if (layoutAlgoEl) layoutAlgoEl.addEventListener('change', rerenderIfPossible);
+      
+      // Re-run layout button
+      const relayoutBtn = document.getElementById('relayoutBtn');
+      if (relayoutBtn) relayoutBtn.addEventListener('click', rerenderIfPossible);
+      
+      // Optimize button - run multiple attempts and pick best
+      const optimizeBtn = document.getElementById('optimizeBtn');
+      if (optimizeBtn) {
+        optimizeBtn.addEventListener('click', async () => {
+          if (!lastNodes || lastCenter === null) return;
+          
+          optimizeBtn.disabled = true;
+          optimizeBtn.textContent = 'Optimizing...';
+          
+          // Function to count edge crossings
+          function countCrossings(cyInstance) {
+            let crossings = 0;
+            const edges = cyInstance.edges();
+            
+            for (let i = 0; i < edges.length; i++) {
+              for (let j = i + 1; j < edges.length; j++) {
+                const e1 = edges[i];
+                const e2 = edges[j];
+                
+                // Skip if edges share a node
+                if (e1.source().id() === e2.source().id() || 
+                    e1.source().id() === e2.target().id() ||
+                    e1.target().id() === e2.source().id() ||
+                    e1.target().id() === e2.target().id()) {
+                  continue;
+                }
+                
+                // Check if edges intersect
+                const p1 = e1.source().position();
+                const p2 = e1.target().position();
+                const p3 = e2.source().position();
+                const p4 = e2.target().position();
+                
+                // Line segment intersection test
+                const ccw = (A, B, C) => {
+                  return (C.y - A.y) * (B.x - A.x) > (B.y - A.y) * (C.x - A.x);
+                };
+                
+                if (ccw(p1, p3, p4) !== ccw(p2, p3, p4) && 
+                    ccw(p1, p2, p3) !== ccw(p1, p2, p4)) {
+                  crossings++;
+                }
+              }
+            }
+            
+            return crossings;
+          }
+          
+          // Function to count node/edge collisions
+          function countNodeEdgeCollisions(cyInstance) {
+            let collisions = 0;
+            const minDist = parseInt(document.getElementById('minNodeDist').value, 10) || 10;
+            const nodeRadius = 20; // Node radius plus label space
+            
+            cyInstance.edges().forEach(edge => {
+              const src = edge.source();
+              const tgt = edge.target();
+              const srcPos = src.position();
+              const tgtPos = tgt.position();
+              
+              cyInstance.nodes().forEach(node => {
+                if (node.id() !== src.id() && node.id() !== tgt.id()) {
+                  const nodePos = node.position();
+                  
+                  // Calculate distance from point to line segment
+                  const A = nodePos.x - srcPos.x;
+                  const B = nodePos.y - srcPos.y;
+                  const C = tgtPos.x - srcPos.x;
+                  const D = tgtPos.y - srcPos.y;
+                  
+                  const dot = A * C + B * D;
+                  const lenSq = C * C + D * D;
+                  
+                  if (lenSq === 0) return; // Edge has zero length
+                  
+                  let param = dot / lenSq;
+                  
+                  // Only consider the middle portion of the edge (not near endpoints)
+                  if (param > 0.1 && param < 0.9) {
+                    // Point on the edge closest to the node
+                    const xx = srcPos.x + param * C;
+                    const yy = srcPos.y + param * D;
+                    
+                    const dx = nodePos.x - xx;
+                    const dy = nodePos.y - yy;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    // If edge passes through or very close to node
+                    if (distance < nodeRadius + minDist) {
+                      collisions++;
+                    }
+                  }
+                }
+              });
+            });
+            
+            return collisions;
+          }
+          
+          // Save best layout
+          let bestPositions = null;
+          let bestScore = Infinity;
+          let bestCrossings = 0;
+          let bestCollisions = 0;
+          
+          // Try up to 8 different random layouts, but stop early if perfect
+          const maxAttempts = 8;
+          let actualAttempts = 0;
+          
+          for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            actualAttempts++;
+            optimizeBtn.textContent = `Running attempt ${attempt + 1}...`;
+            
+            // Render with a new random seed in quick mode
+            await render(lastNodes, lastCenter, true);
+            
+            // Wait for layout to complete with timeout
+            await new Promise(resolve => {
+              if (!cy) {
+                resolve();
+                return;
+              }
+              
+              let resolved = false;
+              const timeout = setTimeout(() => {
+                if (!resolved) {
+                  resolved = true;
+                  resolve();
+                }
+              }, 3000); // 3 second timeout per attempt
+              
+              // Check if layout is already done
+              const layout = cy.elements().layout(cy.options().layout);
+              if (!layout || !layout.running || !layout.running()) {
+                // Layout already complete
+                clearTimeout(timeout);
+                resolved = true;
+                setTimeout(resolve, 200); // Small delay for rendering
+              } else {
+                // Wait for layout to stop
+                cy.one('layoutstop', () => {
+                  if (!resolved) {
+                    clearTimeout(timeout);
+                    resolved = true;
+                    setTimeout(resolve, 200); // Small delay for rendering
+                  }
+                });
+              }
+            });
+            
+            if (cy) {
+              const crossings = countCrossings(cy);
+              const collisions = countNodeEdgeCollisions(cy);
+              const totalScore = crossings + collisions;
+              
+              if (totalScore < bestScore) {
+                bestScore = totalScore;
+                bestCrossings = crossings;
+                bestCollisions = collisions;
+                bestPositions = {};
+                cy.nodes().forEach(node => {
+                  bestPositions[node.id()] = node.position();
+                });
+              }
+              
+              optimizeBtn.textContent = `Attempt ${attempt + 1} (Best: ${bestCrossings} cross, ${bestCollisions} coll)`;
+              
+              // If we found a perfect layout (no crossings or collisions), stop early
+              if (bestScore === 0) {
+                optimizeBtn.textContent = `Perfect layout found after ${actualAttempts} attempts!`;
+                break;
+              }
+              
+              // Small delay between attempts
+              await new Promise(resolve => setTimeout(resolve, 100));
+            }
+          }
+          
+          // Apply best layout
+          if (bestPositions && cy) {
+            cy.nodes().forEach(node => {
+              if (bestPositions[node.id()]) {
+                node.position(bestPositions[node.id()]);
+              }
+            });
+            
+            // If there are still crossings, try Fix Regions iteratively
+            if (bestCrossings > 0 && fixEnclosedRegions) {
+              optimizeBtn.textContent = `Fixing regions...`;
+              
+              let previousCrossings = bestCrossings;
+              let previousPositions = {...bestPositions};
+              let penultimatePositions = {...bestPositions};
+              let iterations = 0;
+              const maxIterations = 5; // Fewer iterations in optimize mode
+              
+              while (iterations < maxIterations) {
+                penultimatePositions = {...previousPositions};
+                
+                // Run fix regions
+                fixEnclosedRegions();
+                
+                // Small layout adjustment
+                await new Promise(resolve => {
+                  cy.layout({
+                    name: 'fcose',
+                    quality: 'default',
+                    numIter: 300,
+                    animate: false,
+                    randomize: false,
+                    idealEdgeLength: edge => {
+                      const minNodeDist = parseInt(document.getElementById('minNodeDist').value, 10) || 10;
+                      return Math.max(minNodeDist * 2, 80);
+                    },
+                    nodeRepulsion: 5000,
+                    edgeElasticity: 0.45
+                  }).run();
+                  setTimeout(resolve, 200);
+                });
+                
+                const currentCrossings = countCrossings(cy);
+                const currentCollisions = countNodeEdgeCollisions(cy);
+                
+                // If no improvement in crossings, use penultimate and stop
+                if (currentCrossings >= previousCrossings) {
+                  cy.nodes().forEach(node => {
+                    if (penultimatePositions[node.id()]) {
+                      node.position(penultimatePositions[node.id()]);
+                    }
+                  });
+                  bestCrossings = previousCrossings;
+                  break;
+                }
+                
+                // Save current positions
+                cy.nodes().forEach(node => {
+                  previousPositions[node.id()] = node.position();
+                });
+                
+                previousCrossings = currentCrossings;
+                bestCrossings = currentCrossings;
+                bestCollisions = currentCollisions;
+                iterations++;
+              }
+            }
+            
+            // Fit the graph to the view area
+            cy.fit();
+            
+            // Trigger curve detection if enabled
+            if (applyCurvedEdges) {
+              setTimeout(applyCurvedEdges, 100);
+            }
+          }
+          
+          optimizeBtn.disabled = false;
+          if (bestScore === 0) {
+            optimizeBtn.textContent = `Perfect! (${actualAttempts} attempts)`;
+          } else {
+            optimizeBtn.textContent = `Done! ${bestCrossings} cross, ${bestCollisions} coll`;
+          }
+          
+          setTimeout(() => {
+            optimizeBtn.textContent = 'Optimize';
+          }, 3000);
+        });
+      }
+      
+      // Min node distance slider
+      const minNodeDistEl = document.getElementById('minNodeDist');
+      const minNodeDistValEl = document.getElementById('minNodeDistVal');
+      if (minNodeDistEl) {
+        minNodeDistEl.addEventListener('input', () => {
+          if (minNodeDistValEl) minNodeDistValEl.textContent = minNodeDistEl.value;
+          rerenderIfPossible();
+        });
+      }
+      
+      // Node repulsion slider
+      const nodeRepulsionEl = document.getElementById('nodeRepulsion');
+      const nodeRepulsionValEl = document.getElementById('nodeRepulsionVal');
+      if (nodeRepulsionEl) {
+        nodeRepulsionEl.addEventListener('input', () => {
+          if (nodeRepulsionValEl) nodeRepulsionValEl.textContent = nodeRepulsionEl.value;
+          rerenderIfPossible();
+        });
+      }
+      
+      // Apply Curves button
+      const applyCurvesBtn = document.getElementById('applyCurvesBtn');
+      if (applyCurvesBtn) {
+        applyCurvesBtn.addEventListener('click', () => {
+          if (applyCurvedEdges) {
+            // Force enable the checkbox temporarily to apply curves
+            const checkbox = document.getElementById('avoidOverlaps');
+            const wasChecked = checkbox.checked;
+            checkbox.checked = true;
+            applyCurvedEdges();
+            checkbox.checked = wasChecked;
+          }
+        });
+      }
+      
+      // Fix Regions button
+      const fixRegionsBtn = document.getElementById('fixRegionsBtn');
+      if (fixRegionsBtn) {
+        fixRegionsBtn.addEventListener('click', async () => {
+          if (fixEnclosedRegions && cy) {
+            let previousCrossings = countCrossings(cy);
+            let previousPositions = {};
+            let penultimatePositions = {};
+            let iterations = 0;
+            const maxIterations = 10;
+            
+            // Save initial positions
+            cy.nodes().forEach(node => {
+              previousPositions[node.id()] = node.position();
+            });
+            
+            // Iterate until no improvement or max iterations
+            while (iterations < maxIterations) {
+              // Save positions before this iteration (these become penultimate)
+              penultimatePositions = {...previousPositions};
+              
+              // Run fix regions
+              fixEnclosedRegions();
+              
+              // Small layout adjustment
+              await new Promise(resolve => {
+                cy.layout({
+                  name: 'fcose', 
+                  quality: 'default',
+                  numIter: 500,
+                  animate: false,
+                  randomize: false,
+                  idealEdgeLength: edge => {
+                    const minNodeDist = parseInt(document.getElementById('minNodeDist').value, 10) || 10;
+                    return Math.max(minNodeDist * 2, 80);
+                  },
+                  nodeRepulsion: 5000,
+                  edgeElasticity: 0.45
+                }).run();
+                setTimeout(resolve, 300);
+              });
+              
+              const currentCrossings = countCrossings(cy);
+              
+              // If no improvement, stop
+              if (currentCrossings >= previousCrossings) {
+                // Apply penultimate positions (the ones before the last attempt)
+                cy.nodes().forEach(node => {
+                  if (penultimatePositions[node.id()]) {
+                    node.position(penultimatePositions[node.id()]);
+                  }
+                });
+                break;
+              }
+              
+              // Save current positions as previous for next iteration
+              cy.nodes().forEach(node => {
+                previousPositions[node.id()] = node.position();
+              });
+              
+              previousCrossings = currentCrossings;
+              iterations++;
+              
+              // Update button text to show progress
+              fixRegionsBtn.textContent = `Fixing... (${currentCrossings} crossings)`;
+            }
+            
+            // Reset button text
+            fixRegionsBtn.textContent = 'Fix Regions';
+            
+            // Fit to view
+            cy.fit();
+            
+            // Apply curves if enabled
+            if (document.getElementById('avoidOverlaps')?.checked && applyCurvedEdges) {
+              setTimeout(applyCurvedEdges, 100);
+            }
+            
+            return;
+            
+            // Old single-run code (removed)
+            cy.layout({
+              name: 'fcose', 
+              quality: 'default',
+              numIter: 1000,
+              animate: false,
+              randomize: false,
+              idealEdgeLength: 100,
+              nodeRepulsion: 8000,
+              edgeElasticity: 0.3,
+              gravity: 0.1
+            }).run();
+            
+            // Apply curves after fixing
+            setTimeout(() => {
+              if (applyCurvedEdges) {
+                const checkbox = document.getElementById('avoidOverlaps');
+                const wasChecked = checkbox.checked;
+                checkbox.checked = true;
+                applyCurvedEdges();
+                checkbox.checked = wasChecked;
+              }
+            }, 500);
+          }
+        });
+      }
+      
+      const capModeEl = document.getElementById('capMode'); 
+      if (capModeEl) capModeEl.addEventListener('change', fetchAndRender);
+      const maxNodesEl = document.getElementById('maxNodes'); 
+      if (maxNodesEl) maxNodesEl.addEventListener('input', fetchAndRender);
+
+      async function fetchAndRender(skipHistory=false){
+        const centerId = parseInt(centerEl.value || '0', 10);
+        const hopsInput = parseInt(hopsEl.value || '3', 10);
+        const capMode = document.getElementById('capMode')?.checked;
+        const maxNodes = parseInt(document.getElementById('maxNodes')?.value || '25', 10);
+        try{
+          if (useWorldEl.checked){
+            const world = await loadWorldData();
+            let hops = hopsInput;
+            if (capMode){
+              // BFS layer counts from center
+              const q=[centerId]; const dist=new Map([[centerId,0]]);
+              while(q.length){ const u=q.shift(); for(const v of (world.undAdj.get(u)||[])){ if(!dist.has(v)){ dist.set(v, (dist.get(u)||0)+1); q.push(v);} } }
+              const maxLayer = Math.max(...dist.values());
+              const layerCounts = Array.from({length:maxLayer+1}, (_,k)=> Array.from(dist.values()).filter(d=>d===k).length);
+              let cum=0, safe=0;
+              for (let k=0;k<layerCounts.length;k++){ const next=cum+layerCounts[k]; if (next>maxNodes){ break; } cum=next; safe=k; }
+              hops = safe; hopsEl.value = String(hops);
+            }
+            const data = buildLocalFromWorld(centerId, hops, world);
+            document.getElementById('json').value = JSON.stringify(data, null, 2);
+            lastNodes = data.node_list || []; lastCenter = centerId; await render(lastNodes, lastCenter);
+            if (!skipHistory){ history.splice(histIndex+1); history.push(centerId); histIndex = history.length-1; }
+          } else {
+            if (!savedCharacter) { const c = prompt('Character ID to fetch for:', 'JoePlayer'); if (!c) return; savedCharacter = c; }
+            let hops = hopsInput; let finalData=null; let lastData=null; let i=0;
+            if (capMode){
+              while(true){
+                const res = await fetch('/api/local_map', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ character_id: savedCharacter, current_sector: centerId, max_hops: i }) });
+                if (!res.ok) throw new Error('HTTP '+res.status);
+                const data = await res.json();
+                const n = (data.node_list||[]).length;
+                if (n>maxNodes || n=== (lastData? lastData.node_list.length: -1)) { finalData = lastData || data; break; }
+                lastData = data; i++; if (i>12) { finalData = data; break; }
+              }
+              hopsEl.value = String(i>0? i-1: 0);
+            } else {
+              const res = await fetch('/api/local_map', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ character_id: savedCharacter, current_sector: centerId, max_hops: hops }) });
+              if (!res.ok) throw new Error('HTTP '+res.status);
+              finalData = await res.json();
+            }
+            document.getElementById('json').value = JSON.stringify(finalData, null, 2);
+            lastNodes = finalData.node_list || []; lastCenter = centerId; await render(lastNodes, lastCenter);
+            if (!skipHistory){ history.splice(histIndex+1); history.push(centerId); histIndex = history.length-1; }
+          }
+        }catch(e){ alert('Fetch failed. If opening from file:// you may hit CORS or world-data/* not served.\n\nError: '+ e.message); }
+      }
+      document.getElementById('fetchBtn').addEventListener('click', fetchAndRender);
+
+      // History navigation
+      document.getElementById('prevBtn').addEventListener('click', async ()=>{
+        if (histIndex > 0){ histIndex--; const c = history[histIndex]; centerEl.value = String(c); await fetchAndRender(true); }
+      });
+      document.getElementById('nextBtn').addEventListener('click', async ()=>{
+        if (histIndex+1 < history.length){ histIndex++; const c = history[histIndex]; centerEl.value = String(c); await fetchAndRender(true); }
+      });
+      document.getElementById('randomBtn').addEventListener('click', async ()=>{
+        if (!lastNodes || lastNodes.length===0){ await fetchAndRender(); return; }
+        const idx = Math.floor(Math.random()*lastNodes.length); const c = lastNodes[idx].id; centerEl.value = String(c); await fetchAndRender();
+      });
+
+      // Seed with a tiny sample so the page shows something immediately
+      const sample = { node_list: [
+        { id: 39, visited: true, port_type: null, adjacent: [776, 286, 190] },
+        { id: 776, visited: true, port_type: null, adjacent: [39, 578] },
+        { id: 286, visited: false, port_type: 'SSS', adjacent: [39] },
+        { id: 190, visited: true, port_type: 'STD', adjacent: [39, 199, 274] },
+        { id: 199, visited: true, port_type: 'SBB', adjacent: [190, 274] },
+        { id: 274, visited: false, port_type: 'SSS', adjacent: [190, 199, 174] },
+        { id: 174, visited: false, port_type: null, adjacent: [274, 66] },
+        { id: 66, visited: false, port_type: null, adjacent: [174, 177] },
+        { id: 177, visited: false, port_type: null, adjacent: [66] }
+      ]};
+      document.getElementById('json').value = JSON.stringify(sample, null, 2);
+      // Initial render
+      (async () => { await render(sample.node_list, 39); })();
+    </script>
+  </body>
+  </html>
