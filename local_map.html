@@ -73,6 +73,11 @@
           <div class="row" style="margin-top:8px;">
             <button id="fetchBtn">Fetch From /api/local_map</button>
           </div>
+          <div class="row" style="margin-top:6px; align-items:center; gap:8px;">
+            <button id="prevBtn">◀ Prev</button>
+            <button id="randomBtn">Random Center</button>
+            <button id="nextBtn">Next ▶</button>
+          </div>
           <div class="row" style="margin-top:6px; align-items:center;">
             <label class="small" style="margin:0;">Min separation (px)</label>
             <input id="minSep" type="range" min="16" max="64" step="1" value="48" style="width:160px;" />
@@ -91,6 +96,15 @@
           </div>
           <div class="row" style="margin-top:6px; align-items:center;">
             <span class="small">Nodes rendered:&nbsp;<strong id="nodeCount">0</strong></span>
+          </div>
+          <div class="row" style="margin-top:6px; align-items:center; gap:8px;">
+            <input id="bendChords" type="checkbox" checked />
+            <label for="bendChords" class="small" style="margin:0;">Bend long chords (experimental)</label>
+          </div>
+          <div class="row" style="margin-top:6px; align-items:center; gap:8px;">
+            <label class="small" style="margin:0;">Debug IDs</label>
+            <input id="debugIds" type="text" value="1462,1101,1363,3770" style="flex:1 1 auto;" />
+            <button id="logPosBtn">Log positions</button>
           </div>
           <div style="margin-top:10px;">
             <label>JSON Input (node_list or full response)</label>
@@ -440,6 +454,10 @@
         // Precompute edge list (unique undirected pairs)
         const edges = [];
         for (const u of idsAll){ for (const v of (undirected.get(u)||[])){ if (pos.has(v) && u < v) edges.push([u,v]); } }
+        // Precompute tree-based hop distance via BFS on the parent/children tree
+        const hop = new Map(); hop.set(centerId, 0);
+        const qh=[centerId];
+        while(qh.length){ const u=qh.shift(); const d=(hop.get(u)||0)+1; for(const v of (children.get(u)||[])){ hop.set(v,d); qh.push(v);} }
 
         function segInter(a,b,c,d){
           function orient(p,q,r){ return (q.x-p.x)*(r.y-p.y) - (q.y-p.y)*(r.x-p.x); }
@@ -449,6 +467,22 @@
         }
         function segHitsCircle(a,b,c,rad){
           const px=b.x-a.x, py=b.y-a.y; const len2=px*px+py*py||1e-6; let t=((c.x-a.x)*px+(c.y-a.y)*py)/len2; if (t<0.1||t>0.9) return false; const x=a.x+t*px, y=a.y+t*py; const dx=c.x-x, dy=c.y-y; return (dx*dx+dy*dy)<=rad*rad;
+        }
+        // Deterministic tiny jitter direction for coincident pairs
+        function hashAngle(a,b){ let s=((a*73856093) ^ (b*19349663))>>>0; return (s%6283185)/1000000.0; }
+        // Robust spacing helper guarded against crossings
+        function safeRepulse(ia, ib, need){
+          const A = pos.get(ia), B = pos.get(ib); if (!A||!B) return false;
+          let dx=B.x-A.x, dy=B.y-A.y; let d=Math.hypot(dx,dy);
+          let ux, uy;
+          if (d < 1e-5){ const ang = hashAngle(ia,ib); ux=Math.cos(ang); uy=Math.sin(ang); d=1e-5; }
+          else { ux=dx/d; uy=dy/d; }
+          if (d >= need) return false;
+          const push=(need-d)/2;
+          const aStep=guardMove(ia, -ux*push, -uy*push);
+          const bStep=guardMove(ib, ux*push, uy*push);
+          A.x+=aStep.dx; A.y+=aStep.dy; B.x+=bStep.dx; B.y+=bStep.dy;
+          return Math.abs(aStep.dx)+Math.abs(aStep.dy)+Math.abs(bStep.dx)+Math.abs(bStep.dy) > 1e-3;
         }
         function guardMove(id, dx, dy){
           let lam = 0.5; // small step
@@ -468,11 +502,52 @@
         const iters = 36;
         for (let it=0; it<iters; it++){
           let moved=false;
+          // Apply long-chord bending first, then enforce spacing, then springs
+          if ((document.getElementById('bendChords')?.checked)){
+            for (const [u,v] of edges){
+              function pathBetweenNodes(a,b){ const anc=new Set(); let x=a; while(x!=null){ anc.add(x); x=parent.get(x);} let y=b; const down=[]; while(y!=null && !anc.has(y)){ down.push(y); y=parent.get(y);} if(y==null) return [a,b]; const lca=y; const up=[]; x=a; while(x!==lca){ up.push(x); x=parent.get(x);} up.push(lca); return up.concat(down.reverse()); }
+              const pathNodes=pathBetweenNodes(u,v); const pathLen=Math.max(0,pathNodes.length-1); if (pathLen<3) continue;
+              const U=pos.get(u), V=pos.get(v); if(!U||!V) continue;
+              let tu; const pu=parent.get(u); if(pu!=null && pos.has(pu)){ const P=pos.get(pu); tu={x:U.x-P.x,y:U.y-P.y}; } else { tu={x:V.x-U.x,y:V.y-U.y}; }
+              const tulen=Math.hypot(tu.x,tu.y)||1e-6; tu.x/=tulen; tu.y/=tulen; let tv; const pv=parent.get(v); if(pv!=null && pos.has(pv)){ const P=pos.get(pv); tv={x:V.x-P.x,y:V.y-P.y}; } else { tv={x:U.x-V.x,y:U.y-V.y}; } const tvlen=Math.hypot(tv.x,tv.y)||1e-6; tv.x/=tvlen; tv.y/=tvlen;
+              const cu={x:V.x-U.x,y:V.y-U.y}; const culen=Math.hypot(cu.x,cu.y)||1e-6; const cuh={x:cu.x/culen,y:cu.y/culen}; const colu=Math.abs(cuh.x*tu.x + cuh.y*tu.y), colv=Math.abs((-cuh.x)*tv.x + (-cuh.y)*tv.y); if(colu<=0.9 || colv<=0.9) continue;
+              const nu={x:-tu.y,y:tu.x}, nv={x:-tv.y,y:tv.x};
+              const mx=(U.x+V.x)/2, my=(U.y+V.y)/2;
+              // Global bend side for this chord based on chord normal and path centroid
+              let nxChord=-cuh.y, nyChord=cuh.x; let cx=0, cy=0; for(const w of pathNodes){ const W=pos.get(w); cx+=W.x; cy+=W.y; } cx/=pathNodes.length; cy/=pathNodes.length; const dir = ((cx-mx)*nxChord + (cy-my)*nyChord) >= 0 ? 1 : -1;
+              const su = dir * ((nu.x*nxChord + nu.y*nyChord)>=0 ? 1 : -1);
+              const sv = dir * ((nv.x*nxChord + nv.y*nyChord)>=0 ? 1 : -1);
+              const K=24, alpha=0.6;
+              // ROI: path nodes + one-hop neighbors
+              const roi = new Set(pathNodes); for(const w of pathNodes){ for(const nb of (undirected.get(w)||[])){ roi.add(nb); } }
+              const backup = new Map(); for(const idd of roi){ const Pp=pos.get(idd); backup.set(idd,{x:Pp.x,y:Pp.y}); }
+              // crossings within ROI
+              function roiCrossings(){ let c=0; const arr=[...roi]; const setR=new Set(arr); const eR=edges.filter(([a,b])=> setR.has(a)&&setR.has(b)); for(let i=0;i<eR.length;i++){ const [a,b]=eR[i]; const A=pos.get(a), B=pos.get(b); for(let j=i+1;j<eR.length;j++){ const [c1,d1]=eR[j]; if(a===c1||a===d1||b===c1||b===d1) continue; const C=pos.get(c1), D=pos.get(d1); if(segInter(A,B,C,D)) c++; } } return c; }
+              const beforeX=roiCrossings();
+              // Endpoint pushes
+              let sU=guardMove(u, su*nu.x*K*alpha, su*nu.y*K*alpha); U.x+=sU.dx; U.y+=sU.dy; const Ppu=pos.get(parent.get(u)); if(Ppu){ prefAngle.set(u, Math.atan2(U.y-Ppu.y, U.x-Ppu.x)); }
+              let sV=guardMove(v, sv*nv.x*K*alpha, sv*nv.y*K*alpha); V.x+=sV.dx; V.y+=sV.dy; const Ppv=pos.get(parent.get(v)); if(Ppv){ prefAngle.set(v, Math.atan2(V.y-Ppv.y, V.x-Ppv.x)); }
+              // Path node pushes
+              for(let k=1;k<pathNodes.length-1;k++){ const w=pathNodes[k]; const W=pos.get(w); const prev=pos.get(pathNodes[k-1]), next=pos.get(pathNodes[k+1]); if(!prev||!next) continue; let tx=next.x-prev.x, ty=next.y-prev.y; const tlen=Math.hypot(tx,ty)||1e-6; tx/=tlen; ty/=tlen; let nx=-ty, ny=tx; const t=k/(pathNodes.length-1); const falloff=Math.sin(Math.PI*t); const step=guardMove(w, dir*nx*K*alpha*falloff, dir*ny*K*alpha*falloff); W.x+=step.dx; W.y+=step.dy; const Ppw=pos.get(parent.get(w)); if(Ppw){ prefAngle.set(w, Math.atan2(W.y-Ppw.y, W.x-Ppw.x)); } }
+              // ROI spacing repair (two sweeps)
+              const arr=[...roi];
+              for(let pass=0; pass<2; pass++){
+                for(let i=0;i<arr.length;i++){
+                  for(let j=i+1;j<arr.length;j++){
+                    const ia=arr[i], ib=arr[j];
+                    const need=Math.max(MIN_NODE_DIST, (radii.get(ia)||0)+(radii.get(ib)||0));
+                    safeRepulse(ia, ib, need);
+                  }
+                }
+              }
+              const afterX=roiCrossings(); if(afterX>beforeX){ for(const [idd,p] of backup){ const Pp=pos.get(idd); Pp.x=p.x; Pp.y=p.y; } } else { moved=true; }
+            }
+          }
           for (let i=0;i<idsAll.length;i++){
             for (let j=i+1;j<idsAll.length;j++){
-              const ia=idsAll[i], ib=idsAll[j]; const A=pos.get(ia), B=pos.get(ib); if (!A||!B) continue;
-              const dx=B.x-A.x, dy=B.y-A.y; let d=Math.hypot(dx,dy)||0.0001; const need=Math.max(MIN_NODE_DIST, radii.get(ia)+radii.get(ib));
-              if (d<need){ const push=(need-d)/2; const ux=dx/d, uy=dy/d; const aStep=guardMove(ia, -ux*push, -uy*push); const bStep=guardMove(ib, ux*push, uy*push); if (Math.abs(aStep.dx)+Math.abs(aStep.dy)>1e-3){ A.x+=aStep.dx; A.y+=aStep.dy; moved=true; } if (Math.abs(bStep.dx)+Math.abs(bStep.dy)>1e-3){ B.x+=bStep.dx; B.y+=bStep.dy; moved=true; } }
+              const ia=idsAll[i], ib=idsAll[j];
+              const need=Math.max(MIN_NODE_DIST, (radii.get(ia)||0)+(radii.get(ib)||0));
+              if (safeRepulse(ia, ib, need)) moved=true;
             }
           }
           // Parent-child springs: maintain length and preferred angle
@@ -640,13 +715,15 @@
       // Keep last rendered graph to allow re-render on knob changes
       let lastNodes = null;
       let lastCenter = null;
+      const history = [];
+      let histIndex = -1;
       function rerenderIfPossible(){ if (lastNodes && lastCenter !== null){ render(lastNodes, lastCenter); } }
       if (minSepEl) minSepEl.addEventListener('input', () => { UI_MIN_NODE_DIST(); rerenderIfPossible(); });
       const cohArcEl = document.getElementById('cohesionArc'); if (cohArcEl) cohArcEl.addEventListener('input', ()=>{ UI_COHESION_ARC(); rerenderIfPossible(); });
       const capModeEl = document.getElementById('capMode'); if (capModeEl) capModeEl.addEventListener('change', fetchAndRender);
       const maxNodesEl = document.getElementById('maxNodes'); if (maxNodesEl) maxNodesEl.addEventListener('input', fetchAndRender);
 
-      async function fetchAndRender(){
+      async function fetchAndRender(skipHistory=false){
         const centerId = parseInt(centerEl.value || '0', 10);
         const hopsInput = parseInt(hopsEl.value || '3', 10);
         const capMode = document.getElementById('capMode')?.checked;
@@ -668,6 +745,7 @@
             const data = buildLocalFromWorld(centerId, hops, world);
             document.getElementById('json').value = JSON.stringify(data, null, 2);
             lastNodes = data.node_list || []; lastCenter = centerId; await render(lastNodes, lastCenter);
+            if (!skipHistory){ history.splice(histIndex+1); history.push(centerId); histIndex = history.length-1; }
           } else {
             if (!savedCharacter) { const c = prompt('Character ID to fetch for:', 'JoePlayer'); if (!c) return; savedCharacter = c; }
             let hops = hopsInput; let finalData=null; let lastData=null; let i=0;
@@ -688,10 +766,42 @@
             }
             document.getElementById('json').value = JSON.stringify(finalData, null, 2);
             lastNodes = finalData.node_list || []; lastCenter = centerId; await render(lastNodes, lastCenter);
+            if (!skipHistory){ history.splice(histIndex+1); history.push(centerId); histIndex = history.length-1; }
           }
         }catch(e){ alert('Fetch failed. If opening from file:// you may hit CORS or world-data/* not served.\n\nError: '+ e.message); }
       }
       document.getElementById('fetchBtn').addEventListener('click', fetchAndRender);
+      // Log positions for debug IDs
+      document.getElementById('logPosBtn').addEventListener('click', ()=>{
+        if (!lastNodes || lastNodes.length===0) return;
+        const idsStr = document.getElementById('debugIds').value || '';
+        const ids = idsStr.split(/[,\s]+/).map(s=>parseInt(s,10)).filter(n=>!isNaN(n));
+        const svg = document.getElementById('map');
+        console.group('Node positions');
+        for (const id of ids){
+          const n = lastNodes.find(n=>n.id===id);
+          if (!n){ console.log(id, 'not in current subgraph'); continue; }
+          // Recompute layout positions quickly by asking the last render’s viewport transform
+          // We can just read positions from the last render by querying circles
+          const circle = Array.from(document.querySelectorAll('#nodes circle')).find(c=>{
+            const x=c.nextSibling && c.nextSibling.textContent; return x && parseInt(x,10)===id;
+          });
+          if (circle){ console.log(id, { x: parseFloat(circle.getAttribute('cx')), y: parseFloat(circle.getAttribute('cy')) }); }
+        }
+        console.groupEnd();
+      });
+
+      // History navigation
+      document.getElementById('prevBtn').addEventListener('click', async ()=>{
+        if (histIndex > 0){ histIndex--; const c = history[histIndex]; centerEl.value = String(c); await fetchAndRender(true); }
+      });
+      document.getElementById('nextBtn').addEventListener('click', async ()=>{
+        if (histIndex+1 < history.length){ histIndex++; const c = history[histIndex]; centerEl.value = String(c); await fetchAndRender(true); }
+      });
+      document.getElementById('randomBtn').addEventListener('click', async ()=>{
+        if (!lastNodes || lastNodes.length===0){ await fetchAndRender(); return; }
+        const idx = Math.floor(Math.random()*lastNodes.length); const c = lastNodes[idx].id; centerEl.value = String(c); await fetchAndRender();
+      });
 
       // Seed with a tiny sample so the page shows something immediately
       const sample = { node_list: [
