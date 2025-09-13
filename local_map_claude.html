@@ -562,36 +562,37 @@
                 console.log(`Optimization complete: ${bestCrossings} crossings, ${bestCollisions} collisions`);
               }
               
-              // Run crossing fixes if there are any crossings
-              if (cy && bestCrossings > 0 && typeof fixSpecificCrossings === 'function') {
-                console.log('Running crossing fixes after optimization...');
-                fixSpecificCrossings();
-                bestCrossings = countCrossings(cy);
-                bestCollisions = countNodeEdgeCollisions(cy);
-                console.log(`After crossing fixes: ${bestCrossings} crossings, ${bestCollisions} collisions`);
-              }
-              
               // Always fit the graph to the view area after optimization
               if (cy) {
                 cy.fit();
               }
               
-              // If there are still crossings, try Fix Regions  
-              if (cy && bestCrossings > 0 && fixEnclosedRegions) {
-                  console.log('Running Fix Regions...');
+              // If there are still crossings or collisions, try Fix Regions + Fix Crossings sequence
+              if (cy && (bestCrossings > 0 || bestCollisions > 0) && fixEnclosedRegions) {
+                  console.log('Running Fix Regions + Fix Crossings sequence...');
+                  
+                  // Save the initial positions before Fix Regions runs
+                  const initialPositions = {};
+                  cy.nodes().forEach(node => {
+                    initialPositions[node.id()] = {...node.position()};
+                  });
+                  const initialCrossings = bestCrossings;
+                  const initialCollisions = bestCollisions;
                   
                   let previousCrossings = bestCrossings;
-                  let previousPositions = {...bestPositions};
-                  let penultimatePositions = {...bestPositions};
+                  let previousPositions = {...initialPositions};
+                  let penultimatePositions = {...initialPositions};
                   let iterations = 0;
                   const maxIterations = 5;
+                  let improvedAtLeastOnce = false;
                   
-                  while (iterations < maxIterations) {
+                  // Always run at least one iteration to give layout adjustment a chance
+                  do {
                     penultimatePositions = {...previousPositions};
                     
                     fixEnclosedRegions();
                     
-                    // Small layout adjustment
+                    // Small layout adjustment - this can make unsolvable crossings solvable!
                     await new Promise(resolve => {
                       cy.layout({
                         name: 'fcose',
@@ -616,75 +617,66 @@
                     const currentCollisions = countNodeEdgeCollisions(cy);
                     console.log(`  Fix Regions iteration ${iterations + 1}: ${currentCrossings} crossings, ${currentCollisions} collisions`);
                     
-                    // If no improvement, use penultimate and stop
-                    if (currentCrossings >= previousCrossings) {
+                    iterations++;
+                    
+                    // Check if we've improved
+                    if (currentCrossings < previousCrossings) {
+                      improvedAtLeastOnce = true;
+                      // Save current positions
                       cy.nodes().forEach(node => {
-                        if (penultimatePositions[node.id()]) {
-                          node.position(penultimatePositions[node.id()]);
+                        previousPositions[node.id()] = node.position();
+                      });
+                      previousCrossings = currentCrossings;
+                    } else if (iterations > 1) {
+                      // No improvement after first iteration, restore previous good positions
+                      cy.nodes().forEach(node => {
+                        if (previousPositions[node.id()]) {
+                          node.position(previousPositions[node.id()]);
                         }
                       });
-                      console.log('Fix Regions complete (no further improvement)');
+                      console.log('Fix Regions iteration made no improvement, restored previous positions');
                       break;
                     }
-                    
-                    // Save current positions
-                    cy.nodes().forEach(node => {
-                      previousPositions[node.id()] = node.position();
-                    });
-                    
-                    previousCrossings = currentCrossings;
-                    iterations++;
-                  }
+                  } while (iterations < maxIterations && previousCrossings > 0);
                   
                   // Run specific crossing fixes after Fix Regions completes
-                  console.log('Running specific crossing fixes...');
-                  let crossingsAfterFix = bestCrossings;
-                  let collisionsAfterFix = bestCollisions;
-                  
+                  console.log('Running crossing fixes after Fix Regions...');
                   if (typeof fixSpecificCrossings === 'function') {
                     fixSpecificCrossings();
-                    
-                    crossingsAfterFix = countCrossings(cy);
-                    collisionsAfterFix = countNodeEdgeCollisions(cy);
-                    console.log(`After crossing fixes: ${crossingsAfterFix} crossings, ${collisionsAfterFix} collisions`);
+                    const afterCrossingsCrossings = countCrossings(cy);
+                    const afterCrossingCollisions = countNodeEdgeCollisions(cy);
+                    console.log(`After crossing fixes: ${afterCrossingsCrossings} crossings, ${afterCrossingCollisions} collisions`);
                   } else {
                     console.log('WARNING: fixSpecificCrossings is not defined!');
                   }
                   
-                  // Run Fix Regions again if needed to clean up after crossing fixes
-                  if (crossingsAfterFix > 0 || collisionsAfterFix > 0) {
-                    console.log('Running Fix Regions again after crossing fixes...');
-                    fixEnclosedRegions();
-                    
-                    // Small layout adjustment
-                    await new Promise(resolve => {
-                      cy.layout({
-                        name: 'fcose',
-                        quality: 'default',
-                        numIter: 300,
-                        animate: false,
-                        randomize: false,
-                        idealEdgeLength: edge => {
-                          const minNodeDist = parseInt(document.getElementById('minNodeDist').value, 10) || 6;
-                          return Math.max(minNodeDist * 2, 80);
-                        },
-                        nodeRepulsion: 5000,
-                        edgeElasticity: 0.45
-                      }).run();
-                      
-                      cy.one('layoutstop', () => {
-                        setTimeout(resolve, 200);
-                      });
-                    });
-                  }
-                  
-                  // Final collision fixing pass
-                  console.log('Running final collision fixing pass...');
-                  fixNodeEdgeCollisions();
-                  
                   const finalCrossings = countCrossings(cy);
                   const finalCollisions = countNodeEdgeCollisions(cy);
                   console.log(`Final result: ${finalCrossings} crossings, ${finalCollisions} collisions`);
+                  
+                  // Conservative approach: restore initial positions if we made things worse
+                  // We require BOTH metrics to be no worse than initial (stricter condition)
+                  const improvedCrossings = finalCrossings <= initialCrossings;
+                  const improvedCollisions = finalCollisions <= initialCollisions;
+                  const overallImproved = improvedCrossings && improvedCollisions && 
+                                          (finalCrossings < initialCrossings || finalCollisions < initialCollisions);
+                  
+                  if (!overallImproved) {
+                    console.log(`Fix Regions + Crossings sequence did not improve metrics (${initialCrossings}→${finalCrossings} crossings, ${initialCollisions}→${finalCollisions} collisions), restoring initial positions`);
+                    cy.nodes().forEach(node => {
+                      if (initialPositions[node.id()]) {
+                        node.position(initialPositions[node.id()]);
+                      }
+                    });
+                    // Update best values back to initial
+                    bestCrossings = initialCrossings;
+                    bestCollisions = initialCollisions;
+                  } else {
+                    // We improved, update best values
+                    bestCrossings = finalCrossings;
+                    bestCollisions = finalCollisions;
+                    console.log(`Fix Regions + Crossings improved metrics: ${initialCrossings}→${finalCrossings} crossings, ${initialCollisions}→${finalCollisions} collisions`);
+                  }
                   
                   // Fit to view after Fix Regions
                   cy.fit();
