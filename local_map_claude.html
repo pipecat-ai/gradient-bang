@@ -1279,6 +1279,35 @@
                         }
                       });
                       
+                      // Add repulsion from edge centers to prevent node/edge overlaps
+                      cy.edges().forEach(edge => {
+                        // Skip edges connected to this node
+                        if (edge.source().id() === node.id() || edge.target().id() === node.id()) {
+                          return;
+                        }
+                        
+                        const sourcePos = edge.source().position();
+                        const targetPos = edge.target().position();
+                        
+                        // Calculate edge center
+                        const edgeCenterX = (sourcePos.x + targetPos.x) / 2;
+                        const edgeCenterY = (sourcePos.y + targetPos.y) / 2;
+                        
+                        // Calculate distance from node to edge center
+                        const nodePos = node.position();
+                        const dx = nodePos.x - edgeCenterX;
+                        const dy = nodePos.y - edgeCenterY;
+                        const distToCenter = Math.sqrt(dx * dx + dy * dy);
+                        
+                        // Apply repulsion if node is too close to edge center
+                        const minDistToEdge = 40; // Minimum distance from node to edge center
+                        if (distToCenter < minDistToEdge && distToCenter > 0) {
+                          const force = temperature * 0.3 * (minDistToEdge - distToCenter) / distToCenter;
+                          forceX += (dx / distToCenter) * force;
+                          forceY += (dy / distToCenter) * force;
+                        }
+                      });
+                      
                       // Apply forces with damping
                       const damping = 0.5;
                       node.position({
@@ -1376,6 +1405,89 @@
                     }
                   } else {
                     console.log(`Force refinement improved spacing (score: ${initialScore.score.toFixed(1)} → ${refinedScore.score.toFixed(1)})`);
+                  }
+                  
+                  // Final attempt to fix any remaining node/edge collisions
+                  // This runs whether force refinement succeeded or was restored
+                  const remainingCollisions = countNodeEdgeCollisions(cy);
+                  if (remainingCollisions > 0) {
+                    console.log(`Attempting to fix ${remainingCollisions} remaining node/edge collisions...`);
+                    
+                    // Try gentle nudging to separate nodes from edges they overlap
+                    for (let nudgeIter = 0; nudgeIter < 3; nudgeIter++) {
+                      let madeChanges = false;
+                      
+                      cy.nodes().forEach(node => {
+                        const nodePos = node.position();
+                        const nodeRadius = 20; // Approximate node radius
+                        
+                        // Check collision with each edge
+                        cy.edges().forEach(edge => {
+                          // Skip edges connected to this node
+                          if (edge.source().id() === node.id() || edge.target().id() === node.id()) {
+                            return;
+                          }
+                          
+                          const sourcePos = edge.source().position();
+                          const targetPos = edge.target().position();
+                          
+                          // Calculate distance from node to edge line
+                          const A = targetPos.y - sourcePos.y;
+                          const B = sourcePos.x - targetPos.x;
+                          const C = targetPos.x * sourcePos.y - sourcePos.x * targetPos.y;
+                          
+                          const dist = Math.abs(A * nodePos.x + B * nodePos.y + C) / Math.sqrt(A * A + B * B);
+                          
+                          if (dist < nodeRadius) {
+                            // Check if node is actually near the edge segment (not just the infinite line)
+                            const edgeLen = Math.sqrt(
+                              Math.pow(targetPos.x - sourcePos.x, 2) + 
+                              Math.pow(targetPos.y - sourcePos.y, 2)
+                            );
+                            
+                            const t = ((nodePos.x - sourcePos.x) * (targetPos.x - sourcePos.x) + 
+                                      (nodePos.y - sourcePos.y) * (targetPos.y - sourcePos.y)) / (edgeLen * edgeLen);
+                            
+                            if (t >= 0 && t <= 1) {
+                              // Node overlaps with edge segment, nudge it away
+                              const perpX = -B / Math.sqrt(A * A + B * B);
+                              const perpY = A / Math.sqrt(A * A + B * B);
+                              
+                              // Determine which side to nudge to
+                              const sign = (A * nodePos.x + B * nodePos.y + C) > 0 ? 1 : -1;
+                              
+                              // Gentle nudge perpendicular to edge
+                              const nudgeAmount = (nodeRadius - dist) * 0.5; // Move 50% of overlap distance
+                              node.position({
+                                x: nodePos.x + sign * perpX * nudgeAmount,
+                                y: nodePos.y + sign * perpY * nudgeAmount
+                              });
+                              madeChanges = true;
+                            }
+                          }
+                        });
+                      });
+                      
+                      if (!madeChanges) break;
+                      
+                      // Check if we created crossings
+                      const crossingsAfterNudge = countCrossings(cy);
+                      if (crossingsAfterNudge > 0) {
+                        console.log('Collision fix created crossings, restoring');
+                        // Restore positions
+                        cy.nodes().forEach(node => {
+                          if (preRefinementPositions[node.id()]) {
+                            node.position(preRefinementPositions[node.id()]);
+                          }
+                        });
+                        break;
+                      }
+                    }
+                    
+                    const finalCollisions = countNodeEdgeCollisions(cy);
+                    if (finalCollisions < remainingCollisions) {
+                      console.log(`Reduced collisions from ${remainingCollisions} to ${finalCollisions}`);
+                    }
                   }
                   
                   // Resize the view after final refinement
