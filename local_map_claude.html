@@ -117,6 +117,7 @@
       let cy = null;
       
       // Global functions
+      let fixSpecificCrossings = null;
       let applyCurvedEdges = null;
       let fixEnclosedRegions = null;
       
@@ -561,6 +562,15 @@
                 console.log(`Optimization complete: ${bestCrossings} crossings, ${bestCollisions} collisions`);
               }
               
+              // Run crossing fixes if there are any crossings
+              if (cy && bestCrossings > 0 && typeof fixSpecificCrossings === 'function') {
+                console.log('Running crossing fixes after optimization...');
+                fixSpecificCrossings();
+                bestCrossings = countCrossings(cy);
+                bestCollisions = countNodeEdgeCollisions(cy);
+                console.log(`After crossing fixes: ${bestCrossings} crossings, ${bestCollisions} collisions`);
+              }
+              
               // Always fit the graph to the view area after optimization
               if (cy) {
                 cy.fit();
@@ -626,13 +636,20 @@
                     iterations++;
                   }
                   
-                  // Run specific crossing fixes first
+                  // Run specific crossing fixes after Fix Regions completes
                   console.log('Running specific crossing fixes...');
-                  fixSpecificCrossings();
+                  let crossingsAfterFix = bestCrossings;
+                  let collisionsAfterFix = bestCollisions;
                   
-                  let crossingsAfterFix = countCrossings(cy);
-                  let collisionsAfterFix = countNodeEdgeCollisions(cy);
-                  console.log(`After crossing fixes: ${crossingsAfterFix} crossings, ${collisionsAfterFix} collisions`);
+                  if (typeof fixSpecificCrossings === 'function') {
+                    fixSpecificCrossings();
+                    
+                    crossingsAfterFix = countCrossings(cy);
+                    collisionsAfterFix = countNodeEdgeCollisions(cy);
+                    console.log(`After crossing fixes: ${crossingsAfterFix} crossings, ${collisionsAfterFix} collisions`);
+                  } else {
+                    console.log('WARNING: fixSpecificCrossings is not defined!');
+                  }
                   
                   // Run Fix Regions again if needed to clean up after crossing fixes
                   if (crossingsAfterFix > 0 || collisionsAfterFix > 0) {
@@ -1074,29 +1091,258 @@
           if (!cy) return;
           
           let crossingsFixed = 0;
-          
-          // Store original positions in case we need to debug
-          const originalPositions = {};
-          cy.nodes().forEach(node => {
-            originalPositions[node.id()] = {...node.position()};
-          });
-          
-          // First pass: Try swapping pairs of nodes that share a common neighbor
           const processed = new Set();
           
+          // Helper function to count all crossings
+          const countAllCrossings = () => {
+            let total = 0;
+            const allEdges = cy.edges();
+            allEdges.forEach((e1, i) => {
+              allEdges.forEach((e2, j) => {
+                if (i >= j) return;
+                
+                const src1 = e1.source().position();
+                const tgt1 = e1.target().position();
+                const src2 = e2.source().position();
+                const tgt2 = e2.target().position();
+                
+                if (e1.source().id() === e2.source().id() || e1.source().id() === e2.target().id() ||
+                    e1.target().id() === e2.source().id() || e1.target().id() === e2.target().id()) {
+                  return;
+                }
+                
+                if (edgesIntersect(src1, tgt1, src2, tgt2)) {
+                  total++;
+                }
+              });
+            });
+            return total;
+          };
+          
+          // Count initial crossings
+          const initialCrossings = countAllCrossings();
+          console.log(`fixSpecificCrossings: Starting with ${initialCrossings} total crossings`);
+          
+          if (initialCrossings === 0) {
+            console.log('No crossings to fix - exiting early');
+            return;
+          }
+          
+          // Try swapping endpoints of crossing edges
+          console.log('Trying to swap endpoints of crossing edges...');
+          let totalSwapsChecked = 0;
+          let swapsMade = 0;
+          const maxSwapsPerRun = 10; // Limit swaps per run to avoid infinite loops
+          
+          while (swapsMade < maxSwapsPerRun) {
+            let bestSwap = null;
+            let bestReduction = 0;
+            const currentCrossings = countAllCrossings();
+            
+            if (currentCrossings === 0) {
+              console.log('All crossings eliminated!');
+              break;
+            }
+            
+            // Recalculate crossing pairs each iteration (they change after swaps!)
+            const crossingPairs = [];
+            const allEdges = cy.edges();
+            
+            allEdges.forEach((e1, i) => {
+              allEdges.forEach((e2, j) => {
+                if (i >= j) return; // Avoid duplicates
+                
+                const src1 = e1.source();
+                const tgt1 = e1.target();
+                const src2 = e2.source();
+                const tgt2 = e2.target();
+                
+                // Skip if edges share a node
+                if (src1.id() === src2.id() || src1.id() === tgt2.id() ||
+                    tgt1.id() === src2.id() || tgt1.id() === tgt2.id()) {
+                  return;
+                }
+                
+                const src1Pos = src1.position();
+                const tgt1Pos = tgt1.position();
+                const src2Pos = src2.position();
+                const tgt2Pos = tgt2.position();
+                
+                if (edgesIntersect(src1Pos, tgt1Pos, src2Pos, tgt2Pos)) {
+                  crossingPairs.push({
+                    edge1: e1,
+                    edge2: e2,
+                    nodes: [src1, tgt1, src2, tgt2],
+                    nodeIds: [src1.id(), tgt1.id(), src2.id(), tgt2.id()]
+                  });
+                }
+              });
+            });
+            
+            console.log(`Iteration ${swapsMade + 1}: Found ${crossingPairs.length} crossing edge pairs`);
+            
+            if (crossingPairs.length === 0) {
+              console.log('No more crossing edges found!');
+              break;
+            }
+            
+            // For each crossing pair, try all 6 possible swaps of the 4 endpoints
+            for (const crossing of crossingPairs) {
+              if (crossing.nodes.some(n => processed.has(n.id()))) continue;
+              
+              const [src1, tgt1, src2, tgt2] = crossing.nodes;
+              
+              // Generate all possible pairs from the 4 nodes
+              const nodePairs = [
+                [src1, src2], // Swap sources
+                [src1, tgt2], // Swap src1 with tgt2
+                [tgt1, src2], // Swap tgt1 with src2
+                [tgt1, tgt2], // Swap targets
+                [src1, tgt1], // Swap nodes of edge1 (shouldn't help but check anyway)
+                [src2, tgt2]  // Swap nodes of edge2 (shouldn't help but check anyway)
+              ];
+              
+              for (const [node1, node2] of nodePairs) {
+                if (processed.has(node1.id()) || processed.has(node2.id())) continue;
+                if (node1.degree() > 10 || node2.degree() > 10) continue;
+                
+                const pos1 = {...node1.position()};
+                const pos2 = {...node2.position()};
+                totalSwapsChecked++;
+                
+                // Try the swap
+                node1.position(pos2);
+                node2.position(pos1);
+                
+                const newCrossings = countAllCrossings();
+                const reduction = currentCrossings - newCrossings;
+                
+                // Keep track of the best swap
+                if (reduction > bestReduction) {
+                  bestReduction = reduction;
+                  bestSwap = {
+                    node1: node1,
+                    node2: node2,
+                    pos1: pos1,
+                    pos2: pos2,
+                    reduction: reduction,
+                    newCrossings: newCrossings
+                  };
+                  console.log(`  Found beneficial swap: ${node1.id()} <-> ${node2.id()} reduces ${reduction} crossings`);
+                }
+                
+                // Revert the swap for now
+                node1.position(pos1);
+                node2.position(pos2);
+              }
+            }
+            
+            // If no good swaps found in crossing pairs, try all pairs as fallback
+            if (!bestSwap) {
+              console.log('No beneficial swaps found in crossing pairs, trying all node pairs...');
+              const allNodes = cy.nodes();
+              
+              for (let i = 0; i < allNodes.length; i++) {
+                const node1 = allNodes[i];
+                if (processed.has(node1.id())) continue;
+                if (node1.degree() > 10) continue;
+                
+                const pos1 = {...node1.position()};
+                
+                for (let j = i + 1; j < allNodes.length; j++) {
+                  const node2 = allNodes[j];
+                  if (processed.has(node2.id())) continue;
+                  if (node2.degree() > 10) continue;
+                  
+                  const pos2 = {...node2.position()};
+                  totalSwapsChecked++;
+                  
+                  // Try the swap
+                  node1.position(pos2);
+                  node2.position(pos1);
+                  
+                  const newCrossings = countAllCrossings();
+                  const reduction = currentCrossings - newCrossings;
+                  
+                  // Keep track of the best swap
+                  if (reduction > bestReduction) {
+                    bestReduction = reduction;
+                    bestSwap = {
+                      node1: node1,
+                      node2: node2,
+                      pos1: pos1,
+                      pos2: pos2,
+                      reduction: reduction,
+                      newCrossings: newCrossings
+                    };
+                  }
+                  
+                  // Revert the swap for now
+                  node1.position(pos1);
+                  node2.position(pos2);
+                }
+              }
+            }
+            
+            // Apply the best swap if we found one
+            if (bestSwap && bestReduction > 0) {
+              bestSwap.node1.position(bestSwap.pos2);
+              bestSwap.node2.position(bestSwap.pos1);
+              processed.add(bestSwap.node1.id());
+              processed.add(bestSwap.node2.id());
+              crossingsFixed += bestReduction;
+              swapsMade++;
+              console.log(`Swap ${swapsMade}: ${bestSwap.node1.id()} <-> ${bestSwap.node2.id()}, reduced ${bestReduction} crossings (${currentCrossings} -> ${bestSwap.newCrossings})`);
+            } else {
+              console.log(`No beneficial swaps found after checking ${totalSwapsChecked} combinations`);
+              break;
+            }
+          }
+          
+          console.log(`Swap search complete: Made ${swapsMade} swaps, checked ${totalSwapsChecked} combinations, fixed ${crossingsFixed} crossings`);
+          
+          // Return the number of crossings fixed
+          return crossingsFixed;
+        };
+        
+        // Old code for other passes removed - they were causing problems
+        /*
           cy.nodes().forEach(node1 => {
             if (processed.has(node1.id())) return;
+            if (node1.degree() > 6) return;  // Increased to allow degree-6 nodes
             
             const neighbors1 = node1.neighborhood().nodes();
             
-            // Look for another node that shares at least one neighbor
+            // Look for another node that might benefit from swapping
             cy.nodes().forEach(node2 => {
               if (node1.id() === node2.id()) return;
               if (processed.has(node2.id())) return;
+              if (node2.degree() > 6) return;  // Increased to allow degree-6 nodes
               
               const neighbors2 = node2.neighborhood().nodes();
               
-              // Check if they share a common neighbor
+              // Calculate if these nodes are relatively close (potential swap candidates)
+              const pos1 = node1.position();
+              const pos2 = node2.position();
+              const distance = Math.sqrt(Math.pow(pos1.x - pos2.x, 2) + Math.pow(pos1.y - pos2.y, 2));
+              
+              // Debug logging for specific nodes
+              if ((debugNodes.includes(node1.id()) && debugNodes.includes(node2.id()))) {
+                console.log(`Checking swap: ${node1.id()} <-> ${node2.id()}, distance: ${distance.toFixed(0)}, degrees: ${node1.degree()}, ${node2.degree()}`);
+              }
+              
+              // Only consider swapping if nodes are within reasonable distance
+              if (distance > 1200) {  // Increased distance threshold for more aggressive swapping
+                if ((node1.id() === '1078' && node2.id() === '386') || (node1.id() === '386' && node2.id() === '1078') ||
+                    (node1.id() === '4545' && node2.id() === '3581') || (node1.id() === '3581' && node2.id() === '4545') ||
+                    (node1.id() === '1078' && node2.id() === '2409') || (node1.id() === '2409' && node2.id() === '1078') ||
+                    (node1.id() === '2409' && node2.id() === '3581') || (node1.id() === '3581' && node2.id() === '2409')) {
+                  console.log(`SKIPPING ${node1.id()} <-> ${node2.id()} due to distance: ${distance.toFixed(0)} > 800`);
+                }
+                return;
+              }
+              
+              // Check if they share a common neighbor OR if swapping might help
               let hasCommonNeighbor = false;
               neighbors1.forEach(n1 => {
                 if (neighbors2.some(n2 => n2.id() === n1.id())) {
@@ -1104,42 +1350,60 @@
                 }
               });
               
-              if (hasCommonNeighbor && node1.degree() <= 3 && node2.degree() <= 3) {
+              // Log debug info for specific pairs
+              if ((node1.id() === '1078' && node2.id() === '386') || (node1.id() === '386' && node2.id() === '1078') ||
+                  (node1.id() === '4545' && node2.id() === '3581') || (node1.id() === '3581' && node2.id() === '4545') ||
+                  (node1.id() === '1078' && node2.id() === '2409') || (node1.id() === '2409' && node2.id() === '1078') ||
+                  (node1.id() === '1078' && node2.id() === '4545') || (node1.id() === '4545' && node2.id() === '1078') ||
+                  (node1.id() === '2409' && node2.id() === '3581') || (node1.id() === '3581' && node2.id() === '2409') ||
+                  (node1.id() === '2031' && node2.id() === '1078') || (node1.id() === '1078' && node2.id() === '2031')) {
+                console.log(`  ${node1.id()} <-> ${node2.id()}: hasCommonNeighbor=${hasCommonNeighbor}, distance=${distance.toFixed(0)}`);
+              }
+              
+              // Also consider nodes that don't share neighbors but are within range
+              if (hasCommonNeighbor || distance < 1200) {  // Increased distance threshold
                 // Count current crossings for edges connected to these nodes
                 let currentCrossings = 0;
                 const edges1 = node1.connectedEdges();
                 const edges2 = node2.connectedEdges();
-                const allOtherEdges = cy.edges().filter(e => 
-                  !edges1.some(e1 => e1.id() === e.id()) && 
-                  !edges2.some(e2 => e2.id() === e.id())
-                );
                 
-                // Count crossings between node1/node2 edges and all other edges
-                edges1.forEach(e1 => {
-                  allOtherEdges.forEach(e2 => {
-                    if (edgesIntersect(
-                      e1.source().position(),
-                      e1.target().position(),
-                      e2.source().position(),
-                      e2.target().position()
-                    )) {
-                      currentCrossings++;
+                // Get ALL edges for complete crossing count
+                const allEdges = cy.edges();
+                
+                // Count ALL crossings in the current state (not just those involving node1/node2)
+                let totalCurrentCrossings = 0;
+                allEdges.forEach((e1, i) => {
+                  allEdges.forEach((e2, j) => {
+                    if (i >= j) return; // Avoid counting same pair twice
+                    
+                    const src1 = e1.source().position();
+                    const tgt1 = e1.target().position();
+                    const src2 = e2.source().position();
+                    const tgt2 = e2.target().position();
+                    
+                    // Skip if edges share a node
+                    if (e1.source().id() === e2.source().id() || e1.source().id() === e2.target().id() ||
+                        e1.target().id() === e2.source().id() || e1.target().id() === e2.target().id()) {
+                      return;
+                    }
+                    
+                    if (edgesIntersect(src1, tgt1, src2, tgt2)) {
+                      totalCurrentCrossings++;
                     }
                   });
                 });
                 
-                edges2.forEach(e1 => {
-                  allOtherEdges.forEach(e2 => {
-                    if (edgesIntersect(
-                      e1.source().position(),
-                      e1.target().position(),
-                      e2.source().position(),
-                      e2.target().position()
-                    )) {
-                      currentCrossings++;
-                    }
-                  });
-                });
+                currentCrossings = totalCurrentCrossings;
+                
+                // Debug logging for specific pairs
+                if ((node1.id() === '1078' && node2.id() === '386') || (node1.id() === '386' && node2.id() === '1078') ||
+                    (node1.id() === '4545' && node2.id() === '3581') || (node1.id() === '3581' && node2.id() === '4545') ||
+                    (node1.id() === '1078' && node2.id() === '2409') || (node1.id() === '2409' && node2.id() === '1078') ||
+                    (node1.id() === '1078' && node2.id() === '4545') || (node1.id() === '4545' && node2.id() === '1078') ||
+                    (node1.id() === '2409' && node2.id() === '3581') || (node1.id() === '3581' && node2.id() === '2409') ||
+                    (node1.id() === '2031' && node2.id() === '1078') || (node1.id() === '1078' && node2.id() === '2031')) {
+                  console.log(`  Current TOTAL crossings for ${node1.id()} <-> ${node2.id()}: ${currentCrossings}`);
+                }
                 
                 // Try swapping positions
                 const pos1 = {...node1.position()};
@@ -1154,33 +1418,41 @@
                 node1.position(pos2);
                 node2.position(pos1);
                 
-                // Count crossings after swap
-                let swappedCrossings = 0;
-                edges1.forEach(e1 => {
-                  allOtherEdges.forEach(e2 => {
-                    if (edgesIntersect(
-                      e1.source().position(),
-                      e1.target().position(),
-                      e2.source().position(),
-                      e2.target().position()
-                    )) {
-                      swappedCrossings++;
+                // Count ALL crossings after swap (not just those involving node1/node2)
+                let totalSwappedCrossings = 0;
+                allEdges.forEach((e1, i) => {
+                  allEdges.forEach((e2, j) => {
+                    if (i >= j) return; // Avoid counting same pair twice
+                    
+                    const src1 = e1.source().position();
+                    const tgt1 = e1.target().position();
+                    const src2 = e2.source().position();
+                    const tgt2 = e2.target().position();
+                    
+                    // Skip if edges share a node
+                    if (e1.source().id() === e2.source().id() || e1.source().id() === e2.target().id() ||
+                        e1.target().id() === e2.source().id() || e1.target().id() === e2.target().id()) {
+                      return;
+                    }
+                    
+                    if (edgesIntersect(src1, tgt1, src2, tgt2)) {
+                      totalSwappedCrossings++;
                     }
                   });
                 });
                 
-                edges2.forEach(e1 => {
-                  allOtherEdges.forEach(e2 => {
-                    if (edgesIntersect(
-                      e1.source().position(),
-                      e1.target().position(),
-                      e2.source().position(),
-                      e2.target().position()
-                    )) {
-                      swappedCrossings++;
-                    }
-                  });
-                });
+                let swappedCrossings = totalSwappedCrossings;
+                
+                // Debug logging for specific pairs
+                if ((node1.id() === '1078' && node2.id() === '386') || (node1.id() === '386' && node2.id() === '1078') ||
+                    (node1.id() === '4545' && node2.id() === '3581') || (node1.id() === '3581' && node2.id() === '4545') ||
+                    (node1.id() === '1078' && node2.id() === '2409') || (node1.id() === '2409' && node2.id() === '1078') ||
+                    (node1.id() === '1078' && node2.id() === '4545') || (node1.id() === '4545' && node2.id() === '1078') ||
+                    (node1.id() === '2409' && node2.id() === '3581') || (node1.id() === '3581' && node2.id() === '2409') ||
+                    (node1.id() === '2031' && node2.id() === '1078') || (node1.id() === '1078' && node2.id() === '2031')) {
+                  console.log(`  Swapped TOTAL crossings for ${node1.id()} <-> ${node2.id()}: ${swappedCrossings}`);
+                  console.log(`  Decision: ${swappedCrossings < currentCrossings ? 'SWAP' : 'NO SWAP'} (${currentCrossings} -> ${swappedCrossings})`);
+                }
                 
                 // Keep swap if it reduces crossings, otherwise revert
                 if (swappedCrossings < currentCrossings) {
@@ -1192,15 +1464,20 @@
                   // Revert swap
                   node1.position(pos1);
                   node2.position(pos2);
+                  
+                  // Log why we didn't swap if they were close candidates or debug nodes
+                  if (distance < 150 || (debugNodes.includes(node1.id()) && debugNodes.includes(node2.id()))) {
+                    console.log(`Did not swap ${node1.id()} and ${node2.id()} (distance: ${distance.toFixed(0)}, crossings: ${currentCrossings} -> ${swappedCrossings})`);
+                  }
                 }
               }
             });
           });
           
-          // Second pass: For each node with degree 1 or 2, check if moving it reduces crossings
+          // Second pass: For each node, check if moving it reduces crossings
           cy.nodes().forEach(node => {
             const degree = node.degree();
-            if (degree > 2) return; // Skip highly connected nodes
+            if (degree > 6) return; // Allow up to degree-6 nodes
             
             const nodePos = node.position();
             const neighbors = node.neighborhood().nodes();
@@ -1271,32 +1548,80 @@
               }
             }
             
-            // For degree-2 nodes, check if swapping sides helps
-            if (degree === 2 && neighbors.length === 2) {
-              const n1Pos = neighbors[0].position();
-              const n2Pos = neighbors[1].position();
+            // For degree-2 through degree-6 nodes, check if repositioning helps
+            if (degree >= 2 && degree <= 6 && neighbors.length === degree) {
+              // Calculate center of neighbors
+              let centerX = 0, centerY = 0;
+              neighbors.forEach(n => {
+                const pos = n.position();
+                centerX += pos.x;
+                centerY += pos.y;
+              });
+              centerX /= neighbors.length;
+              centerY /= neighbors.length;
               
-              // Calculate perpendicular positions
-              const midX = (n1Pos.x + n2Pos.x) / 2;
-              const midY = (n1Pos.y + n2Pos.y) / 2;
-              const dx = n2Pos.x - n1Pos.x;
-              const dy = n2Pos.y - n1Pos.y;
-              const dist = Math.sqrt(dx * dx + dy * dy);
+              // Generate test positions around the center and at various distances
+              const testPositions = [];
+              const currentDist = Math.sqrt(Math.pow(nodePos.x - centerX, 2) + Math.pow(nodePos.y - centerY, 2));
               
-              if (dist > 0) {
-                // Perpendicular vector
-                const perpX = -dy / dist;
-                const perpY = dx / dist;
-                const perpDist = 60;
+              // Try positions in a circle around the center of neighbors
+              const angles = [0, Math.PI/4, Math.PI/2, 3*Math.PI/4, Math.PI, -3*Math.PI/4, -Math.PI/2, -Math.PI/4];
+              const distances = [currentDist * 0.7, currentDist, currentDist * 1.3];
+              
+              angles.forEach(angle => {
+                distances.forEach(dist => {
+                  testPositions.push({
+                    x: centerX + dist * Math.cos(angle),
+                    y: centerY + dist * Math.sin(angle)
+                  });
+                });
+              });
+              
+              // Also try positions near each neighbor
+              neighbors.forEach(neighbor => {
+                const nPos = neighbor.position();
+                const offsetDist = 80;
+                angles.slice(0, 4).forEach(angle => {
+                  testPositions.push({
+                    x: nPos.x + offsetDist * Math.cos(angle),
+                    y: nPos.y + offsetDist * Math.sin(angle)
+                  });
+                });
+              });
                 
-                // Two possible positions (on either side of the line between neighbors)
-                const pos1 = {x: midX + perpX * perpDist, y: midY + perpY * perpDist};
-                const pos2 = {x: midX - perpX * perpDist, y: midY - perpY * perpDist};
+              // Count crossings at current position
+              let currentCrossings = 0;
+              const nodeEdges = node.connectedEdges();
+              
+              cy.edges().forEach(edge => {
+                if (nodeEdges.some(e => e.id() === edge.id())) return;
                 
-                // Count crossings at current position
-                let currentCrossings = 0;
-                const nodeEdges = node.connectedEdges();
+                nodeEdges.forEach(nodeEdge => {
+                  const src1 = nodeEdge.source().position();
+                  const tgt1 = nodeEdge.target().position();
+                  const src2 = edge.source().position();
+                  const tgt2 = edge.target().position();
+                  
+                  if (edgesIntersect(src1, tgt1, src2, tgt2)) {
+                    currentCrossings++;
+                  }
+                });
+              });
+              
+              // Test all positions
+              let bestPos = nodePos;
+              let bestCrossings = currentCrossings;
+              
+              testPositions.forEach(testPos => {
+                // Validate test position
+                if (isNaN(testPos.x) || isNaN(testPos.y)) return;
                 
+                // Temporarily move node to test position
+                const originalPos = node.position();
+                node.position(testPos);
+                
+                // Count crossings at test position
+                let testCrossings = 0;
                 cy.edges().forEach(edge => {
                   if (nodeEdges.some(e => e.id() === edge.id())) return;
                   
@@ -1307,45 +1632,24 @@
                     const tgt2 = edge.target().position();
                     
                     if (edgesIntersect(src1, tgt1, src2, tgt2)) {
-                      currentCrossings++;
+                      testCrossings++;
                     }
                   });
                 });
                 
-                // Test both positions
-                const testPositions = [pos1, pos2];
-                let bestPos = nodePos;
-                let bestCrossings = currentCrossings;
+                // Restore original position
+                node.position(originalPos);
                 
-                testPositions.forEach(testPos => {
-                  let testCrossings = 0;
-                  
-                  cy.edges().forEach(edge => {
-                    if (nodeEdges.some(e => e.id() === edge.id())) return;
-                    
-                    // Check crossings for both edges from the test position
-                    const src2 = edge.source().position();
-                    const tgt2 = edge.target().position();
-                    
-                    if (edgesIntersect(testPos, n1Pos, src2, tgt2)) {
-                      testCrossings++;
-                    }
-                    if (edgesIntersect(testPos, n2Pos, src2, tgt2)) {
-                      testCrossings++;
-                    }
-                  });
-                  
-                  if (testCrossings < bestCrossings) {
-                    bestCrossings = testCrossings;
-                    bestPos = testPos;
-                  }
-                });
-                
-                if (bestCrossings < currentCrossings) {
-                  node.position(bestPos);
-                  crossingsFixed += (currentCrossings - bestCrossings) / 2; // Divide by 2 since we count each crossing twice
-                  console.log(`Moved node ${node.id()} to opposite side, reduced ${(currentCrossings - bestCrossings) / 2} crossings`);
+                if (testCrossings < bestCrossings) {
+                  bestCrossings = testCrossings;
+                  bestPos = {...testPos};
                 }
+              });
+              
+              if (bestCrossings < currentCrossings) {
+                node.position(bestPos);
+                crossingsFixed += currentCrossings - bestCrossings;
+                console.log(`Moved node ${node.id()} to new position, reduced ${currentCrossings - bestCrossings} crossings`);
               }
             }
           });
@@ -1369,8 +1673,8 @@
               const n1 = neighborsByAngle[i].node;
               const n2 = neighborsByAngle[next].node;
               
-              // Only consider if both have low degree
-              if (n1.degree() > 2 || n2.degree() > 2) continue;
+              // Only consider if both have degree <= 5
+              if (n1.degree() > 5 || n2.degree() > 5) continue;
               
               // Count crossings before swap
               let beforeCrossings = 0;
@@ -1494,8 +1798,103 @@
             console.warn(`Restored ${invalidNodes} nodes to original positions due to invalid coordinates`);
           }
           
-          console.log(`Fixed ${crossingsFixed} edge crossings by repositioning nodes`);
-        };
+          // Fourth pass: Target specific edges with multiple crossings
+          cy.edges().forEach(edge => {
+            const src = edge.source();
+            const tgt = edge.target();
+            
+            // Skip if nodes have very high degree
+            if (src.degree() > 6 || tgt.degree() > 6) return;
+            
+            // Count how many edges this edge crosses
+            let edgeCrossings = 0;
+            const srcPos = src.position();
+            const tgtPos = tgt.position();
+            
+            cy.edges().forEach(otherEdge => {
+              if (edge.id() === otherEdge.id()) return;
+              
+              // Skip if edges share a node
+              if (src.id() === otherEdge.source().id() || src.id() === otherEdge.target().id() ||
+                  tgt.id() === otherEdge.source().id() || tgt.id() === otherEdge.target().id()) {
+                return;
+              }
+              
+              const otherSrcPos = otherEdge.source().position();
+              const otherTgtPos = otherEdge.target().position();
+              
+              if (edgesIntersect(srcPos, tgtPos, otherSrcPos, otherTgtPos)) {
+                edgeCrossings++;
+              }
+            });
+            
+            // Debug specific edges
+            if ((src.id() === '4845' && tgt.id() === '3581') || (src.id() === '3581' && tgt.id() === '4845') ||
+                (src.id() === '2409' && tgt.id() === '3581') || (src.id() === '3581' && tgt.id() === '2409') ||
+                (src.id() === '2031' && tgt.id() === '1078') || (src.id() === '1078' && tgt.id() === '2031')) {
+              console.log(`DEBUG: Edge ${src.id()}-${tgt.id()} has ${edgeCrossings} crossings`);
+            }
+            
+            // If this edge has 2+ crossings, try to fix it
+            if (edgeCrossings >= 2) {
+              console.log(`Edge ${src.id()}-${tgt.id()} has ${edgeCrossings} crossings, attempting to fix...`);
+              
+              // Try moving the source node to different positions
+              const originalSrcPos = {...srcPos};
+              let bestSrcPos = originalSrcPos;
+              let bestCrossings = edgeCrossings;
+              
+              // Test positions around the target
+              const angles = [0, Math.PI/4, Math.PI/2, 3*Math.PI/4, Math.PI, -3*Math.PI/4, -Math.PI/2, -Math.PI/4];
+              const distance = Math.sqrt(Math.pow(srcPos.x - tgtPos.x, 2) + Math.pow(srcPos.y - tgtPos.y, 2));
+              
+              angles.forEach(angle => {
+                const testPos = {
+                  x: tgtPos.x + distance * Math.cos(angle),
+                  y: tgtPos.y + distance * Math.sin(angle)
+                };
+                
+                // Temporarily move source to test position
+                src.position(testPos);
+                
+                // Count crossings with this position
+                let testCrossings = 0;
+                cy.edges().forEach(otherEdge => {
+                  if (edge.id() === otherEdge.id()) return;
+                  
+                  if (src.id() === otherEdge.source().id() || src.id() === otherEdge.target().id() ||
+                      tgt.id() === otherEdge.source().id() || tgt.id() === otherEdge.target().id()) {
+                    return;
+                  }
+                  
+                  const newSrcPos = src.position();
+                  const otherSrcPos = otherEdge.source().position();
+                  const otherTgtPos = otherEdge.target().position();
+                  
+                  if (edgesIntersect(newSrcPos, tgtPos, otherSrcPos, otherTgtPos)) {
+                    testCrossings++;
+                  }
+                });
+                
+                if (testCrossings < bestCrossings) {
+                  bestCrossings = testCrossings;
+                  bestSrcPos = {...testPos};
+                }
+              });
+              
+              // Apply best position
+              if (bestCrossings < edgeCrossings) {
+                src.position(bestSrcPos);
+                crossingsFixed += edgeCrossings - bestCrossings;
+                console.log(`  Reduced crossings for edge ${src.id()}-${tgt.id()} from ${edgeCrossings} to ${bestCrossings}`);
+              } else {
+                src.position(originalSrcPos);
+              }
+            }
+          });
+          
+          // Removed - this was part of the problematic extra passes
+          */
         
         // Helper function to check if two line segments intersect
         function edgesIntersect(p1, p2, p3, p4) {
@@ -1952,6 +2351,14 @@
               afterCollisions = countNodeEdgeCollisions(cy);
               console.log(`After Fix Regions cleanup: ${afterCrossings} crossings, ${afterCollisions} collisions`);
             }
+            
+            // Run collision fixing to handle node/edge overlaps
+            console.log('Running collision fixing...');
+            fixNodeEdgeCollisions();
+            
+            const finalCrossings = countCrossings(cy);
+            const finalCollisions = countNodeEdgeCollisions(cy);
+            console.log(`After collision fixing: ${finalCrossings} crossings, ${finalCollisions} collisions`);
             
             // Fit to view
             cy.fit();
