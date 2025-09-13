@@ -1353,6 +1353,189 @@
                     // Try a gentler spacing adjustment without forces
                     // Just nudge nodes that are too close apart
                     console.log('Applying gentle spacing adjustment for nodes that are too close...');
+
+          // Function to detect and fix three-node clusters
+          const breakUpThreeNodeClusters = () => {
+            const nodes = cy.nodes();
+            const minNodeDistance = 45; // Minimum distance between nodes in a cluster
+            let clustersFixed = 0;
+
+            // Check all possible triplets of nodes
+            for (let i = 0; i < nodes.length - 2; i++) {
+              for (let j = i + 1; j < nodes.length - 1; j++) {
+                for (let k = j + 1; k < nodes.length; k++) {
+                  const n1 = nodes[i];
+                  const n2 = nodes[j];
+                  const n3 = nodes[k];
+
+                  const p1 = n1.position();
+                  const p2 = n2.position();
+                  const p3 = n3.position();
+
+                  // Calculate distances between all three nodes
+                  const d12 = Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+                  const d13 = Math.sqrt(Math.pow(p1.x - p3.x, 2) + Math.pow(p1.y - p3.y, 2));
+                  const d23 = Math.sqrt(Math.pow(p2.x - p3.x, 2) + Math.pow(p2.y - p3.y, 2));
+
+                  // Check if all three nodes are too close (forming a tight cluster)
+                  if (d12 < minNodeDistance && d13 < minNodeDistance && d23 < minNodeDistance) {
+                    console.log(`Found three-node cluster: ${n1.id()}, ${n2.id()}, ${n3.id()} (distances: ${d12.toFixed(1)}, ${d13.toFixed(1)}, ${d23.toFixed(1)})`);
+
+                    // Find the center of the cluster
+                    const centerX = (p1.x + p2.x + p3.x) / 3;
+                    const centerY = (p1.y + p2.y + p3.y) / 3;
+
+                    // Check which nodes are connected to determine best arrangement
+                    const n1n2Connected = n1.neighborhood().nodes().some(n => n.id() === n2.id());
+                    const n1n3Connected = n1.neighborhood().nodes().some(n => n.id() === n3.id());
+                    const n2n3Connected = n2.neighborhood().nodes().some(n => n.id() === n3.id());
+
+                    // If they form a triangle, spread them out evenly
+                    if (n1n2Connected && n1n3Connected && n2n3Connected) {
+                      const pushDistance = minNodeDistance * 1.2;
+                      const angles = [0, 2 * Math.PI / 3, 4 * Math.PI / 3];
+
+                      [n1, n2, n3].forEach((node, idx) => {
+                        const angle = angles[idx];
+                        const newX = centerX + Math.cos(angle) * pushDistance;
+                        const newY = centerY + Math.sin(angle) * pushDistance;
+                        node.position({ x: newX, y: newY });
+                      });
+                      console.log(`  Spread triangle nodes evenly`);
+                    } else {
+                      // Otherwise, just push them apart slightly
+                      [n1, n2, n3].forEach(node => {
+                        const pos = node.position();
+                        const dx = pos.x - centerX;
+                        const dy = pos.y - centerY;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist > 0) {
+                          const pushFactor = minNodeDistance / dist;
+                          node.position({
+                            x: centerX + dx * pushFactor,
+                            y: centerY + dy * pushFactor
+                          });
+                        }
+                      });
+                      console.log(`  Pushed nodes apart from center`);
+                    }
+                    clustersFixed++;
+                  }
+                }
+              }
+            }
+
+            if (clustersFixed > 0) {
+              console.log(`Fixed ${clustersFixed} three-node clusters`);
+            }
+            return clustersFixed > 0;
+          };
+
+          // Check for and fix three-node clusters
+          if (breakUpThreeNodeClusters()) {
+            // Recount metrics after breaking up clusters
+            const finalCrossings = countCrossings(cy);
+            const finalCollisions = countNodeEdgeCollisions(cy);
+            console.log(`After breaking up clusters: ${finalCrossings} crossings, ${finalCollisions} collisions`);
+          }
+
+          // Function to detect and separate overlapping nodes
+          const separateOverlappingNodes = () => {
+            const nodes = cy.nodes();
+            const minDistance = 20; // Minimum distance between any two nodes
+            let overlapsFixed = 0;
+
+            for (let i = 0; i < nodes.length - 1; i++) {
+              for (let j = i + 1; j < nodes.length; j++) {
+                const n1 = nodes[i];
+                const n2 = nodes[j];
+                const p1 = n1.position();
+                const p2 = n2.position();
+
+                const distance = Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+
+                if (distance < minDistance) {
+                  console.log(`WARNING: Nodes ${n1.id()} and ${n2.id()} are overlapping or too close (distance: ${distance.toFixed(1)}px)`);
+                  console.log(`  ${n1.id()} at (${p1.x.toFixed(1)}, ${p1.y.toFixed(1)})`);
+                  console.log(`  ${n2.id()} at (${p2.x.toFixed(1)}, ${p2.y.toFixed(1)})`);
+
+                  // If nodes are at exactly the same position, push them apart more aggressively
+                  if (distance < 1) {
+                    // Nodes are essentially at the same position
+                    const angle = Math.random() * 2 * Math.PI;
+                    const pushDist = minDistance * 2;
+
+                    n1.position({
+                      x: p1.x + Math.cos(angle) * pushDist,
+                      y: p1.y + Math.sin(angle) * pushDist
+                    });
+
+                    n2.position({
+                      x: p2.x - Math.cos(angle) * pushDist,
+                      y: p2.y - Math.sin(angle) * pushDist
+                    });
+
+                    console.log(`  Separated overlapping nodes with push distance ${pushDist}`);
+                  } else {
+                    // Nodes are just too close, nudge them apart
+                    const dx = p2.x - p1.x;
+                    const dy = p2.y - p1.y;
+                    const factor = (minDistance * 1.5) / distance;
+
+                    const midX = (p1.x + p2.x) / 2;
+                    const midY = (p1.y + p2.y) / 2;
+
+                    n1.position({
+                      x: midX - dx * factor / 2,
+                      y: midY - dy * factor / 2
+                    });
+
+                    n2.position({
+                      x: midX + dx * factor / 2,
+                      y: midY + dy * factor / 2
+                    });
+
+                    console.log(`  Nudged nodes apart to minimum distance`);
+                  }
+                  overlapsFixed++;
+                }
+              }
+            }
+
+            if (overlapsFixed > 0) {
+              console.log(`Fixed ${overlapsFixed} overlapping node pairs`);
+            }
+            return overlapsFixed > 0;
+          };
+
+          // Check for overlapping nodes and separate them
+          if (separateOverlappingNodes()) {
+            const finalCrossings = countCrossings(cy);
+            const finalCollisions = countNodeEdgeCollisions(cy);
+            console.log(`After separating overlaps: ${finalCrossings} crossings, ${finalCollisions} collisions`);
+
+            // If we still have serious overlaps, consider triggering a complete re-layout
+            const checkForSeriousOverlaps = () => {
+              const nodes = cy.nodes();
+              for (let i = 0; i < nodes.length - 1; i++) {
+                for (let j = i + 1; j < nodes.length; j++) {
+                  const p1 = nodes[i].position();
+                  const p2 = nodes[j].position();
+                  const dist = Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+                  if (dist < 5) {
+                    return true; // Found nodes that are essentially on top of each other
+                  }
+                }
+              }
+              return false;
+            };
+
+            if (checkForSeriousOverlaps()) {
+              console.error('CRITICAL: Nodes still overlapping after fixes. Consider re-running entire layout.');
+              // Could trigger a complete re-layout here if needed
+              // For now, just log the error
+            }
+          }
                     const minDist = parseInt(document.getElementById('minNodeDist').value, 10) || 4;
                     let nudgeIterations = 0;
                     const maxNudgeIterations = 5;
@@ -1492,6 +1675,11 @@
                   
                   // Resize the view after final refinement
                   cy.fit();
+
+                  // Log final layout completion for automatic layout
+                  const autoFinalCrossings = countCrossings(cy);
+                  const autoFinalCollisions = countNodeEdgeCollisions(cy);
+                  console.log(`=== LAYOUT COMPLETE === Edge crossings: ${autoFinalCrossings}, Node collisions: ${autoFinalCollisions}`);
                 }
             }
           }
@@ -1511,8 +1699,40 @@
             const cycles = [];
             const nodes = cy.nodes();
             const cycleSet = new Set(); // To avoid duplicate cycles
-            
-            // For small graphs, find 4-cycles (boxes)
+
+            // First, find 3-cycles (triangles) - these are important for avoiding clusters
+            nodes.forEach(n1 => {
+              const n1Neighbors = n1.neighborhood().nodes();
+
+              n1Neighbors.forEach(n2 => {
+                // Avoid checking same pair twice
+                if (parseInt(n2.id()) <= parseInt(n1.id())) return;
+
+                // Check if any of n1's neighbors is also connected to n2
+                n1Neighbors.forEach(n3 => {
+                  if (n3.id() === n2.id()) return;
+                  if (parseInt(n3.id()) <= parseInt(n1.id())) return;
+
+                  // Check if n3 is connected to n2 (completing the triangle)
+                  const n2Neighbors = n2.neighborhood().nodes();
+                  if (n2Neighbors.some(n => n.id() === n3.id())) {
+                    // We have a triangle: n1-n2-n3-n1
+                    const cycleIds = [n1.id(), n2.id(), n3.id()]
+                      .map(id => parseInt(id))
+                      .sort((a, b) => a - b)
+                      .join('-');
+
+                    if (!cycleSet.has(cycleIds)) {
+                      cycleSet.add(cycleIds);
+                      cycles.push([n1, n2, n3]);
+                      console.log(`Found 3-cycle (triangle): ${n1.id()} -> ${n2.id()} -> ${n3.id()} -> ${n1.id()}`);
+                    }
+                  }
+                });
+              });
+            });
+
+            // For small graphs, also find 4-cycles (boxes)
             // A 4-cycle is: n1 -> n2 -> n4 -> n3 -> n1
             nodes.forEach(n1 => {
               const n1Edges = n1.connectedEdges();
@@ -1558,8 +1778,11 @@
               });
             });
             
-            console.log(`Total cycles found: ${cycles.length}`);
-            
+            console.log(`Total cycles found: ${cycles.length} (${cycles.filter(c => c.length === 3).length} triangles, ${cycles.filter(c => c.length === 4).length} 4-cycles)`);
+
+            // Sort cycles by size - handle triangles first as they're more problematic
+            cycles.sort((a, b) => a.length - b.length);
+
             // If no cycles found with strict method, try alternative approach
             if (cycles.length === 0) {
               console.log('No cycles found with strict method, trying alternative approach...');
@@ -1626,6 +1849,9 @@
           
           // Determine if a node should be inside, outside, or unchanged relative to a cycle
           const getNodePlacement = (node, cycle) => {
+            // For triangles, be very conservative about placing nodes inside
+            const isTriangle = cycle.length === 3;
+
             // Check if node is connected to cycle nodes
             let connections = 0;
             const connectedCycleNodes = [];
@@ -1635,9 +1861,9 @@
                 connectedCycleNodes.push(cycleNode);
               }
             });
-            
+
             // Count non-cycle connections
-            const nonCycleConnections = node.neighborhood().nodes().filter(n => 
+            const nonCycleConnections = node.neighborhood().nodes().filter(n =>
               !cycle.some(cn => cn.id() === n.id())
             ).length;
             
@@ -1669,8 +1895,10 @@
             });
             avgCycleDistance /= cycle.length;
             
-            const isCurrentlyInside = distToCenter < avgCycleDistance * 0.8;
-            
+            // For triangles, use a tighter threshold to avoid falsely detecting nodes as inside
+            const insideThreshold = isTriangle ? 0.6 : 0.8;
+            const isCurrentlyInside = distToCenter < avgCycleDistance * insideThreshold;
+
             // Decision logic
             if (connections >= 3) {
               // 3+ connections to cycle: definitely inside
@@ -1679,6 +1907,12 @@
                 return 'inside';
               }
             } else if (connections === 2) {
+              // For triangles, NEVER place nodes inside unless absolutely necessary
+              if (isTriangle) {
+                // With triangles, only place inside if connected to ALL nodes
+                return 'unchanged';
+              }
+
               // 2 connections: depends on whether they're adjacent in the cycle and external connections
               if (nonCycleConnections === 0) {
                 // Check if the two connected cycle nodes are adjacent in the cycle
@@ -1831,7 +2065,8 @@
           
           cycles.forEach((cycle, idx) => {
             const cycleNodeIds = cycle.map(n => n.id()).join(', ');
-            console.log(`Checking cycle ${idx + 1}: [${cycleNodeIds}]`);
+            const cycleType = cycle.length === 3 ? 'triangle' : `${cycle.length}-cycle`;
+            console.log(`Checking ${cycleType} ${idx + 1}: [${cycleNodeIds}]`);
             
             cy.nodes().forEach(node => {
               // Skip nodes that are part of the cycle
@@ -2498,16 +2733,24 @@
                   
                   // Check distance from node1's new position (pos2) to other nodes
                   const dist1 = Math.sqrt(Math.pow(pos2.x - otherPos.x, 2) + Math.pow(pos2.y - otherPos.y, 2));
-                  if (dist1 < minNodeDistance) {
+                  if (dist1 < 0.01) {
+                    // Nodes would be at exactly the same position!
+                    console.log(`    ERROR: Swap would place ${node1.id()} at EXACT SAME position as ${otherNode.id()}!`);
+                    createsOverlap = true;
+                  } else if (dist1 < minNodeDistance) {
                     if (otherNode.id() === '4007' || node1.id() === '4007') {
                       console.log(`    Swap would place ${node1.id()} too close to ${otherNode.id()} (${dist1.toFixed(1)}px)`);
                     }
                     createsOverlap = true;
                   }
-                  
+
                   // Check distance from node2's new position (pos1) to other nodes
                   const dist2 = Math.sqrt(Math.pow(pos1.x - otherPos.x, 2) + Math.pow(pos1.y - otherPos.y, 2));
-                  if (dist2 < minNodeDistance) {
+                  if (dist2 < 0.01) {
+                    // Nodes would be at exactly the same position!
+                    console.log(`    ERROR: Swap would place ${node2.id()} at EXACT SAME position as ${otherNode.id()}!`);
+                    createsOverlap = true;
+                  } else if (dist2 < minNodeDistance) {
                     if (otherNode.id() === '4007' || node2.id() === '4007') {
                       console.log(`    Swap would place ${node2.id()} too close to ${otherNode.id()} (${dist2.toFixed(1)}px)`);
                     }
@@ -3812,9 +4055,12 @@
             const finalCrossings = countCrossings(cy);
             const finalCollisions = countNodeEdgeCollisions(cy);
             console.log(`After collision fixing: ${finalCrossings} crossings, ${finalCollisions} collisions`);
-            
+
             // Fit to view
             cy.fit();
+
+            // Log final layout completion
+            console.log(`=== LAYOUT COMPLETE === Edge crossings: ${finalCrossings}, Node collisions: ${finalCollisions}`);
           }
         });
         
