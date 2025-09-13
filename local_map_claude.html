@@ -120,6 +120,7 @@
       let fixSpecificCrossings = null;
       let applyCurvedEdges = null;
       let fixEnclosedRegions = null;
+      let untangleKnots = null;
       
       // --- Graph helpers ---
       const TAU = Math.PI * 2;
@@ -196,8 +197,9 @@
       }
       
       // Function to count node/edge collisions
-      function countNodeEdgeCollisions(cyInstance) {
+      function countNodeEdgeCollisions(cyInstance, verbose = false) {
         let collisions = 0;
+        const collisionDetails = [];
         const minDist = parseInt(document.getElementById('minNodeDist').value, 10) || 6;
         const nodeRadius = 20; // Node radius plus label space
         
@@ -237,11 +239,34 @@
                 // If edge passes through or very close to node
                 if (distance < nodeRadius + minDist) {
                   collisions++;
+                  if (verbose) {
+                    collisionDetails.push({
+                      node: node.id(),
+                      edge: `${src.id()}-${tgt.id()}`,
+                      distance: distance.toFixed(1)
+                    });
+                  }
                 }
               }
             }
           });
         });
+        
+        if (verbose && collisionDetails.length > 0) {
+          console.log(`Collision details (${collisionDetails.length} total):`);
+          // Group by node
+          const byNode = {};
+          collisionDetails.forEach(detail => {
+            if (!byNode[detail.node]) {
+              byNode[detail.node] = [];
+            }
+            byNode[detail.node].push(detail.edge);
+          });
+          
+          Object.entries(byNode).forEach(([node, edges]) => {
+            console.log(`  Node ${node} collides with edges: ${edges.join(', ')}`);
+          });
+        }
         
         return collisions;
       }
@@ -447,17 +472,22 @@
               let bestCollisions = collisions;
               
               // Try up to 12 different random layouts, but stop early if perfect
-              const maxAttempts = 12;
+              let maxAttempts = 12;
               let actualAttempts = 0;
               
               for (let attempt = 0; attempt < maxAttempts; attempt++) {
                 actualAttempts++;
                 console.log(`Starting optimization attempt ${attempt + 1} of ${maxAttempts}...`);
                 
+                // Add small delay between attempts to clear any internal state
+                if (attempt > 0) {
+                  await new Promise(resolve => setTimeout(resolve, 50));
+                }
+                
                 // Re-run layout with new random seed (don't recreate entire Cytoscape)
                 const optLayoutOptions = {
                   name: 'fcose',
-                  quality: 'proof',
+                  quality: attempt % 3 === 0 ? 'proof' : 'default', // Mix quality settings for variety
                   randomize: true,
                   animate: false,
                   fit: false,  // Don't fit during optimization attempts
@@ -540,6 +570,12 @@
                     console.log(`Perfect layout found after ${actualAttempts} attempts!`);
                     break;
                   }
+                  
+                  // If we're close (just 1 crossing/collision) and haven't tried many extra attempts, keep trying
+                  if (bestScore === 1 && attempt === maxAttempts - 1 && maxAttempts < 20) {
+                    console.log(`Close to perfect (score=1), trying ${4} more attempts...`);
+                    maxAttempts += 4;
+                  }
                 } else {
                   console.log('Warning: cy is undefined after layout attempt');
                 }
@@ -579,18 +615,30 @@
                   const initialCrossings = bestCrossings;
                   const initialCollisions = bestCollisions;
                   
-                  let previousCrossings = bestCrossings;
-                  let previousPositions = {...initialPositions};
-                  let penultimatePositions = {...initialPositions};
-                  let iterations = 0;
-                  const maxIterations = 5;
-                  let improvedAtLeastOnce = false;
+                  // Run Fix Regions
+                  fixEnclosedRegions();
                   
-                  // Always run at least one iteration to give layout adjustment a chance
-                  do {
-                    penultimatePositions = {...previousPositions};
+                  // Check metrics after Fix Regions
+                  const afterRegionsCrossings = countCrossings(cy);
+                  const afterRegionsCollisions = countNodeEdgeCollisions(cy, true);
+                  console.log(`After Fix Regions: ${afterRegionsCrossings} crossings, ${afterRegionsCollisions} collisions`);
+                  
+                  // Detect if Fix Regions created a knot
+                  const createdKnot = (afterRegionsCrossings > initialCrossings || afterRegionsCollisions > initialCollisions * 2);
+                  
+                  if (createdKnot) {
+                    console.log(`Fix Regions created a knot (${initialCrossings}→${afterRegionsCrossings} crossings, ${initialCollisions}→${afterRegionsCollisions} collisions)`);
                     
-                    fixEnclosedRegions();
+                    // Restore initial positions
+                    cy.nodes().forEach(node => {
+                      if (initialPositions[node.id()]) {
+                        node.position(initialPositions[node.id()]);
+                      }
+                    });
+                    console.log('Restored initial positions due to knot creation');
+                  } else {
+                    // Fix Regions helped or was neutral, continue with rest of optimization
+                    console.log('Fix Regions completed without creating knots');
                     
                     // Small layout adjustment - this can make unsolvable crossings solvable!
                     await new Promise(resolve => {
@@ -613,69 +661,18 @@
                       });
                     });
                     
-                    const currentCrossings = countCrossings(cy);
-                    const currentCollisions = countNodeEdgeCollisions(cy);
-                    console.log(`  Fix Regions iteration ${iterations + 1}: ${currentCrossings} crossings, ${currentCollisions} collisions`);
-                    
-                    iterations++;
-                    
-                    // Check if we've improved
-                    if (currentCrossings < previousCrossings) {
-                      improvedAtLeastOnce = true;
-                      // Save current positions
-                      cy.nodes().forEach(node => {
-                        previousPositions[node.id()] = node.position();
-                      });
-                      previousCrossings = currentCrossings;
-                    } else if (iterations > 1) {
-                      // No improvement after first iteration, restore previous good positions
-                      cy.nodes().forEach(node => {
-                        if (previousPositions[node.id()]) {
-                          node.position(previousPositions[node.id()]);
-                        }
-                      });
-                      console.log('Fix Regions iteration made no improvement, restored previous positions');
-                      break;
+                    // Run Fix Crossings
+                    if (fixSpecificCrossings) {
+                      fixSpecificCrossings();
                     }
-                  } while (iterations < maxIterations && previousCrossings > 0);
-                  
-                  // Run specific crossing fixes after Fix Regions completes
-                  console.log('Running crossing fixes after Fix Regions...');
-                  if (typeof fixSpecificCrossings === 'function') {
-                    fixSpecificCrossings();
-                    const afterCrossingsCrossings = countCrossings(cy);
-                    const afterCrossingCollisions = countNodeEdgeCollisions(cy);
-                    console.log(`After crossing fixes: ${afterCrossingsCrossings} crossings, ${afterCrossingCollisions} collisions`);
-                  } else {
-                    console.log('WARNING: fixSpecificCrossings is not defined!');
-                  }
-                  
-                  const finalCrossings = countCrossings(cy);
-                  const finalCollisions = countNodeEdgeCollisions(cy);
-                  console.log(`Final result: ${finalCrossings} crossings, ${finalCollisions} collisions`);
-                  
-                  // Conservative approach: restore initial positions if we made things worse
-                  // We require BOTH metrics to be no worse than initial (stricter condition)
-                  const improvedCrossings = finalCrossings <= initialCrossings;
-                  const improvedCollisions = finalCollisions <= initialCollisions;
-                  const overallImproved = improvedCrossings && improvedCollisions && 
-                                          (finalCrossings < initialCrossings || finalCollisions < initialCollisions);
-                  
-                  if (!overallImproved) {
-                    console.log(`Fix Regions + Crossings sequence did not improve metrics (${initialCrossings}→${finalCrossings} crossings, ${initialCollisions}→${finalCollisions} collisions), restoring initial positions`);
-                    cy.nodes().forEach(node => {
-                      if (initialPositions[node.id()]) {
-                        node.position(initialPositions[node.id()]);
-                      }
-                    });
-                    // Update best values back to initial
-                    bestCrossings = initialCrossings;
-                    bestCollisions = initialCollisions;
-                  } else {
-                    // We improved, update best values
+                    
+                    const finalCrossings = countCrossings(cy);
+                    const finalCollisions = countNodeEdgeCollisions(cy);
+                    console.log(`Final optimization result: ${finalCrossings} crossings, ${finalCollisions} collisions`);
+                    
+                    // Update best metrics
                     bestCrossings = finalCrossings;
                     bestCollisions = finalCollisions;
-                    console.log(`Fix Regions + Crossings improved metrics: ${initialCrossings}→${finalCrossings} crossings, ${initialCollisions}→${finalCollisions} collisions`);
                   }
                   
                   // Fit to view after Fix Regions
@@ -983,7 +980,11 @@
             });
           });
           
+          // Report final metrics after Fix Regions
+          const crossingsAfterFix = countCrossings(cy);
+          const collisionsAfterFix = countNodeEdgeCollisions(cy, true); // Enable verbose mode to see collision details
           console.log(`Fix Regions complete: ${nodesMovedIn} nodes moved IN, ${nodesMovedOut} nodes moved OUT`);
+          console.log(`  Metrics after Fix Regions: ${crossingsAfterFix} crossings, ${collisionsAfterFix} collisions`);
         };
         
         // Function to fix node/edge collisions
@@ -1295,6 +1296,89 @@
           
           // Return the number of crossings fixed
           return crossingsFixed;
+        };
+        
+        // Function to untangle knots by contracting then expanding
+        untangleKnots = async () => {
+          if (!cy) return;
+          
+          console.log('Attempting to untangle knots...');
+          
+          // Save initial positions in case we make things worse
+          const beforePositions = {};
+          cy.nodes().forEach(node => {
+            beforePositions[node.id()] = {...node.position()};
+          });
+          
+          const beforeCrossings = countCrossings(cy);
+          const beforeCollisions = countNodeEdgeCollisions(cy);
+          
+          // Phase 1: Contract - pull everything tight together
+          console.log('  Phase 1: Contracting nodes...');
+          await new Promise(resolve => {
+            cy.layout({
+              name: 'fcose',
+              quality: 'default',
+              numIter: 500,
+              animate: false,
+              randomize: false,
+              idealEdgeLength: 30,    // Very short edges
+              nodeRepulsion: 500,     // Weak repulsion
+              edgeElasticity: 0.8,    // Strong springs
+              gravity: 5,             // Strong gravity to center
+              gravityRange: 0.8,
+              componentSpacing: 10
+            }).run();
+            
+            cy.one('layoutstop', () => {
+              setTimeout(resolve, 100);
+            });
+          });
+          
+          // Phase 2: Expand - let it breathe and spread out
+          console.log('  Phase 2: Expanding layout...');
+          await new Promise(resolve => {
+            cy.layout({
+              name: 'fcose',
+              quality: 'proof',
+              numIter: 1000,
+              animate: false,
+              randomize: false,
+              idealEdgeLength: edge => {
+                const minNodeDist = parseInt(document.getElementById('minNodeDist').value, 10) || 6;
+                return Math.max(minNodeDist * 2, 80);
+              },
+              nodeRepulsion: node => {
+                const nodeRepulsion = parseInt(document.getElementById('nodeRepulsion').value, 10) || 16000;
+                return nodeRepulsion;
+              },
+              edgeElasticity: 0.45,
+              gravity: 0.5,
+              gravityRange: 0.8
+            }).run();
+            
+            cy.one('layoutstop', () => {
+              setTimeout(resolve, 100);
+            });
+          });
+          
+          const afterCrossings = countCrossings(cy);
+          const afterCollisions = countNodeEdgeCollisions(cy);
+          
+          console.log(`  Untangle result: ${beforeCrossings}→${afterCrossings} crossings, ${beforeCollisions}→${afterCollisions} collisions`);
+          
+          // Restore if we made things worse
+          if (afterCrossings > beforeCrossings || afterCollisions > beforeCollisions * 2) {
+            console.log('  Untangle made things worse, restoring positions');
+            cy.nodes().forEach(node => {
+              if (beforePositions[node.id()]) {
+                node.position(beforePositions[node.id()]);
+              }
+            });
+            return false;
+          }
+          
+          return true;
         };
         
         // Old code for other passes removed - they were causing problems
@@ -2022,8 +2106,9 @@
           }
           
           // Function to count node/edge collisions
-          function countNodeEdgeCollisions(cyInstance) {
+          function countNodeEdgeCollisions(cyInstance, verbose = false) {
             let collisions = 0;
+            const collisionDetails = [];
             const minDist = parseInt(document.getElementById('minNodeDist').value, 10) || 6;
             const nodeRadius = 20; // Node radius plus label space
             
@@ -2063,11 +2148,34 @@
                     // If edge passes through or very close to node
                     if (distance < nodeRadius + minDist) {
                       collisions++;
+                      if (verbose) {
+                        collisionDetails.push({
+                          node: node.id(),
+                          edge: `${src.id()}-${tgt.id()}`,
+                          distance: distance.toFixed(1)
+                        });
+                      }
                     }
                   }
                 }
               });
             });
+            
+            if (verbose && collisionDetails.length > 0) {
+              console.log(`Collision details (${collisionDetails.length} total):`);
+              // Group by node
+              const byNode = {};
+              collisionDetails.forEach(detail => {
+                if (!byNode[detail.node]) {
+                  byNode[detail.node] = [];
+                }
+                byNode[detail.node].push(detail.edge);
+              });
+              
+              Object.entries(byNode).forEach(([node, edges]) => {
+                console.log(`  Node ${node} collides with edges: ${edges.join(', ')}`);
+              });
+            }
             
             return collisions;
           }
@@ -2302,9 +2410,9 @@
         
         fixCrossingsBtn.addEventListener('click', async () => {
           if (fixSpecificCrossings && cy) {
-            const beforeCrossings = countCrossings(cy);
-            const beforeCollisions = countNodeEdgeCollisions(cy);
-            console.log(`Before Fix Crossings: ${beforeCrossings} crossings, ${beforeCollisions} collisions`);
+            const initialCrossings = countCrossings(cy);
+            const initialCollisions = countNodeEdgeCollisions(cy);
+            console.log(`Before Fix Crossings: ${initialCrossings} crossings, ${initialCollisions} collisions`);
             
             // Run Fix Crossings
             fixSpecificCrossings();
@@ -2312,6 +2420,27 @@
             let afterCrossings = countCrossings(cy);
             let afterCollisions = countNodeEdgeCollisions(cy);
             console.log(`After Fix Crossings: ${afterCrossings} crossings, ${afterCollisions} collisions`);
+            
+            // If Fix Crossings made things significantly worse (knot situation), try again
+            // This often happens when nodes are clustered together
+            if (afterCrossings > initialCrossings * 2 && afterCrossings >= 5) {
+              console.log(`Detected knot (${initialCrossings}→${afterCrossings} crossings), running Fix Crossings again...`);
+              fixSpecificCrossings();
+              
+              afterCrossings = countCrossings(cy);
+              afterCollisions = countNodeEdgeCollisions(cy);
+              console.log(`After second Fix Crossings: ${afterCrossings} crossings, ${afterCollisions} collisions`);
+              
+              // Try one more time if still bad
+              if (afterCrossings > initialCrossings * 1.5 && afterCrossings >= 3) {
+                console.log(`Still knotted (${afterCrossings} crossings), trying Fix Crossings once more...`);
+                fixSpecificCrossings();
+                
+                afterCrossings = countCrossings(cy);
+                afterCollisions = countNodeEdgeCollisions(cy);
+                console.log(`After third Fix Crossings: ${afterCrossings} crossings, ${afterCollisions} collisions`);
+              }
+            }
             
             // Run Fix Regions to clean up
             if (fixEnclosedRegions) {
