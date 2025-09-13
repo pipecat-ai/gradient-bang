@@ -84,8 +84,8 @@
           </div>
           <div class="row" style="margin-top:6px; align-items:center;">
             <label class="small" style="margin:0;">Min node distance (px)</label>
-            <input id="minNodeDist" type="range" min="2" max="20" step="1" value="6" style="width:160px;" />
-            <span id="minNodeDistVal" class="small muted">6</span>
+            <input id="minNodeDist" type="range" min="2" max="20" step="1" value="4" style="width:160px;" />
+            <span id="minNodeDistVal" class="small muted">4</span>
           </div>
           <div class="row" style="margin-top:6px; align-items:center;">
             <label class="small" style="margin:0;">Node repulsion</label>
@@ -96,6 +96,10 @@
             <input id="capMode" type="checkbox" checked />
             <label for="capMode" class="small" style="margin:0;">Node render max</label>
             <input id="maxNodes" type="number" min="5" max="500" step="1" value="25" style="width:80px; margin-left:8px;" />
+          </div>
+          <div class="row" style="margin-top:6px; align-items:center;">
+            <input id="skipOptRender" type="checkbox" checked />
+            <label for="skipOptRender" class="small" style="margin:0;">Skip render during optimization</label>
             <span class="small muted">(auto-calc hops)</span>
           </div>
           <div class="row" style="margin-top:6px; align-items:center;">
@@ -158,20 +162,39 @@
       }
 
       // Function to count edge crossings
-      function countCrossings(cyInstance) {
+      function countCrossings(cyInstance, debug = false) {
         let crossings = 0;
         const edges = cyInstance.edges();
+        const debugPairs = [['4555', '4007', '1109', '464'], ['464', '1109', '4007', '4555']];
         
         for (let i = 0; i < edges.length; i++) {
           for (let j = i + 1; j < edges.length; j++) {
             const e1 = edges[i];
             const e2 = edges[j];
             
+            const e1Src = e1.source().id();
+            const e1Tgt = e1.target().id();
+            const e2Src = e2.source().id();
+            const e2Tgt = e2.target().id();
+            
+            // Debug specific edge pairs
+            const isDebugPair = debugPairs.some(pair => 
+              (e1Src === pair[0] && e1Tgt === pair[1] && e2Src === pair[2] && e2Tgt === pair[3]) ||
+              (e1Src === pair[1] && e1Tgt === pair[0] && e2Src === pair[2] && e2Tgt === pair[3]) ||
+              (e1Src === pair[0] && e1Tgt === pair[1] && e2Src === pair[3] && e2Tgt === pair[2]) ||
+              (e1Src === pair[1] && e1Tgt === pair[0] && e2Src === pair[3] && e2Tgt === pair[2])
+            );
+            
+            if (debug && isDebugPair) {
+              console.log(`DEBUG: Checking edges ${e1Src}-${e1Tgt} vs ${e2Src}-${e2Tgt}`);
+            }
+            
             // Skip if edges share a node
-            if (e1.source().id() === e2.source().id() || 
-                e1.source().id() === e2.target().id() ||
-                e1.target().id() === e2.source().id() ||
-                e1.target().id() === e2.target().id()) {
+            if (e1Src === e2Src || e1Src === e2Tgt ||
+                e1Tgt === e2Src || e1Tgt === e2Tgt) {
+              if (debug && isDebugPair) {
+                console.log(`  Skipping: edges share a node`);
+              }
               continue;
             }
             
@@ -181,14 +204,45 @@
             const p3 = e2.source().position();
             const p4 = e2.target().position();
             
-            // Line segment intersection test
+            if (debug && isDebugPair) {
+              console.log(`  Positions:`);
+              console.log(`    ${e1Src}: (${p1.x.toFixed(2)}, ${p1.y.toFixed(2)})`);
+              console.log(`    ${e1Tgt}: (${p2.x.toFixed(2)}, ${p2.y.toFixed(2)})`);
+              console.log(`    ${e2Src}: (${p3.x.toFixed(2)}, ${p3.y.toFixed(2)})`);
+              console.log(`    ${e2Tgt}: (${p4.x.toFixed(2)}, ${p4.y.toFixed(2)})`);
+            }
+            
+            // Line segment intersection test with numerical precision handling
             const ccw = (A, B, C) => {
-              return (C.y - A.y) * (B.x - A.x) > (B.y - A.y) * (C.x - A.x);
+              const val = (C.y - A.y) * (B.x - A.x) - (B.y - A.y) * (C.x - A.x);
+              if (debug && isDebugPair) {
+                console.log(`    ccw(${A === p1 ? e1Src : A === p2 ? e1Tgt : A === p3 ? e2Src : e2Tgt}, ` +
+                           `${B === p1 ? e1Src : B === p2 ? e1Tgt : B === p3 ? e2Src : e2Tgt}, ` +
+                           `${C === p1 ? e1Src : C === p2 ? e1Tgt : C === p3 ? e2Src : e2Tgt}): ${val.toFixed(6)} -> ${val > 0}`);
+              }
+              // Use a small epsilon for numerical stability
+              const epsilon = 1e-10;
+              return Math.abs(val) < epsilon ? false : val > 0;
             };
             
-            if (ccw(p1, p3, p4) !== ccw(p2, p3, p4) && 
-                ccw(p1, p2, p3) !== ccw(p1, p2, p4)) {
+            const ccw1 = ccw(p1, p3, p4);
+            const ccw2 = ccw(p2, p3, p4);
+            const ccw3 = ccw(p1, p2, p3);
+            const ccw4 = ccw(p1, p2, p4);
+            
+            if (debug && isDebugPair) {
+              console.log(`  CCW results: ccw1=${ccw1}, ccw2=${ccw2}, ccw3=${ccw3}, ccw4=${ccw4}`);
+              console.log(`  Test 1: ccw1 !== ccw2 = ${ccw1 !== ccw2}`);
+              console.log(`  Test 2: ccw3 !== ccw4 = ${ccw3 !== ccw4}`);
+            }
+            
+            if (ccw1 !== ccw2 && ccw3 !== ccw4) {
               crossings++;
+              if (debug && isDebugPair) {
+                console.log(`  CROSSING DETECTED!`);
+              }
+            } else if (debug && isDebugPair) {
+              console.log(`  No crossing`);
             }
           }
         }
@@ -200,8 +254,8 @@
       function countNodeEdgeCollisions(cyInstance, verbose = false) {
         let collisions = 0;
         const collisionDetails = [];
-        const minDist = parseInt(document.getElementById('minNodeDist').value, 10) || 6;
-        const nodeRadius = 20; // Node radius plus label space
+        const minDist = parseInt(document.getElementById('minNodeDist').value, 10) || 4;
+        const nodeRadius = 20; // Node collision detection radius (includes small buffer)
         
         cyInstance.edges().forEach(edge => {
           const src = edge.source();
@@ -325,7 +379,7 @@
         }
         
         // Get layout parameters
-        const minNodeDist = parseInt(document.getElementById('minNodeDist').value, 10) || 6;
+        const minNodeDist = parseInt(document.getElementById('minNodeDist').value, 10) || 4;
         const nodeRepulsion = parseInt(document.getElementById('nodeRepulsion').value, 10) || 16000;
         
         // Configure layout options for high quality using fcose
@@ -475,6 +529,9 @@
               let maxAttempts = 12;
               let actualAttempts = 0;
               
+              // Check if we should skip rendering during optimization
+              const skipOptRender = document.getElementById('skipOptRender')?.checked ?? true;
+              
               for (let attempt = 0; attempt < maxAttempts; attempt++) {
                 actualAttempts++;
                 console.log(`Starting optimization attempt ${attempt + 1} of ${maxAttempts}...`);
@@ -482,6 +539,13 @@
                 // Add small delay between attempts to clear any internal state
                 if (attempt > 0) {
                   await new Promise(resolve => setTimeout(resolve, 50));
+                }
+                
+                // Make nodes invisible during optimization if skipOptRender is enabled
+                // Use opacity instead of display:none so layout can still calculate positions
+                if (skipOptRender && attempt > 0) {
+                  cy.nodes().style('opacity', '0');
+                  cy.edges().style('opacity', '0');
                 }
                 
                 // Re-run layout with new random seed (don't recreate entire Cytoscape)
@@ -493,7 +557,7 @@
                   fit: false,  // Don't fit during optimization attempts
                   nodeDimensionsIncludeLabels: true,
                   idealEdgeLength: edge => {
-                    const minNodeDist = parseInt(document.getElementById('minNodeDist').value, 10) || 6;
+                    const minNodeDist = parseInt(document.getElementById('minNodeDist').value, 10) || 4;
                     const src = edge.source();
                     const tgt = edge.target();
                     const srcDegree = src.degree();
@@ -570,18 +634,18 @@
                     console.log(`Perfect layout found after ${actualAttempts} attempts!`);
                     break;
                   }
-                  
-                  // If we're close (just 1 crossing/collision) and haven't tried many extra attempts, keep trying
-                  if (bestScore === 1 && attempt === maxAttempts - 1 && maxAttempts < 20) {
-                    console.log(`Close to perfect (score=1), trying ${4} more attempts...`);
-                    maxAttempts += 4;
-                  }
                 } else {
                   console.log('Warning: cy is undefined after layout attempt');
                 }
               }
               
               console.log(`Auto-optimization finished after ${actualAttempts} attempts with score ${bestScore}`)
+              
+              // Restore visibility if we hid elements during optimization
+              if (skipOptRender) {
+                cy.nodes().style('opacity', '1');
+                cy.edges().style('opacity', '1');
+              }
               
               // Apply best layout (if positions changed during optimization)
               if (bestPositions && cy) {
@@ -615,60 +679,384 @@
                   const initialCrossings = bestCrossings;
                   const initialCollisions = bestCollisions;
                   
-                  // Run Fix Regions
+                  // Run Fix Regions and capture which nodes were moved outside for having 0 connections
+                  const nodesWithZeroConnections = [];
+                  
+                  // Temporarily override console.log to capture Fix Regions output
+                  const originalLog = console.log;
+                  console.log = function(...args) {
+                    const message = args.join(' ');
+                    if (message.includes('should move OUTSIDE: no cycle connections')) {
+                      // Extract node ID from message like "Node 4007 should move OUTSIDE: no cycle connections"
+                      const match = message.match(/Node (\d+) should move OUTSIDE: no cycle connections/);
+                      if (match) {
+                        nodesWithZeroConnections.push(match[1]);
+                      }
+                    }
+                    originalLog.apply(console, args);
+                  };
+                  
                   fixEnclosedRegions();
                   
-                  // Check metrics after Fix Regions
+                  // Restore original console.log
+                  console.log = originalLog;
+                  
+                  // Debug: Check specific node positions
+                  ['2985', '464', '4555'].forEach(nodeId => {
+                    const node = cy.getElementById(nodeId);
+                    if (node && node.length > 0) {
+                      const pos = node.position();
+                      console.log(`DEBUG: Node ${nodeId} position after fixEnclosedRegions: (${pos.x.toFixed(2)}, ${pos.y.toFixed(2)})`);
+                    }
+                  });
+                  
+                  // Check metrics after Fix Regions (should use the final optimized state)
                   const afterRegionsCrossings = countCrossings(cy);
                   const afterRegionsCollisions = countNodeEdgeCollisions(cy, true);
                   console.log(`After Fix Regions: ${afterRegionsCrossings} crossings, ${afterRegionsCollisions} collisions`);
                   
-                  // Detect if Fix Regions created a knot
-                  const createdKnot = (afterRegionsCrossings > initialCrossings || afterRegionsCollisions > initialCollisions * 2);
+                  // Detect if Fix Regions made things worse using weighted scoring
+                  // Crossings are worse than collisions, so weight them more heavily
+                  const initialScore = initialCrossings * 3 + initialCollisions;
+                  const afterRegionsScore = afterRegionsCrossings * 3 + afterRegionsCollisions;
+                  
+                  // Only consider it a knot if the weighted score got significantly worse
+                  const createdKnot = afterRegionsScore > initialScore + 2;
+                  let restoredPositions = false;
                   
                   if (createdKnot) {
-                    console.log(`Fix Regions created a knot (${initialCrossings}→${afterRegionsCrossings} crossings, ${initialCollisions}→${afterRegionsCollisions} collisions)`);
+                    console.log(`Fix Regions made things worse (${initialCrossings}→${afterRegionsCrossings} crossings, ${initialCollisions}→${afterRegionsCollisions} collisions, score ${initialScore}→${afterRegionsScore})`);
                     
-                    // Restore initial positions
+                    // Restore initial positions, but keep nodes with 0 cycle connections outside
+                    // These nodes should never be inside a cycle
                     cy.nodes().forEach(node => {
-                      if (initialPositions[node.id()]) {
-                        node.position(initialPositions[node.id()]);
+                      const nodeId = node.id();
+                      
+                      // Skip restoration for nodes that were moved outside due to 0 cycle connections
+                      if (nodesWithZeroConnections.includes(nodeId)) {
+                        console.log(`Keeping node ${nodeId} outside (no cycle connections)`);
+                        return;
+                      }
+                      
+                      if (initialPositions[nodeId]) {
+                        node.position(initialPositions[nodeId]);
                       }
                     });
-                    console.log('Restored initial positions due to knot creation');
+                    console.log('Restored initial positions due to worse score (except nodes with 0 cycle connections)');
+                    restoredPositions = true;
+                    
+                    // Even though Fix Regions failed, try Fix Crossings on the restored positions
+                    // This often finds simple swaps that eliminate crossings
+                    if (fixSpecificCrossings && bestCrossings > 0) {
+                      console.log(`Trying Fix Crossings on restored positions (${bestCrossings} crossings)...`);
+                      fixSpecificCrossings();
+                      const afterFixCrossings = countCrossings(cy);
+                      console.log(`After Fix Crossings on restored positions: ${afterFixCrossings} crossings`);
+                      bestCrossings = afterFixCrossings;
+                      bestCollisions = countNodeEdgeCollisions(cy);
+                    }
                   } else {
                     // Fix Regions helped or was neutral, continue with rest of optimization
                     console.log('Fix Regions completed without creating knots');
-                    
-                    // Small layout adjustment - this can make unsolvable crossings solvable!
-                    await new Promise(resolve => {
-                      cy.layout({
-                        name: 'fcose',
-                        quality: 'default',
-                        numIter: 300,
-                        animate: false,
-                        randomize: false,
-                        idealEdgeLength: edge => {
-                          const minNodeDist = parseInt(document.getElementById('minNodeDist').value, 10) || 6;
-                          return Math.max(minNodeDist * 2, 80);
-                        },
-                        nodeRepulsion: 5000,
-                        edgeElasticity: 0.45
-                      }).run();
-                      
-                      cy.one('layoutstop', () => {
-                        setTimeout(resolve, 200);
-                      });
-                    });
-                    
-                    // Run Fix Crossings
+                  }
+                  
+                  // Note: Iterative Fix Crossings loop moved to end of optimization sequence
+                  
+                  // Continue with the rest of the optimization if Fix Regions succeeded
+                  if (!restoredPositions) {
+                    // Run Fix Crossings immediately after Fix Regions
+                    // This is when node positions are optimal for finding beneficial swaps
                     if (fixSpecificCrossings) {
-                      fixSpecificCrossings();
+                      const beforeFixCrossings = countCrossings(cy);
+                      if (beforeFixCrossings > 0) {
+                        console.log(`Running Fix Crossings on ${beforeFixCrossings} crossings...`);
+                        fixSpecificCrossings();
+                        
+                        // Check if we still have crossings after the first pass
+                        const afterFirstPass = countCrossings(cy);
+                        if (afterFirstPass > 0 && afterFirstPass < beforeFixCrossings) {
+                          console.log(`Fix Crossings reduced crossings to ${afterFirstPass}, trying again...`);
+                          
+                          // Run Fix Crossings again - sometimes the changed positions make new swaps beneficial
+                          fixSpecificCrossings();
+                          
+                          const afterSecondPass = countCrossings(cy);
+                          if (afterSecondPass < afterFirstPass) {
+                            console.log(`Second Fix Crossings pass further reduced crossings to ${afterSecondPass}`);
+                          }
+                        } else if (afterFirstPass === 0) {
+                          console.log(`Fix Crossings eliminated all crossings!`);
+                        }
+                      }
                     }
                     
-                    const finalCrossings = countCrossings(cy);
-                    const finalCollisions = countNodeEdgeCollisions(cy);
+                    // Only do layout adjustment if we still have crossings
+                    const remainingCrossings = countCrossings(cy);
+                    if (remainingCrossings > 0) {
+                      console.log(`Still have ${remainingCrossings} crossings, trying layout adjustment...`);
+                      
+                      // Small layout adjustment - this can make unsolvable crossings solvable!
+                      await new Promise(resolve => {
+                        // Register event handler BEFORE running layout to avoid race condition
+                        cy.one('layoutstop', () => {
+                          console.log('Layout adjustment completed');
+                          setTimeout(resolve, 200);
+                        });
+                        
+                        const layout = cy.layout({
+                          name: 'fcose',
+                          quality: 'default',
+                          numIter: 300,
+                          animate: false,
+                          randomize: false,
+                          idealEdgeLength: edge => {
+                            const minNodeDist = parseInt(document.getElementById('minNodeDist').value, 10) || 4;
+                            return Math.max(minNodeDist * 2, 80);
+                          },
+                          nodeRepulsion: 5000,
+                          edgeElasticity: 0.45
+                        });
+                        
+                        layout.run();
+                      });
+                      
+                      // Try Fix Crossings iteratively after layout adjustment
+                      if (fixSpecificCrossings) {
+                        const afterLayout = countCrossings(cy);
+                        if (afterLayout > 0) {
+                          console.log(`After layout adjustment: ${afterLayout} crossings, trying iterative Fix Crossings...`);
+                          
+                          // Save positions before iterative attempts
+                          const preIterativePositions = {};
+                          cy.nodes().forEach(node => {
+                            preIterativePositions[node.id()] = {...node.position()};
+                          });
+                          
+                          let iterativeCrossings = afterLayout;
+                          let iterativeCollisions = countNodeEdgeCollisions(cy);
+                          
+                          // Try up to 3 times (less aggressive than the main loop)
+                          for (let iter = 1; iter <= 3; iter++) {
+                            console.log(`  Post-layout iteration ${iter}: Starting with ${iterativeCrossings} crossings`);
+                            
+                            // Run Fix Crossings
+                            fixSpecificCrossings();
+                            
+                            let newCrossings = countCrossings(cy);
+                            let newCollisions = countNodeEdgeCollisions(cy);
+                            
+                            console.log(`    After Fix Crossings: ${newCrossings} crossings, ${newCollisions} collisions`);
+                            
+                            // Run Fix Regions cleanup (like manual button)
+                            if (fixEnclosedRegions && newCrossings > 0) {
+                              console.log(`    Running Fix Regions cleanup...`);
+                              fixEnclosedRegions();
+                              
+                              newCrossings = countCrossings(cy);
+                              newCollisions = countNodeEdgeCollisions(cy);
+                              console.log(`    After Fix Regions: ${newCrossings} crossings, ${newCollisions} collisions`);
+                            }
+                            
+                            console.log(`  Post-layout iteration ${iter}: Final = ${newCrossings} crossings, ${newCollisions} collisions`);
+                            
+                            if (newCrossings === 0) {
+                              console.log(`  Post-layout Fix Crossings + Fix Regions eliminated all crossings after ${iter} iteration(s)`);
+                              iterativeCrossings = newCrossings;
+                              iterativeCollisions = newCollisions;
+                              break;
+                            }
+                            
+                            // If we're not making progress, stop
+                            if (newCrossings >= iterativeCrossings) {
+                              console.log(`  Post-layout iterations not making progress, stopping`);
+                              break;
+                            }
+                            
+                            iterativeCrossings = newCrossings;
+                            iterativeCollisions = newCollisions;
+                          }
+                          
+                          // If we still have crossings after iterations, restore if we made things worse
+                          if (iterativeCrossings > afterLayout) {
+                            console.log(`  Post-layout iterations made things worse, restoring positions`);
+                            cy.nodes().forEach(node => {
+                              node.position(preIterativePositions[node.id()]);
+                            });
+                          }
+                        }
+                      }
+                    }
+                    
+                    // Final collision cleanup if needed
+                    let finalCrossings = countCrossings(cy);
+                    let finalCollisions = countNodeEdgeCollisions(cy);
+                    
+                    if (finalCollisions > 0 && finalCrossings === 0) {
+                      console.log(`Running final collision cleanup on ${finalCollisions} collisions...`);
+                      
+                      // Try gentle nudging to fix collisions without creating crossings
+                      const beforeCleanup = finalCrossings;
+                      fixNodeEdgeCollisions();
+                      
+                      finalCrossings = countCrossings(cy);
+                      finalCollisions = countNodeEdgeCollisions(cy);
+                      
+                      // If we created crossings, that's worse than collisions
+                      if (finalCrossings > beforeCleanup) {
+                        console.log(`Collision cleanup created ${finalCrossings} crossings, skipping further optimization`);
+                      }
+                    }
+                    
                     console.log(`Final optimization result: ${finalCrossings} crossings, ${finalCollisions} collisions`);
+                  
+                  // Final force-directed refinement for better spacing
+                  finalCrossings = countCrossings(cy);
+                  finalCollisions = countNodeEdgeCollisions(cy);
+                  
+                  if (finalCrossings === 0) {
+                      console.log('Running final force-directed refinement for better spacing...');
+                      
+                      // Save current positions
+                      const preRefinementPositions = {};
+                      cy.nodes().forEach(node => {
+                        preRefinementPositions[node.id()] = {...node.position()};
+                      });
+                      
+                      // Score the current layout based on edge lengths
+                      const scoreLayout = () => {
+                        const idealEdgeLength = 80;
+                        const minAcceptable = 50;
+                        const maxAcceptable = 120;
+                        let score = 0;
+                        let tooShort = 0;
+                        let tooLong = 0;
+                        let justRight = 0;
+                        
+                        cy.edges().forEach(edge => {
+                          const src = edge.source().position();
+                          const tgt = edge.target().position();
+                          const length = Math.sqrt(Math.pow(src.x - tgt.x, 2) + Math.pow(src.y - tgt.y, 2));
+                          
+                          if (length < minAcceptable) {
+                            score -= (minAcceptable - length) * 2; // Penalty for too short
+                            tooShort++;
+                          } else if (length > maxAcceptable) {
+                            score -= (length - maxAcceptable) * 0.5; // Smaller penalty for too long
+                            tooLong++;
+                          } else {
+                            // Reward for being close to ideal
+                            const deviation = Math.abs(length - idealEdgeLength);
+                            score += Math.max(0, 20 - deviation);
+                            justRight++;
+                          }
+                        });
+                        
+                        return { score, tooShort, tooLong, justRight };
+                      };
+                      
+                      const initialScore = scoreLayout();
+                      console.log(`Initial spacing: ${initialScore.tooShort} too short, ${initialScore.tooLong} too long, ${initialScore.justRight} good (score: ${initialScore.score.toFixed(1)})`);
+                      
+                      // Apply iterative forces
+                      const iterations = 50;
+                      const coolingFactor = 0.95;
+                      let temperature = 10;
+                      
+                      for (let iter = 0; iter < iterations; iter++) {
+                        // Apply repulsive forces between all nodes
+                        const forces = {};
+                        cy.nodes().forEach(node => {
+                          forces[node.id()] = { x: 0, y: 0 };
+                        });
+                        
+                        // Repulsive forces between all node pairs
+                        cy.nodes().forEach(node1 => {
+                          const pos1 = node1.position();
+                          cy.nodes().forEach(node2 => {
+                            if (node1.id() === node2.id()) return;
+                            
+                            const pos2 = node2.position();
+                            const dx = pos1.x - pos2.x;
+                            const dy = pos1.y - pos2.y;
+                            const dist = Math.sqrt(dx * dx + dy * dy);
+                            
+                            if (dist > 0 && dist < 100) {
+                              // Stronger repulsion when too close
+                              const force = (50 * 50) / (dist * dist);
+                              forces[node1.id()].x += (dx / dist) * force;
+                              forces[node1.id()].y += (dy / dist) * force;
+                            }
+                          });
+                        });
+                        
+                        // Attractive forces along edges
+                        cy.edges().forEach(edge => {
+                          const src = edge.source();
+                          const tgt = edge.target();
+                          const srcPos = src.position();
+                          const tgtPos = tgt.position();
+                          
+                          const dx = tgtPos.x - srcPos.x;
+                          const dy = tgtPos.y - srcPos.y;
+                          const dist = Math.sqrt(dx * dx + dy * dy);
+                          
+                          if (dist > 0) {
+                            const idealLength = 80;
+                            const force = 0.1 * Math.log(dist / idealLength);
+                            
+                            forces[src.id()].x += (dx / dist) * force;
+                            forces[src.id()].y += (dy / dist) * force;
+                            forces[tgt.id()].x -= (dx / dist) * force;
+                            forces[tgt.id()].y -= (dy / dist) * force;
+                          }
+                        });
+                        
+                        // Apply forces with temperature
+                        cy.nodes().forEach(node => {
+                          const force = forces[node.id()];
+                          const pos = node.position();
+                          
+                          // Limit movement by temperature
+                          const moveX = Math.max(-temperature, Math.min(temperature, force.x));
+                          const moveY = Math.max(-temperature, Math.min(temperature, force.y));
+                          
+                          node.position({
+                            x: pos.x + moveX,
+                            y: pos.y + moveY
+                          });
+                        });
+                        
+                        // Cool down
+                        temperature *= coolingFactor;
+                        
+                        // Check for crossings every 10 iterations
+                        if (iter % 10 === 9) {
+                          const currentCrossings = countCrossings(cy);
+                          if (currentCrossings > 0) {
+                            console.log(`Force refinement created ${currentCrossings} crossings at iteration ${iter + 1}, stopping`);
+                            break;
+                          }
+                        }
+                      }
+                      
+                      // Check final result
+                      const refinedCrossings = countCrossings(cy);
+                      const refinedScore = scoreLayout();
+                      console.log(`After refinement: ${refinedScore.tooShort} too short, ${refinedScore.tooLong} too long, ${refinedScore.justRight} good (score: ${refinedScore.score.toFixed(1)})`);
+                      
+                      // Restore if we made things worse
+                      if (refinedCrossings > 0 || refinedScore.score < initialScore.score - 10) {
+                        console.log('Force refinement made things worse, restoring positions');
+                        cy.nodes().forEach(node => {
+                          if (preRefinementPositions[node.id()]) {
+                            node.position(preRefinementPositions[node.id()]);
+                          }
+                        });
+                      } else {
+                        console.log(`Force refinement improved spacing (score: ${initialScore.score.toFixed(1)} → ${refinedScore.score.toFixed(1)})`);
+                        finalCollisions = countNodeEdgeCollisions(cy);
+                      }
+                    }
                     
                     // Update best metrics
                     bestCrossings = finalCrossings;
@@ -676,6 +1064,321 @@
                   }
                   
                   // Fit to view after Fix Regions
+                  cy.fit();
+                }
+                
+                // Final iterative Fix Crossings loop - runs at the very end like manual clicking
+                if (bestCrossings > 0 && fixSpecificCrossings) {
+                  console.log(`\nFinal attempt: Running iterative Fix Crossings+Regions loop on ${bestCrossings} remaining crossings...`);
+                  
+                  // Save current positions in case we make things worse
+                  const preIterativePositions = {};
+                  cy.nodes().forEach(node => {
+                    preIterativePositions[node.id()] = {...node.position()};
+                  });
+                  
+                  let iterativeCrossings = bestCrossings;
+                  let iterativeCollisions = bestCollisions;
+                  const initialIterativeCrossings = bestCrossings;
+                  const initialIterativeCollisions = bestCollisions;
+                  
+                  for (let iter = 1; iter <= 5; iter++) {
+                    console.log(`Final iteration ${iter}: Starting with ${iterativeCrossings} crossings`);
+                    
+                    // Run Fix Crossings
+                    fixSpecificCrossings();
+                    
+                    // Check results after Fix Crossings
+                    let newCrossings = countCrossings(cy);
+                    let newCollisions = countNodeEdgeCollisions(cy);
+                    
+                    console.log(`  After Fix Crossings: ${newCrossings} crossings, ${newCollisions} collisions`);
+                    
+                    // Run Fix Regions cleanup after Fix Crossings (like the manual button does)
+                    if (fixEnclosedRegions && (newCrossings > 0 || newCollisions > 0)) {
+                      console.log(`  Running Fix Regions cleanup...`);
+                      fixEnclosedRegions();
+                      
+                      // Check results after Fix Regions
+                      newCrossings = countCrossings(cy);
+                      newCollisions = countNodeEdgeCollisions(cy);
+                      console.log(`  After Fix Regions cleanup: ${newCrossings} crossings, ${newCollisions} collisions`);
+                    }
+                    
+                    console.log(`Final iteration ${iter}: Result = ${newCrossings} crossings, ${newCollisions} collisions`);
+                    
+                    // Only exit early if we achieved 0 crossings
+                    if (newCrossings === 0) {
+                      console.log(`Final Fix Crossings + Fix Regions eliminated all crossings after ${iter} iteration(s)!`);
+                      iterativeCrossings = 0;
+                      iterativeCollisions = newCollisions;
+                      bestCrossings = 0;
+                      bestCollisions = newCollisions;
+                      break;
+                    }
+                    
+                    // Update for next iteration
+                    iterativeCrossings = newCrossings;
+                    iterativeCollisions = newCollisions;
+                  }
+                  
+                  // Check if the iterative loop improved metrics
+                  const iterativeScore = iterativeCrossings * 3 + iterativeCollisions;
+                  const initialScore = initialIterativeCrossings * 3 + initialIterativeCollisions;
+                  
+                  if (iterativeScore > initialScore) {
+                    console.log(`Iterative loop made things worse (score ${initialScore} -> ${iterativeScore}), restoring positions`);
+                    cy.nodes().forEach(node => {
+                      if (preIterativePositions[node.id()]) {
+                        node.position(preIterativePositions[node.id()]);
+                      }
+                    });
+                    // Keep the original counts
+                    bestCrossings = initialIterativeCrossings;
+                    bestCollisions = initialIterativeCollisions;
+                  } else {
+                    // Update final counts with improved values
+                    bestCrossings = iterativeCrossings;
+                    bestCollisions = iterativeCollisions;
+                    if (iterativeScore < initialScore) {
+                      console.log(`Iterative loop improved score: ${initialScore} -> ${iterativeScore}`);
+                    }
+                  }
+                  
+                  console.log(`After final iterative loop: ${bestCrossings} crossings, ${bestCollisions} collisions`);
+                  
+                  // If we still have crossings, do a small layout adjustment like manual Fix Crossings does
+                  // This can perturb positions enough to make previously blocked swaps possible
+                  if (bestCrossings > 0) {
+                    console.log(`Still have ${bestCrossings} crossings after iterative loop, trying layout adjustment...`);
+                    
+                    await new Promise(resolve => {
+                      // Register event handler BEFORE running layout to avoid race condition
+                      cy.one('layoutstop', () => {
+                        console.log('Post-iterative layout adjustment completed');
+                        setTimeout(resolve, 200);
+                      });
+                      
+                      const layout = cy.layout({
+                        name: 'fcose',
+                        quality: 'default',
+                        numIter: 300,
+                        animate: false,
+                        randomize: false,
+                        idealEdgeLength: edge => {
+                          const minNodeDist = parseInt(document.getElementById('minNodeDist').value, 10) || 4;
+                          return Math.max(minNodeDist * 2, 80);
+                        },
+                        nodeRepulsion: 5000,
+                        edgeElasticity: 0.45
+                      });
+                      
+                      layout.run();
+                    });
+                    
+                    // Check if the layout adjustment helped
+                    const afterAdjustment = countCrossings(cy);
+                    console.log(`After layout adjustment: ${afterAdjustment} crossings (was ${bestCrossings})`);
+                    
+                    // If layout adjustment made things worse, try Fix Crossings one more time
+                    // The layout perturbation may have made new swaps possible
+                    if (afterAdjustment >= bestCrossings && afterAdjustment > 0) {
+                      console.log('Layout adjustment did not help, trying Fix Crossings again...');
+                      
+                      // Small delay to let positions settle after layout
+                      await new Promise(resolve => setTimeout(resolve, 100));
+                      
+                      const finalResult = await fixSpecificCrossings();
+                      const finalCrossings = countCrossings(cy);
+                      console.log(`Final Fix Crossings after layout adjustment: ${finalCrossings} crossings`);
+                      bestCrossings = finalCrossings;
+                    } else {
+                      bestCrossings = afterAdjustment;
+                    }
+                  }
+                  
+                  // Resize view after iterative optimizations
+                  cy.fit();
+                }
+                
+                // Final force-directed refinement for better spacing (runs after ALL optimizations)
+                if (bestCrossings === 0) {
+                  console.log('Running final force-directed refinement for better spacing...');
+                  
+                  // Save current positions
+                  const preRefinementPositions = {};
+                  cy.nodes().forEach(node => {
+                    preRefinementPositions[node.id()] = {...node.position()};
+                  });
+                  
+                  // Score the current layout based on edge lengths
+                  const scoreLayout = () => {
+                    const idealEdgeLength = 80;
+                    const minAcceptable = 50;
+                    const maxAcceptable = 120;
+                    let score = 0;
+                    let tooShort = 0;
+                    let tooLong = 0;
+                    let justRight = 0;
+                    
+                    cy.edges().forEach(edge => {
+                      const src = edge.source().position();
+                      const tgt = edge.target().position();
+                      const length = Math.sqrt(Math.pow(src.x - tgt.x, 2) + Math.pow(src.y - tgt.y, 2));
+                      
+                      if (length < minAcceptable) {
+                        score -= (minAcceptable - length) * 2; // Penalty for too short
+                        tooShort++;
+                      } else if (length > maxAcceptable) {
+                        score -= (length - maxAcceptable) * 0.5; // Smaller penalty for too long
+                        tooLong++;
+                      } else {
+                        score += 10; // Reward for good spacing
+                        justRight++;
+                      }
+                    });
+                    
+                    return { score, tooShort, tooLong, justRight };
+                  };
+                  
+                  const initialScore = scoreLayout();
+                  console.log(`Initial spacing: ${initialScore.tooShort} too short, ${initialScore.tooLong} too long, ${initialScore.justRight} good (score: ${initialScore.score.toFixed(1)})`);
+                  
+                  // Apply iterative forces to improve spacing
+                  // Use smaller movements to reduce risk of creating crossings
+                  const iterations = 30;  // Reduced from 50
+                  const coolingFactor = 0.98;  // Slower cooling (was 0.95)
+                  let temperature = 5;  // Lower initial temperature (was 10)
+                  
+                  for (let iter = 0; iter < iterations; iter++) {
+                    // Store positions before this iteration
+                    const iterationPositions = {};
+                    cy.nodes().forEach(node => {
+                      iterationPositions[node.id()] = {...node.position()};
+                    });
+                    
+                    cy.nodes().forEach(node => {
+                      let forceX = 0;
+                      let forceY = 0;
+                      
+                      // Calculate repulsion from other nodes
+                      cy.nodes().forEach(otherNode => {
+                        if (node.id() === otherNode.id()) return;
+                        
+                        const pos1 = node.position();
+                        const pos2 = otherNode.position();
+                        const dx = pos1.x - pos2.x;
+                        const dy = pos1.y - pos2.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        
+                        if (dist < 80 && dist > 0) {
+                          // Gentler repulsion for nodes that are too close
+                          const force = temperature * 0.5 * (80 - dist) / dist;  // Added 0.5 dampening factor
+                          forceX += (dx / dist) * force;
+                          forceY += (dy / dist) * force;
+                        }
+                      });
+                      
+                      // Apply forces with damping
+                      const damping = 0.5;
+                      node.position({
+                        x: node.position().x + forceX * damping,
+                        y: node.position().y + forceY * damping
+                      });
+                    });
+                    
+                    // Cool down
+                    temperature *= coolingFactor;
+                    
+                    // Check for crossings more frequently (every 5 iterations)
+                    // and restore if we created any
+                    if (iter % 5 === 4) {
+                      const currentCrossings = countCrossings(cy);
+                      if (currentCrossings > 0) {
+                        console.log(`Force refinement created ${currentCrossings} crossings at iteration ${iter + 1}, restoring and stopping`);
+                        // Restore positions from before this batch of iterations
+                        cy.nodes().forEach(node => {
+                          if (iterationPositions[node.id()]) {
+                            node.position(iterationPositions[node.id()]);
+                          }
+                        });
+                        break;
+                      }
+                    }
+                  }
+                  
+                  // Check final result
+                  const refinedCrossings = countCrossings(cy);
+                  const refinedScore = scoreLayout();
+                  console.log(`After refinement: ${refinedScore.tooShort} too short, ${refinedScore.tooLong} too long, ${refinedScore.justRight} good (score: ${refinedScore.score.toFixed(1)})`);
+                  
+                  // Restore if we made things worse
+                  if (refinedCrossings > 0 || refinedScore.score < initialScore.score - 10) {
+                    console.log('Force refinement made things worse, restoring positions');
+                    cy.nodes().forEach(node => {
+                      if (preRefinementPositions[node.id()]) {
+                        node.position(preRefinementPositions[node.id()]);
+                      }
+                    });
+                    
+                    // Try a gentler spacing adjustment without forces
+                    // Just nudge nodes that are too close apart
+                    console.log('Applying gentle spacing adjustment for nodes that are too close...');
+                    const minDist = parseInt(document.getElementById('minNodeDist').value, 10) || 4;
+                    let nudgeIterations = 0;
+                    const maxNudgeIterations = 5;
+                    
+                    while (nudgeIterations < maxNudgeIterations) {
+                      let madeAdjustment = false;
+                      cy.nodes().forEach(node1 => {
+                        cy.nodes().forEach(node2 => {
+                          if (node1.id() >= node2.id()) return;
+                          
+                          const pos1 = node1.position();
+                          const pos2 = node2.position();
+                          const dx = pos2.x - pos1.x;
+                          const dy = pos2.y - pos1.y;
+                          const dist = Math.sqrt(dx * dx + dy * dy);
+                          
+                          if (dist < minDist && dist > 0) {
+                            // Nudge them apart gently
+                            const factor = (minDist - dist) / dist * 0.3; // Gentle 30% correction
+                            node1.position({
+                              x: pos1.x - dx * factor,
+                              y: pos1.y - dy * factor
+                            });
+                            node2.position({
+                              x: pos2.x + dx * factor,
+                              y: pos2.y + dy * factor
+                            });
+                            madeAdjustment = true;
+                          }
+                        });
+                      });
+                      
+                      if (!madeAdjustment) break;
+                      nudgeIterations++;
+                    }
+                    
+                    if (nudgeIterations > 0) {
+                      const finalCrossings = countCrossings(cy);
+                      if (finalCrossings > 0) {
+                        // Gentle spacing created crossings, restore
+                        console.log('Gentle spacing created crossings, restoring');
+                        cy.nodes().forEach(node => {
+                          if (preRefinementPositions[node.id()]) {
+                            node.position(preRefinementPositions[node.id()]);
+                          }
+                        });
+                      } else {
+                        console.log(`Applied ${nudgeIterations} iterations of gentle spacing adjustments`);
+                      }
+                    }
+                  } else {
+                    console.log(`Force refinement improved spacing (score: ${initialScore.score.toFixed(1)} → ${refinedScore.score.toFixed(1)})`);
+                  }
+                  
+                  // Resize the view after final refinement
                   cy.fit();
                 }
             }
@@ -857,9 +1560,37 @@
             const isCurrentlyInside = distToCenter < avgCycleDistance * 0.8;
             
             // Decision logic
-            if (connections >= 2 && nonCycleConnections <= 1) {
-              // Strong case for being inside: connected to multiple cycle nodes, few external connections
+            if (connections >= 3) {
+              // 3+ connections to cycle: definitely inside
               if (!isCurrentlyInside) {
+                console.log(`Node ${node.id()} should move INSIDE: ${connections} cycle connections, ${nonCycleConnections} external`);
+                return 'inside';
+              }
+            } else if (connections === 2) {
+              // 2 connections: depends on whether they're adjacent in the cycle and external connections
+              if (nonCycleConnections === 0) {
+                // Check if the two connected cycle nodes are adjacent in the cycle
+                const connectedIndices = connectedCycleNodes.map(cn => 
+                  cycle.findIndex(cycleNode => cycleNode.id() === cn.id())
+                );
+                
+                // Check if nodes are adjacent in cycle (considering wrap-around)
+                const areAdjacent = connectedIndices.length === 2 && 
+                  (Math.abs(connectedIndices[0] - connectedIndices[1]) === 1 ||
+                   Math.abs(connectedIndices[0] - connectedIndices[1]) === cycle.length - 1);
+                
+                if (areAdjacent && !isCurrentlyInside) {
+                  // Connected to two adjacent cycle nodes with no external connections
+                  // This node can often work well outside
+                  console.log(`Node ${node.id()} has 2 adjacent cycle connections, 0 external - keeping outside`);
+                  return 'unchanged';
+                } else if (!areAdjacent && !isCurrentlyInside) {
+                  // Connected to two non-adjacent cycle nodes - should be inside to avoid crossings
+                  console.log(`Node ${node.id()} should move INSIDE: 2 non-adjacent cycle connections, 0 external`);
+                  return 'inside';
+                }
+              } else if (nonCycleConnections <= 1 && !isCurrentlyInside) {
+                // 2 cycle connections with 1 external - usually better inside
                 console.log(`Node ${node.id()} should move INSIDE: ${connections} cycle connections, ${nonCycleConnections} external`);
                 return 'inside';
               }
@@ -892,10 +1623,35 @@
             centerX /= cycle.length;
             centerY /= cycle.length;
             
-            // Move node more aggressively toward center
+            // When moving nodes inside, distribute them to avoid overlap
+            // Count how many nodes are already inside this cycle
+            const nodesAlreadyInside = cy.nodes().filter(n => {
+              if (n.id() === node.id()) return false;
+              const pos = n.position();
+              const distToCenter = Math.sqrt(Math.pow(pos.x - centerX, 2) + Math.pow(pos.y - centerY, 2));
+              const avgCycleDist = cycle.reduce((sum, cycleNode) => {
+                const cPos = cycleNode.position();
+                return sum + Math.sqrt(Math.pow(cPos.x - centerX, 2) + Math.pow(cPos.y - centerY, 2));
+              }, 0) / cycle.length;
+              return distToCenter < avgCycleDist * 0.7; // Node is inside if closer to center than 70% of cycle radius
+            });
+            
             const currentPos = node.position();
-            const newX = centerX * 0.85 + currentPos.x * 0.15;  // Move 85% toward center
-            const newY = centerY * 0.85 + currentPos.y * 0.15;
+            let newX, newY;
+            
+            if (nodesAlreadyInside.length === 0) {
+              // First node goes near center
+              newX = centerX * 0.85 + currentPos.x * 0.15;
+              newY = centerY * 0.85 + currentPos.y * 0.15;
+            } else {
+              // Subsequent nodes are offset from center to avoid overlap
+              const angleOffset = (Math.PI * 2) / (nodesAlreadyInside.length + 1);
+              const angle = angleOffset * nodesAlreadyInside.length;
+              const offsetRadius = 30; // Offset radius to separate nodes
+              
+              newX = centerX + Math.cos(angle) * offsetRadius;
+              newY = centerY + Math.sin(angle) * offsetRadius;
+            }
             
             console.log(`Moving node ${node.id()} INSIDE from (${currentPos.x.toFixed(0)}, ${currentPos.y.toFixed(0)}) to (${newX.toFixed(0)}, ${newY.toFixed(0)})`);
             node.position({ x: newX, y: newY });
@@ -959,6 +1715,7 @@
           
           let nodesMovedIn = 0;
           let nodesMovedOut = 0;
+          const movedInNodes = []; // Track nodes moved inside for potential optimization
           
           cycles.forEach((cycle, idx) => {
             const cycleNodeIds = cycle.map(n => n.id()).join(', ');
@@ -973,6 +1730,16 @@
               if (placement === 'inside') {
                 placeInside(node, cycle);
                 nodesMovedIn++;
+                
+                // Track this node and its connections for potential optimization
+                const connections = cycle.filter(cycleNode => 
+                  node.neighborhood().nodes().some(n => n.id() === cycleNode.id())
+                ).length;
+                movedInNodes.push({
+                  nodeId: node.id(),
+                  connections: connections,
+                  cycleNodes: cycle.map(n => n.id())
+                });
               } else if (placement === 'outside') {
                 placeOutside(node, cycle);
                 nodesMovedOut++;
@@ -980,20 +1747,318 @@
             });
           });
           
-          // Report final metrics after Fix Regions
-          const crossingsAfterFix = countCrossings(cy);
+          // Report initial metrics after Fix Regions
+          let crossingsAfterFix = countCrossings(cy, true);
           const collisionsAfterFix = countNodeEdgeCollisions(cy, true); // Enable verbose mode to see collision details
           console.log(`Fix Regions complete: ${nodesMovedIn} nodes moved IN, ${nodesMovedOut} nodes moved OUT`);
           console.log(`  Metrics after Fix Regions: ${crossingsAfterFix} crossings, ${collisionsAfterFix} collisions`);
+          
+          // Try optimizing node placement even if there are no crossings
+          // Sometimes nodes should be outside for better visual clarity
+          if (cycles.length > 0 && movedInNodes.length > 0) {
+            console.log(`Fix Regions moved ${movedInNodes.length} nodes inside, checking if any should be outside...`);
+            
+            // Track which nodes we've tried moving outside
+            const triedMovingOut = [];
+            
+            // Build a list of all nodes inside cycles that could potentially be moved outside
+            const nodesInsideCycles = [];
+            
+            // First add nodes we explicitly moved inside
+            movedInNodes.forEach(nodeInfo => {
+              nodesInsideCycles.push(nodeInfo);
+            });
+            
+            // Also check nodes that were already inside cycles (like 2985 in your example)
+            cycles.forEach(cycle => {
+              // Calculate cycle center
+              let centerX = 0, centerY = 0;
+              cycle.forEach(n => {
+                const pos = n.position();
+                centerX += pos.x;
+                centerY += pos.y;
+              });
+              centerX /= cycle.length;
+              centerY /= cycle.length;
+              
+              // Check all non-cycle nodes to see if they're inside
+              cy.nodes().forEach(node => {
+                // Skip if it's part of the cycle
+                if (cycle.some(n => n.id() === node.id())) return;
+                
+                // Skip if we already have this node in our list
+                if (nodesInsideCycles.some(info => info.nodeId === node.id())) return;
+                
+                // Check if node is inside this cycle
+                const nodePos = node.position();
+                const distToCenter = Math.sqrt(
+                  Math.pow(nodePos.x - centerX, 2) + 
+                  Math.pow(nodePos.y - centerY, 2)
+                );
+                
+                // Calculate average distance of cycle nodes from center
+                let avgCycleDistance = 0;
+                cycle.forEach(n => {
+                  const pos = n.position();
+                  avgCycleDistance += Math.sqrt(
+                    Math.pow(pos.x - centerX, 2) + 
+                    Math.pow(pos.y - centerY, 2)
+                  );
+                });
+                avgCycleDistance /= cycle.length;
+                
+                // If node is inside the cycle
+                if (distToCenter < avgCycleDistance * 0.8) {
+                  // Count connections to cycle
+                  const connections = cycle.filter(cycleNode => 
+                    node.neighborhood().nodes().some(n => n.id() === cycleNode.id())
+                  ).length;
+                  
+                  // Add nodes with 2-3 connections as candidates
+                  if (connections >= 2 && connections <= 3) {
+                    nodesInsideCycles.push({
+                      nodeId: node.id(),
+                      connections: connections,
+                      cycleNodes: cycle.map(n => n.id())
+                    });
+                  }
+                }
+              });
+            });
+            
+            // First, save all inside positions BEFORE any testing
+            const savedInsidePositions = {};
+            nodesInsideCycles.forEach(nodeInfo => {
+              const node = cy.getElementById(nodeInfo.nodeId);
+              if (node && node.length > 0) {
+                savedInsidePositions[nodeInfo.nodeId] = {...node.position()};
+              }
+            });
+            
+            // Try moving nodes with 2-3 connections outside
+            for (const nodeInfo of nodesInsideCycles) {
+              const node = cy.getElementById(nodeInfo.nodeId);
+              if (!node || node.length === 0) continue;
+              
+              // Try nodes that have 2-3 connections to their cycle
+              // (these could potentially work better outside if they're creating crossings)
+              if (nodeInfo.connections === 2 || nodeInfo.connections === 3) {
+                // Get the saved inside position
+                const insidePos = savedInsidePositions[nodeInfo.nodeId];
+                if (!insidePos) continue;
+                
+                console.log(`  Testing ${node.id()} - current inside position: (${insidePos.x.toFixed(2)}, ${insidePos.y.toFixed(2)})`);
+                
+                // Try moving it outside the cycle
+                const cycle = cycles.find(c => c.some(n => n.id() === nodeInfo.cycleNodes[0]));
+                if (cycle) {
+                  // Calculate cycle center
+                  let centerX = 0, centerY = 0;
+                  cycle.forEach(n => {
+                    const pos = n.position();
+                    centerX += pos.x;
+                    centerY += pos.y;
+                  });
+                  centerX /= cycle.length;
+                  centerY /= cycle.length;
+                  
+                  // Find all cycle nodes this node is connected to
+                  const connectedCycleNodes = cycle.filter(n => 
+                    node.neighborhood().nodes().some(neighbor => neighbor.id() === n.id())
+                  );
+                  
+                  // Use the first connected node (we could be smarter about this)
+                  const connectedCycleNode = connectedCycleNodes[0];
+                  
+                  if (connectedCycleNode) {
+                    const cycleNodePos = connectedCycleNode.position();
+                    
+                    // Position outside: extend from center through the connected cycle node
+                    const dirX = cycleNodePos.x - centerX;
+                    const dirY = cycleNodePos.y - centerY;
+                    const dirLen = Math.sqrt(dirX * dirX + dirY * dirY);
+                    
+                    if (dirLen > 0) {
+                      const unitX = dirX / dirLen;
+                      const unitY = dirY / dirLen;
+                      
+                      // Try multiple positions outside the cycle to find the best one
+                      let bestPosition = null;
+                      let bestCrossings = crossingsAfterFix;
+                      let bestCollisions = collisionsAfterFix;
+                      const positions = [];
+                      
+                      // Try the direct outside position
+                      positions.push({
+                        x: cycleNodePos.x + unitX * 100,
+                        y: cycleNodePos.y + unitY * 100,
+                        angle: 0
+                      });
+                      
+                      // Try positions at different angles around the connected cycle node
+                      // This helps avoid creating new crossings with edges outside the box
+                      for (let angleOffset = -60; angleOffset <= 60; angleOffset += 30) {
+                        if (angleOffset === 0) continue; // Already added
+                        
+                        const angleRad = angleOffset * Math.PI / 180;
+                        const cosA = Math.cos(angleRad);
+                        const sinA = Math.sin(angleRad);
+                        
+                        // Rotate the direction vector
+                        const rotX = unitX * cosA - unitY * sinA;
+                        const rotY = unitX * sinA + unitY * cosA;
+                        
+                        positions.push({
+                          x: cycleNodePos.x + rotX * 100,
+                          y: cycleNodePos.y + rotY * 100,
+                          angle: angleOffset
+                        });
+                      }
+                      
+                      // Test each position
+                      positions.forEach(pos => {
+                        node.position({ x: pos.x, y: pos.y });
+                        const testCrossings = countCrossings(cy);
+                        const testCollisions = countNodeEdgeCollisions(cy);
+                        
+                        // Use weighted scoring: crossings are 3x worse than collisions
+                        const currentScore = testCrossings * 3 + testCollisions;
+                        const bestScore = bestCrossings * 3 + bestCollisions;
+                        
+                        if (currentScore < bestScore || (currentScore === bestScore && testCrossings < bestCrossings)) {
+                          bestPosition = pos;
+                          bestCrossings = testCrossings;
+                          bestCollisions = testCollisions;
+                        }
+                      });
+                      
+                      // Apply the best position found
+                      if (bestPosition) {
+                        node.position({ x: bestPosition.x, y: bestPosition.y });
+                        
+                        if (bestPosition.angle !== 0) {
+                          console.log(`  Found better position at ${bestPosition.angle}° angle`);
+                        }
+                      } else {
+                        // Shouldn't happen, but restore original position as fallback
+                        node.position(insidePos);
+                      }
+                      
+                      // Check if this reduced crossings compared to inside position
+                      let newCrossings = bestCrossings;
+                      let newCollisions = bestCollisions;
+                      
+                      console.log(`  Tried moving ${node.id()} outside: ${crossingsAfterFix}→${newCrossings} crossings, ${collisionsAfterFix}→${newCollisions} collisions`);
+                      
+                      if (newCrossings < crossingsAfterFix) {
+                        console.log(`  ✓ Moving node ${node.id()} outside reduced crossings from ${crossingsAfterFix} to ${newCrossings}`);
+                        
+                        // Try a quick local Fix Crossings to see if we can improve further
+                        // Only swap nodes that are connected to the moved node
+                        const movedNode = node;
+                        const neighbors = movedNode.neighborhood().nodes();
+                        let locallyImproved = false;
+                        
+                        neighbors.forEach(neighbor => {
+                          // Try swapping with each neighbor
+                          const pos1 = movedNode.position();
+                          const pos2 = neighbor.position();
+                          
+                          // Swap positions
+                          movedNode.position(pos2);
+                          neighbor.position(pos1);
+                          
+                          const swapCrossings = countCrossings(cy);
+                          
+                          if (swapCrossings < newCrossings) {
+                            console.log(`    Local swap with ${neighbor.id()} reduced crossings further: ${newCrossings}→${swapCrossings}`);
+                            newCrossings = swapCrossings;
+                            locallyImproved = true;
+                          } else {
+                            // Restore positions
+                            movedNode.position(pos1);
+                            neighbor.position(pos2);
+                          }
+                        });
+                        
+                        crossingsAfterFix = newCrossings;
+                        triedMovingOut.push({ node: node.id(), improved: true });
+                        nodesMovedOut++;
+                        nodesMovedIn--;
+                      } else {
+                        // Moving outside didn't help - restore to the original inside position
+                        console.log(`  ✗ Moving node ${node.id()} outside didn't help, restoring inside position`);
+                        console.log(`    Restoring ${node.id()} to (${insidePos.x.toFixed(2)}, ${insidePos.y.toFixed(2)})`);
+                        node.position(insidePos);
+                        triedMovingOut.push({ node: node.id(), improved: false });
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            
+            if (triedMovingOut.some(t => t.improved)) {
+              // Recalculate final metrics after all optimizations
+              const finalCrossings = countCrossings(cy);
+              const finalCollisions = countNodeEdgeCollisions(cy);
+              console.log(`Fix Regions optimization: final ${finalCrossings} crossings, ${finalCollisions} collisions`);
+              
+              // Debug: Show final positions of moved nodes
+              triedMovingOut.forEach(info => {
+                if (info.improved) {
+                  const node = cy.getElementById(info.node);
+                  const pos = node.position();
+                  console.log(`  Node ${info.node} final position: (${pos.x.toFixed(2)}, ${pos.y.toFixed(2)})`);
+                }
+              });
+            }
+          }
+          
+          // After all region fixes, try to gently nudge nodes away from edges
+          // But only if it won't make crossings worse
+          const beforeNudgeCrossings = countCrossings(cy);
+          const beforeNudgeCollisions = countNodeEdgeCollisions(cy);
+          
+          // Save positions before nudging
+          const preNudgePositions = {};
+          cy.nodes().forEach(node => {
+            preNudgePositions[node.id()] = node.position();
+          });
+          
+          const nudgedCount = gentleCollisionFix();
+          if (nudgedCount > 0) {
+            const afterNudgeCrossings = countCrossings(cy);
+            const afterNudgeCollisions = countNodeEdgeCollisions(cy);
+            console.log(`After gentle nudging: ${afterNudgeCrossings} crossings, ${afterNudgeCollisions} collisions`);
+            
+            // If nudging created new crossings, restore positions
+            if (afterNudgeCrossings > beforeNudgeCrossings) {
+              console.log(`Gentle nudging created crossings (${beforeNudgeCrossings}→${afterNudgeCrossings}), restoring positions`);
+              cy.nodes().forEach(node => {
+                if (preNudgePositions[node.id()]) {
+                  node.position(preNudgePositions[node.id()]);
+                }
+              });
+            }
+          }
+          
+          // Final check before returning
+          const absoluteFinalCrossings = countCrossings(cy);
+          const absoluteFinalCollisions = countNodeEdgeCollisions(cy);
+          console.log(`Fix Regions: Absolute final state: ${absoluteFinalCrossings} crossings, ${absoluteFinalCollisions} collisions`);
         };
         
         // Function to fix node/edge collisions
         fixNodeEdgeCollisions = () => {
           if (!cy) return;
           
-          const nodeRadius = 20; // Node radius plus label space
-          const minSeparation = 30; // Minimum distance between node center and edge
+          const nodeRadius = 20; // Node collision detection radius (includes small buffer)
+          const minSeparation = 25; // Minimum distance between node center and edge
           let collisionsFixed = 0;
+          
+          // First pass: detect all collisions and calculate repulsion vectors
+          const collisionInfo = [];
           
           cy.nodes().forEach(node => {
             const nodePos = node.position();
@@ -1077,6 +2142,105 @@
           });
           
           console.log(`Fixed ${collisionsFixed} node/edge collisions`);
+        };
+        
+        // Function to gently nudge nodes away from edges (less aggressive than full collision fix)
+        const gentleCollisionFix = () => {
+          if (!cy) return;
+          
+          const nodeRadius = 20;
+          const minSeparation = 25; // Minimum safe distance
+          let nudged = 0;
+          const maxIterations = 3;
+          
+          for (let iteration = 0; iteration < maxIterations; iteration++) {
+            let nudgedThisRound = 0;
+            
+            cy.nodes().forEach(node => {
+              const nodePos = node.position();
+              let totalPushX = 0;
+              let totalPushY = 0;
+              let collisionCount = 0;
+              
+              // Check this node against all edges
+              cy.edges().forEach(edge => {
+                const src = edge.source();
+                const tgt = edge.target();
+                
+                // Skip edges connected to this node
+                if (src.id() === node.id() || tgt.id() === node.id()) return;
+                
+                const srcPos = src.position();
+                const tgtPos = tgt.position();
+                
+                // Calculate distance from node to edge line segment
+                const A = nodePos.x - srcPos.x;
+                const B = nodePos.y - srcPos.y;
+                const C = tgtPos.x - srcPos.x;
+                const D = tgtPos.y - srcPos.y;
+                
+                const dot = A * C + B * D;
+                const lenSq = C * C + D * D;
+                let param = -1;
+                
+                if (lenSq !== 0) param = dot / lenSq;
+                
+                let xx, yy;
+                if (param < 0) {
+                  xx = srcPos.x;
+                  yy = srcPos.y;
+                } else if (param > 1) {
+                  xx = tgtPos.x;
+                  yy = tgtPos.y;
+                } else {
+                  xx = srcPos.x + param * C;
+                  yy = srcPos.y + param * D;
+                }
+                
+                const dx = nodePos.x - xx;
+                const dy = nodePos.y - yy;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                // Only nudge if too close
+                if (distance < minSeparation) {
+                  if (distance > 0) {
+                    // Accumulate push vectors from all collisions
+                    const pushDistance = minSeparation - distance + 2;
+                    totalPushX += (dx / distance) * pushDistance;
+                    totalPushY += (dy / distance) * pushDistance;
+                    collisionCount++;
+                  }
+                }
+              });
+              
+              // Apply the combined push if there were collisions
+              if (collisionCount > 0) {
+                // Average the push vectors
+                const avgPushX = totalPushX / collisionCount;
+                const avgPushY = totalPushY / collisionCount;
+                
+                // Apply a dampened version of the push
+                const dampening = 0.7;
+                node.position({
+                  x: nodePos.x + avgPushX * dampening,
+                  y: nodePos.y + avgPushY * dampening
+                });
+                
+                nudgedThisRound++;
+                nudged++;
+                console.log(`  Iteration ${iteration + 1}: Nudged ${node.id()} by (${(avgPushX * dampening).toFixed(1)}, ${(avgPushY * dampening).toFixed(1)})`);
+              }
+            });
+            
+            // Stop if no nodes needed nudging this round
+            if (nudgedThisRound === 0) break;
+          }
+          
+          if (nudged > 0) {
+            console.log(`Gently nudged nodes ${nudged} times total`);
+          }
+          
+          return nudged;
         };
         
         // Function to fix specific edge crossings by repositioning nodes
@@ -1210,8 +2374,37 @@
                 const newCrossings = countAllCrossings();
                 const reduction = currentCrossings - newCrossings;
                 
-                // Keep track of the best swap
-                if (reduction > bestReduction) {
+                // Check if the swap would create node overlaps
+                let createsOverlap = false;
+                const minNodeDistance = 50; // Minimum distance between node centers to avoid visual crowding
+                
+                // Check if swapped nodes would be too close to any other nodes
+                cy.nodes().forEach(otherNode => {
+                  if (otherNode.id() === node1.id() || otherNode.id() === node2.id()) return;
+                  
+                  const otherPos = otherNode.position();
+                  
+                  // Check distance from node1's new position (pos2) to other nodes
+                  const dist1 = Math.sqrt(Math.pow(pos2.x - otherPos.x, 2) + Math.pow(pos2.y - otherPos.y, 2));
+                  if (dist1 < minNodeDistance) {
+                    if (otherNode.id() === '4007' || node1.id() === '4007') {
+                      console.log(`    Swap would place ${node1.id()} too close to ${otherNode.id()} (${dist1.toFixed(1)}px)`);
+                    }
+                    createsOverlap = true;
+                  }
+                  
+                  // Check distance from node2's new position (pos1) to other nodes
+                  const dist2 = Math.sqrt(Math.pow(pos1.x - otherPos.x, 2) + Math.pow(pos1.y - otherPos.y, 2));
+                  if (dist2 < minNodeDistance) {
+                    if (otherNode.id() === '4007' || node2.id() === '4007') {
+                      console.log(`    Swap would place ${node2.id()} too close to ${otherNode.id()} (${dist2.toFixed(1)}px)`);
+                    }
+                    createsOverlap = true;
+                  }
+                });
+                
+                // Keep track of the best swap (only if it doesn't create overlaps)
+                if (reduction > bestReduction && !createsOverlap) {
                   bestReduction = reduction;
                   bestSwap = {
                     node1: node1,
@@ -1222,6 +2415,8 @@
                     newCrossings: newCrossings
                   };
                   console.log(`  Found beneficial swap: ${node1.id()} <-> ${node2.id()} reduces ${reduction} crossings`);
+                } else if (reduction > 0 && createsOverlap) {
+                  console.log(`  Swap ${node1.id()} <-> ${node2.id()} would reduce ${reduction} crossings but creates overlap`);
                 }
                 
                 // Revert the swap for now
@@ -1257,8 +2452,33 @@
                   const newCrossings = countAllCrossings();
                   const reduction = currentCrossings - newCrossings;
                   
-                  // Keep track of the best swap
-                  if (reduction > bestReduction) {
+                  // Check if the swap would create node overlaps
+                  let createsOverlap = false;
+                  const minNodeDistance = 50; // Minimum distance between node centers to avoid visual crowding
+                  
+                  if (reduction > 0) {
+                    // Only check for overlaps if the swap would actually help
+                    cy.nodes().forEach(otherNode => {
+                      if (otherNode.id() === node1.id() || otherNode.id() === node2.id()) return;
+                      
+                      const otherPos = otherNode.position();
+                      
+                      // Check distance from node1's new position (pos2) to other nodes
+                      const dist1 = Math.sqrt(Math.pow(pos2.x - otherPos.x, 2) + Math.pow(pos2.y - otherPos.y, 2));
+                      if (dist1 < minNodeDistance) {
+                        createsOverlap = true;
+                      }
+                      
+                      // Check distance from node2's new position (pos1) to other nodes
+                      const dist2 = Math.sqrt(Math.pow(pos1.x - otherPos.x, 2) + Math.pow(pos1.y - otherPos.y, 2));
+                      if (dist2 < minNodeDistance) {
+                        createsOverlap = true;
+                      }
+                    });
+                  }
+                  
+                  // Keep track of the best swap (only if it doesn't create overlaps)
+                  if (reduction > bestReduction && !createsOverlap) {
                     bestReduction = reduction;
                     bestSwap = {
                       node1: node1,
@@ -1345,7 +2565,7 @@
               animate: false,
               randomize: false,
               idealEdgeLength: edge => {
-                const minNodeDist = parseInt(document.getElementById('minNodeDist').value, 10) || 6;
+                const minNodeDist = parseInt(document.getElementById('minNodeDist').value, 10) || 4;
                 return Math.max(minNodeDist * 2, 80);
               },
               nodeRepulsion: node => {
@@ -2109,8 +3329,8 @@
           function countNodeEdgeCollisions(cyInstance, verbose = false) {
             let collisions = 0;
             const collisionDetails = [];
-            const minDist = parseInt(document.getElementById('minNodeDist').value, 10) || 6;
-            const nodeRadius = 20; // Node radius plus label space
+            const minDist = parseInt(document.getElementById('minNodeDist').value, 10) || 4;
+            const nodeRadius = 20; // Node collision detection radius (includes small buffer)
             
             cyInstance.edges().forEach(edge => {
               const src = edge.source();
@@ -2203,7 +3423,7 @@
             optimizeBtn.textContent = `Running attempt ${attempt + 1}...`;
             
             // Re-run layout with new random seed (don't recreate entire Cytoscape)
-            const minNodeDist = parseInt(document.getElementById('minNodeDist').value, 10) || 6;
+            const minNodeDist = parseInt(document.getElementById('minNodeDist').value, 10) || 4;
             const nodeRepulsion = parseInt(document.getElementById('nodeRepulsion').value, 10) || 16000;
             
             const optLayoutOptions = {
@@ -2324,7 +3544,7 @@
                     animate: false,
                     randomize: false,
                     idealEdgeLength: edge => {
-                      const minNodeDist = parseInt(document.getElementById('minNodeDist').value, 10) || 6;
+                      const minNodeDist = parseInt(document.getElementById('minNodeDist').value, 10) || 4;
                       return Math.max(minNodeDist * 2, 80);
                     },
                     nodeRepulsion: 5000,
@@ -2456,7 +3676,7 @@
                   animate: false,
                   randomize: false,
                   idealEdgeLength: edge => {
-                    const minNodeDist = parseInt(document.getElementById('minNodeDist').value, 10) || 6;
+                    const minNodeDist = parseInt(document.getElementById('minNodeDist').value, 10) || 4;
                     return Math.max(minNodeDist * 2, 80);
                   },
                   nodeRepulsion: 5000,
