@@ -37,6 +37,7 @@ app = FastAPI(title="Local Map Host+Proxy")
 ROOT = Path(__file__).resolve().parent.parent
 HTML = ROOT / "local_map.html"
 HTML_CLAUDE = ROOT / "local_map_claude.html"
+GRAPH_LAYOUT_JS = ROOT / "graph_layout.js"
 
 
 @app.get("/")
@@ -62,6 +63,17 @@ async def claude_version():
         )
     # Modest cache so reloads pick up changes quickly
     return FileResponse(str(HTML_CLAUDE), headers={"cache-control": "no-cache"})
+
+
+@app.get("/graph_layout.js")
+async def graph_layout_js():
+    if not GRAPH_LAYOUT_JS.exists():
+        return PlainTextResponse(
+            f"graph_layout.js not found at {GRAPH_LAYOUT_JS}", status_code=404
+        )
+    # Serve the JavaScript module
+    return FileResponse(str(GRAPH_LAYOUT_JS),
+                       headers={"cache-control": "no-cache", "content-type": "application/javascript"})
 
 
 @app.get("/health")

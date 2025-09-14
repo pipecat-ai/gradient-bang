@@ -290,6 +290,147 @@
   }
 
   /**
+   * Run a complete layout pass with optimization
+   * This creates a Cytoscape instance, runs layout, and optimizes if needed
+   * Returns metrics and positions after all optimization attempts
+   */
+  async function runLayout(nodes, centerId, options = {}) {
+    const verbose = options.verbose || false;
+    const minNodeDist = options.minNodeDist || 4;
+    const nodeRepulsion = options.nodeRepulsion || 16000;
+    const maxOptimizeAttempts = options.maxOptimizeAttempts || 20;
+
+    // Create elements
+    const elements = createElements(nodes, centerId);
+
+    // Create headless Cytoscape instance
+    const cy = cytoscape({
+      headless: true,
+      elements: elements
+    });
+
+    // Configure and run initial fcose layout
+    const layoutOptions = getLayoutOptions({
+      minNodeDist,
+      nodeRepulsion,
+      quickMode: false
+    });
+
+    const layout = cy.layout(layoutOptions);
+
+    // Run layout and wait for completion
+    await new Promise((resolve) => {
+      layout.on('layoutstop', resolve);
+      layout.run();
+    });
+
+    // Count initial metrics
+    const initialCrossings = countCrossings(cy);
+    const initialCollisions = countNodeEdgeCollisions(cy, { minNodeDist });
+
+    // If we have problems, run optimization
+    if (initialCrossings > 0 || initialCollisions > 0) {
+      if (verbose) {
+        console.log(`  Initial: ${initialCrossings} crossings, ${initialCollisions} collisions`);
+        console.log(`  Running optimization...`);
+      }
+
+      let bestCrossings = initialCrossings;
+      let bestCollisions = initialCollisions;
+      let bestPositions = {};
+
+      // Save current positions as best so far
+      cy.nodes().forEach(node => {
+        bestPositions[node.id()] = node.position();
+      });
+
+      for (let attempt = 0; attempt < maxOptimizeAttempts; attempt++) {
+        // Run layout again with new random seed
+        const optLayout = cy.layout({
+          name: 'fcose',
+          animate: false,
+          randomize: true,
+          quality: 'proof',
+          numIter: 10000,
+          randomizationSeed: Math.floor(Math.random() * 10000),
+          idealEdgeLength: edge => {
+            const avgDegree = (edge.source().degree() + edge.target().degree()) / 2;
+            return Math.max(minNodeDist * 2, Math.min(minNodeDist * 8, 80 + avgDegree * 10));
+          },
+          nodeRepulsion: node => nodeRepulsion * 2.0,
+          nodeOverlap: minNodeDist + 15,
+          gravity: 0.05,
+          gravityRange: 10.0,
+          edgeElasticity: edge => 0.2,
+          sampleSize: 500,
+          minTemp: 0.01,
+          initialTemp: 500,
+          coolingFactor: 0.995,
+          improveFlow: true
+        });
+
+        await new Promise((resolve) => {
+          optLayout.on('layoutstop', resolve);
+          optLayout.run();
+        });
+
+        const newCrossings = countCrossings(cy);
+        const newCollisions = countNodeEdgeCollisions(cy, { minNodeDist });
+
+        if (newCrossings < bestCrossings ||
+            (newCrossings === bestCrossings && newCollisions < bestCollisions)) {
+          bestCrossings = newCrossings;
+          bestCollisions = newCollisions;
+          cy.nodes().forEach(node => {
+            bestPositions[node.id()] = node.position();
+          });
+
+          if (verbose) {
+            console.log(`  Attempt ${attempt + 1}: Improved to ${bestCrossings} crossings, ${bestCollisions} collisions`);
+          }
+        }
+
+        // Stop if perfect
+        if (bestCrossings === 0 && bestCollisions === 0) {
+          if (verbose) {
+            console.log(`  Success! Found perfect layout at attempt ${attempt + 1}`);
+          }
+          break;
+        }
+      }
+
+      // Restore best positions
+      cy.nodes().forEach(node => {
+        node.position(bestPositions[node.id()]);
+      });
+
+      // Get final positions for return
+      const positions = {};
+      cy.nodes().forEach(node => {
+        positions[node.id()] = node.position();
+      });
+
+      return {
+        crossings: bestCrossings,
+        collisions: bestCollisions,
+        positions: positions
+      };
+    }
+
+    // Get positions for return
+    const positions = {};
+    cy.nodes().forEach(node => {
+      positions[node.id()] = node.position();
+    });
+
+    return {
+      crossings: initialCrossings,
+      collisions: initialCollisions,
+      positions: positions
+    };
+  }
+
+  /**
    * Optimize layout to minimize crossings and collisions
    */
   async function optimizeLayout(cy, options = {}) {
@@ -555,6 +696,7 @@
   // Public API
   const GraphLayout = {
     render,
+    runLayout,
     optimizeLayout,
     countCrossings,
     countNodeEdgeCollisions,

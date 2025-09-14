@@ -102,6 +102,29 @@
             <label for="bendChords" class="small" style="margin:0;">Bend long chords (experimental)</label>
           </div>
           <div class="row" style="margin-top:6px; align-items:center; gap:8px;">
+            <input id="autoExpand" type="checkbox" checked />
+            <label for="autoExpand" class="small" style="margin:0;">Auto-expand to satisfy spacing</label>
+          </div>
+          <div class="row" style="margin-top:6px; align-items:center;">
+            <label class="small" style="margin:0;">Kick for overlaps (px)</label>
+            <input id="kick" type="range" min="0.5" max="6" step="0.5" value="1.5" style="width:160px;" />
+            <span id="kickVal" class="small muted">1.5</span>
+          </div>
+          <div class="row" style="margin-top:6px; align-items:center;">
+            <label class="small" style="margin:0;">Expand aggressiveness</label>
+            <input id="expandGain" type="range" min="0.5" max="2.0" step="0.1" value="1.0" style="width:160px;" />
+            <span id="expandGainVal" class="small muted">1.0</span>
+          </div>
+          <div class="row" style="margin-top:6px; align-items:center; gap:8px;">
+            <label class="small" style="margin:0;">Max expand steps</label>
+            <input id="maxExpandSteps" type="number" min="0" max="12" step="1" value="6" style="width:80px;" />
+            <label class="small" style="margin-left:12px;">Expand anchor</label>
+            <select id="expandAnchor" style="flex:1 1 auto;">
+              <option value="centroid" selected>centroid</option>
+              <option value="center">current center sector</option>
+            </select>
+          </div>
+          <div class="row" style="margin-top:6px; align-items:center; gap:8px;">
             <label class="small" style="margin:0;">Debug IDs</label>
             <input id="debugIds" type="text" value="1462,1101,1363,3770" style="flex:1 1 auto;" />
             <button id="logPosBtn">Log positions</button>
@@ -134,6 +157,30 @@
         const v = el ? parseFloat(el.value||'50') : 50;
         const span = document.getElementById('cohesionArcVal'); if (span) span.textContent = String(Math.round(v));
         return v;
+      }
+      function UI_AUTO_EXPAND(){
+        const el = document.getElementById('autoExpand');
+        return !!(el && el.checked);
+      }
+      function UI_KICK(){
+        const el = document.getElementById('kick');
+        const v = el ? parseFloat(el.value||'1.5') : 1.5;
+        const span = document.getElementById('kickVal'); if (span) span.textContent = String(v.toFixed(1));
+        return v;
+      }
+      function UI_EXPAND_GAIN(){
+        const el = document.getElementById('expandGain');
+        const v = el ? parseFloat(el.value||'1.0') : 1.0;
+        const span = document.getElementById('expandGainVal'); if (span) span.textContent = String(v.toFixed(1));
+        return v;
+      }
+      function UI_MAX_EXPAND_STEPS(){
+        const el = document.getElementById('maxExpandSteps');
+        return el ? parseInt(el.value||'6', 10) : 6;
+      }
+      function UI_EXPAND_ANCHOR(){
+        const el = document.getElementById('expandAnchor');
+        return (el && el.value==='center') ? 'center' : 'centroid';
       }
       // No sibling cohesion or ring cohesion in the per-parent ring layout
       function buildUndirected(nodes) {
@@ -470,6 +517,12 @@
         }
         // Deterministic tiny jitter direction for coincident pairs
         function hashAngle(a,b){ let s=((a*73856093) ^ (b*19349663))>>>0; return (s%6283185)/1000000.0; }
+        // Resolve exact/near-coincident nodes by forcing small, guarded separation
+        function resolveCoincident(ids, kick=1.5){
+          const bins = new Map();
+          for (const id of ids){ const p=pos.get(id); if(!p) continue; const key=p.x.toFixed(3)+","+p.y.toFixed(3); if(!bins.has(key)) bins.set(key, []); bins.get(key).push(id); }
+          for (const [_, group] of bins){ if (group.length<=1) continue; const base=group[0]; for(let i=1;i<group.length;i++){ const id=group[i]; const ang = hashAngle(base, id); let amp = kick * (1 + i*0.5); let success=false; for(let tries=0; tries<5; tries++){ const dx=Math.cos(ang)*amp, dy=Math.sin(ang)*amp; const step=guardMove(id, dx, dy); if (Math.abs(step.dx)+Math.abs(step.dy) > 1e-3){ const P=pos.get(id); P.x+=step.dx; P.y+=step.dy; success=true; break; } amp*=1.6; } if(!success){ /* fallback tiny jitter without guard */ const P=pos.get(id); P.x+=Math.cos(ang)*0.5; P.y+=Math.sin(ang)*0.5; } } }
+        }
         // Robust spacing helper guarded against crossings
         function safeRepulse(ia, ib, need){
           const A = pos.get(ia), B = pos.get(ib); if (!A||!B) return false;
@@ -560,6 +613,34 @@
           return pairs;
         }
         function angleWrap(a){ while(a>Math.PI) a-=TAU; while(a<-Math.PI) a+=TAU; return a; }
+        function maxSpacingViolation(ids){
+          const pairs = buildPairsFor(ids); let mv=0;
+          for (const [ia,ib] of pairs){ const A=pos.get(ia), B=pos.get(ib); if(!A||!B) continue; const need=Math.max(MIN_NODE_DIST, (radii.get(ia)||0)+(radii.get(ib)||0)); const d=Math.hypot(B.x-A.x,B.y-A.y); const v=Math.max(0, need-d); if (v>mv) mv=v; }
+          return mv;
+        }
+        function minScaleFactorToSatisfy(ids, eps=0.5){
+          // Distances under uniform dilation about any anchor scale by the same factor f.
+          // Minimal f is max over violating pairs of (need+eps)/d.
+          const pairs = buildPairsFor(ids); let f = 1.0;
+          for (const [ia, ib] of pairs){
+            const A=pos.get(ia), B=pos.get(ib); if(!A||!B) continue;
+            const need=Math.max(UI_MIN_NODE_DIST(), (radii.get(ia)||0)+(radii.get(ib)||0));
+            const d=Math.hypot(B.x-A.x, B.y-A.y);
+            if (d + eps < need){ const cand = (need + eps) / Math.max(d, 1e-6); if (cand > f) f = cand; }
+          }
+          // small cushion to avoid thrashing around exact equality
+          return Math.max(1.0, f * 1.002);
+        }
+        function globalDilation(ids, factor, anchor){
+          // Scale around anchor (centroid or selected node); preserves planarity
+          let ax, ay;
+          if (anchor && Number.isFinite(anchor.x) && Number.isFinite(anchor.y)){
+            ax = anchor.x; ay = anchor.y;
+          } else {
+            let cx=0, cy=0, cnt=0; for (const id of ids){ const P=pos.get(id); if (!P) continue; cx+=P.x; cy+=P.y; cnt++; } if (!cnt) return; ax=cx/cnt; ay=cy/cnt;
+          }
+          for (const id of ids){ const P=pos.get(id); if (!P) continue; P.x = ax + (P.x - ax)*factor; P.y = ay + (P.y - ay)*factor; }
+        }
         function projectionSolver(ids, opts={}){
           const eps = opts.eps ?? 0.5;
           const maxIters = opts.maxIters ?? 8;
@@ -591,10 +672,12 @@
               const p = parent.get(id); if (p==null) continue; const P=pos.get(p), C=pos.get(id); if(!P||!C) continue;
               // Length spring towards LINK
               let rx=C.x-P.x, ry=C.y-P.y; let rlen=Math.hypot(rx,ry)||1e-6; let ux=rx/rlen, uy=ry/rlen;
-              let lenDelta=(LINK - rlen)*lenK; if (Math.abs(lenDelta)>0.01){ const s=guardMove(id, ux*lenDelta, uy*lenDelta); C.x+=s.dx; C.y+=s.dy; moved = moved || Math.abs(s.dx)+Math.abs(s.dy)>1e-3; rlen = Math.hypot(C.x-P.x, C.y-P.y)||1e-6; rx=C.x-P.x; ry=C.y-P.y; ux=rx/rlen; uy=ry/rlen; }
+              const maxLenStep = Math.max(4, 0.40*LINK);
+              let lenDelta=(LINK - rlen)*lenK; if (lenDelta >  maxLenStep) lenDelta =  maxLenStep; if (lenDelta < -maxLenStep) lenDelta = -maxLenStep;
+              if (Math.abs(lenDelta)>0.01){ const s=guardMove(id, ux*lenDelta, uy*lenDelta); C.x+=s.dx; C.y+=s.dy; moved = moved || Math.abs(s.dx)+Math.abs(s.dy)>1e-3; rlen = Math.hypot(C.x-P.x, C.y-P.y)||1e-6; rx=C.x-P.x; ry=C.y-P.y; ux=rx/rlen; uy=ry/rlen; }
               // Angle spring towards prefAngle
               const pref = prefAngle.get(id);
-              if (pref != null){ const ang = Math.atan2(ry,rx); const diff = angleWrap(pref - ang); if (Math.abs(diff) > 0.002){ const tangent = { x:-uy, y:ux }; const arcStep = diff * angK * rlen; const s=guardMove(id, tangent.x*arcStep, tangent.y*arcStep); if (Math.abs(s.dx)+Math.abs(s.dy)>1e-3){ C.x+=s.dx; C.y+=s.dy; moved=true; } } }
+              if (pref != null){ const ang = Math.atan2(ry,rx); const diff = angleWrap(pref - ang); if (Math.abs(diff) > 0.002){ const tangent = { x:-uy, y:ux }; let arcStep = diff * angK * rlen; const maxArcStep = Math.max(4, 0.35*LINK); if (arcStep >  maxArcStep) arcStep =  maxArcStep; if (arcStep < -maxArcStep) arcStep = -maxArcStep; const s=guardMove(id, tangent.x*arcStep, tangent.y*arcStep); if (Math.abs(s.dx)+Math.abs(s.dy)>1e-3){ C.x+=s.dx; C.y+=s.dy; moved=true; } } }
             }
             // 3) Re-project spacing after springs (early-exit if clean)
             let mv = maxViolation();
@@ -605,6 +688,8 @@
         const iters = 28;
         for (let it=0; it<iters; it++){
           let moved=false;
+          // Ensure no exact duplicates before each pass
+          resolveCoincident(idsAll, UI_KICK());
           // Apply long-chord bending first, then enforce spacing, then springs
           if ((document.getElementById('bendChords')?.checked)){
             for (const [u,v] of edges){
@@ -639,6 +724,59 @@
           }
           // Global projection solve across all nodes (enforce spacing + springs)
           projectionSolver(idsAll, { maxIters: 6, eps: 0.5, springLenK: 0.24, springAngK: 0.16 });
+          // If still violated, prefer local dilation of violating clusters over global
+          if (UI_AUTO_EXPAND()){
+            const epsV = 0.4;
+            // Build violating pairs
+            const pairs = [];
+            for (let i=0;i<idsAll.length;i++){
+              for (let j=i+1;j<idsAll.length;j++){
+                const ia=idsAll[i], ib=idsAll[j]; const A=pos.get(ia), B=pos.get(ib); if(!A||!B) continue;
+                const need=Math.max(UI_MIN_NODE_DIST(), (radii.get(ia)||0)+(radii.get(ib)||0));
+                const d=Math.hypot(B.x-A.x,B.y-A.y); if(d + epsV < need) pairs.push([ia,ib,d,need]);
+              }
+            }
+            if (pairs.length){
+              // Union-Find clusters from violating pairs
+              const parentUF=new Map(); const find=(x)=>{ if(parentUF.get(x)===x) return x; const r=find(parentUF.get(x)); parentUF.set(x,r); return r; };
+              const union=(a,b)=>{ const ra=find(a), rb=find(b); if(ra!==rb) parentUF.set(ra,rb); };
+              for(const id of idsAll){ parentUF.set(id,id); }
+              for(const [a,b] of pairs){ union(a,b); }
+              const groups=new Map();
+              for(const [a,b] of pairs){ const r=find(a); if(!groups.has(r)) groups.set(r,new Set()); groups.get(r).add(a); groups.get(r).add(b); }
+              // Sort clusters by size desc, then apply local dilation
+              const clusters=[...groups.values()].sort((A,B)=>B.size-A.size);
+              const gain = UI_EXPAND_GAIN();
+              let anyLocal=false;
+              for(const set of clusters){
+                const ids=[...set]; if(ids.length<2) continue;
+                // Minimal factor based on internal violating pairs only
+                let fNeed=1.0; for(const [a,b,d,need] of pairs){ if(set.has(a)&&set.has(b)){ const cand=(need+epsV)/Math.max(d,1e-6); if(cand>fNeed) fNeed=cand; } }
+                fNeed = Math.max(1.0, fNeed*1.002);
+                const f = Math.pow(fNeed, Math.max(0.5, Math.min(1.5, gain)));
+                if (f<=1.01) continue;
+                // Anchor = cluster centroid
+                let cx=0, cy=0; for(const id of ids){ const P=pos.get(id); cx+=P.x; cy+=P.y; } cx/=ids.length; cy/=ids.length;
+                // Apply guarded local dilation per node
+                for(const id of ids){ const P=pos.get(id); const dx=(P.x-cx)*(f-1), dy=(P.y-cy)*(f-1); const step=guardMove(id, dx, dy); P.x+=step.dx; P.y+=step.dy; }
+                // ROI: cluster + 1-hop neighbors, re-project locally
+                const roi=new Set(ids); for(const id of ids){ for(const nb of (undirected.get(id)||[])){ roi.add(nb); } }
+                projectionSolver([...roi], { maxIters: 3, eps: 0.6, springLenK: 0.2, springAngK: 0.12 });
+                anyLocal=true;
+              }
+              moved = moved || anyLocal;
+              // As a last resort if many clusters or extreme overlap, do a minimal global dilation
+              if(!moved){
+                const fNeeded = minScaleFactorToSatisfy(idsAll, epsV);
+                const f = Math.pow(fNeeded, Math.max(0.5, Math.min(1.2, gain)));
+                if (f > 1.01){ const anchor = (UI_EXPAND_ANCHOR()==='center') ? pos.get(centerId) : null; globalDilation(idsAll, f, anchor); projectionSolver(idsAll, { maxIters: 2, eps: 0.6, springLenK: 0.18, springAngK: 0.12 }); moved=true; }
+              }
+            }
+            // After any expansion (local or global), run a quick global settle to keep strays in check
+            if (moved){
+              projectionSolver(idsAll, { maxIters: 2, eps: 0.55, springLenK: 0.22, springAngK: 0.14 });
+            }
+          }
           if (!moved) break;
         }
         return { pos, maxRing: 3 };
@@ -806,6 +944,14 @@
       const cohArcEl = document.getElementById('cohesionArc'); if (cohArcEl) cohArcEl.addEventListener('input', ()=>{ UI_COHESION_ARC(); rerenderIfPossible(); });
       const capModeEl = document.getElementById('capMode'); if (capModeEl) capModeEl.addEventListener('change', fetchAndRender);
       const maxNodesEl = document.getElementById('maxNodes'); if (maxNodesEl) maxNodesEl.addEventListener('input', fetchAndRender);
+      const bendEl = document.getElementById('bendChords'); if (bendEl) bendEl.addEventListener('change', rerenderIfPossible);
+      const autoExpandEl = document.getElementById('autoExpand'); if (autoExpandEl) autoExpandEl.addEventListener('change', rerenderIfPossible);
+      const kickEl = document.getElementById('kick'); if (kickEl) kickEl.addEventListener('input', ()=>{ UI_KICK(); rerenderIfPossible(); });
+      const gainEl = document.getElementById('expandGain'); if (gainEl) gainEl.addEventListener('input', ()=>{ UI_EXPAND_GAIN(); rerenderIfPossible(); });
+      const maxStepsEl = document.getElementById('maxExpandSteps'); if (maxStepsEl) maxStepsEl.addEventListener('input', rerenderIfPossible);
+      const anchorEl = document.getElementById('expandAnchor'); if (anchorEl) anchorEl.addEventListener('change', rerenderIfPossible);
+      // Initialize label readouts
+      UI_MIN_NODE_DIST(); UI_COHESION_ARC(); UI_KICK(); UI_EXPAND_GAIN();
 
       async function fetchAndRender(skipHistory=false){
         const centerId = parseInt(centerEl.value || '0', 10);

@@ -7,132 +7,41 @@
  */
 
 const fs = require('fs');
-const cytoscape = require('cytoscape');
-const fcose = require('cytoscape-fcose');
 
-// Register the fcose layout
-cytoscape.use(fcose);
-
-// Load the GraphLayout module for utility functions
+// Load the GraphLayout module - now fully encapsulated
 const GraphLayout = require('./graph_layout.js');
 
-async function runLayout(nodes, centerId, verbose = false) {
-  // Use GraphLayout module to create elements
-  const elements = GraphLayout.createElements(nodes, centerId);
+async function runLayoutWithRetries(nodes, centerId, verbose = false) {
+  // Try up to 3 times to get a perfect layout
+  const maxRetries = 3;
+  let lastResult = null;
 
-  // Create headless Cytoscape instance
-  const cy = cytoscape({
-    headless: true,
-    elements: elements
-  });
+  for (let retry = 0; retry < maxRetries; retry++) {
+    if (verbose && retry > 0) {
+      console.log(`\n  Retry ${retry}...`);
+    }
 
-  // Configure and run fcose layout using module's options
-  const minNodeDist = 4;
-  const nodeRepulsion = 16000;
+    // Use GraphLayout.runLayout with full optimization
+    lastResult = await GraphLayout.runLayout(nodes, centerId, {
+      verbose: verbose,
+      minNodeDist: 4,
+      nodeRepulsion: 16000,
+      maxOptimizeAttempts: 20
+    });
 
-  const layoutOptions = GraphLayout.getLayoutOptions({
-    minNodeDist,
-    nodeRepulsion,
-    quickMode: false
-  });
+    // Return immediately if perfect
+    if (lastResult.crossings === 0 && lastResult.collisions === 0) {
+      return lastResult;
+    }
 
-  const layout = cy.layout(layoutOptions);
-
-  // Run layout and wait for completion
-  await new Promise((resolve) => {
-    layout.on('layoutstop', resolve);
-    layout.run();
-  });
-
-  // Count metrics using module functions
-  const crossings = GraphLayout.countCrossings(cy);
-  const collisions = GraphLayout.countNodeEdgeCollisions(cy, { minNodeDist });
-
-  // If we have problems, try optimization (up to 20 attempts for harder cases)
-  if (crossings > 0 || collisions > 0) {
+    // Continue to next retry if not perfect
     if (verbose) {
-      console.log(`\n  Initial: ${crossings} crossings, ${collisions} collisions`);
-      console.log(`  Running optimization...`);
+      console.log(`  Result: ${lastResult.crossings} crossings, ${lastResult.collisions} collisions`);
     }
-
-    let bestCrossings = crossings;
-    let bestCollisions = collisions;
-    let bestPositions = {};
-
-    // Save current positions as best so far
-    cy.nodes().forEach(node => {
-      bestPositions[node.id()] = node.position();
-    });
-
-    // Use more attempts for particularly challenging graphs
-    const hardCases = [4169, 4512];
-    const maxAttempts = hardCases.includes(centerId) ? 75 : 20;
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      // Run layout again with new random seed, using full quality settings
-      const optLayout = cy.layout({
-        name: 'fcose',
-        animate: false,
-        randomize: true,
-        quality: 'proof',
-        numIter: 10000, // More iterations for optimization
-        randomizationSeed: Math.floor(Math.random() * 10000),
-        // Use same parameters as initial layout
-        idealEdgeLength: edge => {
-          const avgDegree = (edge.source().degree() + edge.target().degree()) / 2;
-          return Math.max(minNodeDist * 2, Math.min(minNodeDist * 8, 80 + avgDegree * 10));
-        },
-        nodeRepulsion: node => nodeRepulsion * 2.0,
-        nodeOverlap: minNodeDist + 15,
-        gravity: 0.05,
-        gravityRange: 10.0,
-        edgeElasticity: edge => 0.2,
-        sampleSize: 500,
-        minTemp: 0.01,
-        initialTemp: 500,
-        coolingFactor: 0.995,
-        improveFlow: true
-      });
-
-      await new Promise((resolve) => {
-        optLayout.on('layoutstop', resolve);
-        optLayout.run();
-      });
-
-      const newCrossings = GraphLayout.countCrossings(cy);
-      const newCollisions = GraphLayout.countNodeEdgeCollisions(cy, { minNodeDist });
-
-      if (newCrossings < bestCrossings ||
-          (newCrossings === bestCrossings && newCollisions < bestCollisions)) {
-        bestCrossings = newCrossings;
-        bestCollisions = newCollisions;
-        cy.nodes().forEach(node => {
-          bestPositions[node.id()] = node.position();
-        });
-
-        if (verbose) {
-          console.log(`  Attempt ${attempt + 1}: Improved to ${bestCrossings} crossings, ${bestCollisions} collisions`);
-        }
-      }
-
-      // Stop if perfect
-      if (bestCrossings === 0 && bestCollisions === 0) {
-        if (verbose) {
-          console.log(`  Success! Found perfect layout at attempt ${attempt + 1}`);
-        }
-        break;
-      }
-    }
-
-    // Restore best positions
-    cy.nodes().forEach(node => {
-      node.position(bestPositions[node.id()]);
-    });
-
-    return { crossings: bestCrossings, collisions: bestCollisions };
   }
 
-  return { crossings, collisions };
+  // Return the last attempt's result (don't run a 4th time)
+  return lastResult;
 }
 
 async function runTests() {
@@ -173,34 +82,19 @@ async function runTests() {
     process.stdout.write(`Test ${testNum}/${testData.length}: Center ${testCase.center_sector}... `);
 
     try {
-      // Enable verbose mode for sectors that have been failing
-      const verbose = [4169, 4512].includes(testCase.center_sector);
+      // No special handling for any sectors - treat all equally
+      const verbose = false;
 
-      // Try up to 3 times for non-deterministic layouts
-      let attempts = 0;
-      let result;
-      const maxRetries = 3;
+      // Run layout with up to 3 retries
+      const result = await runLayoutWithRetries(testCase.node_list, testCase.center_sector, verbose);
 
-      do {
-        attempts++;
-        result = await runLayout(testCase.node_list, testCase.center_sector, verbose && attempts === 1);
-
-        if (result.crossings === 0 && result.collisions === 0) {
-          if (attempts > 1) {
-            console.log(`✓ PASSED (attempt ${attempts})`);
-          } else {
-            console.log('✓ PASSED');
-          }
-          passed++;
-          break;
-        } else if (attempts === maxRetries) {
-          console.log(`✗ FAILED after ${attempts} attempts (${result.crossings} crossings, ${result.collisions} collisions)`);
-          failed++;
-        } else {
-          // Don't print anything, just retry
-          continue;
-        }
-      } while (attempts < maxRetries && (result.crossings > 0 || result.collisions > 0));
+      if (result.crossings === 0 && result.collisions === 0) {
+        console.log('✓ PASSED');
+        passed++;
+      } else {
+        console.log(`✗ FAILED (${result.crossings} crossings, ${result.collisions} collisions)`);
+        failed++;
+      }
     } catch (e) {
       console.log(`✗ ERROR: ${e.message}`);
       failed++;
