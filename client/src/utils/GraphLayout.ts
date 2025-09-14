@@ -2,33 +2,46 @@
  * Graph Layout Module
  *
  * Provides graph layout functionality using Cytoscape.js with fcose algorithm.
- * Can be used as both an ES6 module and a script tag include.
- *
- * Usage as ES6 module:
- *   import { GraphLayout } from './graph_layout.js';
- *
- * Usage as script tag:
- *   <script src="graph_layout.js"></script>
- *   // Access via window.GraphLayout
+ * ES6 module for use in React/TypeScript applications.
  */
 
-(function(root, factory) {
-  // UMD (Universal Module Definition) pattern for dual compatibility
-  if (typeof define === 'function' && define.amd) {
-    // AMD
-    define(['cytoscape', 'cytoscape-fcose'], factory);
-  } else if (typeof module === 'object' && module.exports) {
-    // Node/CommonJS - load dependencies
-    const cytoscape = require('cytoscape');
-    const fcose = require('cytoscape-fcose');
-    cytoscape.use(fcose);
-    module.exports = factory(cytoscape);
-  } else {
-    // Browser globals (root is window)
-    // The fcose library registers itself automatically when loaded via script tag
-    root.GraphLayout = factory(root.cytoscape);
-  }
-}(typeof self !== 'undefined' ? self : this, function(cytoscape) {
+import cytoscape from 'cytoscape';
+import fcose from 'cytoscape-fcose';
+
+// Register the fcose layout
+cytoscape.use(fcose);
+
+// Type definitions
+interface Node {
+  id: number;
+  visited: boolean;
+  port_type: string | null;
+  adjacent: number[];
+}
+
+interface LayoutOptions {
+  container?: HTMLElement;
+  verbose?: boolean;
+  minNodeDist?: number;
+  nodeRepulsion?: number;
+  maxOptimizeAttempts?: number;
+  quickMode?: boolean;
+  autoOptimize?: boolean;
+  skipOptRender?: boolean;
+  skipRender?: boolean;
+  maxAttempts?: number;
+  onLayoutComplete?: (crossings: number, collisions: number) => void;
+  onOptimizeProgress?: (attempt: number, maxAttempts: number, crossings: number, collisions: number) => void;
+  onProgress?: (attempt: number, maxAttempts: number, crossings: number, collisions: number) => void;
+}
+
+interface LayoutResult {
+  crossings: number;
+  collisions: number;
+  positions?: any;
+}
+
+// Start of module implementation
 
   /**
    * Convert node list to edge pairs for Cytoscape
@@ -702,18 +715,17 @@
     ];
   }
 
-  // Public API
-  const GraphLayout = {
-    render,
-    runLayout,
-    optimizeLayout,
-    countCrossings,
-    countNodeEdgeCollisions,
-    createElements,
-    getLayoutOptions,
-    getDefaultStyles,
-    toPairs
-  };
+// Public API
+export const GraphLayout = {
+  render,
+  runLayout,
+  optimizeLayout,
+  countCrossings,
+  countNodeEdgeCollisions,
+  createElements,
+  getLayoutOptions,
+  getDefaultStyles,
+  toPairs
+};
 
-  return GraphLayout;
-}));
+export default GraphLayout;

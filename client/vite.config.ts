@@ -9,7 +9,7 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       "/api": {
-        target: "http://0.0.0.0:7860",
+        target: "http://0.0.0.0:8000",
         changeOrigin: true,
       },
     },

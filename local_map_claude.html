@@ -181,8 +181,11 @@
 
           if (limitNodes && useWorld) {
             // Adaptive fetching: start with 1 hop and increase until we have enough nodes
+            let prevNodes = [];
+            let prevHops = 0;
+
             for (let hops = 1; hops <= 10; hops++) {
-              const url = `/local_map?center=${center}&max_hops=${hops}`;
+              const url = `http://localhost:8000/api/local_map?center=${center}&max_hops=${hops}&max_nodes=1000`;
               const response = await fetch(url);
               if (!response.ok) {
                 console.error(`Failed to fetch world data for sector ${center}:`, response.status);
@@ -193,22 +196,22 @@
 
               console.log(`Hops: ${hops}, Nodes: ${nodes.length}`);
 
-              // If we have enough nodes, stop
+              // If we have exactly the max or went over, decide what to use
               if (nodes.length >= maxNodes) {
-                // If we have too many, use the previous hop count
-                if (nodes.length > maxNodes && hops > 1) {
-                  const prevUrl = `/local_map?center=${center}&max_hops=${hops - 1}`;
-                  const prevResponse = await fetch(prevUrl);
-                  if (prevResponse.ok) {
-                    const prevData = await prevResponse.json();
-                    nodes = prevData.node_list || prevData.nodes || [];
-                    document.getElementById('maxHops').value = hops - 1;
-                  }
+                // If we went over the max, use the previous result if it exists
+                if (nodes.length > maxNodes && prevNodes.length > 0) {
+                  nodes = prevNodes;
+                  document.getElementById('maxHops').value = prevHops;
                 } else {
+                  // We have exactly the max or it's our first fetch that hit the limit
                   document.getElementById('maxHops').value = hops;
                 }
                 break;
               }
+
+              // Store this result as the previous for next iteration
+              prevNodes = nodes;
+              prevHops = hops;
 
               // Update the hops display
               document.getElementById('maxHops').value = hops;
@@ -220,7 +223,7 @@
 
             if (useWorld) {
               // Use world data - fetch from local map endpoint
-              const url = `/local_map?center=${center}&max_hops=${maxHops}`;
+              const url = `http://localhost:8000/api/local_map?center=${center}&max_hops=${maxHops}&max_nodes=1000`;
               response = await fetch(url);
               if (!response.ok) {
                 console.error(`Failed to fetch world data for sector ${center}:`, response.status);
