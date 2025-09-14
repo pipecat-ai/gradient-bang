@@ -80,6 +80,90 @@ async def graph_layout_js():
 async def health():
     return {"ok": True}
 
+
+@app.get("/local_map")
+async def local_map(center: int = 0, max_hops: int = 3):
+    """Serve local map data from world-data files.
+
+    This endpoint reads the world-data JSON files and returns
+    nodes within max_hops of the center sector.
+    """
+    import json
+    from collections import deque
+
+    # Load the universe data
+    universe_file = ROOT / "world-data" / "universe_structure.json"
+    if not universe_file.exists():
+        return PlainTextResponse(
+            f"universe_structure.json not found at {universe_file}", status_code=404
+        )
+
+    with open(universe_file) as f:
+        universe = json.load(f)
+
+    # Get all sectors - it's a list, convert to dict for easy lookup
+    sectors_list = universe.get("sectors", [])
+    sectors = {s["id"]: s for s in sectors_list}
+
+    # Load sector contents for port information
+    contents_file = ROOT / "world-data" / "sector_contents.json"
+    sector_contents = {}
+    if contents_file.exists():
+        with open(contents_file) as f:
+            contents_data = json.load(f)
+            contents_list = contents_data.get("sectors", [])
+            sector_contents = {s["id"]: s for s in contents_list}
+
+    # BFS to find nodes within max_hops
+    visited = set()
+    queue = deque([(center, 0)])  # (sector_id, distance)
+    nodes = []
+
+    while queue:
+        sector_id, distance = queue.popleft()
+
+        # Skip if already visited or too far
+        if sector_id in visited or distance > max_hops:
+            continue
+
+        visited.add(sector_id)
+
+        # Get sector data
+        if sector_id not in sectors:
+            continue
+
+        sector_data = sectors[sector_id]
+
+        # Extract adjacent sectors from warps list
+        adjacent = []
+        for warp in sector_data.get("warps", []):
+            if isinstance(warp, dict) and "to" in warp:
+                adjacent.append(warp["to"])
+
+        # Get port type from sector contents
+        port_type = None
+        if sector_id in sector_contents:
+            sector_content = sector_contents[sector_id]
+            if sector_content.get("port"):
+                port_type = sector_content["port"].get("code")
+
+        # Add node to result
+        node = {
+            "id": sector_id,
+            "visited": True,  # For testing, mark all as visited
+            "port_type": port_type,
+            "adjacent": adjacent
+        }
+        nodes.append(node)
+
+        # Add adjacent sectors to queue
+        if distance < max_hops:
+            for adjacent_id in adjacent:
+                if adjacent_id not in visited:
+                    queue.append((adjacent_id, distance + 1))
+
+    return {"node_list": nodes}
+
 # Serve world-data/* directly for the "Use world data (global)" option
 WORLD_DIR = ROOT / "world-data"
 if WORLD_DIR.exists():

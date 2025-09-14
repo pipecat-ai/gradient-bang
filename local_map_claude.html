@@ -50,7 +50,7 @@
               <span class="dot red" style="margin-left:10px"></span> seen-only
               <span class="muted" style="margin-left:10px;">two-way has arrows at both ends</span>
             </div>
-            <div class="small muted">Tip: paste JSON or fetch from /api/local_map</div>
+            <div class="small muted">Tip: Uncheck "Use world data" for API (needs game server) or paste JSON directly</div>
           </div>
         </div>
         <div style="display:flex; flex-direction:column; gap:12px;">
@@ -72,7 +72,7 @@
               </div>
             </div>
           </div>
-          <button onclick="fetchLocalMap()">Fetch From /api/local_map</button>
+          <button onclick="fetchLocalMap()">Fetch From API/World Data</button>
           <div class="row">
             <button onclick="prevSector()">◀ Prev</button>
             <button onclick="randomCenter()">Random Center</button>
@@ -171,32 +171,89 @@
       // Fetch from API
       async function fetchLocalMap() {
         const center = document.getElementById('centerSector').value;
-        const maxHops = document.getElementById('maxHops').value || 3;
+        let maxHops = document.getElementById('maxHops').value || 3;
         const limitNodes = document.getElementById('limitNodes').checked;
         const maxNodes = parseInt(document.getElementById('maxNodes').value, 10) || 25;
         const useWorld = document.getElementById('useWorld').checked;
 
-        const url = useWorld
-          ? `http://localhost:8080/local_map?center=${center}&max_hops=${maxHops}`
-          : `/api/local_map?center=${center}&max_hops=${maxHops}`;
-
         try {
-          const response = await fetch(url);
-          const data = await response.json();
+          let nodes = [];
 
-          let nodes = data.node_list || data.nodes || [];
+          if (limitNodes && useWorld) {
+            // Adaptive fetching: start with 1 hop and increase until we have enough nodes
+            for (let hops = 1; hops <= 10; hops++) {
+              const url = `/local_map?center=${center}&max_hops=${hops}`;
+              const response = await fetch(url);
+              if (!response.ok) {
+                console.error(`Failed to fetch world data for sector ${center}:`, response.status);
+                break;
+              }
+              const data = await response.json();
+              nodes = data.node_list || data.nodes || [];
 
-          // Limit nodes if needed
-          if (limitNodes && nodes.length > maxNodes) {
-            const targetHops = Math.max(1, maxHops - 1);
-            document.getElementById('maxHops').value = targetHops;
-            await fetchLocalMap();
-            return;
+              console.log(`Hops: ${hops}, Nodes: ${nodes.length}`);
+
+              // If we have enough nodes, stop
+              if (nodes.length >= maxNodes) {
+                // If we have too many, use the previous hop count
+                if (nodes.length > maxNodes && hops > 1) {
+                  const prevUrl = `/local_map?center=${center}&max_hops=${hops - 1}`;
+                  const prevResponse = await fetch(prevUrl);
+                  if (prevResponse.ok) {
+                    const prevData = await prevResponse.json();
+                    nodes = prevData.node_list || prevData.nodes || [];
+                    document.getElementById('maxHops').value = hops - 1;
+                  }
+                } else {
+                  document.getElementById('maxHops').value = hops;
+                }
+                break;
+              }
+
+              // Update the hops display
+              document.getElementById('maxHops').value = hops;
+            }
+          } else {
+            // Standard fetching without node limit
+            let response;
+            let data;
+
+            if (useWorld) {
+              // Use world data - fetch from local map endpoint
+              const url = `/local_map?center=${center}&max_hops=${maxHops}`;
+              response = await fetch(url);
+              if (!response.ok) {
+                console.error(`Failed to fetch world data for sector ${center}:`, response.status);
+                await renderGraph([], parseInt(center));
+                return;
+              }
+              data = await response.json();
+            } else {
+              // Use API - POST to /api/my_map
+              response = await fetch('/api/my_map', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  character_id: 'test_character'  // You may need to adjust this based on your character
+                })
+              });
+              if (!response.ok) {
+                console.error('API request failed:', response.status);
+                await renderGraph([], parseInt(center));
+                return;
+              }
+              data = await response.json();
+            }
+
+            nodes = data.node_list || data.nodes || [];
           }
 
           await renderGraph(nodes, parseInt(center));
         } catch (error) {
           console.error('Failed to fetch:', error);
+          await renderGraph([], parseInt(center));
         }
       }
 
