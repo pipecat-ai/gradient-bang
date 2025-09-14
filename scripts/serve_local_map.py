@@ -15,7 +15,6 @@ Notes:
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import Dict
 
@@ -37,15 +36,14 @@ app = FastAPI(title="Local Map Host+Proxy")
 ROOT = Path(__file__).resolve().parent.parent
 HTML = ROOT / "local_map.html"
 HTML_CLAUDE = ROOT / "local_map_claude.html"
+HTML_GOLDEN = ROOT / "local_map_golden.html"
 GRAPH_LAYOUT_JS = ROOT / "graph_layout.js"
 
 
 @app.get("/")
 async def index():
     if not HTML.exists():
-        return PlainTextResponse(
-            f"local_map.html not found at {HTML}", status_code=404
-        )
+        return PlainTextResponse(f"local_map.html not found at {HTML}", status_code=404)
     # Modest cache so reloads pick up changes quickly
     return FileResponse(str(HTML), headers={"cache-control": "no-cache"})
 
@@ -65,15 +63,25 @@ async def claude_version():
     return FileResponse(str(HTML_CLAUDE), headers={"cache-control": "no-cache"})
 
 
+@app.get("/local_map_golden.html")
+async def golden_version():
+    if not HTML_GOLDEN.exists():
+        return PlainTextResponse(
+            f"local_map_golden.html not found at {HTML_GOLDEN}", status_code=404
+        )
+    # Modest cache so reloads pick up changes quickly
+    return FileResponse(str(HTML_GOLDEN), headers={"cache-control": "no-cache"})
+
+
 @app.get("/graph_layout.js")
 async def graph_layout_js():
     if not GRAPH_LAYOUT_JS.exists():
-        return PlainTextResponse(
-            f"graph_layout.js not found at {GRAPH_LAYOUT_JS}", status_code=404
-        )
+        return PlainTextResponse(f"graph_layout.js not found at {GRAPH_LAYOUT_JS}", status_code=404)
     # Serve the JavaScript module
-    return FileResponse(str(GRAPH_LAYOUT_JS),
-                       headers={"cache-control": "no-cache", "content-type": "application/javascript"})
+    return FileResponse(
+        str(GRAPH_LAYOUT_JS),
+        headers={"cache-control": "no-cache", "content-type": "application/javascript"},
+    )
 
 
 @app.get("/health")
@@ -152,7 +160,7 @@ async def local_map(center: int = 0, max_hops: int = 3):
             "id": sector_id,
             "visited": True,  # For testing, mark all as visited
             "port_type": port_type,
-            "adjacent": adjacent
+            "adjacent": adjacent,
         }
         nodes.append(node)
 
@@ -163,6 +171,7 @@ async def local_map(center: int = 0, max_hops: int = 3):
                     queue.append((adjacent_id, distance + 1))
 
     return {"node_list": nodes}
+
 
 # Serve world-data/* directly for the "Use world data (global)" option
 WORLD_DIR = ROOT / "world-data"
@@ -188,7 +197,9 @@ async def api_proxy(path: str, request: Request):
 
     # Reflect status and content-type back to the browser
     content_type = upstream.headers.get("content-type", "application/json")
-    return Response(upstream.content, status_code=upstream.status_code, headers={"content-type": content_type})
+    return Response(
+        upstream.content, status_code=upstream.status_code, headers={"content-type": content_type}
+    )
 
 
 def main():

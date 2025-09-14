@@ -10,7 +10,7 @@ const MapDemo: React.FC = () => {
       <MapVisualization
         nodeRenderMax={25}
         minNodeDistance={4}
-        nodeRepulsion={16000}
+        nodeRepulsion={20003}
       />
     </div>
   );
