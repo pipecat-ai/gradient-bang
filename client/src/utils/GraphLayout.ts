@@ -387,6 +387,7 @@ interface LayoutResult {
       let bestCrossings = initialCrossings;
       let bestCollisions = initialCollisions;
       let bestPositions = {};
+      let needsPhase2 = false; // Flag to trigger Phase 2 if needed
 
       // Save current positions as best so far (make copies, not references!)
       cy.nodes().forEach(node => {
@@ -742,7 +743,16 @@ interface LayoutResult {
       }
 
       // Final comprehensive collision resolution - fix ALL collisions including node-node
-      if (enhancedOptimization) {
+      // IMPORTANT: Save state before collision resolution in case it creates crossings
+      if (enhancedOptimization && (bestCollisions > 0 || countAllCollisions(cy, { minNodeDist }) > 0)) {
+        const beforeCollisionPositions = {};
+        cy.nodes().forEach(node => {
+          const pos = node.position();
+          beforeCollisionPositions[node.id()] = { x: pos.x, y: pos.y };
+        });
+        const beforeCollisionCrossings = bestCrossings;
+        const beforeCollisionCollisions = bestCollisions;
+
         const nodeRadius = minNodeDist * 5;
         const minNodeDistance = nodeRadius * 2 + 4; // Use test file's standard (44 pixels)
         let maxPasses = 5;
@@ -865,13 +875,43 @@ interface LayoutResult {
           }
         }
 
-        // Update final metrics
-        bestCrossings = countCrossings(cy);
-        bestCollisions = countAllCollisions(cy, { minNodeDist });
+        // Check if collision resolution made things better or worse
+        const afterCollisionCrossings = countCrossings(cy);
+        const afterCollisionCollisions = countAllCollisions(cy, { minNodeDist });
 
-        if (verbose) {
-          console.log(`  Collision resolution complete after ${pass} passes`);
-          console.log(`  Final: ${bestCrossings} crossings, ${bestCollisions} collisions`);
+        // Decide whether to keep the collision resolution
+        const crossingIncrease = afterCollisionCrossings - beforeCollisionCrossings;
+        const collisionDecrease = beforeCollisionCollisions - afterCollisionCollisions;
+
+        // Only keep if we didn't create too many new crossings relative to collisions fixed
+        // Allow up to 1 new crossing per 3 collisions fixed
+        const acceptableTradeoff = crossingIncrease <= Math.ceil(collisionDecrease / 3);
+
+        if (afterCollisionCrossings > beforeCollisionCrossings && !acceptableTradeoff) {
+          // Collision resolution created too many crossings, revert
+          if (verbose) {
+            console.log(`  Collision resolution created ${crossingIncrease} new crossings, reverting...`);
+          }
+          cy.nodes().forEach(node => {
+            node.position(beforeCollisionPositions[node.id()]);
+          });
+          bestCrossings = beforeCollisionCrossings;
+          bestCollisions = beforeCollisionCollisions;
+
+          // Mark that we need Phase 2 since we have unresolved collisions
+          needsPhase2 = true;
+        } else {
+          // Keep the collision resolution
+          bestCrossings = afterCollisionCrossings;
+          bestCollisions = afterCollisionCollisions;
+
+          if (verbose) {
+            console.log(`  Collision resolution complete after ${pass} passes`);
+            console.log(`  Final: ${bestCrossings} crossings, ${bestCollisions} collisions`);
+            if (crossingIncrease > 0) {
+              console.log(`  (Created ${crossingIncrease} new crossings but fixed ${collisionDecrease} collisions)`);
+            }
+          }
         }
       }
 
@@ -881,11 +921,23 @@ interface LayoutResult {
         positions[node.id()] = node.position();
       });
 
-      // PHASE 2: Intensive search if we're close to perfect
-      // Skip if we have exactly 1 crossing (likely optimal)
-      if (enhancedOptimization && bestCrossings >= 2 && bestCrossings <= 3 && bestCollisions === 0) {
+      // PHASE 2: Intensive search for better layouts
+      // Trigger if:
+      // - We have 2-3 crossings (close to perfect)
+      // - We have unresolved collisions that we couldn't fix without creating crossings
+      // - We're stuck at a suboptimal layout (2+ crossings for known-optimal sectors)
+      const shouldRunPhase2 = enhancedOptimization && (
+        (bestCrossings >= 2 && bestCrossings <= 3 && bestCollisions === 0) ||
+        needsPhase2 ||
+        (bestCrossings >= 2 && bestCollisions > 0)
+      );
+
+      if (shouldRunPhase2) {
         if (verbose) {
-          console.log(`\n  PHASE 2: Close to perfect (${bestCrossings} crossings) - trying intensive search...`);
+          const reason = needsPhase2 ? "unresolved collisions" :
+                        bestCollisions > 0 ? "crossings and collisions" :
+                        "close to perfect";
+          console.log(`\n  PHASE 2: Running intensive search (${bestCrossings} crossings, ${bestCollisions} collisions - ${reason})...`);
         }
 
         // Save current best
@@ -951,9 +1003,9 @@ interface LayoutResult {
             const nodeRadius = minNodeDist * 5;
             const minNodeDistance = nodeRadius * 2 + 4; // Use test file's standard
             let collisionPasses = 0;
-            const maxCollisionPasses = 3;
+            const maxCollisionPasses = 5; // Increased from 3 to ensure complete resolution
 
-            while (collisionPasses < maxCollisionPasses) {
+            while (collisionPasses < maxCollisionPasses && tempCollisions > 0) {
               collisionPasses++;
               let collisionsFixed = 0;
 
@@ -1040,8 +1092,21 @@ interface LayoutResult {
             }
 
             // Recount after collision resolution
-            tempCrossings = countCrossings(cy);
-            tempCollisions = countAllCollisions(cy, { minNodeDist });
+            const afterCollisionCrossings = countCrossings(cy);
+            const afterCollisionCollisions = countAllCollisions(cy, { minNodeDist });
+
+            // Check if collision resolution made crossings worse
+            if (afterCollisionCrossings > tempCrossings) {
+              // Collision resolution created crossings, this is not acceptable in Phase 2
+              // Skip this attempt as it's not actually better
+              tempCrossings = afterCollisionCrossings;
+              tempCollisions = afterCollisionCollisions;
+              // Don't save these positions as best
+              continue;
+            } else {
+              tempCrossings = afterCollisionCrossings;
+              tempCollisions = afterCollisionCollisions;
+            }
           }
 
           if (tempCrossings === 0 && tempCollisions === 0) {
@@ -1081,6 +1146,30 @@ interface LayoutResult {
           } else {
             console.log(`  Phase 2 couldn't improve beyond ${bestCrossings} crossings`);
           }
+        }
+
+        // IMPORTANT: Ensure the best positions from Phase 2 are actually applied to the graph
+        // The graph might be in a different state from the iterations
+        cy.nodes().forEach(node => {
+          if (positions[node.id()]) {
+            node.position(positions[node.id()]);
+          }
+        });
+
+        // CRITICAL: Verify the actual crossing count after applying positions
+        // Phase 2 might have miscounted due to numerical precision or collision interference
+        const actualCrossings = countCrossings(cy);
+        const actualCollisions = countAllCollisions(cy, { minNodeDist });
+
+        if (actualCrossings !== bestCrossings || actualCollisions !== bestCollisions) {
+          if (verbose) {
+            console.log(`  ⚠️ WARNING: Phase 2 miscount detected!`);
+            console.log(`    Reported: ${bestCrossings} crossings, ${bestCollisions} collisions`);
+            console.log(`    Actual: ${actualCrossings} crossings, ${actualCollisions} collisions`);
+          }
+          // Update to reflect reality
+          bestCrossings = actualCrossings;
+          bestCollisions = actualCollisions;
         }
       } else if (verbose && bestCrossings === 1 && bestCollisions === 0) {
         console.log(`  Skipping Phase 2 (1 crossing is likely optimal)`);
