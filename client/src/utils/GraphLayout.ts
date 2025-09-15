@@ -916,7 +916,7 @@ interface LayoutResult {
       }
 
       // Get final positions for return
-      const positions = {};
+      let positions = {};
       cy.nodes().forEach(node => {
         positions[node.id()] = node.position();
       });
@@ -1166,10 +1166,42 @@ interface LayoutResult {
             console.log(`  ⚠️ WARNING: Phase 2 miscount detected!`);
             console.log(`    Reported: ${bestCrossings} crossings, ${bestCollisions} collisions`);
             console.log(`    Actual: ${actualCrossings} crossings, ${actualCollisions} collisions`);
+            console.log(`    Phase 1 had: ${phase1Crossings} crossings`);
           }
-          // Update to reflect reality
-          bestCrossings = actualCrossings;
-          bestCollisions = actualCollisions;
+
+          // If Phase 2 made things worse OR failed to improve as promised, reject it
+          if (actualCrossings > phase1Crossings ||
+              (actualCrossings === phase1Crossings && actualCollisions > 0) ||
+              (actualCrossings >= phase1Crossings && bestCrossings < phase1Crossings)) {
+            // The last condition: Phase 2 claimed improvement but didn't deliver
+            if (verbose) {
+              console.log(`  ❌ Phase 2 result rejected`);
+              if (actualCrossings > phase1Crossings) {
+                console.log(`     Reason: Made things worse than Phase 1`);
+              } else if (actualCrossings >= phase1Crossings && bestCrossings < phase1Crossings) {
+                console.log(`     Reason: Failed to deliver promised improvement`);
+              } else {
+                console.log(`     Reason: No improvement over Phase 1`);
+              }
+              console.log(`  Reverting to Phase 1 result: ${phase1Crossings} crossings`);
+            }
+
+            // Revert to Phase 1 positions
+            cy.nodes().forEach(node => {
+              if (phase1Positions[node.id()]) {
+                node.position(phase1Positions[node.id()]);
+              }
+            });
+
+            // Use Phase 1 results
+            bestCrossings = phase1Crossings;
+            bestCollisions = 0; // Phase 1 always resolves collisions
+            positions = phase1Positions;
+          } else {
+            // Phase 2 is still better despite miscount, use actual values
+            bestCrossings = actualCrossings;
+            bestCollisions = actualCollisions;
+          }
         }
       } else if (verbose && bestCrossings === 1 && bestCollisions === 0) {
         console.log(`  Skipping Phase 2 (1 crossing is likely optimal)`);
