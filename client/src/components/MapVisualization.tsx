@@ -95,21 +95,14 @@ export const MapVisualization: React.FC<MapVisualizationProps> = ({
     setNodeCount(nodes.length);
     setLayoutInProgress(true);
 
-    // Use GraphLayout.render which includes automatic optimization
-    const cy = await GraphLayout.render(nodes, centerId, {
+    // Use GraphLayout.renderOptimized which uses the better runLayout algorithm
+    const cy = await GraphLayout.renderOptimized(nodes, centerId, {
       container: containerRef.current,
       minNodeDist: minNodeDistance,
-      nodeRepulsion: nodeRepulsion,
-      quickMode: false, // Always run full optimization
-      autoOptimize: true, // Automatically optimize if there are crossings/collisions
-      skipOptRender: true, // Hide during optimization for cleaner UX
+      nodeRepulsion: nodeRepulsion || 20003, // Use higher repulsion for better results
       onLayoutComplete: (crossings: number, collisions: number) => {
         setMetrics({ crossings, collisions });
         setLayoutInProgress(false);
-      },
-      onOptimizeProgress: (attempt: number, maxAttempts: number, crossings: number, collisions: number) => {
-        console.log(`Optimization progress: ${attempt}/${maxAttempts} - ${crossings} crossings, ${collisions} collisions`);
-        setMetrics({ crossings, collisions });
       }
     });
 
