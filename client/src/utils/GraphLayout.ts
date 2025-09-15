@@ -338,6 +338,300 @@ interface LayoutResult {
   }
 
   /**
+   * Run Phase 1 optimization attempts
+   * Returns best result from multiple layout attempts with parameter variation
+   */
+  async function runPhase1Optimization(cy, params) {
+    const { minNodeDist, nodeRepulsion, maxAttempts, verbose } = params;
+
+    let bestCrossings = Infinity;
+    let bestCollisions = Infinity;
+    let bestPositions = {};
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      // Vary parameters progressively for better exploration
+      const repulsionMultiplier = 2.0 + (attempt % 5) * 0.5; // Vary from 2.0 to 4.0
+      const iterCount = 10000 + (attempt % 3) * 5000; // Vary from 10000 to 20000
+      const gravityValue = 0.05 + (attempt % 4) * 0.02; // Vary from 0.05 to 0.11
+
+      // Run layout again with new random seed and varied parameters
+      const optLayout = cy.layout({
+        name: 'fcose',
+        animate: false,
+        randomize: true,
+        quality: 'proof',
+        numIter: iterCount,
+        randomizationSeed: Math.floor(Math.random() * 10000),
+        idealEdgeLength: edge => {
+          const avgDegree = (edge.source().degree() + edge.target().degree()) / 2;
+          // Adjust edge length based on attempt for variety
+          const lengthMultiplier = 1.0 + (attempt % 2) * 0.2;
+          return Math.max(minNodeDist * 2, Math.min(minNodeDist * 8, (80 + avgDegree * 10) * lengthMultiplier));
+        },
+        nodeRepulsion: node => nodeRepulsion * repulsionMultiplier,
+        nodeOverlap: minNodeDist + 15 + (attempt % 3) * 5,
+        gravity: gravityValue,
+        gravityRange: 10.0,
+        edgeElasticity: edge => 0.2,
+        sampleSize: 500,
+        minTemp: 0.01,
+        initialTemp: 500 + (attempt % 3) * 200,
+        coolingFactor: 0.995,
+        improveFlow: true
+      });
+
+      await new Promise((resolve) => {
+        optLayout.on('layoutstop', resolve);
+        optLayout.run();
+      });
+
+      const newCrossings = countCrossings(cy);
+      const newCollisions = countAllCollisions(cy, { minNodeDist });
+
+      if (newCrossings < bestCrossings ||
+          (newCrossings === bestCrossings && newCollisions < bestCollisions)) {
+        bestCrossings = newCrossings;
+        bestCollisions = newCollisions;
+        cy.nodes().forEach(node => {
+          bestPositions[node.id()] = node.position();
+        });
+
+        if (verbose) {
+          console.log(`  Attempt ${attempt + 1}: Improved to ${bestCrossings} crossings, ${bestCollisions} collisions`);
+        }
+      }
+
+      // Stop if perfect
+      if (bestCrossings === 0 && bestCollisions === 0) {
+        if (verbose) {
+          console.log(`  Success! Found perfect layout at attempt ${attempt + 1}`);
+        }
+        break;
+      }
+    }
+
+    // Restore best positions
+    cy.nodes().forEach(node => {
+      node.position(bestPositions[node.id()]);
+    });
+
+    return { crossings: bestCrossings, collisions: bestCollisions, positions: bestPositions };
+  }
+
+  /**
+   * Run Phase 2 intensive search for near-perfect layouts
+   * Only runs when close to perfect (2-3 crossings)
+   */
+  async function runPhase2Optimization(cy, params) {
+    const { minNodeDist, nodeRepulsion, initialCrossings, initialPositions, verbose } = params;
+
+    if (verbose) {
+      console.log(`\n  PHASE 2: Close to perfect (${initialCrossings} crossings) - trying intensive search...`);
+    }
+
+    let bestCrossings = initialCrossings;
+    let bestCollisions = 0;
+    let bestPositions = { ...initialPositions };
+
+    // Try many more attempts with aggressive parameter variation
+    const intensiveAttempts = 30;
+    for (let attempt = 0; attempt < intensiveAttempts; attempt++) {
+      // More aggressive parameter variation
+      const repulsionMultiplier = 1.5 + (attempt % 10) * 0.5; // 1.5 to 6.0
+      const iterCount = 15000 + (attempt % 5) * 5000; // 15000 to 35000
+      const gravityValue = 0.02 + (attempt % 8) * 0.02; // 0.02 to 0.16
+
+      const intensiveLayout = cy.layout({
+        name: 'fcose',
+        animate: false,
+        randomize: true,
+        quality: 'proof',
+        numIter: iterCount,
+        randomizationSeed: Math.floor(Math.random() * 100000),
+        idealEdgeLength: edge => {
+          const avgDegree = (edge.source().degree() + edge.target().degree()) / 2;
+          const lengthMultiplier = 0.8 + (attempt % 5) * 0.1; // 0.8 to 1.2
+          return Math.max(minNodeDist * 2, Math.min(minNodeDist * 10, (70 + avgDegree * 12) * lengthMultiplier));
+        },
+        nodeRepulsion: node => nodeRepulsion * repulsionMultiplier,
+        nodeOverlap: minNodeDist + 10 + (attempt % 4) * 10, // More variation
+        gravity: gravityValue,
+        gravityRange: 10.0,
+        edgeElasticity: edge => 0.15 + (attempt % 3) * 0.1, // 0.15 to 0.35
+        initialTemp: 800 + (attempt % 4) * 200, // 800 to 1400
+        coolingFactor: 0.99 + (attempt % 2) * 0.005, // 0.99 or 0.995
+        improveFlow: true
+      });
+
+      await new Promise((resolve) => {
+        intensiveLayout.on('layoutstop', resolve);
+        intensiveLayout.run();
+      });
+
+      // Apply quick post-processing to this attempt
+      let tempCrossings = countCrossings(cy);
+      let tempCollisions = countAllCollisions(cy, { minNodeDist });
+
+      // Try node swapping on this attempt
+      if (tempCrossings > 0 && tempCrossings <= 5) {
+        const fixed = fixCrossingsBySwapping(cy, {
+          verbose: false,
+          minNodeDistance: minNodeDist * 10,
+          aggressive: true,
+          maxDegree: 15
+        });
+        if (fixed > 0) {
+          tempCrossings = countCrossings(cy);
+          tempCollisions = countAllCollisions(cy, { minNodeDist });
+        }
+      }
+
+      // Fix any collisions that were created
+      if (tempCollisions > 0 || tempCrossings === 0) {
+        const nodeRadius = minNodeDist * 5;
+        const minNodeDistance = nodeRadius * 2 + 4;
+        let collisionPasses = 0;
+        const maxCollisionPasses = 3;
+
+        while (collisionPasses < maxCollisionPasses) {
+          collisionPasses++;
+          let collisionsFixed = 0;
+
+          // Fix node-node collisions
+          cy.nodes().forEach(node1 => {
+            cy.nodes().forEach(node2 => {
+              if (node1.id() >= node2.id()) return;
+
+              const pos1 = node1.position();
+              const pos2 = node2.position();
+              const distance = Math.sqrt(
+                Math.pow(pos1.x - pos2.x, 2) +
+                Math.pow(pos1.y - pos2.y, 2)
+              );
+
+              if (distance < minNodeDistance) {
+                const pushDistance = (minNodeDistance - distance) / 2 + 10;
+                if (distance > 0.01) {
+                  const angle = Math.atan2(pos2.y - pos1.y, pos2.x - pos1.x);
+                  node1.position({
+                    x: pos1.x - Math.cos(angle) * pushDistance,
+                    y: pos1.y - Math.sin(angle) * pushDistance
+                  });
+                  node2.position({
+                    x: pos2.x + Math.cos(angle) * pushDistance,
+                    y: pos2.y + Math.sin(angle) * pushDistance
+                  });
+                } else {
+                  node1.position({ x: pos1.x - pushDistance, y: pos1.y });
+                  node2.position({ x: pos2.x + pushDistance, y: pos2.y });
+                }
+                collisionsFixed++;
+              }
+            });
+          });
+
+          // Fix node-edge collisions
+          cy.nodes().forEach(node => {
+            const nodePos = node.position();
+            cy.edges().forEach(edge => {
+              if (edge.source().id() === node.id() || edge.target().id() === node.id()) {
+                return;
+              }
+
+              const srcPos = edge.source().position();
+              const tgtPos = edge.target().position();
+              const edgeVec = { x: tgtPos.x - srcPos.x, y: tgtPos.y - srcPos.y };
+              const edgeLen = Math.sqrt(edgeVec.x * edgeVec.x + edgeVec.y * edgeVec.y);
+
+              if (edgeLen === 0) return;
+
+              const t = Math.max(0, Math.min(1,
+                ((nodePos.x - srcPos.x) * edgeVec.x + (nodePos.y - srcPos.y) * edgeVec.y) / (edgeLen * edgeLen)
+              ));
+
+              if (t > 0.1 && t < 0.9) {
+                const closestPoint = {
+                  x: srcPos.x + t * edgeVec.x,
+                  y: srcPos.y + t * edgeVec.y
+                };
+
+                const distance = Math.sqrt(
+                  Math.pow(nodePos.x - closestPoint.x, 2) +
+                  Math.pow(nodePos.y - closestPoint.y, 2)
+                );
+
+                const threshold = nodeRadius + minNodeDist;
+                if (distance < threshold) {
+                  const pushDist = threshold - distance + 5;
+                  const angle = Math.atan2(nodePos.y - closestPoint.y, nodePos.x - closestPoint.x);
+
+                  node.position({
+                    x: nodePos.x + Math.cos(angle) * pushDist,
+                    y: nodePos.y + Math.sin(angle) * pushDist
+                  });
+
+                  collisionsFixed++;
+                }
+              }
+            });
+          });
+
+          if (collisionsFixed === 0) break;
+        }
+
+        // Recount after collision resolution
+        tempCrossings = countCrossings(cy);
+        tempCollisions = countAllCollisions(cy, { minNodeDist });
+      }
+
+      if (tempCrossings === 0 && tempCollisions === 0) {
+        // Perfect!
+        cy.nodes().forEach(node => {
+          bestPositions[node.id()] = node.position();
+        });
+        bestCrossings = 0;
+        bestCollisions = 0;
+        if (verbose) {
+          console.log(`  PHASE 2 SUCCESS: Perfect layout found at attempt ${attempt + 1}!`);
+        }
+        break;
+      } else if (tempCrossings < bestCrossings || (tempCrossings === bestCrossings && tempCollisions < bestCollisions)) {
+        // Better than before
+        bestCrossings = tempCrossings;
+        bestCollisions = tempCollisions;
+        cy.nodes().forEach(node => {
+          bestPositions[node.id()] = node.position();
+        });
+        if (verbose && tempCrossings < initialCrossings) {
+          console.log(`  Phase 2 attempt ${attempt + 1}: Improved to ${tempCrossings} crossings, ${tempCollisions} collisions`);
+        }
+      }
+
+      // Restore positions for next attempt
+      if (tempCrossings > bestCrossings || (tempCrossings === bestCrossings && tempCollisions > bestCollisions)) {
+        cy.nodes().forEach(node => {
+          node.position(bestPositions[node.id()]);
+        });
+      }
+    }
+
+    if (verbose) {
+      if (bestCrossings < initialCrossings) {
+        console.log(`  Phase 2 improved from ${initialCrossings} to ${bestCrossings} crossings`);
+      } else {
+        console.log(`  Phase 2 couldn't improve beyond ${bestCrossings} crossings`);
+      }
+    }
+
+    // Restore best positions
+    cy.nodes().forEach(node => {
+      node.position(bestPositions[node.id()]);
+    });
+
+    return { crossings: bestCrossings, collisions: bestCollisions, positions: bestPositions };
+  }
+
+  /**
    * Run a complete layout pass with optimization
    * This creates a Cytoscape instance, runs layout, and optimizes if needed
    * Returns metrics and positions after all optimization attempts
@@ -416,72 +710,17 @@ interface LayoutResult {
         }
       }
 
-      for (let attempt = 0; attempt < actualMaxAttempts; attempt++) {
-        // Vary parameters progressively for better exploration
-        const repulsionMultiplier = 2.0 + (attempt % 5) * 0.5; // Vary from 2.0 to 4.0
-        const iterCount = 10000 + (attempt % 3) * 5000; // Vary from 10000 to 20000
-        const gravityValue = 0.05 + (attempt % 4) * 0.02; // Vary from 0.05 to 0.11
-
-        // Run layout again with new random seed and varied parameters
-        const optLayout = cy.layout({
-          name: 'fcose',
-          animate: false,
-          randomize: true,
-          quality: 'proof',
-          numIter: iterCount,
-          randomizationSeed: Math.floor(Math.random() * 10000),
-          idealEdgeLength: edge => {
-            const avgDegree = (edge.source().degree() + edge.target().degree()) / 2;
-            // Adjust edge length based on attempt for variety
-            const lengthMultiplier = 1.0 + (attempt % 2) * 0.2;
-            return Math.max(minNodeDist * 2, Math.min(minNodeDist * 8, (80 + avgDegree * 10) * lengthMultiplier));
-          },
-          nodeRepulsion: node => nodeRepulsion * repulsionMultiplier,
-          nodeOverlap: minNodeDist + 15 + (attempt % 3) * 5,
-          gravity: gravityValue,
-          gravityRange: 10.0,
-          edgeElasticity: edge => 0.2,
-          sampleSize: 500,
-          minTemp: 0.01,
-          initialTemp: 500 + (attempt % 3) * 200,
-          coolingFactor: 0.995,
-          improveFlow: true
-        });
-
-        await new Promise((resolve) => {
-          optLayout.on('layoutstop', resolve);
-          optLayout.run();
-        });
-
-        const newCrossings = countCrossings(cy);
-        const newCollisions = countAllCollisions(cy, { minNodeDist });
-
-        if (newCrossings < bestCrossings ||
-            (newCrossings === bestCrossings && newCollisions < bestCollisions)) {
-          bestCrossings = newCrossings;
-          bestCollisions = newCollisions;
-          cy.nodes().forEach(node => {
-            bestPositions[node.id()] = node.position();
-          });
-
-          if (verbose) {
-            console.log(`  Attempt ${attempt + 1}: Improved to ${bestCrossings} crossings, ${bestCollisions} collisions`);
-          }
-        }
-
-        // Stop if perfect
-        if (bestCrossings === 0 && bestCollisions === 0) {
-          if (verbose) {
-            console.log(`  Success! Found perfect layout at attempt ${attempt + 1}`);
-          }
-          break;
-        }
-      }
-
-      // Restore best positions
-      cy.nodes().forEach(node => {
-        node.position(bestPositions[node.id()]);
+      // Run Phase 1 optimization
+      const phase1Result = await runPhase1Optimization(cy, {
+        minNodeDist,
+        nodeRepulsion,
+        maxAttempts: actualMaxAttempts,
+        verbose
       });
+
+      bestCrossings = phase1Result.crossings;
+      bestCollisions = phase1Result.collisions;
+      bestPositions = phase1Result.positions;
 
       // Try node swapping if we still have crossings
       if (bestCrossings > 0 && enhancedOptimization) {
@@ -782,211 +1021,24 @@ interface LayoutResult {
       }
 
       // Get final positions for return
-      const positions = {};
+      let positions = {};
       cy.nodes().forEach(node => {
         positions[node.id()] = node.position();
       });
 
       // PHASE 2: Intensive search if we're close to perfect
       if (enhancedOptimization && bestCrossings > 0 && bestCrossings <= 3 && bestCollisions === 0) {
-        if (verbose) {
-          console.log(`\n  PHASE 2: Close to perfect (${bestCrossings} crossings) - trying intensive search...`);
-        }
+        const phase2Result = await runPhase2Optimization(cy, {
+          minNodeDist,
+          nodeRepulsion,
+          initialCrossings: bestCrossings,
+          initialPositions: positions,
+          verbose
+        });
 
-        // Save current best
-        const phase1Crossings = bestCrossings;
-        const phase1Positions = { ...positions };
-
-        // Try many more attempts with aggressive parameter variation
-        const intensiveAttempts = 30;
-        for (let attempt = 0; attempt < intensiveAttempts; attempt++) {
-          // More aggressive parameter variation
-          const repulsionMultiplier = 1.5 + (attempt % 10) * 0.5; // 1.5 to 6.0
-          const iterCount = 15000 + (attempt % 5) * 5000; // 15000 to 35000
-          const gravityValue = 0.02 + (attempt % 8) * 0.02; // 0.02 to 0.16
-
-          const intensiveLayout = cy.layout({
-            name: 'fcose',
-            animate: false,
-            randomize: true,
-            quality: 'proof',
-            numIter: iterCount,
-            randomizationSeed: Math.floor(Math.random() * 100000),
-            idealEdgeLength: edge => {
-              const avgDegree = (edge.source().degree() + edge.target().degree()) / 2;
-              const lengthMultiplier = 0.8 + (attempt % 5) * 0.1; // 0.8 to 1.2
-              return Math.max(minNodeDist * 2, Math.min(minNodeDist * 10, (70 + avgDegree * 12) * lengthMultiplier));
-            },
-            nodeRepulsion: node => nodeRepulsion * repulsionMultiplier,
-            nodeOverlap: minNodeDist + 10 + (attempt % 4) * 10, // More variation
-            gravity: gravityValue,
-            gravityRange: 10.0,
-            edgeElasticity: edge => 0.15 + (attempt % 3) * 0.1, // 0.15 to 0.35
-            initialTemp: 800 + (attempt % 4) * 200, // 800 to 1400
-            coolingFactor: 0.99 + (attempt % 2) * 0.005, // 0.99 or 0.995
-            improveFlow: true
-          });
-
-          await new Promise((resolve) => {
-            intensiveLayout.on('layoutstop', resolve);
-            intensiveLayout.run();
-          });
-
-          // Apply post-processing to this attempt
-          let tempCrossings = countCrossings(cy);
-          let tempCollisions = countAllCollisions(cy, { minNodeDist });
-
-          // Try node swapping on this attempt
-          if (tempCrossings > 0 && tempCrossings <= 5) {
-            const fixed = fixCrossingsBySwapping(cy, {
-              verbose: false,
-              minNodeDistance: minNodeDist * 10,
-              aggressive: true,
-              maxDegree: 15
-            });
-            if (fixed > 0) {
-              tempCrossings = countCrossings(cy);
-              tempCollisions = countAllCollisions(cy, { minNodeDist });
-            }
-          }
-
-          // CRITICAL: Fix any collisions that were created
-          if (tempCollisions > 0 || tempCrossings === 0) {
-            // Always fix collisions if we have them, or if we achieved zero crossings
-            const nodeRadius = minNodeDist * 5;
-            const minNodeDistance = nodeRadius * 2 + 4; // Use test file's standard
-            let collisionPasses = 0;
-            const maxCollisionPasses = 3;
-
-            while (collisionPasses < maxCollisionPasses) {
-              collisionPasses++;
-              let collisionsFixed = 0;
-
-              // Fix node-node collisions
-              cy.nodes().forEach(node1 => {
-                cy.nodes().forEach(node2 => {
-                  if (node1.id() >= node2.id()) return;
-
-                  const pos1 = node1.position();
-                  const pos2 = node2.position();
-                  const distance = Math.sqrt(
-                    Math.pow(pos1.x - pos2.x, 2) +
-                    Math.pow(pos1.y - pos2.y, 2)
-                  );
-
-                  if (distance < minNodeDistance) {
-                    const pushDistance = (minNodeDistance - distance) / 2 + 10;
-                    if (distance > 0.01) {
-                      const angle = Math.atan2(pos2.y - pos1.y, pos2.x - pos1.x);
-                      node1.position({
-                        x: pos1.x - Math.cos(angle) * pushDistance,
-                        y: pos1.y - Math.sin(angle) * pushDistance
-                      });
-                      node2.position({
-                        x: pos2.x + Math.cos(angle) * pushDistance,
-                        y: pos2.y + Math.sin(angle) * pushDistance
-                      });
-                    } else {
-                      node1.position({ x: pos1.x - pushDistance, y: pos1.y });
-                      node2.position({ x: pos2.x + pushDistance, y: pos2.y });
-                    }
-                    collisionsFixed++;
-                  }
-                });
-              });
-
-              // Fix node-edge collisions
-              cy.nodes().forEach(node => {
-                const nodePos = node.position();
-                cy.edges().forEach(edge => {
-                  if (edge.source().id() === node.id() || edge.target().id() === node.id()) {
-                    return;
-                  }
-
-                  const srcPos = edge.source().position();
-                  const tgtPos = edge.target().position();
-                  const edgeVec = { x: tgtPos.x - srcPos.x, y: tgtPos.y - srcPos.y };
-                  const edgeLen = Math.sqrt(edgeVec.x * edgeVec.x + edgeVec.y * edgeVec.y);
-
-                  if (edgeLen === 0) return;
-
-                  const t = Math.max(0, Math.min(1,
-                    ((nodePos.x - srcPos.x) * edgeVec.x + (nodePos.y - srcPos.y) * edgeVec.y) / (edgeLen * edgeLen)
-                  ));
-
-                  if (t > 0.1 && t < 0.9) {
-                    const closestPoint = {
-                      x: srcPos.x + t * edgeVec.x,
-                      y: srcPos.y + t * edgeVec.y
-                    };
-
-                    const distance = Math.sqrt(
-                      Math.pow(nodePos.x - closestPoint.x, 2) +
-                      Math.pow(nodePos.y - closestPoint.y, 2)
-                    );
-
-                    const threshold = nodeRadius + minNodeDist;
-                    if (distance < threshold) {
-                      const pushDist = threshold - distance + 5;
-                      const angle = Math.atan2(nodePos.y - closestPoint.y, nodePos.x - closestPoint.x);
-
-                      node.position({
-                        x: nodePos.x + Math.cos(angle) * pushDist,
-                        y: nodePos.y + Math.sin(angle) * pushDist
-                      });
-
-                      collisionsFixed++;
-                    }
-                  }
-                });
-              });
-
-              if (collisionsFixed === 0) break;
-            }
-
-            // Recount after collision resolution
-            tempCrossings = countCrossings(cy);
-            tempCollisions = countAllCollisions(cy, { minNodeDist });
-          }
-
-          if (tempCrossings === 0 && tempCollisions === 0) {
-            // Perfect!
-            cy.nodes().forEach(node => {
-              positions[node.id()] = node.position();
-            });
-            bestCrossings = 0;
-            bestCollisions = 0;
-            if (verbose) {
-              console.log(`  PHASE 2 SUCCESS: Perfect layout found at attempt ${attempt + 1}!`);
-            }
-            break;
-          } else if (tempCrossings < bestCrossings || (tempCrossings === bestCrossings && tempCollisions < bestCollisions)) {
-            // Better than before (fewer crossings or same crossings with fewer collisions)
-            bestCrossings = tempCrossings;
-            bestCollisions = tempCollisions;
-            cy.nodes().forEach(node => {
-              positions[node.id()] = node.position();
-            });
-            if (verbose && tempCrossings < phase1Crossings) {
-              console.log(`  Phase 2 attempt ${attempt + 1}: Improved to ${tempCrossings} crossings, ${tempCollisions} collisions`);
-            }
-          }
-
-          // Restore positions for next attempt
-          if (tempCrossings > bestCrossings || (tempCrossings === bestCrossings && tempCollisions > bestCollisions)) {
-            cy.nodes().forEach(node => {
-              node.position(positions[node.id()]);
-            });
-          }
-        }
-
-        if (verbose) {
-          if (bestCrossings < phase1Crossings) {
-            console.log(`  Phase 2 improved from ${phase1Crossings} to ${bestCrossings} crossings`);
-          } else {
-            console.log(`  Phase 2 couldn't improve beyond ${bestCrossings} crossings`);
-          }
-        }
+        bestCrossings = phase2Result.crossings;
+        bestCollisions = phase2Result.collisions;
+        positions = phase2Result.positions;
       }
 
       return {
