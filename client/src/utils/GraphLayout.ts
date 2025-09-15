@@ -312,6 +312,7 @@ interface LayoutResult {
     const minNodeDist = options.minNodeDist || 4;
     const nodeRepulsion = options.nodeRepulsion || 16000;
     const maxOptimizeAttempts = options.maxOptimizeAttempts || 20;
+    const enhancedOptimization = options.enhancedOptimization !== false;
 
     // Create elements
     const elements = createElements(nodes, centerId);
@@ -357,27 +358,43 @@ interface LayoutResult {
         bestPositions[node.id()] = node.position();
       });
 
-      for (let attempt = 0; attempt < maxOptimizeAttempts; attempt++) {
-        // Run layout again with new random seed
+      // Use enhanced optimization for problematic sectors
+      let actualMaxAttempts = maxOptimizeAttempts;
+      if (enhancedOptimization && (initialCollisions > 2 || initialCrossings > 1)) {
+        actualMaxAttempts = Math.max(maxOptimizeAttempts, 30);
+        if (verbose) {
+          console.log(`  Using enhanced optimization with ${actualMaxAttempts} attempts`);
+        }
+      }
+
+      for (let attempt = 0; attempt < actualMaxAttempts; attempt++) {
+        // Vary parameters progressively for better exploration
+        const repulsionMultiplier = 2.0 + (attempt % 5) * 0.5; // Vary from 2.0 to 4.0
+        const iterCount = 10000 + (attempt % 3) * 5000; // Vary from 10000 to 20000
+        const gravityValue = 0.05 + (attempt % 4) * 0.02; // Vary from 0.05 to 0.11
+
+        // Run layout again with new random seed and varied parameters
         const optLayout = cy.layout({
           name: 'fcose',
           animate: false,
           randomize: true,
           quality: 'proof',
-          numIter: 10000,
+          numIter: iterCount,
           randomizationSeed: Math.floor(Math.random() * 10000),
           idealEdgeLength: edge => {
             const avgDegree = (edge.source().degree() + edge.target().degree()) / 2;
-            return Math.max(minNodeDist * 2, Math.min(minNodeDist * 8, 80 + avgDegree * 10));
+            // Adjust edge length based on attempt for variety
+            const lengthMultiplier = 1.0 + (attempt % 2) * 0.2;
+            return Math.max(minNodeDist * 2, Math.min(minNodeDist * 8, (80 + avgDegree * 10) * lengthMultiplier));
           },
-          nodeRepulsion: node => nodeRepulsion * 2.0,
-          nodeOverlap: minNodeDist + 15,
-          gravity: 0.05,
+          nodeRepulsion: node => nodeRepulsion * repulsionMultiplier,
+          nodeOverlap: minNodeDist + 15 + (attempt % 3) * 5,
+          gravity: gravityValue,
           gravityRange: 10.0,
           edgeElasticity: edge => 0.2,
           sampleSize: 500,
           minTemp: 0.01,
-          initialTemp: 500,
+          initialTemp: 500 + (attempt % 3) * 200,
           coolingFactor: 0.995,
           improveFlow: true
         });
@@ -453,6 +470,7 @@ interface LayoutResult {
     const skipRender = options.skipRender !== false;
     const onProgress = options.onProgress || (() => {});
     const quiet = options.quiet || false; // Add quiet mode option
+    const enhancedOptimization = options.enhancedOptimization !== false;
 
     let bestPositions = {};
     cy.nodes().forEach(node => {
@@ -467,9 +485,18 @@ interface LayoutResult {
       console.log(`Starting optimization: ${bestCrossings} crossings, ${bestCollisions} collisions`);
     }
 
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    // Use enhanced optimization if initial results are problematic
+    let actualMaxAttempts = maxAttempts;
+    if (enhancedOptimization && (bestCollisions > 2 || bestCrossings > 1)) {
+      actualMaxAttempts = Math.max(maxAttempts, 25);
       if (!quiet) {
-        console.log(`Starting optimization attempt ${attempt + 1} of ${maxAttempts}...`);
+        console.log(`Using enhanced optimization with ${actualMaxAttempts} attempts`);
+      }
+    }
+
+    for (let attempt = 0; attempt < actualMaxAttempts; attempt++) {
+      if (!quiet) {
+        console.log(`Starting optimization attempt ${attempt + 1} of ${actualMaxAttempts}...`);
       }
 
       // Add small delay between attempts
@@ -477,13 +504,26 @@ interface LayoutResult {
         await new Promise(resolve => setTimeout(resolve, 50));
       }
 
-      // Run layout with new random seed
+      // Vary parameters for better exploration
+      const quickMode = attempt < actualMaxAttempts / 2; // Use quick mode for first half
+      const repulsionMultiplier = 1.0 + (attempt / actualMaxAttempts); // Gradually increase repulsion
+
+      // Run layout with new random seed and varied parameters
       const layoutOptions = getLayoutOptions({
         minNodeDist,
-        nodeRepulsion,
-        quickMode: true
+        nodeRepulsion: nodeRepulsion * repulsionMultiplier,
+        quickMode
       });
       layoutOptions.randomizationSeed = Math.floor(Math.random() * 10000);
+
+      // Vary additional parameters
+      if (attempt % 3 === 0) {
+        layoutOptions.gravity = 0.1;
+        layoutOptions.coolingFactor = 0.99;
+      }
+      if (attempt % 4 === 0) {
+        layoutOptions.initialTemp = 800;
+      }
 
       const layout = cy.layout(layoutOptions);
 
@@ -619,7 +659,8 @@ interface LayoutResult {
               minNodeDist,
               nodeRepulsion,
               skipRender: skipOptRender,
-              onProgress: options.onOptimizeProgress
+              onProgress: options.onOptimizeProgress,
+              enhancedOptimization: true
             });
 
             // Show the container now that optimization is complete
