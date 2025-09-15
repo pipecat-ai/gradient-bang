@@ -171,8 +171,39 @@ export const MapVisualization: React.FC<MapVisualizationProps> = ({
     }
   };
 
-  // Load initial data
+  // Load initial data (check for query parameter)
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sectorParam = params.get('sector');
+    const autoRunParam = params.get('autorun');
+
+    if (sectorParam) {
+      const sector = parseInt(sectorParam);
+      if (!isNaN(sector) && sector >= 0 && sector < 5000) {
+        loadSector(sector, false);
+
+        // If autorun is specified, continuously re-run the layout
+        if (autoRunParam) {
+          const runCount = parseInt(autoRunParam) || 10;
+          let runs = 0;
+          const interval = setInterval(() => {
+            if (runs < runCount - 1) {
+              console.log(`Auto-run ${runs + 2}/${runCount} for sector ${sector}`);
+              loadSector(sector, false);
+              runs++;
+            } else {
+              clearInterval(interval);
+              console.log(`Completed ${runCount} runs for sector ${sector}`);
+            }
+          }, 2000); // 2 second delay between runs
+
+          return () => clearInterval(interval);
+        }
+        return;
+      }
+    }
+
+    // Default to sector 0 if no valid parameter
     loadSector(0, false);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
