@@ -518,7 +518,8 @@ interface LayoutResult {
         // Save positions before swapping
         const beforeSwapPositions = {};
         cy.nodes().forEach(node => {
-          beforeSwapPositions[node.id()] = node.position();
+          const pos = node.position();
+          beforeSwapPositions[node.id()] = { x: pos.x, y: pos.y };
         });
         const beforeSwapCrossings = bestCrossings;
 
@@ -547,7 +548,10 @@ interface LayoutResult {
           } else {
             // Revert the swap as it made things worse
             cy.nodes().forEach(node => {
-              node.position(beforeSwapPositions[node.id()]);
+              const savedPos = beforeSwapPositions[node.id()];
+              if (savedPos) {
+                node.position({ x: savedPos.x, y: savedPos.y });
+              }
             });
             if (verbose) {
               console.log(`  Node swapping made it worse (${beforeSwapCrossings} → ${newCrossings}), reverted`);
@@ -565,7 +569,8 @@ interface LayoutResult {
         // Save positions before flipping
         const beforeFlippingPositions = {};
         cy.nodes().forEach(node => {
-          beforeFlippingPositions[node.id()] = node.position();
+          const pos = node.position();
+          beforeFlippingPositions[node.id()] = { x: pos.x, y: pos.y };
         });
         const beforeFlippingCrossings = bestCrossings;
         const beforeFlippingCollisions = bestCollisions;
@@ -593,7 +598,10 @@ interface LayoutResult {
               console.log(`  Node flipping made it worse (${beforeFlippingCrossings} → ${newCrossings} crossings), reverting...`);
             }
             cy.nodes().forEach(node => {
-              node.position(beforeFlippingPositions[node.id()]);
+              const savedPos = beforeFlippingPositions[node.id()];
+              if (savedPos) {
+                node.position({ x: savedPos.x, y: savedPos.y });
+              }
             });
             bestCrossings = beforeFlippingCrossings;
             bestCollisions = beforeFlippingCollisions;
@@ -611,7 +619,8 @@ interface LayoutResult {
         const beforeRelocationCrossings = bestCrossings;
         const beforeRelocationPositions = {};
         cy.nodes().forEach(node => {
-          beforeRelocationPositions[node.id()] = node.position();
+          const pos = node.position();
+          beforeRelocationPositions[node.id()] = { x: pos.x, y: pos.y };
         });
 
         const relocated = fixCrossingsByRelocation(cy, {
@@ -626,7 +635,10 @@ interface LayoutResult {
           // If relocation made it worse, revert
           if (bestCrossings > beforeRelocationCrossings) {
             cy.nodes().forEach(node => {
-              node.position(beforeRelocationPositions[node.id()]);
+              const savedPos = beforeRelocationPositions[node.id()];
+              if (savedPos) {
+                node.position({ x: savedPos.x, y: savedPos.y });
+              }
             });
             bestCrossings = beforeRelocationCrossings;
             bestCollisions = countAllCollisions(cy, { minNodeDist });
@@ -646,18 +658,34 @@ interface LayoutResult {
       // Try Fix Regions if we still have crossings (not just collisions)
       // Fix Regions is for topological issues, not spacing issues
       // Skip if at 1 crossing - likely optimal
-      if (bestCrossings > 1 && enhancedOptimization) {
+      // Also skip if we have many collisions as Fix Regions can make it worse
+      if (bestCrossings > 1 && bestCrossings <= 3 && bestCollisions <= 2 && enhancedOptimization) {
         if (verbose) {
           console.log(`  Trying Fix Regions to fix ${bestCrossings} crossings...`);
         }
 
-        // Save positions before Fix Regions
-        const beforeFixRegionsPositions = {};
+        // Save complete state before Fix Regions
+        const beforeFixRegionsState = {
+          positions: {},
+          crossings: bestCrossings,
+          collisions: bestCollisions
+        };
+        let savedNodeCount = 0;
         cy.nodes().forEach(node => {
-          beforeFixRegionsPositions[node.id()] = node.position();
+          const pos = node.position();
+          beforeFixRegionsState.positions[node.id()] = { x: pos.x, y: pos.y };
+          savedNodeCount++;
         });
-        const beforeFixRegionsCrossings = bestCrossings;
-        const beforeFixRegionsCollisions = bestCollisions;
+        if (verbose) {
+          console.log(`  Saving state before Fix Regions: ${savedNodeCount} nodes, ${bestCrossings} crossings, ${bestCollisions} collisions`);
+        }
+
+        // Verify state before Fix Regions
+        const crossingsBeforeFR = countCrossings(cy);
+        const collisionsBeforeFR = countAllCollisions(cy, { minNodeDist });
+        if (verbose && (crossingsBeforeFR !== bestCrossings || collisionsBeforeFR !== bestCollisions)) {
+          console.log(`  ⚠️ State mismatch before Fix Regions: actual ${crossingsBeforeFR}/${collisionsBeforeFR} vs expected ${bestCrossings}/${bestCollisions}`);
+        }
 
         const nodesMoved = fixRegions(cy, {
           verbose: verbose
@@ -668,26 +696,163 @@ interface LayoutResult {
           const newCollisions = countAllCollisions(cy, { minNodeDist });
 
           // Only keep Fix Regions changes if they improved or maintained quality
-          if (newCrossings <= beforeFixRegionsCrossings) {
+          // AND didn't create excessive collisions (which could lead to more crossings)
+          const excessiveCollisions = newCollisions > 10; // More than 10 collisions is likely to cause problems
+
+          if (newCrossings <= beforeFixRegionsState.crossings && !excessiveCollisions) {
             bestCrossings = newCrossings;
             bestCollisions = newCollisions;
             if (verbose) {
               console.log(`  After Fix Regions: ${bestCrossings} crossings, ${bestCollisions} collisions`);
             }
           } else {
-            // Revert Fix Regions as it made things worse
+            // Revert Fix Regions as it made things worse or created too many collisions
             if (verbose) {
-              console.log(`  Fix Regions made it worse (${beforeFixRegionsCrossings} → ${newCrossings} crossings), reverting...`);
+              if (newCrossings > beforeFixRegionsState.crossings) {
+                console.log(`  Fix Regions made it worse (${beforeFixRegionsState.crossings} → ${newCrossings} crossings), reverting...`);
+              } else if (excessiveCollisions) {
+                console.log(`  Fix Regions created ${newCollisions} collisions (too many), reverting...`);
+              }
             }
+
+            // Restore complete state with verification
+            let restorationFailed = false;
+            let nodesMoved = 0;
+            let failedNodes: string[] = [];
+
             cy.nodes().forEach(node => {
-              node.position(beforeFixRegionsPositions[node.id()]);
+              const nodeId = node.id();
+              if (beforeFixRegionsState.positions[nodeId]) {
+                const savedPos = beforeFixRegionsState.positions[nodeId];
+                const currentPos = node.position();
+
+                // Check if node was moved by Fix Regions
+                const xDiff = Math.abs(currentPos.x - savedPos.x);
+                const yDiff = Math.abs(currentPos.y - savedPos.y);
+                if (xDiff > 0.1 || yDiff > 0.1) {
+                  nodesMoved++;
+                  if (verbose && nodesMoved <= 10) { // Log first 10 moved nodes
+                    console.log(`    Node ${nodeId} was moved: (${savedPos.x.toFixed(1)}, ${savedPos.y.toFixed(1)}) → (${currentPos.x.toFixed(1)}, ${currentPos.y.toFixed(1)})`);
+                  }
+                }
+
+                // Restore position
+                node.position({ x: savedPos.x, y: savedPos.y });
+
+                // Verify position was actually set
+                const newPos = node.position();
+                if (Math.abs(newPos.x - savedPos.x) > 0.1 || Math.abs(newPos.y - savedPos.y) > 0.1) {
+                  restorationFailed = true;
+                  failedNodes.push(node.id());
+                  if (verbose) {
+                    console.log(`    ⚠️ Failed to restore node ${node.id()}: expected (${savedPos.x.toFixed(1)}, ${savedPos.y.toFixed(1)}), got (${newPos.x.toFixed(1)}, ${newPos.y.toFixed(1)})`);
+                  }
+                }
+              }
             });
-            bestCrossings = beforeFixRegionsCrossings;
-            bestCollisions = beforeFixRegionsCollisions;
+
+            if (verbose) {
+              const totalNodes = cy.nodes().length;
+              const savedNodes = Object.keys(beforeFixRegionsState.positions).length;
+              console.log(`  Reverting ${nodesMoved} of ${savedNodes} saved nodes (graph has ${totalNodes} nodes)...`);
+            }
+
+            // Force Cytoscape to update its internal state
+            cy.forceRender();
+
+            if (restorationFailed && verbose) {
+              console.log(`    ⚠️ Position restoration failed for ${failedNodes.length} nodes: ${failedNodes.join(', ')}`);
+            }
+
+            bestCrossings = beforeFixRegionsState.crossings;
+            bestCollisions = beforeFixRegionsState.collisions;
+
+            // Double-check all positions match exactly
+            let positionsMatch = true;
+            cy.nodes().forEach(node => {
+              const savedPos = beforeFixRegionsState.positions[node.id()];
+              if (savedPos) {
+                const currentPos = node.position();
+                if (Math.abs(currentPos.x - savedPos.x) > 0.01 || Math.abs(currentPos.y - savedPos.y) > 0.01) {
+                  positionsMatch = false;
+                  if (verbose) {
+                    console.log(`  Position mismatch for ${node.id()}: saved (${savedPos.x.toFixed(1)}, ${savedPos.y.toFixed(1)}) vs current (${currentPos.x.toFixed(1)}, ${currentPos.y.toFixed(1)})`);
+                  }
+                }
+              }
+            });
+
+            if (verbose && positionsMatch) {
+              console.log(`  All positions restored correctly`);
+            }
+
+            // Verify restoration worked by recounting
+            const actualCrossings = countCrossings(cy);
+            const actualCollisions = countAllCollisions(cy, { minNodeDist });
+
+            // Check if reversion didn't restore original state perfectly
+            if (actualCrossings !== beforeFixRegionsState.crossings || actualCollisions !== beforeFixRegionsState.collisions) {
+              if (verbose) {
+                console.log(`  ⚠️ Reversion mismatch: expected ${beforeFixRegionsState.crossings} crossings/${beforeFixRegionsState.collisions} collisions, got ${actualCrossings}/${actualCollisions}`);
+
+                // Debug: Check node positions again
+                let positionDiffs = 0;
+                cy.nodes().forEach(node => {
+                  const savedPos = beforeFixRegionsState.positions[node.id()];
+                  if (savedPos) {
+                    const currentPos = node.position();
+                    const diff = Math.sqrt(Math.pow(currentPos.x - savedPos.x, 2) + Math.pow(currentPos.y - savedPos.y, 2));
+                    if (diff > 0.1) {
+                      positionDiffs++;
+                      console.log(`    Node ${node.id()} is off by ${diff.toFixed(1)} units`);
+                    }
+                  }
+                });
+                if (positionDiffs > 0) {
+                  console.log(`  ⚠️ ${positionDiffs} nodes still have incorrect positions after reversion`);
+                }
+              }
+
+              // If reversion made things much worse, try to recover
+              if (actualCrossings > beforeFixRegionsState.crossings + 1) {
+                if (verbose) {
+                  console.log(`  🔧 Attempting recovery with gentle layout...`);
+                }
+
+                // Run a very gentle layout to try to recover
+                const recoveryLayout = cy.layout({
+                  name: 'fcose',
+                  animate: false,
+                  randomize: false,
+                  quality: 'proof',
+                  numIter: 200,
+                  idealEdgeLength: 50,
+                  nodeRepulsion: 10000,
+                  nodeOverlap: 10,
+                  gravity: 0.01,
+                  edgeElasticity: 0.05,
+                  initialTemp: 50,
+                  coolingFactor: 0.99
+                });
+
+                await new Promise((resolve) => {
+                  recoveryLayout.on('layoutstop', resolve);
+                  recoveryLayout.run();
+                });
+
+                // Recount after recovery
+                bestCrossings = countCrossings(cy);
+                bestCollisions = countAllCollisions(cy, { minNodeDist });
+
+                if (verbose) {
+                  console.log(`  After recovery: ${bestCrossings} crossings, ${bestCollisions} collisions`);
+                }
+              }
+            }
           }
 
           // If Fix Regions created collisions (and was kept), run a quick layout to resolve them
-          if (bestCollisions > 0 && newCrossings <= beforeFixRegionsCrossings) {
+          if (bestCollisions > 0 && newCrossings <= beforeFixRegionsState.crossings) {
             if (verbose) {
               console.log(`  Fix Regions created ${bestCollisions} collisions, running quick adjustment...`);
             }
@@ -884,10 +1049,15 @@ interface LayoutResult {
         const collisionDecrease = beforeCollisionCollisions - afterCollisionCollisions;
 
         // Only keep if we didn't create too many new crossings relative to collisions fixed
-        // Allow up to 1 new crossing per 3 collisions fixed
-        const acceptableTradeoff = crossingIncrease <= Math.ceil(collisionDecrease / 3);
+        // Be very conservative:
+        // - Never allow new crossings if we already have 2+ crossings
+        // - Allow 1 new crossing only if we have 0-1 crossings AND fix 3+ collisions
+        const shouldRevert = (beforeCollisionCrossings >= 2 && crossingIncrease > 0) ||  // No new crossings if already at 2+
+                            (crossingIncrease > 1) ||  // Never allow 2+ new crossings
+                            (crossingIncrease === 1 && collisionDecrease < 3) ||  // Need to fix 3+ collisions to justify 1 new crossing
+                            (afterCollisionCrossings >= 5);  // Never allow 5+ crossings total
 
-        if (afterCollisionCrossings > beforeCollisionCrossings && !acceptableTradeoff) {
+        if (shouldRevert) {
           // Collision resolution created too many crossings, revert
           if (verbose) {
             console.log(`  Collision resolution created ${crossingIncrease} new crossings, reverting...`);
@@ -1624,7 +1794,8 @@ interface LayoutResult {
 
     // Main logic
     const cycles = findCycles();
-    let nodesMoved = 0;
+    let totalMoves = 0;
+    const uniqueNodesMovedSet = new Set();
 
     cycles.forEach(cycle => {
       const processedNodes = new Set();
@@ -1633,7 +1804,7 @@ interface LayoutResult {
         // Skip cycle nodes themselves
         if (cycle.some((cn) => cn.id() === node.id())) return;
 
-        // Skip already processed nodes
+        // Skip already processed nodes for this cycle
         if (processedNodes.has(node.id())) return;
 
         const placement = getNodePlacement(node, cycle);
@@ -1641,20 +1812,28 @@ interface LayoutResult {
         if (placement === 'inside') {
           placeInside(node, cycle);
           processedNodes.add(node.id());
-          nodesMoved++;
+          uniqueNodesMovedSet.add(node.id());
+          totalMoves++;
         } else if (placement === 'outside') {
           placeOutside(node, cycle);
           processedNodes.add(node.id());
-          nodesMoved++;
+          uniqueNodesMovedSet.add(node.id());
+          totalMoves++;
         }
       });
     });
 
+    const uniqueNodesMoved = uniqueNodesMovedSet.size;
+
     if (verbose) {
-      console.log(`Fix Regions: Moved ${nodesMoved} nodes`);
+      if (totalMoves !== uniqueNodesMoved) {
+        console.log(`Fix Regions: ${totalMoves} total moves on ${uniqueNodesMoved} unique nodes`);
+      } else {
+        console.log(`Fix Regions: Moved ${uniqueNodesMoved} nodes`);
+      }
     }
 
-    return nodesMoved;
+    return uniqueNodesMoved;
   }
 
   /**
