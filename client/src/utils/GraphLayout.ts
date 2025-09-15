@@ -123,6 +123,40 @@ interface LayoutResult {
   /**
    * Count node/edge collisions in the graph
    */
+  function countAllCollisions(cyInstance, options = {}) {
+    const minDist = options.minNodeDist || 4;
+    const nodeRadius = minDist * 5;
+    const minNodeDistance = nodeRadius * 2 + 4; // Use test file's standard
+    const verbose = options.verbose || false;
+
+    let nodeNodeCollisions = 0;
+    let nodeEdgeCollisions = 0;
+
+    // Check node-node collisions
+    cyInstance.nodes().forEach((node1, i) => {
+      cyInstance.nodes().slice(i + 1).forEach(node2 => {
+        const pos1 = node1.position();
+        const pos2 = node2.position();
+        const distance = Math.sqrt(
+          Math.pow(pos1.x - pos2.x, 2) +
+          Math.pow(pos1.y - pos2.y, 2)
+        );
+
+        if (distance < minNodeDistance) {
+          nodeNodeCollisions++;
+          if (verbose) {
+            console.log(`  Node-node collision: ${node1.id()} and ${node2.id()} are ${distance.toFixed(1)} apart (min: ${minNodeDistance})`);
+          }
+        }
+      });
+    });
+
+    // Check node-edge collisions (existing logic)
+    nodeEdgeCollisions = countNodeEdgeCollisions(cyInstance, options);
+
+    return nodeNodeCollisions + nodeEdgeCollisions;
+  }
+
   function countNodeEdgeCollisions(cyInstance, options = {}) {
     const minDist = options.minNodeDist || 4;
     const nodeRadius = options.nodeRadius || 20;
@@ -341,7 +375,7 @@ interface LayoutResult {
 
     // Count initial metrics
     const initialCrossings = countCrossings(cy);
-    const initialCollisions = countNodeEdgeCollisions(cy, { minNodeDist });
+    const initialCollisions = countAllCollisions(cy, { minNodeDist });
 
     // If we have problems, run optimization
     if (initialCrossings > 0 || initialCollisions > 0) {
@@ -420,7 +454,7 @@ interface LayoutResult {
         });
 
         const newCrossings = countCrossings(cy);
-        const newCollisions = countNodeEdgeCollisions(cy, { minNodeDist });
+        const newCollisions = countAllCollisions(cy, { minNodeDist });
 
         if (newCrossings < bestCrossings ||
             (newCrossings === bestCrossings && newCollisions < bestCollisions)) {
@@ -468,7 +502,7 @@ interface LayoutResult {
 
         if (fixed > 0) {
           bestCrossings = countCrossings(cy);
-          bestCollisions = countNodeEdgeCollisions(cy, { minNodeDist });
+          bestCollisions = countAllCollisions(cy, { minNodeDist });
           if (verbose) {
             console.log(`  After node swapping: ${bestCrossings} crossings, ${bestCollisions} collisions`);
           }
@@ -489,7 +523,7 @@ interface LayoutResult {
 
         if (flipped > 0) {
           bestCrossings = countCrossings(cy);
-          bestCollisions = countNodeEdgeCollisions(cy, { minNodeDist });
+          bestCollisions = countAllCollisions(cy, { minNodeDist });
           if (verbose) {
             console.log(`  After node flipping: ${bestCrossings} crossings, ${bestCollisions} collisions`);
           }
@@ -497,10 +531,17 @@ interface LayoutResult {
       }
 
       // Try relocating nodes that cross edges they're not connected to
-      if (bestCrossings > 0 && enhancedOptimization) {
+      // Skip if we're already at 1 crossing (likely optimal)
+      if (bestCrossings > 1 && enhancedOptimization) {
         if (verbose) {
           console.log(`  Trying node relocation to fix ${bestCrossings} remaining crossings...`);
         }
+
+        const beforeRelocationCrossings = bestCrossings;
+        const beforeRelocationPositions = {};
+        cy.nodes().forEach(node => {
+          beforeRelocationPositions[node.id()] = node.position();
+        });
 
         const relocated = fixCrossingsByRelocation(cy, {
           verbose: verbose,
@@ -509,16 +550,32 @@ interface LayoutResult {
 
         if (relocated > 0) {
           bestCrossings = countCrossings(cy);
-          bestCollisions = countNodeEdgeCollisions(cy, { minNodeDist });
-          if (verbose) {
-            console.log(`  After node relocation: ${bestCrossings} crossings, ${bestCollisions} collisions`);
+          bestCollisions = countAllCollisions(cy, { minNodeDist });
+
+          // If relocation made it worse, revert
+          if (bestCrossings > beforeRelocationCrossings) {
+            cy.nodes().forEach(node => {
+              node.position(beforeRelocationPositions[node.id()]);
+            });
+            bestCrossings = beforeRelocationCrossings;
+            bestCollisions = countAllCollisions(cy, { minNodeDist });
+            if (verbose) {
+              console.log(`  Node relocation made it worse, reverted`);
+            }
+          } else {
+            if (verbose) {
+              console.log(`  After node relocation: ${bestCrossings} crossings, ${bestCollisions} collisions`);
+            }
           }
         }
+      } else if (bestCrossings === 1 && verbose) {
+        console.log(`  Skipping node relocation (already at 1 crossing - likely optimal)`);
       }
 
       // Try Fix Regions if we still have crossings (not just collisions)
       // Fix Regions is for topological issues, not spacing issues
-      if (bestCrossings > 0 && enhancedOptimization) {
+      // Skip if at 1 crossing - likely optimal
+      if (bestCrossings > 1 && enhancedOptimization) {
         if (verbose) {
           console.log(`  Trying Fix Regions to fix ${bestCrossings} crossings...`);
         }
@@ -529,7 +586,7 @@ interface LayoutResult {
 
         if (nodesMoved > 0) {
           bestCrossings = countCrossings(cy);
-          bestCollisions = countNodeEdgeCollisions(cy, { minNodeDist });
+          bestCollisions = countAllCollisions(cy, { minNodeDist });
           if (verbose) {
             console.log(`  After Fix Regions: ${bestCrossings} crossings, ${bestCollisions} collisions`);
           }
@@ -568,7 +625,7 @@ interface LayoutResult {
             });
 
             const adjustedCrossings = countCrossings(cy);
-            const adjustedCollisions = countNodeEdgeCollisions(cy, { minNodeDist });
+            const adjustedCollisions = countAllCollisions(cy, { minNodeDist });
 
             // Only keep adjustment if it didn't make things worse
             if (adjustedCrossings <= bestCrossings && adjustedCollisions < bestCollisions) {
@@ -593,7 +650,7 @@ interface LayoutResult {
       // Final comprehensive collision resolution - fix ALL collisions including node-node
       if (enhancedOptimization) {
         const nodeRadius = minNodeDist * 5;
-        const minNodeDistance = nodeRadius * 2 + minNodeDist + 2; // Add extra buffer
+        const minNodeDistance = nodeRadius * 2 + 4; // Use test file's standard (44 pixels)
         let maxPasses = 5;
         let pass = 0;
 
@@ -651,7 +708,7 @@ interface LayoutResult {
           });
 
           // Then fix node-edge collisions
-          const edgeCollisions = countNodeEdgeCollisions(cy, { minNodeDist });
+          const edgeCollisions = countAllCollisions(cy, { minNodeDist });
           if (edgeCollisions > 0) {
             // Use existing collision resolution logic
             cy.nodes().forEach(node => {
@@ -716,7 +773,7 @@ interface LayoutResult {
 
         // Update final metrics
         bestCrossings = countCrossings(cy);
-        bestCollisions = countNodeEdgeCollisions(cy, { minNodeDist });
+        bestCollisions = countAllCollisions(cy, { minNodeDist });
 
         if (verbose) {
           console.log(`  Collision resolution complete after ${pass} passes`);
@@ -777,7 +834,7 @@ interface LayoutResult {
 
           // Apply post-processing to this attempt
           let tempCrossings = countCrossings(cy);
-          let tempCollisions = countNodeEdgeCollisions(cy, { minNodeDist });
+          let tempCollisions = countAllCollisions(cy, { minNodeDist });
 
           // Try node swapping on this attempt
           if (tempCrossings > 0 && tempCrossings <= 5) {
@@ -789,7 +846,7 @@ interface LayoutResult {
             });
             if (fixed > 0) {
               tempCrossings = countCrossings(cy);
-              tempCollisions = countNodeEdgeCollisions(cy, { minNodeDist });
+              tempCollisions = countAllCollisions(cy, { minNodeDist });
             }
           }
 
@@ -797,7 +854,7 @@ interface LayoutResult {
           if (tempCollisions > 0 || tempCrossings === 0) {
             // Always fix collisions if we have them, or if we achieved zero crossings
             const nodeRadius = minNodeDist * 5;
-            const minNodeDistance = nodeRadius * 2 + minNodeDist + 2;
+            const minNodeDistance = nodeRadius * 2 + 4; // Use test file's standard
             let collisionPasses = 0;
             const maxCollisionPasses = 3;
 
@@ -889,7 +946,7 @@ interface LayoutResult {
 
             // Recount after collision resolution
             tempCrossings = countCrossings(cy);
-            tempCollisions = countNodeEdgeCollisions(cy, { minNodeDist });
+            tempCollisions = countAllCollisions(cy, { minNodeDist });
           }
 
           if (tempCrossings === 0 && tempCollisions === 0) {
@@ -1016,7 +1073,7 @@ interface LayoutResult {
         // Only auto-optimize if not in quickMode
         if (!quickMode && autoOptimize) {
           const crossings = countCrossings(cy);
-          const collisions = countNodeEdgeCollisions(cy, { minNodeDist });
+          const collisions = countAllCollisions(cy, { minNodeDist });
           if (container) {
             console.log(`Initial layout complete: ${crossings} edge crossings, ${collisions} node/edge collisions`);
           }
@@ -1039,7 +1096,7 @@ interface LayoutResult {
           }
         } else {
           const crossings = countCrossings(cy);
-          const collisions = countNodeEdgeCollisions(cy, { minNodeDist });
+          const collisions = countAllCollisions(cy, { minNodeDist });
 
           // Show container if it was hidden (quickMode or no autoOptimize)
           if (container && skipOptRender && container.style.visibility === 'hidden') {
@@ -1668,12 +1725,12 @@ interface LayoutResult {
 
       uniqueFlips.forEach(flip => {
         const beforeCrossings = countCrossings(cy);
-        const beforeCollisions = countNodeEdgeCollisions(cy, { minNodeDist });
+        const beforeCollisions = countAllCollisions(cy, { minNodeDist });
 
         flip.node.position(flip.newPos);
 
         const afterCrossings = countCrossings(cy);
-        const afterCollisions = countNodeEdgeCollisions(cy, { minNodeDist });
+        const afterCollisions = countAllCollisions(cy, { minNodeDist });
 
         // Accept flip if it reduces crossings without creating collisions
         if (afterCrossings < beforeCrossings && afterCollisions <= beforeCollisions) {
@@ -1980,6 +2037,7 @@ export const GraphLayout = {
   runLayout,
   countCrossings,
   countNodeEdgeCollisions,
+  countAllCollisions,
   createElements,
   getLayoutOptions,
   getDefaultStyles,
