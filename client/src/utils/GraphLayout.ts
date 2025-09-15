@@ -360,8 +360,18 @@ interface LayoutResult {
 
       // Use enhanced optimization for problematic sectors
       let actualMaxAttempts = maxOptimizeAttempts;
-      if (enhancedOptimization && (initialCollisions > 2 || initialCrossings > 1)) {
-        actualMaxAttempts = Math.max(maxOptimizeAttempts, 30);
+      if (enhancedOptimization && (initialCollisions > 2 || initialCrossings > 0)) {
+        // Even more attempts for persistent crossing issues in small graphs
+        // Sector 1148 needs extreme optimization
+        if (nodes.length === 6 && initialCrossings >= 3) {
+          actualMaxAttempts = Math.max(maxOptimizeAttempts, 100); // Extreme for very difficult 6-node graphs
+        } else if (nodes.length <= 6 && initialCrossings > 0) {
+          actualMaxAttempts = Math.max(maxOptimizeAttempts, 60);
+        } else if (nodes.length <= 10 && initialCrossings > 0) {
+          actualMaxAttempts = Math.max(maxOptimizeAttempts, 40);
+        } else {
+          actualMaxAttempts = Math.max(maxOptimizeAttempts, 30);
+        }
         if (verbose) {
           console.log(`  Using enhanced optimization with ${actualMaxAttempts} attempts`);
         }
@@ -434,6 +444,31 @@ interface LayoutResult {
         node.position(bestPositions[node.id()]);
       });
 
+      // Try node swapping if we still have crossings
+      if (bestCrossings > 0 && enhancedOptimization) {
+        if (verbose) {
+          console.log(`  Trying node swapping to fix ${bestCrossings} remaining crossings...`);
+        }
+
+        // Use aggressive mode for small graphs with persistent crossings
+        const isSmallGraph = nodes.length <= 8;
+
+        const fixed = fixCrossingsBySwapping(cy, {
+          verbose: verbose,
+          minNodeDistance: minNodeDist * 10, // Use a reasonable distance based on node size
+          aggressive: isSmallGraph && bestCrossings > 1, // Aggressive for small graphs with multiple crossings
+          maxDegree: isSmallGraph ? 20 : 10 // Allow swapping higher-degree nodes in small graphs
+        });
+
+        if (fixed > 0) {
+          bestCrossings = countCrossings(cy);
+          bestCollisions = countNodeEdgeCollisions(cy, { minNodeDist });
+          if (verbose) {
+            console.log(`  After node swapping: ${bestCrossings} crossings, ${bestCollisions} collisions`);
+          }
+        }
+      }
+
       // Get final positions for return
       const positions = {};
       cy.nodes().forEach(node => {
@@ -487,8 +522,15 @@ interface LayoutResult {
 
     // Use enhanced optimization if initial results are problematic
     let actualMaxAttempts = maxAttempts;
-    if (enhancedOptimization && (bestCollisions > 2 || bestCrossings > 1)) {
-      actualMaxAttempts = Math.max(maxAttempts, 25);
+    if (enhancedOptimization && (bestCollisions > 2 || bestCrossings > 0)) {
+      // Very aggressive for small graphs with crossings
+      if (cy.nodes().length <= 6 && bestCrossings > 0) {
+        actualMaxAttempts = Math.max(maxAttempts, 50);
+      } else if (cy.nodes().length <= 10 && bestCrossings > 0) {
+        actualMaxAttempts = Math.max(maxAttempts, 35);
+      } else {
+        actualMaxAttempts = Math.max(maxAttempts, 25);
+      }
       if (!quiet) {
         console.log(`Using enhanced optimization with ${actualMaxAttempts} attempts`);
       }
@@ -572,6 +614,32 @@ interface LayoutResult {
     cy.nodes().forEach(node => {
       node.position(bestPositions[node.id()]);
     });
+
+    // Try node swapping if we still have crossings (same as in runLayout)
+    if (bestCrossings > 0 && enhancedOptimization) {
+      if (!quiet) {
+        console.log(`Trying node swapping to fix ${bestCrossings} remaining crossings...`);
+      }
+
+      // Use aggressive mode for small graphs with persistent crossings
+      const nodeCount = cy.nodes().length;
+      const isSmallGraph = nodeCount <= 8;
+
+      const fixed = fixCrossingsBySwapping(cy, {
+        verbose: !quiet,
+        minNodeDistance: minNodeDist * 10,
+        aggressive: isSmallGraph && bestCrossings > 1,
+        maxDegree: isSmallGraph ? 20 : 10
+      });
+
+      if (fixed > 0) {
+        bestCrossings = countCrossings(cy);
+        bestCollisions = countNodeEdgeCollisions(cy, { minNodeDist });
+        if (!quiet) {
+          console.log(`After node swapping: ${bestCrossings} crossings, ${bestCollisions} collisions`);
+        }
+      }
+    }
 
     if (!quiet) {
       console.log(`Optimization complete: ${bestCrossings} crossings, ${bestCollisions} collisions`);
@@ -698,6 +766,219 @@ interface LayoutResult {
   }
 
   /**
+   * Fix edge crossings by swapping node positions
+   * Returns the number of crossings eliminated
+   */
+  function fixCrossingsBySwapping(cy, options = {}) {
+    const maxDegree = options.maxDegree || 10; // Only swap nodes with degree <= this
+    const minNodeDistance = options.minNodeDistance || 50;
+    const verbose = options.verbose || false;
+    const aggressive = options.aggressive || false; // Try all pairs, not just crossing ones
+
+    let totalFixed = 0;
+    let iterations = 0;
+    const maxIterations = aggressive ? 20 : 10; // More iterations in aggressive mode
+
+    while (iterations < maxIterations) {
+      iterations++;
+      const initialCrossings = countCrossings(cy);
+
+      if (initialCrossings === 0) {
+        if (verbose) console.log('No crossings to fix');
+        break;
+      }
+
+      if (verbose) console.log(`Fix Crossings iteration ${iterations}: ${initialCrossings} crossings`);
+
+      // Find all edge pairs that cross
+      const crossingPairs = [];
+      const edges = cy.edges();
+
+      for (let i = 0; i < edges.length; i++) {
+        for (let j = i + 1; j < edges.length; j++) {
+          const e1 = edges[i];
+          const e2 = edges[j];
+
+          // Skip if edges share a node
+          if (e1.source().id() === e2.source().id() ||
+              e1.source().id() === e2.target().id() ||
+              e1.target().id() === e2.source().id() ||
+              e1.target().id() === e2.target().id()) {
+            continue;
+          }
+
+          // Check if edges cross
+          const p1 = e1.source().position();
+          const p2 = e1.target().position();
+          const p3 = e2.source().position();
+          const p4 = e2.target().position();
+
+          const ccw = (A, B, C) => {
+            const val = (C.y - A.y) * (B.x - A.x) - (B.y - A.y) * (C.x - A.x);
+            return Math.abs(val) < 1e-10 ? false : val > 0;
+          };
+
+          if (ccw(p1, p3, p4) !== ccw(p2, p3, p4) && ccw(p1, p2, p3) !== ccw(p1, p2, p4)) {
+            crossingPairs.push({ e1, e2 });
+          }
+        }
+      }
+
+      if (verbose) console.log(`Found ${crossingPairs.length} crossing edge pairs`);
+
+      // Try swapping nodes to fix crossings
+      let bestSwap = null;
+      let bestReduction = 0;
+
+      // For each crossing pair, try swapping the involved nodes
+      for (const { e1, e2 } of crossingPairs) {
+        const nodesToTry = [
+          [e1.source(), e2.source()],
+          [e1.source(), e2.target()],
+          [e1.target(), e2.source()],
+          [e1.target(), e2.target()]
+        ];
+
+        for (const [node1, node2] of nodesToTry) {
+          // Skip high-degree nodes
+          if (node1.degree() > maxDegree || node2.degree() > maxDegree) continue;
+
+          // Skip if nodes are the same
+          if (node1.id() === node2.id()) continue;
+
+          // Save original positions
+          const pos1 = { ...node1.position() };
+          const pos2 = { ...node2.position() };
+
+          // Try the swap
+          node1.position(pos2);
+          node2.position(pos1);
+
+          // Count new crossings
+          const newCrossings = countCrossings(cy);
+          const reduction = initialCrossings - newCrossings;
+
+          // Check for node overlaps
+          let hasOverlap = false;
+          cy.nodes().forEach(otherNode => {
+            if (otherNode.id() === node1.id() || otherNode.id() === node2.id()) return;
+
+            const otherPos = otherNode.position();
+
+            // Check distance from node1's new position
+            const dist1 = Math.sqrt(
+              Math.pow(pos2.x - otherPos.x, 2) +
+              Math.pow(pos2.y - otherPos.y, 2)
+            );
+
+            // Check distance from node2's new position
+            const dist2 = Math.sqrt(
+              Math.pow(pos1.x - otherPos.x, 2) +
+              Math.pow(pos1.y - otherPos.y, 2)
+            );
+
+            if (dist1 < minNodeDistance || dist2 < minNodeDistance) {
+              hasOverlap = true;
+            }
+          });
+
+          // Track best swap
+          if (reduction > bestReduction && !hasOverlap) {
+            bestReduction = reduction;
+            bestSwap = {
+              node1: node1.id(),
+              node2: node2.id(),
+              pos1,
+              pos2,
+              reduction
+            };
+          }
+
+          // Revert the swap for now
+          node1.position(pos1);
+          node2.position(pos2);
+        }
+      }
+
+      // If no good swap found and we're in aggressive mode, try ALL pairs
+      if (!bestSwap && aggressive && iterations === 1) {
+        if (verbose) console.log('  Aggressive mode: trying all node pairs...');
+
+        const allNodes = cy.nodes().filter(n => n.degree() <= maxDegree);
+
+        for (let i = 0; i < allNodes.length; i++) {
+          for (let j = i + 1; j < allNodes.length; j++) {
+            const node1 = allNodes[i];
+            const node2 = allNodes[j];
+
+            const pos1 = { ...node1.position() };
+            const pos2 = { ...node2.position() };
+
+            // Try the swap
+            node1.position(pos2);
+            node2.position(pos1);
+
+            const newCrossings = countCrossings(cy);
+            const reduction = initialCrossings - newCrossings;
+
+            // Check for overlaps only if swap helps
+            let hasOverlap = false;
+            if (reduction > 0) {
+              cy.nodes().forEach(otherNode => {
+                if (otherNode.id() === node1.id() || otherNode.id() === node2.id()) return;
+                const otherPos = otherNode.position();
+                const dist1 = Math.sqrt(Math.pow(pos2.x - otherPos.x, 2) + Math.pow(pos2.y - otherPos.y, 2));
+                const dist2 = Math.sqrt(Math.pow(pos1.x - otherPos.x, 2) + Math.pow(pos1.y - otherPos.y, 2));
+                if (dist1 < minNodeDistance || dist2 < minNodeDistance) {
+                  hasOverlap = true;
+                }
+              });
+            }
+
+            if (reduction > bestReduction && !hasOverlap) {
+              bestReduction = reduction;
+              bestSwap = {
+                node1: node1.id(),
+                node2: node2.id(),
+                pos1,
+                pos2,
+                reduction
+              };
+            }
+
+            // Revert
+            node1.position(pos1);
+            node2.position(pos2);
+          }
+        }
+      }
+
+      // Apply the best swap if found
+      if (bestSwap) {
+        const node1 = cy.getElementById(bestSwap.node1);
+        const node2 = cy.getElementById(bestSwap.node2);
+        node1.position(bestSwap.pos2);
+        node2.position(bestSwap.pos1);
+
+        totalFixed += bestSwap.reduction;
+        if (verbose) {
+          console.log(`  Swapped ${bestSwap.node1} <-> ${bestSwap.node2}, reduced ${bestSwap.reduction} crossings`);
+        }
+      } else {
+        // No beneficial swap found
+        if (verbose) console.log('  No beneficial swaps found');
+        break;
+      }
+    }
+
+    if (verbose && totalFixed > 0) {
+      console.log(`Fix Crossings eliminated ${totalFixed} total crossings in ${iterations} iterations`);
+    }
+
+    return totalFixed;
+  }
+
+  /**
    * Get default Cytoscape styles
    */
   function getDefaultStyles() {
@@ -766,7 +1047,8 @@ export const GraphLayout = {
   createElements,
   getLayoutOptions,
   getDefaultStyles,
-  toPairs
+  toPairs,
+  fixCrossingsBySwapping
 };
 
 export default GraphLayout;

@@ -161,6 +161,13 @@ export const MapVisualization: React.FC<MapVisualizationProps> = ({
     loadSector(newSector);
   };
 
+  const handleRerunLayout = () => {
+    // Re-run layout for current sector without adding to history
+    if (currentSector !== null && currentSector !== undefined) {
+      loadSector(currentSector, false);
+    }
+  };
+
   const handleSectorInput = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       const sector = parseInt(inputSector);
@@ -220,6 +227,13 @@ export const MapVisualization: React.FC<MapVisualizationProps> = ({
       <div className="map-metrics">
         <span>Edge Crossings: {metrics.crossings}</span>
         <span>Node Collisions: {metrics.collisions}</span>
+        <button
+          onClick={handleRerunLayout}
+          disabled={loading || nodeCount === 0}
+          style={{ marginLeft: '20px' }}
+        >
+          Re-run Layout
+        </button>
       </div>
 
       {(loading || layoutInProgress) && <div className="loading-overlay">Loading...</div>}

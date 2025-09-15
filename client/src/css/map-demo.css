@@ -100,12 +100,35 @@
 .map-metrics {
   display: flex;
   justify-content: center;
+  align-items: center;
   gap: 30px;
   padding: 10px;
   background: #1a1a1a;
   border-top: 1px solid #444;
   font-size: 14px;
   color: #888;
+}
+
+.map-metrics button {
+  padding: 6px 12px;
+  background: #444;
+  color: #e0e0e0;
+  border: 1px solid #666;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.map-metrics button:hover:not(:disabled) {
+  background: #555;
+  border-color: #777;
+}
+
+.map-metrics button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .loading-overlay {
