@@ -1009,112 +1009,6 @@ interface LayoutResult {
     };
   }
 
-
-  /**
-   * Main render function for graph layout
-   * @deprecated Use renderOptimized instead for better results
-   */
-  async function render(nodes, centerId, options = {}) {
-    const container = options.container;
-    const minNodeDist = options.minNodeDist || 4;
-    const nodeRepulsion = options.nodeRepulsion || 16000;
-    const quickMode = options.quickMode || false;
-    const autoOptimize = options.autoOptimize !== false;
-    const skipOptRender = options.skipOptRender !== false;
-    const styles = options.styles || getDefaultStyles();
-    const onLayoutComplete = options.onLayoutComplete || (() => {});
-
-    // Only log in non-headless mode
-    if (container) {
-      console.log(`Render called with ${nodes.length} nodes, center: ${centerId}, quickMode: ${quickMode}`);
-    }
-
-    // Create elements
-    const elements = createElements(nodes, centerId);
-
-    // Initialize Cytoscape (headless if no container)
-    const cyConfig = {
-      elements: elements,
-      autoungrabify: false,
-      autounselectify: false,
-      boxSelectionEnabled: false,
-      minZoom: 0.5,
-      maxZoom: 3,
-      style: styles
-    };
-
-    if (container) {
-      cyConfig.container = container;
-
-      // If skipOptRender is true, hide the container initially
-      if (skipOptRender && !quickMode && autoOptimize) {
-        container.style.visibility = 'hidden';
-      }
-    } else {
-      cyConfig.headless = true;
-    }
-
-    const cy = cytoscape(cyConfig);
-
-    // Run initial layout
-    const layoutOptions = getLayoutOptions({ minNodeDist, nodeRepulsion, quickMode });
-    const layout = cy.layout(layoutOptions);
-
-    if (container) {
-      console.log('Starting layout...');
-    }
-
-    await new Promise((resolve) => {
-      layout.on('layoutstop', async () => {
-        if (container) {
-          console.log(`Layout stopped. quickMode: ${quickMode}`);
-        }
-
-        // Only auto-optimize if not in quickMode
-        if (!quickMode && autoOptimize) {
-          const crossings = countCrossings(cy);
-          const collisions = countAllCollisions(cy, { minNodeDist });
-          if (container) {
-            console.log(`Initial layout complete: ${crossings} edge crossings, ${collisions} node/edge collisions`);
-          }
-
-          if (crossings > 0 || collisions > 0) {
-            if (container) {
-              console.log('Warning: render() found crossings/collisions but optimizeLayout has been removed. Use renderOptimized() instead.');
-            }
-            // Show the container even though optimization was skipped
-            if (container && skipOptRender) {
-              container.style.visibility = 'visible';
-            }
-            onLayoutComplete(crossings, collisions);
-          } else {
-            // Show the container if we skipped optimization
-            if (container && skipOptRender) {
-              container.style.visibility = 'visible';
-            }
-            onLayoutComplete(crossings, collisions);
-          }
-        } else {
-          const crossings = countCrossings(cy);
-          const collisions = countAllCollisions(cy, { minNodeDist });
-
-          // Show container if it was hidden (quickMode or no autoOptimize)
-          if (container && skipOptRender && container.style.visibility === 'hidden') {
-            container.style.visibility = 'visible';
-          }
-
-          onLayoutComplete(crossings, collisions);
-        }
-
-        resolve();
-      });
-
-      layout.run();
-    });
-
-    return cy;
-  }
-
   /**
    * Render with optimized layout algorithm (uses runLayout instead of optimizeLayout)
    * This provides better results for complex graphs
@@ -2032,7 +1926,6 @@ interface LayoutResult {
 
 // Public API
 export const GraphLayout = {
-  render,  // @deprecated - use renderOptimized instead
   renderOptimized,
   runLayout,
   countCrossings,
