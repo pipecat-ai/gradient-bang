@@ -145,8 +145,6 @@ A sector passes if it achieves across 10 consecutive runs:
 - **MUST**: 0 node/edge collisions in ALL runs
 - **PREFER**: Minimal edge crossings (ideally 0)
 
-Use `test-layout-comprehensive.ts` to verify all sectors meet these criteria.
-
 #### Test Types
 - **In-page navigation**: Fast, good for development
 - **Page reload**: Ensures complete independence
