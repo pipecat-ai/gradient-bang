@@ -308,6 +308,33 @@ class AsyncGameClient:
                 except Exception:
                     pass
             return map_data
+
+    async def local_map(
+        self,
+        max_hops: int,
+        current_sector: Optional[int] = None,
+        character_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Get a local, hop-limited map of the player's known graph.
+
+        Args:
+            max_hops: Number of rings to include around the center
+            current_sector: Optional explicit center; defaults to tracked sector
+            character_id: Character to query (defaults to current character)
+        """
+        if character_id is None:
+            character_id = self._current_character
+        if character_id is None:
+            raise ValueError("No character specified or tracked")
+
+        if current_sector is None:
+            current_sector = self._current_sector
+
+        payload: Dict[str, Any] = {"character_id": character_id, "max_hops": int(max_hops)}
+        if current_sector is not None:
+            payload["current_sector"] = int(current_sector)
+
+        return await self._request("local_map", payload)
     
     async def _ensure_map_cached(self, character_id: str):
         """Ensure map data is cached for a character.

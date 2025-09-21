@@ -20,6 +20,7 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.playwright-mcp/
 
 # Environments
 .env
