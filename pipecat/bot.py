@@ -8,8 +8,11 @@ import os
 import sys
 
 # Ensure imports work whether run as a script, a module, or imported by path
+
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-_REPO_ROOT = os.path.dirname(os.path.dirname(_THIS_DIR))
+_REPO_ROOT = os.path.dirname(_THIS_DIR)
+print(_THIS_DIR)
+print(_REPO_ROOT)
 if _THIS_DIR not in sys.path:
     sys.path.insert(0, _THIS_DIR)
 if _REPO_ROOT not in sys.path:
@@ -146,7 +149,9 @@ async def run_bot(transport, runner_args: RunnerArguments):
     cartesia_key = os.getenv("CARTESIA_API_KEY", "")
     if not cartesia_key:
         logger.warning("CARTESIA_API_KEY is not set; TTS may fail.")
-    tts = CartesiaTTSService(api_key=cartesia_key, voice_id="d7862948-75c3-4c7c-ae28-2959fe166f49")
+    tts = CartesiaTTSService(
+        api_key=cartesia_key, voice_id="d7862948-75c3-4c7c-ae28-2959fe166f49"
+    )
 
     # Initialize LLM service
     logger.info("Init LLM…")
@@ -233,7 +238,9 @@ async def run_bot(transport, runner_args: RunnerArguments):
             # Prefer transport-native mute to avoid tearing down the pipeline
             try:
                 transport.set_input_muted(mute)
-                logger.info(f"Microphone {'muted' if mute else 'unmuted'} (transport flag)")
+                logger.info(
+                    f"Microphone {'muted' if mute else 'unmuted'} (transport flag)"
+                )
             except Exception:
                 # Fallback to control frames
                 if mute:
@@ -322,29 +329,6 @@ async def bot(runner_args: RunnerArguments):
 
 
 if __name__ == "__main__":
-    # Support a simple local run mode for development: `python -m pipecat.bot -t local`
-    # Falls back to the standard runner (pipecat.runner.run::main) otherwise.
-    import argparse
-    from macos.local_mac_transport import LocalMacTransport, LocalMacTransportParams
+    from pipecat.runner.run import main
 
-    parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("-t", "--t", default=None)
-    known, _ = parser.parse_known_args()
-
-    if known.t == "local":
-        from pipecat.audio.vad.silero import SileroVADAnalyzer
-        from loguru import logger
-        import asyncio as _asyncio
-
-        logger.info("Using new AEC transport (LocalMacTransport)")
-        params = LocalMacTransportParams(
-            audio_in_enabled=True,
-            audio_out_enabled=True,
-            vad_analyzer=SileroVADAnalyzer(),
-        )
-        transport = LocalMacTransport(params=params)
-        _asyncio.run(run_bot(transport, RunnerArguments()))
-    else:
-        from pipecat.runner.run import main
-
-        main()
+    main()

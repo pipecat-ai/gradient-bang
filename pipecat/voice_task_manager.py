@@ -44,7 +44,7 @@ class VoiceTaskManager:
         # Create a game client; base_url comes from default or env via AsyncGameClient
         self.game_client = AsyncGameClient(
             character_id=character_id,
-            base_url="http://localhost:8001",
+            base_url="http://localhost:8000",
             transport="websocket",
         )
 

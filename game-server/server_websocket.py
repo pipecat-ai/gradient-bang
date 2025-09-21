@@ -35,7 +35,9 @@ app = FastAPI(title="Gradient Bang WS", version="0.1.0", lifespan=lifespan)
 
 logger = logging.getLogger("server_websocket")
 if not logger.handlers:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
+    )
 
 # Globals initialized early so they exist for websocket handlers
 _messages = MessageStore(get_world_data_path() / "messages")
@@ -91,7 +93,9 @@ async def send_ok(ws: WebSocket, req_id: str, data: Dict[str, Any]):
 
 
 async def send_err(ws: WebSocket, req_id: str, status: int, detail: str):
-    await ws.send_json({"id": req_id, "ok": False, "error": {"status": status, "detail": detail}})
+    await ws.send_json(
+        {"id": req_id, "ok": False, "error": {"status": status, "detail": detail}}
+    )
 
 
 def _extract_character_id(endpoint: str, payload: Dict[str, Any]) -> str | None:
@@ -114,7 +118,9 @@ async def _my_status_push_loop(state: WSClientState, character_id: str):
         try:
             payload = {"character_id": character_id}
             data = await api_my_status.handle(payload, world)
-            await state.ws.send_json({"type": "event", "event": "my_status", "data": data})
+            await state.ws.send_json(
+                {"type": "event", "event": "my_status", "data": data}
+            )
             await asyncio.sleep(2.0)
         except asyncio.CancelledError:
             break
@@ -138,7 +144,9 @@ async def ws_main(websocket: WebSocket):
                 # Non-JSON payload
                 detail = "Invalid JSON"
                 logger.warning("ws invalid_json detail=%s", detail)
-                await websocket.send_json({"ok": False, "error": {"status": 400, "detail": detail}})
+                await websocket.send_json(
+                    {"ok": False, "error": {"status": 400, "detail": detail}}
+                )
                 continue
 
             # Handle subscription control
@@ -149,7 +157,9 @@ async def ws_main(websocket: WebSocket):
                     character_id = frame.get("character_id")
                     if not character_id:
                         detail = "Missing character_id"
-                        logger.warning("subscribe error event=%s char=? detail=%s", event, detail)
+                        logger.warning(
+                            "subscribe error event=%s char=? detail=%s", event, detail
+                        )
                         await send_err(websocket, req_id, 400, detail)
                         continue
                     # Track character ids for direct message delivery
@@ -164,7 +174,9 @@ async def ws_main(websocket: WebSocket):
                         pass
                     if "my_status" in state.subscriptions:
                         state.subscriptions["my_status"].cancel()
-                    task = asyncio.create_task(_my_status_push_loop(state, character_id))
+                    task = asyncio.create_task(
+                        _my_status_push_loop(state, character_id)
+                    )
                     state.subscribe("my_status", task)
                     logger.info("subscribe ok event=%s char=%s", event, character_id)
                     await send_ok(websocket, req_id, {"subscribed": "my_status"})
@@ -173,7 +185,9 @@ async def ws_main(websocket: WebSocket):
                     await send_ok(websocket, req_id, {"subscribed": "chat"})
                 else:
                     detail = f"Unknown event: {event}"
-                    logger.warning("subscribe error event=%s char=? detail=%s", event, detail)
+                    logger.warning(
+                        "subscribe error event=%s char=? detail=%s", event, detail
+                    )
                     await send_err(websocket, req_id, 404, detail)
                 continue
 
@@ -183,10 +197,14 @@ async def ws_main(websocket: WebSocket):
                 name = frame.get("name")
                 char_id = frame.get("character_id")
                 if not name and not char_id:
-                    await send_err(websocket, req_id, 400, "Missing name or character_id")
+                    await send_err(
+                        websocket, req_id, 400, "Missing name or character_id"
+                    )
                     continue
                 try:
-                    state.character_names.add(str(name) if name else world.characters.get(str(char_id)).id)
+                    state.character_names.add(
+                        str(name) if name else world.characters.get(str(char_id)).id
+                    )
                     if char_id:
                         state.character_ids.add(str(char_id))
                 except Exception:
@@ -218,7 +236,9 @@ async def ws_main(websocket: WebSocket):
                         await send_err(websocket, req_id, 400, "Empty content")
                         continue
                     if len(content) > 512:
-                        await send_err(websocket, req_id, 400, "Content too long (max 512)")
+                        await send_err(
+                            websocket, req_id, 400, "Content too long (max 512)"
+                        )
                         continue
                     # Rate limit per sender
                     now = asyncio.get_event_loop().time()
@@ -227,16 +247,30 @@ async def ws_main(websocket: WebSocket):
                         await send_err(websocket, req_id, 429, "Rate limit 1 msg/sec")
                         continue
                     _rate_limit_last[from_id] = now
-                    from_name = world.characters.get(from_id).id if from_id in world.characters else from_id
-                    record = await _messages._append_async(from_id, from_name, msg_type, content, to_id)
+                    from_name = (
+                        world.characters.get(from_id).id
+                        if from_id in world.characters
+                        else from_id
+                    )
+                    record = await _messages._append_async(
+                        from_id, from_name, msg_type, content, to_id
+                    )
                     # Deliver
                     # Sanitize payload for clients: never expose character IDs
-                    public_record = {k: v for k, v in record.items() if k != "from_character_id"}
+                    public_record = {
+                        k: v for k, v in record.items() if k != "from_character_id"
+                    }
                     # Deliver: broadcast to all, direct only to recipient name
                     if msg_type == "broadcast":
                         for conn in list(_clients):
                             try:
-                                await conn.ws.send_json({"type": "event", "event": "chat", "data": public_record})
+                                await conn.ws.send_json(
+                                    {
+                                        "type": "event",
+                                        "event": "chat",
+                                        "data": public_record,
+                                    }
+                                )
                             except Exception:
                                 pass
                     else:
@@ -244,7 +278,13 @@ async def ws_main(websocket: WebSocket):
                         for conn in list(_clients):
                             try:
                                 if to_name and to_name in conn.character_names:
-                                    await conn.ws.send_json({"type": "event", "event": "chat", "data": public_record})
+                                    await conn.ws.send_json(
+                                        {
+                                            "type": "event",
+                                            "event": "chat",
+                                            "data": public_record,
+                                        }
+                                    )
                             except Exception:
                                 pass
                     logger.info("rpc ok endpoint=send_message char=%s", from_id)
@@ -254,25 +294,40 @@ async def ws_main(websocket: WebSocket):
                     detail = f"Unknown endpoint: {endpoint}"
                     if endpoint == "send_message":
                         payload = frame.get("payload", {})
+
                         def rate_limit_check(from_id: str):
                             now = asyncio.get_event_loop().time()
                             last = _rate_limit_last.get(from_id, 0.0)
                             if now - last < 1.0:
                                 raise HTTPExceptionLike(429, "Rate limit 1 msg/sec")
                             _rate_limit_last[from_id] = now
+
                         try:
-                            record = await api_send_message.handle(payload, world, _messages, rate_limit_check=rate_limit_check)
+                            record = await api_send_message.handle(
+                                payload,
+                                world,
+                                _messages,
+                                rate_limit_check=rate_limit_check,
+                            )
                         except HTTPExceptionLike as e:
                             await send_err(websocket, req_id, e.status_code, e.detail)
                             continue
                         # Sanitize payload for clients: never expose character IDs
-                        public_record = {k: v for k, v in record.items() if k != "from_character_id"}
+                        public_record = {
+                            k: v for k, v in record.items() if k != "from_character_id"
+                        }
                         # Deliver: broadcast to all, direct only to recipient name
                         msg_type = public_record.get("type")
                         if msg_type == "broadcast":
                             for conn in list(_clients):
                                 try:
-                                    await conn.ws.send_json({"type": "event", "event": "chat", "data": public_record})
+                                    await conn.ws.send_json(
+                                        {
+                                            "type": "event",
+                                            "event": "chat",
+                                            "data": public_record,
+                                        }
+                                    )
                                 except Exception:
                                     pass
                         else:
@@ -280,13 +335,24 @@ async def ws_main(websocket: WebSocket):
                             for conn in list(_clients):
                                 try:
                                     if to_name and to_name in conn.character_names:
-                                        await conn.ws.send_json({"type": "event", "event": "chat", "data": public_record})
+                                        await conn.ws.send_json(
+                                            {
+                                                "type": "event",
+                                                "event": "chat",
+                                                "data": public_record,
+                                            }
+                                        )
                                 except Exception:
                                     pass
-                        logger.info("rpc ok endpoint=send_message char=%s", payload.get("character_id"))
+                        logger.info(
+                            "rpc ok endpoint=send_message char=%s",
+                            payload.get("character_id"),
+                        )
                         await send_ok(websocket, req_id, {"id": record["id"]})
                         continue
-                    logger.warning("rpc error endpoint=%s char=? detail=%s", endpoint, detail)
+                    logger.warning(
+                        "rpc error endpoint=%s char=? detail=%s", endpoint, detail
+                    )
                     await send_err(websocket, req_id, 404, detail)
                     continue
             try:
@@ -299,7 +365,13 @@ async def ws_main(websocket: WebSocket):
                 status = getattr(e, "status_code", 500)
                 detail = getattr(e, "detail", str(e))
                 char_id = _extract_character_id(endpoint, payload)
-                logger.warning("rpc error endpoint=%s char=%s status=%s detail=%s", endpoint, char_id or "-", status, detail)
+                logger.warning(
+                    "rpc error endpoint=%s char=%s status=%s detail=%s",
+                    endpoint,
+                    char_id or "-",
+                    status,
+                    detail,
+                )
                 await send_err(websocket, req_id, status, detail)
     except WebSocketDisconnect:
         logger.info("ws disconnected")
@@ -309,7 +381,8 @@ async def ws_main(websocket: WebSocket):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 
 # --- Messaging store and globals ---
 
