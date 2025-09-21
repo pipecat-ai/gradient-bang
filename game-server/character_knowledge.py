@@ -21,7 +21,7 @@ class SectorKnowledge(BaseModel):
     """Knowledge about a specific sector."""
     sector_id: int
     last_visited: str
-    port_info: Optional[dict] = None
+    port: Optional[dict] = None
     planets: List[dict] = []
     adjacent_sectors: List[int] = []
 
@@ -170,7 +170,7 @@ class CharacterKnowledgeManager:
         self,
         character_id: str,
         sector_id: int,
-        port_info: Optional[dict] = None,
+        port: Optional[dict] = None,
         planets: List[dict] = None,
         adjacent_sectors: List[int] = None
     ):
@@ -179,7 +179,7 @@ class CharacterKnowledgeManager:
         Args:
             character_id: Character ID
             sector_id: Sector visited
-            port_info: Port information if present
+            port: Port information if present
             planets: Planet information if present
             adjacent_sectors: Adjacent sectors discovered
         """
@@ -201,7 +201,7 @@ class CharacterKnowledgeManager:
         sector_knowledge = SectorKnowledge(
             sector_id=sector_id,
             last_visited=now,
-            port_info=port_info,
+            port=port,
             planets=planets or [],
             adjacent_sectors=adjacent_sectors or []
         )
@@ -210,10 +210,10 @@ class CharacterKnowledgeManager:
         if sector_key in knowledge.sectors_visited:
             existing = knowledge.sectors_visited[sector_key]
             # Update with new information but keep existing if not provided
-            if port_info is not None:
-                sector_knowledge.port_info = port_info
-            elif existing.port_info is not None:
-                sector_knowledge.port_info = existing.port_info
+            if port is not None:
+                sector_knowledge.port = port
+            elif existing.port is not None:
+                sector_knowledge.port = existing.port
             
             if planets:
                 sector_knowledge.planets = planets
@@ -257,11 +257,11 @@ class CharacterKnowledgeManager:
         ports = []
         
         for sector_key, sector_knowledge in knowledge.sectors_visited.items():
-            if sector_knowledge.port_info:
+            if sector_knowledge.port:
                 port_data = {
                     "sector": sector_knowledge.sector_id,
                     "last_visited": sector_knowledge.last_visited,
-                    **sector_knowledge.port_info
+                    **sector_knowledge.port
                 }
                 ports.append(port_data)
         
@@ -291,20 +291,20 @@ class CharacterKnowledgeManager:
         matching_ports = []
         
         for sector_key, sector_knowledge in knowledge.sectors_visited.items():
-            if sector_knowledge.port_info:
-                port_info = sector_knowledge.port_info
+            if sector_knowledge.port:
+                port = sector_knowledge.port
                 
                 # Check if port has the commodity
-                if buy_or_sell == "sell" and commodity in port_info.get("sells", []):
+                if buy_or_sell == "sell" and commodity in port.get("sells", []):
                     matching_ports.append({
                         "sector": sector_knowledge.sector_id,
-                        "port": port_info,
+                        "port": port,
                         "last_visited": sector_knowledge.last_visited
                     })
-                elif buy_or_sell == "buy" and commodity in port_info.get("buys", []):
+                elif buy_or_sell == "buy" and commodity in port.get("buys", []):
                     matching_ports.append({
                         "sector": sector_knowledge.sector_id,
-                        "port": port_info,
+                        "port": port,
                         "last_visited": sector_knowledge.last_visited
                     })
         
@@ -344,7 +344,7 @@ class CharacterKnowledgeManager:
         # Get all sectors with ports
         port_sectors = {}
         for sector_key, sector_knowledge in knowledge.sectors_visited.items():
-            if sector_knowledge.port_info:
+            if sector_knowledge.port:
                 port_sectors[sector_knowledge.sector_id] = sector_knowledge
         
         # Check for adjacent pairs
@@ -353,9 +353,9 @@ class CharacterKnowledgeManager:
                 if adjacent in port_sectors and adjacent > sector_id:  # Avoid duplicates
                     pair = {
                         "sector1": sector_id,
-                        "port1": sector_knowledge.port_info,
+                        "port1": sector_knowledge.port,
                         "sector2": adjacent,
-                        "port2": port_sectors[adjacent].port_info
+                        "port2": port_sectors[adjacent].port
                     }
                     port_pairs.append(pair)
         

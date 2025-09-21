@@ -79,7 +79,7 @@ async def handle(request: dict, world) -> dict:
     world.knowledge_manager.update_sector_visit(
         character_id=character_id,
         sector_id=character.sector,
-        port_info=contents.get("port"),
+        port=contents.get("port"),
         planets=contents.get("planets", []),
         adjacent_sectors=contents.get("adjacent_sectors", []),
     )

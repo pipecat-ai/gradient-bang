@@ -72,8 +72,8 @@ def sector_contents(
     Returns minimal port snapshot (code, last_seen_prices, last_seen_stock), planets, other players, adjacency.
     """
 
-    # Port info (minimal snapshot) -- todo: write tests and refactor this. there's much more logic here than there needs to be
-    port_info = None
+    # Port (minimal snapshot) -- todo: write tests and refactor this. there's much more logic here than there needs to be
+    port = None
     if world.port_manager:
         port_state = world.port_manager.load_port_state(sector_id)
         if port_state:
@@ -99,13 +99,13 @@ def sector_contents(
                     "price_per_unit": 2,
                     "note": "Special warp power depot - recharge your ship",
                 }
-            port_info = {
+            port = {
                 "code": port_state.code,
                 "last_seen_prices": prices,
                 "last_seen_stock": stock,
                 "observed_at": datetime.now(timezone.utc).isoformat(),
             }
-            print(f"!!! Port info for sector {sector_id}: {port_info}")
+            print(f"!!! Port info for sector {sector_id}: {port}")
 
     # Planets
     planets = []
@@ -132,7 +132,7 @@ def sector_contents(
         adjacent_sectors = sorted(world.universe_graph.adjacency[sector_id])
 
     return {
-        "port": port_info,
+        "port": port,
         "planets": planets,
         "other_players": other_players,
         "adjacent_sectors": adjacent_sectors,
