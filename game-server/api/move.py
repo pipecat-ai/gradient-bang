@@ -1,8 +1,8 @@
-import asyncio
 from fastapi import HTTPException
 
-from .utils import build_ship_status, sector_contents
+from .utils import sector_contents, build_status_payload
 from ships import ShipType, get_ship_stats
+from events import event_dispatcher
 
 
 async def handle(request: dict, world) -> dict:
@@ -45,15 +45,6 @@ async def handle(request: dict, world) -> dict:
     character.sector = to_sector
     character.update_activity()
 
-    movement_event = {
-        "event": "movement",
-        "character": character_id,
-        "from_sector": old_sector,
-        "to_sector": to_sector,
-        "timestamp": character.last_active.isoformat(),
-    }
-    asyncio.create_task(world.connection_manager.broadcast_event(movement_event))
-
     contents = sector_contents(world, character.sector, character_id)
     world.knowledge_manager.update_sector_visit(
         character_id=character_id,
@@ -62,9 +53,25 @@ async def handle(request: dict, world) -> dict:
         planets=contents.get("planets", []),
         adjacent_sectors=contents.get("adjacent_sectors", []),
     )
+    status_payload = build_status_payload(
+        world, character_id, sector_snapshot=contents
+    )
 
-    return {
-        **character.to_response(),
-        "sector_contents": contents,
-        "ship": build_ship_status(world, character_id),
-    }
+    await event_dispatcher.emit(
+        "status.update",
+        status_payload,
+        character_filter=[character_id],
+    )
+
+    await event_dispatcher.emit(
+        "character.moved",
+        {
+            "character_id": character_id,
+            "from_sector": old_sector,
+            "to_sector": to_sector,
+            "timestamp": character.last_active.isoformat(),
+            "move_type": "normal",
+        },
+    )
+
+    return status_payload

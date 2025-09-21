@@ -1,11 +1,11 @@
 """Game server API client for Gradient Bang."""
 
 from typing import List, Optional, Dict, Any, Callable, Awaitable
-import httpx
 import logging
 import asyncio
 import json
 import uuid
+import websockets
 from .port_helpers import (
     sells_commodity,
     buys_commodity,
@@ -18,10 +18,21 @@ from .port_helpers import (
 logger = logging.getLogger(__name__)
 
 
+class RPCError(RuntimeError):
+    """Raised when the server responds with an RPC error frame."""
+
+    def __init__(self, endpoint: str, status: int, detail: str, code: Optional[str] = None) -> None:
+        super().__init__(f"{endpoint} failed with status {status}: {detail}")
+        self.endpoint = endpoint
+        self.status = status
+        self.detail = detail
+        self.code = code
+
+
 class AsyncGameClient:
     """Async client for interacting with the Gradient Bang game server."""
     
-    def __init__(self, base_url: str = "http://localhost:8000", character_id: Optional[str] = None, transport: str = "http"):
+    def __init__(self, base_url: str = "http://localhost:8000", character_id: Optional[str] = None, transport: str = "websocket"):
         """Initialize the async game client.
         
         Args:
@@ -29,8 +40,9 @@ class AsyncGameClient:
             character_id: Optional character ID to associate with this client
         """
         self.base_url = base_url.rstrip("/")
-        self.client = httpx.AsyncClient(timeout=10.0)
-        self.transport = transport  # "http" or "websocket"
+        if transport != "websocket":
+            raise ValueError("AsyncGameClient now supports only websocket transport")
+        self.transport = "websocket"
         self._ws = None
         self._ws_reader_task: Optional[asyncio.Task] = None
         self._pending: Dict[str, asyncio.Future] = {}
@@ -73,7 +85,6 @@ class AsyncGameClient:
     
     async def close(self):
         """Close network clients."""
-        await self.client.aclose()
         if self._ws_reader_task:
             self._ws_reader_task.cancel()
             self._ws_reader_task = None
@@ -89,25 +100,21 @@ class AsyncGameClient:
         def decorator(fn: Callable[[Dict[str, Any]], Awaitable[None]]):
             self._event_handlers.setdefault(event_name, []).append(fn)
             # Auto-subscribe behavior for WS events
-            if self.transport == "websocket":
-                if event_name == "my_status":
-                    # If we already know the character, subscribe immediately; otherwise, defer until join()
-                    if self._current_character:
-                        try:
-                            loop = asyncio.get_running_loop()
-                            loop.create_task(self.subscribe_my_status(self._current_character))
-                        except RuntimeError:
-                            # No running loop yet; defer
-                            self._auto_subscribe_my_status_on_join = True
-                    else:
+            if event_name == "status.update":
+                if self._current_character:
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(self.subscribe_my_status(self._current_character))
+                    except RuntimeError:
                         self._auto_subscribe_my_status_on_join = True
+                else:
+                    self._auto_subscribe_my_status_on_join = True
             return fn
         return decorator
 
     async def _ensure_ws(self):
         if self._ws is not None:
             return
-        import websockets
         ws_url = self.base_url.replace("http://", "ws://").replace("https://", "wss://")
         ws_url = ws_url.rstrip("/") + "/ws"
         self._ws = await websockets.connect(ws_url)
@@ -120,12 +127,17 @@ class AsyncGameClient:
                     msg = json.loads(raw)
                 except Exception:
                     continue
-                if msg.get("type") == "event":
-                    handlers = self._event_handlers.get(msg.get("event"), [])
-                    for h in handlers:
-                        asyncio.create_task(h(msg.get("data", {})))
+                frame_type = msg.get("frame_type")
+                if frame_type == "event":
+                    event_name = msg.get("event")
+                    payload = msg.get("payload", {})
+                    if event_name:
+                        asyncio.create_task(self._dispatch_event(event_name, payload))
                     continue
-                req_id = msg.get("id")
+                if frame_type == "rpc":
+                    req_id = msg.get("id")
+                else:
+                    req_id = msg.get("id")
                 fut = self._pending.pop(req_id, None)
                 if fut and not fut.done():
                     fut.set_result(msg)
@@ -137,7 +149,29 @@ class AsyncGameClient:
                 if not fut.done():
                     fut.set_exception(RuntimeError("WebSocket connection lost"))
             self._pending.clear()
-    
+
+    async def _dispatch_event(self, event_name: str, payload: Dict[str, Any]) -> None:
+        if event_name == "status.update":
+            await self._handle_status_event(payload)
+        handlers = self._event_handlers.get(event_name, [])
+        for handler in handlers:
+            asyncio.create_task(handler(payload))
+
+    async def _handle_status_event(self, payload: Dict[str, Any]) -> None:
+        character_id = payload.get("character_id")
+        if not character_id:
+            return
+        async with self._status_lock:
+            if self._current_character == character_id:
+                if "sector" in payload:
+                    self._current_sector = payload.get("sector")
+                if "ship" in payload:
+                    self._ship_status = payload.get("ship")
+        try:
+            await self._update_map_cache_from_status(character_id, payload)
+        except Exception:
+            logger.exception("Failed to update map cache from status event")
+
     async def join(self, character_id: str, ship_type: Optional[str] = None) -> Dict[str, Any]:
         """Join the game with a character.
         
@@ -149,7 +183,7 @@ class AsyncGameClient:
             Character status after joining
             
         Raises:
-            httpx.HTTPStatusError: If the request fails
+            RPCError: If the request fails
         """
         payload = {"character_id": character_id}
         if ship_type:
@@ -168,17 +202,17 @@ class AsyncGameClient:
         # Update cache with new sector information
         await self._update_map_cache_from_status(character_id, status)
 
-        # If using websockets and a my_status handler is registered, auto-subscribe
-        if self.transport == "websocket":
-            if self._auto_subscribe_my_status_on_join or ("my_status" in self._event_handlers and self._event_handlers["my_status"]):
-                if "my_status" not in self._subscriptions:
-                    try:
-                        await self.subscribe_my_status(character_id)
-                    except Exception:
-                        # Non-fatal; caller can subscribe explicitly if needed
-                        pass
-                # Reset the flag once attempted
-                self._auto_subscribe_my_status_on_join = False
+        if self._auto_subscribe_my_status_on_join or (
+            "status.update" in self._event_handlers
+            and self._event_handlers["status.update"]
+        ):
+            sub_key = f"status.update:{character_id}"
+            if sub_key not in self._subscriptions:
+                try:
+                    await self.subscribe_my_status(character_id)
+                except Exception:
+                    logger.exception("Failed to auto-subscribe to status updates for %s", character_id)
+            self._auto_subscribe_my_status_on_join = False
 
         return status
     
@@ -193,7 +227,7 @@ class AsyncGameClient:
             Character status after move
             
         Raises:
-            httpx.HTTPStatusError: If the request fails (e.g., non-adjacent sector)
+            RPCError: If the request fails (e.g., non-adjacent sector)
         """
         if character_id is None:
             character_id = self._current_character
@@ -227,7 +261,7 @@ class AsyncGameClient:
             Current character status
             
         Raises:
-            httpx.HTTPStatusError: If the request fails
+            RPCError: If the request fails
         """
         # Use current character if not specified
         if character_id is None:
@@ -257,7 +291,7 @@ class AsyncGameClient:
             Course information including path and distance
             
         Raises:
-            httpx.HTTPStatusError: If the request fails
+            RPCError: If the request fails
         """
         return await self._request("plot_course", {"from_sector": from_sector, "to_sector": to_sector})
     
@@ -268,15 +302,9 @@ class AsyncGameClient:
             Server status including name, version, and sector count
             
         Raises:
-            httpx.HTTPStatusError: If the request fails
+            RPCError: If the request fails
         """
-        if self.transport == "http":
-            response = await self.client.get(f"{self.base_url}/")
-            response.raise_for_status()
-            return response.json()
-        else:
-            # WS server has different name, but compatible shape
-            return await self._request("noop", {})  # Not implemented; keep HTTP for status
+        return await self._request("server_status", {})
     
     async def my_map(self, character_id: Optional[str] = None, force_refresh: bool = False) -> Dict[str, Any]:
         """Get the map knowledge for a character.
@@ -289,7 +317,7 @@ class AsyncGameClient:
             Map knowledge including visited sectors and discovered ports
             
         Raises:
-            httpx.HTTPStatusError: If the request fails
+            RPCError: If the request fails
         """
         # Use current character if not specified
         if character_id is None:
@@ -466,9 +494,9 @@ class AsyncGameClient:
                         "port": port_data["port"],
                         "last_visited": port_data["last_visited"]
                     }
-            except httpx.HTTPError as e:
+            except RPCError as e:
                 logger.warning(
-                    "HTTP error while plotting course from %s to %s: %s",
+                    "RPC error while plotting course from %s to %s: %s",
                     from_sector,
                     port_data["sector"],
                     e,
@@ -562,9 +590,9 @@ class AsyncGameClient:
                         "distance": distance,
                         "path": course.path
                     }
-            except httpx.HTTPError as e:
+            except RPCError as e:
                 logger.warning(
-                    "HTTP error while plotting course from %s to %s: %s",
+                    "RPC error while plotting course from %s to %s: %s",
                     from_sector,
                     port_data["sector"],
                     e,
@@ -648,7 +676,7 @@ class AsyncGameClient:
             Trade preview including prices and validation
             
         Raises:
-            httpx.HTTPStatusError: If the request fails
+            RPCError: If the request fails
         """
         if character_id is None:
             character_id = self._current_character
@@ -684,7 +712,7 @@ class AsyncGameClient:
             Trade result including new credits and cargo
             
         Raises:
-            httpx.HTTPStatusError: If the request fails
+            RPCError: If the request fails
         """
         if character_id is None:
             character_id = self._current_character
@@ -720,7 +748,7 @@ class AsyncGameClient:
             Transaction result
             
         Raises:
-            httpx.HTTPStatusError: If the request fails
+            RPCError: If the request fails
         """
         if character_id is None:
             character_id = self._current_character
@@ -741,7 +769,7 @@ class AsyncGameClient:
             Transfer result
             
         Raises:
-            httpx.HTTPStatusError: If the request fails
+            RPCError: If the request fails
         """
         if character_id is None:
             character_id = self._current_character
@@ -768,8 +796,6 @@ class AsyncGameClient:
             to_name: Required if msg_type == "direct"
             character_id: Sender (defaults to current character)
         """
-        if self.transport != "websocket":
-            raise RuntimeError("send_message requires websocket transport")
         if character_id is None:
             character_id = self._current_character
         if character_id is None:
@@ -782,63 +808,58 @@ class AsyncGameClient:
         return await self._request("send_message", payload)
 
     async def subscribe_chat(self):
-        if self.transport != "websocket":
-            raise RuntimeError("subscribe_chat requires websocket transport")
-        await self._ensure_ws()
-        frame = {"id": str(uuid.uuid4()), "action": "subscribe", "event": "chat"}
-        await self._ws.send(json.dumps(frame))
-        self._subscriptions.add("chat")
+        await self._send_command({"type": "subscribe", "event": "chat.message"})
+        self._subscriptions.add("chat.message")
 
     async def _request(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        if self.transport == "http":
-            # Map endpoint to HTTP
-            if endpoint == "plot_course":
-                resp = await self.client.post(f"{self.base_url}/api/plot_course", json=payload)
-            elif endpoint == "join":
-                resp = await self.client.post(f"{self.base_url}/api/join", json=payload)
-            elif endpoint == "move":
-                resp = await self.client.post(f"{self.base_url}/api/move", json=payload)
-            elif endpoint == "my_status":
-                resp = await self.client.post(f"{self.base_url}/api/my_status", json=payload)
-            elif endpoint == "my_map":
-                resp = await self.client.post(f"{self.base_url}/api/my_map", json=payload)
-            elif endpoint == "check_trade":
-                resp = await self.client.post(f"{self.base_url}/api/check_trade", json=payload)
-            elif endpoint == "trade":
-                resp = await self.client.post(f"{self.base_url}/api/trade", json=payload)
-            elif endpoint == "recharge_warp_power":
-                resp = await self.client.post(f"{self.base_url}/api/recharge_warp_power", json=payload)
-            elif endpoint == "transfer_warp_power":
-                resp = await self.client.post(f"{self.base_url}/api/transfer_warp_power", json=payload)
-            elif endpoint == "reset_ports":
-                resp = await self.client.post(f"{self.base_url}/api/reset_ports")
-            elif endpoint == "regenerate_ports":
-                resp = await self.client.post(f"{self.base_url}/api/regenerate_ports", json=payload)
-            else:
-                raise ValueError(f"Unknown endpoint {endpoint}")
-            resp.raise_for_status()
-            return resp.json()
-        else:
-            await self._ensure_ws()
-            req_id = str(uuid.uuid4())
-            frame = {"id": req_id, "endpoint": endpoint, "payload": payload}
-            fut: asyncio.Future = asyncio.get_running_loop().create_future()
-            self._pending[req_id] = fut
-            await self._ws.send(json.dumps(frame))
-            msg = await fut
-            if not msg.get("ok"):
-                err = msg.get("error", {})
-                raise httpx.HTTPStatusError(f"WS error: {err}", request=None, response=None)
-            return msg.get("data", {})
+        await self._ensure_ws()
+        req_id = str(uuid.uuid4())
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._pending[req_id] = fut
+        frame = {
+            "id": req_id,
+            "type": "rpc",
+            "endpoint": endpoint,
+            "payload": payload,
+        }
+        await self._ws.send(json.dumps(frame))
+        msg = await fut
+        if not msg.get("ok"):
+            err = msg.get("error", {})
+            raise RPCError(
+                endpoint,
+                int(err.get("status", 500)),
+                str(err.get("detail", "Unknown error")),
+                err.get("code"),
+            )
+        return msg.get("result", {})
+
+    async def _send_command(self, frame: Dict[str, Any]) -> Dict[str, Any]:
+        await self._ensure_ws()
+        req_id = frame.setdefault("id", str(uuid.uuid4()))
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._pending[req_id] = fut
+        await self._ws.send(json.dumps(frame))
+        msg = await fut
+        if not msg.get("ok"):
+            err = msg.get("error", {})
+            raise RPCError(
+                frame.get("type", "command"),
+                int(err.get("status", 500)),
+                str(err.get("detail", "Unknown error")),
+                err.get("code"),
+            )
+        return msg.get("result", {})
 
     async def subscribe_my_status(self, character_id: str):
-        if self.transport != "websocket":
-            raise RuntimeError("Subscriptions require websocket transport")
-        await self._ensure_ws()
-        frame = {"id": str(uuid.uuid4()), "action": "subscribe", "event": "my_status", "character_id": character_id}
-        await self._ws.send(json.dumps(frame))
-        self._subscriptions.add("my_status")
-        # Do not await response for simplicity in this client; events will stream via on('my_status') handlers
+        await self._send_command(
+            {
+                "type": "subscribe",
+                "event": "status.update",
+                "character_id": character_id,
+            }
+        )
+        self._subscriptions.add(f"status.update:{character_id}")
 
     async def identify(self, *, name: Optional[str] = None, character_id: Optional[str] = None):
         """Register identity for receiving direct messages without my_status subscribe.
@@ -846,19 +867,16 @@ class AsyncGameClient:
         One of name or character_id must be provided. If neither is provided,
         attempts to use the currently joined character.
         """
-        if self.transport != "websocket":
-            raise RuntimeError("identify requires websocket transport")
-        await self._ensure_ws()
         if name is None and character_id is None:
             character_id = self._current_character
         if name is None and character_id is None:
             raise ValueError("No name or character specified for identify()")
-        frame: Dict[str, Any] = {"id": str(uuid.uuid4()), "action": "identify"}
+        frame: Dict[str, Any] = {"type": "identify"}
         if name is not None:
             frame["name"] = name
         if character_id is not None:
             frame["character_id"] = character_id
-        await self._ws.send(json.dumps(frame))
+        await self._send_command(frame)
     
     async def start_task(self, task_description: str, context: Optional[str] = None) -> Dict[str, Any]:
         """Start a complex multi-step task.

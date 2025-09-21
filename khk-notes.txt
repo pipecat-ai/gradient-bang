@@ -1,3 +1,14 @@
+Sunday
+- test run_npc.py and status_subscription_demo.py
+- commit all files
+- remove legacy gg-action keys and legacy result semantics (?)
+- utilities to create and manage characters and ports
+  - remove character mod args from rpc join
+  - create new admin rpc commands grouping that includes port management, too
+
+
+
+
 In-progres:
   x Make the Task Status panel scrollable
   - Work on bot

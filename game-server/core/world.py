@@ -1,5 +1,4 @@
 import json
-import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Any
@@ -58,46 +57,11 @@ class Character:
         }
 
 
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: List[Any] = []  # WebSocket objects
-        self.event_queue: asyncio.Queue = asyncio.Queue()
-        self.broadcast_task: Optional[asyncio.Task] = None
-
-    async def connect(self, websocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-
-    def disconnect(self, websocket):
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-
-    async def broadcast_event(self, event: dict):
-        await self.event_queue.put({"type": "event", **event})
-
-    async def _broadcast_worker(self):
-        while True:
-            event = await self.event_queue.get()
-            disconnected = []
-            for connection in self.active_connections:
-                try:
-                    await connection.send_json(event)
-                except Exception:
-                    disconnected.append(connection)
-            for conn in disconnected:
-                self.disconnect(conn)
-
-    def start_broadcast_task(self):
-        if self.broadcast_task is None:
-            self.broadcast_task = asyncio.create_task(self._broadcast_worker())
-
-
 class GameWorld:
     def __init__(self):
         self.universe_graph: Optional[UniverseGraph] = None
         self.sector_contents: Optional[dict] = None
         self.characters: Dict[str, Character] = {}
-        self.connection_manager = ConnectionManager()
         self.knowledge_manager = CharacterKnowledgeManager()
         self.port_manager: Optional[PortManager] = None
 
@@ -127,7 +91,6 @@ world = GameWorld()
 async def lifespan(app: FastAPI):
     try:
         world.load_data()
-        world.connection_manager.start_broadcast_task()
     except Exception as e:
         print(f"Failed to load game world: {e}")
         raise

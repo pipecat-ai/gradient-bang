@@ -98,6 +98,10 @@ Environment Variables:
 
     args = parser.parse_args()
 
+    if args.transport and args.transport != "websocket":
+        logger.warning("AsyncGameClient now supports only websocket transport; overriding provided transport value.")
+        args.transport = "websocket"
+
     # Check for API key
     if not os.getenv("OPENAI_API_KEY"):
         logger.error("OPENAI_API_KEY environment variable not set")
@@ -110,14 +114,12 @@ Environment Variables:
     try:
         # Create async game client
         logger.info(f"CONNECT server={args.server}")
-        async with AsyncGameClient(
-            base_url=args.server, transport=args.transport
-        ) as game_client:
+        async with AsyncGameClient(base_url=args.server) as game_client:
             # Join the game
             logger.info(f"JOIN character={args.character_id}")
             status = await game_client.join(args.character_id)
 
-            logger.info(f"JOINED sector={status['sector']} transport={args.transport}")
+            logger.info(f"JOINED sector={status['sector']} transport=websocket")
             logger.info(f"Status:\n{json.dumps(status, indent=2)}")
 
             llm_config = LLMConfig(

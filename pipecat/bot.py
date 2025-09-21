@@ -210,9 +210,13 @@ async def run_bot(transport, runner_args: RunnerArguments):
         await rtvi.push_frame(
             RTVIServerMessageFrame(
                 {
-                    "gg-action": "init",
-                    "result": initial_status,
-                    "map_data": initial_map_data,
+                    "frame_type": "event",
+                    "event": "status.init",
+                    "payload": {
+                        "status": initial_status,
+                        "map_data": initial_map_data,
+                    },
+                    "gg-action": "status.init",
                 }
             )
         )
@@ -256,7 +260,14 @@ async def run_bot(transport, runner_args: RunnerArguments):
             # Get current status from the task manager
             status = await task_manager.game_client.my_status()
             await rtvi.push_frame(
-                RTVIServerMessageFrame({"gg-action": "my_status", "result": status})
+                RTVIServerMessageFrame(
+                    {
+                        "frame_type": "event",
+                        "event": "status.update",
+                        "payload": status,
+                        "gg-action": "status.update",
+                    }
+                )
             )
             return
 
@@ -278,9 +289,13 @@ async def run_bot(transport, runner_args: RunnerArguments):
             await rtvi.push_frame(
                 RTVIServerMessageFrame(
                     {
-                        "gg-action": "init",
-                        "result": initial_status,
-                        "map_data": initial_map_data,
+                        "frame_type": "event",
+                        "event": "status.init",
+                        "payload": {
+                            "status": initial_status,
+                            "map_data": initial_map_data,
+                        },
+                        "gg-action": "status.init",
                     }
                 )
             )

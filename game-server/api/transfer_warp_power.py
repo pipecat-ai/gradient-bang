@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
-import asyncio
 from fastapi import HTTPException
+
+from .utils import build_status_payload
+from events import event_dispatcher
 
 
 async def handle(request: dict, world) -> dict:
@@ -51,15 +53,23 @@ async def handle(request: dict, world) -> dict:
     world.knowledge_manager.save_knowledge(from_knowledge)
     world.knowledge_manager.save_knowledge(to_knowledge)
 
-    transfer_event = {
-        "event": "warp_power_transfer",
-        "from_character": from_character_id,
-        "to_character": to_character_id,
-        "sector": from_character.sector,
-        "units": units_to_transfer,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-    asyncio.create_task(world.connection_manager.broadcast_event(transfer_event))
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    await event_dispatcher.emit(
+        "warp.transfer",
+        {
+            "from_character_id": from_character_id,
+            "to_character_id": to_character_id,
+            "sector": from_character.sector,
+            "units": units_to_transfer,
+            "timestamp": timestamp,
+        },
+        character_filter=[from_character_id, to_character_id],
+    )
+
+    for cid in (from_character_id, to_character_id):
+        payload = build_status_payload(world, cid)
+        await event_dispatcher.emit("status.update", payload, character_filter=[cid])
 
     return {
         "success": True,

@@ -283,7 +283,7 @@ class BotPlayerApp(BotTUIBase):
                 if not action:
                     return
 
-                if action in ("init", "my_status"):
+                if action in ("status.init", "status.update", "init", "my_status"):
                     result = payload.get("result", {})
                     map_data = payload.get("map_data")
                     self._update_status(result)

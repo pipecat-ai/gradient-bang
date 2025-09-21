@@ -51,7 +51,8 @@ async def run(
     logger.add(sys.stderr, format="{time:HH:mm:ss} {message}", level="INFO")
 
     if transport != "websocket":
-        logger.warning("This demo is intended for websocket transport.")
+        logger.warning("This demo now supports only websocket transport; overriding option.")
+        transport = "websocket"
         return 1
 
     # OpenAI key required for TaskAgent
@@ -66,25 +67,25 @@ async def run(
     update_queue: asyncio.Queue = asyncio.Queue()
     running = True
 
-    async with AsyncGameClient(base_url=server, transport=transport) as client:
+    async with AsyncGameClient(base_url=server) as client:
         # Ensure character exists and fetch initial map
-        logger.info(f"CONNECT server={server} transport={transport}")
+        logger.info(f"CONNECT server={server} transport=websocket")
         status = await client.join(character_id)
         logger.info(f"JOINED sector={status['sector']}")
 
         # Subscribe to my_status events
-        @client.on("my_status")
+        @client.on("status.update")
         async def on_status(data: dict):  # noqa: F401
             try:
-                await update_queue.put({"type": "my_status", "data": data})
+                await update_queue.put({"type": "status.update", "data": data})
             except Exception:
                 # In case of shutdown
                 pass
 
-        @client.on("chat")
+        @client.on("chat.message")
         async def on_chat(data: dict):  # noqa: F401
             try:
-                await update_queue.put({"type": "chat", "data": data})
+                await update_queue.put({"type": "chat.message", "data": data})
             except Exception:
                 # In case of shutdown
                 pass
@@ -109,12 +110,12 @@ async def run(
                 this_event_prompt = ""
 
                 # Set up prompt for incoming message
-                if event["type"] == "chat":
+                if event["type"] == "chat.message":
                     chat = event["data"]
                     logger.info(f"CHAT {chat}")
                     this_event_prompt = f"Received message:\n{chat}\n\nTask:\n{prompt}"
 
-                if event["type"] == "my_status":
+                if event["type"] == "status.update":
                     # Normalize status
                     sig = json.dumps(normalize_status(event["data"]), sort_keys=True)
 
