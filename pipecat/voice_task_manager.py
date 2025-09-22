@@ -4,6 +4,7 @@ from collections import deque
 from typing import Optional, Callable, Dict, Any
 from loguru import logger
 from copy import deepcopy
+import time
 
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
@@ -329,14 +330,26 @@ class VoiceTaskManager:
     # Tools
     #
 
+    # Hard-code a fixed not-less-than execution time for some tool calls. Note this
+    # is only implemented for conversation LLM tool calls. (Not for async task tool calls.)
+    TOOL_CALL_DELAYS = {
+        "move": 2.0,
+        "trade": 2.0,
+        "recharge_warp_power": 2.0,
+        "transfer_warp_power": 2.0,
+    }
+
     async def execute_tool_call(self, params: FunctionCallParams):
-        """Generic executor for all declared tools.
+        """Generic executor for all declared tools, for tool calls from the
+        conversation LLM.
 
         Dispatches to AsyncGameClient methods or manager handlers, then sends
         a single RTVI server message with gg-action=<tool_name> and either
         {result: ...} on success or {error: ...} on failure. Always calls
         params.result_callback with the same payload.
         """
+        start_time = time.time()
+
         # Try to discover the tool name from params (Pipecat provides name)
         tool_name = getattr(params, "name", None) or getattr(
             params, "function_name", None
@@ -370,6 +383,14 @@ class VoiceTaskManager:
                 func = self._tool_dispatch[tool_name]
                 result = await func(**arguments)
                 payload = {"result": result}
+
+            if tool_name in self.TOOL_CALL_DELAYS:
+                elapsed = time.time() - start_time
+                if elapsed < self.TOOL_CALL_DELAYS[tool_name]:
+                    logger.info(
+                        f"!!! TOOL CALL DELAY: {self.TOOL_CALL_DELAYS[tool_name] - elapsed}"
+                    )
+                    await asyncio.sleep(self.TOOL_CALL_DELAYS[tool_name] - elapsed)
 
             # Emit tool result message for clients to consume
             await self._on_tool_result_event(tool_name, payload)
