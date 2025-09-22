@@ -161,6 +161,7 @@ class CharacterViewer(App):
         
         self.total_events = 0
         self.game_client: Optional[AsyncGameClient] = None
+        self._game_client_character_id: Optional[str] = None
         self.websocket_task: Optional[asyncio.Task] = None
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
         
@@ -561,8 +562,17 @@ class CharacterViewer(App):
             return
         
         try:
-            if not self.game_client:
-                self.game_client = AsyncGameClient(base_url=self.server_url)
+            if (
+                not self.game_client
+                or self._game_client_character_id != self.selected_character
+            ):
+                if self.game_client:
+                    await self.game_client.close()
+                self.game_client = AsyncGameClient(
+                    base_url=self.server_url,
+                    character_id=self.selected_character,
+                )
+                self._game_client_character_id = self.selected_character
             
             status = await self.game_client.my_status(self.selected_character)
             current_sector = status.sector
@@ -710,6 +720,8 @@ class CharacterViewer(App):
             await self.websocket.close()
         if self.game_client:
             await self.game_client.close()
+            self.game_client = None
+            self._game_client_character_id = None
 
 
 def main():

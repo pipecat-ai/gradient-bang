@@ -132,7 +132,9 @@ class ChatAgent(BaseLLMAgent):
             return (self.format_tool_message(tool_call["id"], result), False)
 
         # For other tools, delegate to BaseLLMAgent and surface status updates when useful
-        tool_message, should_continue = await super().process_tool_call(tool_call)
+        tool_message, should_continue, raw_result = await super().process_tool_call(
+            tool_call
+        )
 
         # Attempt to notify UI of status-impacting results
         try:
@@ -140,19 +142,24 @@ class ChatAgent(BaseLLMAgent):
                 tool_name in {"move", "trade", "recharge_warp_power", "transfer_warp_power", "my_status"}
                 and self.status_callback
             ):
-                content = (
-                    json.loads(tool_message["content"])
-                    if tool_message and tool_message.get("content")
-                    else None
-                )
-                if isinstance(content, dict):
-                    self.status_callback(content)
+                payload = None
+                if isinstance(raw_result, dict):
+                    payload = raw_result
+                elif hasattr(raw_result, "llm_summary"):
+                    payload = dict(raw_result)
+                elif tool_message and tool_message.get("content"):
+                    try:
+                        payload = json.loads(tool_message["content"])
+                    except Exception:
+                        payload = None
+                if isinstance(payload, dict):
+                    self.status_callback(payload)
         except Exception as e:
             if self.debug_callback:
                 self.debug_callback(self.messages.copy(), f"Error processing tool call: {str(e)}")
             pass
 
-        return (tool_message, should_continue)
+        return (tool_message, should_continue, raw_result)
 
     def is_task_running(self) -> bool:
         # The ChatAgent does not own the task; TaskManager tracks it.

@@ -67,7 +67,7 @@ async def run(
     update_queue: asyncio.Queue = asyncio.Queue()
     running = True
 
-    async with AsyncGameClient(base_url=server) as client:
+    async with AsyncGameClient(base_url=server, character_id=character_id) as client:
         # Ensure character exists and fetch initial map
         logger.info(f"CONNECT server={server} transport=websocket")
         status = await client.join(character_id)

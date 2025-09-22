@@ -29,7 +29,11 @@ SERVER_EVENT_NAMES: Final[Sequence[str]] = (
     "warp.transfer",
     "warp.purchase",
     "port.reset",
-    "port.regenerated"
+    "port.regenerated",
+    "tool_call",
+    "tool_result",
+    "task_output",
+    "task_complete"
 )
 ServerEventName = Literal[
     "status.init",
@@ -40,5 +44,9 @@ ServerEventName = Literal[
     "warp.transfer",
     "warp.purchase",
     "port.reset",
-    "port.regenerated"
+    "port.regenerated",
+    "tool_call",
+    "tool_result",
+    "task_output",
+    "task_complete"
 ]

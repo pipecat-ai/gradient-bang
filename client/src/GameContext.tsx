@@ -240,10 +240,28 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
             break;
           }
           case "status.update":
-          case "my_status":
           case "init": {
             const newStatus =
               (payload as StatusUpdate) ?? (payload.result as StatusUpdate);
+            if (!newStatus) {
+              break;
+            }
+            dispatch({
+              type: "SET_STATUS",
+              status: newStatus,
+            });
+            sectorStore.setSector(
+              newStatus.sector,
+              newStatus.sector_contents
+            );
+            if (payload.map_data) {
+              handleMapData(payload.map_data);
+            }
+            break;
+          }
+          case "my_status": {
+            // we need to get payload.result.result if it exists.
+            const newStatus = (payload.result?.result as StatusUpdate) // this is correct, how do we ignore linter?
             if (!newStatus) {
               break;
             }
@@ -264,13 +282,30 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
           case "character.moved": {
             console.log("[MOVE] Movement", payload);
             resetActivePanels();
-            if (payload.content) {
-              const d = JSON.parse(payload.content as string);
-              handleMovement(d as StatusUpdate);
-            } else {
-              const moveStatus =
-                (payload.result as StatusUpdate) ||
-                (payload as unknown as StatusUpdate);
+            const payloadWithResult = payload as {
+              result?: unknown;
+              content?: unknown;
+            };
+            let moveStatus: StatusUpdate | undefined;
+            if (payloadWithResult.result && typeof payloadWithResult.result === "object") {
+              moveStatus = payloadWithResult.result as StatusUpdate;
+            } else if (
+              typeof payloadWithResult.content === "string" &&
+              payloadWithResult.content.trim()
+            ) {
+              try {
+                const parsed = JSON.parse(payloadWithResult.content);
+                if (parsed && typeof parsed === "object") {
+                  moveStatus = parsed as StatusUpdate;
+                }
+              } catch (err) {
+                console.warn("[MOVE] Unable to parse move payload", err, payload);
+              }
+            } else if (action === "character.moved") {
+              moveStatus = payload as unknown as StatusUpdate;
+            }
+
+            if (moveStatus && typeof moveStatus.sector === "number") {
               handleMovement(moveStatus);
             }
             break;
@@ -311,6 +346,26 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
             getStatusFromServer();
             break;
           }
+          case "tool_call": {
+            const payloadWithPossibleName = payload as {
+              tool_name?: unknown;
+              arguments?: { tool_name?: unknown };
+            };
+            const toolName =
+              (data.tool_name as string | undefined) ??
+              (typeof payloadWithPossibleName.tool_name === "string"
+                ? payloadWithPossibleName.tool_name
+                : undefined) ??
+              (payloadWithPossibleName.arguments &&
+              typeof payloadWithPossibleName.arguments.tool_name === "string"
+                ? payloadWithPossibleName.arguments.tool_name
+                : undefined) ??
+              "unknown";
+            const prefix = taskStore.active ? "[TOOL][TASK]" : "[TOOL]";
+            console.log(`${prefix} Tool call started`, toolName, payload);
+            // !!! Jon, we can add the tool start UI dispatching here.
+            break;
+          }
           case "check_trade": {
             const instance = starfieldStore.getInstance();
             if (!instance) return;
@@ -340,18 +395,19 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
             taskStore.setActive(false);
             taskStore.setStatus("cancelled");
             break;
-          case "task-complete":
+          case "task_complete": {
             taskStore.setActive(false);
-            if (
-              payload.result &&
-              "was_cancelled" in (payload.result as Record<string, unknown>)
-            ) {
+            const taskCompletePayload = payload as {
+              was_cancelled?: boolean;
+            };
+            if (taskCompletePayload.was_cancelled) {
               taskStore.setStatus("cancelled");
             } else {
               taskStore.setStatus("completed");
             }
             break;
-          case "task-output":
+          }
+          case "task_output":
             taskStore.addTaskOutput({
               ...(payload as Record<string, unknown>),
               timestamp: new Date().toISOString(),

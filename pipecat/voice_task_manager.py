@@ -1,13 +1,15 @@
 import asyncio
+import json
 from collections import deque
 from typing import Optional, Callable, Dict, Any
 from loguru import logger
+from copy import deepcopy
 
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame, RTVIProcessor
 
-from utils.api_client import AsyncGameClient
+from utils.api_client import AsyncGameClient, LLMResult
 from utils.base_llm_agent import LLMConfig
 from utils.task_agent import TaskAgent
 from utils.tools_schema import (
@@ -74,7 +76,6 @@ class VoiceTaskManager:
         # Start/stop/ui_show_panel are handled inline in execute_tool_call
         self._tool_dispatch = {
             "my_status": self.game_client.my_status,
-            "my_map": self.game_client.my_map,
             "plot_course": self.game_client.plot_course,
             "move": self.game_client.move,
             "check_trade": self.game_client.check_trade,
@@ -93,6 +94,8 @@ class VoiceTaskManager:
         await self.rtvi_processor.push_frame(
             RTVIServerMessageFrame(
                 {
+                    "frame_type": "event",
+                    "event": "tool_call",
                     "gg-action": "tool_call",
                     "tool_name": tool_name,
                     "payload": {"arguments": arguments},
@@ -100,13 +103,46 @@ class VoiceTaskManager:
             )
         )
 
+    def _normalize_tool_event_payload(self, payload: Any) -> Dict[str, Any]:
+        if not isinstance(payload, dict):
+            payload = {"result": payload}
+
+        if "error" in payload:
+            # Propagate errors as-is
+            return {"error": payload["error"]}
+
+        normalized: Dict[str, Any] = {}
+        result = payload.get("result")
+        summary = payload.get("summary")
+        delta = payload.get("delta")
+
+        if isinstance(result, LLMResult):
+            normalized["result"] = dict(result)
+            summary = summary or getattr(result, "llm_summary", "")
+            delta = delta or getattr(result, "llm_delta", None)
+        elif result is not None:
+            normalized["result"] = result
+
+        if summary:
+            normalized["summary"] = str(summary).strip()
+        if delta:
+            normalized["delta"] = delta
+
+        if "tool_message" in payload:
+            normalized["tool_message"] = payload["tool_message"]
+
+        return normalized
+
     async def _on_tool_result_event(self, tool_name: str, payload: Any):
+        normalized_payload = self._normalize_tool_event_payload(payload)
         await self.rtvi_processor.push_frame(
             RTVIServerMessageFrame(
                 {
+                    "frame_type": "event",
+                    "event": "tool_result",
                     "gg-action": "tool_result",
                     "tool_name": tool_name,
-                    "payload": payload,
+                    "payload": normalized_payload,
                 }
             )
         )
@@ -130,6 +166,38 @@ class VoiceTaskManager:
 
         return "\n".join(lines)
 
+    @staticmethod
+    def _summarize_tool_result(raw_text: str) -> Optional[str]:
+        """Extract the summary line from a serialized tool message."""
+
+        try:
+            message = json.loads(raw_text)
+        except json.JSONDecodeError:
+            return None
+
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, str):
+            return None
+
+        try:
+            payload = json.loads(content)
+            if isinstance(payload, dict):
+                summary_value = payload.get("summary")
+                if isinstance(summary_value, str) and summary_value.strip():
+                    return summary_value.strip()
+        except json.JSONDecodeError:
+            pass
+
+        summary_line = content.split("\n", 1)[0].strip()
+        if (
+            not summary_line
+            or summary_line.startswith("Delta:")
+            or summary_line.startswith("Result:")
+        ):
+            return None
+
+        return summary_line
+
     def _task_output_handler(self, text: str, message_type: Optional[str] = None):
         """Handle output from the task agent.
 
@@ -148,15 +216,25 @@ class VoiceTaskManager:
 
         logger.info(f"!!! task output: {text} | {mt}")
 
+        display_text = text
+        if mt == "TOOL_RESULT":
+            summary_only = self._summarize_tool_result(text)
+            if summary_only:
+                display_text = summary_only
+
         # Add to buffer for chat context
-        self.task_buffer.append(text)
+        self.task_buffer.append(display_text)
         asyncio.create_task(
             self.rtvi_processor.push_frame(
                 RTVIServerMessageFrame(
                     data={
-                        "gg-action": "task-output",
-                        "text": text,
-                        "task_message_type": mt,
+                        "frame_type": "event",
+                        "event": "task_output",
+                        "gg-action": "task_output",
+                        "payload": {
+                            "text": display_text,
+                            "task_message_type": mt,
+                        },
                     }
                 )
             )
@@ -285,19 +363,39 @@ class VoiceTaskManager:
                 result = await self._handle_ui_show_panel(params)
                 payload = {"result": result}
             else:
-                # Dispatch to AsyncGameClient methods
+                # Call the tool function via our dispatch table
                 if tool_name not in self._tool_dispatch:
                     raise ValueError(f"Unknown tool: {tool_name}")
 
-                # Normalize argument order based on AsyncGameClient signatures
                 func = self._tool_dispatch[tool_name]
                 result = await func(**arguments)
                 payload = {"result": result}
 
-            # Emit a standardized tool_result message
+            # Emit tool result message for clients to consume
             await self._on_tool_result_event(tool_name, payload)
 
-            await params.result_callback(payload)
+            callback_payload = deepcopy(payload)
+            logger.info(f"!!! TOOL RESULT: {payload}")
+            result_obj = payload.get("result")
+            if isinstance(result_obj, LLMResult):
+                summary = (result_obj.llm_summary or "").strip()
+                delta = result_obj.llm_delta or None
+                cb: Dict[str, Any] = {}
+                # Special case my_status to return the full object. If the conversation LLM
+                # calls my_status, it may need full status info to return a useful result.
+                if tool_name == "my_status":
+                    cb = payload
+                else:
+                    if summary:
+                        cb["summary"] = summary
+                    elif delta:
+                        cb["delta"] = delta
+                    if not cb:
+                        cb["result"] = dict(result_obj)
+                callback_payload = cb
+                logger.info(f"!!! FORMATTED FOR LLM: {callback_payload}")
+            await params.result_callback(callback_payload)
+            # await params.result_callback(payload)
         except Exception as e:
             logger.error(f"tool '{tool_name}' failed: {e}")
             error_payload = {"error": str(e)}
@@ -355,7 +453,6 @@ class VoiceTaskManager:
         return ToolsSchema(
             standard_tools=[
                 MyStatus.schema(),
-                MyMap.schema(),
                 PlotCourse.schema(),
                 Move.schema(),
                 CheckTrade.schema(),

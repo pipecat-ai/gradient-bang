@@ -1,18 +1,32 @@
+
+In-progress
+- prompt about map
+- move timer for Jon
+
 Sunday
+- Clean up finished({message}) in TASK OUTPUT
+- this might help us modify code structure so that we do not every pass full map data to conversation LLM
+  - remove my_map() from the tools list for the voice bot; add a reference to it in the
+    prompt so that the bot can run a task to get a summary of map information as needed
+- Further look at all tool calls to better summarize the resulting data structures in text
+- See why we broke move UI graphics
 - test run_npc.py and status_subscription_demo.py
 - commit all files
 - remove legacy gg-action keys and legacy result semantics (?)
 - utilities to create and manage characters and ports
   - remove character mod args from rpc join
   - create new admin rpc commands grouping that includes port management, too
+    - create an admin password that we store in plain text in the world data file
 
 
-
-
-In-progres:
-  x Make the Task Status panel scrollable
-  - Work on bot
-
-Next:
-  - Fix the empty Ship AI: message after we start a task
   
+
+# Things to write about.
+
+Trying to write as little code as possible to perform game functions on behalf of a player. Instead, everything should be done by the LLM. This means writing more code to summarize game state and coordinate actions between the conversation and task LLMs.
+
+How to avoid sending lots of data to the conversation LLM. my_map() tool as an example.
+
+
+
+

@@ -32,7 +32,7 @@ async def main() -> int:
     try:
         # Create game client
         print(f"1. Connecting to {server_url}...")
-        async with AsyncGameClient(base_url=server_url) as game_client:
+        async with AsyncGameClient(base_url=server_url, character_id=character_id) as game_client:
             # Join the game
             print(f"2. Joining as '{character_id}'...")
             status = await game_client.join(character_id)

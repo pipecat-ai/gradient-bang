@@ -45,15 +45,15 @@ class TestAsyncGameClient:
             "ship": {},
         }
 
-        async with AsyncGameClient() as client:
+        async with AsyncGameClient(character_id="test_char") as client:
             result = await client.join("test_char")
 
         assert isinstance(result, dict)
         assert result["name"] == "test_char"
         assert result["sector"] == 0
         mock_request.assert_awaited_once()
-        mock_fetch_map.assert_awaited_once_with("test_char")
-        mock_update_cache.assert_awaited()
+        mock_fetch_map.assert_not_awaited()
+        mock_update_cache.assert_not_awaited()
 
     @patch.object(AsyncGameClient, "_update_map_cache_from_status", new_callable=AsyncMock)
     @patch.object(AsyncGameClient, "_ensure_map_cached", new_callable=AsyncMock)
@@ -73,7 +73,7 @@ class TestAsyncGameClient:
             "ship": {},
         }
 
-        async with AsyncGameClient() as client:
+        async with AsyncGameClient(character_id="test_char") as client:
             client._current_character = "test_char"
             result = await client.move(5)
 
@@ -93,7 +93,7 @@ class TestAsyncGameClient:
             "distance": 3
         }
 
-        async with AsyncGameClient() as client:
+        async with AsyncGameClient(character_id="test_char") as client:
             result = await client.plot_course(0, 10)
 
         assert isinstance(result, dict)
@@ -117,7 +117,7 @@ class TestAsyncGameClient:
             "ship": {},
         }
 
-        async with AsyncGameClient() as client:
+        async with AsyncGameClient(character_id="test_char") as client:
             result = await client.my_status("test_char")
 
         assert isinstance(result, dict)
@@ -136,7 +136,7 @@ class TestAsyncGameClient:
             "sectors": 5000
         }
 
-        async with AsyncGameClient() as client:
+        async with AsyncGameClient(character_id="test_char") as client:
             result = await client.server_status()
 
         assert result["name"] == "Gradient Bang"

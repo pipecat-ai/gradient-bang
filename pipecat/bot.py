@@ -44,7 +44,7 @@ from pipecat.processors.frameworks.rtvi import (
     RTVIServerMessageFrame,
 )
 from pipecat.processors.frame_processor import FrameProcessor, FrameDirection
-from pipecat.services.speechmatics.stt import SpeechmaticsSTTService
+from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.base_transport import TransportParams
 from pipecat.runner.types import RunnerArguments
@@ -107,9 +107,13 @@ async def run_bot(transport, runner_args: RunnerArguments):
             await rtvi.push_frame(
                 RTVIServerMessageFrame(
                     {
-                        "gg-action": "task-complete",
-                        "was_cancelled": was_cancelled,
-                        "via_stop_tool": via_stop_tool,
+                        "frame_type": "event",
+                        "event": "task_complete",
+                        "gg-action": "task_complete",
+                        "payload": {
+                            "was_cancelled": was_cancelled,
+                            "via_stop_tool": via_stop_tool,
+                        },
                     }
                 )
             )
@@ -140,8 +144,8 @@ async def run_bot(transport, runner_args: RunnerArguments):
 
     # Initialize STT service
     logger.info("Init STT…")
-    stt = SpeechmaticsSTTService(
-        api_key=os.getenv("SPEECHMATICS_API_KEY"), enable_speaker_diarization=False
+    stt = DeepgramSTTService(
+        api_key=os.getenv("DEEPGRAM_API_KEY"),
     )
 
     # Initialize TTS service (managed session)
@@ -284,8 +288,12 @@ async def run_bot(transport, runner_args: RunnerArguments):
     async def on_client_connected(transport, client):
         """Handle new connection."""
         logger.info("Client connected")
+
+    @rtvi.event_handler("on_client_ready")
+    async def on_client_ready(rtvi):
         # Proactively send init in case client_ready doesn't fire in this environment
         try:
+            await rtvi.set_bot_ready()
             await rtvi.push_frame(
                 RTVIServerMessageFrame(
                     {
@@ -302,15 +310,14 @@ async def run_bot(transport, runner_args: RunnerArguments):
         except Exception:
             logger.exception("Failed to send init on connect")
 
-        @transport.event_handler("on_client_disconnected")
-        async def on_client_disconnected(transport, client):
-            """Handle disconnection."""
-            logger.info("Client disconnected")
-            await task.cancel()
-            logger.info("Bot stopped")
+    @transport.event_handler("on_client_disconnected")
+    async def on_client_disconnected(transport, client):
+        """Handle disconnection."""
+        logger.info("Client disconnected")
+        await task.cancel()
+        logger.info("Bot stopped")
 
-        # Create runner and run the task
-
+    # Create runner and run the task
     runner = PipelineRunner(handle_sigint=getattr(runner_args, "handle_sigint", False))
     try:
         logger.info("Starting pipeline runner…")

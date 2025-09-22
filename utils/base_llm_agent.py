@@ -8,7 +8,7 @@ import httpx
 from dataclasses import dataclass
 from openai import AsyncOpenAI
 from loguru import logger
-from utils.api_client import AsyncGameClient
+from utils.api_client import AsyncGameClient, LLMResult
 
 from utils.tools_schema import get_openai_tools_list
 
@@ -212,7 +212,9 @@ class BaseLLMAgent:
         # Automatically execute tools
         if assistant_message.tool_calls:
             for tool_call in message_dict["tool_calls"]:
-                tool_message, should_continue = await self.process_tool_call(tool_call)
+                tool_message, should_continue, _ = await self.process_tool_call(
+                    tool_call
+                )
 
                 if tool_message:
                     self.add_message(tool_message)
@@ -233,21 +235,23 @@ class BaseLLMAgent:
 
     async def process_tool_call(
         self, tool_call: Dict[str, Any]
-    ) -> Tuple[Optional[Dict[str, Any]], bool]:
+    ) -> Tuple[Optional[Dict[str, Any]], bool, Any]:
         """Process a single tool call.
 
         Args:
             tool_call: Tool call from assistant message
 
         Returns:
-            (tool_message, should_continue) - tool_message is None if tool wasn't executed,
-            should_continue is False to stop processing remaining tools
+            (tool_message, should_continue, raw_result) - tool_message is None if
+            the tool wasn't executed, should_continue is False to stop processing
+            remaining tools, and raw_result is the object returned by the tool
+            (e.g., `LLMResult`).
 
         # todo: add hooks here for logging, or leave the logging like it is now (require overriding of this method to log?)
         """
         if self.cancelled:
             self._output("Cancelled during tool execution")
-            return (None, False)
+            return (None, False, None)
 
         tool_name = tool_call["function"]["name"]
         tool_args = json.loads(tool_call["function"]["arguments"])
@@ -282,10 +286,10 @@ class BaseLLMAgent:
             # Fallback to current behavior with logging
             self._output(f"Error executing tool {tool_name}: {str(e)}")
             tool_message = self.format_tool_message(tool_call["id"], {"error": str(e)})
-            return (tool_message, False)
+            return (tool_message, False, None)
 
         tool_message = self.format_tool_message(tool_call["id"], result)
-        return (tool_message, True)
+        return (tool_message, True, result)
 
     def format_tool_message(self, tool_call_id: str, result: Any) -> Dict[str, Any]:
         """Format a tool result as a message.
@@ -297,7 +301,20 @@ class BaseLLMAgent:
         Returns:
             Tool message dictionary
         """
-        content = json.dumps(result) if not isinstance(result, str) else result
+        if isinstance(result, LLMResult) or hasattr(result, "llm_summary"):
+            summary = getattr(result, "llm_summary", "")
+            summary = summary.strip() if isinstance(summary, str) else ""
+            delta = getattr(result, "llm_delta", None)
+            payload: Dict[str, Any] = {"summary": summary}
+            if delta:
+                payload["delta"] = delta
+            content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        else:
+            if isinstance(result, str):
+                content = result
+            else:
+                payload = {"result": result}
+                content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         return {"role": "tool", "tool_call_id": tool_call_id, "content": content}
 
     def clear_messages(self):

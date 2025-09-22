@@ -128,6 +128,10 @@ export const serverEventSchema = {
         },
         "meta": {
           "$ref": "#/$defs/FrameMeta"
+        },
+        "tool_name": {
+          "type": "string",
+          "description": "Name of the tool associated with tool_call/tool_result events."
         }
       },
       "additionalProperties": false,
@@ -275,6 +279,76 @@ export const serverEventSchema = {
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "event": {
+                "const": "tool_call"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/ToolCallEvent"
+              }
+            },
+            "required": [
+              "tool_name"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "event": {
+                "const": "tool_result"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/ToolResultEvent"
+              }
+            },
+            "required": [
+              "tool_name"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "event": {
+                "const": "task_output"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/TaskOutputEvent"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "event": {
+                "const": "task_complete"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/TaskCompleteEvent"
+              }
+            }
+          }
         }
       ]
     },
@@ -313,7 +387,11 @@ export const serverEventSchema = {
         "warp.transfer",
         "warp.purchase",
         "port.reset",
-        "port.regenerated"
+        "port.regenerated",
+        "tool_call",
+        "tool_result",
+        "task_output",
+        "task_complete"
       ]
     },
     "StatusUpdateEvent": {
@@ -854,6 +932,89 @@ export const serverEventSchema = {
         }
       },
       "additionalProperties": false
+    },
+    "ToolCallEvent": {
+      "type": "object",
+      "properties": {
+        "arguments": {
+          "description": "Arguments provided to the tool invocation.",
+          "type": [
+            "object",
+            "array",
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "ToolResultEvent": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "description": "Successful tool execution result payload.",
+          "type": [
+            "object",
+            "array",
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        "error": {
+          "description": "Error information if the tool failed.",
+          "type": [
+            "object",
+            "array",
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "TaskOutputEvent": {
+      "type": "object",
+      "required": [
+        "text"
+      ],
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "Human-readable line of task progress to display."
+        },
+        "task_message_type": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Optional categorization for the output line."
+        }
+      },
+      "additionalProperties": false
+    },
+    "TaskCompleteEvent": {
+      "type": "object",
+      "required": [
+        "was_cancelled",
+        "via_stop_tool"
+      ],
+      "properties": {
+        "was_cancelled": {
+          "type": "boolean",
+          "description": "True when the task was cancelled before completion."
+        },
+        "via_stop_tool": {
+          "type": "boolean",
+          "description": "True if the task was cancelled via the stop_task tool."
+        }
+      },
+      "additionalProperties": false
     }
   }
 } as const;
@@ -867,7 +1028,11 @@ export const SERVER_EVENT_NAMES = [
   "warp.transfer",
   "warp.purchase",
   "port.reset",
-  "port.regenerated"
+  "port.regenerated",
+  "tool_call",
+  "tool_result",
+  "task_output",
+  "task_complete"
 ] as const;
 
 export type ServerEventName = typeof SERVER_EVENT_NAMES[number];
