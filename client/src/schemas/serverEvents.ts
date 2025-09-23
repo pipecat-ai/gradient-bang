@@ -220,6 +220,22 @@ export const serverEventSchema = {
           "if": {
             "properties": {
               "event": {
+                "const": "local_map"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/LocalMapEvent"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "event": {
                 "const": "warp.transfer"
               }
             }
@@ -384,6 +400,7 @@ export const serverEventSchema = {
         "character.joined",
         "character.moved",
         "chat.message",
+        "local_map",
         "warp.transfer",
         "warp.purchase",
         "port.reset",
@@ -484,6 +501,81 @@ export const serverEventSchema = {
         }
       },
       "additionalProperties": false
+    },
+    "LocalMapNode": {
+      "type": "object",
+      "required": [
+        "id",
+        "visited",
+        "adjacent"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "visited": {
+          "type": "boolean"
+        },
+        "port_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "adjacent": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "LocalMapEvent": {
+      "type": "object",
+      "required": [
+        "character_id",
+        "sector",
+        "node_list"
+      ],
+      "properties": {
+        "character_id": {
+          "type": "string"
+        },
+        "sector": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_hops": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_sectors": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "node_list": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LocalMapNode"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "max_hops"
+          ]
+        },
+        {
+          "required": [
+            "max_sectors"
+          ]
+        }
+      ]
     },
     "ChatMessageEvent": {
       "type": "object",
@@ -1025,6 +1117,7 @@ export const SERVER_EVENT_NAMES = [
   "character.joined",
   "character.moved",
   "chat.message",
+  "local_map",
   "warp.transfer",
   "warp.purchase",
   "port.reset",

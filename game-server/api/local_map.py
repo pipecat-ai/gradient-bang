@@ -28,12 +28,20 @@ def _build_known_graph(knowledge) -> tuple[set[int], dict[int, set[int]]]:
     return known_nodes, directed
 
 
-def _bfs_undirected(center: int, max_hops: int, directed: dict[int, set[int]]):
-    """Undirected BFS over the known directed graph to compute hop rings.
+def _bfs_undirected(
+    center: int,
+    directed: dict[int, set[int]],
+    *,
+    max_hops: int | None = None,
+    max_nodes: int | None = None,
+):
+    """Undirected BFS over the known directed graph with optional limits.
 
     We treat an undirected neighbor relation as existing if either src->dst or
     dst->src is known (based solely on player knowledge).
-    Returns (included_set, distance_map).
+
+    Returns (included_set, distance_map, traversal_order) where traversal order
+    preserves the BFS discovery sequence (useful when applying node limits).
     """
     undirected: dict[int, set[int]] = defaultdict(set)
     for a, nbs in directed.items():
@@ -46,16 +54,22 @@ def _bfs_undirected(center: int, max_hops: int, directed: dict[int, set[int]]):
         undirected.setdefault(center, set())
 
     dist: dict[int, int] = {center: 0}
+    order: list[int] = [center]
     q = deque([center])
-    while q:
+
+    while q and (max_nodes is None or len(dist) < max_nodes):
         cur = q.popleft()
-        if dist[cur] >= max_hops:
+        if max_hops is not None and dist[cur] >= max_hops:
             continue
-        for nb in undirected.get(cur, ()): 
+        for nb in undirected.get(cur, ()):  # noqa: WPS335 (small loop)
             if nb not in dist:
                 dist[nb] = dist[cur] + 1
                 q.append(nb)
-    return set(dist.keys()), dist
+                order.append(nb)
+                if max_nodes is not None and len(dist) >= max_nodes:
+                    break
+
+    return set(dist.keys()), dist, order
 
 
 async def handle(request: dict, world) -> dict:
@@ -64,7 +78,11 @@ async def handle(request: dict, world) -> dict:
     Request fields:
       - character_id: str (required)
       - current_sector: int (optional; default to live/persisted sector)
-      - max_hops: int (required) – number of rings to include
+      - max_hops: int (optional) – number of rings to include
+      - max_sectors: int (optional) – cap on number of nodes to return
+
+    If both `max_hops` and `max_sectors` are provided, `max_sectors` takes
+    precedence.
 
     Response shape (minimal by design):
       {
@@ -80,15 +98,30 @@ async def handle(request: dict, world) -> dict:
     if not character_id:
         raise HTTPException(status_code=400, detail="Missing character_id")
 
+    max_sectors = request.get("max_sectors")
     max_hops = request.get("max_hops")
-    if max_hops is None:
-        raise HTTPException(status_code=400, detail="Missing max_hops")
-    try:
-        max_hops = int(max_hops)
-        if max_hops < 0:
-            raise ValueError
-    except Exception:
-        raise HTTPException(status_code=422, detail="max_hops must be a non-negative integer")
+
+    effective_max_hops: int | None
+    max_nodes: int | None = None
+
+    if max_sectors is not None:
+        try:
+            max_nodes = int(max_sectors)
+            if max_nodes <= 0:
+                raise ValueError
+        except Exception:
+            raise HTTPException(status_code=422, detail="max_sectors must be a positive integer")
+        effective_max_hops = None
+    else:
+        if max_hops is None:
+            raise HTTPException(status_code=400, detail="Missing max_hops")
+        try:
+            converted = int(max_hops)
+            if converted < 0:
+                raise ValueError
+        except Exception:
+            raise HTTPException(status_code=422, detail="max_hops must be a non-negative integer")
+        effective_max_hops = converted
 
     # Load knowledge and determine center sector
     knowledge = world.knowledge_manager.load_knowledge(character_id)
@@ -107,7 +140,12 @@ async def handle(request: dict, world) -> dict:
     known_nodes.add(int(center))
 
     # Limit to a radius using undirected BFS over known edges
-    included, _ = _bfs_undirected(int(center), max_hops, directed)
+    included, _, _ = _bfs_undirected(
+        int(center),
+        directed,
+        max_hops=effective_max_hops,
+        max_nodes=max_nodes,
+    )
 
     # Constrain to nodes we actually know about (visited or seen)
     included &= known_nodes
@@ -120,8 +158,9 @@ async def handle(request: dict, world) -> dict:
         port_type = None
         if visited:
             sk = knowledge.sectors_visited[str(nid)]
-            if getattr(sk, "port_info", None):
-                port_type = sk.port_info.get("code")
+            port_info = getattr(sk, "port", None)
+            if port_info:
+                port_type = port_info.get("code")
         adj = [int(t) for t in directed.get(nid, set()) if t in included]
         node_list.append({
             "id": int(nid),
@@ -130,5 +169,10 @@ async def handle(request: dict, world) -> dict:
             "adjacent": adj,
         })
 
-    return {"node_list": node_list}
+    response: dict = {"node_list": node_list}
+    if max_nodes is not None:
+        response["max_sectors"] = max_nodes
+    elif effective_max_hops is not None:
+        response["max_hops"] = effective_max_hops
 
+    return response

@@ -27,6 +27,7 @@ from api import (
     move as api_move,
     my_status as api_my_status,
     my_map as api_my_map,
+    local_map as api_local_map,
     check_trade as api_check_trade,
     trade as api_trade,
     recharge_warp_power as api_recharge,
@@ -121,7 +122,9 @@ RPC_HANDLERS: Dict[str, RPCHandler] = {
 }
 
 
-def _rpc_success(frame_id: str, endpoint: str, result: Dict[str, Any]) -> Dict[str, Any]:
+def _rpc_success(
+    frame_id: str, endpoint: str, result: Dict[str, Any]
+) -> Dict[str, Any]:
     return {
         "frame_type": "rpc",
         "id": frame_id,
@@ -131,7 +134,9 @@ def _rpc_success(frame_id: str, endpoint: str, result: Dict[str, Any]) -> Dict[s
     }
 
 
-def _rpc_error(frame_id: str, endpoint: str, exc: HTTPException | Exception) -> Dict[str, Any]:
+def _rpc_error(
+    frame_id: str, endpoint: str, exc: HTTPException | Exception
+) -> Dict[str, Any]:
     status = exc.status_code if isinstance(exc, HTTPException) else 500
     detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
     code = getattr(exc, "code", None)
@@ -184,7 +189,9 @@ class Connection(EventSink):
 
 async def _send_initial_status(connection: Connection, character_id: str) -> None:
     if character_id not in world.characters:
-        raise HTTPException(status_code=404, detail=f"Character '{character_id}' not found")
+        raise HTTPException(
+            status_code=404, detail=f"Character '{character_id}' not found"
+        )
     payload = build_status_payload(world, character_id)
     envelope = {
         "frame_type": "event",
@@ -206,6 +213,7 @@ async def root() -> Dict[str, Any]:
     }
 
 
+# For testing - http://localhost:5173/map-demo.html
 @app.get("/api/local_map")
 async def local_map_get(center: int = 0, max_hops: int = 3, max_nodes: int = 25):
     if not world.universe_graph:
@@ -266,7 +274,11 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 frame = json.loads(raw)
             except json.JSONDecodeError:
                 await websocket.send_json(
-                    _rpc_error(str(uuid.uuid4()), "unknown", HTTPException(status_code=400, detail="Invalid JSON"))
+                    _rpc_error(
+                        str(uuid.uuid4()),
+                        "unknown",
+                        HTTPException(status_code=400, detail="Invalid JSON"),
+                    )
                 )
                 continue
 
@@ -278,11 +290,19 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 character_id = frame.get("character_id")
                 if not name and not character_id:
                     await websocket.send_json(
-                        _rpc_error(frame_id, "identify", HTTPException(status_code=400, detail="Missing name or character_id"))
+                        _rpc_error(
+                            frame_id,
+                            "identify",
+                            HTTPException(
+                                status_code=400, detail="Missing name or character_id"
+                            ),
+                        )
                     )
                     continue
                 connection.register_character(character_id, name)
-                await websocket.send_json(_rpc_success(frame_id, "identify", {"identified": True}))
+                await websocket.send_json(
+                    _rpc_success(frame_id, "identify", {"identified": True})
+                )
                 continue
 
             if message_type == "subscribe":
@@ -291,30 +311,50 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     character_id = frame.get("character_id")
                     if not character_id:
                         await websocket.send_json(
-                            _rpc_error(frame_id, "subscribe", HTTPException(status_code=400, detail="Missing character_id"))
+                            _rpc_error(
+                                frame_id,
+                                "subscribe",
+                                HTTPException(
+                                    status_code=400, detail="Missing character_id"
+                                ),
+                            )
                         )
                         continue
                     connection.status_subscriptions.add(str(character_id))
                     connection.register_character(character_id, frame.get("name"))
                     await websocket.send_json(
-                        _rpc_success(frame_id, "subscribe", {"subscribed": "status.update", "character_id": character_id})
+                        _rpc_success(
+                            frame_id,
+                            "subscribe",
+                            {
+                                "subscribed": "status.update",
+                                "character_id": character_id,
+                            },
+                        )
                     )
                     try:
                         await _send_initial_status(connection, str(character_id))
                     except HTTPException as exc:
-                        await websocket.send_json(_rpc_error(frame_id, "subscribe", exc))
+                        await websocket.send_json(
+                            _rpc_error(frame_id, "subscribe", exc)
+                        )
                     continue
                 if event_name == "chat.message":
                     connection.chat_subscribed = True
                     await websocket.send_json(
-                        _rpc_success(frame_id, "subscribe", {"subscribed": "chat.message"})
+                        _rpc_success(
+                            frame_id, "subscribe", {"subscribed": "chat.message"}
+                        )
                     )
                     continue
                 await websocket.send_json(
                     _rpc_error(
                         frame_id,
                         "subscribe",
-                        HTTPException(status_code=404, detail=f"Unknown event subscription: {event_name}"),
+                        HTTPException(
+                            status_code=404,
+                            detail=f"Unknown event subscription: {event_name}",
+                        ),
                     )
                 )
                 continue
@@ -324,7 +364,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     _rpc_error(
                         frame_id,
                         message_type,
-                        HTTPException(status_code=400, detail=f"Unknown frame type: {message_type}"),
+                        HTTPException(
+                            status_code=400,
+                            detail=f"Unknown frame type: {message_type}",
+                        ),
                     )
                 )
                 continue
@@ -337,7 +380,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     _rpc_error(
                         frame_id,
                         endpoint or "unknown",
-                        HTTPException(status_code=404, detail=f"Unknown endpoint: {endpoint}"),
+                        HTTPException(
+                            status_code=404, detail=f"Unknown endpoint: {endpoint}"
+                        ),
                     )
                 )
                 continue

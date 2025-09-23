@@ -275,6 +275,67 @@ async def run_bot(transport, runner_args: RunnerArguments):
             )
             return
 
+        if msg_type == "get-local-map":
+            try:
+                if not isinstance(msg_data, dict):
+                    raise ValueError("Message data must be an object")
+
+                sector = msg_data.get("sector")
+                if sector is None:
+                    raise ValueError("Missing required field 'sector'")
+                sector = int(sector)
+
+                max_sectors_raw = msg_data.get("max_sectors")
+                max_hops_raw = msg_data.get("max_hops")
+
+                if max_sectors_raw is not None:
+                    max_sectors = int(max_sectors_raw)
+                    if max_sectors <= 0:
+                        raise ValueError("max_sectors must be positive")
+                    limit_kwargs = {"max_sectors": max_sectors}
+                else:
+                    max_hops = int(max_hops_raw) if max_hops_raw is not None else 3
+                    if max_hops < 0:
+                        raise ValueError("max_hops must be non-negative")
+                    limit_kwargs = {"max_hops": max_hops}
+
+                local_map = await task_manager.game_client.local_map(
+                    current_sector=sector,
+                    **limit_kwargs,
+                )
+
+                await rtvi.push_frame(
+                    RTVIServerMessageFrame(
+                        {
+                            "frame_type": "event",
+                            "event": "local_map",
+                            "gg-action": "local_map",
+                            "payload": {
+                                "character_id": task_manager.character_id,
+                                "sector": sector,
+                                **limit_kwargs,
+                                "node_list": local_map.get("node_list", []),
+                            },
+                        }
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Failed to fetch local_map via client message")
+                await rtvi.push_frame(
+                    RTVIServerMessageFrame(
+                        {
+                            "frame_type": "event",
+                            "event": "local_map",
+                            "gg-action": "local_map",
+                            "payload": {
+                                "error": str(exc),
+                                "sector": msg_data.get("sector") if isinstance(msg_data, dict) else None,
+                            },
+                        }
+                    )
+                )
+            return
+
         # Client sent a custom message
         if msg_type == "custom-message":
             text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""

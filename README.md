@@ -32,6 +32,12 @@ npm i
 npm run dev
 ```
 
+## Local map visualization
+
+New component HudMapVisualization.tsx has been badly glued into the HUD.
+
+You can test the graph rendering logic by loading http://localhost:5173/map-demo.html
+
 # NOTE
 
 There is now a tool_call stared RTVI message, followed by a 2-second delay before the tool call completes.

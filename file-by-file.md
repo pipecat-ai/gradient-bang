@@ -19,6 +19,7 @@
 ### game-server/server.py ✅
 - Rewrites the server as a single FastAPI app hosting `/ws` and `/api/local_map`, wiring in the new event dispatcher, RPC envelope (`frame_type`/`id`/`endpoint`), command handlers (`subscribe`, `identify`), and chat fan-out.
 - Adds repo-root path injection so relative imports (e.g., `schemas`) resolve when launched as a script.
+- Restores the `local_map` RPC handler so WebSocket clients can fetch localized graphs without the legacy HTTP shim.
 
 ### npc/run_npc.py
 - Forces WebSocket transport, removes the unused HTTP client option, and reuses the new AsyncGameClient defaults when joining characters.
@@ -56,6 +57,12 @@
 ### uv.lock
 - Bumps `pipecat-ai` to 0.0.85 (the WebRTC build used by the refactored bot flow).
 
+### schemas/server_events.schema.json
+- Adds a typed `local_map` event payload (character id, sector, max_hops, node list) and exposes the node definition for downstream generators.
+
+### schemas/generated_events.py & client/src/schemas/serverEvents.ts
+- Regenerated to include the `local_map` literal in both Python and TypeScript helper unions.
+
 ## New Files & Directories
 
 ### game-server/events.py
@@ -77,6 +84,22 @@
 
 ### docs/server-events-schema-informal.md
 - Client-focused walkthrough covering shared payload shapes, full RPC request/response examples (including `check_trade`), and the expanded event set.
+- Documents the new `local_map` RPC/event envelope, including payload fields and sample response.
+
+### client/src/HudMapDebugHarness.tsx & client/hud-map-debug.html
+- Minimal harness and standalone HTML entry that preloads mock data into the stores and renders `HudMapVisualization` in isolation for layout debugging.
+
+### client/src/components/HUD/LHS.tsx & App.tsx
+- Integrates the Hud map panel above the existing LHS controls, giving it a `clamp(360px,48vh,640px)` height while keeping the Task Output panel constrained to the legacy HUD height. Removes the temporary overlay from `App` and lets the center/RHS columns keep their previous sizing via `var(--height-ui)`.
+
+### client/src/css/index.css
+- Restores `--height-ui` to the original 460px value (center + RHS height) and adds a `.hud-map-canvas` helper so Cytoscape fills its container.
+
+### game-server/api/local_map.py & utils/api_client.py & pipecat/bot.py
+- Support the new `max_sectors` parameter for `local_map`, prioritising it over `max_hops`, enforcing validation, and threading the limit through the bot’s RTVI relay.
+
+### client/src/components/HudMapVisualization.tsx & client/src/stores/localMap.ts & client/src/HudMapDebugHarness.tsx
+- Cache and request local maps by sector counts (default 15 nodes), adapt the local-map store keys to track either `max_sectors` or `max_hops`, switch the render cache key to node+visited signatures, and update the debug harness to reflect the new argument.
 
 ### utils/base_llm_agent.py
 - Tool message formatting now prefers the compact summaries/deltas emitted by `LLMResult`, drastically shrinking responses sent back to the LLM.

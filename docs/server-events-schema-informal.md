@@ -395,7 +395,8 @@ Each endpoint definition includes the expected request payload fields and a conc
 ### `local_map`
 - **Request payload:**
   - `character_id`
-  - `max_hops`
+  - `max_hops` (optional; legacy hop radius)
+  - `max_sectors` (optional; caps total nodes returned, takes precedence over `max_hops` when both are supplied)
   - `current_sector` (optional)
 - **Success response:**
 ```json
@@ -407,7 +408,8 @@ Each endpoint definition includes the expected request payload fields and a conc
   "result": {
     "node_list": [
       { ... node from §1.3 ... }
-    ]
+    ],
+    "max_sectors": 15
   }
 }
 ```
@@ -505,6 +507,32 @@ Below are the payload fields for each event. Unless noted, all listed fields are
 - `from_name`
 - `content`
 - `to_name` (optional)
+
+### `local_map`
+- `character_id`
+- `sector`
+- `max_hops` (optional)
+- `max_sectors` (optional)
+- `node_list` (array of nodes described in §1.3)
+
+Example payload (broadcast as an `event` frame, while echoing `gg-action` for compatibility):
+
+```json
+{
+  "frame_type": "event",
+  "event": "local_map",
+  "gg-action": "local_map",
+  "payload": {
+    "character_id": "TraderP",
+    "sector": 421,
+    "max_sectors": 15,
+    "node_list": [
+      { "id": 421, "visited": true, "port_type": "BSS", "adjacent": [418, 422] },
+      { "id": 418, "visited": false, "port_type": null, "adjacent": [421] }
+    ]
+  }
+}
+```
 
 ### `warp.transfer`
 - `from_character_id`

@@ -12,6 +12,7 @@ import useSectorStore, { type SectorContents } from "./stores/sector";
 import useStarfieldStore from "./stores/starfield";
 import useTaskStore, { type TaskOutput } from "./stores/tasks";
 import useTradeHistoryStore, { type TradeHistoryItem } from "./stores/trades";
+import useLocalMapStore, { type LocalMapPayload } from "./stores/localMap";
 
 const ServerMessageKey = "gg-action";
 
@@ -127,6 +128,8 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
   const client = usePipecatClient();
   const { resetActivePanels } = useUI();
   const tradeHistoryStore = useTradeHistoryStore();
+  const setLocalMap = useLocalMapStore((state) => state.setLocalMap);
+  const clearLocalMaps = useLocalMapStore((state) => state.clear);
 
   const setShip = useCallback(
     (ship: Ship) => {
@@ -190,6 +193,7 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
 
   const resetGame = () => {
     dispatch({ type: "RESET_GAME" });
+    clearLocalMaps();
   };
 
   /**
@@ -413,6 +417,13 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
               timestamp: new Date().toISOString(),
             } as TaskOutput);
             break;
+          case "local_map": {
+            const localMapPayload = (payload as LocalMapPayload) ?? undefined;
+            if (localMapPayload) {
+              setLocalMap(localMapPayload);
+            }
+            break;
+          }
           default:
             console.warn("Unhandled game action", action);
             break;
@@ -427,6 +438,7 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
         tradeHistoryStore,
         getStatusFromServer,
         resetActivePanels,
+        setLocalMap,
       ]
     )
   );

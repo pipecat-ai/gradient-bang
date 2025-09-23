@@ -726,16 +726,18 @@ class AsyncGameClient:
 
     async def local_map(
         self,
-        max_hops: int,
+        max_hops: Optional[int] = None,
         current_sector: Optional[int] = None,
         character_id: Optional[str] = None,
+        max_sectors: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Get a local, hop-limited map of the player's known graph.
+        """Get a local view of the player's known graph.
 
         Args:
-            max_hops: Number of rings to include around the center
+            max_hops: Number of rings to include around the center (legacy mode)
             current_sector: Optional explicit center; defaults to tracked sector
             character_id: Character to query (defaults to current character)
+            max_sectors: Optional node cap (takes precedence over `max_hops`)
         """
         character_id = self._resolve_character_id(character_id)
 
@@ -744,20 +746,29 @@ class AsyncGameClient:
 
         payload: Dict[str, Any] = {
             "character_id": character_id,
-            "max_hops": int(max_hops),
         }
         if current_sector is not None:
             payload["current_sector"] = int(current_sector)
+
+        limit_summary: str
+        if max_sectors is not None:
+            payload["max_sectors"] = int(max_sectors)
+            limit_summary = f"max {int(max_sectors)} sector(s)"
+        else:
+            hops_value = 3 if max_hops is None else int(max_hops)
+            payload["max_hops"] = hops_value
+            limit_summary = f"{hops_value} hop(s)"
 
         result = await self._request("local_map", payload)
         node_list = result.get("node_list", [])
         summary = (
             f"Local map around sector {payload.get('current_sector', current_sector)} "
-            f"with {len(node_list)} node(s)."
+            f"with {len(node_list)} node(s) ({limit_summary})."
         )
         delta = {
             "nodes": len(node_list),
-            "max_hops": max_hops,
+            "max_sectors": payload.get("max_sectors"),
+            "max_hops": payload.get("max_hops"),
         }
         if node_list:
             delta["sample_nodes"] = node_list[: min(3, len(node_list))]
