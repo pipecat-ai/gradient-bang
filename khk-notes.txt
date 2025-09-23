@@ -16,7 +16,6 @@ Sunday
   - create new admin rpc commands grouping that includes port management, too
     - create an admin password that we store in plain text in the world data file
 - add transfer_credits rpc
-
   
 
 # Things to write about.

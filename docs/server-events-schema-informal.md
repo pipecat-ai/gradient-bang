@@ -95,9 +95,12 @@ Returned inside `result.node_list` when calling `local_map`.
   "id": 5,
   "visited": true,
   "port_type": "BSS",      // derived from the observed port code, null if no port
-  "adjacent": [4, 6, 9]
+  "adjacent": [4, 6, 9],
+  "is_leaf": false          // true if the sector is a dead-end in the universe map
 }
 ```
+
+`is_leaf` reflects the global universe graph; it is `true` only when the sector has zero or one warp exits in the authoritative world data, so clients do not need to infer this from the truncated local map payload.
 
 ---
 
@@ -407,7 +410,20 @@ Each endpoint definition includes the expected request payload fields and a conc
   "ok": true,
   "result": {
     "node_list": [
-      { ... node from §1.3 ... }
+      {
+        "id": 3330,
+        "visited": true,
+        "port_type": "SBB",
+        "adjacent": [0, 3331],
+        "is_leaf": false
+      },
+      {
+        "id": 3329,
+        "visited": false,
+        "port_type": null,
+        "adjacent": [3330],
+        "is_leaf": true
+      }
     ],
     "max_sectors": 15
   }
@@ -513,7 +529,7 @@ Below are the payload fields for each event. Unless noted, all listed fields are
 - `sector`
 - `max_hops` (optional)
 - `max_sectors` (optional)
-- `node_list` (array of nodes described in §1.3)
+- `node_list` (array of nodes described in §1.3, each including `is_leaf`)
 
 Example payload (broadcast as an `event` frame, while echoing `gg-action` for compatibility):
 
@@ -527,8 +543,8 @@ Example payload (broadcast as an `event` frame, while echoing `gg-action` for co
     "sector": 421,
     "max_sectors": 15,
     "node_list": [
-      { "id": 421, "visited": true, "port_type": "BSS", "adjacent": [418, 422] },
-      { "id": 418, "visited": false, "port_type": null, "adjacent": [421] }
+      { "id": 421, "visited": true, "port_type": "BSS", "adjacent": [418, 422], "is_leaf": false },
+      { "id": 418, "visited": false, "port_type": null, "adjacent": [421], "is_leaf": true }
     ]
   }
 }

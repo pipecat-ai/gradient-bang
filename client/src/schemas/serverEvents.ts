@@ -507,7 +507,8 @@ export const serverEventSchema = {
       "required": [
         "id",
         "visited",
-        "adjacent"
+        "adjacent",
+        "is_leaf"
       ],
       "properties": {
         "id": {
@@ -529,6 +530,9 @@ export const serverEventSchema = {
             "type": "integer",
             "minimum": 0
           }
+        },
+        "is_leaf": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false

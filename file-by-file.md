@@ -96,10 +96,10 @@
 - Restores `--height-ui` to the original 460px value (center + RHS height) and adds a `.hud-map-canvas` helper so Cytoscape fills its container.
 
 ### game-server/api/local_map.py & utils/api_client.py & pipecat/bot.py
-- Support the new `max_sectors` parameter for `local_map`, prioritising it over `max_hops`, enforcing validation, and threading the limit through the bot’s RTVI relay.
+- Support the new `max_sectors` parameter for `local_map`, prioritising it over `max_hops`, enforcing validation, threading the limit through the bot’s RTVI relay, and enriching each node with an `is_leaf` flag derived from the global universe graph.
 
 ### client/src/components/HudMapVisualization.tsx & client/src/stores/localMap.ts & client/src/HudMapDebugHarness.tsx
-- Cache and request local maps by sector counts (default 15 nodes), adapt the local-map store keys to track either `max_sectors` or `max_hops`, switch the render cache key to node+visited signatures, and update the debug harness to reflect the new argument.
+- Cache and request local maps by sector counts (default 15 nodes), adapt the local-map store keys to track either `max_sectors` or `max_hops`, switch the render cache key to node+visited signatures, surface the server-provided `is_leaf` flag to the HUD, and update the debug harness accordingly.
 
 ### utils/base_llm_agent.py
 - Tool message formatting now prefers the compact summaries/deltas emitted by `LLMResult`, drastically shrinking responses sent back to the LLM.

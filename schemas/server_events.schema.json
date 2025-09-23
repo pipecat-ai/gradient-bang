@@ -505,7 +505,8 @@
       "required": [
         "id",
         "visited",
-        "adjacent"
+        "adjacent",
+        "is_leaf"
       ],
       "properties": {
         "id": {
@@ -527,6 +528,9 @@
             "type": "integer",
             "minimum": 0
           }
+        },
+        "is_leaf": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false

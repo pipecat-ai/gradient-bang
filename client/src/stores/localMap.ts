@@ -5,6 +5,7 @@ export interface LocalMapNode {
   visited: boolean;
   port_type?: string | null;
   adjacent: number[];
+  is_leaf?: boolean;
 }
 
 export interface LocalMapPayload {

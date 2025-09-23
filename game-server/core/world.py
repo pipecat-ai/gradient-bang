@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Any
-from collections import deque
+from collections import deque, defaultdict
 
 from contextlib import asynccontextmanager
 
@@ -17,9 +17,25 @@ class UniverseGraph:
     def __init__(self, universe_data: dict):
         self.sector_count = universe_data["meta"]["sector_count"]
         self.adjacency: Dict[int, List[int]] = {}
+        undirected: Dict[int, set[int]] = defaultdict(set)
+
         for sector in universe_data["sectors"]:
             sector_id = sector["id"]
-            self.adjacency[sector_id] = [warp["to"] for warp in sector["warps"]]
+            targets = [warp["to"] for warp in sector["warps"]]
+            self.adjacency[sector_id] = targets
+            for target in targets:
+                undirected[sector_id].add(target)
+                undirected[target].add(sector_id)
+
+        # Freeze undirected adjacency into regular dicts for easier access
+        self.undirected_adjacency: Dict[int, List[int]] = {
+            sector_id: sorted(neighbors)
+            for sector_id, neighbors in undirected.items()
+        }
+
+    def neighbors(self, sector_id: int) -> set[int]:
+        """Return the undirected neighbor set for a sector."""
+        return set(self.undirected_adjacency.get(sector_id, []))
 
     def find_path(self, start: int, end: int) -> Optional[List[int]]:
         if start == end:

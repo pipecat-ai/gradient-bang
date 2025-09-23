@@ -87,7 +87,13 @@ async def handle(request: dict, world) -> dict:
     Response shape (minimal by design):
       {
         "node_list": [
-          {"id": int, "visited": bool, "port_type": str|None, "adjacent": [int, ...]},
+          {
+            "id": int,
+            "visited": bool,
+            "port_type": str|None,
+            "adjacent": [int, ...],
+            "is_leaf": bool,
+          },
         ]
       }
     """
@@ -162,11 +168,16 @@ async def handle(request: dict, world) -> dict:
             if port_info:
                 port_type = port_info.get("code")
         adj = [int(t) for t in directed.get(nid, set()) if t in included]
+        universe_neighbors = set()
+        if world.universe_graph:
+            universe_neighbors = world.universe_graph.neighbors(nid)
+        is_leaf = len(universe_neighbors) <= 1
         node_list.append({
             "id": int(nid),
             "visited": bool(visited),
             "port_type": port_type,
             "adjacent": adj,
+            "is_leaf": is_leaf,
         })
 
     response: dict = {"node_list": node_list}
