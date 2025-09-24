@@ -1,4 +1,6 @@
 import { useCallback } from "react";
+import { useShallow } from "zustand/react/shallow";
+import { useSettingsStore } from "../stores/settings";
 
 export type Sound = "warp" | "start" | "ambience";
 
@@ -9,8 +11,15 @@ const SoundMap = {
 };
 
 export const usePlaySound = () => {
+  const disabledSounds = useSettingsStore(
+    useShallow((state) => state.disabledSounds)
+  );
+
   return useCallback(
     (sound: Sound, options?: { volume?: number; loop?: boolean }) => {
+      // If sounds are disabled, don't play anything
+      if (disabledSounds) return;
+
       const audio = new Audio(SoundMap[sound]);
       audio.currentTime = 0;
 

@@ -36,12 +36,12 @@ export const useAnimatedCounter = (
       return;
     }
 
-    // On first render when going from undefined to a number, animate from 0
+    // On first render when going from undefined to a number, set immediately without animation
     if (isFirstRenderRef.current) {
       isFirstRenderRef.current = false;
-      setDisplayValue(0);
-      startValueRef.current = 0;
-      // Continue with animation logic below
+      setDisplayValue(targetValue);
+      startValueRef.current = targetValue;
+      return;
     }
 
     // If the value hasn't changed, don't animate
@@ -99,7 +99,6 @@ export const useAnimatedCounter = (
 
     animationRef.current = requestAnimationFrame(animate);
 
-    // Cleanup function
     return () => {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);

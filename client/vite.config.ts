@@ -8,13 +8,7 @@ export default defineConfig({
   server: {
     allowedHosts: true,
     proxy: {
-      // To test the map rendering component, start the http server
-      // `uv run game-server/old-http-server.py`
-      "/api/local_map": {
-        target: "http://0.0.0.0:8000",
-        changeOrigin: true,
-      },
-      "/api/offer": {
+      "/api": {
         target: "http://0.0.0.0:7860",
         changeOrigin: true,
       },
