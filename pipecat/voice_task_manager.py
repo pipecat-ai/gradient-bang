@@ -14,7 +14,6 @@ from utils.api_client import AsyncGameClient, LLMResult
 from utils.base_llm_agent import LLMConfig
 from utils.task_agent import TaskAgent
 from utils.tools_schema import (
-    MyMap,
     MyStatus,
     PlotCourse,
     Move,
@@ -24,6 +23,7 @@ from utils.tools_schema import (
     Trade,
     RechargeWarpPower,
     TransferWarpPower,
+    SendMessage,
     UI_SHOW_PANEL_SCHEMA,
 )
 
@@ -82,6 +82,7 @@ class VoiceTaskManager:
             "move": self.game_client.move,
             "check_trade": self.game_client.check_trade,
             "trade": self.game_client.trade,
+            "send_message": self.game_client.send_message,
             "recharge_warp_power": self.game_client.recharge_warp_power,
             "transfer_warp_power": self.game_client.transfer_warp_power,
         }
@@ -496,6 +497,7 @@ class VoiceTaskManager:
                 Trade.schema(),
                 RechargeWarpPower.schema(),
                 TransferWarpPower.schema(),
+                SendMessage.schema(),
                 StartTask.schema(),
                 StopTask.schema(),
                 UI_SHOW_PANEL_SCHEMA,
