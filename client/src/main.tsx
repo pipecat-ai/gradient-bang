@@ -9,6 +9,7 @@ import { GameProvider } from "./GameContext";
 import { UIProvider } from "./UIContext";
 
 import "./css/index.css";
+import "./utils/console-api";
 
 const configuredLevel = import.meta.env.VITE_PIPECAT_LOG_LEVEL as keyof typeof LogLevel | undefined;
 const logLevel = configuredLevel && LogLevel[configuredLevel] !== undefined
