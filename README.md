@@ -15,14 +15,6 @@ cd ..
 uv run game-server/server.py
 ```
 
-## Textual UI for the game
-
-Once the console starts, close the debug panel (ctrl+d). Then try running a task like "Navigate on auto-pilot to sector 1000."
-
-```
-export OPENAI_API_KEY=sk-proj-...
-uv run player_tui.py JoePlayer
-```
 
 ## Bot that sends RTVI messages
 
@@ -32,9 +24,36 @@ This bot implements some of the task handling and RTVI messages needed to implem
 uv run pipecat/bot.py
 ```
 
+## Run the client dev server
+
+```
+cd client
+npm i
+npm run dev
+```
+
+## Local map visualization
+
+New component HudMapVisualization.tsx has been badly glued into the HUD.
+
+You can test the graph rendering logic by loading http://localhost:5173/map-demo.html
+
+# NOTE
+
+There is now a tool_call stared RTVI message, followed by a 2-second delay before the tool call completes.
+
+See GameContext.tsx line 366, and the console.log line
+
+  `[TOOL] Tool call started [move|trade|recharge_warp_power|transfer_warp_power]`
+
+The delays are specified in VoiceTaskManager::TOOL_CALL_DELAYS.
+
+This should allow us to fix the warp overlay and other UI timing stuff, maybe.
 
 
-----
+
+
+# OLD
 
 ## Open firehose viewer
 
@@ -70,3 +89,13 @@ uv run npc/run_npc.py TraderX "Move to sector 1000. Once you get there, summariz
 # Todo
 
 * [ ] universe-bang should create the world-data directory if necessary and write output files there.
+
+
+## Textual UI for the game
+
+Once the console starts, close the debug panel (ctrl+d). Then try running a task like "Navigate on auto-pilot to sector 1000."
+
+```
+export OPENAI_API_KEY=sk-proj-...
+uv run player_tui.py JoePlayer
+```

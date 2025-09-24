@@ -1,8 +1,7 @@
-from datetime import datetime, timezone
-import asyncio
 from fastapi import HTTPException
-from .utils import log_trade
+from .utils import log_trade, build_status_payload
 from ships import ShipType, get_ship_stats
+from events import event_dispatcher
 
 
 async def handle(request: dict, world) -> dict:
@@ -54,6 +53,7 @@ async def handle(request: dict, world) -> dict:
     knowledge.credits = new_credits
     knowledge.ship_config.current_warp_power = new_warp_power
     world.knowledge_manager.save_knowledge(knowledge)
+    character.update_activity()
 
     log_trade(
         character_id=character_id,
@@ -66,16 +66,24 @@ async def handle(request: dict, world) -> dict:
         credits_after=new_credits,
     )
 
-    warp_event = {
-        "event": "warp_power_purchase",
-        "character": character_id,
-        "sector": character.sector,
-        "units": units_to_buy,
-        "price_per_unit": price_per_unit,
-        "total_cost": total_cost,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-    asyncio.create_task(world.connection_manager.broadcast_event(warp_event))
+    character.update_activity()
+    timestamp = character.last_active.isoformat()
+
+    await event_dispatcher.emit(
+        "warp.purchase",
+        {
+            "character_id": character_id,
+            "sector": character.sector,
+            "units": units_to_buy,
+            "price_per_unit": price_per_unit,
+            "total_cost": total_cost,
+            "timestamp": timestamp,
+        },
+        character_filter=[character_id],
+    )
+
+    status_payload = build_status_payload(world, character_id)
+    await event_dispatcher.emit("status.update", status_payload, character_filter=[character_id])
 
     return {
         "success": True,

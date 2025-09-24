@@ -44,7 +44,7 @@ from pipecat.processors.frameworks.rtvi import (
     RTVIServerMessageFrame,
 )
 from pipecat.processors.frame_processor import FrameProcessor, FrameDirection
-from pipecat.services.speechmatics.stt import SpeechmaticsSTTService
+from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.base_transport import TransportParams
 from pipecat.runner.types import RunnerArguments
@@ -107,9 +107,13 @@ async def run_bot(transport, runner_args: RunnerArguments):
             await rtvi.push_frame(
                 RTVIServerMessageFrame(
                     {
-                        "gg-action": "task-complete",
-                        "was_cancelled": was_cancelled,
-                        "via_stop_tool": via_stop_tool,
+                        "frame_type": "event",
+                        "event": "task_complete",
+                        "gg-action": "task_complete",
+                        "payload": {
+                            "was_cancelled": was_cancelled,
+                            "via_stop_tool": via_stop_tool,
+                        },
                     }
                 )
             )
@@ -140,8 +144,8 @@ async def run_bot(transport, runner_args: RunnerArguments):
 
     # Initialize STT service
     logger.info("Init STT…")
-    stt = SpeechmaticsSTTService(
-        api_key=os.getenv("SPEECHMATICS_API_KEY"), enable_speaker_diarization=False
+    stt = DeepgramSTTService(
+        api_key=os.getenv("DEEPGRAM_API_KEY"),
     )
 
     # Initialize TTS service (managed session)
@@ -210,9 +214,13 @@ async def run_bot(transport, runner_args: RunnerArguments):
         await rtvi.push_frame(
             RTVIServerMessageFrame(
                 {
-                    "gg-action": "init",
-                    "result": initial_status,
-                    "map_data": initial_map_data,
+                    "frame_type": "event",
+                    "event": "status.init",
+                    "payload": {
+                        "status": initial_status,
+                        "map_data": initial_map_data,
+                    },
+                    "gg-action": "status.init",
                 }
             )
         )
@@ -256,8 +264,76 @@ async def run_bot(transport, runner_args: RunnerArguments):
             # Get current status from the task manager
             status = await task_manager.game_client.my_status()
             await rtvi.push_frame(
-                RTVIServerMessageFrame({"gg-action": "my_status", "result": status})
+                RTVIServerMessageFrame(
+                    {
+                        "frame_type": "event",
+                        "event": "status.update",
+                        "payload": status,
+                        "gg-action": "status.update",
+                    }
+                )
             )
+            return
+
+        if msg_type == "get-local-map":
+            try:
+                if not isinstance(msg_data, dict):
+                    raise ValueError("Message data must be an object")
+
+                sector = msg_data.get("sector")
+                if sector is None:
+                    raise ValueError("Missing required field 'sector'")
+                sector = int(sector)
+
+                max_sectors_raw = msg_data.get("max_sectors")
+                max_hops_raw = msg_data.get("max_hops")
+
+                if max_sectors_raw is not None:
+                    max_sectors = int(max_sectors_raw)
+                    if max_sectors <= 0:
+                        raise ValueError("max_sectors must be positive")
+                    limit_kwargs = {"max_sectors": max_sectors}
+                else:
+                    max_hops = int(max_hops_raw) if max_hops_raw is not None else 3
+                    if max_hops < 0:
+                        raise ValueError("max_hops must be non-negative")
+                    limit_kwargs = {"max_hops": max_hops}
+
+                local_map = await task_manager.game_client.local_map(
+                    current_sector=sector,
+                    **limit_kwargs,
+                )
+
+                await rtvi.push_frame(
+                    RTVIServerMessageFrame(
+                        {
+                            "frame_type": "event",
+                            "event": "local_map",
+                            "gg-action": "local_map",
+                            "payload": {
+                                "character_id": task_manager.character_id,
+                                "sector": sector,
+                                **limit_kwargs,
+                                "node_list": local_map.get("node_list", []),
+                            },
+                        }
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Failed to fetch local_map via client message")
+                await rtvi.push_frame(
+                    RTVIServerMessageFrame(
+                        {
+                            "frame_type": "event",
+                            "event": "local_map",
+                            "gg-action": "local_map",
+                            "payload": {
+                                "error": str(exc),
+                                "sector": msg_data.get("sector") if isinstance(msg_data, dict) else None,
+                            },
+                        }
+                    )
+                )
             return
 
         # Client sent a custom message
@@ -273,29 +349,36 @@ async def run_bot(transport, runner_args: RunnerArguments):
     async def on_client_connected(transport, client):
         """Handle new connection."""
         logger.info("Client connected")
+
+    @rtvi.event_handler("on_client_ready")
+    async def on_client_ready(rtvi):
         # Proactively send init in case client_ready doesn't fire in this environment
         try:
+            await rtvi.set_bot_ready()
             await rtvi.push_frame(
                 RTVIServerMessageFrame(
                     {
-                        "gg-action": "init",
-                        "result": initial_status,
-                        "map_data": initial_map_data,
+                        "frame_type": "event",
+                        "event": "status.init",
+                        "payload": {
+                            "status": initial_status,
+                            "map_data": initial_map_data,
+                        },
+                        "gg-action": "status.init",
                     }
                 )
             )
         except Exception:
             logger.exception("Failed to send init on connect")
 
-        @transport.event_handler("on_client_disconnected")
-        async def on_client_disconnected(transport, client):
-            """Handle disconnection."""
-            logger.info("Client disconnected")
-            await task.cancel()
-            logger.info("Bot stopped")
+    @transport.event_handler("on_client_disconnected")
+    async def on_client_disconnected(transport, client):
+        """Handle disconnection."""
+        logger.info("Client disconnected")
+        await task.cancel()
+        logger.info("Bot stopped")
 
-        # Create runner and run the task
-
+    # Create runner and run the task
     runner = PipelineRunner(handle_sigint=getattr(runner_args, "handle_sigint", False))
     try:
         logger.info("Starting pipeline runner…")

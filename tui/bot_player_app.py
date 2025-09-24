@@ -283,7 +283,7 @@ class BotPlayerApp(BotTUIBase):
                 if not action:
                     return
 
-                if action in ("init", "my_status"):
+                if action in ("status.init", "status.update", "init", "my_status"):
                     result = payload.get("result", {})
                     map_data = payload.get("map_data")
                     self._update_status(result)
@@ -347,20 +347,20 @@ class BotPlayerApp(BotTUIBase):
                     self._update_status(status_like)
                     if self.syslog:
                         self.syslog.write_line("[rtvi] action=recharge_warp_power -> status updated")
-                elif action == "task-output":
+                elif action == "task_output":
                     txt = str(payload.get("text", ""))
                     if txt and self.task_output:
                         self.task_output.add_info(txt)
                         if self.syslog:
-                            self.syslog.write_line("[rtvi] action=task-output -> appended")
-                elif action in ("start_task", "stop_task", "task-complete"):
+                            self.syslog.write_line("[rtvi] action=task_output -> appended")
+                elif action in ("start_task", "stop_task", "task_complete"):
                     if self.progress_widget:
                         if action == "start_task":
                             desc = str(payload.get("task_description", "Task"))
                             self.progress_widget.start_task(desc or "Task")
                         elif action == "stop_task":
                             self.progress_widget.stop_task("Task cancelled")
-                        else:  # task-complete
+                        else:  # task_complete
                             self.progress_widget.stop_task("Task complete")
                         if self.syslog:
                             self.syslog.write_line(f"[rtvi] action={action} -> progress updated")

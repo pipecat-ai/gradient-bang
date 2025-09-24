@@ -12,6 +12,7 @@ import useSectorStore, { type SectorContents } from "./stores/sector";
 import useStarfieldStore from "./stores/starfield";
 import useTaskStore, { type TaskOutput } from "./stores/tasks";
 import useTradeHistoryStore, { type TradeHistoryItem } from "./stores/trades";
+import useLocalMapStore, { type LocalMapPayload } from "./stores/localMap";
 
 const ServerMessageKey = "gg-action";
 
@@ -127,6 +128,8 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
   const client = usePipecatClient();
   const { resetActivePanels } = useUI();
   const tradeHistoryStore = useTradeHistoryStore();
+  const setLocalMap = useLocalMapStore((state) => state.setLocalMap);
+  const clearLocalMaps = useLocalMapStore((state) => state.clear);
 
   const setShip = useCallback(
     (ship: Ship) => {
@@ -190,6 +193,7 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
 
   const resetGame = () => {
     dispatch({ type: "RESET_GAME" });
+    clearLocalMaps();
   };
 
   /**
@@ -199,162 +203,230 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
     RTVIEvent.ServerMessage,
     useCallback(
       (data: Record<string, unknown>) => {
-        if (ServerMessageKey in data) {
-          let action = data[ServerMessageKey];
+        const rawAction =
+          typeof data.event === "string"
+            ? (data.event as string)
+            : (data[ServerMessageKey] as string | undefined);
 
-          console.log("[GAME] Server message received", action, data);
+        if (!rawAction) {
+          return;
+        }
 
-          // Transform if this is a tool call result
-          if (action === "tool_result" && "tool_name" in data) {
-            console.log("[GAME] Server message transformed to", action, data);
-            action = data.tool_name as string;
-            data = data.payload as Record<string, unknown>;
-            console.log("[GAME] Transformed result", action, data);
-          }
+        console.log("[GAME] Server message received", rawAction, data);
 
-          switch (action) {
-            // ----- INIT & STATUS
-            case "init":
-            case "my_status": {
-              const newStatus: StatusUpdate = data.result as StatusUpdate;
-              dispatch({
-                type: "SET_STATUS",
-                status: newStatus,
-              });
+        let action = rawAction;
+        let payload: Record<string, unknown> =
+          (typeof data.payload === "object" && data.payload !== null
+            ? (data.payload as Record<string, unknown>)
+            : (data.result as Record<string, unknown>)) ||
+          (data as Record<string, unknown>);
+
+        // Transform if this is a tool call result
+        if (action === "tool_result" && "tool_name" in data) {
+          action = data.tool_name as string;
+          payload = (data.payload as Record<string, unknown>) ?? {};
+          console.log("[GAME] Transformed tool result", action, payload);
+        }
+
+        switch (action) {
+          case "status.init": {
+            const statusPayload = payload.status as StatusUpdate | undefined;
+            if (statusPayload) {
+              dispatch({ type: "SET_STATUS", status: statusPayload });
               sectorStore.setSector(
-                newStatus.sector,
-                newStatus.sector_contents
+                statusPayload.sector,
+                statusPayload.sector_contents
               );
-
-              // Handle any map data (typically as part of init)
-              handleMapData(data.map_data);
-              break;
             }
-
-            // ----- MOVEMENT
-            case "move": {
-              console.log("[MOVE] Movement", data);
-
-              // Reset any active HUD panels on movement
-              resetActivePanels();
-
-              // Check if this is the result of a tool call
-              if (data.content) {
-                const d = JSON.parse(data.content as string);
-                handleMovement(d as StatusUpdate);
-              } else {
-                handleMovement(data.result as StatusUpdate);
-              }
-              break;
+            if (payload.map_data) {
+              handleMapData(payload.map_data);
             }
-
-            // ----- MAP DATA
-            case "my_map": {
-              handleMapData(data.result);
-              break;
-            }
-
-            // ----- TRADE
-            case "trade": {
-              let result;
-              // Check if this is the result of a tool call
-              if (data.content) {
-                result = JSON.parse(data.content as string);
-                if (result.error) {
-                  console.error("[GAME] Trade error", result.error);
-                  break;
-                }
-              } else {
-                result = data.result;
-              }
-
-              const tradeResult = result as StatusUpdate & {
-                new_cargo: Cargo;
-                new_credits: number;
-              };
-
-              dispatch({
-                type: "SET_SHIP",
-                ship: {
-                  cargo: tradeResult.new_cargo,
-                  credits: tradeResult.new_credits,
-                } as Ship,
-              });
-
-              // Add the trade to the trade history
-              const historyResult = result as TradeHistoryItem;
-              tradeHistoryStore.addTrade({
-                timestamp: new Date().toISOString(),
-                trade_type: historyResult.trade_type,
-                commodity: historyResult.commodity,
-                units: historyResult.units,
-                price_per_unit: historyResult.price_per_unit,
-                total_price: historyResult.total_price,
-              } as TradeHistoryItem);
-
-              // Update status
-              getStatusFromServer();
-              break;
-            }
-
-            case "check_trade": {
-              const instance = starfieldStore.getInstance();
-              if (!instance) return;
-              const go = instance.getAllGameObjects()[0];
-              if (!go) return;
-              instance.selectGameObject(go.id);
-              break;
-            }
-
-            // ----- WARP POWER
-            case "recharge_warp_power": {
-              dispatch({
-                type: "SET_SHIP",
-                ship: {
-                  warp_power: (data.result as Record<string, unknown>)
-                    .new_warp_power as number,
-                  warp_power_capacity: (data.result as Record<string, unknown>)
-                    .warp_power_capacity as number,
-                  credits: (data.result as Record<string, unknown>)
-                    .new_credits as number,
-                } as Ship,
-              });
-              break;
-            }
-
-            // ----- TASKS
-            case "start_task":
-              taskStore.setActive(true);
-              taskStore.setStatus(undefined);
-              resetActivePanels();
-              break;
-            case "stop_task":
-              taskStore.setActive(false);
-              taskStore.setStatus("cancelled");
-              break;
-            case "task-complete":
-              taskStore.setActive(false);
-              if (
-                data.result &&
-                "was_cancelled" in (data.result as Record<string, unknown>)
-              ) {
-                taskStore.setStatus("cancelled");
-              } else {
-                taskStore.setStatus("completed");
-              }
-              break;
-            case "task-output":
-              taskStore.addTaskOutput({
-                ...(data as Record<string, unknown>),
-                timestamp: new Date().toISOString(),
-              } as TaskOutput);
-              break;
-
-            // ----- DEFAULT
-            default:
-              console.warn("Unhandled game action", action);
-              break;
+            break;
           }
+          case "status.update":
+          case "init": {
+            const newStatus =
+              (payload as StatusUpdate) ?? (payload.result as StatusUpdate);
+            if (!newStatus) {
+              break;
+            }
+            dispatch({
+              type: "SET_STATUS",
+              status: newStatus,
+            });
+            sectorStore.setSector(
+              newStatus.sector,
+              newStatus.sector_contents
+            );
+            if (payload.map_data) {
+              handleMapData(payload.map_data);
+            }
+            break;
+          }
+          case "my_status": {
+            // we need to get payload.result.result if it exists.
+            const newStatus = (payload.result?.result as StatusUpdate) // this is correct, how do we ignore linter?
+            if (!newStatus) {
+              break;
+            }
+            dispatch({
+              type: "SET_STATUS",
+              status: newStatus,
+            });
+            sectorStore.setSector(
+              newStatus.sector,
+              newStatus.sector_contents
+            );
+            if (payload.map_data) {
+              handleMapData(payload.map_data);
+            }
+            break;
+          }
+          case "move":
+          case "character.moved": {
+            console.log("[MOVE] Movement", payload);
+            resetActivePanels();
+            const payloadWithResult = payload as {
+              result?: unknown;
+              content?: unknown;
+            };
+            let moveStatus: StatusUpdate | undefined;
+            if (payloadWithResult.result && typeof payloadWithResult.result === "object") {
+              moveStatus = payloadWithResult.result as StatusUpdate;
+            } else if (
+              typeof payloadWithResult.content === "string" &&
+              payloadWithResult.content.trim()
+            ) {
+              try {
+                const parsed = JSON.parse(payloadWithResult.content);
+                if (parsed && typeof parsed === "object") {
+                  moveStatus = parsed as StatusUpdate;
+                }
+              } catch (err) {
+                console.warn("[MOVE] Unable to parse move payload", err, payload);
+              }
+            } else if (action === "character.moved") {
+              moveStatus = payload as unknown as StatusUpdate;
+            }
+
+            if (moveStatus && typeof moveStatus.sector === "number") {
+              handleMovement(moveStatus);
+            }
+            break;
+          }
+          case "my_map": {
+            handleMapData(payload.result ?? payload);
+            break;
+          }
+          case "trade": {
+            let result: unknown = payload.result ?? payload;
+            if (payload.content) {
+              result = JSON.parse(payload.content as string);
+              if ((result as { error?: unknown }).error) {
+                console.error("[GAME] Trade error", (result as { error: unknown }).error);
+                break;
+              }
+            }
+            const tradeResult = result as StatusUpdate & {
+              new_cargo: Cargo;
+              new_credits: number;
+            };
+            dispatch({
+              type: "SET_SHIP",
+              ship: {
+                cargo: tradeResult.new_cargo,
+                credits: tradeResult.new_credits,
+              } as Ship,
+            });
+            const historyResult = result as TradeHistoryItem;
+            tradeHistoryStore.addTrade({
+              timestamp: new Date().toISOString(),
+              trade_type: historyResult.trade_type,
+              commodity: historyResult.commodity,
+              units: historyResult.units,
+              price_per_unit: historyResult.price_per_unit,
+              total_price: historyResult.total_price,
+            } as TradeHistoryItem);
+            getStatusFromServer();
+            break;
+          }
+          case "tool_call": {
+            const payloadWithPossibleName = payload as {
+              tool_name?: unknown;
+              arguments?: { tool_name?: unknown };
+            };
+            const toolName =
+              (data.tool_name as string | undefined) ??
+              (typeof payloadWithPossibleName.tool_name === "string"
+                ? payloadWithPossibleName.tool_name
+                : undefined) ??
+              (payloadWithPossibleName.arguments &&
+              typeof payloadWithPossibleName.arguments.tool_name === "string"
+                ? payloadWithPossibleName.arguments.tool_name
+                : undefined) ??
+              "unknown";
+            const prefix = taskStore.active ? "[TOOL][TASK]" : "[TOOL]";
+            console.log(`${prefix} Tool call started`, toolName, payload);
+            // !!! Jon, we can add the tool start UI dispatching here.
+            break;
+          }
+          case "check_trade": {
+            const instance = starfieldStore.getInstance();
+            if (!instance) return;
+            const go = instance.getAllGameObjects()[0];
+            if (!go) return;
+            instance.selectGameObject(go.id);
+            break;
+          }
+          case "recharge_warp_power": {
+            const result = payload.result as Record<string, unknown>;
+            dispatch({
+              type: "SET_SHIP",
+              ship: {
+                warp_power: result?.new_warp_power as number,
+                warp_power_capacity: result?.warp_power_capacity as number,
+                credits: result?.new_credits as number,
+              } as Ship,
+            });
+            break;
+          }
+          case "start_task":
+            taskStore.setActive(true);
+            taskStore.setStatus(undefined);
+            resetActivePanels();
+            break;
+          case "stop_task":
+            taskStore.setActive(false);
+            taskStore.setStatus("cancelled");
+            break;
+          case "task_complete": {
+            taskStore.setActive(false);
+            const taskCompletePayload = payload as {
+              was_cancelled?: boolean;
+            };
+            if (taskCompletePayload.was_cancelled) {
+              taskStore.setStatus("cancelled");
+            } else {
+              taskStore.setStatus("completed");
+            }
+            break;
+          }
+          case "task_output":
+            taskStore.addTaskOutput({
+              ...(payload as Record<string, unknown>),
+              timestamp: new Date().toISOString(),
+            } as TaskOutput);
+            break;
+          case "local_map": {
+            const localMapPayload = (payload as LocalMapPayload) ?? undefined;
+            if (localMapPayload) {
+              setLocalMap(localMapPayload);
+            }
+            break;
+          }
+          default:
+            console.warn("Unhandled game action", action);
+            break;
         }
       },
       [
@@ -366,6 +438,7 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
         tradeHistoryStore,
         getStatusFromServer,
         resetActivePanels,
+        setLocalMap,
       ]
     )
   );

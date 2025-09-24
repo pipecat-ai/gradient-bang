@@ -137,3 +137,24 @@ def sector_contents(
         "other_players": other_players,
         "adjacent_sectors": adjacent_sectors,
     }
+
+
+def build_status_payload(
+    world,
+    character_id: str,
+    *,
+    sector_snapshot: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Assemble the canonical status payload for a character."""
+    character = world.characters[character_id]
+    snapshot = sector_snapshot or sector_contents(
+        world, character.sector, character_id
+    )
+    return {
+        "character_id": character_id,
+        "name": character.id,
+        "sector": character.sector,
+        "last_active": character.last_active.isoformat(),
+        "sector_contents": snapshot,
+        "ship": build_ship_status(world, character_id),
+    }

@@ -238,9 +238,49 @@ interface LayoutResult {
   function createElements(nodes, centerId) {
     const elements = [];
 
+    const normalizeId = value => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+      }
+      if (typeof value === 'string' && value.trim() !== '') {
+        const parsed = Number.parseInt(value, 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
+
+    const centerLookupId = normalizeId(centerId);
+
     // Add nodes
     for (const n of nodes) {
+      const normalizedNodeId = normalizeId(n.id);
       const label = n.port_type ? `${n.id}\n${n.port_type}` : String(n.id);
+      const isCenter = typeof centerLookupId === 'number'
+        ? normalizedNodeId === centerLookupId
+        : normalizedNodeId === centerId;
+      const isLeaf = Boolean(n.is_leaf);
+
+      const classes = [];
+      if (isCenter) {
+        classes.push('center');
+      }
+
+      if (n.visited) {
+        classes.push('visited');
+        if (!isCenter && isLeaf) {
+          classes.push('visited-leaf');
+        }
+      } else {
+        classes.push('unvisited');
+      }
+
+      // console.log('[HudMapVisualization] node debug', {
+      //   rawId: n.id,
+      //   normalizedNodeId,
+      //   isCenter,
+      //   isLeaf,
+      //   classes,
+      // });
 
       elements.push({
         data: {
@@ -248,9 +288,10 @@ interface LayoutResult {
           label: label,
           visited: n.visited,
           port_type: n.port_type,
-          isCenter: n.id === centerId
+          isCenter: isCenter,
+          isLeaf: isLeaf
         },
-        classes: n.id === centerId ? 'center' : (n.visited ? 'visited' : 'unvisited')
+        classes: classes.join(' ')
       });
     }
 
@@ -2344,9 +2385,17 @@ interface LayoutResult {
         }
       },
       {
+        selector: 'node.visited-leaf',
+        style: {
+          'background-color': '#ffffff',
+          'color': '#000000'
+        }
+      },
+      {
         selector: 'node.unvisited',
         style: {
-          'background-color': '#ef9a9a'
+          'background-color': '#ef9a9a',
+          'color': '#000000'
         }
       },
       {

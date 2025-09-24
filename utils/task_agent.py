@@ -6,6 +6,7 @@ from typing import Dict, Any, Optional, Tuple, List, Callable
 
 
 from utils.base_llm_agent import BaseLLMAgent
+from utils.api_client import LLMResult
 from utils.prompts import GAME_DESCRIPTION, TASK_EXECUTION_INSTRUCTIONS
 from utils.tools_schema import (
     MyMap,
@@ -132,14 +133,16 @@ class TaskAgent(BaseLLMAgent):
 
     async def process_tool_call(
         self, tool_call: Dict[str, Any]
-    ) -> Tuple[Optional[Dict[str, Any]], bool]:
+    ) -> Tuple[Optional[Dict[str, Any]], bool, Any]:
         """Override base class method to exit the task when the 'finished' tool is called.
 
         Args:
             tool_call: Tool call from assistant message
 
         Returns:
-            (tool_message, should_continue) - tool_message is None if tool wasn't executed
+            (tool_message, should_continue, raw_result) where raw_result is the
+            underlying tool output (e.g. `LLMResult`). tool_message is None if
+            the tool wasn't executed.
         """
         tool_name = tool_call["function"]["name"]
         tool_args = json.loads(tool_call["function"]["arguments"])
@@ -156,16 +159,39 @@ class TaskAgent(BaseLLMAgent):
             self.finished = True
             self.finished_message = tool_args.get("message", "Done")
             self._output(f"{self.finished_message}", TaskOutputType.FINISHED)
-            return (None, False)  # Don't add to history, stop processing
+            return (None, False, None)  # Don't add to history, stop processing
 
         # For all other tools, use base implementation
-        tool_message, should_continue = await super().process_tool_call(tool_call)
-        self._output(f"{json.dumps(tool_message)}", TaskOutputType.TOOL_RESULT)
+        tool_message, should_continue, raw_result = await super().process_tool_call(
+            tool_call
+        )
+        try:
+            self._output(f"{json.dumps(tool_message)}", TaskOutputType.TOOL_RESULT)
+        except Exception:
+            self._output(f"{str(tool_message)}", TaskOutputType.TOOL_RESULT)
 
         if self.tool_result_event_callback:
-            await self.tool_result_event_callback(tool_name, tool_message)
+            structured_payload: Dict[str, Any] = {}
+            if raw_result is not None:
+                if isinstance(raw_result, LLMResult) or hasattr(
+                    raw_result, "llm_summary"
+                ):
+                    structured_payload["result"] = dict(raw_result)
+                    summary = (getattr(raw_result, "llm_summary", "") or "").strip()
+                    structured_payload["summary"] = summary
+                    delta = getattr(raw_result, "llm_delta", None)
+                    if delta:
+                        structured_payload["delta"] = delta
+                elif isinstance(raw_result, (dict, list, str, int, float, bool)):
+                    structured_payload["result"] = raw_result
+                else:
+                    structured_payload["result"] = raw_result
+            if tool_message is not None:
+                structured_payload["tool_message"] = tool_message
 
-        return (tool_message, should_continue)
+            await self.tool_result_event_callback(tool_name, structured_payload)
+
+        return (tool_message, should_continue, raw_result)
 
     async def run_task(
         self,

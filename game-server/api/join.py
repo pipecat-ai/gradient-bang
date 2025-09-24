@@ -1,9 +1,9 @@
 from datetime import datetime, timezone
-import asyncio
 from fastapi import HTTPException
 
-from .utils import build_ship_status
+from .utils import build_status_payload, sector_contents
 from ships import validate_ship_type
+from events import event_dispatcher
 
 
 async def handle(request: dict, world) -> dict:
@@ -48,13 +48,14 @@ async def handle(request: dict, world) -> dict:
         if credits is not None:
             world.knowledge_manager.update_credits(character_id, credits)
 
-        join_event = {
-            "event": "join",
-            "character": character_id,
-            "sector": start_sector,
-            "timestamp": character.last_active.isoformat(),
-        }
-        asyncio.create_task(world.connection_manager.broadcast_event(join_event))
+        await event_dispatcher.emit(
+            "character.joined",
+            {
+                "character_id": character_id,
+                "sector": start_sector,
+                "timestamp": character.last_active.isoformat(),
+            },
+        )
     else:
         character = world.characters[character_id]
         character.update_activity()
@@ -63,18 +64,19 @@ async def handle(request: dict, world) -> dict:
                 raise HTTPException(status_code=400, detail=f"Invalid sector: {sector}")
             old_sector = character.sector
             character.sector = sector
-            move_event = {
-                "event": "admin_move",
-                "character": character_id,
-                "from_sector": old_sector,
-                "to_sector": sector,
-                "timestamp": character.last_active.isoformat(),
-            }
-            asyncio.create_task(world.connection_manager.broadcast_event(move_event))
+            await event_dispatcher.emit(
+                "character.moved",
+                {
+                    "character_id": character_id,
+                    "from_sector": old_sector,
+                    "to_sector": sector,
+                    "timestamp": character.last_active.isoformat(),
+                    "move_type": "teleport",
+                },
+            )
         if credits is not None:
             world.knowledge_manager.update_credits(character_id, credits)
 
-    from .utils import sector_contents
     contents = sector_contents(world, character.sector, character_id)
     world.knowledge_manager.update_sector_visit(
         character_id=character_id,
@@ -83,9 +85,14 @@ async def handle(request: dict, world) -> dict:
         planets=contents.get("planets", []),
         adjacent_sectors=contents.get("adjacent_sectors", []),
     )
+    status_payload = build_status_payload(
+        world, character_id, sector_snapshot=contents
+    )
 
-    return {
-        **character.to_response(),
-        "sector_contents": contents,
-        "ship": build_ship_status(world, character_id),
-    }
+    await event_dispatcher.emit(
+        "status.update",
+        status_payload,
+        character_filter=[character_id],
+    )
+
+    return status_payload
