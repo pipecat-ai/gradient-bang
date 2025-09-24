@@ -253,6 +253,15 @@ async def run_bot(transport, runner_args: RunnerArguments):
             )
             return
 
+        # Client requested move to sector
+        if msg_type == "move-to-sector":
+            # Get current status from the task manager
+            movement = await task_manager.game_client.move(to_sector=msg_data.get("sector", 0))
+            await rtvi.push_frame(
+                RTVIServerMessageFrame({"gg-action": "move", "result": movement})
+            )
+            return
+
         # Client sent a custom message
         if msg_type == "custom-message":
             text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""
@@ -325,7 +334,7 @@ if __name__ == "__main__":
     # Support a simple local run mode for development: `python -m pipecat.bot -t local`
     # Falls back to the standard runner (pipecat.runner.run::main) otherwise.
     import argparse
-    from macos.local_mac_transport import LocalMacTransport, LocalMacTransportParams
+    #from macos.local_mac_transport import LocalMacTransport, LocalMacTransportParams
 
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("-t", "--t", default=None)

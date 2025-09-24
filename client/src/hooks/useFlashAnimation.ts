@@ -15,7 +15,7 @@ interface UseFlashAnimationOptions {
 }
 
 export const useFlashAnimation = (
-  trigger: number | undefined, // The value that changes to trigger the flash
+  trigger: number | undefined,
   options: UseFlashAnimationOptions = {}
 ) => {
   const { duration = 800, flashDelay = 0 } = options;
@@ -31,15 +31,13 @@ export const useFlashAnimation = (
   const lastProcessedValueRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
-    // Skip animation on first render
     if (isFirstRenderRef.current) {
       isFirstRenderRef.current = false;
       previousTriggerRef.current = trigger;
+      lastProcessedValueRef.current = trigger;
       return;
     }
 
-    // Only trigger flash if the value actually changed and we're not already flashing
-    // Also ensure we haven't already processed this exact value
     if (
       trigger !== previousTriggerRef.current &&
       trigger !== undefined &&
@@ -48,39 +46,31 @@ export const useFlashAnimation = (
     ) {
       const previousValue = previousTriggerRef.current;
 
-      // Don't flash when transitioning from undefined to a number
+      // Skip flash if previous value was undefined (initial load)
       if (previousValue === undefined) {
         previousTriggerRef.current = trigger;
+        lastProcessedValueRef.current = trigger;
         return;
       }
 
-      // Clear any existing timeout
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
 
-      // Determine flash color based on whether value increased or decreased
       const isIncrease =
         typeof trigger === "number" &&
         typeof previousValue === "number" &&
         trigger > previousValue;
       const flashColorToUse = isIncrease ? "active" : "inactive";
 
-      console.log(
-        `[FLASH] Triggering flash: ${previousValue} -> ${trigger}, color: ${flashColorToUse}`
-      );
-
-      // Update the previous value immediately to prevent double triggers
       previousTriggerRef.current = trigger;
       lastProcessedValueRef.current = trigger;
 
-      // Start the flash animation after the specified delay
       timeoutRef.current = setTimeout(() => {
         isFlashingRef.current = true;
         setIsFlashing(true);
         setFlashColor(flashColorToUse);
 
-        // End the flash animation and reset color
         setTimeout(() => {
           isFlashingRef.current = false;
           setIsFlashing(false);
@@ -89,7 +79,6 @@ export const useFlashAnimation = (
       }, flashDelay);
     }
 
-    // Cleanup function
     return () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
@@ -97,7 +86,6 @@ export const useFlashAnimation = (
     };
   }, [trigger, duration, flashDelay]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (timeoutRef.current) {
@@ -110,14 +98,13 @@ export const useFlashAnimation = (
     isFlashing,
     flashColor,
     triggerFlash: () => {
-      // Manual trigger function if needed
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
 
       isFlashingRef.current = true;
       setIsFlashing(true);
-      setFlashColor("active"); // Default to active for manual triggers
+      setFlashColor("active");
 
       setTimeout(() => {
         setFlashColor("primary");

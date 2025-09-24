@@ -2,10 +2,10 @@ import { createRoot } from "react-dom/client";
 
 import { PipecatAppBase } from "@pipecat-ai/voice-ui-kit";
 
-import { App } from "./components/App";
-import { Error } from "./components/Error";
 import { GameProvider } from "./GameContext";
-import { UIProvider } from "./UIContext";
+
+import Error from "./state/Error";
+import Game from "./state/Game";
 
 import "./css/index.css";
 
@@ -21,11 +21,9 @@ createRoot(document.getElementById("root")!).render(
       error ? (
         <Error onRetry={handleConnect}>{error}</Error>
       ) : (
-        <UIProvider>
-          <GameProvider>
-            <App onConnect={handleConnect} />
-          </GameProvider>
-        </UIProvider>
+        <GameProvider>
+          <Game onConnect={handleConnect} />
+        </GameProvider>
       )
     }
   </PipecatAppBase>
