@@ -50,6 +50,7 @@ class VoiceTaskManager:
             base_url="http://localhost:8000",
             transport="websocket",
         )
+        self.game_client.on("chat.message")(self._handle_chat_message)
 
         self.task_config = LLMConfig(model="gpt-5")
 
@@ -88,6 +89,7 @@ class VoiceTaskManager:
     async def join(self):
         logger.info(f"Joining game as character: {self.character_id}")
         result = await self.game_client.join(self.character_id)
+        await self.game_client.subscribe_my_messages()
         logger.info(f"Join successful: {result}")
         return result
 
@@ -144,6 +146,20 @@ class VoiceTaskManager:
                     "gg-action": "tool_result",
                     "tool_name": tool_name,
                     "payload": normalized_payload,
+                }
+            )
+        )
+
+    async def _handle_chat_message(self, payload: Dict[str, Any]) -> None:
+        """Relay chat.message events to RTVI clients."""
+
+        await self.rtvi_processor.push_frame(
+            RTVIServerMessageFrame(
+                {
+                    "frame_type": "event",
+                    "event": "chat.message",
+                    "gg-action": "chat.message",
+                    "payload": payload,
                 }
             )
         )

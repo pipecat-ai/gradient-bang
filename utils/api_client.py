@@ -1284,8 +1284,27 @@ class AsyncGameClient:
         return LLMResult(result, summary, delta)
 
     async def subscribe_chat(self):
+        if "chat.message" in self._subscriptions:
+            return
         await self._send_command({"type": "subscribe", "event": "chat.message"})
         self._subscriptions.add("chat.message")
+
+    async def subscribe_my_messages(
+        self,
+        handler: Optional[Callable[[Dict[str, Any]], Awaitable[None] | None]] = None,
+    ) -> None:
+        """Ensure chat.message events are subscribed and optionally register a handler."""
+
+        if handler is not None:
+            if asyncio.iscoroutinefunction(handler):
+                self.on("chat.message")(handler)
+            else:
+                async def _wrapper(payload: Dict[str, Any]) -> None:
+                    handler(payload)
+
+                self.on("chat.message")(_wrapper)
+
+        await self.subscribe_chat()
 
     async def _request(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         await self._ensure_ws()
