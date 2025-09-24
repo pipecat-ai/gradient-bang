@@ -25,7 +25,11 @@ from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
     Frame,
+    InterruptionFrame,
     LLMMessagesAppendFrame,
+    UserStartedSpeakingFrame,
+    UserStoppedSpeakingFrame,
+    TranscriptionFrame,
     StartFrame,
     StopFrame,
 )
@@ -49,6 +53,7 @@ from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.base_transport import TransportParams
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
+from pipecat.utils.time import time_now_iso8601
 
 from utils.prompts import GAME_DESCRIPTION, CHAT_INSTRUCTIONS, VOICE_INSTRUCTIONS
 
@@ -329,10 +334,29 @@ async def run_bot(transport, runner_args: RunnerArguments):
                             "gg-action": "local_map",
                             "payload": {
                                 "error": str(exc),
-                                "sector": msg_data.get("sector") if isinstance(msg_data, dict) else None,
+                                "sector": msg_data.get("sector")
+                                if isinstance(msg_data, dict)
+                                else None,
                             },
                         }
                     )
+                )
+            return
+
+        # Handle user text input messages
+        if msg_type == "user-text-input":
+            text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""
+            if text:
+                logger.info(f"[USER-TEXT-INPUT] Received text: {text}")
+                await task.queue_frames(
+                    [
+                        InterruptionFrame(),
+                        UserStartedSpeakingFrame(),
+                        TranscriptionFrame(
+                            text=text, user_id="player", timestamp=time_now_iso8601()
+                        ),
+                        UserStoppedSpeakingFrame(),
+                    ]
                 )
             return
 

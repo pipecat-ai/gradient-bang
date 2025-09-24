@@ -22,6 +22,14 @@ export const App = ({ onConnect }: { onConnect?: () => void }) => {
   const { isConnected } = usePipecatConnectionState();
   const playSound = usePlaySound();
   const client = usePipecatClient();
+
+  useEffect(() => {
+    // Set the client globally for console access
+    if (client) {
+      (window as any).__pipecatClient = client;
+    }
+  }, [client]);
+
   useEffect(() => {
     if (client && client.state !== "initialized") {
       client.initDevices();
