@@ -1,6 +1,5 @@
 import { useCallback } from "react";
-import { useShallow } from "zustand/react/shallow";
-import { useSettingsStore } from "../stores/settings";
+import useGameStore from "../stores/game";
 
 export type Sound = "warp" | "start" | "ambience";
 
@@ -11,9 +10,7 @@ const SoundMap = {
 };
 
 export const usePlaySound = () => {
-  const disabledSounds = useSettingsStore(
-    useShallow((state) => state.disabledSounds)
-  );
+  const { disabledSounds } = useGameStore.use.settings();
 
   return useCallback(
     (sound: Sound, options?: { volume?: number; loop?: boolean }) => {
@@ -39,6 +36,6 @@ export const usePlaySound = () => {
         });
       }
     },
-    []
+    [disabledSounds]
   );
 };

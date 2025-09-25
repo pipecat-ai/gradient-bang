@@ -9,7 +9,6 @@ import {
 } from "@pipecat-ai/voice-ui-kit";
 import useGameStore from "@stores/game";
 import { useState } from "react";
-import Settings from "../settings.json";
 
 const debugMessages = [
   [
@@ -21,8 +20,9 @@ const debugMessages = [
 
 export const Debug = () => {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const { debugMode } = useGameStore.use.settings();
 
-  if (!Settings.debugMode) return null;
+  if (!debugMode) return null;
 
   const uiState = useGameStore.use.uiState();
 

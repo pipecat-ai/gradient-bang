@@ -2,6 +2,7 @@ import { usePipecatClient } from "@pipecat-ai/client-react";
 import { usePipecatConnectionState } from "@pipecat-ai/voice-ui-kit";
 
 import Summary from "@/hud/Summary";
+import useGameStore from "@/stores/game";
 import { Debug } from "@hud/Debug";
 import { SectorMap } from "@hud/SectorMap";
 import { TopBar } from "@hud/TopBar";
@@ -9,16 +10,15 @@ import { useCallback, useEffect } from "react";
 import { Connect } from "../components/HUD/Connect";
 import { PortBadge } from "../components/PortBadge";
 import { SectorBadge } from "../components/SectorBadge";
-import Starfield from "../components/Starfield";
+import { Starfield } from "../components/Starfield";
 import { usePlaySound } from "../hooks/usePlaySound";
-import { useSettingsStore } from "../stores/settings";
 
 export const Game = ({ onConnect }: { onConnect?: () => void }) => {
   const { isConnected } = usePipecatConnectionState();
   const playSound = usePlaySound();
   const client = usePipecatClient();
 
-  const startMuted = useSettingsStore.use.startMuted();
+  const { startMuted } = useGameStore.use.settings();
 
   const sendUserTextInput = useCallback(
     (text: string) => {
@@ -54,6 +54,7 @@ export const Game = ({ onConnect }: { onConnect?: () => void }) => {
 
   useEffect(() => {
     if (isConnected) {
+      // Play ambient background music
       playSound("ambience", { volume: 0.5, loop: true });
     }
   }, [isConnected, playSound]);

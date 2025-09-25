@@ -10,6 +10,7 @@ import { GalaxyStarfield } from "../starfield/";
 import { createActionsSlice, type ActionsSlice } from "./actionSlice";
 import { createHistorySlice, type HistorySlice } from "./historySlice";
 import { createMapSlice, type MapSlice } from "./mapSlice";
+import { createSettingsSlice, type SettingsSlice } from "./settingsSlice";
 import { createTaskSlice, type TaskSlice } from "./taskSlice";
 
 type WithSelectors<S> = S extends { getState: () => infer T }
@@ -50,15 +51,22 @@ export interface GameState {
 export interface GameSlice extends GameState {
   setState: (newState: Partial<GameState>) => void;
   setShip: (ship: Partial<Ship>) => void;
-  setSector: (sector: Sector, immediate?: boolean) => Promise<void>;
+  setSector: (sector: Sector) => void;
   setPlayer: (player: Player) => void;
   setCredits: (credits: number) => void;
   setUIState: (state: UIState) => void;
-  setStarfieldInstance: (starfieldInstance: GalaxyStarfield) => void;
+  setStarfieldInstance: (
+    starfieldInstance: GalaxyStarfield | undefined
+  ) => void;
 }
 
 const createGameSlice: StateCreator<
-  GameSlice & ActionsSlice & MapSlice & HistorySlice & TaskSlice,
+  GameSlice &
+    ActionsSlice &
+    MapSlice &
+    HistorySlice &
+    TaskSlice &
+    SettingsSlice,
   [],
   [],
   GameSlice
@@ -84,13 +92,8 @@ const createGameSlice: StateCreator<
         }
       })
     ),
-  setSector: async (sector: Sector, immediate = false) => {
+  setSector: (sector: Sector) => {
     const prevSector = get().sector?.id;
-
-    if (!immediate) {
-      // Await movement action to sequence animation state
-      await get().moveToSectorAction();
-    }
 
     // Update the current sector
     set(
@@ -111,18 +114,19 @@ const createGameSlice: StateCreator<
     ),
   setCredits: (credits: number) => set({ credits }),
   setUIState: (uiState: UIState) => set({ uiState }),
-  setStarfieldInstance: (starfieldInstance: GalaxyStarfield) =>
+  setStarfieldInstance: (starfieldInstance: GalaxyStarfield | undefined) =>
     set({ starfieldInstance }),
 });
 
 const useGameStoreBase = create<
-  GameSlice & ActionsSlice & MapSlice & HistorySlice & TaskSlice
+  GameSlice & ActionsSlice & MapSlice & HistorySlice & TaskSlice & SettingsSlice
 >()((...a) => ({
   ...createGameSlice(...a),
   ...createActionsSlice(...a),
   ...createMapSlice(...a),
   ...createHistorySlice(...a),
   ...createTaskSlice(...a),
+  ...createSettingsSlice(...a),
 }));
 
 const useGameStore = createSelectors(useGameStoreBase);

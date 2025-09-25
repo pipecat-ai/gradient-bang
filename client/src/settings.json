@@ -3,6 +3,6 @@
     "enableMic": false,
     "disabledSounds": true,
     "disableAudioOutput": true,
-    "renderStarfield": false,
+    "renderStarfield": true,
     "debugMode": true
 }

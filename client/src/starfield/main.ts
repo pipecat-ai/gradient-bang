@@ -180,6 +180,9 @@ export class GalaxyStarfield {
   // Current active scene ID
   private _currentSceneId: string | null;
 
+  // Promise resolver for warp completion
+  private _warpPromiseResolver: ((success: boolean) => void) | null;
+
   // Reusable objects to prevent garbage collection
   private _frameState: FrameState;
 
@@ -295,6 +298,9 @@ export class GalaxyStarfield {
 
     // Current active scene ID
     this._currentSceneId = null;
+
+    // Promise resolver for warp completion
+    this._warpPromiseResolver = null;
 
     // Reusable frameState object to prevent allocation in animation loop
     this._frameState = {
@@ -918,6 +924,12 @@ export class GalaxyStarfield {
         this.callbacks.onWarpCancel();
       }
 
+      // Resolve warp promise with false if warp was cancelled
+      if (!this._warpCompleted && this._warpPromiseResolver) {
+        this._warpPromiseResolver(false);
+        this._warpPromiseResolver = null;
+      }
+
       this.warpTime = 0;
       this.warpPhase = "IDLE";
       this.warpProgress = 0;
@@ -1160,6 +1172,12 @@ export class GalaxyStarfield {
         typeof this.callbacks.onWarpComplete === "function"
       ) {
         this.callbacks.onWarpComplete();
+      }
+
+      // Resolve the warp promise if one exists
+      if (this._warpPromiseResolver) {
+        this._warpPromiseResolver(true);
+        this._warpPromiseResolver = null;
       }
 
       // Reset all warp-related state variables
@@ -1672,10 +1690,10 @@ export class GalaxyStarfield {
   /**
    * Warp to a specific sector with optional configuration
    */
-  public warpToSector(
+  public async warpToSector(
     options: WarpOptions,
     bypassAnimation: boolean = false
-  ): boolean {
+  ): Promise<boolean> {
     if (!this.sceneManager) {
       console.warn("SceneManager not available");
       return false;
@@ -1721,9 +1739,19 @@ export class GalaxyStarfield {
 
     this.clearGameObjectSelection();
 
+    // Create a promise that resolves when warp completes
+    const warpPromise = new Promise<boolean>((resolve) => {
+      this._warpPromiseResolver = resolve;
+    });
+
     // Start the warp animation
     if (!this._currentSceneId || bypassAnimation) {
       this.reloadConfig(this._pendingSectorConfig);
+      // If bypassing animation, resolve immediately
+      if (this._warpPromiseResolver) {
+        this._warpPromiseResolver(true);
+        this._warpPromiseResolver = null;
+      }
     } else {
       this.startWarp();
     }
@@ -1733,7 +1761,8 @@ export class GalaxyStarfield {
 
     // Start rendering after scene is ready
     this.startRendering();
-    return true;
+
+    return warpPromise;
   }
 
   /**

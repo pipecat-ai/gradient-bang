@@ -3,7 +3,10 @@ import { type StateCreator } from "zustand";
 import { type GameSlice } from "./game";
 
 export interface ActionsSlice {
-  moveToSectorAction: () => Promise<void>;
+  moveToSectorAction: (
+    newSector: Sector,
+    bypassAnimation?: boolean
+  ) => Promise<void>;
 }
 
 export const createActionsSlice: StateCreator<
@@ -12,25 +15,43 @@ export const createActionsSlice: StateCreator<
   [],
   ActionsSlice
 > = (set, get) => ({
-  moveToSectorAction: async () => {
-    const state = get();
+  moveToSectorAction: async (
+    newSector: Sector,
+    bypassAnimation: boolean = false
+  ) => {
+    console.log("[ACTION] Beginning movement action", newSector);
 
-    // Don't move if already moving
-    if (state.uiState === "moving") {
-      //@TODO: show sonner saying movement not allowed
-      console.log("[ACTIONS] Already moving");
+    // Early exit if starfield instance not found
+    const starfield = get().starfieldInstance;
+    if (!starfield) {
+      console.error("[ACTION] Starfield instance not found");
       return;
     }
 
-    console.log("[ACTIONS] Beginning movement action");
-
-    // 1. Start move animation
+    // 1. Update ui state and starfield
     set({ uiState: "moving" });
 
-    // 2. Let animation play
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // 2. Await warp complete
+    await starfield?.warpToSector(
+      {
+        id: newSector.id.toString(),
+        config: {},
+        gameObjects: newSector.port
+          ? [
+              {
+                id: newSector.id.toString(),
+                type: "port",
+                name: newSector.port.code,
+              },
+            ]
+          : [],
+      },
+      bypassAnimation
+    );
 
-    // 3. End move animation
+    console.log("[ACTION] Movement complete");
+
+    // 3. Return to idle state
     set({ uiState: "idle" });
   },
 });

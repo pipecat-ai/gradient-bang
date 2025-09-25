@@ -3,13 +3,16 @@ import { useRTVIClientEvent } from "@pipecat-ai/client-react";
 import { createContext, useCallback, type ReactNode } from "react";
 import useGameStore from "./stores/game";
 
-interface SystemMessage {
+interface ServerMessage {
   event: string;
-  payload: {
-    delta?: Record<string, unknown>;
-    summary?: string;
-    result?: Record<string, unknown>;
-  } & Record<string, unknown>;
+  tool_name?: string;
+  payload: ServerMessagePayload & Record<string, unknown>;
+}
+
+interface ServerMessagePayload {
+  delta?: Record<string, unknown>;
+  result?: StatusUpdateMessage | Record<string, unknown>;
+  summary?: string;
 }
 
 interface StatusUpdateMessage {
@@ -28,6 +31,7 @@ interface MapDataMessage {
   last_update: string;
 }
 
+/*
 interface TradeResultMessage extends StatusUpdateMessage {
   new_cargo: Cargo;
   new_credits: number;
@@ -43,6 +47,7 @@ interface WarpPowerResultMessage {
   warp_power_capacity: number;
   new_credits: number;
 }
+*/
 
 // Action types that can be dispatched to the reducer
 export type GameAction =
@@ -74,16 +79,17 @@ export function GameProvider({ children }: GameProviderProps) {
   useRTVIClientEvent(
     RTVIEvent.ServerMessage,
     useCallback(
-      (e: SystemMessage) => {
+      (e: ServerMessage) => {
         if ("event" in e) {
           console.log("[GAME REDUCER] Server message received", e.event, e);
 
           // Transform if this is a tool call result so we can handle it like a direct action
-          let action = e.event;
-          let data = e.payload;
+          let action: string = e.event;
+          let data: ServerMessagePayload = e.payload as ServerMessagePayload;
+
           if (e.event === "tool_result" && "tool_name" in e) {
-            action = e.tool_name as string;
-            data = e.payload?.result as Record<string, unknown>;
+            action = e.tool_name!;
+            data = e.payload as ServerMessagePayload;
             //if (e.content) {
             //  data = JSON.parse(data.content as string);
             //}
@@ -96,19 +102,30 @@ export function GameProvider({ children }: GameProviderProps) {
 
           switch (action) {
             // ----- TOOL CALL
-            case "tool_call":
-              // Note: passed as not used by the client
+            // Used to preempt actions ahead of results
+            // mostly to support transition animations etc.
+            case "tool_call": {
               console.log("[GAME REDUCER] Tool call", e);
+              const preaction = e.tool_name;
+              switch (preaction) {
+                case "move":
+                  //gameStore.preemptMoveToSectorAction();
+                  break;
+                default:
+                  break;
+              }
               break;
+            }
 
             // ----- INIT & STATUS
             case "status.init":
             case "status.update":
             case "my_status": {
+              console.log("[GAME REDUCER] Status update", data);
               const status: StatusUpdateMessage =
                 "status" in data
                   ? (data.status as StatusUpdateMessage)
-                  : (data as unknown as StatusUpdateMessage);
+                  : (data.result as StatusUpdateMessage);
               const map_data =
                 "map_data" in data
                   ? (data.map_data as MapDataMessage)
@@ -134,32 +151,40 @@ export function GameProvider({ children }: GameProviderProps) {
               if (map_data) {
                 gameStore.setMappedSectors(map_data.sectors_visited);
               }
+
+              // If initializing, warp starfield to current sector
+              if (action === "status.init") {
+                gameStore.moveToSectorAction(
+                  {
+                    ...status.sector_contents,
+                    id: status.sector,
+                  },
+                  true
+                );
+              }
+
               break;
             }
 
             // ----- MOVE
             case "move":
             case "character.moved": {
-              console.log("[GAME] Movement", data);
-              const result = data as StatusUpdateMessage;
+              console.log("[GAME] Move", data);
+              const result = data.result as StatusUpdateMessage;
               // Map new sector to a Sector object
               const newSector = {
                 id: result.sector,
                 ...result.sector_contents,
               } as Sector;
 
-              console.log("[GAME] Handling sector movement", newSector);
-
-              gameStore.setSector(newSector);
+              gameStore.moveToSectorAction(newSector);
               break;
             }
 
             // ----- MAP DATA
             case "my_map": {
               console.log("[GAME] Map data", data);
-              gameStore.setMappedSectors(
-                (data.result as MapDataMessage).sectors_visited
-              );
+              //gameStore.setMappedSectors(data.result.sectors_visited);
               break;
             }
             /*
@@ -233,18 +258,19 @@ export function GameProvider({ children }: GameProviderProps) {
             default:
               console.warn(
                 "[GAME REDUCER] Unhandled server action:",
-                data.event,
+                action,
                 data
               );
           }
 
           // ----- SUMMARY
           // Add any summary messages to task output
-          if ("summary" in (e.payload as Record<string, unknown>)) {
-            const summary = (e.payload as Record<string, unknown>)
-              .summary as string;
-            console.debug("[GAME] Adding task summary to store", summary);
-            gameStore.addTask(summary);
+          if ("summary" in (e.payload as ServerMessagePayload)) {
+            console.debug(
+              "[GAME] Adding task summary to store",
+              e.payload.summary
+            );
+            gameStore.addTask(e.payload.summary!);
           }
         }
       },
