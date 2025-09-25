@@ -345,6 +345,7 @@
       let selectedSector = null;
       let visibleSectors = new Set(); // Sectors that should be rendered
       let maxWalkDistance = 3; // Maximum distance to show connected sectors
+      const VIEW_HEX_SIZE = 30; // Viewer-only grid size; independent of data meta
 
       // View toggles
       const viewSettings = {
@@ -447,6 +448,8 @@
 
       // Initialize visualization
       function initializeVisualization() {
+        // Precompute scale factor from data units to viewer units
+        computePosScale();
         // Update stats
         updateStats();
 
@@ -459,6 +462,20 @@
           centerCamera();
           render();
         });
+      }
+
+      // --- Coordinate scaling helpers ---
+      let POS_SCALE = 1;
+      function computePosScale() {
+        const dataHex =
+          (universeStructure &&
+            universeStructure.meta &&
+            universeStructure.meta.hex_size) ||
+          1;
+        POS_SCALE = VIEW_HEX_SIZE / dataHex;
+      }
+      function P(pos) {
+        return { x: pos.x * POS_SCALE, y: pos.y * POS_SCALE };
       }
 
       function updateStats() {
@@ -545,9 +562,9 @@
         const megaPortSector = getMegaPortSector();
         if (megaPortSector && megaPortSector.position) {
           camera.zoom = 0.8; // Start more zoomed in
-          camera.x = canvas.width / 2 - megaPortSector.position.x * camera.zoom;
-          camera.y =
-            canvas.height / 2 - megaPortSector.position.y * camera.zoom;
+          const mp = P(megaPortSector.position);
+          camera.x = canvas.width / 2 - mp.x * camera.zoom;
+          camera.y = canvas.height / 2 - mp.y * camera.zoom;
           return;
         }
 
@@ -559,10 +576,11 @@
 
         universeStructure.sectors.forEach((sector) => {
           if (sector.position) {
-            minX = Math.min(minX, sector.position.x);
-            minY = Math.min(minY, sector.position.y);
-            maxX = Math.max(maxX, sector.position.x);
-            maxY = Math.max(maxY, sector.position.y);
+            const sp = P(sector.position);
+            minX = Math.min(minX, sp.x);
+            minY = Math.min(minY, sp.y);
+            maxX = Math.max(maxX, sp.x);
+            maxY = Math.max(maxY, sp.y);
           }
         });
 
@@ -739,7 +757,7 @@
         ctx.lineWidth = 0.5;
 
         // Estimate grid bounds
-        const hexSize = universeStructure.meta.hex_size || 30;
+        const hexSize = VIEW_HEX_SIZE;
 
         for (let y = -1000; y < 3000; y += hexSize * Math.sqrt(3)) {
           for (let x = -1000; x < 3000; x += hexSize * 3) {
@@ -777,14 +795,9 @@
 
           sectors.forEach((sector) => {
             if (sector.position) {
-              const hexSize = universeStructure.meta.hex_size || 30;
-              drawHex(
-                sector.position.x,
-                sector.position.y,
-                hexSize * 0.95,
-                false,
-                true
-              );
+              const hexSize = VIEW_HEX_SIZE;
+              const sp = P(sector.position);
+              drawHex(sp.x, sp.y, hexSize * 0.95, false, true);
             }
           });
         });
@@ -821,18 +834,20 @@
               ctx.lineWidth = warp.two_way ? 1.5 : 0.8;
             }
 
+            const sp = P(sector.position);
+            const tp = P(targetSector.position);
             ctx.beginPath();
-            ctx.moveTo(sector.position.x, sector.position.y);
+            ctx.moveTo(sp.x, sp.y);
 
             // For one-way warps, draw arrow
             if (!warp.two_way) {
-              const dx = targetSector.position.x - sector.position.x;
-              const dy = targetSector.position.y - sector.position.y;
+              const dx = tp.x - sp.x;
+              const dy = tp.y - sp.y;
               const angle = Math.atan2(dy, dx);
               const dist = Math.sqrt(dx * dx + dy * dy);
 
-              const arrowX = sector.position.x + (dist - 10) * Math.cos(angle);
-              const arrowY = sector.position.y + (dist - 10) * Math.sin(angle);
+              const arrowX = sp.x + (dist - 10) * Math.cos(angle);
+              const arrowY = sp.y + (dist - 10) * Math.sin(angle);
 
               ctx.lineTo(arrowX, arrowY);
               ctx.stroke();
@@ -851,7 +866,7 @@
               );
               ctx.stroke();
             } else {
-              ctx.lineTo(targetSector.position.x, targetSector.position.y);
+              ctx.lineTo(tp.x, tp.y);
               ctx.stroke();
             }
           });
@@ -874,8 +889,10 @@
               // Avoid drawing the same hyperlane twice (since they're two-way)
               if (sector.id > warp.to) return;
 
-              const dx = targetSector.position.x - sector.position.x;
-              const dy = targetSector.position.y - sector.position.y;
+              const sp = P(sector.position);
+              const tp = P(targetSector.position);
+              const dx = tp.x - sp.x;
+              const dy = tp.y - sp.y;
               const dist = Math.sqrt(dx * dx + dy * dy);
 
               // Draw glowing hyperlane effect
@@ -885,8 +902,8 @@
               ctx.strokeStyle = "rgba(150, 100, 255, 0.2)";
               ctx.lineWidth = 8;
               ctx.beginPath();
-              ctx.moveTo(sector.position.x, sector.position.y);
-              ctx.lineTo(targetSector.position.x, targetSector.position.y);
+              ctx.moveTo(sp.x, sp.y);
+              ctx.lineTo(tp.x, tp.y);
               ctx.stroke();
 
               // Middle glow
@@ -903,11 +920,8 @@
               ctx.restore();
 
               // Draw portal/gate symbols at each end
-              drawPortalSymbol(sector.position.x, sector.position.y);
-              drawPortalSymbol(
-                targetSector.position.x,
-                targetSector.position.y
-              );
+              drawPortalSymbol(sp.x, sp.y);
+              drawPortalSymbol(tp.x, tp.y);
 
               // Draw distance label in the middle
               if (warp.distance) {
@@ -915,8 +929,8 @@
                 ctx.fillStyle = "rgba(200, 150, 255, 0.7)";
                 ctx.font = "10px monospace";
                 ctx.textAlign = "center";
-                const midX = (sector.position.x + targetSector.position.x) / 2;
-                const midY = (sector.position.y + targetSector.position.y) / 2;
+                const midX = (sp.x + tp.x) / 2;
+                const midY = (sp.y + tp.y) / 2;
                 ctx.fillText(`${warp.distance} hex`, midX, midY - 5);
                 ctx.restore();
               }
@@ -974,10 +988,11 @@
             : hasPort && viewSettings.showPorts
             ? "#4A90E2"
             : "#666";
+          const sp = P(sector.position);
           ctx.beginPath();
           ctx.arc(
-            sector.position.x,
-            sector.position.y,
+            sp.x,
+            sp.y,
             isSelected ? 6 : isMegaPort ? 8 : 4,
             0,
             Math.PI * 2
@@ -989,7 +1004,7 @@
             ctx.strokeStyle = "#FF6B6B";
             ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.arc(sector.position.x, sector.position.y, 10, 0, Math.PI * 2);
+            ctx.arc(sp.x, sp.y, 10, 0, Math.PI * 2);
             ctx.stroke();
           }
 
@@ -997,7 +1012,7 @@
             ctx.strokeStyle = isMegaPort ? "#FFD700" : "#4A90E2";
             ctx.lineWidth = 1;
             ctx.beginPath();
-            ctx.arc(sector.position.x, sector.position.y, 8, 0, Math.PI * 2);
+            ctx.arc(sp.x, sp.y, 8, 0, Math.PI * 2);
             ctx.stroke();
           }
 
@@ -1006,11 +1021,7 @@
             ctx.fillStyle = "#aaa";
             ctx.font = "8px monospace";
             ctx.textAlign = "center";
-            ctx.fillText(
-              sector.id.toString(),
-              sector.position.x,
-              sector.position.y - 10
-            );
+            ctx.fillText(sector.id.toString(), sp.x, sp.y - 10);
           }
         });
       }
@@ -1068,9 +1079,9 @@
           if (universeStructure) {
             universeStructure.sectors.forEach((sector) => {
               if (sector.position) {
+                const sp = P(sector.position);
                 const dist = Math.sqrt(
-                  Math.pow(sector.position.x - x, 2) +
-                    Math.pow(sector.position.y - y, 2)
+                  Math.pow(sp.x - x, 2) + Math.pow(sp.y - y, 2)
                 );
                 if (dist < 10 / camera.zoom) {
                   foundSector = sector;
@@ -1097,9 +1108,9 @@
           if (universeStructure) {
             universeStructure.sectors.forEach((sector) => {
               if (sector.position) {
+                const sp = P(sector.position);
                 const dist = Math.sqrt(
-                  Math.pow(sector.position.x - x, 2) +
-                    Math.pow(sector.position.y - y, 2)
+                  Math.pow(sp.x - x, 2) + Math.pow(sp.y - y, 2)
                 );
                 if (dist < 15 / camera.zoom) {
                   clickedSector = sector;

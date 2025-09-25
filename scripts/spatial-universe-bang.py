@@ -59,7 +59,7 @@ REGIONS = [
 ]
 
 # --- Hex grid parameters ---
-HEX_SIZE = 30.0  # Size of each hex cell
+HEX_SIZE = 1  # Size of each hex cell (unit scale)
 
 # --- Connection parameters ---
 MAX_DELAUNAY_EDGE_LENGTH = 3.5  # In hex units
