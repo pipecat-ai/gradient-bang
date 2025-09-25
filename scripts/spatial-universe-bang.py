@@ -1,12 +1,36 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.9"
+# dependencies = [
+#     "numpy",
+#     "scipy", 
+#     "networkx",
+# ]
+# ///
 """
-Generate a spatially-aware universe with regional clustering.
-- Hexagonal grid base with sparse sector placement
-- Regional territories with different characteristics
-- Minimal edge crossings through spatial-aware connections
-- Sector contents (ports, commodities, one-way/two-way warps
-- Hyperlanes to connect regions
-- Mega port placed in safe zone
+Generate a spatially-aware, low-crossing universe with regional structure and
+guaranteed navigability.
+
+Core techniques and features:
+- Hexagonal grid base with snapped integer coordinates for stable layouts
+- Regions via Voronoi-like clustering; sector counts allocated by regional density
+- Sparse sector placement within regions for visual separation
+- Per-region Delaunay triangulation pruned by distance to reduce crossings
+  - Probabilistic one-way / two-way edges based on proximity
+- Cross-region border connections between nearby sectors along region boundaries
+- Global two-way backbone using an MST over a global Delaunay graph to ensure
+  strong connectivity (no unreachable regions)
+- Accessibility pass that upgrades a subset of short one-way edges to two-way to
+  reduce trap-like areas without over-connecting
+- Degree capping that preserves backbone edges and favors shorter connections
+- Hyperlanes added last as strictly additional cross-region links:
+  - Long-distance, two-way; endpoints must already have a same-region neighbor
+    (so a hyperlane is never the only way out of a sector)
+  - Preference for safe-to-safe region links to avoid forcing players through
+    dangerous territory from safe zones
+- Ports placed with regional bias and graph-awareness (crossroads favored);
+  mega port located in a safe high-degree sector; complementary trade pairs are
+  tuned within a small hop radius
 
 Outputs:
   - world-data/universe_structure.json
@@ -19,6 +43,7 @@ import sys, json, random, math
 import numpy as np
 from collections import deque
 from scipy.spatial import Delaunay, Voronoi
+import networkx as nx
 from dataclasses import dataclass
 from typing import Dict, List, Set, Tuple, Optional
 
@@ -277,14 +302,20 @@ def generate_regional_connections(
     # 2. Add border connections
     add_border_connections(warps, positions, regions)
     
-    # 3. Add hyperlanes (special long-distance warps)
-    hyperlanes = add_hyperlanes(warps, positions, regions)
+    # 3. Add global two-way backbone to guarantee strong connectivity
+    backbone_edges = build_backbone_edges(positions)
+    for s1, s2 in backbone_edges:
+        warps[s1].add(s2)
+        warps[s2].add(s1)
     
-    # 4. Ensure connectivity
+    # 4. Ensure accessibility (dead-ends and limited reachability clean-up)
     ensure_connectivity(warps, positions)
     
-    # 5. Cap degrees
-    cap_degrees(warps, positions)
+    # 5. Cap degrees while preserving backbone edges
+    cap_degrees(warps, positions, protected_undirected_edges=backbone_edges)
+    
+    # 6. Add hyperlanes (special long-distance warps) AFTER connectivity/capping
+    hyperlanes = add_hyperlanes(warps, positions, regions)
     
     return warps, hyperlanes
 
@@ -324,46 +355,123 @@ def add_hyperlanes(
     positions: Dict[int, Tuple[float, float]],
     regions: Dict[int, int]
 ) -> List[Tuple[int, int]]:
-    """Add long-distance hyperlanes (may cause crossings but are special).
-    These represent jump gates or wormholes that allow instant long-distance travel."""
-    hyperlanes = []
+    """Add long-distance hyperlanes after the graph is already connected.
+    Rules:
+      - Only connect sectors in different regions and far apart (min distance)
+      - Never be the only way out of a sector: endpoints must already have a
+        same-region neighbor before adding the hyperlane
+      - Prefer safe-to-safe region links when possible
+    """
+    hyperlanes: List[Tuple[int, int]] = []
     sectors = list(positions.keys())
     num_hyperlanes = max(1, int(len(sectors) * HYPERLANE_RATIO))
     
+    # Build helper for region safety
+    def is_safe(sector_id: int) -> bool:
+        region_id = regions[sector_id]
+        return REGIONS[region_id].get("safe", False)
+    
+    def has_same_region_neighbor(sector_id: int) -> bool:
+        region_id = regions[sector_id]
+        for neighbor in warps.get(sector_id, set()):
+            if regions[neighbor] == region_id:
+                return True
+        return False
+    
     attempts = 0
-    while len(hyperlanes) < num_hyperlanes and attempts < num_hyperlanes * 10:
+    # Allow higher attempt budget because of constraints
+    max_attempts = num_hyperlanes * 50
+    while len(hyperlanes) < num_hyperlanes and attempts < max_attempts:
         attempts += 1
         s1 = random.choice(sectors)
+        # Endpoint must already have an intra-region neighbor so the hyperlane is not the only exit
+        if not has_same_region_neighbor(s1):
+            continue
         
-        candidates = [
+        # Base cross-region, far-enough, not already connected, and also has intra-region neighbor
+        base_candidates = [
             s for s in sectors
             if regions[s] != regions[s1]
             and hex_distance(positions[s1], positions[s]) >= HYPERLANE_MIN_DISTANCE
             and s not in warps[s1]
+            and has_same_region_neighbor(s)
         ]
+        if not base_candidates:
+            continue
         
-        if candidates:
-            s2 = random.choice(candidates)
-            warps[s1].add(s2)
-            warps[s2].add(s1)
-            hyperlanes.append((s1, s2))
+        # Prefer safe-to-safe when possible
+        if is_safe(s1):
+            preferred = [s for s in base_candidates if is_safe(s)]
+            if preferred:
+                s2 = random.choice(preferred)
+            else:
+                s2 = random.choice(base_candidates)
+        else:
+            s2 = random.choice(base_candidates)
+        
+        # Add two-way hyperlane
+        warps[s1].add(s2)
+        warps[s2].add(s1)
+        a, b = (s1, s2) if s1 < s2 else (s2, s1)
+        hyperlanes.append((a, b))
     
     return hyperlanes
+
+def build_backbone_edges(
+    positions: Dict[int, Tuple[float, float]]
+) -> Set[Tuple[int, int]]:
+    """Build a global two-way backbone using an MST over a sparse planar graph.
+    We construct a Delaunay triangulation over all sectors to get a sparse,
+    low-crossing candidate graph, then compute a Euclidean MST and return its edges
+    as undirected pairs (min_id, max_id).
+    """
+    sectors = list(positions.keys())
+    if len(sectors) <= 1:
+        return set()
+    
+    # Build Delaunay over all points for sparsity and low crossings
+    pts = np.array([positions[s] for s in sectors])
+    tri = Delaunay(pts)
+    
+    # Map local triangle vertex indices to sector ids
+    edges = set()
+    for simplex in tri.simplices:
+        for i in range(3):
+            a_idx, b_idx = simplex[i], simplex[(i+1) % 3]
+            a, b = sectors[a_idx], sectors[b_idx]
+            if a > b:
+                a, b = b, a
+            edges.add((a, b))
+    
+    # Build weighted sparse graph
+    G = nx.Graph()
+    G.add_nodes_from(sectors)
+    for a, b in edges:
+        dist = euclidean_distance(positions[a], positions[b])
+        G.add_edge(a, b, weight=dist)
+    
+    # Compute MST
+    mst = nx.minimum_spanning_tree(G, algorithm="kruskal")
+    backbone = set()
+    for a, b in mst.edges():
+        if a > b:
+            a, b = b, a
+        backbone.add((a, b))
+    return backbone
 
 def ensure_connectivity(
     warps: Dict[int, Set[int]],
     positions: Dict[int, Tuple[float, float]]
 ) -> None:
-    """Ensure all sectors have at least MIN_WARPS_PER_SECTOR connections."""
+    """Ensure basic connectivity with minimal changes to preserve planarity."""
     sectors = list(positions.keys())
     
+    # First, ensure minimum outgoing connections per sector
     for s in sectors:
-        # Check outgoing connections specifically
         out_degree = len(warps[s])
         
-        # Ensure minimum outgoing warps
         if out_degree < MIN_WARPS_PER_SECTOR:
-            # Find nearest sectors we're not already connected to
+            # Find nearest unconnected sectors
             candidates = [
                 (hex_distance(positions[s], positions[other]), other)
                 for other in sectors
@@ -371,39 +479,132 @@ def ensure_connectivity(
             ]
             candidates.sort()
             
-            # Add outgoing connections to meet minimum
+            # Add connections to nearest sectors only
             for _, other in candidates[:MIN_WARPS_PER_SECTOR - out_degree]:
                 warps[s].add(other)
+    
+    # Create undirected graph to check basic connectivity
+    G_undirected = nx.Graph()
+    G_undirected.add_nodes_from(sectors)
+    
+    # Add edges (treat as undirected for basic connectivity)
+    for s in sectors:
+        for target in warps.get(s, set()):
+            G_undirected.add_edge(s, target)
+    
+    # Find weakly connected components
+    components = list(nx.connected_components(G_undirected))
+    
+    if len(components) > 1:
+        print(f"Found {len(components)} disconnected components, connecting them...")
         
-        # Also check incoming connections for reachability
-        in_degree = sum(1 for other in sectors if s in warps[other])
+        # Sort by size - largest is main component
+        components.sort(key=len, reverse=True)
+        main_component = components[0]
         
-        # Ensure at least one way to reach this sector
-        if in_degree == 0 and out_degree > 0:
-            # Find a nearby sector to connect FROM
-            candidates = [
-                (hex_distance(positions[s], positions[other]), other)
-                for other in sectors
-                if other != s and s not in warps[other]
-            ]
-            if candidates:
-                candidates.sort()
-                _, other = candidates[0]
-                warps[other].add(s)
+        # Connect each smaller component to main with minimal connections
+        for comp_idx, component in enumerate(components[1:], 1):
+            # Find the absolute closest pair between components
+            best_dist = float('inf')
+            best_pair = None
+            
+            for s1 in main_component:
+                for s2 in component:
+                    dist = hex_distance(positions[s1], positions[s2])
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_pair = (s1, s2)
+            
+            if best_pair and best_dist <= MAX_DELAUNAY_EDGE_LENGTH * 1.5:
+                # Only connect if reasonably close
+                s1, s2 = best_pair
+                # Add bidirectional connection to ensure basic connectivity
+                warps[s1].add(s2)
+                warps[s2].add(s1)
+                print(f"  Connected component {comp_idx} ({len(component)} sectors) at distance {best_dist:.1f}")
+                main_component = main_component.union(component)
+            else:
+                print(f"  Warning: Component {comp_idx} too far to connect (distance: {best_dist:.1f})")
+    
+    # Now check for dead-end paths and upgrade some one-way connections to two-way
+    # This is less aggressive than full strong connectivity
+    print("Checking for accessibility issues...")
+    
+    G_directed = nx.DiGraph()
+    G_directed.add_nodes_from(sectors)
+    for s in sectors:
+        for target in warps.get(s, set()):
+            G_directed.add_edge(s, target)
+    
+    # Find sectors that are hard to escape from
+    problem_sectors = []
+    for sector in sectors:
+        # Can we reach at least 50% of the graph from this sector?
+        reachable = nx.descendants(G_directed, sector)
+        if len(reachable) < len(sectors) * 0.5:
+            problem_sectors.append(sector)
+    
+    if problem_sectors:
+        print(f"  Found {len(problem_sectors)} sectors with limited reachability")
+        
+        # For problem sectors, upgrade some of their connections to two-way
+        upgrades_made = 0
+        for sector in problem_sectors[:100]:  # Limit to avoid over-correction
+            # Find existing one-way connections that could be made two-way
+            for target in list(warps.get(sector, set())):
+                if sector not in warps.get(target, set()):
+                    # This is one-way, make it two-way if it's short
+                    dist = hex_distance(positions[sector], positions[target])
+                    if dist <= MAX_DELAUNAY_EDGE_LENGTH:
+                        warps[target].add(sector)
+                        upgrades_made += 1
+                        break  # Only upgrade one per problem sector
+        
+        if upgrades_made > 0:
+            print(f"  Upgraded {upgrades_made} connections to two-way")
 
 def cap_degrees(
     warps: Dict[int, Set[int]],
-    positions: Dict[int, Tuple[float, float]]
+    positions: Dict[int, Tuple[float, float]],
+    protected_undirected_edges: Optional[Set[Tuple[int, int]]] = None
 ) -> None:
-    """Cap maximum degree by removing longest connections."""
+    """Cap maximum degree by removing longest connections while preserving protected edges.
+    protected_undirected_edges is a set of (min_id, max_id) pairs that must be retained
+    bidirectionally.
+    """
+    protected_by_node: Dict[int, Set[int]] = {}
+    if protected_undirected_edges:
+        for a, b in protected_undirected_edges:
+            protected_by_node.setdefault(a, set()).add(b)
+            protected_by_node.setdefault(b, set()).add(a)
+    
     for s, targets in warps.items():
-        if len(targets) > DEGREE_CAP:
-            # Keep closest connections
-            sorted_targets = sorted(
-                targets,
-                key=lambda t: hex_distance(positions[s], positions[t])
-            )
-            warps[s] = set(sorted_targets[:DEGREE_CAP])
+        if len(targets) <= DEGREE_CAP:
+            continue
+        
+        protected_neighbors = protected_by_node.get(s, set())
+        # Sort by distance so we prefer to keep closer edges
+        sorted_targets = sorted(
+            targets,
+            key=lambda t: hex_distance(positions[s], positions[t])
+        )
+        # Always include protected neighbors
+        kept: List[int] = []
+        kept_set: Set[int] = set()
+        for t in sorted_targets:
+            if t in protected_neighbors:
+                kept.append(t)
+                kept_set.add(t)
+        # Fill remaining slots up to cap, but never drop protected ones
+        cap = max(DEGREE_CAP, len(kept))
+        for t in sorted_targets:
+            if len(kept) >= cap:
+                break
+            if t in kept_set:
+                continue
+            kept.append(t)
+            kept_set.add(t)
+        warps[s] = set(kept)
 
 # ===================== Port Generation =====================
 

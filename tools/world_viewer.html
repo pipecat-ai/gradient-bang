@@ -94,6 +94,26 @@
         border-radius: 2px;
       }
 
+      .warp-legend {
+        margin-top: 15px;
+        padding-top: 15px;
+        border-top: 1px solid rgba(100, 100, 150, 0.3);
+        font-size: 11px;
+      }
+
+      .warp-type {
+        margin-bottom: 5px;
+        display: flex;
+        align-items: center;
+      }
+
+      .warp-line {
+        width: 30px;
+        height: 2px;
+        margin-right: 8px;
+        display: inline-block;
+      }
+
       .view-controls {
         margin-top: 20px;
         padding-top: 20px;
@@ -213,6 +233,12 @@
         </div>
         <div class="checkbox-group">
           <label>
+            <input type="checkbox" id="showHyperlanes" checked /> Show
+            Hyperlanes
+          </label>
+        </div>
+        <div class="checkbox-group">
+          <label>
             <input type="checkbox" id="showSectorIds" checked /> Show Sector IDs
           </label>
         </div>
@@ -227,6 +253,25 @@
         <button onclick="resetView()">Reset View</button>
         <button onclick="zoomIn()">Zoom In</button>
         <button onclick="zoomOut()">Zoom Out</button>
+        <button onclick="clearSelection()">Clear Selection</button>
+      </div>
+
+      <div class="view-controls">
+        <label
+          style="font-size: 12px; color: #aaa; margin-top: 15px; display: block"
+        >
+          Walk Distance:
+          <input
+            type="range"
+            id="walkDistance"
+            min="1"
+            max="8"
+            value="3"
+            style="width: 100px; margin-left: 5px"
+            onchange="updateWalkDistance(this.value)"
+          />
+          <span id="walkDistanceValue">3</span>
+        </label>
       </div>
 
       <div class="stats" id="stats" style="display: none">
@@ -246,6 +291,10 @@
           <span class="stat-label">Two-way Warps:</span>
           <span class="stat-value" id="twoWayWarps">-</span>
         </div>
+        <div class="stat-row">
+          <span class="stat-label">Hyperlanes:</span>
+          <span class="stat-value" id="hyperlaneCount">-</span>
+        </div>
       </div>
 
       <div class="legend" id="legend" style="display: none">
@@ -262,6 +311,19 @@
       <div class="info-row">Warps Out: <span id="sectorWarps">-</span></div>
       <div class="info-row">Port Class: <span id="sectorPort">-</span></div>
       <div class="info-row">Position: <span id="sectorPos">-</span></div>
+      <div
+        class="info-row"
+        id="selectionInfo"
+        style="
+          display: none;
+          margin-top: 10px;
+          padding-top: 10px;
+          border-top: 1px solid rgba(100, 100, 150, 0.3);
+        "
+      >
+        <strong>Selected Sector:</strong><br />
+        <span id="selectedSectorInfo">None</span>
+      </div>
     </div>
 
     <canvas id="canvas"></canvas>
@@ -273,13 +335,16 @@
       // View state
       let camera = { x: 0, y: 0, zoom: 1 };
       let isDragging = false;
-      let dragStart = { x: 0, y: 0 };
+      let dragStart = { x: undefined, y: undefined };
       let lastCamera = { x: 0, y: 0 };
 
       // Data
       let universeStructure = null;
       let sectorContents = null;
       let hoveredSector = null;
+      let selectedSector = null;
+      let visibleSectors = new Set(); // Sectors that should be rendered
+      let maxWalkDistance = 3; // Maximum distance to show connected sectors
 
       // View toggles
       const viewSettings = {
@@ -288,6 +353,7 @@
         showWarps: true,
         showSectorIds: true,
         showPorts: true,
+        showHyperlanes: true,
       };
 
       // Setup canvas
@@ -361,6 +427,13 @@
       });
 
       document
+        .getElementById("showHyperlanes")
+        .addEventListener("change", (e) => {
+          viewSettings.showHyperlanes = e.target.checked;
+          render();
+        });
+
+      document
         .getElementById("showSectorIds")
         .addEventListener("change", (e) => {
           viewSettings.showSectorIds = e.target.checked;
@@ -380,11 +453,12 @@
         // Create legend
         createLegend();
 
-        // Center camera on universe
-        centerCamera();
-
-        // Start rendering
+        // Draw once, then center on mega port and redraw for smoother UX
         render();
+        requestAnimationFrame(() => {
+          centerCamera();
+          render();
+        });
       }
 
       function updateStats() {
@@ -402,14 +476,17 @@
           megaPort !== undefined ? `Sector ${megaPort}` : "None";
 
         let twoWayCount = 0;
+        let hyperlaneCount = 0;
         universeStructure.sectors.forEach((sector) => {
           sector.warps.forEach((warp) => {
             if (warp.two_way) twoWayCount++;
+            if (warp.is_hyperlane && sector.id < warp.to) hyperlaneCount++;
           });
         });
         document.getElementById("twoWayWarps").textContent = `${Math.floor(
           twoWayCount / 2
         )} pairs`;
+        document.getElementById("hyperlaneCount").textContent = hyperlaneCount;
       }
 
       function createLegend() {
@@ -435,11 +512,46 @@
           item.appendChild(label);
           legendItems.appendChild(item);
         });
+
+        // Add warp types legend
+        const warpLegend = document.createElement("div");
+        warpLegend.className = "warp-legend";
+        warpLegend.innerHTML = `
+                <h3 style="font-size: 14px; margin-bottom: 10px;">Warp Types</h3>
+                <div class="warp-type">
+                    <div class="warp-line" style="background: rgba(100, 200, 100, 0.5);"></div>
+                    <span>Two-way (same region)</span>
+                </div>
+                <div class="warp-type">
+                    <div class="warp-line" style="background: rgba(200, 100, 100, 0.5);"></div>
+                    <span>One-way (same region)</span>
+                </div>
+                <div class="warp-type">
+                    <div class="warp-line" style="background: rgba(255, 200, 50, 0.5);"></div>
+                    <span>Cross-region</span>
+                </div>
+                <div class="warp-type">
+                    <div class="warp-line" style="background: linear-gradient(90deg, transparent 0%, rgba(220, 180, 255, 0.8) 50%, transparent 100%);"></div>
+                    <span>Hyperlane</span>
+                </div>
+            `;
+        legend.appendChild(warpLegend);
       }
 
       function centerCamera() {
         if (!universeStructure) return;
 
+        // Try to center on mega port first
+        const megaPortSector = getMegaPortSector();
+        if (megaPortSector && megaPortSector.position) {
+          camera.zoom = 0.8; // Start more zoomed in
+          camera.x = canvas.width / 2 - megaPortSector.position.x * camera.zoom;
+          camera.y =
+            canvas.height / 2 - megaPortSector.position.y * camera.zoom;
+          return;
+        }
+
+        // Fallback to full universe view
         let minX = Infinity,
           minY = Infinity;
         let maxX = -Infinity,
@@ -465,6 +577,120 @@
 
         camera.x = canvas.width / 2 - centerX * camera.zoom;
         camera.y = canvas.height / 2 - centerY * camera.zoom;
+      }
+
+      function getMegaPortSector() {
+        if (!sectorContents || !universeStructure) return null;
+
+        const megaPortId = sectorContents.meta.mega_port_sector;
+        if (megaPortId === undefined) return null;
+
+        return universeStructure.sectors.find((s) => s.id === megaPortId);
+      }
+
+      function selectSector(sector) {
+        const wasSelected = selectedSector === sector;
+        const previousRegion = selectedSector ? selectedSector.region : null;
+        const newRegion = sector ? sector.region : null;
+
+        selectedSector = wasSelected ? null : sector;
+
+        // If we're selecting a sector in a different region, reset the view
+        if (
+          selectedSector &&
+          previousRegion !== null &&
+          newRegion !== previousRegion
+        ) {
+          // Could add special logic here for cross-region selection
+          // For now, just recalculate normally
+        }
+
+        if (selectedSector) {
+          calculateVisibleSectors();
+        } else {
+          visibleSectors.clear();
+        }
+
+        render();
+        updateInfoPanel(); // Update info panel to show selection info
+      }
+
+      function clearSelection() {
+        selectedSector = null;
+        visibleSectors.clear();
+        render();
+        updateInfoPanel(); // Update info panel to hide selection info
+      }
+
+      function calculateVisibleSectors() {
+        if (!selectedSector) {
+          visibleSectors.clear();
+          return;
+        }
+
+        visibleSectors.clear();
+        const queue = [{ sector: selectedSector, distance: 0 }];
+        const visited = new Set();
+
+        while (queue.length > 0) {
+          const { sector, distance } = queue.shift();
+
+          if (visited.has(sector.id) || distance > maxWalkDistance) {
+            continue;
+          }
+
+          visited.add(sector.id);
+          visibleSectors.add(sector.id);
+
+          // Add connected sectors
+          if (sector.warps) {
+            sector.warps.forEach((warp) => {
+              const targetSector = universeStructure.sectors.find(
+                (s) => s.id === warp.to
+              );
+              if (targetSector && !visited.has(targetSector.id)) {
+                queue.push({ sector: targetSector, distance: distance + 1 });
+              }
+            });
+          }
+
+          // Also check for incoming warps (two-way connections)
+          universeStructure.sectors.forEach((otherSector) => {
+            if (otherSector.warps) {
+              otherSector.warps.forEach((warp) => {
+                if (
+                  warp.to === sector.id &&
+                  warp.two_way &&
+                  !visited.has(otherSector.id)
+                ) {
+                  queue.push({ sector: otherSector, distance: distance + 1 });
+                }
+              });
+            }
+          });
+        }
+      }
+
+      function shouldRenderSector(sector) {
+        // Always render if no selection
+        if (!selectedSector) return true;
+
+        // Always render selected sector
+        if (sector.id === selectedSector.id) return true;
+
+        // Render if in visible sectors
+        return visibleSectors.has(sector.id);
+      }
+
+      function shouldRenderWarp(fromSector, toSector, warp) {
+        // Always render hyperlanes
+        if (warp.is_hyperlane) return true;
+
+        // If no selection, render all
+        if (!selectedSector) return true;
+
+        // Render if both sectors should be rendered
+        return shouldRenderSector(fromSector) && shouldRenderSector(toSector);
       }
 
       // Rendering
@@ -534,7 +760,7 @@
         // Group sectors by region
         const sectorsByRegion = {};
         universeStructure.sectors.forEach((sector) => {
-          if (sector.region !== undefined) {
+          if (sector.region !== undefined && shouldRenderSector(sector)) {
             if (!sectorsByRegion[sector.region]) {
               sectorsByRegion[sector.region] = [];
             }
@@ -565,19 +791,35 @@
       }
 
       function drawWarps() {
+        // First pass: draw regular warps
         universeStructure.sectors.forEach((sector) => {
           if (!sector.position || !sector.warps) return;
 
           sector.warps.forEach((warp) => {
+            // Skip hyperlanes in first pass if they're disabled
+            if (warp.is_hyperlane && !viewSettings.showHyperlanes) return;
+            if (warp.is_hyperlane) return;
+
             const targetSector = universeStructure.sectors.find(
               (s) => s.id === warp.to
             );
             if (!targetSector || !targetSector.position) return;
 
-            ctx.strokeStyle = warp.two_way
-              ? "rgba(100, 200, 100, 0.3)"
-              : "rgba(200, 100, 100, 0.2)";
-            ctx.lineWidth = warp.two_way ? 1.5 : 0.8;
+            // Check if this warp should be rendered based on culling
+            if (!shouldRenderWarp(sector, targetSector, warp)) return;
+
+            // Style based on region crossing
+            if (warp.crosses_region) {
+              ctx.strokeStyle = warp.two_way
+                ? "rgba(255, 200, 50, 0.4)"
+                : "rgba(255, 150, 50, 0.3)";
+              ctx.lineWidth = warp.two_way ? 1.5 : 1;
+            } else {
+              ctx.strokeStyle = warp.two_way
+                ? "rgba(100, 200, 100, 0.3)"
+                : "rgba(200, 100, 100, 0.2)";
+              ctx.lineWidth = warp.two_way ? 1.5 : 0.8;
+            }
 
             ctx.beginPath();
             ctx.moveTo(sector.position.x, sector.position.y);
@@ -614,20 +856,120 @@
             }
           });
         });
+
+        // Second pass: draw hyperlanes on top with special styling (if enabled)
+        if (viewSettings.showHyperlanes) {
+          universeStructure.sectors.forEach((sector) => {
+            if (!sector.position || !sector.warps) return;
+
+            sector.warps.forEach((warp) => {
+              // Only draw hyperlanes in this pass
+              if (!warp.is_hyperlane) return;
+
+              const targetSector = universeStructure.sectors.find(
+                (s) => s.id === warp.to
+              );
+              if (!targetSector || !targetSector.position) return;
+
+              // Avoid drawing the same hyperlane twice (since they're two-way)
+              if (sector.id > warp.to) return;
+
+              const dx = targetSector.position.x - sector.position.x;
+              const dy = targetSector.position.y - sector.position.y;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+
+              // Draw glowing hyperlane effect
+              ctx.save();
+
+              // Outer glow
+              ctx.strokeStyle = "rgba(150, 100, 255, 0.2)";
+              ctx.lineWidth = 8;
+              ctx.beginPath();
+              ctx.moveTo(sector.position.x, sector.position.y);
+              ctx.lineTo(targetSector.position.x, targetSector.position.y);
+              ctx.stroke();
+
+              // Middle glow
+              ctx.strokeStyle = "rgba(200, 150, 255, 0.4)";
+              ctx.lineWidth = 4;
+              ctx.stroke();
+
+              // Core line (dashed)
+              ctx.strokeStyle = "rgba(220, 180, 255, 0.8)";
+              ctx.lineWidth = 2;
+              ctx.setLineDash([10, 5]);
+              ctx.stroke();
+
+              ctx.restore();
+
+              // Draw portal/gate symbols at each end
+              drawPortalSymbol(sector.position.x, sector.position.y);
+              drawPortalSymbol(
+                targetSector.position.x,
+                targetSector.position.y
+              );
+
+              // Draw distance label in the middle
+              if (warp.distance) {
+                ctx.save();
+                ctx.fillStyle = "rgba(200, 150, 255, 0.7)";
+                ctx.font = "10px monospace";
+                ctx.textAlign = "center";
+                const midX = (sector.position.x + targetSector.position.x) / 2;
+                const midY = (sector.position.y + targetSector.position.y) / 2;
+                ctx.fillText(`${warp.distance} hex`, midX, midY - 5);
+                ctx.restore();
+              }
+            });
+          });
+        }
+      }
+
+      function drawPortalSymbol(x, y) {
+        // Draw a special symbol for hyperlane endpoints
+        ctx.save();
+
+        // Outer ring
+        ctx.strokeStyle = "rgba(200, 150, 255, 0.6)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, y, 12, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Inner ring (rotating effect)
+        ctx.strokeStyle = "rgba(220, 180, 255, 0.8)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(x, y, 8, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Center dot
+        ctx.fillStyle = "rgba(255, 200, 255, 0.9)";
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
       }
 
       function drawSectors() {
         universeStructure.sectors.forEach((sector) => {
           if (!sector.position) return;
 
+          // Check if this sector should be rendered based on culling
+          if (!shouldRenderSector(sector)) return;
+
           const content = sectorContents.sectors.find(
             (s) => s.id === sector.id
           );
           const hasPort = content && content.port;
           const isMegaPort = content && content.port && content.port.is_mega;
+          const isSelected = selectedSector && sector.id === selectedSector.id;
 
-          // Draw sector
-          ctx.fillStyle = isMegaPort
+          // Draw sector with selection highlight
+          ctx.fillStyle = isSelected
+            ? "#FF6B6B" // Red for selected
+            : isMegaPort
             ? "#FFD700"
             : hasPort && viewSettings.showPorts
             ? "#4A90E2"
@@ -636,11 +978,20 @@
           ctx.arc(
             sector.position.x,
             sector.position.y,
-            isMegaPort ? 8 : 4,
+            isSelected ? 6 : isMegaPort ? 8 : 4,
             0,
             Math.PI * 2
           );
           ctx.fill();
+
+          // Selection ring
+          if (isSelected) {
+            ctx.strokeStyle = "#FF6B6B";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(sector.position.x, sector.position.y, 10, 0, Math.PI * 2);
+            ctx.stroke();
+          }
 
           if (hasPort && viewSettings.showPorts) {
             ctx.strokeStyle = isMegaPort ? "#FFD700" : "#4A90E2";
@@ -684,14 +1035,25 @@
 
       // Mouse controls
       canvas.addEventListener("mousedown", (e) => {
-        isDragging = true;
         dragStart.x = e.clientX;
         dragStart.y = e.clientY;
         lastCamera.x = camera.x;
         lastCamera.y = camera.y;
+        isDragging = false; // Will be set to true only if mouse actually moves
       });
 
       canvas.addEventListener("mousemove", (e) => {
+        // Only start dragging if mouse has moved a minimum distance
+        if (!isDragging && dragStart.x !== undefined) {
+          const dx = e.clientX - dragStart.x;
+          const dy = e.clientY - dragStart.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          if (distance > 5) {
+            // 5 pixel threshold to distinguish click from drag
+            isDragging = true;
+          }
+        }
+
         if (isDragging) {
           camera.x = lastCamera.x + (e.clientX - dragStart.x);
           camera.y = lastCamera.y + (e.clientY - dragStart.y);
@@ -724,8 +1086,35 @@
         }
       });
 
-      canvas.addEventListener("mouseup", () => {
+      canvas.addEventListener("mouseup", (e) => {
+        if (!isDragging && dragStart.x !== undefined) {
+          // Handle click to select sector (only if we didn't drag)
+          const rect = canvas.getBoundingClientRect();
+          const x = (e.clientX - rect.left - camera.x) / camera.zoom;
+          const y = (e.clientY - rect.top - camera.y) / camera.zoom;
+
+          let clickedSector = null;
+          if (universeStructure) {
+            universeStructure.sectors.forEach((sector) => {
+              if (sector.position) {
+                const dist = Math.sqrt(
+                  Math.pow(sector.position.x - x, 2) +
+                    Math.pow(sector.position.y - y, 2)
+                );
+                if (dist < 15 / camera.zoom) {
+                  clickedSector = sector;
+                }
+              }
+            });
+          }
+
+          if (clickedSector) {
+            selectSector(clickedSector);
+          }
+        }
         isDragging = false;
+        dragStart.x = undefined;
+        dragStart.y = undefined;
       });
 
       canvas.addEventListener("wheel", (e) => {
@@ -750,6 +1139,7 @@
 
       function updateInfoPanel() {
         const panel = document.getElementById("infoPanel");
+        const selectionInfo = document.getElementById("selectionInfo");
 
         if (!hoveredSector) {
           panel.classList.remove("visible");
@@ -785,6 +1175,19 @@
         document.getElementById("sectorPos").textContent = `${Math.round(
           hoveredSector.position.x
         )}, ${Math.round(hoveredSector.position.y)}`;
+
+        // Show selection info
+        if (selectedSector) {
+          selectionInfo.style.display = "block";
+          const selectedRegion =
+            universeStructure.meta.regions[selectedSector.region];
+          document.getElementById("selectedSectorInfo").innerHTML =
+            `Sector ${selectedSector.id}<br>` +
+            `${selectedRegion ? selectedRegion.name : "Unknown"}<br>` +
+            `Showing ${visibleSectors.size} sectors within ${maxWalkDistance} jumps`;
+        } else {
+          selectionInfo.style.display = "none";
+        }
       }
 
       // Zoom controls
@@ -803,6 +1206,17 @@
         camera.zoom *= 0.8;
         camera.zoom = Math.max(0.1, camera.zoom);
         render();
+      }
+
+      function updateWalkDistance(value) {
+        maxWalkDistance = parseInt(value);
+        document.getElementById("walkDistanceValue").textContent = value;
+
+        // Recalculate visible sectors if we have a selection
+        if (selectedSector) {
+          calculateVisibleSectors();
+          render();
+        }
       }
 
       // Initial render
