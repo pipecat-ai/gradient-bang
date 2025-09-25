@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Universe Map Visualizer</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 20px;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background: #0a0a0a;
+        color: #fff;
+      }
+
+      .controls {
+        position: fixed;
+        top: 20px;
+        left: 20px;
+        z-index: 100;
+        background: rgba(20, 20, 30, 0.95);
+        padding: 20px;
+        border-radius: 8px;
+        border: 1px solid rgba(100, 100, 150, 0.3);
+        max-width: 300px;
+      }
+
+      .controls h2 {
+        margin-top: 0;
+        font-size: 18px;
+        color: #4a90e2;
+      }
+
+      .file-input-wrapper {
+        margin-bottom: 15px;
+      }
+
+      .file-input-wrapper label {
+        display: block;
+        margin-bottom: 5px;
+        font-size: 14px;
+        color: #aaa;
+      }
+
+      input[type="file"] {
+        width: 100%;
+        padding: 8px;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+        color: white;
+        font-size: 12px;
+      }
+
+      .stats {
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 1px solid rgba(100, 100, 150, 0.3);
+        font-size: 13px;
+      }
+
+      .stat-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 8px;
+      }
+
+      .stat-label {
+        color: #888;
+      }
+
+      .stat-value {
+        color: #fff;
+        font-weight: 500;
+      }
+
+      .legend {
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 1px solid rgba(100, 100, 150, 0.3);
+      }
+
+      .legend-item {
+        display: flex;
+        align-items: center;
+        margin-bottom: 8px;
+        font-size: 12px;
+      }
+
+      .legend-color {
+        width: 16px;
+        height: 16px;
+        margin-right: 8px;
+        border-radius: 2px;
+      }
+
+      .view-controls {
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 1px solid rgba(100, 100, 150, 0.3);
+      }
+
+      .checkbox-group {
+        margin-bottom: 10px;
+      }
+
+      .checkbox-group label {
+        display: flex;
+        align-items: center;
+        font-size: 13px;
+        cursor: pointer;
+      }
+
+      .checkbox-group input {
+        margin-right: 8px;
+      }
+
+      canvas {
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 1;
+        cursor: grab;
+      }
+
+      canvas:active {
+        cursor: grabbing;
+      }
+
+      .error {
+        color: #ff6b6b;
+        font-size: 12px;
+        margin-top: 10px;
+      }
+
+      .zoom-controls {
+        margin-top: 15px;
+      }
+
+      .zoom-controls button {
+        padding: 6px 12px;
+        margin-right: 5px;
+        background: rgba(74, 144, 226, 0.2);
+        border: 1px solid #4a90e2;
+        color: #4a90e2;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+      }
+
+      .zoom-controls button:hover {
+        background: rgba(74, 144, 226, 0.3);
+      }
+
+      .info-panel {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: rgba(20, 20, 30, 0.95);
+        padding: 15px;
+        border-radius: 8px;
+        border: 1px solid rgba(100, 100, 150, 0.3);
+        font-size: 12px;
+        max-width: 250px;
+        z-index: 100;
+        display: none;
+      }
+
+      .info-panel.visible {
+        display: block;
+      }
+
+      .info-panel h3 {
+        margin: 0 0 10px 0;
+        color: #4a90e2;
+        font-size: 14px;
+      }
+
+      .info-row {
+        margin-bottom: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="controls">
+      <h2>Universe Map Visualizer</h2>
+
+      <div class="file-input-wrapper">
+        <label>Universe Structure JSON:</label>
+        <input type="file" id="structureFile" accept=".json" />
+      </div>
+
+      <div class="file-input-wrapper">
+        <label>Sector Contents JSON:</label>
+        <input type="file" id="contentsFile" accept=".json" />
+      </div>
+
+      <div class="view-controls">
+        <div class="checkbox-group">
+          <label>
+            <input type="checkbox" id="showGrid" checked /> Show Hex Grid
+          </label>
+        </div>
+        <div class="checkbox-group">
+          <label>
+            <input type="checkbox" id="showRegions" checked /> Show Regions
+          </label>
+        </div>
+        <div class="checkbox-group">
+          <label>
+            <input type="checkbox" id="showWarps" checked /> Show Warps
+          </label>
+        </div>
+        <div class="checkbox-group">
+          <label>
+            <input type="checkbox" id="showSectorIds" checked /> Show Sector IDs
+          </label>
+        </div>
+        <div class="checkbox-group">
+          <label>
+            <input type="checkbox" id="showPorts" checked /> Highlight Ports
+          </label>
+        </div>
+      </div>
+
+      <div class="zoom-controls">
+        <button onclick="resetView()">Reset View</button>
+        <button onclick="zoomIn()">Zoom In</button>
+        <button onclick="zoomOut()">Zoom Out</button>
+      </div>
+
+      <div class="stats" id="stats" style="display: none">
+        <div class="stat-row">
+          <span class="stat-label">Total Sectors:</span>
+          <span class="stat-value" id="totalSectors">-</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Total Ports:</span>
+          <span class="stat-value" id="totalPorts">-</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Mega Port:</span>
+          <span class="stat-value" id="megaPort">-</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Two-way Warps:</span>
+          <span class="stat-value" id="twoWayWarps">-</span>
+        </div>
+      </div>
+
+      <div class="legend" id="legend" style="display: none">
+        <h3 style="font-size: 14px; margin-bottom: 10px">Regions</h3>
+        <div id="legendItems"></div>
+      </div>
+
+      <div class="error" id="error"></div>
+    </div>
+
+    <div class="info-panel" id="infoPanel">
+      <h3>Sector <span id="sectorId">-</span></h3>
+      <div class="info-row">Region: <span id="sectorRegion">-</span></div>
+      <div class="info-row">Warps Out: <span id="sectorWarps">-</span></div>
+      <div class="info-row">Port Class: <span id="sectorPort">-</span></div>
+      <div class="info-row">Position: <span id="sectorPos">-</span></div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+
+      // View state
+      let camera = { x: 0, y: 0, zoom: 1 };
+      let isDragging = false;
+      let dragStart = { x: 0, y: 0 };
+      let lastCamera = { x: 0, y: 0 };
+
+      // Data
+      let universeStructure = null;
+      let sectorContents = null;
+      let hoveredSector = null;
+
+      // View toggles
+      const viewSettings = {
+        showGrid: true,
+        showRegions: true,
+        showWarps: true,
+        showSectorIds: true,
+        showPorts: true,
+      };
+
+      // Setup canvas
+      function setupCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      }
+
+      window.addEventListener("resize", setupCanvas);
+      setupCanvas();
+
+      // File loading
+      document
+        .getElementById("structureFile")
+        .addEventListener("change", (e) => {
+          const file = e.target.files[0];
+          if (file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              try {
+                universeStructure = JSON.parse(e.target.result);
+                document.getElementById("error").textContent = "";
+                if (sectorContents) {
+                  initializeVisualization();
+                }
+              } catch (err) {
+                document.getElementById("error").textContent =
+                  "Error parsing structure JSON";
+              }
+            };
+            reader.readAsText(file);
+          }
+        });
+
+      document
+        .getElementById("contentsFile")
+        .addEventListener("change", (e) => {
+          const file = e.target.files[0];
+          if (file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              try {
+                sectorContents = JSON.parse(e.target.result);
+                document.getElementById("error").textContent = "";
+                if (universeStructure) {
+                  initializeVisualization();
+                }
+              } catch (err) {
+                document.getElementById("error").textContent =
+                  "Error parsing contents JSON";
+              }
+            };
+            reader.readAsText(file);
+          }
+        });
+
+      // View toggles
+      document.getElementById("showGrid").addEventListener("change", (e) => {
+        viewSettings.showGrid = e.target.checked;
+        render();
+      });
+
+      document.getElementById("showRegions").addEventListener("change", (e) => {
+        viewSettings.showRegions = e.target.checked;
+        render();
+      });
+
+      document.getElementById("showWarps").addEventListener("change", (e) => {
+        viewSettings.showWarps = e.target.checked;
+        render();
+      });
+
+      document
+        .getElementById("showSectorIds")
+        .addEventListener("change", (e) => {
+          viewSettings.showSectorIds = e.target.checked;
+          render();
+        });
+
+      document.getElementById("showPorts").addEventListener("change", (e) => {
+        viewSettings.showPorts = e.target.checked;
+        render();
+      });
+
+      // Initialize visualization
+      function initializeVisualization() {
+        // Update stats
+        updateStats();
+
+        // Create legend
+        createLegend();
+
+        // Center camera on universe
+        centerCamera();
+
+        // Start rendering
+        render();
+      }
+
+      function updateStats() {
+        const stats = document.getElementById("stats");
+        stats.style.display = "block";
+
+        document.getElementById("totalSectors").textContent =
+          universeStructure.sectors.length;
+
+        const portsCount = sectorContents.sectors.filter((s) => s.port).length;
+        document.getElementById("totalPorts").textContent = portsCount;
+
+        const megaPort = sectorContents.meta.mega_port_sector;
+        document.getElementById("megaPort").textContent =
+          megaPort !== undefined ? `Sector ${megaPort}` : "None";
+
+        let twoWayCount = 0;
+        universeStructure.sectors.forEach((sector) => {
+          sector.warps.forEach((warp) => {
+            if (warp.two_way) twoWayCount++;
+          });
+        });
+        document.getElementById("twoWayWarps").textContent = `${Math.floor(
+          twoWayCount / 2
+        )} pairs`;
+      }
+
+      function createLegend() {
+        if (!universeStructure.meta.regions) return;
+
+        const legend = document.getElementById("legend");
+        const legendItems = document.getElementById("legendItems");
+        legend.style.display = "block";
+        legendItems.innerHTML = "";
+
+        universeStructure.meta.regions.forEach((region) => {
+          const item = document.createElement("div");
+          item.className = "legend-item";
+
+          const color = document.createElement("div");
+          color.className = "legend-color";
+          color.style.background = region.color;
+
+          const label = document.createElement("span");
+          label.textContent = region.name + (region.safe ? " (Safe)" : "");
+
+          item.appendChild(color);
+          item.appendChild(label);
+          legendItems.appendChild(item);
+        });
+      }
+
+      function centerCamera() {
+        if (!universeStructure) return;
+
+        let minX = Infinity,
+          minY = Infinity;
+        let maxX = -Infinity,
+          maxY = -Infinity;
+
+        universeStructure.sectors.forEach((sector) => {
+          if (sector.position) {
+            minX = Math.min(minX, sector.position.x);
+            minY = Math.min(minY, sector.position.y);
+            maxX = Math.max(maxX, sector.position.x);
+            maxY = Math.max(maxY, sector.position.y);
+          }
+        });
+
+        const width = maxX - minX;
+        const height = maxY - minY;
+        const centerX = minX + width / 2;
+        const centerY = minY + height / 2;
+
+        const scaleX = (canvas.width - 100) / width;
+        const scaleY = (canvas.height - 100) / height;
+        camera.zoom = Math.min(scaleX, scaleY, 2);
+
+        camera.x = canvas.width / 2 - centerX * camera.zoom;
+        camera.y = canvas.height / 2 - centerY * camera.zoom;
+      }
+
+      // Rendering
+      function render() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (!universeStructure || !sectorContents) {
+          ctx.fillStyle = "#666";
+          ctx.font = "16px sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(
+            "Load both JSON files to visualize",
+            canvas.width / 2,
+            canvas.height / 2
+          );
+          return;
+        }
+
+        ctx.save();
+        ctx.translate(camera.x, camera.y);
+        ctx.scale(camera.zoom, camera.zoom);
+
+        // Draw hex grid (if enabled)
+        if (viewSettings.showGrid) {
+          drawHexGrid();
+        }
+
+        // Draw regions background (if enabled)
+        if (viewSettings.showRegions) {
+          drawRegions();
+        }
+
+        // Draw warps
+        if (viewSettings.showWarps) {
+          drawWarps();
+        }
+
+        // Draw sectors
+        drawSectors();
+
+        ctx.restore();
+      }
+
+      function drawHexGrid() {
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
+        ctx.lineWidth = 0.5;
+
+        // Estimate grid bounds
+        const hexSize = universeStructure.meta.hex_size || 30;
+
+        for (let y = -1000; y < 3000; y += hexSize * Math.sqrt(3)) {
+          for (let x = -1000; x < 3000; x += hexSize * 3) {
+            drawHex(x, y, hexSize * 0.9, true);
+            drawHex(
+              x + hexSize * 1.5,
+              y + (hexSize * Math.sqrt(3)) / 2,
+              hexSize * 0.9,
+              true
+            );
+          }
+        }
+      }
+
+      function drawRegions() {
+        if (!universeStructure.meta.regions) return;
+
+        // Group sectors by region
+        const sectorsByRegion = {};
+        universeStructure.sectors.forEach((sector) => {
+          if (sector.region !== undefined) {
+            if (!sectorsByRegion[sector.region]) {
+              sectorsByRegion[sector.region] = [];
+            }
+            sectorsByRegion[sector.region].push(sector);
+          }
+        });
+
+        // Draw region backgrounds
+        Object.entries(sectorsByRegion).forEach(([regionId, sectors]) => {
+          const region = universeStructure.meta.regions[regionId];
+          if (!region) return;
+
+          ctx.fillStyle = region.color + "15"; // Very transparent
+
+          sectors.forEach((sector) => {
+            if (sector.position) {
+              const hexSize = universeStructure.meta.hex_size || 30;
+              drawHex(
+                sector.position.x,
+                sector.position.y,
+                hexSize * 0.95,
+                false,
+                true
+              );
+            }
+          });
+        });
+      }
+
+      function drawWarps() {
+        universeStructure.sectors.forEach((sector) => {
+          if (!sector.position || !sector.warps) return;
+
+          sector.warps.forEach((warp) => {
+            const targetSector = universeStructure.sectors.find(
+              (s) => s.id === warp.to
+            );
+            if (!targetSector || !targetSector.position) return;
+
+            ctx.strokeStyle = warp.two_way
+              ? "rgba(100, 200, 100, 0.3)"
+              : "rgba(200, 100, 100, 0.2)";
+            ctx.lineWidth = warp.two_way ? 1.5 : 0.8;
+
+            ctx.beginPath();
+            ctx.moveTo(sector.position.x, sector.position.y);
+
+            // For one-way warps, draw arrow
+            if (!warp.two_way) {
+              const dx = targetSector.position.x - sector.position.x;
+              const dy = targetSector.position.y - sector.position.y;
+              const angle = Math.atan2(dy, dx);
+              const dist = Math.sqrt(dx * dx + dy * dy);
+
+              const arrowX = sector.position.x + (dist - 10) * Math.cos(angle);
+              const arrowY = sector.position.y + (dist - 10) * Math.sin(angle);
+
+              ctx.lineTo(arrowX, arrowY);
+              ctx.stroke();
+
+              // Draw arrowhead
+              ctx.beginPath();
+              ctx.moveTo(arrowX, arrowY);
+              ctx.lineTo(
+                arrowX - 5 * Math.cos(angle - Math.PI / 6),
+                arrowY - 5 * Math.sin(angle - Math.PI / 6)
+              );
+              ctx.moveTo(arrowX, arrowY);
+              ctx.lineTo(
+                arrowX - 5 * Math.cos(angle + Math.PI / 6),
+                arrowY - 5 * Math.sin(angle + Math.PI / 6)
+              );
+              ctx.stroke();
+            } else {
+              ctx.lineTo(targetSector.position.x, targetSector.position.y);
+              ctx.stroke();
+            }
+          });
+        });
+      }
+
+      function drawSectors() {
+        universeStructure.sectors.forEach((sector) => {
+          if (!sector.position) return;
+
+          const content = sectorContents.sectors.find(
+            (s) => s.id === sector.id
+          );
+          const hasPort = content && content.port;
+          const isMegaPort = content && content.port && content.port.is_mega;
+
+          // Draw sector
+          ctx.fillStyle = isMegaPort
+            ? "#FFD700"
+            : hasPort && viewSettings.showPorts
+            ? "#4A90E2"
+            : "#666";
+          ctx.beginPath();
+          ctx.arc(
+            sector.position.x,
+            sector.position.y,
+            isMegaPort ? 8 : 4,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+
+          if (hasPort && viewSettings.showPorts) {
+            ctx.strokeStyle = isMegaPort ? "#FFD700" : "#4A90E2";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(sector.position.x, sector.position.y, 8, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+
+          // Draw sector ID
+          if (viewSettings.showSectorIds) {
+            ctx.fillStyle = "#aaa";
+            ctx.font = "8px monospace";
+            ctx.textAlign = "center";
+            ctx.fillText(
+              sector.id.toString(),
+              sector.position.x,
+              sector.position.y - 10
+            );
+          }
+        });
+      }
+
+      function drawHex(x, y, size, strokeOnly = false, fillOnly = false) {
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const angle = (Math.PI / 3) * i;
+          const hx = x + size * Math.cos(angle);
+          const hy = y + size * Math.sin(angle);
+          if (i === 0) {
+            ctx.moveTo(hx, hy);
+          } else {
+            ctx.lineTo(hx, hy);
+          }
+        }
+        ctx.closePath();
+
+        if (!fillOnly) ctx.stroke();
+        if (!strokeOnly) ctx.fill();
+      }
+
+      // Mouse controls
+      canvas.addEventListener("mousedown", (e) => {
+        isDragging = true;
+        dragStart.x = e.clientX;
+        dragStart.y = e.clientY;
+        lastCamera.x = camera.x;
+        lastCamera.y = camera.y;
+      });
+
+      canvas.addEventListener("mousemove", (e) => {
+        if (isDragging) {
+          camera.x = lastCamera.x + (e.clientX - dragStart.x);
+          camera.y = lastCamera.y + (e.clientY - dragStart.y);
+          render();
+        } else {
+          // Check hover
+          const rect = canvas.getBoundingClientRect();
+          const x = (e.clientX - rect.left - camera.x) / camera.zoom;
+          const y = (e.clientY - rect.top - camera.y) / camera.zoom;
+
+          let foundSector = null;
+          if (universeStructure) {
+            universeStructure.sectors.forEach((sector) => {
+              if (sector.position) {
+                const dist = Math.sqrt(
+                  Math.pow(sector.position.x - x, 2) +
+                    Math.pow(sector.position.y - y, 2)
+                );
+                if (dist < 10 / camera.zoom) {
+                  foundSector = sector;
+                }
+              }
+            });
+          }
+
+          if (foundSector !== hoveredSector) {
+            hoveredSector = foundSector;
+            updateInfoPanel();
+          }
+        }
+      });
+
+      canvas.addEventListener("mouseup", () => {
+        isDragging = false;
+      });
+
+      canvas.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        const worldX = (mouseX - camera.x) / camera.zoom;
+        const worldY = (mouseY - camera.y) / camera.zoom;
+
+        camera.zoom *= delta;
+        camera.zoom = Math.max(0.1, Math.min(5, camera.zoom));
+
+        camera.x = mouseX - worldX * camera.zoom;
+        camera.y = mouseY - worldY * camera.zoom;
+
+        render();
+      });
+
+      function updateInfoPanel() {
+        const panel = document.getElementById("infoPanel");
+
+        if (!hoveredSector) {
+          panel.classList.remove("visible");
+          return;
+        }
+
+        panel.classList.add("visible");
+
+        document.getElementById("sectorId").textContent = hoveredSector.id;
+
+        const region = universeStructure.meta.regions[hoveredSector.region];
+        document.getElementById("sectorRegion").textContent = region
+          ? region.name
+          : "Unknown";
+
+        document.getElementById("sectorWarps").textContent = hoveredSector.warps
+          ? hoveredSector.warps.length
+          : 0;
+
+        const content = sectorContents.sectors.find(
+          (s) => s.id === hoveredSector.id
+        );
+        if (content && content.port) {
+          const portInfo = `Class ${content.port.class} (${content.port.code})`;
+          document.getElementById("sectorPort").textContent = content.port
+            .is_mega
+            ? `MEGA - ${portInfo}`
+            : portInfo;
+        } else {
+          document.getElementById("sectorPort").textContent = "None";
+        }
+
+        document.getElementById("sectorPos").textContent = `${Math.round(
+          hoveredSector.position.x
+        )}, ${Math.round(hoveredSector.position.y)}`;
+      }
+
+      // Zoom controls
+      function resetView() {
+        centerCamera();
+        render();
+      }
+
+      function zoomIn() {
+        camera.zoom *= 1.2;
+        camera.zoom = Math.min(5, camera.zoom);
+        render();
+      }
+
+      function zoomOut() {
+        camera.zoom *= 0.8;
+        camera.zoom = Math.max(0.1, camera.zoom);
+        render();
+      }
+
+      // Initial render
+      render();
+    </script>
+  </body>
+</html>

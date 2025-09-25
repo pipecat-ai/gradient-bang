@@ -53,5 +53,8 @@ export const createActionsSlice: StateCreator<
 
     // 3. Return to idle state
     set({ uiState: "idle" });
+
+    // 4. Update the map store
+    get().setSector(newSector);
   },
 });

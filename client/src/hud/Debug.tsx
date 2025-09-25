@@ -15,7 +15,8 @@ const debugMessages = [
     "Move to random adjacent sector",
     "Tell me what sectors are adjacent, then pick one randomly and move to it.",
   ],
-  ["Get my current status", "Tell me my current status."],
+  ["Current status", "Tell me my current status."],
+  ["Current map", "Tell me the sectors I've visited and my current map."],
 ];
 
 export const Debug = () => {
