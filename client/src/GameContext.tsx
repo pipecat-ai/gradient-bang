@@ -208,7 +208,7 @@ export function GameProvider({ children }: GameProviderProps) {
           }*/
 
             default:
-              console.warn("[GAME REDUCER] Unhandled server action:", action);
+              console.warn("[GAME REDUCER] Unhandled server action:", data);
           }
         }
       },
