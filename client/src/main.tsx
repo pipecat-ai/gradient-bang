@@ -7,6 +7,8 @@ import { GameProvider } from "./GameContext";
 import Error from "@state/Error";
 import Game from "@state/Game";
 
+import Settings from "./settings.json";
+
 import "./css/index.css";
 
 createRoot(document.getElementById("root")!).render(
@@ -14,8 +16,12 @@ createRoot(document.getElementById("root")!).render(
     connectParams={{
       webrtcRequestParams: { endpoint: "api/offer" },
     }}
+    clientOptions={{
+      enableMic: Settings.enableMic,
+    }}
     transportType="smallwebrtc"
     noThemeProvider={true}
+    noAudioOutput={Settings.disableAudioOutput}
   >
     {({ handleConnect, error }) =>
       error ? (

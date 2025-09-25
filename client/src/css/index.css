@@ -30,14 +30,6 @@
   --grid-opacity: 0.25;
 }
 
-*:not(.normal-case) {
-  text-transform: uppercase;
-}
-
-.normal-case * {
-  text-transform: none;
-}
-
 html,
 body {
   background-color: var(--color-background);
@@ -50,7 +42,6 @@ body {
 
 #root {
   position: relative;
-  z-index: 99999;
   height: 100vh;
 }
 

@@ -1,6 +1,8 @@
 {
     "startMuted": true,
+    "enableMic": false,
     "disabledSounds": true,
+    "disableAudioOutput": true,
     "renderStarfield": false,
     "debugMode": true
 }

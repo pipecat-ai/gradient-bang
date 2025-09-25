@@ -21,7 +21,7 @@
       "@/*": ["./src/*"],
       "@hud/*": ["./src/hud/*"],
       "@state/*": ["./src/state/*"],
-      "@store/*": ["./src/stores/*"],
+      "@stores/*": ["./src/stores/*"],
     },
 
     /* Linting */

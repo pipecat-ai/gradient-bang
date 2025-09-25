@@ -6,16 +6,21 @@ import Settings from "../settings.json";
 
 export const Starfield = () => {
   const { setStarfieldInstance } = useGameStore();
+  const starfieldInstance = useGameStore.use.starfieldInstance();
 
   useEffect(() => {
+    if (starfieldInstance) {
+      return;
+    }
+
     console.log("[STARFIELD] Initializing GalaxyStarfield instance");
 
-    const starfieldInstance = new GalaxyStarfield({
+    const s = new GalaxyStarfield({
       renderingEnabled: Settings.renderStarfield,
     });
 
-    setStarfieldInstance(starfieldInstance);
-  }, [setStarfieldInstance]);
+    setStarfieldInstance(s);
+  }, [setStarfieldInstance, starfieldInstance]);
   return null;
 };
 

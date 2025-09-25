@@ -1,6 +1,7 @@
 import { usePipecatClient } from "@pipecat-ai/client-react";
-import { Button, usePipecatConnectionState } from "@pipecat-ai/voice-ui-kit";
+import { usePipecatConnectionState } from "@pipecat-ai/voice-ui-kit";
 
+import Summary from "@/hud/Summary";
 import { Debug } from "@hud/Debug";
 import { SectorMap } from "@hud/SectorMap";
 import { TopBar } from "@hud/TopBar";
@@ -39,8 +40,10 @@ export const Game = ({ onConnect }: { onConnect?: () => void }) => {
   );
 
   useEffect(() => {
-    if (client && client.state !== "initialized" && !startMuted) {
-      client.initDevices();
+    if (client) {
+      if (client.state !== "initialized" && !startMuted) {
+        client.initDevices();
+      }
 
       // Attach send user text input function to window object
       (
@@ -57,7 +60,7 @@ export const Game = ({ onConnect }: { onConnect?: () => void }) => {
 
   return (
     <>
-      <div className="min-h-screen grid grid-rows-[auto_1fr_auto] w-full z-90 relative">
+      <div className="min-h-screen grid grid-rows-[auto_1fr_auto] w-full z-10 relative">
         {/* Top Bar */}
         <TopBar />
 
@@ -72,20 +75,7 @@ export const Game = ({ onConnect }: { onConnect?: () => void }) => {
           <SectorBadge />
           <PortBadge />
           <SectorMap />
-          <Button
-            onClick={() => {
-              client?.sendClientMessage("get-my-status");
-            }}
-          >
-            Get My Status
-          </Button>
-          <Button
-            onClick={() => {
-              client?.sendClientMessage("move-to-sector", { sector: 0 });
-            }}
-          >
-            Move to sector 0
-          </Button>
+          <Summary />
         </main>
       </div>
 

@@ -3,6 +3,15 @@ import { useRTVIClientEvent } from "@pipecat-ai/client-react";
 import { createContext, useCallback, type ReactNode } from "react";
 import useGameStore from "./stores/game";
 
+interface SystemMessage {
+  event: string;
+  payload: {
+    delta?: Record<string, unknown>;
+    summary?: string;
+    result?: Record<string, unknown>;
+  } & Record<string, unknown>;
+}
+
 interface StatusUpdateMessage {
   id: string;
   name: string;
@@ -65,32 +74,45 @@ export function GameProvider({ children }: GameProviderProps) {
   useRTVIClientEvent(
     RTVIEvent.ServerMessage,
     useCallback(
-      (data: Record<string, unknown>) => {
-        if ("event" in data) {
-          console.log(
-            "[GAME REDUCER] Server message received",
-            data.event,
-            data
-          );
+      (e: SystemMessage) => {
+        if ("event" in e) {
+          console.log("[GAME REDUCER] Server message received", e.event, e);
 
           // Transform if this is a tool call result so we can handle it like a direct action
-          /*if (action === "tool_result" && "tool_name" in data) {
-            action = data.tool_name as string;
-            data = data.payload as Record<string, unknown>;
-            if (data.content) {
-              data.result = JSON.parse(data.content as string);
-            }
-            console.log("[GAME REDUCER] Transformed result", action, data);
-          }*/
+          let action = e.event;
+          let data = e.payload;
+          if (e.event === "tool_result" && "tool_name" in e) {
+            action = e.tool_name as string;
+            data = e.payload?.result as Record<string, unknown>;
+            //if (e.content) {
+            //  data = JSON.parse(data.content as string);
+            //}
+            console.log(
+              "[GAME REDUCER] Transformed server message",
+              action,
+              data
+            );
+          }
 
-          switch (data.event) {
+          switch (action) {
+            // ----- TOOL CALL
+            case "tool_call":
+              // Note: passed as not used by the client
+              console.log("[GAME REDUCER] Tool call", e);
+              break;
+
             // ----- INIT & STATUS
             case "status.init":
-            case "status.update": {
-              const { status, map_data } = data.payload as {
-                status: StatusUpdateMessage;
-                map_data: MapDataMessage;
-              };
+            case "status.update":
+            case "my_status": {
+              const status: StatusUpdateMessage =
+                "status" in data
+                  ? (data.status as StatusUpdateMessage)
+                  : (data as unknown as StatusUpdateMessage);
+              const map_data =
+                "map_data" in data
+                  ? (data.map_data as MapDataMessage)
+                  : undefined;
 
               // Update status data
               // Note: we do a little bit of remapping here to conform
@@ -116,9 +138,10 @@ export function GameProvider({ children }: GameProviderProps) {
             }
 
             // ----- MOVE
+            case "move":
             case "character.moved": {
               console.log("[GAME] Movement", data);
-              const result = data.result as StatusUpdateMessage;
+              const result = data as StatusUpdateMessage;
               // Map new sector to a Sector object
               const newSector = {
                 id: result.sector,
@@ -208,7 +231,20 @@ export function GameProvider({ children }: GameProviderProps) {
           }*/
 
             default:
-              console.warn("[GAME REDUCER] Unhandled server action:", data);
+              console.warn(
+                "[GAME REDUCER] Unhandled server action:",
+                data.event,
+                data
+              );
+          }
+
+          // ----- SUMMARY
+          // Add any summary messages to task output
+          if ("summary" in (e.payload as Record<string, unknown>)) {
+            const summary = (e.payload as Record<string, unknown>)
+              .summary as string;
+            console.debug("[GAME] Adding task summary to store", summary);
+            gameStore.addTask(summary);
           }
         }
       },

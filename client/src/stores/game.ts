@@ -10,6 +10,7 @@ import { GalaxyStarfield } from "../starfield/";
 import { createActionsSlice, type ActionsSlice } from "./actionSlice";
 import { createHistorySlice, type HistorySlice } from "./historySlice";
 import { createMapSlice, type MapSlice } from "./mapSlice";
+import { createTaskSlice, type TaskSlice } from "./taskSlice";
 
 type WithSelectors<S> = S extends { getState: () => infer T }
   ? S & { use: { [K in keyof T]: () => T[K] } }
@@ -57,7 +58,7 @@ export interface GameSlice extends GameState {
 }
 
 const createGameSlice: StateCreator<
-  GameSlice & ActionsSlice & MapSlice & HistorySlice,
+  GameSlice & ActionsSlice & MapSlice & HistorySlice & TaskSlice,
   [],
   [],
   GameSlice
@@ -115,12 +116,13 @@ const createGameSlice: StateCreator<
 });
 
 const useGameStoreBase = create<
-  GameSlice & ActionsSlice & MapSlice & HistorySlice
+  GameSlice & ActionsSlice & MapSlice & HistorySlice & TaskSlice
 >()((...a) => ({
   ...createGameSlice(...a),
   ...createActionsSlice(...a),
   ...createMapSlice(...a),
   ...createHistorySlice(...a),
+  ...createTaskSlice(...a),
 }));
 
 const useGameStore = createSelectors(useGameStoreBase);

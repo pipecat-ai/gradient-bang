@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 export interface TaskOutput {
+  id: string;
   task_message_type?: string;
   text?: string;
   timestamp: string;

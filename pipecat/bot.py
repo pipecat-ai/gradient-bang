@@ -374,27 +374,6 @@ async def run_bot(transport, runner_args: RunnerArguments):
         """Handle new connection."""
         logger.info("Client connected")
 
-    @rtvi.event_handler("on_client_ready")
-    async def on_client_ready(rtvi):
-        # Proactively send init in case client_ready doesn't fire in this environment
-        try:
-            await rtvi.set_bot_ready()
-            await rtvi.push_frame(
-                RTVIServerMessageFrame(
-                    {
-                        "frame_type": "event",
-                        "event": "status.init",
-                        "payload": {
-                            "status": initial_status,
-                            "map_data": initial_map_data,
-                        },
-                        "gg-action": "status.init",
-                    }
-                )
-            )
-        except Exception:
-            logger.exception("Failed to send init on connect")
-
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
         """Handle disconnection."""
