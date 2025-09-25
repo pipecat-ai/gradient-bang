@@ -1,13 +1,15 @@
 import { usePipecatClient } from "@pipecat-ai/client-react";
 import { Button, usePipecatConnectionState } from "@pipecat-ai/voice-ui-kit";
 
+import { Debug } from "@hud/Debug";
+import { SectorMap } from "@hud/SectorMap";
+import { TopBar } from "@hud/TopBar";
 import { useEffect } from "react";
 import { Connect } from "../components/HUD/Connect";
 import { PortBadge } from "../components/PortBadge";
 import { SectorBadge } from "../components/SectorBadge";
+import Starfield from "../components/Starfield";
 import { usePlaySound } from "../hooks/usePlaySound";
-import { SectorMap } from "../hud/SectorMap";
-import { TopBar } from "../hud/TopBar";
 import { useSettingsStore } from "../stores/settings";
 
 export const Game = ({ onConnect }: { onConnect?: () => void }) => {
@@ -64,6 +66,8 @@ export const Game = ({ onConnect }: { onConnect?: () => void }) => {
       </div>
 
       {/* Other Renderables */}
+      <Starfield />
+      <Debug />
     </>
   );
 };

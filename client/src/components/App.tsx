@@ -8,16 +8,16 @@ import {
 import { useEffect, useState } from "react";
 
 import { usePlaySound } from "../hooks/usePlaySound";
+import { HighlightOverlay } from "./HighlightOverlay";
 import { AutoPilot } from "./HUD/AutoPilot";
 import { Bar } from "./HUD/Bar";
 import { Connect } from "./HUD/Connect";
 import { LHS } from "./HUD/LHS";
 import { RHS } from "./HUD/RHS";
-import { HighlightOverlay } from "./HighlightOverlay";
 import { ImagePanel } from "./ImagePanel";
 import { type PanelMenuItem } from "./PanelMenu";
-import { StarField } from "./StarField";
 import { PortPanel } from "./panels/PortPanel";
+import { Starfield } from "./Starfield";
 
 export const App = ({ onConnect }: { onConnect?: () => void }) => {
   const { isConnected } = usePipecatConnectionState();
@@ -64,7 +64,7 @@ export const App = ({ onConnect }: { onConnect?: () => void }) => {
           <RHS />
         </main>
       </div>
-      <StarField />
+      <Starfield />
       <HighlightOverlay />
     </>
   );

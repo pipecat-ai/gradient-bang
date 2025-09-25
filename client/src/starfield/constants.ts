@@ -182,6 +182,9 @@ export interface GalaxyStarfieldConfig {
 
   // Debug mode settings
   debugMode: boolean;
+
+  // Rendering control
+  renderingEnabled: boolean;
   debugGameObjectCounts: DebugGameObjectCounts;
 }
 
@@ -449,6 +452,8 @@ export const DEFAULT_GALAXY_CONFIG: GalaxyStarfieldConfig = {
   gameObjects: [],
 
   debugMode: false,
+
+  renderingEnabled: true,
 
   debugGameObjectCounts: {
     playerShip: 1,

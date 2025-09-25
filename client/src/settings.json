@@ -1,4 +1,6 @@
 {
     "startMuted": true,
-    "disabledSounds": true
+    "disabledSounds": true,
+    "renderStarfield": false,
+    "debugMode": true
 }

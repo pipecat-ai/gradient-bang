@@ -1,10 +1,6 @@
-export type { GalaxyStarfieldConfig } from "./constants";
-export { GalaxyStarfield } from "./main";
-export type { StarfieldState } from "./main";
-export type { GameObjectInstance } from "./types/GameObject";
-
-/*import { memo, useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import { usePlaySound } from "../hooks/usePlaySound";
+import { GalaxyStarfield } from "../starfield/Starfield";
 import type { GameObjectInstance } from "../starfield/types/GameObject";
 import useSectorStore from "../stores/sector";
 import useStarfieldStore from "../stores/starfield";
@@ -12,7 +8,6 @@ import useStarfieldStore from "../stores/starfield";
 import scenes from "../scenes.json";
 import type { GalaxyStarfieldConfig } from "../starfield/constants";
 import useTaskStore from "../stores/tasks";
-
 
 const DEFAULT_SCENE = scenes.scenes[0];
 
@@ -85,14 +80,7 @@ export const StarField = memo(() => {
             playSound("start", { volume: 0.5 });
           },
           onWarpStart: () => {
-            console.log("warp started");
             playSound("warp", { volume: 0.1 });
-          },
-          onWarpComplete: () => {
-            console.log("warp complete");
-          },
-          onWarpCancel: () => {
-            console.log("warp cancelled");
           },
         },
         targetElement
@@ -100,6 +88,7 @@ export const StarField = memo(() => {
 
       starfieldRef.current = galaxyStarfieldInstance;
       setInstance(galaxyStarfieldInstance);
+      window.starfield = galaxyStarfieldInstance;
     }
 
     return () => {
@@ -110,5 +99,4 @@ export const StarField = memo(() => {
   return null;
 });
 
-export { StarField as default, GalaxyStarfield };
-*/
+StarField.displayName = "StarField";

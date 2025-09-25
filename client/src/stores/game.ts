@@ -6,6 +6,8 @@ import {
   type UseBoundStore,
 } from "zustand";
 
+import { GalaxyStarfield } from "../starfield/";
+import { createActionsSlice, type ActionsSlice } from "./actionSlice";
 import { createHistorySlice, type HistorySlice } from "./historySlice";
 import { createMapSlice, type MapSlice } from "./mapSlice";
 
@@ -26,25 +28,36 @@ const createSelectors = <S extends UseBoundStore<StoreApi<object>>>(
   return store;
 };
 
+export interface GameObjectInstance {
+  id: string;
+  type: "port" | "ship" | "npc";
+  data: Record<string, unknown>;
+}
+
 export interface GameState {
   uiState: UIState;
   player: Player;
   ship: Ship | undefined;
   credits: number | undefined;
   sector: Sector | undefined;
+
+  /* GameObject & Singleton Instances */
+  gameObjects: GameObjectInstance[];
+  starfieldInstance: GalaxyStarfield | undefined;
 }
 
-interface GameSlice extends GameState {
+export interface GameSlice extends GameState {
   setState: (newState: Partial<GameState>) => void;
   setShip: (ship: Partial<Ship>) => void;
-  setSector: (sector: Sector) => void;
+  setSector: (sector: Sector, immediate?: boolean) => Promise<void>;
   setPlayer: (player: Player) => void;
   setCredits: (credits: number) => void;
   setUIState: (state: UIState) => void;
+  setStarfieldInstance: (starfieldInstance: GalaxyStarfield) => void;
 }
 
 const createGameSlice: StateCreator<
-  GameSlice & MapSlice & HistorySlice,
+  GameSlice & ActionsSlice & MapSlice & HistorySlice,
   [],
   [],
   GameSlice
@@ -54,6 +67,8 @@ const createGameSlice: StateCreator<
   ship: undefined,
   sector: undefined,
   credits: undefined,
+  gameObjects: [],
+  starfieldInstance: undefined,
 
   setState: (newState: Partial<GameState>) =>
     set({ ...get(), ...newState }, true),
@@ -68,8 +83,14 @@ const createGameSlice: StateCreator<
         }
       })
     ),
-  setSector: (sector: Sector) => {
+  setSector: async (sector: Sector, immediate = false) => {
     const prevSector = get().sector?.id;
+
+    if (!immediate) {
+      // Await movement action to sequence animation state
+      await get().moveToSectorAction();
+    }
+
     // Update the current sector
     set(
       produce((state) => {
@@ -89,15 +110,18 @@ const createGameSlice: StateCreator<
     ),
   setCredits: (credits: number) => set({ credits }),
   setUIState: (uiState: UIState) => set({ uiState }),
+  setStarfieldInstance: (starfieldInstance: GalaxyStarfield) =>
+    set({ starfieldInstance }),
 });
 
-const useGameStoreBase = create<GameSlice & MapSlice & HistorySlice>()(
-  (...a) => ({
-    ...createGameSlice(...a),
-    ...createMapSlice(...a),
-    ...createHistorySlice(...a),
-  })
-);
+const useGameStoreBase = create<
+  GameSlice & ActionsSlice & MapSlice & HistorySlice
+>()((...a) => ({
+  ...createGameSlice(...a),
+  ...createActionsSlice(...a),
+  ...createMapSlice(...a),
+  ...createHistorySlice(...a),
+}));
 
 const useGameStore = createSelectors(useGameStoreBase);
 

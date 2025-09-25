@@ -1415,7 +1415,10 @@ export class GalaxyStarfield {
     // Update skybox-style planet position
     this.updatePlanetPosition();
 
-    if (!this.renderer.getContext().isContextLost()) {
+    if (
+      !this.renderer.getContext().isContextLost() &&
+      this.config.renderingEnabled
+    ) {
       this.composer.render();
 
       // Only capture performance stats when in debug mode

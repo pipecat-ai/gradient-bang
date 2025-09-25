@@ -3,8 +3,6 @@ import { useRTVIClientEvent } from "@pipecat-ai/client-react";
 import { createContext, useCallback, type ReactNode } from "react";
 import useGameStore from "./stores/game";
 
-const SERVER_MESSAGE_GAME_KEY = "gg-action";
-
 interface StatusUpdateMessage {
   id: string;
   name: string;
@@ -68,51 +66,57 @@ export function GameProvider({ children }: GameProviderProps) {
     RTVIEvent.ServerMessage,
     useCallback(
       (data: Record<string, unknown>) => {
-        if (SERVER_MESSAGE_GAME_KEY in data) {
-          let action = data[SERVER_MESSAGE_GAME_KEY];
-          console.log("[GAME REDUCER] Server message received", action, data);
+        if ("event" in data) {
+          console.log(
+            "[GAME REDUCER] Server message received",
+            data.event,
+            data
+          );
 
           // Transform if this is a tool call result so we can handle it like a direct action
-          if (action === "tool_result" && "tool_name" in data) {
+          /*if (action === "tool_result" && "tool_name" in data) {
             action = data.tool_name as string;
             data = data.payload as Record<string, unknown>;
             if (data.content) {
               data.result = JSON.parse(data.content as string);
             }
             console.log("[GAME REDUCER] Transformed result", action, data);
-          }
+          }*/
 
-          switch (action) {
+          switch (data.event) {
             // ----- INIT & STATUS
-            case "init":
-            case "my_status": {
-              const statusData = data.result as StatusUpdateMessage;
-              const mapData = data.map_data as MapDataMessage;
+            case "status.init":
+            case "status.update": {
+              const { status, map_data } = data.payload as {
+                status: StatusUpdateMessage;
+                map_data: MapDataMessage;
+              };
 
               // Update status data
-              // Note: we do a little bit of remapping here
+              // Note: we do a little bit of remapping here to conform
+              // the status blob to our store shape
               gameStore.setState({
-                ship: statusData.ship,
+                ship: status.ship,
                 player: {
-                  name: statusData.name,
-                  last_active: statusData.last_active,
+                  name: status.name,
+                  last_active: status.last_active,
                 },
                 sector: {
-                  ...statusData.sector_contents,
-                  id: statusData.sector,
+                  ...status.sector_contents,
+                  id: status.sector,
                 },
-                credits: statusData.ship.credits,
+                credits: status.ship.credits,
               });
 
               // Update map store with discovered sectors
-              if (mapData) {
-                gameStore.setMappedSectors(mapData.sectors_visited);
+              if (map_data) {
+                gameStore.setMappedSectors(map_data.sectors_visited);
               }
               break;
             }
 
             // ----- MOVE
-            case "move": {
+            case "character.moved": {
               console.log("[GAME] Movement", data);
               const result = data.result as StatusUpdateMessage;
               // Map new sector to a Sector object
