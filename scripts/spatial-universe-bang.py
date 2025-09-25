@@ -4,7 +4,8 @@ Generate a spatially-aware universe with regional clustering.
 - Hexagonal grid base with sparse sector placement
 - Regional territories with different characteristics
 - Minimal edge crossings through spatial-aware connections
-- Trade Wars mechanics preserved (ports, commodities, one-way/two-way warps)
+- Sector contents (ports, commodities, one-way/two-way warps
+- Hyperlanes to connect regions
 - Mega port placed in safe zone
 
 Outputs:
@@ -12,9 +13,8 @@ Outputs:
   - world-data/sector_contents.json
 
 Usage:
-  python spatial-universe-bang.py <sector_count> [seed]
+  python generate_spatial_universe.py <sector_count> [seed]
 """
-
 import sys, json, random, math
 import numpy as np
 from collections import deque
@@ -94,7 +94,7 @@ CODE_TO_CLASS = {code: c for c, code in CLASS_DEFS.items()}
 # ===================== Hex Grid Functions =====================
 
 def generate_hex_grid(width: int, height: int) -> List[Tuple[float, float]]:
-    """Generate hexagonal grid positions."""
+    """Generate hexagonal grid positions with integer coordinates."""
     positions = []
     for row in range(height):
         for col in range(width):
@@ -102,7 +102,8 @@ def generate_hex_grid(width: int, height: int) -> List[Tuple[float, float]]:
             y = row * HEX_SIZE * math.sqrt(3)
             if col % 2 == 1:
                 y += HEX_SIZE * math.sqrt(3) / 2
-            positions.append((x, y))
+            # Round to integers for clean coordinates
+            positions.append((round(x), round(y)))
     return positions
 
 def euclidean_distance(p1: Tuple[float, float], p2: Tuple[float, float]) -> float:
@@ -215,7 +216,7 @@ def generate_regional_connections(
     positions: Dict[int, Tuple[float, float]],
     regions: Dict[int, int],
     regions_info: List[Dict]
-) -> Dict[int, Set[int]]:
+) -> Tuple[Dict[int, Set[int]], List[Tuple[int, int]]]:
     """Generate connections with spatial awareness and minimal crossings."""
     warps = {s: set() for s in positions.keys()}
     
@@ -276,7 +277,7 @@ def generate_regional_connections(
     # 2. Add border connections
     add_border_connections(warps, positions, regions)
     
-    # 3. Add hyperlanes
+    # 3. Add hyperlanes (special long-distance warps)
     hyperlanes = add_hyperlanes(warps, positions, regions)
     
     # 4. Ensure connectivity
@@ -285,7 +286,7 @@ def generate_regional_connections(
     # 5. Cap degrees
     cap_degrees(warps, positions)
     
-    return warps
+    return warps, hyperlanes
 
 def add_border_connections(
     warps: Dict[int, Set[int]],
@@ -323,7 +324,8 @@ def add_hyperlanes(
     positions: Dict[int, Tuple[float, float]],
     regions: Dict[int, int]
 ) -> List[Tuple[int, int]]:
-    """Add long-distance hyperlanes (may cause crossings but are special)."""
+    """Add long-distance hyperlanes (may cause crossings but are special).
+    These represent jump gates or wormholes that allow instant long-distance travel."""
     hyperlanes = []
     sectors = list(positions.keys())
     num_hyperlanes = max(1, int(len(sectors) * HYPERLANE_RATIO))
@@ -356,24 +358,38 @@ def ensure_connectivity(
     sectors = list(positions.keys())
     
     for s in sectors:
+        # Check outgoing connections specifically
         out_degree = len(warps[s])
-        in_degree = sum(1 for other in sectors if s in warps[other])
-        total_degree = len(set(warps[s]) | {other for other in sectors if s in warps[other]})
         
-        if total_degree < MIN_WARPS_PER_SECTOR:
-            # Find nearest unconnected sectors
+        # Ensure minimum outgoing warps
+        if out_degree < MIN_WARPS_PER_SECTOR:
+            # Find nearest sectors we're not already connected to
             candidates = [
                 (hex_distance(positions[s], positions[other]), other)
                 for other in sectors
-                if other != s and other not in warps[s] and s not in warps[other]
+                if other != s and other not in warps[s]
             ]
             candidates.sort()
             
-            for _, other in candidates[:MIN_WARPS_PER_SECTOR - total_degree]:
-                if random.random() < 0.5:
-                    warps[s].add(other)
-                else:
-                    warps[other].add(s)
+            # Add outgoing connections to meet minimum
+            for _, other in candidates[:MIN_WARPS_PER_SECTOR - out_degree]:
+                warps[s].add(other)
+        
+        # Also check incoming connections for reachability
+        in_degree = sum(1 for other in sectors if s in warps[other])
+        
+        # Ensure at least one way to reach this sector
+        if in_degree == 0 and out_degree > 0:
+            # Find a nearby sector to connect FROM
+            candidates = [
+                (hex_distance(positions[s], positions[other]), other)
+                for other in sectors
+                if other != s and s not in warps[other]
+            ]
+            if candidates:
+                candidates.sort()
+                _, other = candidates[0]
+                warps[other].add(s)
 
 def cap_degrees(
     warps: Dict[int, Set[int]],
@@ -610,9 +626,14 @@ def main():
     print(f"Placed {len(sector_positions)} sectors across {len(REGIONS)} regions")
     
     # Generate connections
-    warps = generate_regional_connections(
+    warps, hyperlanes = generate_regional_connections(
         sector_positions, sector_regions, REGIONS
     )
+    
+    # Convert hyperlanes to set for easy lookup
+    hyperlane_set = set()
+    for s1, s2 in hyperlanes:
+        hyperlane_set.add((min(s1, s2), max(s1, s2)))
     
     # Place ports
     port_class_by_sector, mega_port_sector = place_ports(
@@ -655,19 +676,34 @@ def main():
     
     for s in range(sector_count):
         if s in sector_positions:
-            warp_list = [
-                {
+            warp_list = []
+            for t in sorted(warps.get(s, set())):
+                warp_data = {
                     "to": t,
                     "two_way": s in warps.get(t, set())
                 }
-                for t in sorted(warps.get(s, set()))
-            ]
+                
+                # Flag cross-region warps
+                target_sector = next((sec for sec in universe_structure["sectors"] 
+                                     if sec["id"] == t), None)
+                if target_sector and "region" in target_sector:
+                    if target_sector["region"] != sector_regions[s]:
+                        warp_data["crosses_region"] = True
+                        warp_data["to_region"] = target_sector["region"]
+                
+                # Flag if this is a hyperlane (long-distance warp)
+                pair = (min(s, t), max(s, t))
+                if pair in hyperlane_set:
+                    warp_data["is_hyperlane"] = True
+                    warp_data["distance"] = round(hex_distance(sector_positions[s], sector_positions[t]), 1)
+                
+                warp_list.append(warp_data)
             
             universe_structure["sectors"].append({
                 "id": s,
                 "position": {
-                    "x": round(sector_positions[s][0], 2),
-                    "y": round(sector_positions[s][1], 2)
+                    "x": int(sector_positions[s][0]),
+                    "y": int(sector_positions[s][1])
                 },
                 "region": sector_regions[s],
                 "warps": warp_list
