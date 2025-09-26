@@ -82,6 +82,7 @@ async def handle(request: dict, world) -> dict:
         character_id=character_id,
         sector_id=character.sector,
         port=contents.get("port"),
+        position=contents.get("position", (0, 0)),
         planets=contents.get("planets", []),
         adjacent_sectors=contents.get("adjacent_sectors", []),
     )

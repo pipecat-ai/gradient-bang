@@ -51,15 +51,14 @@ from typing import Dict, List, Set, Tuple, Optional
 
 # --- Regions configuration ---
 REGIONS = [
-    {"name": "Core Worlds", "density": 0.7, "color": "#4A90E2", "port_bias": 1.3, "safe": True},
-    {"name": "Trade Federation", "density": 0.6, "color": "#F5A623", "port_bias": 1.5, "safe": True},
-    {"name": "Frontier", "density": 0.35, "color": "#7ED321", "port_bias": 0.9, "safe": False},
-    {"name": "Pirate Space", "density": 0.4, "color": "#D0021B", "port_bias": 0.6, "safe": False},
-    {"name": "Neutral Zone", "density": 0.25, "color": "#9013FE", "port_bias": 1.0, "safe": True},
+    {"name": "Core Worlds", "density": 0.7, "port_bias": 1.3, "safe": True},
+    {"name": "Trade Federation", "density": 0.6, "port_bias": 1.5, "safe": True},
+    {"name": "Frontier", "density": 0.35, "port_bias": 0.9, "safe": False},
+    {"name": "Pirate Space", "density": 0.4, "port_bias": 0.6, "safe": False},
+    {"name": "Neutral Zone", "density": 0.25, "port_bias": 1.0, "safe": True},
 ]
 
 # --- Hex grid parameters ---
-HEX_SIZE = 1  # Size of each hex cell (unit scale)
 
 # --- Connection parameters ---
 MAX_DELAUNAY_EDGE_LENGTH = 3.5  # In hex units
@@ -123,10 +122,10 @@ def generate_hex_grid(width: int, height: int) -> List[Tuple[float, float]]:
     positions = []
     for row in range(height):
         for col in range(width):
-            x = col * HEX_SIZE * 1.5
-            y = row * HEX_SIZE * math.sqrt(3)
+            x = col * 1.5
+            y = row * math.sqrt(3)
             if col % 2 == 1:
-                y += HEX_SIZE * math.sqrt(3) / 2
+                y += math.sqrt(3) / 2
             # Round to integers for clean coordinates
             positions.append((round(x), round(y)))
     return positions
@@ -137,7 +136,7 @@ def euclidean_distance(p1: Tuple[float, float], p2: Tuple[float, float]) -> floa
 
 def hex_distance(p1: Tuple[float, float], p2: Tuple[float, float]) -> float:
     """Calculate distance in hex units."""
-    return euclidean_distance(p1, p2) / HEX_SIZE
+    return euclidean_distance(p1, p2)
 
 # ===================== Region Assignment =====================
 
@@ -864,12 +863,10 @@ def main():
                 {
                     "id": i,
                     "name": r["name"],
-                    "color": r["color"],
                     "safe": r.get("safe", False)
                 }
                 for i, r in enumerate(REGIONS)
             ],
-            "hex_size": HEX_SIZE,
             "actual_two_way_arc_fraction": round(two_way_fraction, 3),
         },
         "sectors": []

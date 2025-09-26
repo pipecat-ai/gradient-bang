@@ -131,11 +131,15 @@ def sector_contents(
     if world.universe_graph and sector_id in world.universe_graph.adjacency:
         adjacent_sectors = sorted(world.universe_graph.adjacency[sector_id])
 
+    # Position
+    position = world.universe_graph.positions.get(sector_id, (0, 0))
+
     return {
         "port": port,
+        "position": position,
         "planets": planets,
         "other_players": other_players,
-        "adjacent_sectors": adjacent_sectors,
+        "adjacent_sectors": adjacent_sectors
     }
 
 

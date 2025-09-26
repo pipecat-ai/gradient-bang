@@ -3,163 +3,66 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Universe Map Visualizer</title>
+    <title>Universe Navigation Map</title>
     <style>
-      body {
+      * {
         margin: 0;
-        padding: 20px;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
         font-family: "Segoe UI", system-ui, sans-serif;
         background: #0a0a0a;
         color: #fff;
+        overflow: hidden;
+      }
+
+      canvas {
+        display: block;
       }
 
       .controls {
         position: fixed;
         top: 20px;
         left: 20px;
-        z-index: 100;
         background: rgba(20, 20, 30, 0.95);
         padding: 20px;
         border-radius: 8px;
         border: 1px solid rgba(100, 100, 150, 0.3);
-        max-width: 300px;
+        z-index: 100;
+        min-width: 280px;
       }
 
-      .controls h2 {
-        margin-top: 0;
-        font-size: 18px;
+      .controls h3 {
+        margin: 0 0 15px 0;
         color: #4a90e2;
+        font-size: 16px;
       }
 
-      .file-input-wrapper {
+      .control-group {
         margin-bottom: 15px;
       }
 
-      .file-input-wrapper label {
-        display: block;
-        margin-bottom: 5px;
-        font-size: 14px;
-        color: #aaa;
-      }
-
-      input[type="file"] {
-        width: 100%;
-        padding: 8px;
-        background: rgba(255, 255, 255, 0.1);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        border-radius: 4px;
-        color: white;
-        font-size: 12px;
-      }
-
-      .stats {
-        margin-top: 20px;
-        padding-top: 20px;
-        border-top: 1px solid rgba(100, 100, 150, 0.3);
-        font-size: 13px;
-      }
-
-      .stat-row {
+      .control-row {
         display: flex;
         justify-content: space-between;
         margin-bottom: 8px;
+        font-size: 13px;
       }
 
-      .stat-label {
+      .control-label {
         color: #888;
       }
 
-      .stat-value {
+      .control-value {
         color: #fff;
         font-weight: 500;
       }
 
-      .legend {
-        margin-top: 20px;
-        padding-top: 20px;
-        border-top: 1px solid rgba(100, 100, 150, 0.3);
-      }
-
-      .legend-item {
-        display: flex;
-        align-items: center;
-        margin-bottom: 8px;
-        font-size: 12px;
-      }
-
-      .legend-color {
-        width: 16px;
-        height: 16px;
-        margin-right: 8px;
-        border-radius: 2px;
-      }
-
-      .warp-legend {
-        margin-top: 15px;
-        padding-top: 15px;
-        border-top: 1px solid rgba(100, 100, 150, 0.3);
-        font-size: 11px;
-      }
-
-      .warp-type {
-        margin-bottom: 5px;
-        display: flex;
-        align-items: center;
-      }
-
-      .warp-line {
-        width: 30px;
-        height: 2px;
-        margin-right: 8px;
-        display: inline-block;
-      }
-
-      .view-controls {
-        margin-top: 20px;
-        padding-top: 20px;
-        border-top: 1px solid rgba(100, 100, 150, 0.3);
-      }
-
-      .checkbox-group {
-        margin-bottom: 10px;
-      }
-
-      .checkbox-group label {
-        display: flex;
-        align-items: center;
-        font-size: 13px;
-        cursor: pointer;
-      }
-
-      .checkbox-group input {
-        margin-right: 8px;
-      }
-
-      canvas {
-        position: fixed;
-        top: 0;
-        left: 0;
-        z-index: 1;
-        cursor: grab;
-      }
-
-      canvas:active {
-        cursor: grabbing;
-      }
-
-      .error {
-        color: #ff6b6b;
-        font-size: 12px;
-        margin-top: 10px;
-      }
-
-      .zoom-controls {
-        margin-top: 15px;
-      }
-
-      .zoom-controls button {
-        padding: 6px 12px;
-        margin-right: 5px;
+      button {
+        padding: 8px 16px;
+        margin: 5px 5px 5px 0;
         background: rgba(74, 144, 226, 0.2);
         border: 1px solid #4a90e2;
         color: #4a90e2;
@@ -168,11 +71,45 @@
         font-size: 12px;
       }
 
-      .zoom-controls button:hover {
+      button:hover {
         background: rgba(74, 144, 226, 0.3);
       }
 
-      .info-panel {
+      .file-inputs {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: rgba(20, 20, 30, 0.95);
+        padding: 15px;
+        border-radius: 8px;
+        border: 1px solid rgba(100, 100, 150, 0.3);
+        z-index: 100;
+      }
+
+      .file-inputs h3 {
+        margin: 0 0 10px 0;
+        color: #4a90e2;
+        font-size: 14px;
+      }
+
+      input[type="file"] {
+        display: block;
+        margin-bottom: 10px;
+        font-size: 12px;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        padding: 5px;
+        border-radius: 4px;
+        color: white;
+        width: 250px;
+      }
+
+      input[type="range"] {
+        vertical-align: middle;
+        width: 100px;
+      }
+
+      .legend {
         position: fixed;
         bottom: 20px;
         right: 20px;
@@ -180,1058 +117,1386 @@
         padding: 15px;
         border-radius: 8px;
         border: 1px solid rgba(100, 100, 150, 0.3);
-        font-size: 12px;
-        max-width: 250px;
         z-index: 100;
-        display: none;
+        font-size: 12px;
       }
 
-      .info-panel.visible {
-        display: block;
-      }
-
-      .info-panel h3 {
+      .legend h3 {
         margin: 0 0 10px 0;
         color: #4a90e2;
         font-size: 14px;
       }
 
-      .info-row {
-        margin-bottom: 5px;
+      .legend-item {
+        display: flex;
+        align-items: center;
+        margin-bottom: 6px;
+      }
+
+      .legend-color {
+        width: 20px;
+        height: 12px;
+        margin-right: 8px;
+        border-radius: 2px;
       }
     </style>
   </head>
   <body>
+    <canvas id="canvas"></canvas>
+
     <div class="controls">
-      <h2>Universe Map Visualizer</h2>
+      <h3>Navigation Controls</h3>
 
-      <div class="file-input-wrapper">
-        <label>Universe Structure JSON:</label>
-        <input type="file" id="structureFile" accept=".json" />
-      </div>
-
-      <div class="file-input-wrapper">
-        <label>Sector Contents JSON:</label>
-        <input type="file" id="contentsFile" accept=".json" />
-      </div>
-
-      <div class="view-controls">
-        <div class="checkbox-group">
-          <label>
-            <input type="checkbox" id="showGrid" checked /> Show Hex Grid
-          </label>
+      <div class="control-group">
+        <div class="control-row">
+          <span class="control-label">View Mode:</span>
+          <span class="control-value" id="viewMode">Galaxy</span>
         </div>
-        <div class="checkbox-group">
-          <label>
-            <input type="checkbox" id="showRegions" checked /> Show Regions
-          </label>
+        <div class="control-row">
+          <span class="control-label">Zoom Level:</span>
+          <span class="control-value" id="zoomLevel">1.00</span>
         </div>
-        <div class="checkbox-group">
-          <label>
-            <input type="checkbox" id="showWarps" checked /> Show Warps
-          </label>
-        </div>
-        <div class="checkbox-group">
-          <label>
-            <input type="checkbox" id="showHyperlanes" checked /> Show
-            Hyperlanes
-          </label>
-        </div>
-        <div class="checkbox-group">
-          <label>
-            <input type="checkbox" id="showSectorIds" checked /> Show Sector IDs
-          </label>
-        </div>
-        <div class="checkbox-group">
-          <label>
-            <input type="checkbox" id="showPorts" checked /> Highlight Ports
-          </label>
+        <div class="control-row">
+          <span class="control-label">Sectors Visible:</span>
+          <span class="control-value" id="sectorsVisible">0</span>
         </div>
       </div>
 
-      <div class="zoom-controls">
-        <button onclick="resetView()">Reset View</button>
-        <button onclick="zoomIn()">Zoom In</button>
-        <button onclick="zoomOut()">Zoom Out</button>
-        <button onclick="clearSelection()">Clear Selection</button>
+      <div class="control-group">
+        <div class="control-row">
+          <span class="control-label">Selected Sector:</span>
+          <span class="control-value" id="selectedSector">None</span>
+        </div>
+        <div class="control-row">
+          <span class="control-label">Reachable Sectors:</span>
+          <span class="control-value" id="reachableSectors">0</span>
+        </div>
       </div>
 
-      <div class="view-controls">
-        <label
-          style="font-size: 12px; color: #aaa; margin-top: 15px; display: block"
-        >
-          Walk Distance:
-          <input
-            type="range"
-            id="walkDistance"
-            min="1"
-            max="8"
-            value="3"
-            style="width: 100px; margin-left: 5px"
-            onchange="updateWalkDistance(this.value)"
-          />
-          <span id="walkDistanceValue">3</span>
+      <div class="control-group">
+        <label style="color: #888; font-size: 12px">
+          Navigation Range:
+          <input type="range" id="navRange" min="1" max="8" value="3" />
+          <span id="navRangeValue" style="color: #fff">3</span> jumps
         </label>
       </div>
 
-      <div class="stats" id="stats" style="display: none">
-        <div class="stat-row">
-          <span class="stat-label">Total Sectors:</span>
-          <span class="stat-value" id="totalSectors">-</span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">Total Ports:</span>
-          <span class="stat-value" id="totalPorts">-</span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">Mega Port:</span>
-          <span class="stat-value" id="megaPort">-</span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">Two-way Warps:</span>
-          <span class="stat-value" id="twoWayWarps">-</span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">Hyperlanes:</span>
-          <span class="stat-value" id="hyperlaneCount">-</span>
-        </div>
-      </div>
-
-      <div class="legend" id="legend" style="display: none">
-        <h3 style="font-size: 14px; margin-bottom: 10px">Regions</h3>
-        <div id="legendItems"></div>
-      </div>
-
-      <div class="error" id="error"></div>
-    </div>
-
-    <div class="info-panel" id="infoPanel">
-      <h3>Sector <span id="sectorId">-</span></h3>
-      <div class="info-row">Region: <span id="sectorRegion">-</span></div>
-      <div class="info-row">Warps Out: <span id="sectorWarps">-</span></div>
-      <div class="info-row">Port Class: <span id="sectorPort">-</span></div>
-      <div class="info-row">Position: <span id="sectorPos">-</span></div>
-      <div
-        class="info-row"
-        id="selectionInfo"
-        style="
-          display: none;
-          margin-top: 10px;
-          padding-top: 10px;
-          border-top: 1px solid rgba(100, 100, 150, 0.3);
-        "
-      >
-        <strong>Selected Sector:</strong><br />
-        <span id="selectedSectorInfo">None</span>
+      <div class="control-group">
+        <button onclick="UniverseMap.resetView()">Reset View</button>
+        <button onclick="UniverseMap.clearSelection()">Clear Selection</button>
+        <button onclick="UniverseMap.toggleLanes()">Toggle Lanes</button>
+        <button onclick="UniverseMap.toggleHyperlanes()">
+          Toggle Hyperlanes
+        </button>
       </div>
     </div>
 
-    <canvas id="canvas"></canvas>
+    <div class="file-inputs">
+      <h3>Load Universe Data</h3>
+      <input
+        type="file"
+        id="structureFile"
+        accept=".json"
+        placeholder="Universe Structure"
+      />
+      <input
+        type="file"
+        id="contentsFile"
+        accept=".json"
+        placeholder="Sector Contents"
+      />
+    </div>
+
+    <div class="legend">
+      <h3>Map Legend</h3>
+      <div class="legend-item">
+        <div class="legend-color" style="background: #00ff00"></div>
+        <span>Visited Sector</span>
+      </div>
+      <div class="legend-item">
+        <div
+          class="legend-color"
+          style="background: none; border: 1px solid #666"
+        ></div>
+        <span>Unvisited Sector</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background: #4a90e2"></div>
+        <span>Trading Port</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background: #ffd700"></div>
+        <span>Mega Port</span>
+      </div>
+      <div class="legend-item">
+        <div
+          class="legend-color"
+          style="background: none; border: 2px solid #ff0000"
+        ></div>
+        <span>Selected</span>
+      </div>
+      <div class="legend-item">
+        <div
+          class="legend-color"
+          style="background: rgba(100, 200, 100, 0.5); height: 2px"
+        ></div>
+        <span>Two-way Lane</span>
+      </div>
+      <div class="legend-item">
+        <div
+          class="legend-color"
+          style="background: rgba(200, 100, 100, 0.5); height: 2px"
+        ></div>
+        <span>One-way Lane</span>
+      </div>
+      <div class="legend-item">
+        <div
+          class="legend-color"
+          style="
+            background: linear-gradient(
+              90deg,
+              transparent,
+              #b19cd9,
+              transparent
+            );
+            height: 3px;
+          "
+        ></div>
+        <span>Hyperlane</span>
+      </div>
+    </div>
 
     <script>
-      const canvas = document.getElementById("canvas");
-      const ctx = canvas.getContext("2d");
+      /**
+       * Configuration object for all visual settings
+       */
+      const CONFIG = {
+        // Display settings
+        display: {
+          hexSize: 30, // Display size of hexagons
+          maxSectorsRender: 500, // Maximum sectors to render at once
+          dataHexSize: 1, // Data coordinate hex size (always 1)
+        },
 
-      // View state
-      let camera = { x: 0, y: 0, zoom: 1 };
-      let isDragging = false;
-      let dragStart = { x: undefined, y: undefined };
-      let lastCamera = { x: 0, y: 0 };
+        // View transitions
+        view: {
+          galaxyZoomThreshold: 0.3, // Below this zoom, show galaxy view
+          sectorZoomThreshold: 0.4, // Above this zoom, show sector view
+          zoomSpeed: 1.1, // Zoom multiplier per wheel event
+          minZoom: 0.1,
+          maxZoom: 5,
+        },
 
-      // Data
-      let universeStructure = null;
-      let sectorContents = null;
-      let hoveredSector = null;
-      let selectedSector = null;
-      let visibleSectors = new Set(); // Sectors that should be rendered
-      let maxWalkDistance = 3; // Maximum distance to show connected sectors
-      const VIEW_HEX_SIZE = 30; // Viewer-only grid size; independent of data meta
+        // Colors and styling
+        colors: {
+          background: "#0a0a0a",
 
-      // View toggles
-      const viewSettings = {
-        showGrid: true,
-        showRegions: true,
-        showWarps: true,
-        showSectorIds: true,
-        showPorts: true,
-        showHyperlanes: true,
+          // Sectors
+          visitedSector: {
+            fill: "rgba(0, 255, 0, 0.3)",
+            stroke: "#00ff00",
+          },
+          unvisitedSector: {
+            fill: "transparent",
+            stroke: "#666666",
+          },
+          selectedSector: "#ff0000",
+          dimmedAlpha: 0.2,
+
+          // Ports
+          tradingPort: "#4a90e2",
+          megaPort: "#ffd700",
+
+          // Lanes
+          twoWayLane: {
+            base: "rgba(100, 200, 100, ",
+            highlighted: "rgba(100, 200, 100, ",
+          },
+          oneWayLane: {
+            base: "rgba(200, 100, 100, ",
+            highlighted: "rgba(200, 100, 100, ",
+          },
+
+          // Hyperlanes
+          hyperlane: {
+            outer: "rgba(150, 100, 255, ",
+            middle: "rgba(180, 140, 255, ",
+            core: "rgba(220, 180, 255, ",
+            portal: "rgba(200, 150, 255, ",
+            text: "rgba(200, 150, 255, ",
+          },
+
+          // UI
+          text: {
+            primary: "#ffffff",
+            secondary: "#888888",
+            label: "#dddddd",
+          },
+
+          // Regions
+          regionLabel: {
+            title: "#ffffff",
+            count: "#dddddd",
+            shadow: "rgba(0, 0, 0, 0.8)",
+          },
+        },
+
+        // Fonts
+        fonts: {
+          sectorId: "10px monospace",
+          regionTitle: "bold 18px sans-serif",
+          regionCount: "14px sans-serif",
+          hyperlaneDistance: "11px monospace",
+        },
+
+        // Animation and effects
+        effects: {
+          laneAlpha: {
+            base: 0.3,
+            highlighted: 0.8,
+            dimmed: 0.1,
+            fadePerDistance: 0.1,
+          },
+          hyperlane: {
+            glowSizes: [12, 6, 2], // Outer, middle, core line widths
+            dashPattern: [15, 8],
+            portalRadius: {
+              outer: 10,
+              inner: 6,
+              center: 2,
+            },
+          },
+        },
+
+        // Navigation
+        navigation: {
+          defaultRange: 3,
+          maxRange: 8,
+          minRange: 1,
+        },
       };
 
-      // Setup canvas
-      function setupCanvas() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-      }
+      /**
+       * Main Universe Map application
+       * Handles rendering and interaction for a hex-based universe map
+       */
+      class UniverseMapApp {
+        constructor() {
+          // Canvas and context
+          this.canvas = null;
+          this.ctx = null;
 
-      window.addEventListener("resize", setupCanvas);
-      setupCanvas();
+          // Data storage
+          this.universeData = null;
+          this.sectorData = null;
 
-      // File loading
-      document
-        .getElementById("structureFile")
-        .addEventListener("change", (e) => {
-          const file = e.target.files[0];
-          if (file) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-              try {
-                universeStructure = JSON.parse(e.target.result);
-                document.getElementById("error").textContent = "";
-                if (sectorContents) {
-                  initializeVisualization();
-                }
-              } catch (err) {
-                document.getElementById("error").textContent =
-                  "Error parsing structure JSON";
-              }
-            };
-            reader.readAsText(file);
-          }
-        });
+          // Camera state
+          this.camera = {
+            x: 0,
+            y: 0,
+            zoom: 1,
+          };
 
-      document
-        .getElementById("contentsFile")
-        .addEventListener("change", (e) => {
-          const file = e.target.files[0];
-          if (file) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-              try {
-                sectorContents = JSON.parse(e.target.result);
-                document.getElementById("error").textContent = "";
-                if (universeStructure) {
-                  initializeVisualization();
-                }
-              } catch (err) {
-                document.getElementById("error").textContent =
-                  "Error parsing contents JSON";
-              }
-            };
-            reader.readAsText(file);
-          }
-        });
+          // View state
+          this.viewMode = "galaxy";
+          this.showLanes = true;
+          this.showHyperlanes = true;
 
-      // View toggles
-      document.getElementById("showGrid").addEventListener("change", (e) => {
-        viewSettings.showGrid = e.target.checked;
-        render();
-      });
+          // Selection state
+          this.selectedSector = null;
+          this.navigationRange = CONFIG.navigation.defaultRange;
+          this.reachableMap = new Map(); // sector id -> distance
 
-      document.getElementById("showRegions").addEventListener("change", (e) => {
-        viewSettings.showRegions = e.target.checked;
-        render();
-      });
+          // Regions cache
+          this.regions = {};
 
-      document.getElementById("showWarps").addEventListener("change", (e) => {
-        viewSettings.showWarps = e.target.checked;
-        render();
-      });
+          // Interaction state
+          this.isDragging = false;
+          this.dragStart = { x: 0, y: 0 };
+          this.cameraStart = { x: 0, y: 0 };
 
-      document
-        .getElementById("showHyperlanes")
-        .addEventListener("change", (e) => {
-          viewSettings.showHyperlanes = e.target.checked;
-          render();
-        });
+          // Simulation
+          this.visitedSectors = new Set();
 
-      document
-        .getElementById("showSectorIds")
-        .addEventListener("change", (e) => {
-          viewSettings.showSectorIds = e.target.checked;
-          render();
-        });
+          // Calculated scale
+          this.scale = CONFIG.display.hexSize / CONFIG.display.dataHexSize;
+        }
 
-      document.getElementById("showPorts").addEventListener("change", (e) => {
-        viewSettings.showPorts = e.target.checked;
-        render();
-      });
+        // ==================== Initialization ====================
 
-      // Initialize visualization
-      function initializeVisualization() {
-        // Precompute scale factor from data units to viewer units
-        computePosScale();
-        // Update stats
-        updateStats();
+        /**
+         * Initialize the application
+         */
+        init() {
+          this.setupCanvas();
+          this.setupEventListeners();
+          this.startRenderLoop();
+        }
 
-        // Create legend
-        createLegend();
+        /**
+         * Setup canvas and handle resizing
+         */
+        setupCanvas() {
+          this.canvas = document.getElementById("canvas");
+          this.ctx = this.canvas.getContext("2d");
+          this.resizeCanvas();
+          window.addEventListener("resize", () => this.resizeCanvas());
+        }
 
-        // Draw once, then center on mega port and redraw for smoother UX
-        render();
-        requestAnimationFrame(() => {
-          centerCamera();
-          render();
-        });
-      }
+        /**
+         * Resize canvas to window dimensions
+         */
+        resizeCanvas() {
+          this.canvas.width = window.innerWidth;
+          this.canvas.height = window.innerHeight;
+        }
 
-      // --- Coordinate scaling helpers ---
-      let POS_SCALE = 1;
-      function computePosScale() {
-        const dataHex =
-          (universeStructure &&
-            universeStructure.meta &&
-            universeStructure.meta.hex_size) ||
-          1;
-        POS_SCALE = VIEW_HEX_SIZE / dataHex;
-      }
-      function P(pos) {
-        return { x: pos.x * POS_SCALE, y: pos.y * POS_SCALE };
-      }
+        /**
+         * Setup all event listeners
+         */
+        setupEventListeners() {
+          // File inputs
+          document
+            .getElementById("structureFile")
+            .addEventListener("change", (e) => this.loadStructure(e));
+          document
+            .getElementById("contentsFile")
+            .addEventListener("change", (e) => this.loadContents(e));
 
-      function updateStats() {
-        const stats = document.getElementById("stats");
-        stats.style.display = "block";
+          // Mouse events
+          this.canvas.addEventListener("mousedown", (e) => this.onMouseDown(e));
+          this.canvas.addEventListener("mousemove", (e) => this.onMouseMove(e));
+          this.canvas.addEventListener("mouseup", (e) => this.onMouseUp(e));
+          this.canvas.addEventListener("wheel", (e) => this.onWheel(e));
 
-        document.getElementById("totalSectors").textContent =
-          universeStructure.sectors.length;
-
-        const portsCount = sectorContents.sectors.filter((s) => s.port).length;
-        document.getElementById("totalPorts").textContent = portsCount;
-
-        const megaPort = sectorContents.meta.mega_port_sector;
-        document.getElementById("megaPort").textContent =
-          megaPort !== undefined ? `Sector ${megaPort}` : "None";
-
-        let twoWayCount = 0;
-        let hyperlaneCount = 0;
-        universeStructure.sectors.forEach((sector) => {
-          sector.warps.forEach((warp) => {
-            if (warp.two_way) twoWayCount++;
-            if (warp.is_hyperlane && sector.id < warp.to) hyperlaneCount++;
+          // Navigation range slider
+          document.getElementById("navRange").addEventListener("input", (e) => {
+            this.navigationRange = parseInt(e.target.value);
+            document.getElementById("navRangeValue").textContent =
+              e.target.value;
+            if (this.selectedSector) {
+              this.calculateReachableSectors();
+            }
           });
-        });
-        document.getElementById("twoWayWarps").textContent = `${Math.floor(
-          twoWayCount / 2
-        )} pairs`;
-        document.getElementById("hyperlaneCount").textContent = hyperlaneCount;
-      }
-
-      function createLegend() {
-        if (!universeStructure.meta.regions) return;
-
-        const legend = document.getElementById("legend");
-        const legendItems = document.getElementById("legendItems");
-        legend.style.display = "block";
-        legendItems.innerHTML = "";
-
-        universeStructure.meta.regions.forEach((region) => {
-          const item = document.createElement("div");
-          item.className = "legend-item";
-
-          const color = document.createElement("div");
-          color.className = "legend-color";
-          color.style.background = region.color;
-
-          const label = document.createElement("span");
-          label.textContent = region.name + (region.safe ? " (Safe)" : "");
-
-          item.appendChild(color);
-          item.appendChild(label);
-          legendItems.appendChild(item);
-        });
-
-        // Add warp types legend
-        const warpLegend = document.createElement("div");
-        warpLegend.className = "warp-legend";
-        warpLegend.innerHTML = `
-                <h3 style="font-size: 14px; margin-bottom: 10px;">Warp Types</h3>
-                <div class="warp-type">
-                    <div class="warp-line" style="background: rgba(100, 200, 100, 0.5);"></div>
-                    <span>Two-way (same region)</span>
-                </div>
-                <div class="warp-type">
-                    <div class="warp-line" style="background: rgba(200, 100, 100, 0.5);"></div>
-                    <span>One-way (same region)</span>
-                </div>
-                <div class="warp-type">
-                    <div class="warp-line" style="background: rgba(255, 200, 50, 0.5);"></div>
-                    <span>Cross-region</span>
-                </div>
-                <div class="warp-type">
-                    <div class="warp-line" style="background: linear-gradient(90deg, transparent 0%, rgba(220, 180, 255, 0.8) 50%, transparent 100%);"></div>
-                    <span>Hyperlane</span>
-                </div>
-            `;
-        legend.appendChild(warpLegend);
-      }
-
-      function centerCamera() {
-        if (!universeStructure) return;
-
-        // Try to center on mega port first
-        const megaPortSector = getMegaPortSector();
-        if (megaPortSector && megaPortSector.position) {
-          camera.zoom = 0.8; // Start more zoomed in
-          const mp = P(megaPortSector.position);
-          camera.x = canvas.width / 2 - mp.x * camera.zoom;
-          camera.y = canvas.height / 2 - mp.y * camera.zoom;
-          return;
         }
 
-        // Fallback to full universe view
-        let minX = Infinity,
-          minY = Infinity;
-        let maxX = -Infinity,
-          maxY = -Infinity;
+        // ==================== Data Loading ====================
 
-        universeStructure.sectors.forEach((sector) => {
-          if (sector.position) {
-            const sp = P(sector.position);
-            minX = Math.min(minX, sp.x);
-            minY = Math.min(minY, sp.y);
-            maxX = Math.max(maxX, sp.x);
-            maxY = Math.max(maxY, sp.y);
+        /**
+         * Load universe structure file
+         */
+        loadStructure(event) {
+          const file = event.target.files[0];
+          if (!file) return;
+
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            try {
+              this.universeData = JSON.parse(e.target.result);
+              if (this.sectorData) this.initializeUniverse();
+            } catch (err) {
+              console.error("Failed to load structure:", err);
+            }
+          };
+          reader.readAsText(file);
+        }
+
+        /**
+         * Load sector contents file
+         */
+        loadContents(event) {
+          const file = event.target.files[0];
+          if (!file) return;
+
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            try {
+              this.sectorData = JSON.parse(e.target.result);
+              if (this.universeData) this.initializeUniverse();
+            } catch (err) {
+              console.error("Failed to load contents:", err);
+            }
+          };
+          reader.readAsText(file);
+        }
+
+        /**
+         * Initialize universe after data is loaded
+         */
+        initializeUniverse() {
+          this.processRegions();
+          this.simulateVisitedSectors();
+          this.resetView();
+        }
+
+        /**
+         * Simulate some visited sectors for demonstration
+         */
+        simulateVisitedSectors() {
+          const count = Math.min(100, this.universeData.sectors.length);
+          for (let i = 0; i < count; i++) {
+            this.visitedSectors.add(
+              Math.floor(Math.random() * this.universeData.sectors.length)
+            );
           }
-        });
-
-        const width = maxX - minX;
-        const height = maxY - minY;
-        const centerX = minX + width / 2;
-        const centerY = minY + height / 2;
-
-        const scaleX = (canvas.width - 100) / width;
-        const scaleY = (canvas.height - 100) / height;
-        camera.zoom = Math.min(scaleX, scaleY, 2);
-
-        camera.x = canvas.width / 2 - centerX * camera.zoom;
-        camera.y = canvas.height / 2 - centerY * camera.zoom;
-      }
-
-      function getMegaPortSector() {
-        if (!sectorContents || !universeStructure) return null;
-
-        const megaPortId = sectorContents.meta.mega_port_sector;
-        if (megaPortId === undefined) return null;
-
-        return universeStructure.sectors.find((s) => s.id === megaPortId);
-      }
-
-      function selectSector(sector) {
-        const wasSelected = selectedSector === sector;
-        const previousRegion = selectedSector ? selectedSector.region : null;
-        const newRegion = sector ? sector.region : null;
-
-        selectedSector = wasSelected ? null : sector;
-
-        // If we're selecting a sector in a different region, reset the view
-        if (
-          selectedSector &&
-          previousRegion !== null &&
-          newRegion !== previousRegion
-        ) {
-          // Could add special logic here for cross-region selection
-          // For now, just recalculate normally
         }
 
-        if (selectedSector) {
-          calculateVisibleSectors();
-        } else {
-          visibleSectors.clear();
+        // ==================== Region Processing ====================
+
+        /**
+         * Process regions and calculate boundaries
+         */
+        processRegions() {
+          this.regions = {};
+
+          // Group sectors by region
+          const byRegion = this.groupSectorsByRegion();
+
+          // Process each region
+          Object.entries(byRegion).forEach(([regionId, sectors]) => {
+            const points = sectors.map((s) =>
+              this.hexToWorld(s.position.x, s.position.y)
+            );
+
+            const bounds = this.calculateBounds(points);
+
+            this.regions[regionId] = {
+              bounds,
+              center: {
+                x: (bounds.minX + bounds.maxX) / 2,
+                y: (bounds.minY + bounds.maxY) / 2,
+              },
+              hull: this.convexHull(points),
+            };
+          });
         }
 
-        render();
-        updateInfoPanel(); // Update info panel to show selection info
-      }
+        /**
+         * Group sectors by their region ID
+         */
+        groupSectorsByRegion() {
+          const byRegion = {};
 
-      function clearSelection() {
-        selectedSector = null;
-        visibleSectors.clear();
-        render();
-        updateInfoPanel(); // Update info panel to hide selection info
-      }
-
-      function calculateVisibleSectors() {
-        if (!selectedSector) {
-          visibleSectors.clear();
-          return;
-        }
-
-        visibleSectors.clear();
-        const queue = [{ sector: selectedSector, distance: 0 }];
-        const visited = new Set();
-
-        while (queue.length > 0) {
-          const { sector, distance } = queue.shift();
-
-          if (visited.has(sector.id) || distance > maxWalkDistance) {
-            continue;
-          }
-
-          visited.add(sector.id);
-          visibleSectors.add(sector.id);
-
-          // Add connected sectors
-          if (sector.warps) {
-            sector.warps.forEach((warp) => {
-              const targetSector = universeStructure.sectors.find(
-                (s) => s.id === warp.to
-              );
-              if (targetSector && !visited.has(targetSector.id)) {
-                queue.push({ sector: targetSector, distance: distance + 1 });
+          this.universeData.sectors.forEach((sector) => {
+            if (sector.region !== undefined && sector.position) {
+              if (!byRegion[sector.region]) {
+                byRegion[sector.region] = [];
               }
-            });
+              byRegion[sector.region].push(sector);
+            }
+          });
+
+          return byRegion;
+        }
+
+        /**
+         * Calculate bounding box for points
+         */
+        calculateBounds(points) {
+          let minX = Infinity,
+            minY = Infinity;
+          let maxX = -Infinity,
+            maxY = -Infinity;
+
+          points.forEach((p) => {
+            minX = Math.min(minX, p.x);
+            minY = Math.min(minY, p.y);
+            maxX = Math.max(maxX, p.x);
+            maxY = Math.max(maxY, p.y);
+          });
+
+          return { minX, minY, maxX, maxY };
+        }
+
+        /**
+         * Calculate convex hull of points using Graham scan
+         */
+        convexHull(points) {
+          if (points.length < 3) return points;
+
+          points.sort((a, b) => a.x - b.x || a.y - b.y);
+
+          const cross = (o, a, b) =>
+            (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+
+          // Build lower hull
+          const lower = [];
+          for (const p of points) {
+            while (
+              lower.length >= 2 &&
+              cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0
+            ) {
+              lower.pop();
+            }
+            lower.push(p);
           }
 
-          // Also check for incoming warps (two-way connections)
-          universeStructure.sectors.forEach((otherSector) => {
-            if (otherSector.warps) {
-              otherSector.warps.forEach((warp) => {
-                if (
-                  warp.to === sector.id &&
-                  warp.two_way &&
-                  !visited.has(otherSector.id)
-                ) {
-                  queue.push({ sector: otherSector, distance: distance + 1 });
+          // Build upper hull
+          const upper = [];
+          for (let i = points.length - 1; i >= 0; i--) {
+            const p = points[i];
+            while (
+              upper.length >= 2 &&
+              cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0
+            ) {
+              upper.pop();
+            }
+            upper.push(p);
+          }
+
+          upper.pop();
+          lower.pop();
+          return lower.concat(upper);
+        }
+
+        // ==================== Coordinate Transformations ====================
+
+        /**
+         * Convert hex grid coordinates to world pixels
+         */
+        hexToWorld(hexX, hexY) {
+          const x = this.scale * 1.5 * hexX;
+          const y = this.scale * Math.sqrt(3) * (hexY + 0.5 * (hexX & 1));
+          return { x, y };
+        }
+
+        /**
+         * Convert screen pixels to world coordinates
+         */
+        screenToWorld(screenX, screenY) {
+          return {
+            x: (screenX - this.camera.x) / this.camera.zoom,
+            y: (screenY - this.camera.y) / this.camera.zoom,
+          };
+        }
+
+        /**
+         * Convert world coordinates to screen pixels
+         */
+        worldToScreen(worldX, worldY) {
+          return {
+            x: worldX * this.camera.zoom + this.camera.x,
+            y: worldY * this.camera.zoom + this.camera.y,
+          };
+        }
+
+        /**
+         * Get current view bounds in world coordinates
+         */
+        getViewBounds() {
+          return {
+            left: -this.camera.x / this.camera.zoom,
+            top: -this.camera.y / this.camera.zoom,
+            right: (this.canvas.width - this.camera.x) / this.camera.zoom,
+            bottom: (this.canvas.height - this.camera.y) / this.camera.zoom,
+          };
+        }
+
+        // ==================== Navigation Calculation ====================
+
+        /**
+         * Calculate all sectors reachable within navigation range
+         */
+        calculateReachableSectors() {
+          this.reachableMap.clear();
+          if (!this.selectedSector) return;
+
+          // BFS to find all reachable sectors
+          const queue = [{ id: this.selectedSector.id, distance: 0 }];
+          const visited = new Set([this.selectedSector.id]);
+          this.reachableMap.set(this.selectedSector.id, 0);
+
+          while (queue.length > 0) {
+            const { id, distance } = queue.shift();
+
+            if (distance >= this.navigationRange) continue;
+
+            const sector = this.universeData.sectors.find((s) => s.id === id);
+            if (!sector) continue;
+
+            // Process outgoing warps
+            if (sector.warps) {
+              sector.warps.forEach((warp) => {
+                if (!visited.has(warp.to)) {
+                  visited.add(warp.to);
+                  this.reachableMap.set(warp.to, distance + 1);
+                  queue.push({ id: warp.to, distance: distance + 1 });
                 }
               });
             }
-          });
+          }
+
+          document.getElementById("reachableSectors").textContent =
+            this.reachableMap.size;
         }
-      }
 
-      function shouldRenderSector(sector) {
-        // Always render if no selection
-        if (!selectedSector) return true;
+        // ==================== Rendering ====================
 
-        // Always render selected sector
-        if (sector.id === selectedSector.id) return true;
+        /**
+         * Start the render loop
+         */
+        startRenderLoop() {
+          const render = () => {
+            this.render();
+            requestAnimationFrame(render);
+          };
+          render();
+        }
 
-        // Render if in visible sectors
-        return visibleSectors.has(sector.id);
-      }
+        /**
+         * Main render function
+         */
+        render() {
+          this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-      function shouldRenderWarp(fromSector, toSector, warp) {
-        // Always render hyperlanes
-        if (warp.is_hyperlane) return true;
+          if (!this.universeData || !this.sectorData) {
+            this.renderLoadingMessage();
+            return;
+          }
 
-        // If no selection, render all
-        if (!selectedSector) return true;
+          // Apply camera transform
+          this.ctx.save();
+          this.ctx.translate(this.camera.x, this.camera.y);
+          this.ctx.scale(this.camera.zoom, this.camera.zoom);
 
-        // Render if both sectors should be rendered
-        return shouldRenderSector(fromSector) && shouldRenderSector(toSector);
-      }
+          if (this.viewMode === "galaxy") {
+            this.renderGalaxyView();
+          } else {
+            this.renderSectorView();
+          }
 
-      // Rendering
-      function render() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+          this.ctx.restore();
 
-        if (!universeStructure || !sectorContents) {
-          ctx.fillStyle = "#666";
-          ctx.font = "16px sans-serif";
-          ctx.textAlign = "center";
-          ctx.fillText(
-            "Load both JSON files to visualize",
-            canvas.width / 2,
-            canvas.height / 2
+          // Render fixed-size elements
+          if (this.viewMode === "galaxy") {
+            this.renderRegionLabels();
+          }
+
+          this.updateHUD();
+        }
+
+        /**
+         * Render loading message
+         */
+        renderLoadingMessage() {
+          this.ctx.fillStyle = CONFIG.colors.text.secondary;
+          this.ctx.font = "16px sans-serif";
+          this.ctx.textAlign = "center";
+          this.ctx.fillText(
+            "Load both JSON files to begin",
+            this.canvas.width / 2,
+            this.canvas.height / 2
           );
-          return;
         }
 
-        ctx.save();
-        ctx.translate(camera.x, camera.y);
-        ctx.scale(camera.zoom, camera.zoom);
+        /**
+         * Render galaxy view with regions
+         */
+        renderGalaxyView() {
+          Object.entries(this.regions).forEach(([regionId, region]) => {
+            const hull = region.hull;
+            if (hull.length < 3) return;
 
-        // Draw hex grid (if enabled)
-        if (viewSettings.showGrid) {
-          drawHexGrid();
-        }
+            const meta = this.universeData.meta.regions[regionId];
+            if (!meta) return;
 
-        // Draw regions background (if enabled)
-        if (viewSettings.showRegions) {
-          drawRegions();
-        }
+            this.ctx.fillStyle = meta.color + "40";
+            this.ctx.strokeStyle = meta.color;
+            this.ctx.lineWidth = 2;
 
-        // Draw warps
-        if (viewSettings.showWarps) {
-          drawWarps();
-        }
-
-        // Draw sectors
-        drawSectors();
-
-        ctx.restore();
-      }
-
-      function drawHexGrid() {
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
-        ctx.lineWidth = 0.5;
-
-        // Estimate grid bounds
-        const hexSize = VIEW_HEX_SIZE;
-
-        for (let y = -1000; y < 3000; y += hexSize * Math.sqrt(3)) {
-          for (let x = -1000; x < 3000; x += hexSize * 3) {
-            drawHex(x, y, hexSize * 0.9, true);
-            drawHex(
-              x + hexSize * 1.5,
-              y + (hexSize * Math.sqrt(3)) / 2,
-              hexSize * 0.9,
-              true
-            );
-          }
-        }
-      }
-
-      function drawRegions() {
-        if (!universeStructure.meta.regions) return;
-
-        // Group sectors by region
-        const sectorsByRegion = {};
-        universeStructure.sectors.forEach((sector) => {
-          if (sector.region !== undefined && shouldRenderSector(sector)) {
-            if (!sectorsByRegion[sector.region]) {
-              sectorsByRegion[sector.region] = [];
+            this.ctx.beginPath();
+            this.ctx.moveTo(hull[0].x, hull[0].y);
+            for (let i = 1; i < hull.length; i++) {
+              this.ctx.lineTo(hull[i].x, hull[i].y);
             }
-            sectorsByRegion[sector.region].push(sector);
-          }
-        });
-
-        // Draw region backgrounds
-        Object.entries(sectorsByRegion).forEach(([regionId, sectors]) => {
-          const region = universeStructure.meta.regions[regionId];
-          if (!region) return;
-
-          ctx.fillStyle = region.color + "15"; // Very transparent
-
-          sectors.forEach((sector) => {
-            if (sector.position) {
-              const hexSize = VIEW_HEX_SIZE;
-              const sp = P(sector.position);
-              drawHex(sp.x, sp.y, hexSize * 0.95, false, true);
-            }
+            this.ctx.closePath();
+            this.ctx.fill();
+            this.ctx.stroke();
           });
-        });
-      }
+        }
 
-      function drawWarps() {
-        // First pass: draw regular warps
-        universeStructure.sectors.forEach((sector) => {
-          if (!sector.position || !sector.warps) return;
+        /**
+         * Render region labels (fixed size)
+         */
+        renderRegionLabels() {
+          Object.entries(this.regions).forEach(([regionId, region]) => {
+            const meta = this.universeData.meta.regions[regionId];
+            if (!meta) return;
 
-          sector.warps.forEach((warp) => {
-            // Skip hyperlanes in first pass if they're disabled
-            if (warp.is_hyperlane && !viewSettings.showHyperlanes) return;
-            if (warp.is_hyperlane) return;
+            const screen = this.worldToScreen(region.center.x, region.center.y);
 
-            const targetSector = universeStructure.sectors.find(
-              (s) => s.id === warp.to
-            );
-            if (!targetSector || !targetSector.position) return;
+            this.ctx.save();
 
-            // Check if this warp should be rendered based on culling
-            if (!shouldRenderWarp(sector, targetSector, warp)) return;
+            // Title
+            this.ctx.fillStyle = CONFIG.colors.regionLabel.title;
+            this.ctx.font = CONFIG.fonts.regionTitle;
+            this.ctx.textAlign = "center";
+            this.ctx.shadowColor = CONFIG.colors.regionLabel.shadow;
+            this.ctx.shadowBlur = 4;
+            this.ctx.fillText(meta.name, screen.x, screen.y);
 
-            // Style based on region crossing
-            if (warp.crosses_region) {
-              ctx.strokeStyle = warp.two_way
-                ? "rgba(255, 200, 50, 0.4)"
-                : "rgba(255, 150, 50, 0.3)";
-              ctx.lineWidth = warp.two_way ? 1.5 : 1;
-            } else {
-              ctx.strokeStyle = warp.two_way
-                ? "rgba(100, 200, 100, 0.3)"
-                : "rgba(200, 100, 100, 0.2)";
-              ctx.lineWidth = warp.two_way ? 1.5 : 0.8;
-            }
+            // Sector count
+            this.ctx.font = CONFIG.fonts.regionCount;
+            this.ctx.fillStyle = CONFIG.colors.regionLabel.count;
+            const count = this.universeData.sectors.filter(
+              (s) => s.region == regionId
+            ).length;
+            this.ctx.fillText(`${count} sectors`, screen.x, screen.y + 20);
 
-            const sp = P(sector.position);
-            const tp = P(targetSector.position);
-            ctx.beginPath();
-            ctx.moveTo(sp.x, sp.y);
-
-            // For one-way warps, draw arrow
-            if (!warp.two_way) {
-              const dx = tp.x - sp.x;
-              const dy = tp.y - sp.y;
-              const angle = Math.atan2(dy, dx);
-              const dist = Math.sqrt(dx * dx + dy * dy);
-
-              const arrowX = sp.x + (dist - 10) * Math.cos(angle);
-              const arrowY = sp.y + (dist - 10) * Math.sin(angle);
-
-              ctx.lineTo(arrowX, arrowY);
-              ctx.stroke();
-
-              // Draw arrowhead
-              ctx.beginPath();
-              ctx.moveTo(arrowX, arrowY);
-              ctx.lineTo(
-                arrowX - 5 * Math.cos(angle - Math.PI / 6),
-                arrowY - 5 * Math.sin(angle - Math.PI / 6)
-              );
-              ctx.moveTo(arrowX, arrowY);
-              ctx.lineTo(
-                arrowX - 5 * Math.cos(angle + Math.PI / 6),
-                arrowY - 5 * Math.sin(angle + Math.PI / 6)
-              );
-              ctx.stroke();
-            } else {
-              ctx.lineTo(tp.x, tp.y);
-              ctx.stroke();
-            }
+            this.ctx.restore();
           });
-        });
+        }
 
-        // Second pass: draw hyperlanes on top with special styling (if enabled)
-        if (viewSettings.showHyperlanes) {
-          universeStructure.sectors.forEach((sector) => {
+        /**
+         * Render sector view with hexagons and lanes
+         */
+        renderSectorView() {
+          const bounds = this.getViewBounds();
+          let rendered = 0;
+
+          // Render lanes first (behind sectors)
+          if (this.showLanes) {
+            this.renderAllLanes(bounds);
+          }
+
+          // Render sectors
+          this.universeData.sectors.forEach((sector) => {
+            if (!sector.position) return;
+
+            const world = this.hexToWorld(sector.position.x, sector.position.y);
+
+            // Frustum culling
+            if (
+              world.x < bounds.left - 50 ||
+              world.x > bounds.right + 50 ||
+              world.y < bounds.top - 50 ||
+              world.y > bounds.bottom + 50
+            )
+              return;
+
+            if (rendered++ > CONFIG.display.maxSectorsRender) return;
+
+            this.renderSector(sector, world);
+          });
+
+          document.getElementById("sectorsVisible").textContent = rendered;
+        }
+
+        /**
+         * Render all warp lanes
+         */
+        renderAllLanes(bounds) {
+          const regularLanes = [];
+          const hyperLanes = [];
+
+          // Collect and categorize lanes
+          this.universeData.sectors.forEach((sector) => {
             if (!sector.position || !sector.warps) return;
 
-            sector.warps.forEach((warp) => {
-              // Only draw hyperlanes in this pass
-              if (!warp.is_hyperlane) return;
+            const from = this.hexToWorld(sector.position.x, sector.position.y);
 
-              const targetSector = universeStructure.sectors.find(
+            // Skip if source is out of bounds
+            if (
+              from.x < bounds.left - 100 ||
+              from.x > bounds.right + 100 ||
+              from.y < bounds.top - 100 ||
+              from.y > bounds.bottom + 100
+            )
+              return;
+
+            sector.warps.forEach((warp) => {
+              const target = this.universeData.sectors.find(
                 (s) => s.id === warp.to
               );
-              if (!targetSector || !targetSector.position) return;
+              if (!target || !target.position) return;
 
-              // Avoid drawing the same hyperlane twice (since they're two-way)
-              if (sector.id > warp.to) return;
+              const to = this.hexToWorld(target.position.x, target.position.y);
 
-              const sp = P(sector.position);
-              const tp = P(targetSector.position);
-              const dx = tp.x - sp.x;
-              const dy = tp.y - sp.y;
-              const dist = Math.sqrt(dx * dx + dy * dy);
+              const laneData = {
+                from,
+                to,
+                warp,
+                sectorId: sector.id,
+                targetId: warp.to,
+              };
 
-              // Draw glowing hyperlane effect
-              ctx.save();
-
-              // Outer glow
-              ctx.strokeStyle = "rgba(150, 100, 255, 0.2)";
-              ctx.lineWidth = 8;
-              ctx.beginPath();
-              ctx.moveTo(sp.x, sp.y);
-              ctx.lineTo(tp.x, tp.y);
-              ctx.stroke();
-
-              // Middle glow
-              ctx.strokeStyle = "rgba(200, 150, 255, 0.4)";
-              ctx.lineWidth = 4;
-              ctx.stroke();
-
-              // Core line (dashed)
-              ctx.strokeStyle = "rgba(220, 180, 255, 0.8)";
-              ctx.lineWidth = 2;
-              ctx.setLineDash([10, 5]);
-              ctx.stroke();
-
-              ctx.restore();
-
-              // Draw portal/gate symbols at each end
-              drawPortalSymbol(sp.x, sp.y);
-              drawPortalSymbol(tp.x, tp.y);
-
-              // Draw distance label in the middle
-              if (warp.distance) {
-                ctx.save();
-                ctx.fillStyle = "rgba(200, 150, 255, 0.7)";
-                ctx.font = "10px monospace";
-                ctx.textAlign = "center";
-                const midX = (sp.x + tp.x) / 2;
-                const midY = (sp.y + tp.y) / 2;
-                ctx.fillText(`${warp.distance} hex`, midX, midY - 5);
-                ctx.restore();
+              if (warp.is_hyperlane) {
+                // Avoid drawing hyperlanes twice
+                if (sector.id < warp.to) {
+                  hyperLanes.push(laneData);
+                }
+              } else {
+                regularLanes.push(laneData);
               }
             });
           });
+
+          // Render regular lanes
+          regularLanes.forEach((lane) => this.renderLane(lane));
+
+          // Render hyperlanes on top
+          if (this.showHyperlanes) {
+            hyperLanes.forEach((lane) => this.renderHyperlane(lane));
+          }
         }
-      }
 
-      function drawPortalSymbol(x, y) {
-        // Draw a special symbol for hyperlane endpoints
-        ctx.save();
+        /**
+         * Render a single warp lane
+         */
+        renderLane(lane) {
+          const { from, to, warp, sectorId, targetId } = lane;
 
-        // Outer ring
-        ctx.strokeStyle = "rgba(200, 150, 255, 0.6)";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(x, y, 12, 0, Math.PI * 2);
-        ctx.stroke();
+          // Calculate alpha based on selection
+          let alpha = CONFIG.effects.laneAlpha.base;
 
-        // Inner ring (rotating effect)
-        ctx.strokeStyle = "rgba(220, 180, 255, 0.8)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.arc(x, y, 8, 0, Math.PI * 2);
-        ctx.stroke();
-
-        // Center dot
-        ctx.fillStyle = "rgba(255, 200, 255, 0.9)";
-        ctx.beginPath();
-        ctx.arc(x, y, 3, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.restore();
-      }
-
-      function drawSectors() {
-        universeStructure.sectors.forEach((sector) => {
-          if (!sector.position) return;
-
-          // Check if this sector should be rendered based on culling
-          if (!shouldRenderSector(sector)) return;
-
-          const content = sectorContents.sectors.find(
-            (s) => s.id === sector.id
-          );
-          const hasPort = content && content.port;
-          const isMegaPort = content && content.port && content.port.is_mega;
-          const isSelected = selectedSector && sector.id === selectedSector.id;
-
-          // Draw sector with selection highlight
-          ctx.fillStyle = isSelected
-            ? "#FF6B6B" // Red for selected
-            : isMegaPort
-            ? "#FFD700"
-            : hasPort && viewSettings.showPorts
-            ? "#4A90E2"
-            : "#666";
-          const sp = P(sector.position);
-          ctx.beginPath();
-          ctx.arc(
-            sp.x,
-            sp.y,
-            isSelected ? 6 : isMegaPort ? 8 : 4,
-            0,
-            Math.PI * 2
-          );
-          ctx.fill();
-
-          // Selection ring
-          if (isSelected) {
-            ctx.strokeStyle = "#FF6B6B";
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(sp.x, sp.y, 10, 0, Math.PI * 2);
-            ctx.stroke();
+          if (this.selectedSector && this.reachableMap.size > 0) {
+            if (
+              this.reachableMap.has(sectorId) &&
+              this.reachableMap.has(targetId)
+            ) {
+              const maxDist = Math.max(
+                this.reachableMap.get(sectorId),
+                this.reachableMap.get(targetId)
+              );
+              alpha = Math.max(
+                CONFIG.effects.laneAlpha.base,
+                CONFIG.effects.laneAlpha.highlighted -
+                  maxDist * CONFIG.effects.laneAlpha.fadePerDistance
+              );
+            } else {
+              alpha = CONFIG.effects.laneAlpha.dimmed;
+            }
           }
 
-          if (hasPort && viewSettings.showPorts) {
-            ctx.strokeStyle = isMegaPort ? "#FFD700" : "#4A90E2";
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.arc(sp.x, sp.y, 8, 0, Math.PI * 2);
-            ctx.stroke();
+          // Draw lane
+          const color = warp.two_way
+            ? CONFIG.colors.twoWayLane
+            : CONFIG.colors.oneWayLane;
+          this.ctx.strokeStyle = color.base + alpha + ")";
+          this.ctx.lineWidth =
+            this.selectedSector &&
+            this.reachableMap.has(sectorId) &&
+            this.reachableMap.has(targetId)
+              ? 2
+              : 1;
+
+          this.ctx.beginPath();
+          this.ctx.moveTo(from.x, from.y);
+          this.ctx.lineTo(to.x, to.y);
+          this.ctx.stroke();
+
+          // Draw arrow for one-way
+          if (!warp.two_way) {
+            this.renderArrow(from, to);
+          }
+        }
+
+        /**
+         * Render arrow for one-way lanes
+         */
+        renderArrow(from, to) {
+          const angle = Math.atan2(to.y - from.y, to.x - from.x);
+          const arrowX = to.x - 15 * Math.cos(angle);
+          const arrowY = to.y - 15 * Math.sin(angle);
+
+          this.ctx.beginPath();
+          this.ctx.moveTo(arrowX, arrowY);
+          this.ctx.lineTo(
+            arrowX - 8 * Math.cos(angle - Math.PI / 6),
+            arrowY - 8 * Math.sin(angle - Math.PI / 6)
+          );
+          this.ctx.moveTo(arrowX, arrowY);
+          this.ctx.lineTo(
+            arrowX - 8 * Math.cos(angle + Math.PI / 6),
+            arrowY - 8 * Math.sin(angle + Math.PI / 6)
+          );
+          this.ctx.stroke();
+        }
+
+        /**
+         * Render hyperlane with special effects
+         */
+        renderHyperlane(lane) {
+          const { from, to, warp, sectorId, targetId } = lane;
+
+          const isReachable =
+            this.selectedSector &&
+            this.reachableMap.has(sectorId) &&
+            this.reachableMap.has(targetId);
+
+          const baseAlpha = isReachable ? 0.9 : 0.5;
+
+          this.ctx.save();
+
+          // Draw glowing layers
+          const glowSizes = CONFIG.effects.hyperlane.glowSizes;
+          const colors = [
+            CONFIG.colors.hyperlane.outer + baseAlpha * 0.3 + ")",
+            CONFIG.colors.hyperlane.middle + baseAlpha * 0.5 + ")",
+            CONFIG.colors.hyperlane.core + baseAlpha + ")",
+          ];
+
+          for (let i = 0; i < glowSizes.length; i++) {
+            this.ctx.strokeStyle = colors[i];
+            this.ctx.lineWidth = glowSizes[i];
+
+            if (i === glowSizes.length - 1) {
+              this.ctx.setLineDash(CONFIG.effects.hyperlane.dashPattern);
+            }
+
+            this.ctx.beginPath();
+            this.ctx.moveTo(from.x, from.y);
+            this.ctx.lineTo(to.x, to.y);
+            this.ctx.stroke();
+          }
+
+          this.ctx.restore();
+
+          // Draw portals
+          this.renderPortal(from.x, from.y, baseAlpha);
+          this.renderPortal(to.x, to.y, baseAlpha);
+
+          // Draw distance label
+          if (warp.distance) {
+            this.renderHyperlaneDistance(from, to, warp.distance, baseAlpha);
+          }
+        }
+
+        /**
+         * Render portal effect at hyperlane endpoints
+         */
+        renderPortal(x, y, alpha) {
+          const radii = CONFIG.effects.hyperlane.portalRadius;
+
+          this.ctx.save();
+
+          // Outer ring
+          this.ctx.strokeStyle =
+            CONFIG.colors.hyperlane.portal + alpha * 0.6 + ")";
+          this.ctx.lineWidth = 2;
+          this.ctx.beginPath();
+          this.ctx.arc(x, y, radii.outer, 0, Math.PI * 2);
+          this.ctx.stroke();
+
+          // Inner ring
+          this.ctx.strokeStyle =
+            CONFIG.colors.hyperlane.core + alpha * 0.8 + ")";
+          this.ctx.lineWidth = 1;
+          this.ctx.beginPath();
+          this.ctx.arc(x, y, radii.inner, 0, Math.PI * 2);
+          this.ctx.stroke();
+
+          // Center
+          this.ctx.fillStyle = CONFIG.colors.hyperlane.core + alpha + ")";
+          this.ctx.beginPath();
+          this.ctx.arc(x, y, radii.center, 0, Math.PI * 2);
+          this.ctx.fill();
+
+          this.ctx.restore();
+        }
+
+        /**
+         * Render hyperlane distance label
+         */
+        renderHyperlaneDistance(from, to, distance, alpha) {
+          const midX = (from.x + to.x) / 2;
+          const midY = (from.y + to.y) / 2;
+
+          this.ctx.save();
+
+          // Background
+          this.ctx.fillStyle = `rgba(0, 0, 0, ${alpha * 0.6})`;
+          this.ctx.fillRect(midX - 25, midY - 8, 50, 16);
+
+          // Text
+          this.ctx.fillStyle = CONFIG.colors.hyperlane.text + alpha + ")";
+          this.ctx.font = CONFIG.fonts.hyperlaneDistance;
+          this.ctx.textAlign = "center";
+          this.ctx.fillText(`${distance} hex`, midX, midY + 2);
+
+          this.ctx.restore();
+        }
+
+        /**
+         * Render individual sector
+         */
+        renderSector(sector, world) {
+          const content = this.sectorData.sectors.find(
+            (s) => s.id === sector.id
+          );
+          const isVisited = this.visitedSectors.has(sector.id);
+          const hasPort = content && content.port;
+          const isMega =
+            hasPort && sector.id === this.sectorData.meta.mega_port_sector;
+          const isSelected =
+            this.selectedSector && this.selectedSector.id === sector.id;
+          const isReachable = this.reachableMap.has(sector.id);
+
+          // Calculate dimming
+          const dimmed = this.selectedSector && !isReachable;
+          const alpha = dimmed ? CONFIG.colors.dimmedAlpha : 1;
+
+          // Draw hexagon
+          if (isVisited) {
+            this.ctx.fillStyle = CONFIG.colors.visitedSector.fill.replace(
+              "0.3",
+              0.3 * alpha
+            );
+            this.ctx.strokeStyle = CONFIG.colors.visitedSector.stroke.replace(
+              "#",
+              `rgba(${this.hexToRgb("#00ff00")}, ${alpha})`
+            );
+          } else {
+            this.ctx.fillStyle = CONFIG.colors.unvisitedSector.fill;
+            this.ctx.strokeStyle = `rgba(102, 102, 102, ${alpha})`;
+          }
+
+          this.ctx.lineWidth = isSelected ? 2 : 1;
+          this.drawHex(
+            world.x,
+            world.y,
+            CONFIG.display.hexSize * 0.9,
+            isVisited
+          );
+
+          // Draw port indicator
+          if (hasPort) {
+            const portColor = isMega
+              ? CONFIG.colors.megaPort
+              : CONFIG.colors.tradingPort;
+            this.ctx.fillStyle = this.applyAlpha(portColor, alpha);
+            this.ctx.beginPath();
+            this.ctx.arc(world.x, world.y, 5, 0, Math.PI * 2);
+            this.ctx.fill();
           }
 
           // Draw sector ID
-          if (viewSettings.showSectorIds) {
-            ctx.fillStyle = "#aaa";
-            ctx.font = "8px monospace";
-            ctx.textAlign = "center";
-            ctx.fillText(sector.id.toString(), sp.x, sp.y - 10);
-          }
-        });
-      }
+          this.ctx.fillStyle = `rgba(200, 200, 200, ${alpha})`;
+          this.ctx.font = CONFIG.fonts.sectorId;
+          this.ctx.textAlign = "center";
+          this.ctx.fillText(sector.id.toString(), world.x, world.y + 3);
 
-      function drawHex(x, y, size, strokeOnly = false, fillOnly = false) {
-        ctx.beginPath();
-        for (let i = 0; i < 6; i++) {
-          const angle = (Math.PI / 3) * i;
-          const hx = x + size * Math.cos(angle);
-          const hy = y + size * Math.sin(angle);
-          if (i === 0) {
-            ctx.moveTo(hx, hy);
+          // Draw selection highlight
+          if (isSelected) {
+            this.ctx.strokeStyle = CONFIG.colors.selectedSector;
+            this.ctx.lineWidth = 2;
+            this.drawHex(
+              world.x,
+              world.y,
+              CONFIG.display.hexSize * 1.15,
+              false
+            );
+          }
+        }
+
+        /**
+         * Draw a hexagon
+         */
+        drawHex(x, y, size, fill) {
+          this.ctx.beginPath();
+          for (let i = 0; i < 6; i++) {
+            const angle = (Math.PI / 3) * i;
+            const px = x + size * Math.cos(angle);
+            const py = y + size * Math.sin(angle);
+            if (i === 0) {
+              this.ctx.moveTo(px, py);
+            } else {
+              this.ctx.lineTo(px, py);
+            }
+          }
+          this.ctx.closePath();
+          if (fill) this.ctx.fill();
+          this.ctx.stroke();
+        }
+
+        // ==================== User Interaction ====================
+
+        /**
+         * Handle mouse down events
+         */
+        onMouseDown(e) {
+          if (e.button !== 0) return; // Left click only
+
+          const world = this.screenToWorld(e.clientX, e.clientY);
+
+          if (this.viewMode === "galaxy") {
+            // Check for region click
+            for (const [regionId, region] of Object.entries(this.regions)) {
+              if (this.pointInPolygon(world.x, world.y, region.hull)) {
+                this.zoomToRegion(parseInt(regionId));
+                return;
+              }
+            }
           } else {
-            ctx.lineTo(hx, hy);
+            // Check for sector click
+            const sector = this.findSectorAt(world.x, world.y);
+            if (sector) {
+              this.selectSector(sector);
+              return;
+            }
           }
+
+          // Start drag
+          this.isDragging = true;
+          this.dragStart = { x: e.clientX, y: e.clientY };
+          this.cameraStart = { x: this.camera.x, y: this.camera.y };
         }
-        ctx.closePath();
 
-        if (!fillOnly) ctx.stroke();
-        if (!strokeOnly) ctx.fill();
-      }
-
-      // Mouse controls
-      canvas.addEventListener("mousedown", (e) => {
-        dragStart.x = e.clientX;
-        dragStart.y = e.clientY;
-        lastCamera.x = camera.x;
-        lastCamera.y = camera.y;
-        isDragging = false; // Will be set to true only if mouse actually moves
-      });
-
-      canvas.addEventListener("mousemove", (e) => {
-        // Only start dragging if mouse has moved a minimum distance
-        if (!isDragging && dragStart.x !== undefined) {
-          const dx = e.clientX - dragStart.x;
-          const dy = e.clientY - dragStart.y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-          if (distance > 5) {
-            // 5 pixel threshold to distinguish click from drag
-            isDragging = true;
+        /**
+         * Handle mouse move events
+         */
+        onMouseMove(e) {
+          if (this.isDragging) {
+            this.camera.x = this.cameraStart.x + (e.clientX - this.dragStart.x);
+            this.camera.y = this.cameraStart.y + (e.clientY - this.dragStart.y);
           }
         }
 
-        if (isDragging) {
-          camera.x = lastCamera.x + (e.clientX - dragStart.x);
-          camera.y = lastCamera.y + (e.clientY - dragStart.y);
-          render();
-        } else {
-          // Check hover
-          const rect = canvas.getBoundingClientRect();
-          const x = (e.clientX - rect.left - camera.x) / camera.zoom;
-          const y = (e.clientY - rect.top - camera.y) / camera.zoom;
-
-          let foundSector = null;
-          if (universeStructure) {
-            universeStructure.sectors.forEach((sector) => {
-              if (sector.position) {
-                const sp = P(sector.position);
-                const dist = Math.sqrt(
-                  Math.pow(sp.x - x, 2) + Math.pow(sp.y - y, 2)
-                );
-                if (dist < 10 / camera.zoom) {
-                  foundSector = sector;
-                }
-              }
-            });
-          }
-
-          if (foundSector !== hoveredSector) {
-            hoveredSector = foundSector;
-            updateInfoPanel();
-          }
+        /**
+         * Handle mouse up events
+         */
+        onMouseUp(e) {
+          this.isDragging = false;
         }
-      });
 
-      canvas.addEventListener("mouseup", (e) => {
-        if (!isDragging && dragStart.x !== undefined) {
-          // Handle click to select sector (only if we didn't drag)
-          const rect = canvas.getBoundingClientRect();
-          const x = (e.clientX - rect.left - camera.x) / camera.zoom;
-          const y = (e.clientY - rect.top - camera.y) / camera.zoom;
+        /**
+         * Handle mouse wheel events
+         */
+        onWheel(e) {
+          e.preventDefault();
 
-          let clickedSector = null;
-          if (universeStructure) {
-            universeStructure.sectors.forEach((sector) => {
-              if (sector.position) {
-                const sp = P(sector.position);
-                const dist = Math.sqrt(
-                  Math.pow(sp.x - x, 2) + Math.pow(sp.y - y, 2)
-                );
-                if (dist < 15 / camera.zoom) {
-                  clickedSector = sector;
-                }
-              }
-            });
-          }
+          const delta =
+            e.deltaY > 0 ? 1 / CONFIG.view.zoomSpeed : CONFIG.view.zoomSpeed;
 
-          if (clickedSector) {
-            selectSector(clickedSector);
+          // Get world position before zoom
+          const worldBefore = this.screenToWorld(e.clientX, e.clientY);
+
+          // Apply zoom
+          this.camera.zoom *= delta;
+          this.camera.zoom = Math.max(
+            CONFIG.view.minZoom,
+            Math.min(CONFIG.view.maxZoom, this.camera.zoom)
+          );
+
+          // Get world position after zoom
+          const worldAfter = this.screenToWorld(e.clientX, e.clientY);
+
+          // Adjust camera to keep mouse position fixed
+          this.camera.x += (worldAfter.x - worldBefore.x) * this.camera.zoom;
+          this.camera.y += (worldAfter.y - worldBefore.y) * this.camera.zoom;
+
+          // Auto-switch view modes
+          this.checkViewModeTransition();
+        }
+
+        /**
+         * Check if view mode should transition based on zoom
+         */
+        checkViewModeTransition() {
+          if (
+            this.viewMode === "sectors" &&
+            this.camera.zoom < CONFIG.view.galaxyZoomThreshold
+          ) {
+            this.viewMode = "galaxy";
+          } else if (
+            this.viewMode === "galaxy" &&
+            this.camera.zoom > CONFIG.view.sectorZoomThreshold
+          ) {
+            this.viewMode = "sectors";
           }
         }
-        isDragging = false;
-        dragStart.x = undefined;
-        dragStart.y = undefined;
-      });
 
-      canvas.addEventListener("wheel", (e) => {
-        e.preventDefault();
-        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+        /**
+         * Find sector at world coordinates
+         */
+        findSectorAt(worldX, worldY) {
+          let closest = null;
+          let minDist = CONFIG.display.hexSize;
 
-        const rect = canvas.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
+          this.universeData.sectors.forEach((sector) => {
+            if (!sector.position) return;
 
-        const worldX = (mouseX - camera.x) / camera.zoom;
-        const worldY = (mouseY - camera.y) / camera.zoom;
+            const sectorWorld = this.hexToWorld(
+              sector.position.x,
+              sector.position.y
+            );
+            const dist = Math.sqrt(
+              Math.pow(sectorWorld.x - worldX, 2) +
+                Math.pow(sectorWorld.y - worldY, 2)
+            );
 
-        camera.zoom *= delta;
-        camera.zoom = Math.max(0.1, Math.min(5, camera.zoom));
+            if (dist < minDist) {
+              closest = sector;
+              minDist = dist;
+            }
+          });
 
-        camera.x = mouseX - worldX * camera.zoom;
-        camera.y = mouseY - worldY * camera.zoom;
-
-        render();
-      });
-
-      function updateInfoPanel() {
-        const panel = document.getElementById("infoPanel");
-        const selectionInfo = document.getElementById("selectionInfo");
-
-        if (!hoveredSector) {
-          panel.classList.remove("visible");
-          return;
+          return closest;
         }
 
-        panel.classList.add("visible");
+        /**
+         * Check if point is inside polygon
+         */
+        pointInPolygon(x, y, polygon) {
+          let inside = false;
+          for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+            const xi = polygon[i].x,
+              yi = polygon[i].y;
+            const xj = polygon[j].x,
+              yj = polygon[j].y;
 
-        document.getElementById("sectorId").textContent = hoveredSector.id;
-
-        const region = universeStructure.meta.regions[hoveredSector.region];
-        document.getElementById("sectorRegion").textContent = region
-          ? region.name
-          : "Unknown";
-
-        document.getElementById("sectorWarps").textContent = hoveredSector.warps
-          ? hoveredSector.warps.length
-          : 0;
-
-        const content = sectorContents.sectors.find(
-          (s) => s.id === hoveredSector.id
-        );
-        if (content && content.port) {
-          const portInfo = `Class ${content.port.class} (${content.port.code})`;
-          document.getElementById("sectorPort").textContent = content.port
-            .is_mega
-            ? `MEGA - ${portInfo}`
-            : portInfo;
-        } else {
-          document.getElementById("sectorPort").textContent = "None";
+            if (
+              yi > y !== yj > y &&
+              x < ((xj - xi) * (y - yi)) / (yj - yi) + xi
+            ) {
+              inside = !inside;
+            }
+          }
+          return inside;
         }
 
-        document.getElementById("sectorPos").textContent = `${Math.round(
-          hoveredSector.position.x
-        )}, ${Math.round(hoveredSector.position.y)}`;
+        /**
+         * Select or deselect a sector
+         */
+        selectSector(sector) {
+          if (this.selectedSector && this.selectedSector.id === sector.id) {
+            this.selectedSector = null;
+            this.reachableMap.clear();
+          } else {
+            this.selectedSector = sector;
+            this.calculateReachableSectors();
+          }
+        }
 
-        // Show selection info
-        if (selectedSector) {
-          selectionInfo.style.display = "block";
-          const selectedRegion =
-            universeStructure.meta.regions[selectedSector.region];
-          document.getElementById("selectedSectorInfo").innerHTML =
-            `Sector ${selectedSector.id}<br>` +
-            `${selectedRegion ? selectedRegion.name : "Unknown"}<br>` +
-            `Showing ${visibleSectors.size} sectors within ${maxWalkDistance} jumps`;
-        } else {
-          selectionInfo.style.display = "none";
+        /**
+         * Zoom camera to a specific region
+         */
+        zoomToRegion(regionId) {
+          const region = this.regions[regionId];
+          if (!region) return;
+
+          const bounds = region.bounds;
+          const width = bounds.maxX - bounds.minX;
+          const height = bounds.maxY - bounds.minY;
+
+          const scaleX = (this.canvas.width - 100) / width;
+          const scaleY = (this.canvas.height - 100) / height;
+
+          this.camera.zoom = Math.min(scaleX, scaleY, 1.5);
+          this.camera.zoom = Math.max(this.camera.zoom, 0.5);
+
+          this.camera.x =
+            this.canvas.width / 2 - region.center.x * this.camera.zoom;
+          this.camera.y =
+            this.canvas.height / 2 - region.center.y * this.camera.zoom;
+
+          this.viewMode = "sectors";
+        }
+
+        // ==================== UI Controls ====================
+
+        /**
+         * Reset view to galaxy map
+         */
+        resetView() {
+          this.viewMode = "galaxy";
+          this.selectedSector = null;
+          this.reachableMap.clear();
+
+          // Calculate universe bounds
+          let minX = Infinity,
+            minY = Infinity;
+          let maxX = -Infinity,
+            maxY = -Infinity;
+
+          Object.values(this.regions).forEach((region) => {
+            const b = region.bounds;
+            minX = Math.min(minX, b.minX);
+            minY = Math.min(minY, b.minY);
+            maxX = Math.max(maxX, b.maxX);
+            maxY = Math.max(maxY, b.maxY);
+          });
+
+          if (minX === Infinity) return;
+
+          const width = maxX - minX;
+          const height = maxY - minY;
+          const centerX = minX + width / 2;
+          const centerY = minY + height / 2;
+
+          const scaleX = (this.canvas.width - 100) / width;
+          const scaleY = (this.canvas.height - 100) / height;
+          this.camera.zoom = Math.min(scaleX, scaleY, 0.5);
+
+          this.camera.x = this.canvas.width / 2 - centerX * this.camera.zoom;
+          this.camera.y = this.canvas.height / 2 - centerY * this.camera.zoom;
+        }
+
+        /**
+         * Clear current selection
+         */
+        clearSelection() {
+          this.selectedSector = null;
+          this.reachableMap.clear();
+        }
+
+        /**
+         * Toggle lane visibility
+         */
+        toggleLanes() {
+          this.showLanes = !this.showLanes;
+        }
+
+        /**
+         * Toggle hyperlane visibility
+         */
+        toggleHyperlanes() {
+          this.showHyperlanes = !this.showHyperlanes;
+        }
+
+        /**
+         * Update HUD elements
+         */
+        updateHUD() {
+          document.getElementById("viewMode").textContent =
+            this.viewMode === "galaxy" ? "Galaxy Map" : "Sector View";
+          document.getElementById("zoomLevel").textContent =
+            this.camera.zoom.toFixed(2);
+          document.getElementById("selectedSector").textContent = this
+            .selectedSector
+            ? `Sector ${this.selectedSector.id}`
+            : "None";
+        }
+
+        // ==================== Utility Functions ====================
+
+        /**
+         * Convert hex color to RGB
+         */
+        hexToRgb(hex) {
+          const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+          return result
+            ? `${parseInt(result[1], 16)}, ${parseInt(
+                result[2],
+                16
+              )}, ${parseInt(result[3], 16)}`
+            : "255, 255, 255";
+        }
+
+        /**
+         * Apply alpha to a color
+         */
+        applyAlpha(color, alpha) {
+          if (color.startsWith("#")) {
+            return `rgba(${this.hexToRgb(color)}, ${alpha})`;
+          }
+          return color.replace(/[\d.]+\)$/, alpha + ")");
         }
       }
 
-      // Zoom controls
-      function resetView() {
-        centerCamera();
-        render();
-      }
-
-      function zoomIn() {
-        camera.zoom *= 1.2;
-        camera.zoom = Math.min(5, camera.zoom);
-        render();
-      }
-
-      function zoomOut() {
-        camera.zoom *= 0.8;
-        camera.zoom = Math.max(0.1, camera.zoom);
-        render();
-      }
-
-      function updateWalkDistance(value) {
-        maxWalkDistance = parseInt(value);
-        document.getElementById("walkDistanceValue").textContent = value;
-
-        // Recalculate visible sectors if we have a selection
-        if (selectedSector) {
-          calculateVisibleSectors();
-          render();
-        }
-      }
-
-      // Initial render
-      render();
+      // Create and initialize the application
+      const UniverseMap = new UniverseMapApp();
+      window.addEventListener("DOMContentLoaded", () => UniverseMap.init());
     </script>
   </body>
 </html>
