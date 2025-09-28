@@ -18,6 +18,8 @@ from utils.tools_schema import (
     SendMessage,
     RechargeWarpPower,
     TransferWarpPower,
+    PlaceFighters,
+    CollectFighters,
     TaskFinished,
 )
 
@@ -127,6 +129,8 @@ class TaskAgent(BaseLLMAgent):
                 SendMessage,
                 RechargeWarpPower,
                 TransferWarpPower,
+                PlaceFighters,
+                CollectFighters,
                 TaskFinished,
             ]
         )

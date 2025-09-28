@@ -1,16 +1,43 @@
 
-In-progress
+Next:
+
+- The combat_interactive_tui.py code needs to automatically detect when a sector is in combat mode and switch to combat mode. Currently it does not do this. I see websocket combat events arriving, but the UI gives me a fight/wait choice rather than presenting me with the combat choices for the round.
+- Add a "quiet|combat" indicator to the status bar. Update this information each time we receive a combat event.
+- Add "fighters: N shields: M" information to the status bar. Update this information each time we receive a combat event.
+
+- Whenever we prompt for input in the tui, provide a single-character response option. Either the first letter of the action name, or a number if there are target or sector options. Accept either the single-character or the full action string, whenever possible. Examine the code for all places where we prompt for a response and update them to use this approach. For single-character input options derived from the action name, indicate this option to the user by enclosing the first letter in parentheses. For example: (a)ttack, (b)race, (f)lee.
+
+- Examine flee code and explain the success/fail logic
+
+- When there is combat in a sector, return a "not allowed" message of some kind for any movement or trading actions. Only combat actions (attack, brace, flee) are allowed if a participant is in a sector where there is combat. Examine the game server code for tracking combat state in a sector and explain the logic, so we understand how it works. Then suggest a way to implement the "only combat actions are allowed" logic described above. Ask any questions you have so we can work together to clarify the implementation goals.
+
+- Add Placeoption when the sector is not yet in combat mode: 
+
+- Make another version of this TUI that can automatically switch between Task mode and Combat mode. Call it simple_tui.py. Use the code structure from combat_interactive_tui.py as a starting point.
+  - When we're in task mode, send the full text of the input prompt to TaskAgent. Look at how ncp/run_npc.py does this. Append the _output from the TaskAgent using _append_log(). Rename anything in the code that should have more generic names, now that we support more modes.
+  - When we are in a sector with active combat, use the same state and UI logic we have now in combat_interactive_tui.py.
+
+- Examine the logic for collecting salvage.
+
+- Fighters and sector visibility
+  - DM whenever a player moves into a sector where you have fighters
+  - DM whenever a player attacks your fighters
+  
+
+
+
 - why is api_send_message in server.py rather than defined in ./api/?
   - same question for server_status
 
 Sunday
+- Add a ws callback to AsyncGameClient so we can get rid of LoggingAsyncGameClient in combat_interactive_tup.py
 - Clean up finished({message}) in TASK OUTPUT
 - Fix AsyncGameClient caching/
 - Further look at all tool calls to better summarize the resulting data structures in text
 - See why we broke move UI graphics
 - test run_npc.py and status_subscription_demo.py
 - commit all files
-- remove legacy gg-action keys and legacy result semantics (?)
+- remove legacy gg-action keys and legacy result semantics (?)s
 - utilities to create and manage characters and ports
   - remove character mod args from rpc join
   - create new admin rpc commands grouping that includes port management, too
@@ -25,5 +52,27 @@ Trying to write as little code as possible to perform game functions on behalf o
 How to avoid sending lots of data to the conversation LLM. my_map() tool as an example.
 
 
-==
+== sunday ==
 
+----
+
+Explain this code in AsyncGameClient
+
+    async def _send_command(self, frame: Dict[str, Any]) -> Dict[str, Any]:
+        await self._ensure_ws()
+        req_id = frame.setdefault("id", str(uuid.uuid4()))
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._pending[req_id] = fut
+        await self._ws.send(json.dumps(frame))
+        msg = await fut
+        if not msg.get("ok"):
+            err = msg.get("error", {})
+            raise RPCError(
+                frame.get("type", "command"),
+                int(err.get("status", 500)),
+                str(err.get("detail", "Unknown error")),
+                err.get("code"),
+            )
+        return msg.get("result", {})
+
+----

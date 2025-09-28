@@ -32,6 +32,26 @@ npm i
 npm run dev
 ```
 
+## NPC Combat CLIs
+
+Two new command-line utilities support live combat monitoring and automation. Both expect `OPENAI_API_KEY` to be set and default to WebSocket transport.
+
+- **Interactive controller** – prompts for each round and is safe to run without an API key:
+
+  ```
+  uv run npc/combat_interactive.py 42 --character NPC_Fox
+  ```
+
+  The script moves the character to sector `42`, waits for other pilots, and lets you choose between `fight`/`wait`, then per-round actions (`attack`, `brace`, `flee`).
+
+- **Strategy controller** – drives combat decisions with the TaskAgent and a strategy prompt:
+
+  ```
+  uv run npc/combat_strategy.py 42 fight "Favor attack when shields > 50%." --character NPC_Fox
+  ```
+
+  Modes: `fight` (auto-initiate when someone arrives) or `wait` (hold position until attacked). Use `--model` / `--action-timeout` to tune behaviour. The agent receives structured battle snapshots and must respond via the combat tools.
+
 ## Local map visualization
 
 New component HudMapVisualization.tsx has been badly glued into the HUD.

@@ -66,12 +66,23 @@ class BaseLLMAgent:
         """tools_list is a list of tool classes from tools_schema.py
         todo: rename that file"""
 
-        self.openai_tools = get_openai_tools_list(self.game_client, tools_list)
-        self.tools: Dict[str, Callable[Any]] = {}
-        for tool_class in tools_list:
-            self.tools[tool_class.schema().name] = tool_class(
-                game_client=self.game_client
-            )
+        tool_entries: List[Tuple[Any, Dict[str, Any]]] = []
+        for entry in tools_list:
+            if isinstance(entry, (tuple, list)):
+                tool_class, init_kwargs = entry
+            else:
+                tool_class, init_kwargs = entry, {}
+            tool_entries.append((tool_class, dict(init_kwargs)))
+
+        self.openai_tools = get_openai_tools_list(
+            self.game_client, [cls for cls, _ in tool_entries]
+        )
+        self.tools = {}
+        for tool_class, init_kwargs in tool_entries:
+            init_args = {"game_client": self.game_client}
+            init_args.update(init_kwargs)
+            tool_instance = tool_class(**init_args)
+            self.tools[tool_class.schema().name] = tool_instance
 
     def add_message(self, message: Dict[str, Any]):
         """Add a message to the conversation history."""
@@ -103,7 +114,7 @@ class BaseLLMAgent:
                 try:
                     result = json.loads(message["content"])
                     self._output(
-                        f"TOOL_RESULT [{message['tool_call_id']}]: {json.dumps(result)[:200]}"
+                        f"TOOL_RESULT [{message['tool_call_id']}]: {json.dumps(result)}"
                     )
                 except Exception as e:
                     self._output(

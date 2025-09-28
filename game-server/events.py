@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Iterable, Protocol, Sequence
 
 from schemas.generated_events import ServerEventName
@@ -19,6 +20,9 @@ class EventSink(Protocol):
 
     def matches_names(self, names: Sequence[str]) -> bool:
         ...
+
+
+logger = logging.getLogger("gradient-bang.events")
 
 
 class EventDispatcher:
@@ -69,6 +73,13 @@ class EventDispatcher:
         if meta:
             envelope["meta"] = meta
 
+        logger.debug(
+            "Dispatching event=%s to character_filter=%s name_filter=%s",
+            event,
+            character_filter_list,
+            name_filter_list,
+        )
+
         tasks: list[asyncio.Task[None]] = []
         async with self._lock:
             sinks_snapshot = list(self._sinks)
@@ -80,14 +91,22 @@ class EventDispatcher:
                 continue
             if name_filter_list is not None and not sink.matches_names(name_filter_list):
                 continue
+            logger.debug(
+                "Dispatch event=%s to connection=%s", event, getattr(sink, "connection_id", "<unknown>")
+            )
             tasks.append(asyncio.create_task(sink.send_event(envelope)))
 
+        logger.debug("Event %s queued for %s sink(s)", event, len(tasks))
         if tasks:
             for task in asyncio.as_completed(tasks):
                 try:
                     await task
+                    logger.debug(
+                        "Event delivery complete for event=%s", event,
+                    )
                 except Exception:
                     # Errors from a sink should not crash the dispatcher.
+                    logger.exception("Error delivering event=%s", event)
                     continue
 
 

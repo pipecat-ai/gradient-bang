@@ -398,6 +398,11 @@
         "character.joined",
         "character.moved",
         "chat.message",
+        "combat.started",
+        "combat.round_waiting",
+        "combat.round_resolved",
+        "combat.ended",
+        "sector.garrison_updated",
         "local_map",
         "warp.transfer",
         "warp.purchase",
@@ -935,6 +940,10 @@
       "properties": {
         "name": {
           "type": "string"
+        },
+        "ship_type": {
+          "type": "string",
+          "description": "Last known ship type for the player, when available."
         }
       },
       "additionalProperties": false

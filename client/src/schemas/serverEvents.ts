@@ -941,6 +941,10 @@ export const serverEventSchema = {
       "properties": {
         "name": {
           "type": "string"
+        },
+        "ship_type": {
+          "type": "string",
+          "description": "Last known ship type for the player, when available."
         }
       },
       "additionalProperties": false

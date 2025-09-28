@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import os
 import threading
-from typing import Dict, List, Set, Optional, Any
+from typing import Dict, Iterator, List, Set, Optional, Any
 from pydantic import BaseModel, Field
 from ships import ShipType, get_ship_stats
 from core.config import get_world_data_path
@@ -115,6 +115,22 @@ class CharacterKnowledgeManager:
     def has_knowledge(self, character_id: str) -> bool:
         """Check whether we have persisted knowledge for a character."""
         return self.get_file_path(character_id).exists()
+
+    def iter_saved_knowledge(self) -> Iterator[MapKnowledge]:
+        """Yield MapKnowledge objects for every persisted character."""
+
+        for path in sorted(self.data_dir.glob("*.json")):
+            try:
+                with open(path, "r") as f:
+                    data = json.load(f)
+                knowledge = MapKnowledge(**data)
+            except Exception as exc:  # noqa: BLE001
+                print(f"Error iterating knowledge file {path}: {exc}")
+                continue
+
+            # Cache the loaded knowledge for future callers.
+            self.cache[knowledge.character_id] = knowledge
+            yield knowledge
     
     def load_knowledge(self, character_id: str) -> MapKnowledge:
         """Load map knowledge for a character.
@@ -386,6 +402,37 @@ class CharacterKnowledgeManager:
         knowledge = self.load_knowledge(character_id)
         return knowledge.credits
     
+    def set_fighters(self, character_id: str, fighters: int, *, max_fighters: int | None = None) -> None:
+        """Set the character's fighter count, clamped to [0, ship max]."""
+        lock = self._locks.setdefault(character_id, threading.Lock())
+        with lock:
+            knowledge = self.load_knowledge(character_id)
+            stats = get_ship_stats(ShipType(knowledge.ship_config.ship_type))
+            cap = max_fighters if max_fighters is not None else stats.fighters
+            knowledge.ship_config.current_fighters = max(0, min(fighters, cap))
+            self.save_knowledge(knowledge)
+
+    def adjust_fighters(self, character_id: str, delta: int, *, max_fighters: int | None = None) -> None:
+        """Increment fighters by delta with optional max clamp."""
+        lock = self._locks.setdefault(character_id, threading.Lock())
+        with lock:
+            knowledge = self.load_knowledge(character_id)
+            stats = get_ship_stats(ShipType(knowledge.ship_config.ship_type))
+            cap = max_fighters if max_fighters is not None else stats.fighters
+            base = knowledge.ship_config.current_fighters
+            knowledge.ship_config.current_fighters = max(0, min(base + delta, cap))
+            self.save_knowledge(knowledge)
+
+    def set_shields(self, character_id: str, shields: int, *, max_shields: int | None = None) -> None:
+        """Set the character's shields, clamped to [0, ship max]."""
+        lock = self._locks.setdefault(character_id, threading.Lock())
+        with lock:
+            knowledge = self.load_knowledge(character_id)
+            stats = get_ship_stats(ShipType(knowledge.ship_config.ship_type))
+            cap = max_shields if max_shields is not None else stats.shields
+            knowledge.ship_config.current_shields = max(0, min(shields, cap))
+            self.save_knowledge(knowledge)
+
     def update_cargo(self, character_id: str, commodity: str, quantity_delta: int) -> None:
         """Update a character's cargo and save to disk.
         

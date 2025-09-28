@@ -120,11 +120,31 @@ def sector_contents(
                 }
             )
 
-    # Other players (names only)
+    # Other players (names + ship type when known)
     other_players = []
     for char_id, character in world.characters.items():
-        if character.sector == sector_id and char_id != current_character_id:
-            other_players.append({"name": char_id})
+        if character.sector != sector_id or char_id == current_character_id:
+            continue
+        entry = {"name": char_id}
+        knowledge = world.knowledge_manager.load_knowledge(char_id)
+        ship_type = knowledge.ship_config.ship_type if knowledge else None
+        if ship_type:
+            entry["ship_type"] = ship_type
+        other_players.append(entry)
+
+        # Garrisons
+    garrisons = []
+    if getattr(world, "garrisons", None):
+        for garrison in world.garrisons.list_sector(sector_id):
+            entry = garrison.to_dict()
+            entry["is_friendly"] = garrison.owner_id == current_character_id
+            garrisons.append(entry)
+
+    # Salvage containers
+    salvage = []
+    if getattr(world, "salvage_manager", None):
+        for container in world.salvage_manager.list_sector(sector_id):
+            salvage.append(container.to_dict())
 
     # Adjacent sectors
     adjacent_sectors = []
@@ -135,6 +155,8 @@ def sector_contents(
         "port": port,
         "planets": planets,
         "other_players": other_players,
+        "garrisons": garrisons,
+        "salvage": salvage,
         "adjacent_sectors": adjacent_sectors,
     }
 

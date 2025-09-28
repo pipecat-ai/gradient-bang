@@ -320,6 +320,17 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
             handleMapData(payload.result ?? payload);
             break;
           }
+          case "combat.started":
+          case "combat.round_waiting":
+          case "combat.round_resolved":
+          case "combat.ended": {
+            console.log(`[COMBAT] ${action}`, payload);
+            break;
+          }
+          case "sector.garrison_updated": {
+            console.log("[COMBAT] Garrison update", payload);
+            break;
+          }
           case "chat.message": {
             const messagePayload = payload as Record<string, unknown>;
             const content =

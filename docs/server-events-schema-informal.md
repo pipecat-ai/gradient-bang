@@ -60,7 +60,7 @@ Used by `join`, `move`, `my_status`, and the `status.update` / `status.init` eve
       { "id": 11, "class_code": "H", "class_name": "Habitable" }
     ],
     "other_players": [
-      { "name": "MerchantM" }
+      { "name": "MerchantM", "ship_type": "kestrel_courier" }
     ],
     "adjacent_sectors": [4, 6, 9]
   }

@@ -1,10 +1,11 @@
 """Game server API client for Gradient Bang."""
 
-from typing import List, Optional, Dict, Any, Callable, Awaitable
+from typing import List, Optional, Dict, Any, Callable, Awaitable, Tuple
 import logging
 import asyncio
 import json
 import uuid
+import inspect
 import websockets
 from copy import deepcopy
 from .port_helpers import (
@@ -75,6 +76,10 @@ class AsyncGameClient:
         self._event_handlers: Dict[
             str, List[Callable[[Dict[str, Any]], Awaitable[None]]]
         ] = {}
+        self._event_handler_wrappers: Dict[
+            Tuple[str, Callable[[Dict[str, Any]], Any]],
+            Callable[[Dict[str, Any]], Awaitable[None]],
+        ] = {}
         self._subscriptions: set[str] = set()
         self._auto_subscribe_my_status_on_join: bool = False
 
@@ -136,25 +141,133 @@ class AsyncGameClient:
                 pass
             self._ws = None
 
+    def _auto_subscribe_for_event(self, event_name: str) -> None:
+        """Ensure required subscriptions are active for certain events."""
+
+        if event_name != "status.update":
+            return
+
+        # Server now auto-filters events; no client-side subscribe needed.
+        return
+
+    def _register_event_handler(
+        self,
+        event_name: str,
+        handler: Callable[[Dict[str, Any]], Awaitable[None] | None],
+    ) -> Tuple[str, Callable[[Dict[str, Any]], Awaitable[None]]]:
+        """Register an event handler and return a removable token."""
+
+        if not callable(handler):
+            raise TypeError("Event handler must be callable")
+
+        if asyncio.iscoroutinefunction(handler):
+            async_handler = handler  # type: ignore[assignment]
+        else:
+
+            async def async_handler(payload: Dict[str, Any]) -> None:
+                try:
+                    result = handler(payload)
+                    if inspect.isawaitable(result):
+                        await result
+                except Exception:  # noqa: BLE001
+                    logger.exception("Unhandled error in %s handler", event_name)
+
+        bucket = self._event_handlers.setdefault(event_name, [])
+        bucket.append(async_handler)
+        self._event_handler_wrappers[(event_name, handler)] = async_handler
+        self._auto_subscribe_for_event(event_name)
+        return event_name, async_handler
+
     # Event subscription decorator (WS only)
     def on(self, event_name: str):
-        def decorator(fn: Callable[[Dict[str, Any]], Awaitable[None]]):
-            self._event_handlers.setdefault(event_name, []).append(fn)
-            # Auto-subscribe behavior for WS events
-            if event_name == "status.update":
-                if self._current_character:
-                    try:
-                        loop = asyncio.get_running_loop()
-                        loop.create_task(
-                            self.subscribe_my_status(self._current_character)
-                        )
-                    except RuntimeError:
-                        self._auto_subscribe_my_status_on_join = True
-                else:
-                    self._auto_subscribe_my_status_on_join = True
+        def decorator(fn: Callable[[Dict[str, Any]], Awaitable[None] | None]):
+            self._register_event_handler(event_name, fn)
             return fn
 
         return decorator
+
+    def add_event_handler(
+        self,
+        event_name: str,
+        handler: Callable[[Dict[str, Any]], Awaitable[None] | None],
+    ) -> Tuple[str, Callable[[Dict[str, Any]], Awaitable[None]]]:
+        """Register a handler programmatically and return a token for removal."""
+
+        return self._register_event_handler(event_name, handler)
+
+    def remove_event_handler(
+        self,
+        token: Tuple[str, Callable[[Dict[str, Any]], Awaitable[None]]],
+    ) -> bool:
+        """Remove a previously registered handler using its token."""
+
+        event_name, async_handler = token
+        handlers = self._event_handlers.get(event_name)
+        if not handlers:
+            return False
+
+        removed = False
+        try:
+            handlers.remove(async_handler)
+            removed = True
+        except ValueError:
+            removed = False
+
+        if not handlers:
+            self._event_handlers.pop(event_name, None)
+
+        if removed:
+            for key, value in list(self._event_handler_wrappers.items()):
+                if value is async_handler:
+                    self._event_handler_wrappers.pop(key, None)
+
+        return removed
+
+    def remove_event_handler_by_callable(
+        self,
+        event_name: str,
+        handler: Callable[[Dict[str, Any]], Awaitable[None] | None],
+    ) -> bool:
+        """Remove a handler by the original callable reference."""
+
+        wrapper = self._event_handler_wrappers.get((event_name, handler))
+        if not wrapper:
+            return False
+        return self.remove_event_handler((event_name, wrapper))
+
+    async def wait_for_event(
+        self,
+        event_name: str,
+        *,
+        predicate: Optional[Callable[[Dict[str, Any]], bool]] = None,
+        timeout: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Wait for an event matching an optional predicate and return its payload."""
+
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future = loop.create_future()
+        token: Optional[Tuple[str, Callable[[Dict[str, Any]], Awaitable[None]]]] = None
+
+        async def _handler(payload: Dict[str, Any]) -> None:
+            nonlocal token
+            try:
+                if predicate and not predicate(payload):
+                    return
+                if not future.done():
+                    future.set_result(payload)
+            finally:
+                if token is not None:
+                    self.remove_event_handler(token)
+
+        token = self.add_event_handler(event_name, _handler)
+
+        try:
+            if timeout is not None:
+                return await asyncio.wait_for(future, timeout)
+            return await future
+        finally:
+            if not future.done() and token is not None:
+                self.remove_event_handler(token)
 
     async def _ensure_ws(self):
         if self._ws is not None:
@@ -553,20 +666,7 @@ class AsyncGameClient:
             self._current_sector = status.get("sector")
             self._ship_status = status.get("ship")
 
-        if self._auto_subscribe_my_status_on_join or (
-            "status.update" in self._event_handlers
-            and self._event_handlers["status.update"]
-        ):
-            sub_key = f"status.update:{character_id}"
-            if sub_key not in self._subscriptions:
-                try:
-                    await self.subscribe_my_status(character_id)
-                except Exception:
-                    logger.exception(
-                        "Failed to auto-subscribe to status updates for %s",
-                        character_id,
-                    )
-            self._auto_subscribe_my_status_on_join = False
+        self._auto_subscribe_my_status_on_join = False
 
         return wrapped
 
@@ -1257,6 +1357,131 @@ class AsyncGameClient:
 
         return wrapped
 
+    async def combat_initiate(
+        self,
+        *,
+        character_id: str,
+        target_id: Optional[str] = None,
+        target_type: str = "character",
+    ) -> Dict[str, Any]:
+        character_id = self._resolve_character_id(character_id)
+        payload = {
+            "character_id": character_id,
+        }
+        if target_id is not None:
+            payload["target_id"] = target_id
+            payload["target_type"] = target_type
+        return await self._request("combat.initiate", payload)
+
+    async def combat_action(
+        self,
+        *,
+        combat_id: str,
+        action: str,
+        commit: int = 0,
+        target_id: Optional[str] = None,
+        to_sector: Optional[int] = None,
+        character_id: Optional[str] = None,
+        round_number: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        actor = self._resolve_character_id(character_id)
+        payload: Dict[str, Any] = {
+            "combat_id": combat_id,
+            "character_id": actor,
+            "action": action,
+        }
+        if commit:
+            payload["commit"] = commit
+        if target_id is not None:
+            payload["target_id"] = target_id
+        if to_sector is not None:
+            payload["to_sector"] = to_sector
+        if round_number is not None:
+            payload["round"] = round_number
+        return await self._request("combat.action", payload)
+
+    async def combat_status(
+        self,
+        *,
+        combat_id: Optional[str] = None,
+        character_id: Optional[str] = None,
+        include_logs: bool = False,
+    ) -> Dict[str, Any]:
+        if not combat_id and not character_id:
+            character_id = self._resolve_character_id(character_id)
+        payload: Dict[str, Any] = {}
+        if combat_id:
+            payload["combat_id"] = combat_id
+        if character_id:
+            payload["character_id"] = self._resolve_character_id(character_id)
+        if include_logs:
+            payload["include_logs"] = True
+        return await self._request("combat.status", payload)
+
+    async def combat_leave_fighters(
+        self,
+        *,
+        sector: int,
+        quantity: int,
+        mode: str = "offensive",
+        toll_amount: int = 0,
+        character_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        actor = self._resolve_character_id(character_id)
+        payload = {
+            "character_id": actor,
+            "sector": sector,
+            "quantity": quantity,
+            "mode": mode,
+            "toll_amount": toll_amount,
+        }
+        return await self._request("combat.leave_fighters", payload)
+
+    async def combat_collect_fighters(
+        self,
+        *,
+        sector: int,
+        quantity: int,
+        character_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        actor = self._resolve_character_id(character_id)
+        payload = {
+            "character_id": actor,
+            "sector": sector,
+            "quantity": quantity,
+        }
+        return await self._request("combat.collect_fighters", payload)
+
+    async def combat_set_garrison_mode(
+        self,
+        *,
+        sector: int,
+        mode: str,
+        toll_amount: int = 0,
+        character_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        actor = self._resolve_character_id(character_id)
+        payload = {
+            "character_id": actor,
+            "sector": sector,
+            "mode": mode,
+            "toll_amount": toll_amount,
+        }
+        return await self._request("combat.set_garrison_mode", payload)
+
+    async def salvage_collect(
+        self,
+        *,
+        salvage_id: str,
+        character_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        actor = self._resolve_character_id(character_id)
+        payload = {
+            "character_id": actor,
+            "salvage_id": salvage_id,
+        }
+        return await self._request("salvage.collect", payload)
+
     async def send_message(
         self,
         content: str,
@@ -1284,10 +1509,7 @@ class AsyncGameClient:
         return LLMResult(result, summary, delta)
 
     async def subscribe_chat(self):
-        if "chat.message" in self._subscriptions:
-            return
-        await self._send_command({"type": "subscribe", "event": "chat.message"})
-        self._subscriptions.add("chat.message")
+        logger.debug("subscribe_chat is deprecated; skipping explicit subscribe")
 
     async def subscribe_my_messages(
         self,
@@ -1347,15 +1569,7 @@ class AsyncGameClient:
         return msg.get("result", {})
 
     async def subscribe_my_status(self, character_id: str):
-        character_id = self._resolve_character_id(character_id)
-        await self._send_command(
-            {
-                "type": "subscribe",
-                "event": "status.update",
-                "character_id": character_id,
-            }
-        )
-        self._subscriptions.add(f"status.update:{character_id}")
+        logger.debug("subscribe_my_status is deprecated; skipping explicit subscribe")
 
     async def identify(
         self, *, name: Optional[str] = None, character_id: Optional[str] = None

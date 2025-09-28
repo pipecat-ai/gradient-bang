@@ -8,7 +8,8 @@ import json
 import logging
 import uuid
 from collections import deque
-from typing import Any, Awaitable, Callable, Dict, Iterable, Optional
+from contextlib import asynccontextmanager
+from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional
 
 import sys
 from pathlib import Path
@@ -20,7 +21,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from core.world import lifespan, world
+from core.world import lifespan as world_lifespan, world
 from api import (
     plot_course as api_plot_course,
     join as api_join,
@@ -35,18 +36,40 @@ from api import (
     reset_ports as api_reset_ports,
     regenerate_ports as api_regen_ports,
     send_message as api_send_message,
+    combat_initiate as api_combat_initiate,
+    combat_action as api_combat_action,
+    combat_status as api_combat_status,
+    combat_leave_fighters as api_combat_leave_fighters,
+    combat_collect_fighters as api_combat_collect_fighters,
+    combat_set_garrison_mode as api_combat_set_garrison_mode,
+    salvage_collect as api_salvage_collect,
 )
 from api.utils import build_status_payload
 from core.config import get_world_data_path
 from events import EventSink, event_dispatcher
 from messaging.store import MessageStore
 from schemas.generated_events import ServerEventName
-
+from combat.models import CombatantAction
+from combat.utils import serialize_encounter, serialize_round
+from ships import ShipType, get_ship_stats
 
 logger = logging.getLogger("gradient-bang.server")
 logging.basicConfig(level=logging.INFO)
 
-app = FastAPI(title="Gradient Bang", version="0.2.0", lifespan=lifespan)
+
+@asynccontextmanager
+async def app_lifespan(app: FastAPI):
+    async with world_lifespan(app):
+        if world.combat_manager:
+            world.combat_manager.configure_callbacks(
+                on_round_waiting=_combat_round_waiting,
+                on_round_resolved=_combat_round_resolved,
+                on_combat_ended=_combat_ended,
+            )
+        yield
+
+
+app = FastAPI(title="Gradient Bang", version="0.2.0", lifespan=app_lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:8080", "http://localhost:5173"],
@@ -118,10 +141,388 @@ RPC_HANDLERS: Dict[str, RPCHandler] = {
     "reset_ports": lambda payload: api_reset_ports.handle(payload, world),
     "regenerate_ports": lambda payload: api_regen_ports.handle(payload, world),
     "send_message": _handle_send_message,
+    "combat.initiate": lambda payload: api_combat_initiate.handle(payload, world),
+    "combat.action": lambda payload: api_combat_action.handle(payload, world),
+    "combat.status": lambda payload: api_combat_status.handle(payload, world),
+    "combat.leave_fighters": lambda payload: api_combat_leave_fighters.handle(payload, world),
+    "combat.collect_fighters": lambda payload: api_combat_collect_fighters.handle(payload, world),
+    "combat.set_garrison_mode": lambda payload: api_combat_set_garrison_mode.handle(payload, world),
+    "salvage.collect": lambda payload: api_salvage_collect.handle(payload, world),
     "server_status": _rpc_server_status,
 }
 
+def _combat_character_filter(encounter) -> list[str]:
+    ids: set[str] = set()
+    for state in encounter.participants.values():
+        if state.owner_character_id:
+            ids.add(state.owner_character_id)
+        elif state.combatant_type == "character":
+            ids.add(state.combatant_id)
+    return list(ids)
 
+
+def _garrison_commit_for_mode(mode: str, fighters: int) -> int:
+    if fighters <= 0:
+        return 0
+    mode = (mode or "offensive").lower()
+    if mode == "defensive":
+        return max(1, min(fighters, max(25, fighters // 4)))
+    if mode == "toll":
+        return max(1, min(fighters, max(50, fighters // 3)))
+    return max(1, min(fighters, max(50, fighters // 2)))
+
+
+async def _combat_round_waiting(encounter) -> None:
+    payload = serialize_encounter(encounter)
+    payload["sector"] = encounter.sector_id
+    character_filter = _combat_character_filter(encounter)
+    logger.info(
+        "Emitting combat.round_waiting: combat_id=%s round=%s participants=%s filter=%s",
+        encounter.combat_id,
+        encounter.round_number,
+        list(encounter.participants.keys()),
+        character_filter,
+    )
+    await event_dispatcher.emit(
+        "combat.round_waiting",
+        payload,
+        character_filter=character_filter,
+    )
+    await _auto_submit_garrisons(encounter)
+
+
+async def _auto_submit_garrisons(encounter) -> None:
+    manager = world.combat_manager
+    if not manager:
+        return
+    garrison_sources: List[dict] = []
+    if isinstance(encounter.context, dict):
+        ctx = encounter.context
+        sources = ctx.get("garrison_sources")
+        if isinstance(sources, list):
+            garrison_sources = [dict(item) for item in sources]
+        else:
+            single = ctx.get("garrison_source")
+            if isinstance(single, dict):
+                garrison_sources = [dict(single)]
+
+    for state in encounter.participants.values():
+        if state.combatant_type != "garrison":
+            continue
+        if state.fighters <= 0:
+            continue
+        source = next(
+            (entry for entry in garrison_sources if entry.get("owner_id") == state.owner_character_id),
+            {},
+        )
+        mode = source.get("mode", "offensive")
+        commit = _garrison_commit_for_mode(mode, state.fighters)
+        if commit <= 0:
+            continue
+        target_candidates = [
+            participant
+            for participant in encounter.participants.values()
+            if participant.combatant_type == "character"
+            and participant.combatant_id != state.combatant_id
+            and participant.fighters > 0
+            and participant.owner_character_id != state.owner_character_id
+        ]
+        if not target_candidates:
+            continue
+        target_candidates.sort(
+            key=lambda participant: (
+                participant.fighters,
+                participant.shields,
+                participant.combatant_id,
+            ),
+            reverse=True,
+        )
+        try:
+            await manager.submit_action(
+                combat_id=encounter.combat_id,
+                combatant_id=state.combatant_id,
+                action=CombatantAction.ATTACK,
+                commit=commit,
+                target_id=target_candidates[0].combatant_id,
+            )
+        except ValueError:
+            continue
+
+
+async def _combat_round_resolved(encounter, outcome) -> None:
+    logger.debug(
+        "_combat_round_resolved start: combat_id=%s round=%s end_state=%s",
+        encounter.combat_id,
+        outcome.round_number,
+        outcome.end_state,
+    )
+    payload = serialize_round(encounter, outcome, include_logs=True)
+    payload["combat_id"] = encounter.combat_id
+    payload["sector"] = encounter.sector_id
+    logger.info(
+        "round_resolved payload combat_id=%s round=%s result=%s end=%s",
+        encounter.combat_id,
+        payload.get("round"),
+        payload.get("result"),
+        payload.get("end"),
+    )
+    logger.info("payload dump %s", payload)
+    logger.debug(
+        "Emitting combat.round_resolved: combat_id=%s round=%s end_state=%s",
+        encounter.combat_id,
+        outcome.round_number,
+        outcome.end_state,
+    )
+    await event_dispatcher.emit(
+        "combat.round_resolved",
+        payload,
+        character_filter=_combat_character_filter(encounter),
+    )
+    logger.debug("combat.round_resolved emitted, syncing participants")
+
+    flee_followups: List[Dict[str, Any]] = []
+    if outcome.flee_results:
+        for pid, fled in outcome.flee_results.items():
+            if not fled:
+                continue
+            action = outcome.effective_actions.get(pid)
+            destination = getattr(action, "destination_sector", None) if action else None
+            if destination is None:
+                logger.warning(
+                    "Flee successful for %s but no destination recorded; skipping move.",
+                    pid,
+                )
+                continue
+            flee_followups.append(
+                {
+                    "character_id": pid,
+                    "destination": destination,
+                    "fighters": outcome.fighters_remaining.get(pid),
+                    "shields": outcome.shields_remaining.get(pid),
+                }
+            )
+
+    # Sync knowledge + push status updates
+    for state in encounter.participants.values():
+        owner_id = state.owner_character_id or state.combatant_id
+        if state.combatant_type != "character" or not owner_id:
+            continue
+        logger.debug(
+            "Updating knowledge for owner_id=%s fighters=%s shields=%s",
+            owner_id,
+            state.fighters,
+            state.shields,
+        )
+        world.knowledge_manager.set_fighters(owner_id, state.fighters, max_fighters=state.max_fighters)
+        world.knowledge_manager.set_shields(owner_id, state.shields, max_shields=state.max_shields)
+        character = world.characters.get(owner_id)
+        if character:
+            character.update_ship_state(
+                fighters=state.fighters,
+                shields=state.shields,
+                max_fighters=state.max_fighters,
+                max_shields=state.max_shields,
+            )
+        logger.debug("Emitting status update for owner_id=%s", owner_id)
+        await _emit_status_update(owner_id)
+
+    for entry in flee_followups:
+        character_id = entry["character_id"]
+        fighters = entry.get("fighters")
+        shields = entry.get("shields")
+        if fighters is not None:
+            world.knowledge_manager.set_fighters(character_id, fighters)
+        if shields is not None:
+            world.knowledge_manager.set_shields(character_id, shields)
+        character = world.characters.get(character_id)
+        if character:
+            character.update_ship_state(fighters=fighters, shields=shields)
+
+    for entry in flee_followups:
+        character_id = entry["character_id"]
+        destination = entry["destination"]
+        try:
+            await api_move.handle(
+                {
+                    "character_id": character_id,
+                    "to_sector": destination,
+                },
+                world,
+            )
+        except HTTPException as exc:  # pragma: no cover - defensive logging
+            logger.warning(
+                "Failed to move fleeing character %s to sector %s: %s",
+                character_id,
+                destination,
+                exc,
+            )
+    logger.debug("_combat_round_resolved complete")
+
+async def _combat_ended(encounter, outcome) -> None:
+    logger.debug(
+        "_combat_ended start: combat_id=%s round=%s result=%s",
+        encounter.combat_id,
+        outcome.round_number,
+        outcome.end_state,
+    )
+    salvage = await _finalize_combat(encounter, outcome)
+    payload = serialize_round(encounter, outcome, include_logs=True)
+    payload["combat_id"] = encounter.combat_id
+    payload["sector"] = encounter.sector_id
+    payload["result"] = outcome.end_state
+    if salvage:
+        payload["salvage"] = [container.to_dict() for container in salvage]
+    logger.debug(
+        "Emitting combat.ended: combat_id=%s round=%s result=%s",
+        encounter.combat_id,
+        outcome.round_number,
+        outcome.end_state,
+    )
+    logger.info(
+        "combat.ended payload %s",
+        payload,
+    )
+    await event_dispatcher.emit(
+        "combat.ended",
+        payload,
+        character_filter=_combat_character_filter(encounter),
+    )
+    logger.debug("_combat_ended complete: combat_id=%s", encounter.combat_id)
+
+
+
+async def _emit_status_update(character_id: str) -> None:
+    if character_id not in world.characters:
+        logger.debug("_emit_status_update skipped; character %s not connected", character_id)
+        return
+    logger.debug("_emit_status_update building status for %s", character_id)
+    payload = build_status_payload(world, character_id)
+    await event_dispatcher.emit(
+        "status.update",
+        payload,
+        character_filter=[character_id],
+    )
+    logger.debug("_emit_status_update sent for %s", character_id)
+
+
+def _resolve_participant_owner(encounter, participant_id: str) -> Optional[str]:
+    state = encounter.participants.get(participant_id)
+    if not state:
+        return None
+    return state.owner_character_id or (state.combatant_id if state.combatant_type == "character" else None)
+
+
+async def _finalize_combat(encounter, outcome):
+    salvages = []
+
+    fighters_remaining = outcome.fighters_remaining if outcome.fighters_remaining else {}
+    flee_results = outcome.flee_results if outcome.flee_results else {}
+
+    losers = [pid for pid, remaining in fighters_remaining.items() if remaining <= 0]
+    winners = [
+        pid
+        for pid, remaining in fighters_remaining.items()
+        if remaining > 0 and not flee_results.get(pid, False)
+    ]
+
+    winner_owner = None
+    for pid in winners:
+        owner = _resolve_participant_owner(encounter, pid)
+        if owner:
+            winner_owner = owner
+            break
+
+    # Reinsert garrisons or record their defeat
+    garrison_sources: List[dict] = []
+    if isinstance(encounter.context, dict):
+        ctx = encounter.context
+        sources = ctx.get("garrison_sources")
+        if isinstance(sources, list):
+            garrison_sources = [dict(item) for item in sources]
+        else:
+            single = ctx.get("garrison_source")
+            if isinstance(single, dict):
+                garrison_sources = [dict(single)]
+
+    garrison_lookup = {entry.get("owner_id"): entry for entry in garrison_sources if entry.get("owner_id")}
+    notified_owners: set[str] = set()
+
+    for pid, state in encounter.participants.items():
+        if state.combatant_type != "garrison":
+            continue
+        owner = state.owner_character_id
+        if owner and state.fighters > 0 and world.garrisons:
+            source_info = garrison_lookup.get(owner, {})
+            mode = source_info.get("mode", "offensive")
+            toll_amount = source_info.get("toll_amount", 0)
+            world.garrisons.deploy(
+                sector_id=encounter.sector_id,
+                owner_id=owner,
+                fighters=state.fighters,
+                mode=mode,
+                toll_amount=toll_amount,
+            )
+            await _emit_status_update(owner)
+            notified_owners.add(owner)
+
+    if garrison_sources and world.garrisons:
+        await event_dispatcher.emit(
+            "sector.garrison_updated",
+            {
+                "sector": encounter.sector_id,
+                "garrisons": world.garrisons.to_payload(encounter.sector_id),
+            },
+            character_filter=[source.get("owner_id") for source in garrison_sources if source.get("owner_id")],
+        )
+        for source in garrison_sources:
+            owner = source.get("owner_id")
+            if owner and owner not in notified_owners:
+                await _emit_status_update(owner)
+
+    # Handle defeated characters -> salvage + escape pod conversion
+    for loser_pid in losers:
+        state = encounter.participants.get(loser_pid)
+        if not state or state.combatant_type != "character":
+            continue
+        owner_id = state.owner_character_id or state.combatant_id
+        if not owner_id:
+            continue
+        knowledge = world.knowledge_manager.load_knowledge(owner_id)
+        ship_type = ShipType(knowledge.ship_config.ship_type)
+        if ship_type == ShipType.ESCAPE_POD:
+            continue
+        stats = get_ship_stats(ship_type)
+        cargo = {k: v for k, v in knowledge.ship_config.cargo.items() if v > 0}
+        credits = world.knowledge_manager.get_credits(owner_id)
+        scrap = max(5, stats.price // 1000)
+
+        if winner_owner and credits > 0:
+            winner_credits = world.knowledge_manager.get_credits(winner_owner)
+            world.knowledge_manager.update_credits(winner_owner, winner_credits + credits)
+        world.knowledge_manager.update_credits(owner_id, 0)
+
+        if world.salvage_manager and (cargo or scrap):
+            salvages.append(
+                world.salvage_manager.create(
+                    sector=encounter.sector_id,
+                    victor_id=winner_owner,
+                    cargo=cargo,
+                    scrap=scrap,
+                    credits=0,
+                    metadata={
+                        "loser": owner_id,
+                        "ship_type": ship_type.value,
+                        "combat_id": encounter.combat_id,
+                    },
+                )
+            )
+
+        world.knowledge_manager.initialize_ship(owner_id, ShipType.ESCAPE_POD)
+        await _emit_status_update(owner_id)
+        if winner_owner:
+            await _emit_status_update(winner_owner)
+
+    return salvages
 def _rpc_success(
     frame_id: str, endpoint: str, result: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -160,13 +561,20 @@ class Connection(EventSink):
         self.connection_id = str(uuid.uuid4())
         self.status_subscriptions: set[str] = set()
         self.known_character_ids: set[str] = set()
+        self.controlled_character_ids: set[str] = set()
         self.known_names: set[str] = set()
         self.chat_subscribed = False
         self._send_lock = asyncio.Lock()
 
     async def send_event(self, envelope: dict) -> None:
+        logger.debug(
+            "Connection %s sending event %s", self.connection_id, envelope.get("event")
+        )
         async with self._send_lock:
             await self.websocket.send_json(envelope)
+        logger.debug(
+            "Connection %s sent event %s", self.connection_id, envelope.get("event")
+        )
 
     def matches_characters(self, character_ids: Iterable[str]) -> bool:
         tracked = self.status_subscriptions | self.known_character_ids
@@ -182,9 +590,12 @@ class Connection(EventSink):
 
     def register_character(self, character_id: str | None, name: str | None) -> None:
         if character_id:
-            self.known_character_ids.add(str(character_id))
+            cid = str(character_id)
+            self.known_character_ids.add(cid)
+            self.status_subscriptions.add(cid)
         if name:
             self.known_names.add(str(name))
+        self.chat_subscribed = True
 
 
 async def _send_initial_status(connection: Connection, character_id: str) -> None:
@@ -394,6 +805,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     character_id = payload.get("character_id")
                     if character_id:
                         connection.register_character(character_id, result.get("name"))
+                        if endpoint == "join":
+                            connection.controlled_character_ids.add(str(character_id))
                 await websocket.send_json(_rpc_success(frame_id, endpoint, result))
             except HTTPException as exc:
                 await websocket.send_json(_rpc_error(frame_id, endpoint, exc))
@@ -403,6 +816,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected id=%s", connection.connection_id)
     finally:
+        for character_id in connection.controlled_character_ids:
+            character = world.characters.get(character_id)
+            if character:
+                character.connected = False
         await event_dispatcher.unregister(connection)
 
 

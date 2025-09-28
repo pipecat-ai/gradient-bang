@@ -15,7 +15,8 @@ from openai.types.chat import ChatCompletionToolParam
 def get_openai_tools_list(game_client, tools_classes) -> List[ChatCompletionToolParam]:
     adapter = OpenAILLMAdapter()
     ts = []
-    for tool_class in tools_classes:
+    for entry in tools_classes:
+        tool_class = entry[0] if isinstance(entry, (tuple, list)) else entry
         ts.append(tool_class.schema())
     return adapter.to_provider_tools_format(ToolsSchema(ts))
 
@@ -296,6 +297,68 @@ class TaskFinished(Tool):
                 }
             },
             required=["message"],
+        )
+
+
+class PlaceFighters(GameClientTool):
+    def __call__(self, **args):
+        return self.game_client.combat_leave_fighters(**args)
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="place_fighters",
+            description="Leave fighters behind in the current sector as a garrison.",
+            properties={
+                "sector": {
+                    "type": "integer",
+                    "description": "Sector ID where fighters will be stationed",
+                    "minimum": 0,
+                },
+                "quantity": {
+                    "type": "integer",
+                    "description": "Number of fighters to leave behind",
+                    "minimum": 1,
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["offensive", "defensive", "toll"],
+                    "description": "Behavior mode for stationed fighters",
+                    "default": "offensive",
+                },
+                "toll_amount": {
+                    "type": "integer",
+                    "description": "Credits required to pass when mode is toll",
+                    "minimum": 0,
+                    "default": 0,
+                },
+            },
+            required=["sector", "quantity"],
+        )
+
+
+class CollectFighters(GameClientTool):
+    def __call__(self, **args):
+        return self.game_client.combat_collect_fighters(**args)
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="collect_fighters",
+            description="Retrieve fighters previously stationed in the current sector.",
+            properties={
+                "sector": {
+                    "type": "integer",
+                    "description": "Sector ID to collect fighters from",
+                    "minimum": 0,
+                },
+                "quantity": {
+                    "type": "integer",
+                    "description": "Number of fighters to retrieve",
+                    "minimum": 1,
+                },
+            },
+            required=["sector", "quantity"],
         )
 
 
