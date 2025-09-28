@@ -13,6 +13,7 @@ import {
 import { nanoid } from "nanoid";
 import { useCallback, useState } from "react";
 import Markdown from "react-markdown";
+import useChatStore from "../stores/chat";
 
 const Sender = {
   AGENT: "Ship AI",
@@ -20,7 +21,7 @@ const Sender = {
   SYSTEM: "System",
 };
 
-type Sender = (typeof Sender)[keyof typeof Sender];
+type Sender = (typeof Sender)[keyof typeof Sender] | string;
 
 interface ConversationRowProps {
   id?: string;
@@ -58,7 +59,9 @@ const ConversationRow = ({
             ? "text-agent"
             : sender === Sender.CLIENT
             ? "text-client"
-            : "text-warning"
+            : sender === Sender.SYSTEM
+            ? "text-warning"
+            : "text-secondary"
         } font-extrabold text-[11px]`}
       >
         <span className="opacity-50">[{timestamp || "incoming"}]</span> {sender}
@@ -80,6 +83,7 @@ export const ConversationPanel = () => {
   const [bufferedAgentText, setBufferedAgentText] = useState<string[]>([]);
   const [bufferedClientText, setBufferedClientText] = useState<string>();
   const { isConnected } = usePipecatConnectionState();
+  const chatMessages = useChatStore((state) => state.messages);
   const addConversationItem = useCallback((sender: Sender, text: string) => {
     setConversation((prev) => [
       {
@@ -96,6 +100,27 @@ export const ConversationPanel = () => {
       },
       ...prev,
     ]);
+  }, []);
+
+  const formatTimestamp = useCallback((value?: string) => {
+    if (!value) {
+      return new Date().toLocaleTimeString("en-GB", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      });
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+    return date.toLocaleTimeString("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
   }, []);
 
   useRTVIClientEvent(RTVIEvent.BotTtsText, (event: BotLLMTextData) => {
@@ -148,6 +173,24 @@ export const ConversationPanel = () => {
             {conversation.map((row) => (
               <ConversationRow key={row.id} {...row} />
             ))}
+            {chatMessages
+              .slice()
+              .reverse()
+              .map((chat) => {
+                const prefix =
+                  chat.type === "direct" && chat.to_name
+                    ? `[Direct → ${chat.to_name}] `
+                    : "";
+                return (
+                  <ConversationRow
+                    key={`chat-${chat.id}`}
+                    sender={chat.from_name ?? "Unknown"}
+                    timestamp={formatTimestamp(chat.timestamp)}
+                    message={`${prefix}${chat.content}`}
+                    noMarkdown
+                  />
+                );
+              })}
           </div>
         </div>
       </CardContent>
