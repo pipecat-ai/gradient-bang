@@ -37,7 +37,14 @@ def shield_mitigation(state: CombatantState, action: CombatantAction) -> float:
 
 
 def flee_success_chance(attacker: CombatantState, defender: CombatantState) -> float:
-    base = 0.5 + 0.1 * (defender.turns_per_warp - attacker.turns_per_warp)
+    """Higher turns-per-warp should make fleeing easier.
+
+    We bias toward attackers (the fleeing party) with better warp agility and
+    penalise them when the opponent is faster. Values stay within [FLEE_MIN,
+    FLEE_MAX] so the escape hatch is never guaranteed.
+    """
+
+    base = 0.5 + 0.1 * (attacker.turns_per_warp - defender.turns_per_warp)
     return clamp(base, FLEE_MIN, FLEE_MAX)
 
 

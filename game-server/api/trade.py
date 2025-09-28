@@ -1,5 +1,5 @@
 from fastapi import HTTPException
-from .utils import log_trade
+from .utils import log_trade, ensure_not_in_combat
 
 
 async def handle(request: dict, world) -> dict:
@@ -12,6 +12,8 @@ async def handle(request: dict, world) -> dict:
         raise HTTPException(status_code=400, detail="Missing required parameters")
     if character_id not in world.characters:
         raise HTTPException(status_code=404, detail="Character not found")
+
+    await ensure_not_in_combat(world, character_id)
 
     character = world.characters[character_id]
     knowledge = world.knowledge_manager.load_knowledge(character_id)

@@ -258,18 +258,6 @@ class CombatInteractiveTUI(App):
                 f"Joined as {self.character}; sector {status.get('sector')}"
             )
 
-            await self._append_log(
-                "Ensuring position at target sector via ensure_position..."
-            )
-            status = await ensure_position(
-                self.client,
-                status,
-                target_sector=self.target_sector,
-                logger=self._ensure_logger,
-            )
-            await self._append_log(f"ensure_position returned: {status!r}")
-            await self._append_log(f"Positioned in sector {status.get('sector')}")
-
             self.session = CombatSession(
                 self.client,
                 character_id=self.character,
@@ -281,6 +269,19 @@ class CombatInteractiveTUI(App):
             await self._append_log("CombatSession started; spawning monitor task")
             self.monitor_task = asyncio.create_task(self._monitor_events())
             await self._update_prompt("Waiting for opponents", "")
+
+            await self._append_log(
+                "Ensuring position at target sector via ensure_position..."
+            )
+            status = await ensure_position(
+                self.client,
+                status,
+                target_sector=self.target_sector,
+                logger=self._ensure_logger,
+            )
+            await self._append_log(f"ensure_position returned: {status!r}")
+            await self._append_log(f"Positioned in sector {status.get('sector')}")
+            self._sync_status_bar_from_status(status)
         except Exception as exc:  # noqa: BLE001
             await self._append_log(
                 f"Initialization failed: {exc!r} ({type(exc).__name__})"
@@ -742,7 +743,7 @@ class CombatInteractiveTUI(App):
                 to_sector = destination
 
         try:
-            await self.client.combat_action(
+            result = await self.client.combat_action(
                 combat_id=state.combat_id,
                 action=action,
                 commit=commit,
@@ -761,6 +762,7 @@ class CombatInteractiveTUI(App):
                 )
             )
             await self._update_prompt("Waiting for round resolution", "")
+            await self._handle_action_outcome(result)
         except RPCError as exc:
             await self._append_log(f"combat.action failed: {exc}")
 
@@ -936,6 +938,26 @@ class CombatInteractiveTUI(App):
             self.pending_input.set_result(value)
         else:
             asyncio.create_task(self._append_log(f"(ignored input) {value}"))
+
+    async def _handle_action_outcome(self, response: Mapping[str, Any]) -> None:
+        if not isinstance(response, Mapping):
+            return
+        session = self.session
+        if session is None:
+            return
+
+        outcome = response.get("outcome")
+        if not isinstance(outcome, Mapping):
+            return
+
+        ended = bool(response.get("ended")) or bool(
+            outcome.get("end") or outcome.get("result")
+        )
+
+        try:
+            await session.apply_outcome_payload(dict(outcome), ended=ended)
+        except Exception as exc:  # noqa: BLE001
+            await self._append_log(f"Failed to process action outcome: {exc}")
 
     async def on_key(self, event: events.Key) -> None:
         if (

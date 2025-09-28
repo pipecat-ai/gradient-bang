@@ -110,6 +110,7 @@ class CombatSession:
         self._sector_state: Dict[str, Any] = {}
         self._ship_status: Optional[Dict[str, Any]] = None
         self._last_status: Optional[Dict[str, Any]] = None
+        self._last_injected_payloads: set[Tuple[str, int, str]] = set()
 
         if initial_status:
             self._apply_status(initial_status)
@@ -211,6 +212,36 @@ class CombatSession:
             actions.append("attack")
         actions.extend(["brace", "flee"])
         return actions
+
+    async def apply_outcome_payload(
+        self,
+        payload: Dict[str, Any],
+        *,
+        ended: Optional[bool] = None,
+    ) -> None:
+        if not payload or self._combat_state is None:
+            return
+
+        combat_id = str(payload.get("combat_id"))
+        if combat_id != self._combat_state.combat_id:
+            return
+
+        round_number = int(payload.get("round", self._combat_state.round))
+        outcome_type = (
+            "combat.ended"
+            if ended or payload.get("end") or payload.get("result")
+            else "combat.round_resolved"
+        )
+        token = (combat_id, round_number, outcome_type)
+        if token in self._last_injected_payloads:
+            return
+
+        self._last_injected_payloads.add(token)
+
+        if outcome_type == "combat.ended":
+            await self._on_combat_ended(payload)
+        else:
+            await self._on_combat_round_resolved(payload)
 
     # ------------------------------------------------------------------
     # Awaitables
@@ -322,6 +353,7 @@ class CombatSession:
             self._sector_state["garrisons"] = deepcopy(payload.get("garrisons") or [])
 
         async with self._occupant_condition:
+            self._occupant_version += 1
             self._occupant_condition.notify_all()
 
     async def _on_character_moved(self, payload: Dict[str, Any]) -> None:
@@ -343,6 +375,20 @@ class CombatSession:
             to_sector,
             moving_character,
         )
+        changed = False
+        key = str(moving_character)
+        async with self._status_lock:
+            if from_sector == current_sector:
+                if self._other_players.pop(key, None) is not None:
+                    changed = True
+            if to_sector == current_sector:
+                # placeholder entry until refresh fills details
+                self._other_players.setdefault(key, {"name": key})
+                changed = True
+        if changed:
+            async with self._occupant_condition:
+                self._occupant_version += 1
+                self._occupant_condition.notify_all()
         await self._refresh_status()
 
     async def _handle_combat_event(
@@ -471,6 +517,7 @@ class CombatSession:
         self._combat_state = state
         self._player_combatant_id = self._resolve_player_combatant_id(participants)
         self._combat_active = True
+        self._last_injected_payloads.clear()
 
         async with self._combat_condition:
             self._combat_condition.notify_all()

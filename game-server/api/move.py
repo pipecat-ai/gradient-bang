@@ -3,7 +3,7 @@ from typing import Tuple, TYPE_CHECKING
 
 from fastapi import HTTPException
 
-from .utils import sector_contents, build_status_payload
+from .utils import sector_contents, build_status_payload, ensure_not_in_combat
 from ships import ShipType, get_ship_stats, ShipStats
 from events import event_dispatcher
 from combat.utils import build_character_combatant
@@ -64,6 +64,8 @@ async def handle(request: dict, world) -> dict:
     character_id = request.get("character_id")
     if not character_id:
         raise HTTPException(status_code=400, detail="Missing character_id")
+
+    await ensure_not_in_combat(world, character_id)
 
     to_sector = parse_move_destination(request)
 

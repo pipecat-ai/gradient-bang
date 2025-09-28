@@ -1,0 +1,45 @@
+from __future__ import annotations
+
+from fastapi import HTTPException
+
+
+async def handle(request: dict, world) -> dict:
+    character_id = request.get("character_id")
+    salvage_id = request.get("salvage_id")
+
+    if not character_id or not salvage_id:
+        raise HTTPException(status_code=400, detail="Missing character_id or salvage_id")
+
+    if world.salvage_manager is None:
+        raise HTTPException(status_code=503, detail="Salvage system unavailable")
+
+    container = world.salvage_manager.claim(salvage_id, character_id)
+    if not container:
+        raise HTTPException(status_code=404, detail="Salvage not available")
+
+    knowledge = world.knowledge_manager.load_knowledge(character_id)
+    cargo = knowledge.ship_config.cargo.copy()
+
+    for commodity, amount in container.cargo.items():
+        if amount <= 0:
+            continue
+        if commodity in cargo:
+            world.knowledge_manager.update_cargo(character_id, commodity, amount)
+        else:
+            # Treat unknown salvage as equipment scrap
+            world.knowledge_manager.update_cargo(character_id, "equipment", amount)
+
+    if container.scrap:
+        world.knowledge_manager.update_cargo(character_id, "equipment", container.scrap)
+
+    if container.credits:
+        existing = world.knowledge_manager.get_credits(character_id)
+        world.knowledge_manager.update_credits(character_id, existing + container.credits)
+
+    world.salvage_manager.remove(salvage_id)
+
+    return {
+        "salvage": container.to_dict(),
+        "cargo": world.knowledge_manager.load_knowledge(character_id).ship_config.cargo,
+        "credits": world.knowledge_manager.get_credits(character_id),
+    }

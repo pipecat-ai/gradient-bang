@@ -4,8 +4,26 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+from fastapi import HTTPException
+
 from ships import ShipType, get_ship_stats
 from trading import get_port_prices, get_port_stock
+
+
+COMBAT_ACTION_REQUIRED = (
+    "Cannot perform this action during combat. Submit attack/brace/flee instead."
+)
+
+
+async def ensure_not_in_combat(world, character_id: str) -> None:
+    """Raise if the character is currently participating in active combat."""
+
+    manager = getattr(world, "combat_manager", None)
+    if manager is None:
+        return
+    encounter = await manager.find_encounter_for(character_id)
+    if encounter and not encounter.ended:
+        raise HTTPException(status_code=409, detail=COMBAT_ACTION_REQUIRED)
 
 
 def log_trade(
