@@ -1,0 +1,2004 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Universe Navigation Map</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background: #0a0a0a;
+        color: #fff;
+        overflow: hidden;
+      }
+
+      canvas {
+        display: block;
+      }
+
+      .controls {
+        position: fixed;
+        top: 20px;
+        left: 20px;
+        background: rgba(20, 20, 30, 0.95);
+        padding: 20px;
+        border-radius: 8px;
+        border: 1px solid rgba(100, 100, 150, 0.3);
+        z-index: 100;
+        min-width: 280px;
+      }
+
+      .controls h3 {
+        margin: 0 0 15px 0;
+        color: #4a90e2;
+        font-size: 16px;
+      }
+
+      .control-group {
+        margin-bottom: 15px;
+      }
+
+      .control-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        font-size: 13px;
+      }
+
+      .control-label {
+        color: #888;
+      }
+
+      .control-value {
+        color: #fff;
+        font-weight: 500;
+      }
+
+      button {
+        padding: 8px 16px;
+        margin: 5px 5px 5px 0;
+        background: rgba(74, 144, 226, 0.2);
+        border: 1px solid #4a90e2;
+        color: #4a90e2;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+      }
+
+      button:hover {
+        background: rgba(74, 144, 226, 0.3);
+      }
+
+      .file-inputs {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: rgba(20, 20, 30, 0.95);
+        padding: 15px;
+        border-radius: 8px;
+        border: 1px solid rgba(100, 100, 150, 0.3);
+        z-index: 100;
+      }
+
+      .file-inputs h3 {
+        margin: 0 0 10px 0;
+        color: #4a90e2;
+        font-size: 14px;
+      }
+
+      input[type="file"] {
+        display: block;
+        margin-bottom: 10px;
+        font-size: 12px;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        padding: 5px;
+        border-radius: 4px;
+        color: white;
+        width: 250px;
+      }
+
+      input[type="range"] {
+        vertical-align: middle;
+        width: 100px;
+      }
+
+      .legend {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: rgba(20, 20, 30, 0.95);
+        padding: 15px;
+        border-radius: 8px;
+        border: 1px solid rgba(100, 100, 150, 0.3);
+        z-index: 100;
+        font-size: 12px;
+      }
+
+      .legend h3 {
+        margin: 0 0 10px 0;
+        color: #4a90e2;
+        font-size: 14px;
+      }
+
+      .legend-item {
+        display: flex;
+        align-items: center;
+        margin-bottom: 6px;
+      }
+
+      .legend-color {
+        width: 20px;
+        height: 12px;
+        margin-right: 8px;
+        border-radius: 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+
+    <div class="controls">
+      <h3>Navigation Controls</h3>
+
+      <div class="control-group">
+        <div class="control-row">
+          <span class="control-label">View Mode:</span>
+          <span class="control-value" id="viewMode">Galaxy</span>
+        </div>
+        <div class="control-row">
+          <span class="control-label">Zoom Level:</span>
+          <span class="control-value" id="zoomLevel">1.00</span>
+        </div>
+        <div class="control-row">
+          <span class="control-label">Sectors Visible:</span>
+          <span class="control-value" id="sectorsVisible">0</span>
+        </div>
+        <div class="control-row">
+          <span class="control-label">Current Region:</span>
+          <span class="control-value" id="currentRegion">Unknown</span>
+        </div>
+        <div class="control-row">
+          <span class="control-label">Center Sector:</span>
+          <span class="control-value" id="centerSector">—</span>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <div class="control-row">
+          <span class="control-label">Selected Sector:</span>
+          <span class="control-value" id="selectedSector">None</span>
+        </div>
+        <div class="control-row">
+          <span class="control-label">Reachable Sectors:</span>
+          <span class="control-value" id="reachableSectors">0</span>
+        </div>
+        <div class="control-row">
+          <span class="control-label">Selected Info:</span>
+          <span class="control-value" id="selectedInfo">—</span>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label style="color: #888; font-size: 12px">
+          Navigation Range:
+          <input type="range" id="navRange" min="1" max="8" value="3" />
+          <span id="navRangeValue" style="color: #fff">3</span> jumps
+        </label>
+      </div>
+
+      <div class="control-group">
+        <label style="color: #888; font-size: 12px">
+          Grid Gap:
+          <input type="range" id="gridGap" min="75" max="98" value="90" />
+          <span id="gridGapValue" style="color: #fff">0.90</span> factor
+        </label>
+      </div>
+
+      <div class="control-group">
+        <button onclick="UniverseMap.resetView()">Reset View</button>
+        <button onclick="UniverseMap.clearSelection()">Clear Selection</button>
+        <button onclick="UniverseMap.toggleLanes()">Toggle Lanes</button>
+        <button onclick="UniverseMap.toggleHyperlanes()">
+          Toggle Hyperlanes
+        </button>
+        <button onclick="UniverseMap.toggleGrid()">Toggle Grid</button>
+      </div>
+    </div>
+
+    <div class="file-inputs">
+      <h3>Load Universe Data</h3>
+      <input
+        type="file"
+        id="structureFile"
+        accept=".json"
+        placeholder="Universe Structure"
+      />
+      <input
+        type="file"
+        id="contentsFile"
+        accept=".json"
+        placeholder="Sector Contents"
+      />
+    </div>
+
+    <div class="legend">
+      <h3>Map Legend</h3>
+      <div class="legend-item">
+        <div class="legend-color" style="background: #00ff00"></div>
+        <span>Visited Sector</span>
+      </div>
+      <div class="legend-item">
+        <div
+          class="legend-color"
+          style="background: none; border: 1px solid #666"
+        ></div>
+        <span>Unvisited Sector</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background: #4a90e2"></div>
+        <span>Trading Port</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background: #ffd700"></div>
+        <span>Mega Port</span>
+      </div>
+      <div class="legend-item">
+        <div
+          class="legend-color"
+          style="background: none; border: 2px solid #ff0000"
+        ></div>
+        <span>Selected</span>
+      </div>
+      <div class="legend-item">
+        <div
+          class="legend-color"
+          style="background: rgba(100, 200, 100, 0.5); height: 2px"
+        ></div>
+        <span>Two-way Lane</span>
+      </div>
+      <div class="legend-item">
+        <div
+          class="legend-color"
+          style="background: rgba(200, 100, 100, 0.5); height: 2px"
+        ></div>
+        <span>One-way Lane</span>
+      </div>
+      <div class="legend-item">
+        <div
+          class="legend-color"
+          style="
+            background: linear-gradient(
+              90deg,
+              transparent,
+              #b19cd9,
+              transparent
+            );
+            height: 3px;
+          "
+        ></div>
+        <span>Hyperlane</span>
+      </div>
+    </div>
+
+    <script>
+      /**
+       * Configuration object for all visual settings
+       */
+      const CONFIG = {
+        // Display settings
+        display: {
+          hexSize: 30, // Display size of hexagons
+          maxSectorsRender: 500, // Maximum sectors to render at once
+          dataHexSize: 1, // Data coordinate hex size (always 1)
+          hexGapFactor: 0.9, // 0.75..0.98 visual radius factor (controls gap between hexes)
+        },
+
+        // View transitions
+        view: {
+          galaxyZoomThreshold: 0.3, // Below this zoom, show galaxy view
+          sectorZoomThreshold: 0.4, // Above this zoom, show sector view
+          zoomSpeed: 1.1, // Zoom multiplier per wheel event
+          minZoom: 0.1,
+          maxZoom: 5,
+        },
+
+        // Colors and styling
+        colors: {
+          background: "#0a0a0a",
+
+          // Sectors
+          visitedSector: {
+            fill: "rgba(0, 255, 0, 0.3)",
+            stroke: "#00ff00",
+          },
+          unvisitedSector: {
+            fill: "transparent",
+            stroke: "#666666",
+          },
+          selectedSector: "#ff0000",
+          dimmedAlpha: 0.2,
+
+          // Ports
+          tradingPort: "#4a90e2",
+          megaPort: "#ffd700",
+
+          // Lanes
+          twoWayLane: {
+            base: "rgba(100, 200, 100, ",
+            highlighted: "rgba(100, 200, 100, ",
+          },
+          oneWayLane: {
+            base: "rgba(200, 100, 100, ",
+            highlighted: "rgba(200, 100, 100, ",
+          },
+
+          // Hyperlanes
+          hyperlane: {
+            outer: "rgba(150, 100, 255, ",
+            middle: "rgba(180, 140, 255, ",
+            core: "rgba(220, 180, 255, ",
+            portal: "rgba(200, 150, 255, ",
+            text: "rgba(200, 150, 255, ",
+          },
+
+          // UI
+          text: {
+            primary: "#ffffff",
+            secondary: "#888888",
+            label: "#dddddd",
+          },
+
+          // Regions
+          regionLabel: {
+            title: "#ffffff",
+            count: "#dddddd",
+            shadow: "rgba(0, 0, 0, 0.8)",
+          },
+        },
+
+        // Background hex grid styling
+        grid: {
+          enabled: true,
+          color: "#5a5a5a",
+          alpha: 0.4,
+          lineWidth: 1,
+          maxCells: 20000,
+        },
+
+        // Regions (palette)
+        region: {
+          palette: [
+            "#5B8FF9",
+            "#61DDAA",
+            "#65789B",
+            "#F6BD16",
+            "#7262fd",
+            "#78D3F8",
+            "#9661BC",
+            "#F6903D",
+            "#1E9493",
+            "#F08BB4",
+            "#6DC8EC",
+            "#9270CA",
+            "#FF9D4D",
+            "#D9D9D9",
+            "#269A99",
+          ],
+        },
+
+        // Region boundaries removed; using regionFill only
+
+        // Fonts
+        fonts: {
+          sectorId: "10px monospace",
+          regionTitle: "bold 18px sans-serif",
+          regionCount: "14px sans-serif",
+          hyperlaneDistance: "11px monospace",
+        },
+
+        // Animation and effects
+        effects: {
+          laneAlpha: {
+            base: 0.3,
+            highlighted: 0.8,
+            dimmed: 0.1,
+            fadePerDistance: 0.1,
+          },
+          hyperlane: {
+            glowSizes: [12, 6, 2], // Outer, middle, core line widths
+            dashPattern: [15, 8],
+            portalRadius: {
+              outer: 10,
+              inner: 6,
+              center: 2,
+            },
+          },
+        },
+
+        // Region fill in sector view
+        regionFill: {
+          enabled: true,
+          alpha: 0.1, // opacity of region fill
+          bufferHexes: 1, // expand region mask by N hex rings
+        },
+
+        // Navigation
+        navigation: {
+          defaultRange: 3,
+          maxRange: 8,
+          minRange: 1,
+        },
+      };
+
+      /**
+       * Main Universe Map application
+       * Handles rendering and interaction for a hex-based universe map
+       */
+      class UniverseMapApp {
+        constructor() {
+          // Canvas and context
+          this.canvas = null;
+          this.ctx = null;
+
+          // Data storage
+          this.universeData = null;
+          this.sectorData = null;
+
+          // Camera state
+          this.camera = {
+            x: 0,
+            y: 0,
+            zoom: 1,
+          };
+
+          // View state
+          this.viewMode = "galaxy";
+          this.showLanes = true;
+          this.showHyperlanes = true;
+          this.showGrid = CONFIG.grid.enabled;
+
+          // Selection state
+          this.selectedSector = null;
+          this.navigationRange = CONFIG.navigation.defaultRange;
+          this.reachableMap = new Map(); // sector id -> distance
+
+          // Regions cache
+          this.regions = {};
+          this.regionColors = {};
+          this.regionHexSets = {}; // regionId -> Set of "q,r"
+          // boundary data removed
+
+          // Interaction state
+          this.isDragging = false;
+          this.dragStart = { x: 0, y: 0 };
+          this.cameraStart = { x: 0, y: 0 };
+
+          // Simulation
+          this.visitedSectors = new Set();
+
+          // Calculated scale
+          this.scale = CONFIG.display.hexSize / CONFIG.display.dataHexSize;
+        }
+
+        // ==================== Initialization ====================
+
+        /**
+         * Initialize the application
+         */
+        init() {
+          this.setupCanvas();
+          this.setupEventListeners();
+          this.startRenderLoop();
+          this.lastHudUpdate = 0;
+        }
+
+        /**
+         * Setup canvas and handle resizing
+         */
+        setupCanvas() {
+          this.canvas = document.getElementById("canvas");
+          this.ctx = this.canvas.getContext("2d");
+          this.resizeCanvas();
+          window.addEventListener("resize", () => this.resizeCanvas());
+        }
+
+        /**
+         * Resize canvas to window dimensions
+         */
+        resizeCanvas() {
+          this.canvas.width = window.innerWidth;
+          this.canvas.height = window.innerHeight;
+        }
+
+        /**
+         * Setup all event listeners (file inputs, mouse, sliders)
+         */
+        setupEventListeners() {
+          // File inputs
+          document
+            .getElementById("structureFile")
+            .addEventListener("change", (e) => this.loadStructure(e));
+          document
+            .getElementById("contentsFile")
+            .addEventListener("change", (e) => this.loadContents(e));
+
+          // Mouse events
+          this.canvas.addEventListener("mousedown", (e) => this.onMouseDown(e));
+          this.canvas.addEventListener("mousemove", (e) => this.onMouseMove(e));
+          this.canvas.addEventListener("mouseup", (e) => this.onMouseUp(e));
+          this.canvas.addEventListener("wheel", (e) => this.onWheel(e));
+
+          // Navigation range slider
+          document.getElementById("navRange").addEventListener("input", (e) => {
+            this.navigationRange = parseInt(e.target.value);
+            document.getElementById("navRangeValue").textContent =
+              e.target.value;
+            if (this.selectedSector) {
+              this.calculateReachableSectors();
+            }
+          });
+
+          // Grid gap slider (controls visual hex radius factor)
+          const gapInput = document.getElementById("gridGap");
+          if (gapInput) {
+            gapInput.addEventListener("input", (e) => {
+              const val = parseInt(e.target.value) / 100;
+              document.getElementById("gridGapValue").textContent =
+                val.toFixed(2);
+            });
+            gapInput.addEventListener("change", (e) => {
+              const val = parseInt(e.target.value) / 100;
+              this.updateGridGap(val);
+            });
+          }
+        }
+
+        // ==================== Data Loading ====================
+
+        /**
+         * Load universe structure file
+         */
+        loadStructure(event) {
+          const file = event.target.files[0];
+          if (!file) return;
+
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            try {
+              this.universeData = JSON.parse(e.target.result);
+              if (this.sectorData) this.initializeUniverse();
+            } catch (err) {
+              console.error("Failed to load structure:", err);
+            }
+          };
+          reader.readAsText(file);
+        }
+
+        /**
+         * Load sector contents file
+         */
+        loadContents(event) {
+          const file = event.target.files[0];
+          if (!file) return;
+
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            try {
+              this.sectorData = JSON.parse(e.target.result);
+              if (this.universeData) this.initializeUniverse();
+            } catch (err) {
+              console.error("Failed to load contents:", err);
+            }
+          };
+          reader.readAsText(file);
+        }
+
+        /**
+         * Initialize universe after both data files are loaded
+         */
+        initializeUniverse() {
+          this.processRegions();
+          this.buildSectorIndex();
+          this.buildRegionHexMasks();
+          this.resetView();
+        }
+
+        // ==================== Region Processing ====================
+
+        /**
+         * Process regions (bounds, hull, label center) and build region index
+         */
+        processRegions() {
+          this.regions = {};
+          this.sectorIndex = new Map(); // key: `${x},${y}` → sector
+
+          // Group sectors by region
+          const byRegion = this.groupSectorsByRegion();
+
+          // Process each region
+          Object.entries(byRegion).forEach(([regionId, sectors]) => {
+            const points = sectors.map((s) =>
+              this.hexToWorld(s.position.x, s.position.y)
+            );
+
+            const bounds = this.calculateBounds(points);
+            const hull = this.convexHull(points);
+            const centroid =
+              hull && hull.length >= 3
+                ? this.polygonCentroid(hull)
+                : {
+                    x: (bounds.minX + bounds.maxX) / 2,
+                    y: (bounds.minY + bounds.maxY) / 2,
+                  };
+
+            this.regions[regionId] = {
+              bounds,
+              center: {
+                x: (bounds.minX + bounds.maxX) / 2,
+                y: (bounds.minY + bounds.maxY) / 2,
+              },
+              hull,
+              labelCenter: centroid,
+            };
+          });
+        }
+
+        /**
+         * Group sectors by their region ID
+         */
+        groupSectorsByRegion() {
+          const byRegion = {};
+
+          this.universeData.sectors.forEach((sector) => {
+            if (sector.region !== undefined && sector.position) {
+              if (!byRegion[sector.region]) {
+                byRegion[sector.region] = [];
+              }
+              byRegion[sector.region].push(sector);
+            }
+          });
+
+          return byRegion;
+        }
+
+        /**
+         * Calculate bounding box for points
+         */
+        calculateBounds(points) {
+          let minX = Infinity,
+            minY = Infinity;
+          let maxX = -Infinity,
+            maxY = -Infinity;
+
+          points.forEach((p) => {
+            minX = Math.min(minX, p.x);
+            minY = Math.min(minY, p.y);
+            maxX = Math.max(maxX, p.x);
+            maxY = Math.max(maxY, p.y);
+          });
+
+          return { minX, minY, maxX, maxY };
+        }
+
+        /**
+         * Calculate convex hull of points using Graham scan
+         */
+        convexHull(points) {
+          if (points.length < 3) return points;
+
+          points.sort((a, b) => a.x - b.x || a.y - b.y);
+
+          const cross = (o, a, b) =>
+            (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+
+          // Build lower hull
+          const lower = [];
+          for (const p of points) {
+            while (
+              lower.length >= 2 &&
+              cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0
+            ) {
+              lower.pop();
+            }
+            lower.push(p);
+          }
+
+          // Build upper hull
+          const upper = [];
+          for (let i = points.length - 1; i >= 0; i--) {
+            const p = points[i];
+            while (
+              upper.length >= 2 &&
+              cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0
+            ) {
+              upper.pop();
+            }
+            upper.push(p);
+          }
+
+          upper.pop();
+          lower.pop();
+          return lower.concat(upper);
+        }
+
+        // ==================== Coordinate Transformations ====================
+
+        /**
+         * Convert hex grid coordinates to world pixels
+         */
+        hexToWorld(hexX, hexY) {
+          const x = this.scale * 1.5 * hexX;
+          const y = this.scale * Math.sqrt(3) * (hexY + 0.5 * (hexX & 1));
+          return { x, y };
+        }
+
+        /**
+         * Convert screen pixels to world coordinates
+         */
+        screenToWorld(screenX, screenY) {
+          return {
+            x: (screenX - this.camera.x) / this.camera.zoom,
+            y: (screenY - this.camera.y) / this.camera.zoom,
+          };
+        }
+
+        /**
+         * Convert world coordinates to screen pixels
+         */
+        worldToScreen(worldX, worldY) {
+          return {
+            x: worldX * this.camera.zoom + this.camera.x,
+            y: worldY * this.camera.zoom + this.camera.y,
+          };
+        }
+
+        /**
+         * Get current view bounds in world coordinates
+         */
+        getViewBounds() {
+          return {
+            left: -this.camera.x / this.camera.zoom,
+            top: -this.camera.y / this.camera.zoom,
+            right: (this.canvas.width - this.camera.x) / this.camera.zoom,
+            bottom: (this.canvas.height - this.camera.y) / this.camera.zoom,
+          };
+        }
+
+        // ==================== Navigation Calculation ====================
+
+        /**
+         * Calculate all sectors reachable within navigation range (BFS over warps)
+         */
+        calculateReachableSectors() {
+          this.reachableMap.clear();
+          if (!this.selectedSector) return;
+
+          // BFS to find all reachable sectors
+          const queue = [{ id: this.selectedSector.id, distance: 0 }];
+          const visited = new Set([this.selectedSector.id]);
+          this.reachableMap.set(this.selectedSector.id, 0);
+
+          while (queue.length > 0) {
+            const { id, distance } = queue.shift();
+
+            if (distance >= this.navigationRange) continue;
+
+            const sector = this.universeData.sectors.find((s) => s.id === id);
+            if (!sector) continue;
+
+            // Process outgoing warps
+            if (sector.warps) {
+              sector.warps.forEach((warp) => {
+                if (!visited.has(warp.to)) {
+                  visited.add(warp.to);
+                  this.reachableMap.set(warp.to, distance + 1);
+                  queue.push({ id: warp.to, distance: distance + 1 });
+                }
+              });
+            }
+          }
+
+          document.getElementById("reachableSectors").textContent =
+            this.reachableMap.size;
+        }
+
+        // ==================== Rendering ====================
+
+        /**
+         * Start the render loop
+         */
+        startRenderLoop() {
+          const render = () => {
+            this.render();
+            requestAnimationFrame(render);
+          };
+          render();
+        }
+
+        /**
+         * Main render function
+         */
+        render() {
+          this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+          if (!this.universeData || !this.sectorData) {
+            this.renderLoadingMessage();
+            return;
+          }
+
+          // Apply camera transform
+          this.ctx.save();
+          this.ctx.translate(this.camera.x, this.camera.y);
+          this.ctx.scale(this.camera.zoom, this.camera.zoom);
+
+          if (this.viewMode === "galaxy") {
+            this.renderGalaxyView();
+            // In galaxy view, do not render sector elements at all
+          } else {
+            this.renderSectorView();
+          }
+
+          this.ctx.restore();
+
+          // Render fixed-size elements
+          if (this.viewMode === "galaxy") {
+            this.renderRegionLabels();
+          }
+
+          this.updateHUD();
+        }
+
+        /**
+         * Render loading message
+         */
+        renderLoadingMessage() {
+          this.ctx.fillStyle = CONFIG.colors.text.secondary;
+          this.ctx.font = "16px sans-serif";
+          this.ctx.textAlign = "center";
+          this.ctx.fillText(
+            "Load both JSON files to begin",
+            this.canvas.width / 2,
+            this.canvas.height / 2
+          );
+        }
+
+        /**
+         * Render galaxy view with region hulls
+         */
+        renderGalaxyView() {
+          Object.entries(this.regions).forEach(([regionId, region]) => {
+            const polygon = region.hull;
+            if (!polygon || polygon.length < 3) return;
+
+            const color = this.getRegionColor(parseInt(regionId, 10));
+            this.ctx.fillStyle = this.applyAlpha(color, 0.25);
+            this.ctx.strokeStyle = color;
+            this.ctx.lineWidth = 2;
+
+            this.ctx.beginPath();
+            this.ctx.moveTo(polygon[0].x, polygon[0].y);
+            for (let i = 1; i < polygon.length; i++) {
+              this.ctx.lineTo(polygon[i].x, polygon[i].y);
+            }
+            this.ctx.closePath();
+            this.ctx.fill();
+            this.ctx.stroke();
+          });
+        }
+
+        /**
+         * Render region labels (fixed size)
+         */
+        renderRegionLabels() {
+          Object.entries(this.regions).forEach(([regionId, region]) => {
+            const meta =
+              this.universeData.meta && this.universeData.meta.regions
+                ? this.universeData.meta.regions[regionId]
+                : null;
+            const label = meta && meta.name ? meta.name : `Region ${regionId}`;
+            const labelCenter = region.labelCenter || region.center;
+            const screen = this.worldToScreen(labelCenter.x, labelCenter.y);
+
+            this.ctx.save();
+
+            // Title
+            this.ctx.fillStyle = CONFIG.colors.regionLabel.title;
+            this.ctx.font = CONFIG.fonts.regionTitle;
+            this.ctx.textAlign = "center";
+            this.ctx.shadowColor = CONFIG.colors.regionLabel.shadow;
+            this.ctx.shadowBlur = 4;
+            this.ctx.fillText(label, screen.x, screen.y);
+
+            // Sector count
+            this.ctx.font = CONFIG.fonts.regionCount;
+            this.ctx.fillStyle = CONFIG.colors.regionLabel.count;
+            const count = this.universeData.sectors.filter(
+              (s) => s.region == regionId
+            ).length;
+            this.ctx.fillText(`${count} sectors`, screen.x, screen.y + 20);
+
+            this.ctx.restore();
+          });
+        }
+
+        /**
+         * Render sector view with hexagons, lanes, and region fill
+         */
+        renderSectorView() {
+          const bounds = this.getViewBounds();
+          let rendered = 0;
+
+          // Render background grid first
+          if (this.showGrid) {
+            this.renderHexGrid(bounds);
+          }
+
+          // Render region fill (active region)
+          if (CONFIG.regionFill.enabled) {
+            this.renderRegionFill(bounds);
+          }
+
+          // Render lanes first (behind sectors)
+          if (this.showLanes) {
+            this.renderAllLanes(bounds);
+          }
+
+          // Render sectors
+          this.universeData.sectors.forEach((sector) => {
+            if (!sector.position) return;
+
+            const world = this.hexToWorld(sector.position.x, sector.position.y);
+
+            // Frustum culling
+            if (
+              world.x < bounds.left - 50 ||
+              world.x > bounds.right + 50 ||
+              world.y < bounds.top - 50 ||
+              world.y > bounds.bottom + 50
+            )
+              return;
+
+            if (rendered++ > CONFIG.display.maxSectorsRender) return;
+
+            this.renderSector(sector, world);
+          });
+
+          document.getElementById("sectorsVisible").textContent = rendered;
+        }
+
+        /**
+         * Render all warp lanes visible in bounds
+         */
+        renderAllLanes(bounds) {
+          const regularLanes = [];
+          const hyperLanes = [];
+
+          // Collect and categorize lanes
+          this.universeData.sectors.forEach((sector) => {
+            if (!sector.position || !sector.warps) return;
+
+            const from = this.hexToWorld(sector.position.x, sector.position.y);
+
+            // Skip if source is out of bounds
+            if (
+              from.x < bounds.left - 100 ||
+              from.x > bounds.right + 100 ||
+              from.y < bounds.top - 100 ||
+              from.y > bounds.bottom + 100
+            )
+              return;
+
+            sector.warps.forEach((warp) => {
+              const target = this.universeData.sectors.find(
+                (s) => s.id === warp.to
+              );
+              if (!target || !target.position) return;
+
+              const to = this.hexToWorld(target.position.x, target.position.y);
+
+              const laneData = {
+                from,
+                to,
+                warp,
+                sectorId: sector.id,
+                targetId: warp.to,
+              };
+
+              if (warp.is_hyperlane) {
+                // Avoid drawing hyperlanes twice
+                if (sector.id < warp.to) {
+                  hyperLanes.push(laneData);
+                }
+              } else {
+                regularLanes.push(laneData);
+              }
+            });
+          });
+
+          // Render regular lanes
+          regularLanes.forEach((lane) => this.renderLane(lane));
+
+          // Render hyperlanes on top
+          if (this.showHyperlanes) {
+            hyperLanes.forEach((lane) => this.renderHyperlane(lane));
+          }
+        }
+
+        /**
+         * Render a single warp lane
+         */
+        renderLane(lane) {
+          const { from, to, warp, sectorId, targetId } = lane;
+
+          // Calculate alpha based on selection
+          let alpha = CONFIG.effects.laneAlpha.base;
+
+          if (this.selectedSector && this.reachableMap.size > 0) {
+            if (
+              this.reachableMap.has(sectorId) &&
+              this.reachableMap.has(targetId)
+            ) {
+              const maxDist = Math.max(
+                this.reachableMap.get(sectorId),
+                this.reachableMap.get(targetId)
+              );
+              alpha = Math.max(
+                CONFIG.effects.laneAlpha.base,
+                CONFIG.effects.laneAlpha.highlighted -
+                  maxDist * CONFIG.effects.laneAlpha.fadePerDistance
+              );
+            } else {
+              alpha = CONFIG.effects.laneAlpha.dimmed;
+            }
+          }
+
+          // Draw lane
+          const color = warp.two_way
+            ? CONFIG.colors.twoWayLane
+            : CONFIG.colors.oneWayLane;
+          this.ctx.strokeStyle = color.base + alpha + ")";
+          this.ctx.lineWidth =
+            this.selectedSector &&
+            this.reachableMap.has(sectorId) &&
+            this.reachableMap.has(targetId)
+              ? 2
+              : 1;
+
+          this.ctx.beginPath();
+          this.ctx.moveTo(from.x, from.y);
+          this.ctx.lineTo(to.x, to.y);
+          this.ctx.stroke();
+
+          // Draw arrow for one-way
+          if (!warp.two_way) {
+            this.renderArrow(from, to);
+          }
+        }
+
+        /**
+         * Render arrow for one-way lanes
+         */
+        renderArrow(from, to) {
+          const angle = Math.atan2(to.y - from.y, to.x - from.x);
+          const arrowX = to.x - 15 * Math.cos(angle);
+          const arrowY = to.y - 15 * Math.sin(angle);
+
+          this.ctx.beginPath();
+          this.ctx.moveTo(arrowX, arrowY);
+          this.ctx.lineTo(
+            arrowX - 8 * Math.cos(angle - Math.PI / 6),
+            arrowY - 8 * Math.sin(angle - Math.PI / 6)
+          );
+          this.ctx.moveTo(arrowX, arrowY);
+          this.ctx.lineTo(
+            arrowX - 8 * Math.cos(angle + Math.PI / 6),
+            arrowY - 8 * Math.sin(angle + Math.PI / 6)
+          );
+          this.ctx.stroke();
+        }
+
+        /**
+         * Render hyperlane with glow, dash, portals, and distance label
+         */
+        renderHyperlane(lane) {
+          const { from, to, warp, sectorId, targetId } = lane;
+
+          const hasSelection =
+            !!this.selectedSector && this.reachableMap.size > 0;
+          const isReachable =
+            hasSelection &&
+            this.reachableMap.has(sectorId) &&
+            this.reachableMap.has(targetId);
+
+          // When a sector is selected, only render hyperlanes that connect reachable sectors
+          if (hasSelection && !isReachable) {
+            return;
+          }
+
+          const baseAlpha = isReachable ? 0.9 : 0.5;
+
+          this.ctx.save();
+
+          // Draw glowing layers
+          const glowSizes = CONFIG.effects.hyperlane.glowSizes;
+          const colors = [
+            CONFIG.colors.hyperlane.outer + baseAlpha * 0.3 + ")",
+            CONFIG.colors.hyperlane.middle + baseAlpha * 0.5 + ")",
+            CONFIG.colors.hyperlane.core + baseAlpha + ")",
+          ];
+
+          for (let i = 0; i < glowSizes.length; i++) {
+            this.ctx.strokeStyle = colors[i];
+            this.ctx.lineWidth = glowSizes[i];
+
+            if (i === glowSizes.length - 1) {
+              this.ctx.setLineDash(CONFIG.effects.hyperlane.dashPattern);
+            }
+
+            this.ctx.beginPath();
+            this.ctx.moveTo(from.x, from.y);
+            this.ctx.lineTo(to.x, to.y);
+            this.ctx.stroke();
+          }
+
+          this.ctx.restore();
+
+          // Draw portals
+          this.renderPortal(from.x, from.y, baseAlpha);
+          this.renderPortal(to.x, to.y, baseAlpha);
+
+          // Draw distance label
+          if (warp.distance) {
+            this.renderHyperlaneDistance(from, to, warp.distance, baseAlpha);
+          }
+        }
+
+        /**
+         * Render portal effect at hyperlane endpoints
+         */
+        renderPortal(x, y, alpha) {
+          const radii = CONFIG.effects.hyperlane.portalRadius;
+
+          this.ctx.save();
+
+          // Outer ring
+          this.ctx.strokeStyle =
+            CONFIG.colors.hyperlane.portal + alpha * 0.6 + ")";
+          this.ctx.lineWidth = 2;
+          this.ctx.beginPath();
+          this.ctx.arc(x, y, radii.outer, 0, Math.PI * 2);
+          this.ctx.stroke();
+
+          // Inner ring
+          this.ctx.strokeStyle =
+            CONFIG.colors.hyperlane.core + alpha * 0.8 + ")";
+          this.ctx.lineWidth = 1;
+          this.ctx.beginPath();
+          this.ctx.arc(x, y, radii.inner, 0, Math.PI * 2);
+          this.ctx.stroke();
+
+          // Center
+          this.ctx.fillStyle = CONFIG.colors.hyperlane.core + alpha + ")";
+          this.ctx.beginPath();
+          this.ctx.arc(x, y, radii.center, 0, Math.PI * 2);
+          this.ctx.fill();
+
+          this.ctx.restore();
+        }
+
+        /**
+         * Render hyperlane distance label
+         */
+        renderHyperlaneDistance(from, to, distance, alpha) {
+          const midX = (from.x + to.x) / 2;
+          const midY = (from.y + to.y) / 2;
+
+          this.ctx.save();
+
+          // Background
+          this.ctx.fillStyle = `rgba(0, 0, 0, ${alpha * 0.6})`;
+          this.ctx.fillRect(midX - 25, midY - 8, 50, 16);
+
+          // Text
+          this.ctx.fillStyle = CONFIG.colors.hyperlane.text + alpha + ")";
+          this.ctx.font = CONFIG.fonts.hyperlaneDistance;
+          this.ctx.textAlign = "center";
+          this.ctx.fillText(`${distance} hex`, midX, midY + 2);
+
+          this.ctx.restore();
+        }
+
+        /**
+         * Render individual sector
+         */
+        renderSector(sector, world) {
+          const content = this.sectorData.sectors.find(
+            (s) => s.id === sector.id
+          );
+          const isVisited = this.visitedSectors.has(sector.id);
+          const hasPort = content && content.port;
+          const isMega =
+            hasPort && sector.id === this.sectorData.meta.mega_port_sector;
+          const isSelected =
+            this.selectedSector && this.selectedSector.id === sector.id;
+          const isReachable = this.reachableMap.has(sector.id);
+
+          // Calculate dimming
+          const dimmed = this.selectedSector && !isReachable;
+          const alpha = dimmed ? CONFIG.colors.dimmedAlpha : 1;
+
+          // Draw hexagon
+          if (isVisited) {
+            this.ctx.fillStyle = CONFIG.colors.visitedSector.fill.replace(
+              "0.3",
+              0.3 * alpha
+            );
+            this.ctx.strokeStyle = CONFIG.colors.visitedSector.stroke.replace(
+              "#",
+              `rgba(${this.hexToRgb("#00ff00")}, ${alpha})`
+            );
+          } else {
+            this.ctx.fillStyle = CONFIG.colors.unvisitedSector.fill;
+            this.ctx.strokeStyle = `rgba(102, 102, 102, ${alpha})`;
+          }
+
+          this.ctx.lineWidth = isSelected ? 2 : 1;
+          this.drawHex(
+            world.x,
+            world.y,
+            CONFIG.display.hexSize * CONFIG.display.hexGapFactor,
+            isVisited
+          );
+
+          // Draw port indicator
+          if (hasPort) {
+            const portColor = isMega
+              ? CONFIG.colors.megaPort
+              : CONFIG.colors.tradingPort;
+            this.ctx.fillStyle = this.applyAlpha(portColor, alpha);
+            this.ctx.beginPath();
+            this.ctx.arc(world.x, world.y, 5, 0, Math.PI * 2);
+            this.ctx.fill();
+          }
+
+          // Draw sector ID (hide for non-reachable sectors when a selection exists)
+          if (
+            this.camera.zoom >= 0.5 &&
+            (!this.selectedSector || this.reachableMap.has(sector.id))
+          ) {
+            this.ctx.fillStyle = `rgba(200, 200, 200, ${alpha})`;
+            this.ctx.font = CONFIG.fonts.sectorId;
+            this.ctx.textAlign = "center";
+            this.ctx.fillText(sector.id.toString(), world.x, world.y + 3);
+          }
+
+          // Draw selection highlight
+          if (isSelected) {
+            this.ctx.strokeStyle = CONFIG.colors.selectedSector;
+            this.ctx.lineWidth = 2;
+            this.drawHex(
+              world.x,
+              world.y,
+              CONFIG.display.hexSize * 1.15,
+              false
+            );
+          }
+        }
+
+        /**
+         * Draw a hexagon
+         */
+        drawHex(x, y, size, fill) {
+          this.ctx.beginPath();
+          for (let i = 0; i < 6; i++) {
+            const angle = (Math.PI / 3) * i;
+            const px = x + size * Math.cos(angle);
+            const py = y + size * Math.sin(angle);
+            if (i === 0) {
+              this.ctx.moveTo(px, py);
+            } else {
+              this.ctx.lineTo(px, py);
+            }
+          }
+          this.ctx.closePath();
+          if (fill) this.ctx.fill();
+          this.ctx.stroke();
+        }
+
+        // ==================== User Interaction ====================
+
+        /**
+         * Handle mouse down events
+         */
+        onMouseDown(e) {
+          if (e.button !== 0) return; // Left click only
+
+          const world = this.screenToWorld(e.clientX, e.clientY);
+
+          if (this.viewMode === "galaxy") {
+            // Check for region click
+            for (const [regionId, region] of Object.entries(this.regions)) {
+              const polygon = region.hull;
+              if (polygon && this.pointInPolygon(world.x, world.y, polygon)) {
+                this.zoomToRegion(parseInt(regionId, 10));
+                return;
+              }
+            }
+          } else {
+            // Check for sector click
+            const sector = this.findSectorAt(world.x, world.y);
+            if (sector) {
+              this.selectSector(sector);
+              return;
+            }
+          }
+
+          // Start drag
+          this.isDragging = true;
+          this.dragStart = { x: e.clientX, y: e.clientY };
+          this.cameraStart = { x: this.camera.x, y: this.camera.y };
+        }
+
+        /**
+         * Handle mouse move events
+         */
+        onMouseMove(e) {
+          if (this.isDragging) {
+            this.camera.x = this.cameraStart.x + (e.clientX - this.dragStart.x);
+            this.camera.y = this.cameraStart.y + (e.clientY - this.dragStart.y);
+          }
+        }
+
+        /**
+         * Handle mouse up events
+         */
+        onMouseUp(e) {
+          this.isDragging = false;
+        }
+
+        /**
+         * Handle mouse wheel events
+         */
+        onWheel(e) {
+          e.preventDefault();
+
+          const delta =
+            e.deltaY > 0 ? 1 / CONFIG.view.zoomSpeed : CONFIG.view.zoomSpeed;
+
+          // Get world position before zoom
+          const worldBefore = this.screenToWorld(e.clientX, e.clientY);
+
+          // Apply zoom
+          this.camera.zoom *= delta;
+          this.camera.zoom = Math.max(
+            CONFIG.view.minZoom,
+            Math.min(CONFIG.view.maxZoom, this.camera.zoom)
+          );
+
+          // Get world position after zoom
+          const worldAfter = this.screenToWorld(e.clientX, e.clientY);
+
+          // Adjust camera to keep mouse position fixed
+          this.camera.x += (worldAfter.x - worldBefore.x) * this.camera.zoom;
+          this.camera.y += (worldAfter.y - worldBefore.y) * this.camera.zoom;
+
+          // Auto-switch view modes
+          this.checkViewModeTransition();
+        }
+
+        /**
+         * Check if view mode should transition based on zoom
+         */
+        checkViewModeTransition() {
+          if (
+            this.viewMode === "sectors" &&
+            this.camera.zoom < CONFIG.view.galaxyZoomThreshold
+          ) {
+            this.viewMode = "galaxy";
+          } else if (
+            this.viewMode === "galaxy" &&
+            this.camera.zoom > CONFIG.view.sectorZoomThreshold
+          ) {
+            this.viewMode = "sectors";
+          }
+        }
+
+        /**
+         * Find sector at world coordinates
+         */
+        findSectorAt(worldX, worldY) {
+          let closest = null;
+          let minDist = CONFIG.display.hexSize;
+
+          this.universeData.sectors.forEach((sector) => {
+            if (!sector.position) return;
+
+            const sectorWorld = this.hexToWorld(
+              sector.position.x,
+              sector.position.y
+            );
+            const dist = Math.sqrt(
+              Math.pow(sectorWorld.x - worldX, 2) +
+                Math.pow(sectorWorld.y - worldY, 2)
+            );
+
+            if (dist < minDist) {
+              closest = sector;
+              minDist = dist;
+            }
+          });
+
+          return closest;
+        }
+
+        /**
+         * Check if point is inside polygon
+         */
+        pointInPolygon(x, y, polygon) {
+          let inside = false;
+          for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+            const xi = polygon[i].x,
+              yi = polygon[i].y;
+            const xj = polygon[j].x,
+              yj = polygon[j].y;
+
+            if (
+              yi > y !== yj > y &&
+              x < ((xj - xi) * (y - yi)) / (yj - yi) + xi
+            ) {
+              inside = !inside;
+            }
+          }
+          return inside;
+        }
+
+        /**
+         * Select or deselect a sector
+         */
+        selectSector(sector) {
+          if (this.selectedSector && this.selectedSector.id === sector.id) {
+            this.selectedSector = null;
+            this.reachableMap.clear();
+          } else {
+            this.selectedSector = sector;
+            this.calculateReachableSectors();
+          }
+        }
+
+        /**
+         * Zoom camera to a specific region
+         */
+        zoomToRegion(regionId) {
+          const region = this.regions[regionId];
+          if (!region) return;
+
+          // Use region hull bounds
+          const bounds = region.bounds;
+          const width = bounds.maxX - bounds.minX;
+          const height = bounds.maxY - bounds.minY;
+
+          const scaleX = (this.canvas.width - 100) / width;
+          const scaleY = (this.canvas.height - 100) / height;
+
+          this.camera.zoom = Math.min(scaleX, scaleY, 1.5);
+          this.camera.zoom = Math.max(this.camera.zoom, 0.5);
+
+          const center = region.center;
+          this.camera.x = this.canvas.width / 2 - center.x * this.camera.zoom;
+          this.camera.y = this.canvas.height / 2 - center.y * this.camera.zoom;
+
+          this.viewMode = "sectors";
+        }
+
+        // ==================== UI Controls ====================
+
+        /**
+         * Reset view to galaxy map and fit all regions
+         */
+        resetView() {
+          this.viewMode = "galaxy";
+          this.selectedSector = null;
+          this.reachableMap.clear();
+
+          // Calculate universe bounds
+          let minX = Infinity,
+            minY = Infinity;
+          let maxX = -Infinity,
+            maxY = -Infinity;
+
+          Object.values(this.regions).forEach((region) => {
+            const b = region.bounds;
+            minX = Math.min(minX, b.minX);
+            minY = Math.min(minY, b.minY);
+            maxX = Math.max(maxX, b.maxX);
+            maxY = Math.max(maxY, b.maxY);
+          });
+
+          if (minX === Infinity) return;
+
+          const width = maxX - minX;
+          const height = maxY - minY;
+          const centerX = minX + width / 2;
+          const centerY = minY + height / 2;
+
+          const scaleX = (this.canvas.width - 100) / width;
+          const scaleY = (this.canvas.height - 100) / height;
+          this.camera.zoom = Math.min(scaleX, scaleY, 0.5);
+
+          this.camera.x = this.canvas.width / 2 - centerX * this.camera.zoom;
+          this.camera.y = this.canvas.height / 2 - centerY * this.camera.zoom;
+        }
+
+        /**
+         * Clear current selection
+         */
+        clearSelection() {
+          this.selectedSector = null;
+          this.reachableMap.clear();
+        }
+
+        /**
+         * Toggle lane visibility
+         */
+        toggleLanes() {
+          this.showLanes = !this.showLanes;
+        }
+
+        /**
+         * Toggle hyperlane visibility
+         */
+        toggleHyperlanes() {
+          this.showHyperlanes = !this.showHyperlanes;
+        }
+
+        /**
+         * Toggle background grid visibility
+         */
+        toggleGrid() {
+          this.showGrid = !this.showGrid;
+        }
+
+        /**
+         * Update HUD elements (throttled)
+         */
+        updateHUD() {
+          document.getElementById("viewMode").textContent =
+            this.viewMode === "galaxy" ? "Galaxy Map" : "Sector View";
+          document.getElementById("zoomLevel").textContent =
+            this.camera.zoom.toFixed(2);
+          document.getElementById("selectedSector").textContent = this
+            .selectedSector
+            ? `Sector ${this.selectedSector.id}`
+            : "None";
+
+          // In galaxy view, ensure sectors-visible shows 0
+          if (this.viewMode === "galaxy") {
+            document.getElementById("sectorsVisible").textContent = "0";
+          }
+
+          // Selected sector info
+          const infoEl = document.getElementById("selectedInfo");
+          if (this.selectedSector) {
+            const sector = this.selectedSector;
+            const regionId = sector.region;
+            const meta =
+              this.universeData.meta && this.universeData.meta.regions
+                ? this.universeData.meta.regions[regionId]
+                : null;
+            const regionName =
+              meta && meta.name ? meta.name : `Region ${regionId}`;
+
+            // Connections
+            const warps = sector.warps || [];
+            const total = warps.length;
+            const hyper = warps.filter((w) => w.is_hyperlane).length;
+            const twoWay = warps.filter((w) => w.two_way).length;
+            const oneWay = total - twoWay;
+            infoEl.textContent = `${regionName}; ${total} links (${twoWay} two-way, ${oneWay} one-way, ${hyper} hyper)`;
+          } else {
+            infoEl.textContent = "—";
+          }
+
+          // Throttle expensive HUD lookups to ~10 fps
+          const now = performance.now();
+          if (!this.lastHudUpdate || now - this.lastHudUpdate > 100) {
+            this.lastHudUpdate = now;
+
+            const centerWorld = this.screenToWorld(
+              this.canvas.width / 2,
+              this.canvas.height / 2
+            );
+
+            // Approximate center sector: nearest sector to viewport center
+            let nearest = null;
+            let nearestDist2 = Infinity;
+            if (
+              this.viewMode !== "galaxy" &&
+              this.universeData &&
+              this.universeData.sectors
+            ) {
+              // Optionally sample to reduce cost if huge
+              const sectors = this.universeData.sectors;
+              const step = sectors.length > 20000 ? 4 : 1;
+              for (let i = 0; i < sectors.length; i += step) {
+                const s = sectors[i];
+                if (!s.position) continue;
+                const w = this.hexToWorld(s.position.x, s.position.y);
+                const dx = w.x - centerWorld.x;
+                const dy = w.y - centerWorld.y;
+                const d2 = dx * dx + dy * dy;
+                if (d2 < nearestDist2) {
+                  nearestDist2 = d2;
+                  nearest = s;
+                }
+              }
+            }
+
+            const centerSectorLabel =
+              this.viewMode === "galaxy"
+                ? "—"
+                : nearest
+                ? `${nearest.id}`
+                : "—";
+            document.getElementById("centerSector").textContent =
+              centerSectorLabel;
+
+            // Determine current region by checking which hull contains the center point
+            let currentRegionName = "Unknown";
+            if (this.regions && Object.keys(this.regions).length > 0) {
+              for (const [regionId, region] of Object.entries(this.regions)) {
+                if (region.hull && region.hull.length >= 3) {
+                  if (
+                    this.pointInPolygon(
+                      centerWorld.x,
+                      centerWorld.y,
+                      region.hull
+                    )
+                  ) {
+                    const meta =
+                      this.universeData.meta && this.universeData.meta.regions
+                        ? this.universeData.meta.regions[regionId]
+                        : null;
+                    currentRegionName =
+                      meta && meta.name ? meta.name : `Region ${regionId}`;
+                    break;
+                  }
+                }
+              }
+            }
+            document.getElementById("currentRegion").textContent =
+              currentRegionName;
+          }
+        }
+
+        /**
+         * Determine the active region id based on viewport center (or null)
+         */
+        getActiveRegionId() {
+          if (!this.regions || Object.keys(this.regions).length === 0)
+            return null;
+          const centerWorld = this.screenToWorld(
+            this.canvas.width / 2,
+            this.canvas.height / 2
+          );
+          for (const [regionId, region] of Object.entries(this.regions)) {
+            if (region.hull && region.hull.length >= 3) {
+              if (
+                this.pointInPolygon(centerWorld.x, centerWorld.y, region.hull)
+              ) {
+                return parseInt(regionId, 10);
+              }
+            }
+          }
+          return null;
+        }
+
+        // ==================== Utility Functions ====================
+
+        /**
+         * Convert hex color to RGB
+         */
+        hexToRgb(hex) {
+          const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+          return result
+            ? `${parseInt(result[1], 16)}, ${parseInt(
+                result[2],
+                16
+              )}, ${parseInt(result[3], 16)}`
+            : "255, 255, 255";
+        }
+
+        /**
+         * Apply alpha to a color
+         */
+        applyAlpha(color, alpha) {
+          if (color.startsWith("#")) {
+            return `rgba(${this.hexToRgb(color)}, ${alpha})`;
+          }
+          return color.replace(/[\d.]+\)$/i, alpha + ")");
+        }
+
+        /**
+         * Update grid spacing (hex size) and rebuild dependent caches
+         */
+        updateGridSpacing(newSize) {
+          // Update config and scale
+          CONFIG.display.hexSize = newSize;
+          this.scale = CONFIG.display.hexSize / CONFIG.display.dataHexSize;
+
+          // Rebuild any geometry derived from hex size
+          this.buildRegionHexMasks();
+          // boundaries removed
+        }
+
+        /**
+         * Update visual gap between hexes (radius factor)
+         */
+        updateGridGap(newFactor) {
+          CONFIG.display.hexGapFactor = Math.max(
+            0.7,
+            Math.min(0.99, newFactor)
+          );
+        }
+
+        /**
+         * Render a hex grid covering the current view bounds
+         */
+        renderHexGrid(bounds) {
+          const stepX = this.scale * 1.5;
+          const invScale = 1 / this.scale;
+          const sqrt3 = Math.sqrt(3);
+
+          // Estimate hex coordinate range visible in current view
+          const worldLeft = bounds.left;
+          const worldRight = bounds.right;
+          const worldTop = bounds.top;
+          const worldBottom = bounds.bottom;
+
+          let minHexX = Math.floor(worldLeft / stepX) - 4;
+          let maxHexX = Math.ceil(worldRight / stepX) + 4;
+
+          // Safety clamp on range size
+          if (maxHexX - minHexX > 1200) {
+            maxHexX = minHexX + 1200;
+          }
+
+          this.ctx.save();
+          this.ctx.lineWidth = CONFIG.grid.lineWidth;
+          this.ctx.strokeStyle = this.applyAlpha(
+            CONFIG.grid.color,
+            CONFIG.grid.alpha
+          );
+
+          let cellsDrawn = 0;
+
+          for (let hx = minHexX; hx <= maxHexX; hx++) {
+            const yOffset = 0.5 * (hx & 1);
+            const minHexY =
+              Math.floor((worldTop * invScale) / sqrt3 - yOffset) - 4;
+            const maxHexY =
+              Math.ceil((worldBottom * invScale) / sqrt3 - yOffset) + 4;
+
+            for (let hy = minHexY; hy <= maxHexY; hy++) {
+              // Limit total cells to avoid perf issues
+              if (cellsDrawn++ > CONFIG.grid.maxCells) break;
+
+              const world = this.hexToWorld(hx, hy);
+              // Cull if far outside bounds
+              if (
+                world.x < worldLeft - 100 ||
+                world.x > worldRight + 100 ||
+                world.y < worldTop - 100 ||
+                world.y > worldBottom + 100
+              ) {
+                continue;
+              }
+
+              // Draw hex outline only
+              this.ctx.beginPath();
+              for (let i = 0; i < 6; i++) {
+                const angle = (Math.PI / 3) * i;
+                const px =
+                  world.x +
+                  CONFIG.display.hexSize *
+                    CONFIG.display.hexGapFactor *
+                    Math.cos(angle);
+                const py =
+                  world.y +
+                  CONFIG.display.hexSize *
+                    CONFIG.display.hexGapFactor *
+                    Math.sin(angle);
+                if (i === 0) this.ctx.moveTo(px, py);
+                else this.ctx.lineTo(px, py);
+              }
+              this.ctx.closePath();
+              this.ctx.stroke();
+            }
+            if (cellsDrawn > CONFIG.grid.maxCells) break;
+          }
+
+          this.ctx.restore();
+        }
+
+        /**
+         * Build an index of sectors by axial coords
+         */
+        buildSectorIndex() {
+          this.sectorIndex.clear();
+          if (!this.universeData || !this.universeData.sectors) return;
+          this.universeData.sectors.forEach((s) => {
+            if (!s.position) return;
+            const key = `${s.position.x},${s.position.y}`;
+            this.sectorIndex.set(key, s);
+          });
+        }
+
+        /**
+         * Build hex masks per region by rasterizing region hulls onto the hex grid
+         */
+        buildRegionHexMasks() {
+          this.regionHexSets = {};
+          const sqrt3 = Math.sqrt(3);
+          const scale = this.scale;
+
+          for (const [regionId, region] of Object.entries(this.regions)) {
+            const hull = region.hull;
+            if (!hull || hull.length < 3) continue;
+
+            // Compute hex coordinate bounds that cover region bounds
+            const minQ = Math.floor(region.bounds.minX / (1.5 * scale)) - 2;
+            const maxQ = Math.ceil(region.bounds.maxX / (1.5 * scale)) + 2;
+
+            const hexes = new Set();
+
+            for (let q = minQ; q <= maxQ; q++) {
+              // For given q, screen/world y depends on r + 0.5*(q&1)
+              const yOffset = 0.5 * (q & 1);
+              const minR =
+                Math.floor(region.bounds.minY / (sqrt3 * scale) - yOffset) - 2;
+              const maxR =
+                Math.ceil(region.bounds.maxY / (sqrt3 * scale) - yOffset) + 2;
+
+              for (let r = minR; r <= maxR; r++) {
+                const center = this.hexToWorld(q, r);
+                // Test hex center within region hull
+                if (this.pointInPolygon(center.x, center.y, hull)) {
+                  hexes.add(`${q},${r}`);
+                }
+              }
+            }
+
+            // Optionally expand by buffer rings
+            const buffer =
+              CONFIG.regionFill && CONFIG.regionFill.bufferHexes
+                ? CONFIG.regionFill.bufferHexes
+                : 0;
+            if (buffer > 0) {
+              const neighbors = [
+                { dx: +1, dy: 0 },
+                { dx: 0, dy: +1 },
+                { dx: -1, dy: +1 },
+                { dx: -1, dy: 0 },
+                { dx: 0, dy: -1 },
+                { dx: +1, dy: -1 },
+              ];
+              let frontier = Array.from(hexes);
+              for (let ring = 0; ring < buffer; ring++) {
+                const newHexes = [];
+                for (const key of frontier) {
+                  const [qStr, rStr] = key.split(",");
+                  const q = parseInt(qStr, 10);
+                  const r = parseInt(rStr, 10);
+                  for (const n of neighbors) {
+                    const nk = `${q + n.dx},${r + n.dy}`;
+                    if (!hexes.has(nk)) {
+                      hexes.add(nk);
+                      newHexes.push(nk);
+                    }
+                  }
+                }
+                frontier = newHexes;
+                if (frontier.length === 0) break;
+              }
+            }
+
+            this.regionHexSets[regionId] = hexes;
+          }
+        }
+
+        /**
+         * Render filled hexes for the active region using regionHexSets
+         */
+        renderRegionFill(bounds) {
+          const activeRegionId = this.getActiveRegionId();
+          if (!activeRegionId) return;
+
+          const hexes = this.regionHexSets[activeRegionId];
+          if (!hexes || hexes.size === 0) return;
+
+          this.ctx.save();
+          this.ctx.fillStyle = this.applyAlpha(
+            this.getRegionColor(activeRegionId),
+            CONFIG.regionFill.alpha
+          );
+
+          for (const hexKey of hexes) {
+            const [q, r] = hexKey.split(",").map(Number);
+            const world = this.hexToWorld(q, r);
+
+            // Cull if far outside bounds
+            if (
+              world.x < bounds.left - 100 ||
+              world.x > bounds.right + 100 ||
+              world.y < bounds.top - 100 ||
+              world.y > bounds.bottom + 100
+            ) {
+              continue;
+            }
+
+            this.drawHex(world.x, world.y, CONFIG.display.hexSize, true);
+          }
+          this.ctx.restore();
+        }
+
+        /**
+         * Assign a region color from the palette deterministically
+         */
+        getRegionColor(regionId) {
+          if (this.regionColors[regionId]) return this.regionColors[regionId];
+          const palette = CONFIG.region.palette;
+          const idx = Math.abs(parseInt(regionId, 10)) % palette.length;
+          const color = palette[idx];
+          this.regionColors[regionId] = color;
+          return color;
+        }
+
+        /**
+         * Compute centroid of a polygon (array of {x,y}) using area-weighted formula
+         */
+        polygonCentroid(points) {
+          let area = 0;
+          let cx = 0;
+          let cy = 0;
+          const n = points.length;
+          for (let i = 0, j = n - 1; i < n; j = i++) {
+            const p0 = points[j];
+            const p1 = points[i];
+            const cross = p0.x * p1.y - p1.x * p0.y;
+            area += cross;
+            cx += (p0.x + p1.x) * cross;
+            cy += (p0.y + p1.y) * cross;
+          }
+          area *= 0.5;
+          if (Math.abs(area) < 1e-6) {
+            // Degenerate polygon; fallback to average of points
+            let sx = 0,
+              sy = 0;
+            points.forEach((p) => {
+              sx += p.x;
+              sy += p.y;
+            });
+            const count = Math.max(1, points.length);
+            return { x: sx / count, y: sy / count };
+          }
+          cx /= 6 * area;
+          cy /= 6 * area;
+          return { x: cx, y: cy };
+        }
+
+        // (big-hex helpers removed)
+      }
+
+      // Create and initialize the application
+      const UniverseMap = new UniverseMapApp();
+      window.addEventListener("DOMContentLoaded", () => UniverseMap.init());
+    </script>
+  </body>
+</html>

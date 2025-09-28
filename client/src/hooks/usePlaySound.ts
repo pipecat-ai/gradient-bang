@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import useGameStore from "../stores/game";
 
 export type Sound = "warp" | "start" | "ambience";
 
@@ -9,8 +10,13 @@ const SoundMap = {
 };
 
 export const usePlaySound = () => {
+  const { disabledSounds } = useGameStore.use.settings();
+
   return useCallback(
     (sound: Sound, options?: { volume?: number; loop?: boolean }) => {
+      // If sounds are disabled, don't play anything
+      if (disabledSounds) return;
+
       const audio = new Audio(SoundMap[sound]);
       audio.currentTime = 0;
 
@@ -30,6 +36,6 @@ export const usePlaySound = () => {
         });
       }
     },
-    []
+    [disabledSounds]
   );
 };

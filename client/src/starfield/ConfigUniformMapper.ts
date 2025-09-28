@@ -3,9 +3,9 @@
  * Provides type-safe configuration-to-uniform conversion with comprehensive mapping support
  */
 
+import { type StarfieldState } from ".";
 import { type GalaxyStarfieldConfig } from "./constants";
 import { UniformManager } from "./managers/UniformManager";
-import { type StarfieldState } from "./Starfield";
 
 // ============================================================================
 // TYPE DEFINITIONS

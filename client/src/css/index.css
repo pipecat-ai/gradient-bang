@@ -30,14 +30,6 @@
   --grid-opacity: 0.25;
 }
 
-*:not(.normal-case) {
-  text-transform: uppercase;
-}
-
-.normal-case * {
-  text-transform: none;
-}
-
 html,
 body {
   background-color: var(--color-background);
@@ -50,7 +42,6 @@ body {
 
 #root {
   position: relative;
-  z-index: 99999;
   height: 100vh;
 }
 
@@ -474,16 +465,6 @@ body {
 
 .numerical-badge-flashing-inactive {
   animation: flash-glow-inactive 0.8s ease-out;
-}
-
-.hud-map-canvas {
-  position: absolute !important;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
 }
 
 @import "./starfield.css";

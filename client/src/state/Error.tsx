@@ -34,3 +34,5 @@ export const Error = ({
     </Card>
   );
 };
+
+export default Error;

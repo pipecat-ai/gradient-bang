@@ -1,80 +1,23 @@
-import { memo, useEffect, useRef } from "react";
+import { memo, useEffect } from "react";
+import { GalaxyStarfield } from "../starfield/";
+import useGameStore from "../stores/game";
+
 import { usePlaySound } from "../hooks/usePlaySound";
-import { GalaxyStarfield } from "../starfield/Starfield";
-import type { GameObjectInstance } from "../starfield/types/GameObject";
-import useSectorStore from "../stores/sector";
-import useStarfieldStore from "../stores/starfield";
+import Settings from "../settings.json";
 
-import scenes from "../scenes.json";
-import type { GalaxyStarfieldConfig } from "../starfield/constants";
-import useTaskStore from "../stores/tasks";
-
-const DEFAULT_SCENE = scenes.scenes[0];
-
-export const StarField = memo(() => {
-  const starfieldRef = useRef<GalaxyStarfield | null>(null);
-  const { setInstance, getInstance } = useStarfieldStore();
-  const { sector, getSectorContents } = useSectorStore();
-  const { active } = useTaskStore();
-
+export const Starfield = memo(() => {
   const playSound = usePlaySound();
 
   useEffect(() => {
-    console.log("Sector:", sector);
-    if (sector !== undefined) {
-      const sector_contents = getSectorContents();
-
-      const config =
-        sector === 0
-          ? ({ ...DEFAULT_SCENE } as Partial<GalaxyStarfieldConfig>)
-          : {};
-
-      getInstance()?.warpToSector(
-        {
-          id: sector.toString(),
-          config,
-          gameObjects: sector_contents.port
-            ? [
-                {
-                  id: sector.toString(),
-                  type: "port",
-                  name: sector_contents.port.code,
-                },
-              ]
-            : [],
-        },
-        active
-      );
-    }
-  }, [sector, getInstance, getSectorContents, active]);
-
-  useEffect(() => {
-    getInstance()?.clearGameObjectSelection();
-    if (active) {
-      getInstance()?.startShake();
-    } else {
-      getInstance()?.setIdle();
-    }
-  }, [active, getInstance]);
-
-  useEffect(() => {
-    if (!getInstance()) {
-      console.log("GalaxyStarfield instantiated", DEFAULT_SCENE);
-
+    const state = useGameStore.getState();
+    if (!state.starfieldInstance) {
+      console.log("[STARFIELD] Initializing Starfield instance");
       const targetElement = document.getElementById("starfield") ?? undefined;
-
-      const galaxyStarfieldInstance = new GalaxyStarfield(
-        {},
+      const s = new GalaxyStarfield(
         {
-          onGameObjectInView: (gameObject: GameObjectInstance) => {
-            console.log("Game object in view:", gameObject);
-          },
-          onGameObjectSelected: (gameObject: GameObjectInstance) => {
-            console.log("Game object selected:", gameObject);
-          },
-          onGameObjectCleared: () => {
-            console.log("Game object selection cleared");
-          },
+          renderingEnabled: Settings.renderStarfield,
+        },
+        {
           onSceneReady: () => {
             targetElement?.parentElement?.classList.add("starfield-active");
             playSound("start", { volume: 0.5 });
@@ -86,17 +29,19 @@ export const StarField = memo(() => {
         targetElement
       );
 
-      starfieldRef.current = galaxyStarfieldInstance;
-      setInstance(galaxyStarfieldInstance);
-      window.starfield = galaxyStarfieldInstance;
+      state.setStarfieldInstance(s);
     }
 
     return () => {
-      starfieldRef.current = null;
+      if (state.starfieldInstance) {
+        console.log("[STARFIELD] Unmounting Starfield instance");
+        state.starfieldInstance.destroy();
+        state.setStarfieldInstance(undefined);
+      }
     };
-  }, [setInstance, getInstance, playSound]);
+  }, [playSound]);
 
   return null;
 });
 
-StarField.displayName = "StarField";
+Starfield.displayName = "Starfield";

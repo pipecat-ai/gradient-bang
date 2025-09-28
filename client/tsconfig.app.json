@@ -14,6 +14,15 @@
     "moduleDetection": "force",
     "noEmit": true,
     "jsx": "react-jsx",
+    
+    /* Path mapping */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@hud/*": ["./src/hud/*"],
+      "@state/*": ["./src/state/*"],
+      "@stores/*": ["./src/stores/*"],
+    },
 
     /* Linting */
     "strict": true,
