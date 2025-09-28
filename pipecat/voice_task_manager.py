@@ -14,7 +14,6 @@ from utils.api_client import AsyncGameClient, LLMResult
 from utils.base_llm_agent import LLMConfig
 from utils.task_agent import TaskAgent
 from utils.tools_schema import (
-    MyMap,
     MyStatus,
     PlotCourse,
     Move,
@@ -24,6 +23,7 @@ from utils.tools_schema import (
     Trade,
     RechargeWarpPower,
     TransferWarpPower,
+    SendMessage,
     UI_SHOW_PANEL_SCHEMA,
 )
 
@@ -50,6 +50,7 @@ class VoiceTaskManager:
             base_url="http://localhost:8000",
             transport="websocket",
         )
+        self.game_client.on("chat.message")(self._handle_chat_message)
 
         self.task_config = LLMConfig(model="gpt-5")
 
@@ -81,6 +82,7 @@ class VoiceTaskManager:
             "move": self.game_client.move,
             "check_trade": self.game_client.check_trade,
             "trade": self.game_client.trade,
+            "send_message": self.game_client.send_message,
             "recharge_warp_power": self.game_client.recharge_warp_power,
             "transfer_warp_power": self.game_client.transfer_warp_power,
         }
@@ -88,6 +90,7 @@ class VoiceTaskManager:
     async def join(self):
         logger.info(f"Joining game as character: {self.character_id}")
         result = await self.game_client.join(self.character_id)
+        await self.game_client.subscribe_my_messages()
         logger.info(f"Join successful: {result}")
         return result
 
@@ -144,6 +147,20 @@ class VoiceTaskManager:
                     "gg-action": "tool_result",
                     "tool_name": tool_name,
                     "payload": normalized_payload,
+                }
+            )
+        )
+
+    async def _handle_chat_message(self, payload: Dict[str, Any]) -> None:
+        """Relay chat.message events to RTVI clients."""
+
+        await self.rtvi_processor.push_frame(
+            RTVIServerMessageFrame(
+                {
+                    "frame_type": "event",
+                    "event": "chat.message",
+                    "gg-action": "chat.message",
+                    "payload": payload,
                 }
             )
         )
@@ -480,6 +497,7 @@ class VoiceTaskManager:
                 Trade.schema(),
                 RechargeWarpPower.schema(),
                 TransferWarpPower.schema(),
+                SendMessage.schema(),
                 StartTask.schema(),
                 StopTask.schema(),
                 UI_SHOW_PANEL_SCHEMA,

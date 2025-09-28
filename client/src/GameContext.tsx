@@ -13,6 +13,7 @@ import useStarfieldStore from "./stores/starfield";
 import useTaskStore, { type TaskOutput } from "./stores/tasks";
 import useTradeHistoryStore, { type TradeHistoryItem } from "./stores/trades";
 import useLocalMapStore, { type LocalMapPayload } from "./stores/localMap";
+import useChatStore, { type ChatMessage } from "./stores/chat";
 
 const ServerMessageKey = "gg-action";
 
@@ -130,6 +131,7 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
   const tradeHistoryStore = useTradeHistoryStore();
   const setLocalMap = useLocalMapStore((state) => state.setLocalMap);
   const clearLocalMaps = useLocalMapStore((state) => state.clear);
+  const addChatMessage = useChatStore((state) => state.addMessage);
 
   const setShip = useCallback(
     (ship: Ship) => {
@@ -318,6 +320,48 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
             handleMapData(payload.result ?? payload);
             break;
           }
+          case "chat.message": {
+            const messagePayload = payload as Record<string, unknown>;
+            const content =
+              typeof messagePayload.content === "string"
+                ? messagePayload.content
+                : undefined;
+            if (!content) {
+              break;
+            }
+
+            const idRaw = messagePayload.id;
+            const timestampRaw =
+              typeof messagePayload.timestamp === "string"
+                ? messagePayload.timestamp
+                : new Date().toISOString();
+            const fallbackId = Math.random().toString(36).slice(2);
+            const message: ChatMessage = {
+              id:
+                typeof idRaw === "string"
+                  ? idRaw
+                  : idRaw !== undefined && idRaw !== null
+                  ? String(idRaw)
+                  : fallbackId,
+              timestamp: timestampRaw,
+              type:
+                typeof messagePayload.type === "string"
+                  ? messagePayload.type
+                  : "broadcast",
+              from_name:
+                typeof messagePayload.from_name === "string"
+                  ? messagePayload.from_name
+                  : undefined,
+              to_name:
+                typeof messagePayload.to_name === "string"
+                  ? messagePayload.to_name
+                  : undefined,
+              content,
+            };
+
+            addChatMessage(message);
+            break;
+          }
           case "trade": {
             let result: unknown = payload.result ?? payload;
             if (payload.content) {
@@ -439,6 +483,7 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
         getStatusFromServer,
         resetActivePanels,
         setLocalMap,
+        addChatMessage,
       ]
     )
   );
