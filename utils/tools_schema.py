@@ -205,6 +205,25 @@ class Trade(GameClientTool):
         )
 
 
+class SalvageCollect(GameClientTool):
+    def __call__(self, **args):
+        return self.game_client.salvage_collect(**args)
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="salvage_collect",
+            description="Collect salvage by salvage ID in the current sector.",
+            properties={
+                "salvage_id": {
+                    "type": "string",
+                    "description": "Identifier of the salvage container to collect",
+                }
+            },
+            required=["salvage_id"],
+        )
+
+
 class RechargeWarpPower(GameClientTool):
     def __call__(self, **args):
         return self.game_client.recharge_warp_power(**args)

@@ -177,6 +177,16 @@ async def handle(request: dict, world) -> dict:
 
     initiator = world.characters[character_id]
 
+    fighters = getattr(initiator, "fighters", 0) or 0
+    if fighters <= 0:
+        knowledge = world.knowledge_manager.load_knowledge(character_id)
+        fighters = getattr(knowledge.ship_config, "current_fighters", 0)
+    if fighters <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot initiate combat while you have no fighters.",
+        )
+
     sector_id = initiator.sector
     payload = await start_sector_combat(
         world,
