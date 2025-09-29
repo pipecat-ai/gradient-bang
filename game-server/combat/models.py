@@ -18,6 +18,7 @@ class CombatantAction(Enum):
     ATTACK = "attack"
     BRACE = "brace"
     FLEE = "flee"
+    PAY = "pay"
 
     @classmethod
     def from_str(cls, value: str) -> "CombatantAction":
@@ -122,6 +123,7 @@ class GarrisonState:
     fighters: int
     mode: GarrisonMode
     toll_amount: int = 0
+    toll_balance: int = 0
     deployed_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> Dict[str, Union[str, int]]:
@@ -130,6 +132,7 @@ class GarrisonState:
             "fighters": self.fighters,
             "mode": self.mode,
             "toll_amount": self.toll_amount,
+            "toll_balance": self.toll_balance,
             "deployed_at": self.deployed_at,
         }
 
@@ -140,6 +143,7 @@ class GarrisonState:
             fighters=int(data.get("fighters", 0)),
             mode=cls._parse_mode(data.get("mode")),
             toll_amount=int(data.get("toll_amount", 0)),
+            toll_balance=int(data.get("toll_balance", 0)),
             deployed_at=str(data.get("deployed_at") or datetime.now(timezone.utc).isoformat()),
         )
 

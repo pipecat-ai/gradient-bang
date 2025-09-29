@@ -49,6 +49,7 @@
 
 ## game-server/api/combat_action.py
 - HTTP endpoint that submits per-round combat actions. Validates combat membership, enforces fighter requirements, handles flee destination validation, and returns a serialized round outcome when the action resolves combat.
+- Accepts the new `pay` action, wiring the toll-payment workflow and reporting whether the payment succeeded via a `pay_processed` flag (with an explanatory message when it fails and the turn becomes a brace).
 
 ### Suggestions
 - Extract attack and flee validation into helper functions to simplify testing and reuse in NPC tooling.
@@ -56,6 +57,7 @@
 
 ## game-server/api/combat_collect_fighters.py
 - Adds API support for pulling fighters off a player-owned garrison back onto the ship, updating knowledge, ship state, and emitting `sector.garrison_updated`.
+- Collecting from a toll garrison now cashes out any stored toll balance, returning the credits in a new `credits_collected` field and resetting the garrison’s bank to zero.
 
 ### Suggestions
 - Wrap the garrison mutation in a lock/context to avoid race conditions when multiple requests target the same garrison concurrently.
@@ -68,6 +70,7 @@
 
 ## game-server/api/combat_leave_fighters.py
 - Complements fighter collection by letting players station fighters as a garrison, specifying mode/toll, and emitting sector updates.
+- Rejects deployments into sectors already garrisoned by another owner and preserves any toll bank when owners add additional fighters to their own garrison.
 
 ### Suggestions
 - Verify that the sector parameter matches the character’s current sector to prevent remote deployment exploits.
@@ -135,18 +138,22 @@
 
 ## game-server/combat/garrisons.py
 - Lightweight persistence layer for sector garrisons, supporting deployment, retrieval, updates, and serialization for API payloads.
+- Tracks toll credit balances per garrison and rejects deployments into sectors already occupied by another owner to enforce one-garrison-per-sector.
 
 ### Suggestions
 - Persist garrison state to disk or knowledge so deployments survive server restarts—currently they live only in memory.
 
 ## game-server/combat/manager.py
 - Coordinates active encounters by queueing rounds, handling timeouts, emitting `combat.*` events, managing participants, and finalizing combats into history/salvage.
+- Processes toll payments under the combat lock (via a pluggable callback), records payments in encounter context, and ends a round early with a `toll_satisfied` terminal state when the garrison attacked and was paid while everyone else braced.
+- Ensures terminal rounds are re-dispatched through the normal resolution pipeline so fighter/shield losses persist to knowledge before `combat.ended` fires.
 
 ### Suggestions
 - Add metrics/logging around round resolution duration and timeout triggers to spot slowdowns or stalled combats quickly.
 
 ## game-server/combat/models.py
 - Dataclasses/enums describing combat participants, encounters, round actions, outcomes, and persisted garrison state.
+- Adds the `PAY` combat action and persists per-garrison toll balances so payments can carry through combat resolution.
 
 ### Suggestions
 - Provide `.to_dict()` helpers on models used in API responses to reduce inline serialization code elsewhere.
@@ -177,6 +184,7 @@
 
 ## game-server/server.py
 - WebSocket connections now cache the latest sector for characters they track via `status.update`, enabling upcoming sector-based filtering through `matches_sectors`.
+- Maintains toll-garrison state during combat, automatically submits toll actions each round, handles credit withdrawals via a dedicated payment callback, and redeploys/awards stored toll balances when combats end.
 
 ### Suggestions
 - Log salvage creation with combat ID/sector to aid future auditing of missing-loot reports.
@@ -229,6 +237,20 @@
 
 ### Suggestions
 - Extract the timeout-aware helpers into a shared test utility module so other websocket suites can reuse them.
+
+## tests/test_combat_manager.py
+- Expanded coverage to exercise toll payment flow, including the new stand-down rule when garrisons are paid mid-round and the failure path that reverts payments to braces.
+- Adds a regression test ensuring toll demand stalemates continue into the next round and that terminal rounds still emit the persistence hook.
+
+### Suggestions
+- Add integration tests that combine autop-submitted garrison actions with player-initiated pays via the WebSocket pipeline to ensure parity with HTTP tests.
+
+## tests/test_world_persistence.py
+- Verifies toll balances are cashed out when owners retrieve fighters and that destroying a toll garrison awards the stored credits to the victor.
+- Configures the combat manager with real server callbacks so round resolution updates persisted fighter/shield values, and extends assertions to cover the combat persistence regression.
+
+### Suggestions
+- Extend the persistence snapshot to include toll banks so regression tests confirm state survives server restarts.
 
 ## pipecat/voice_task_manager.py
 - Subscribed the voice task manager to chat events and forwards them to RTVI clients; registers the new `send_message` tool and subscribes to personal messages after join.

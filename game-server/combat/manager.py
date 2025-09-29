@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass, field, replace
 from typing import Awaitable, Callable, Dict, Optional
 
 from .engine import resolve_round
@@ -19,12 +20,13 @@ from .models import (
 RoundResolvedCallback = Callable[[CombatEncounter, CombatRoundOutcome], Awaitable[None]]
 RoundWaitingCallback = Callable[[CombatEncounter], Awaitable[None]]
 CombatEndedCallback = Callable[[CombatEncounter, CombatRoundOutcome], Awaitable[None]]
+PayHandler = Callable[[str, int], bool]
 
 
 logger = logging.getLogger("gradient-bang.combat.manager")
 
 
-TERMINAL_STATES = {"mutual_defeat", "stalemate", "victory"}
+TERMINAL_STATES = {"mutual_defeat", "stalemate", "victory", "toll_satisfied"}
 
 
 def _is_terminal_state(end_state: str | None) -> bool:
@@ -45,6 +47,7 @@ class CombatManager:
         on_round_waiting: Optional[RoundWaitingCallback] = None,
         on_round_resolved: Optional[RoundResolvedCallback] = None,
         on_combat_ended: Optional[CombatEndedCallback] = None,
+        on_pay_action: Optional[PayHandler] = None,
     ) -> None:
         self._encounters: Dict[str, CombatEncounter] = {}
         self._completed: Dict[str, CombatEncounter] = {}
@@ -54,6 +57,7 @@ class CombatManager:
         self._on_round_waiting = on_round_waiting
         self._on_round_resolved = on_round_resolved
         self._on_combat_ended = on_combat_ended
+        self._on_pay_action = on_pay_action
 
     def configure_callbacks(
         self,
@@ -61,6 +65,7 @@ class CombatManager:
         on_round_waiting: Optional[RoundWaitingCallback] = None,
         on_round_resolved: Optional[RoundResolvedCallback] = None,
         on_combat_ended: Optional[CombatEndedCallback] = None,
+        on_pay_action: Optional[PayHandler] = None,
     ) -> None:
         """Update callback hooks at runtime."""
 
@@ -70,6 +75,113 @@ class CombatManager:
             self._on_round_resolved = on_round_resolved
         if on_combat_ended is not None:
             self._on_combat_ended = on_combat_ended
+        if on_pay_action is not None:
+            self._on_pay_action = on_pay_action
+
+    def _process_toll_payment(
+        self,
+        encounter: CombatEncounter,
+        payer_id: str,
+        target_id: Optional[str],
+    ) -> tuple[bool, Optional[str]]:
+        if not isinstance(encounter.context, dict):
+            return False, None
+        registry = encounter.context.get("toll_registry")
+        if not isinstance(registry, dict) or not registry:
+            return False, None
+
+        garrison_id = None
+        if target_id and target_id in registry:
+            garrison_id = target_id
+        else:
+            for gid in registry.keys():
+                garrison_id = gid
+                break
+        if not garrison_id:
+            return False, None
+
+        entry = registry.get(garrison_id)
+        if not isinstance(entry, dict):
+            return False, None
+
+        amount = int(entry.get("toll_amount", 0))
+        owner_id = entry.get("owner_id") if isinstance(entry.get("owner_id"), str) else None
+
+        if amount < 0:
+            amount = 0
+
+        if amount > 0:
+            if not self._on_pay_action or not self._on_pay_action(payer_id, amount):
+                return False, None
+
+        entry["paid"] = True
+        entry["paid_round"] = encounter.round_number
+        current_balance = int(entry.get("toll_balance", 0))
+        entry["toll_balance"] = current_balance + amount
+        payments = entry.setdefault("payments", [])
+        if isinstance(payments, list):
+            payments.append({
+                "payer": payer_id,
+                "amount": amount,
+                "round": encounter.round_number,
+            })
+
+        # Keep garrison source metadata in sync for redeployment bookkeeping
+        sources = encounter.context.get("garrison_sources")
+        if isinstance(sources, list) and owner_id:
+            for source in sources:
+                if source.get("owner_id") == owner_id:
+                    source["toll_balance"] = entry["toll_balance"]
+
+        return True, garrison_id
+
+    def _check_toll_standdown(self, encounter: CombatEncounter, outcome: CombatRoundOutcome) -> bool:
+        if not isinstance(encounter.context, dict):
+            return False
+        registry = encounter.context.get("toll_registry")
+        if not isinstance(registry, dict) or not registry:
+            return False
+
+        for garrison_id, entry in registry.items():
+            if not entry.get("paid"):
+                continue
+            paid_round = entry.get("paid_round")
+            if paid_round != encounter.round_number:
+                continue
+            action = outcome.effective_actions.get(garrison_id)
+            if action and action.action not in {CombatantAction.BRACE, CombatantAction.PAY}:
+                continue
+            others_braced = True
+            for pid, participant_action in outcome.effective_actions.items():
+                if pid == garrison_id:
+                    continue
+                if participant_action.action not in {CombatantAction.BRACE, CombatantAction.PAY}:
+                    others_braced = False
+                    break
+            if others_braced:
+                return True
+        return False
+
+    def _require_toll_followup(self, encounter: CombatEncounter) -> bool:
+        if not isinstance(encounter.context, dict):
+            return False
+        registry = encounter.context.get("toll_registry")
+        if not isinstance(registry, dict) or not registry:
+            return False
+        for garrison_id, entry in registry.items():
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("paid"):
+                continue
+            participant = encounter.participants.get(garrison_id)
+            if not participant or participant.fighters <= 0:
+                continue
+            for pid, state in encounter.participants.items():
+                if pid == garrison_id:
+                    continue
+                if state.combatant_type == "character" and state.fighters > 0:
+                    return True
+        return False
 
 
     # ------------------------------------------------------------------
@@ -131,9 +243,49 @@ class CombatManager:
             else:
                 target_id = None
 
+            if action == CombatantAction.PAY:
+                success, resolved_target = self._process_toll_payment(
+                    encounter,
+                    combatant_id,
+                    target_id,
+                )
+                if not success:
+                    logger.info(
+                        "Pay action treated as brace: combat_id=%s combatant=%s",
+                        combat_id,
+                        combatant_id,
+                    )
+                    action = CombatantAction.BRACE
+                    target_id = None
+                else:
+                    target_id = resolved_target
+                    # Any toll garrison that still has an attack queued this round should stand down.
+                    if isinstance(encounter.context, dict):
+                        registry = encounter.context.get("toll_registry")
+                        if isinstance(registry, dict):
+                            for gid, entry in registry.items():
+                                if not isinstance(entry, dict) or not entry.get("paid"):
+                                    continue
+                                paid_round = entry.get("paid_round")
+                                if paid_round != encounter.round_number:
+                                    continue
+                                pending = encounter.pending_actions.get(gid)
+                                if pending and pending.action == CombatantAction.ATTACK:
+                                    encounter.pending_actions[gid] = replace(
+                                        pending,
+                                        action=CombatantAction.BRACE,
+                                        commit=0,
+                                        target_id=None,
+                                    )
+                commit = 0
+            elif action == CombatantAction.ATTACK:
+                commit = max(0, commit)
+            else:
+                commit = 0
+
             encounter.pending_actions[combatant_id] = RoundAction(
                 action=action,
-                commit=max(0, commit),
+                commit=commit,
                 target_id=target_id,
                 destination_sector=destination_sector,
             )
@@ -231,12 +383,24 @@ class CombatManager:
             )
             outcome = resolve_round(encounter, action_map)
             round_result = outcome.end_state
+            if round_result == "stalemate" and self._require_toll_followup(encounter):
+                logger.info(
+                    "Toll demand unresolved for combat_id=%s; continuing after stalemate",
+                    combat_id,
+                )
+                round_result = None
+                outcome.end_state = None
             logger.info(
                 "Round result computed: combat_id=%s round=%s result=%s",
                 combat_id,
                 encounter.round_number,
                 round_result,
             )
+
+            if self._check_toll_standdown(encounter, outcome):
+                round_result = "toll_satisfied"
+                outcome.end_state = round_result
+
             setattr(outcome, "round_result", round_result)
 
             log = CombatRoundLog(
@@ -268,6 +432,7 @@ class CombatManager:
                 encounter.ended = True
                 encounter.end_state = round_result
                 callbacks.append(("resolved", encounter, outcome))
+                callbacks.append(("final_resolved", encounter, outcome))
                 callbacks.append(("ended", encounter, outcome))
                 self._encounters.pop(combat_id, None)
                 self._completed[combat_id] = encounter
@@ -297,6 +462,8 @@ class CombatManager:
             )
             try:
                 if tag == "resolved":
+                    await self._emit_round_resolved(enc, out)
+                elif tag == "final_resolved":
                     await self._emit_round_resolved(enc, out)
                 elif tag == "waiting":
                     await self._emit_round_waiting(enc)

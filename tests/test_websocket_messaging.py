@@ -13,8 +13,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "game-server"))
 
 from server import app  # type: ignore
 from core.world import world  # type: ignore
-from core.world import UniverseGraph  # type: ignore
+from core.world import UniverseGraph, Character  # type: ignore
 from port_manager import PortManager  # type: ignore
+from ships import ShipType  # type: ignore
 
 
 @pytest.fixture(scope="module")
@@ -294,4 +295,141 @@ def test_sector_observers_receive_redacted_movement(ws_client):
         assert teleport_arrive["name"] == "Mover"
         assert teleport_depart["move_type"] == "teleport"
         assert teleport_depart["movement"] == "depart"
+
+
+def test_toll_payment_via_combat_action(ws_client):
+    sector_toll = 3
+    entry_sector = 1
+    owner_id = "toll-owner"
+    mover_id = "toll-runner"
+    toll_amount = 23
+
+    # Reset garrison state for the sector
+    if world.garrisons is None:
+        pytest.skip("Garrison system unavailable")
+    for garrison in world.garrisons.list_sector(sector_toll):
+        world.garrisons.remove(sector_toll, garrison.owner_id)
+
+    # Initialise ships and credits
+    world.knowledge_manager.initialize_ship(owner_id, ShipType.KESTREL_COURIER)
+    world.knowledge_manager.initialize_ship(mover_id, ShipType.KESTREL_COURIER)
+
+    owner_knowledge = world.knowledge_manager.load_knowledge(owner_id)
+    owner_knowledge.current_sector = sector_toll
+    owner_knowledge.ship_config.current_fighters = 0
+    owner_knowledge.ship_config.current_shields = 150
+    world.knowledge_manager.save_knowledge(owner_knowledge)
+
+    mover_knowledge = world.knowledge_manager.load_knowledge(mover_id)
+    mover_knowledge.current_sector = entry_sector
+    mover_knowledge.ship_config.current_fighters = 120
+    mover_knowledge.ship_config.current_shields = 150
+    world.knowledge_manager.save_knowledge(mover_knowledge)
+
+    world.characters[owner_id] = Character(
+        owner_id,
+        sector=sector_toll,
+        fighters=0,
+        shields=150,
+        max_fighters=300,
+        max_shields=150,
+        connected=False,
+    )
+    world.characters[mover_id] = Character(
+        mover_id,
+        sector=entry_sector,
+        fighters=120,
+        shields=150,
+        max_fighters=300,
+        max_shields=150,
+        connected=False,
+    )
+
+    world.knowledge_manager.update_credits(owner_id, 100)
+    world.knowledge_manager.update_credits(mover_id, 100)
+
+    world.garrisons.deploy(
+        sector_id=sector_toll,
+        owner_id=owner_id,
+        fighters=20,
+        mode="toll",
+        toll_amount=toll_amount,
+        toll_balance=0,
+    )
+
+    with (
+        ws_client.websocket_connect("/ws") as owner,
+        ws_client.websocket_connect("/ws") as mover,
+    ):
+        _join_character(owner, owner_id, sector=sector_toll)
+        _join_character(mover, mover_id, sector=entry_sector)
+
+        # Move the runner into the toll sector to trigger combat
+        mover.send_text(
+            json.dumps(
+                {
+                    "id": "move-to-toll",
+                    "type": "rpc",
+                    "endpoint": "move",
+                    "payload": {"character_id": mover_id, "to_sector": sector_toll},
+                }
+            )
+        )
+        _recv_until(
+            mover,
+            lambda msg: msg.get("frame_type") == "rpc"
+            and msg.get("endpoint") == "move"
+            and msg.get("ok") is True,
+        )
+
+        combat_start = _recv_until_event(mover, "combat.started")
+        combat_id = combat_start.get("combat_id")
+        assert combat_id
+
+        round_waiting = _recv_until_event(mover, "combat.round_waiting")
+        round_number = round_waiting.get("round") or 1
+
+        # Pay the toll during the demand round
+        mover.send_text(
+            json.dumps(
+                {
+                    "id": "pay-1",
+                    "type": "rpc",
+                    "endpoint": "combat.action",
+                    "payload": {
+                        "character_id": mover_id,
+                        "combat_id": combat_id,
+                        "action": "pay",
+                        "round": round_number,
+                    },
+                }
+            )
+        )
+        pay_response = _recv_until(
+            mover,
+            lambda msg: msg.get("frame_type") == "rpc"
+            and msg.get("endpoint") == "combat.action"
+            and msg.get("id") == "pay-1",
+        )
+
+        payload = pay_response.get("result", {})
+        assert payload.get("pay_processed") is True
+
+        resolved = _recv_until_event(mover, "combat.round_resolved")
+        ended = _recv_until_event(mover, "combat.ended")
+
+        result_flag = ended.get("result") or ended.get("end")
+        assert result_flag in {"stalemate", "toll_satisfied"}
+
+        # Toll balance should remain on the garrison until collected
+        garrisons = world.garrisons.list_sector(sector_toll)
+        assert garrisons and garrisons[0].toll_balance == toll_amount
+
+        # Credits were debited from the payer
+        remaining = world.knowledge_manager.get_credits(mover_id)
+        assert remaining == 100 - toll_amount
+
+    # Clean up sector garrison for subsequent tests
+    for garrison in world.garrisons.list_sector(sector_toll):
+        world.garrisons.remove(sector_toll, garrison.owner_id)
 _PENDING_FRAMES: Dict[int, List[Dict[str, Any]]] = defaultdict(list)

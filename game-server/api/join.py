@@ -165,7 +165,7 @@ async def handle(request: dict, world) -> dict:
             for garrison in world.garrisons.list_sector(character.sector):
                 if garrison.owner_id == character_id:
                     continue
-                if garrison.mode in {"offensive", "toll"}:
+                if garrison.mode == "offensive":
                     auto_garrisons.append(garrison)
 
         if auto_garrisons:

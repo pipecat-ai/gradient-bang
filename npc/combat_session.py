@@ -6,7 +6,7 @@ import asyncio
 import logging
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple
 
 from utils.api_client import AsyncGameClient
 
@@ -111,6 +111,7 @@ class CombatSession:
         self._ship_status: Optional[Dict[str, Any]] = None
         self._last_status: Optional[Dict[str, Any]] = None
         self._last_injected_payloads: set[Tuple[str, int, str]] = set()
+        self._toll_paid: Set[str] = set()
 
         if initial_status:
             self._apply_status(initial_status)
@@ -180,6 +181,39 @@ class CombatSession:
     def sector_snapshot(self) -> Dict[str, Any]:
         return deepcopy(self._sector_state)
 
+    def sector_garrisons(self) -> List[Dict[str, Any]]:
+        entries: Dict[str, Dict[str, Any]] = {}
+        base_entries = self._sector_state.get("garrisons") or []
+        for raw in base_entries:
+            if not isinstance(raw, Mapping):
+                continue
+            entry = dict(raw)
+            owner = entry.get("owner_id")
+            key = (
+                f"garrison:{self._current_sector}:{owner}"
+                if owner is not None and self._current_sector is not None
+                else str(owner)
+            )
+            entries[key] = entry
+
+        if self._combat_state:
+            for pid, participant in self._combat_state.participants.items():
+                participant_type = getattr(participant, "type", None) or getattr(
+                    participant, "combatant_type", None
+                )
+                if participant_type != "garrison":
+                    continue
+                merged = dict(entries.get(pid, {}))
+                merged.setdefault("owner_id", participant.owner)
+                merged.setdefault(
+                    "is_friendly", participant.owner == self.character_id
+                )
+                merged["fighters"] = participant.fighters
+                merged["max_fighters"] = participant.max_fighters
+                entries[pid] = merged
+
+        return list(entries.values())
+
     def ship_status(self) -> Optional[Dict[str, Any]]:
         return deepcopy(self._ship_status) if self._ship_status else None
 
@@ -211,7 +245,47 @@ class CombatSession:
         if participant.fighters > 0 and opponents:
             actions.append("attack")
         actions.extend(["brace", "flee"])
+        toll_targets = self.toll_targets()
+        if toll_targets and "pay" not in actions:
+            actions.insert(0, "pay")
         return actions
+
+    def toll_targets(self) -> Set[str]:
+        if not self._combat_state:
+            return set()
+        return {
+            gid
+            for gid in self._compute_toll_targets()
+            if gid in self._combat_state.participants
+            and gid not in self._toll_paid
+            and self._combat_state.participants[gid].fighters > 0
+        }
+
+    def mark_toll_paid(self, combatant_ids: Iterable[str]) -> None:
+        for cid in combatant_ids:
+            if cid:
+                self._toll_paid.add(str(cid))
+
+    def _compute_toll_targets(self) -> Set[str]:
+        if self._current_sector is None:
+            return set()
+        garrisons = self._sector_state.get("garrisons") or []
+        targets: Set[str] = set()
+        for entry in garrisons:
+            if not isinstance(entry, Mapping):
+                continue
+            if str(entry.get("mode")) != "toll":
+                continue
+            if entry.get("is_friendly"):
+                continue
+            fighters = int(entry.get("fighters", 0) or 0)
+            if fighters <= 0:
+                continue
+            owner_id = entry.get("owner_id")
+            if not owner_id:
+                continue
+            targets.add(f"garrison:{self._current_sector}:{owner_id}")
+        return targets
 
     async def apply_outcome_payload(
         self,
@@ -483,14 +557,18 @@ class CombatSession:
             self.logger.exception("Failed to refresh status after movement event")
             return
 
-        if isinstance(status, dict):
-            status_dict = dict(status)
-            async with self._status_lock:
-                changed = self._apply_status(status_dict)
-            if changed:
-                async with self._occupant_condition:
-                    self._occupant_version += 1
-                    self._occupant_condition.notify_all()
+        await self.update_from_status(status)
+
+    async def update_from_status(self, status: Mapping[str, Any]) -> None:
+        if not isinstance(status, Mapping):
+            return
+        status_dict = dict(status)
+        async with self._status_lock:
+            changed = self._apply_status(status_dict)
+        if changed:
+            async with self._occupant_condition:
+                self._occupant_version += 1
+                self._occupant_condition.notify_all()
 
     def _event_involves_me(self, payload: Dict[str, Any]) -> bool:
         participants = payload.get("participants") or {}
@@ -548,6 +626,7 @@ class CombatSession:
         self._player_combatant_id = self._resolve_player_combatant_id(participants)
         self._combat_active = True
         self._last_injected_payloads.clear()
+        self._toll_paid.clear()
 
         async with self._combat_condition:
             self._combat_condition.notify_all()
@@ -594,6 +673,10 @@ class CombatSession:
             participant = self._combat_state.participants.get(pid)
             if participant is not None:
                 participant.fighters = int(remaining)
+        for gid in list(self._toll_paid):
+            participant = self._combat_state.participants.get(gid)
+            if participant is None or participant.fighters <= 0:
+                self._toll_paid.discard(gid)
         for pid, remaining in shields_remaining.items():
             participant = self._combat_state.participants.get(pid)
             if participant is not None:
@@ -632,6 +715,7 @@ class CombatSession:
         self._combat_state.salvage = deepcopy(payload.get("salvage") or [])
         self._combat_state.last_event = "combat.ended"
         self._combat_active = False
+        self._toll_paid.clear()
 
         await self._enqueue_combat_event("combat.ended", payload)
 

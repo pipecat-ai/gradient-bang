@@ -82,6 +82,19 @@ async def handle(request: dict, world) -> dict:
         response["round"] = updated.round_number
         response["ended"] = updated.ended
 
+    if action == CombatantAction.PAY:
+        pay_processed = None
+        if outcome:
+            effective = outcome.effective_actions.get(character_id) if outcome.effective_actions else None
+            pay_processed = bool(effective and effective.action == CombatantAction.PAY)
+        elif updated:
+            pending = updated.pending_actions.get(character_id) if hasattr(updated, "pending_actions") else None
+            pay_processed = bool(pending and pending.action == CombatantAction.PAY)
+        if pay_processed is not None:
+            response["pay_processed"] = pay_processed
+            if not pay_processed:
+                response["message"] = "Payment failed; action treated as brace."
+
     if outcome:
         response["outcome"] = serialize_round(updated or encounter, outcome, include_logs=True)
         response["round_resolved"] = True

@@ -542,15 +542,13 @@ class SimpleTUI(App):
             salvage = payload.get("salvage") or []
             if salvage:
                 await self._append_log(f"Salvage available: {salvage}")
-            current_sector = self.session.sector if self.session else None
-            if current_sector is not None:
-                await self._append_log(f"Current sector: {current_sector}")
             await self._log_my_action(state, payload, deltas)
             self._combatant_stats.clear()
             self._last_player_stats = (fighters, shields)
             if self.session:
                 await self._handle_occupants(self.session.other_players())
             await self._return_to_task_mode()
+            await self._refresh_status(reason="combat ended")
             return
 
     async def _cancel_round_prompt(self) -> None:
@@ -745,9 +743,13 @@ class SimpleTUI(App):
         garrisons_list: Sequence[Mapping[str, Any]] = []
         port_info: Optional[Mapping[str, Any]] = None
 
+        if self.session is not None:
+            garrisons_list = self.session.sector_garrisons()
+
         if isinstance(snapshot, Mapping):
             other_players_list = snapshot.get("other_players") or []
-            garrisons_list = snapshot.get("garrisons") or []
+            if not garrisons_list:
+                garrisons_list = snapshot.get("garrisons") or []
             port_info = snapshot.get("port")
 
         self._update_occupant_display(players_map, other_players_list, garrisons_list)
@@ -782,12 +784,15 @@ class SimpleTUI(App):
                 continue
             owner_id = garrison.get("owner_id")
             fighters = garrison.get("fighters")
+            max_fighters = garrison.get("max_fighters")
             mode = garrison.get("mode")
             friendly = garrison.get("is_friendly")
             if fighters is None:
                 continue
             owner_label = "you" if owner_id == self.character else str(owner_id or "?")
             tag = f"{owner_label}:{fighters}"
+            if isinstance(max_fighters, (int, float)) and max_fighters:
+                tag += f"/{int(max_fighters)}"
             if mode:
                 tag += f"({mode})"
             if friendly:
@@ -1012,6 +1017,8 @@ class SimpleTUI(App):
                 f"Failed to refresh status{': ' + reason if reason else ''}: {exc!r}"
             )
             return
+        if self.session is not None:
+            await self.session.update_from_status(status)
         self._sync_status_bar_from_status(status)
 
     async def _prompt_for_round_action(self, state, payload: Dict[str, Any]) -> None:
@@ -1020,6 +1027,10 @@ class SimpleTUI(App):
             return
 
         actions = session.available_actions() or ["brace"]
+        if "pay" in actions:
+            await self._append_log(
+                "Toll fighters demand payment. Choose 'pay' to satisfy the toll in full."
+            )
         prompt = f"Action [{'/'.join(actions)}]"
         action = await self._prompt_choice(
             prompt, options=tuple(actions), default="brace"
@@ -1318,6 +1329,20 @@ class SimpleTUI(App):
         session = self.session
         if session is None:
             return
+
+        pay_processed = response.get("pay_processed")
+        if isinstance(pay_processed, bool):
+            if pay_processed:
+                targets = session.toll_targets()
+                session.mark_toll_paid(targets)
+                await self._append_log(
+                    "Toll paid successfully. Fighters should stand down once the round resolves."
+                )
+            else:
+                message = response.get("message")
+                await self._append_log(
+                    message or "Toll payment failed; your turn counts as a brace."
+                )
 
         outcome = response.get("outcome")
         if not isinstance(outcome, Mapping):

@@ -65,6 +65,7 @@ async def app_lifespan(app: FastAPI):
                 on_round_waiting=_combat_round_waiting,
                 on_round_resolved=_combat_round_resolved,
                 on_combat_ended=_combat_ended,
+                on_pay_action=_handle_toll_payment,
             )
         yield
 
@@ -172,6 +173,28 @@ def _garrison_commit_for_mode(mode: str, fighters: int) -> int:
     return max(1, min(fighters, max(50, fighters // 2)))
 
 
+def _handle_toll_payment(payer_id: str, amount: int) -> bool:
+    if amount <= 0:
+        return True
+    try:
+        credits = world.knowledge_manager.get_credits(payer_id)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Unable to read credits for %s during toll payment: %s", payer_id, exc)
+        return False
+    if credits < amount:
+        logger.info(
+            "Toll payment declined for %s (credits=%s, required=%s)",
+            payer_id,
+            credits,
+            amount,
+        )
+        return False
+    world.knowledge_manager.update_credits(payer_id, credits - amount)
+    asyncio.create_task(_emit_status_update(payer_id))
+    logger.info("Toll payment accepted: payer=%s amount=%s", payer_id, amount)
+    return True
+
+
 async def _combat_round_waiting(encounter) -> None:
     payload = serialize_encounter(encounter)
     payload["sector"] = encounter.sector_id
@@ -206,6 +229,11 @@ async def _auto_submit_garrisons(encounter) -> None:
             if isinstance(single, dict):
                 garrison_sources = [dict(single)]
 
+    if not isinstance(encounter.context, dict):
+        encounter.context = {}
+    ctx: dict[str, object] = encounter.context  # type: ignore[assignment]
+    toll_registry: dict[str, dict[str, object]] = ctx.setdefault("toll_registry", {})  # type: ignore[arg-type]
+
     for state in encounter.participants.values():
         if state.combatant_type != "garrison":
             continue
@@ -216,34 +244,121 @@ async def _auto_submit_garrisons(encounter) -> None:
             {},
         )
         mode = source.get("mode", "offensive")
-        commit = _garrison_commit_for_mode(mode, state.fighters)
-        if commit <= 0:
+        mode = (mode or "offensive").lower()
+
+        if mode != "toll":
+            commit = _garrison_commit_for_mode(mode, state.fighters)
+            if commit <= 0:
+                continue
+            target_candidates = [
+                participant
+                for participant in encounter.participants.values()
+                if participant.combatant_type == "character"
+                and participant.combatant_id != state.combatant_id
+                and participant.fighters > 0
+                and participant.owner_character_id != state.owner_character_id
+            ]
+            if not target_candidates:
+                continue
+            target_candidates.sort(
+                key=lambda participant: (
+                    participant.fighters,
+                    participant.shields,
+                    participant.combatant_id,
+                ),
+                reverse=True,
+            )
+            try:
+                await manager.submit_action(
+                    combat_id=encounter.combat_id,
+                    combatant_id=state.combatant_id,
+                    action=CombatantAction.ATTACK,
+                    commit=commit,
+                    target_id=target_candidates[0].combatant_id,
+                )
+            except ValueError:
+                continue
             continue
-        target_candidates = [
-            participant
-            for participant in encounter.participants.values()
-            if participant.combatant_type == "character"
-            and participant.combatant_id != state.combatant_id
-            and participant.fighters > 0
-            and participant.owner_character_id != state.owner_character_id
-        ]
-        if not target_candidates:
-            continue
-        target_candidates.sort(
-            key=lambda participant: (
-                participant.fighters,
-                participant.shields,
-                participant.combatant_id,
-            ),
-            reverse=True,
+
+        # Toll-specific automation
+        entry = toll_registry.setdefault(
+            state.combatant_id,
+            {
+                "owner_id": state.owner_character_id,
+                "toll_amount": source.get("toll_amount", 0),
+                "toll_balance": source.get("toll_balance", 0),
+                "target_id": None,
+                "paid": False,
+                "paid_round": None,
+                "demand_round": encounter.round_number,
+            },
         )
+
+        # Ensure initial target selection
+        if entry.get("target_id") is None:
+            initiator_id = ctx.get("initiator") if isinstance(ctx.get("initiator"), str) else None
+            if (
+                initiator_id
+                and initiator_id in encounter.participants
+                and encounter.participants[initiator_id].combatant_type == "character"
+                and encounter.participants[initiator_id].owner_character_id != state.owner_character_id
+                and encounter.participants[initiator_id].fighters > 0
+            ):
+                entry["target_id"] = initiator_id
+
+            if entry.get("target_id") is None:
+                target_candidates = [
+                    participant
+                    for participant in encounter.participants.values()
+                    if participant.combatant_type == "character"
+                    and participant.owner_character_id != state.owner_character_id
+                    and participant.fighters > 0
+                ]
+                target_candidates.sort(
+                    key=lambda participant: (
+                        participant.fighters,
+                        participant.shields,
+                        participant.combatant_id,
+                    ),
+                    reverse=True,
+                )
+                if target_candidates:
+                    entry["target_id"] = target_candidates[0].combatant_id
+
+        target_id = entry.get("target_id")
+        target_state = (
+            encounter.participants.get(target_id) if isinstance(target_id, str) else None
+        )
+
+        # First round demand (brace)
+        demand_round = entry.setdefault("demand_round", encounter.round_number)
+        already_paid = bool(entry.get("paid"))
+        paid_round = entry.get("paid_round")
+        target_available = bool(target_state and target_state.fighters > 0)
+
+        action = CombatantAction.BRACE
+        commit = 0
+        submit_target: Optional[str] = None
+
+        if already_paid and (paid_round is None or paid_round <= encounter.round_number):
+            action = CombatantAction.BRACE
+        elif not already_paid and target_available:
+            if encounter.round_number == demand_round:
+                action = CombatantAction.BRACE
+            else:
+                action = CombatantAction.ATTACK
+                commit = state.fighters
+                submit_target = target_state.combatant_id
+        else:
+            action = CombatantAction.BRACE
+
         try:
             await manager.submit_action(
                 combat_id=encounter.combat_id,
                 combatant_id=state.combatant_id,
-                action=CombatantAction.ATTACK,
+                action=action,
                 commit=commit,
-                target_id=target_candidates[0].combatant_id,
+                target_id=submit_target,
             )
         except ValueError:
             continue
@@ -256,31 +371,8 @@ async def _combat_round_resolved(encounter, outcome) -> None:
         outcome.round_number,
         outcome.end_state,
     )
-    payload = serialize_round(encounter, outcome, include_logs=True)
-    payload["combat_id"] = encounter.combat_id
-    payload["sector"] = encounter.sector_id
-    logger.info(
-        "round_resolved payload combat_id=%s round=%s result=%s end=%s",
-        encounter.combat_id,
-        payload.get("round"),
-        payload.get("result"),
-        payload.get("end"),
-    )
-    logger.info("payload dump %s", payload)
-    logger.debug(
-        "Emitting combat.round_resolved: combat_id=%s round=%s end_state=%s",
-        encounter.combat_id,
-        outcome.round_number,
-        outcome.end_state,
-    )
-    await event_dispatcher.emit(
-        "combat.round_resolved",
-        payload,
-        character_filter=_combat_character_filter(encounter),
-    )
-    logger.debug("combat.round_resolved emitted, syncing participants")
-
     flee_followups: List[Dict[str, Any]] = []
+    recent_flee_ids: List[str] = []
     if outcome.flee_results:
         for pid, fled in outcome.flee_results.items():
             if not fled:
@@ -301,6 +393,39 @@ async def _combat_round_resolved(encounter, outcome) -> None:
                     "shields": outcome.shields_remaining.get(pid),
                 }
             )
+            recent_flee_ids.append(str(pid))
+
+    if recent_flee_ids:
+        encounter.context["recent_flee_character_ids"] = recent_flee_ids.copy()
+    else:
+        encounter.context.pop("recent_flee_character_ids", None)
+
+    payload = serialize_round(encounter, outcome, include_logs=True)
+    payload["combat_id"] = encounter.combat_id
+    payload["sector"] = encounter.sector_id
+    logger.info(
+        "round_resolved payload combat_id=%s round=%s result=%s end=%s",
+        encounter.combat_id,
+        payload.get("round"),
+        payload.get("result"),
+        payload.get("end"),
+    )
+    logger.info("payload dump %s", payload)
+    logger.debug(
+        "Emitting combat.round_resolved: combat_id=%s round=%s end_state=%s",
+        encounter.combat_id,
+        outcome.round_number,
+        outcome.end_state,
+    )
+    base_filter = _combat_character_filter(encounter)
+    notify_ids = set(base_filter)
+    notify_ids.update(recent_flee_ids)
+    await event_dispatcher.emit(
+        "combat.round_resolved",
+        payload,
+        character_filter=sorted(notify_ids),
+    )
+    logger.debug("combat.round_resolved emitted, syncing participants")
 
     # Sync knowledge + push status updates
     for state in encounter.participants.values():
@@ -382,10 +507,15 @@ async def _combat_ended(encounter, outcome) -> None:
         "combat.ended payload %s",
         payload,
     )
+    base_filter = _combat_character_filter(encounter)
+    recent_flee_ids = encounter.context.pop("recent_flee_character_ids", [])
+    notify_ids = set(base_filter)
+    if isinstance(recent_flee_ids, list):
+        notify_ids.update(str(cid) for cid in recent_flee_ids if cid)
     await event_dispatcher.emit(
         "combat.ended",
         payload,
-        character_filter=_combat_character_filter(encounter),
+        character_filter=sorted(notify_ids),
     )
     logger.debug("_combat_ended complete: combat_id=%s", encounter.combat_id)
 
@@ -446,6 +576,7 @@ async def _finalize_combat(encounter, outcome):
 
     garrison_lookup = {entry.get("owner_id"): entry for entry in garrison_sources if entry.get("owner_id")}
     notified_owners: set[str] = set()
+    toll_winnings: Dict[str, int] = {}
 
     for pid, state in encounter.participants.items():
         if state.combatant_type != "garrison":
@@ -455,15 +586,40 @@ async def _finalize_combat(encounter, outcome):
             source_info = garrison_lookup.get(owner, {})
             mode = source_info.get("mode", "offensive")
             toll_amount = source_info.get("toll_amount", 0)
-            world.garrisons.deploy(
-                sector_id=encounter.sector_id,
-                owner_id=owner,
-                fighters=state.fighters,
-                mode=mode,
-                toll_amount=toll_amount,
-            )
+            try:
+                world.garrisons.deploy(
+                    sector_id=encounter.sector_id,
+                    owner_id=owner,
+                    fighters=state.fighters,
+                    mode=mode,
+                    toll_amount=toll_amount,
+                    toll_balance=source_info.get("toll_balance", 0),
+                )
+            except ValueError as exc:
+                logger.warning(
+                    "Failed to redeploy garrison for owner=%s sector=%s: %s",
+                    owner,
+                    encounter.sector_id,
+                    exc,
+                )
+                continue
             await _emit_status_update(owner)
             notified_owners.add(owner)
+
+    surviving_garrison_owners = {
+        state.owner_character_id
+        for state in encounter.participants.values()
+        if state.combatant_type == "garrison" and state.owner_character_id and state.fighters > 0
+    }
+
+    for source in garrison_sources:
+        owner = source.get("owner_id")
+        if not owner or owner in surviving_garrison_owners:
+            continue
+        balance = int(source.get("toll_balance", 0) or 0)
+        if balance <= 0 or not winner_owner:
+            continue
+        toll_winnings[winner_owner] = toll_winnings.get(winner_owner, 0) + balance
 
     if garrison_sources and world.garrisons:
         await event_dispatcher.emit(
@@ -478,6 +634,16 @@ async def _finalize_combat(encounter, outcome):
             owner = source.get("owner_id")
             if owner and owner not in notified_owners:
                 await _emit_status_update(owner)
+
+    for recipient, amount in toll_winnings.items():
+        credits = world.knowledge_manager.get_credits(recipient)
+        world.knowledge_manager.update_credits(recipient, credits + amount)
+        logger.info(
+            "Awarded %s toll credits to victor %s from destroyed garrisons",
+            amount,
+            recipient,
+        )
+        await _emit_status_update(recipient)
 
     # Handle defeated characters -> salvage + escape pod conversion
     for loser_pid in losers:

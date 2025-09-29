@@ -58,13 +58,18 @@ async def handle(request: dict, world) -> dict:
 
     existing = next((g for g in existing_garrisons if g.owner_id == character_id), None)
     new_total = quantity + (existing.fighters if existing else 0)
-    updated = world.garrisons.deploy(
-        sector_id=sector,
-        owner_id=character_id,
-        fighters=new_total,
-        mode=mode,
-        toll_amount=toll_amount,
-    )
+    existing_balance = existing.toll_balance if existing else None
+    try:
+        updated = world.garrisons.deploy(
+            sector_id=sector,
+            owner_id=character_id,
+            fighters=new_total,
+            mode=mode,
+            toll_amount=toll_amount,
+            toll_balance=existing_balance,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     updated_knowledge = world.knowledge_manager.load_knowledge(character_id)
     remaining = updated_knowledge.ship_config.current_fighters

@@ -29,6 +29,11 @@ async def handle(request: dict, world) -> dict:
         raise HTTPException(status_code=400, detail="Cannot collect more fighters than stationed")
 
     remaining_fighters = garrison.fighters - quantity
+    toll_payout = garrison.toll_balance if garrison.mode == "toll" else 0
+    if toll_payout > 0:
+        current_credits = world.knowledge_manager.get_credits(character_id)
+        world.knowledge_manager.update_credits(character_id, current_credits + toll_payout)
+
     if remaining_fighters > 0:
         world.garrisons.deploy(
             sector_id=sector,
@@ -36,6 +41,7 @@ async def handle(request: dict, world) -> dict:
             fighters=remaining_fighters,
             mode=garrison.mode,
             toll_amount=garrison.toll_amount,
+            toll_balance=0,
         )
     else:
         world.garrisons.remove(sector, character_id)
@@ -60,11 +66,13 @@ async def handle(request: dict, world) -> dict:
 
     return {
         "sector": sector,
+        "credits_collected": toll_payout,
         "garrison": None if remaining_fighters <= 0 else {
             "owner_id": character_id,
             "fighters": remaining_fighters,
             "mode": garrison.mode,
             "toll_amount": garrison.toll_amount,
+            "toll_balance": 0,
             "deployed_at": garrison.deployed_at,
         },
         "fighters_on_ship": updated_knowledge.ship_config.current_fighters,

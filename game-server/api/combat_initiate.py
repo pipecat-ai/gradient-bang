@@ -63,6 +63,7 @@ async def start_sector_combat(
                     "fighters": popped.fighters,
                     "mode": popped.mode,
                     "toll_amount": popped.toll_amount,
+                    "toll_balance": popped.toll_balance,
                     "deployed_at": popped.deployed_at,
                 }
             )

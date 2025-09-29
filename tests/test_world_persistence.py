@@ -18,6 +18,7 @@ from character_knowledge import (
     MapKnowledge,
 )
 from fastapi import HTTPException
+from combat.manager import CombatManager
 from combat.models import (
     CombatEncounter,
     CombatRoundOutcome,
@@ -31,6 +32,7 @@ import server
 from api.utils import sector_contents
 from api.combat_initiate import handle as combat_initiate_handle
 from api.combat_leave_fighters import handle as leave_fighters_handle
+from api.combat_collect_fighters import handle as collect_fighters_handle
 from api.join import handle as join_handle
 from api.combat_action import handle as combat_action_handle
 
@@ -147,7 +149,19 @@ async def test_combat_round_updates_persisted_ship_state(hydrated_world):
         },
     )
 
-    await server._combat_round_resolved(encounter, outcome)
+    manager = CombatManager(
+        on_round_waiting=server._combat_round_waiting,
+        on_round_resolved=server._combat_round_resolved,
+        on_combat_ended=server._combat_ended,
+    )
+    manager.configure_callbacks(
+        on_round_waiting=server._combat_round_waiting,
+        on_round_resolved=server._combat_round_resolved,
+        on_combat_ended=server._combat_ended,
+    )
+    world.combat_manager = manager
+    await manager.start_encounter(encounter, emit_waiting=False)
+    await manager._resolve_round(encounter.combat_id)
 
     knowledge = world.knowledge_manager.load_knowledge("khk_aggressive")
     assert knowledge.ship_config.current_fighters == 80
@@ -245,6 +259,142 @@ async def test_auto_engage_on_offensive_garrison(monkeypatch, hydrated_world):
     participants = set(encounter.participants.keys())
     assert newcomer in participants
     assert any(pid.startswith("garrison:") for pid in participants)
+
+
+@pytest.mark.asyncio
+async def test_collect_fighters_returns_toll_balance(monkeypatch, hydrated_world):
+    world, _ = hydrated_world
+
+    if world.garrisons is None:
+        pytest.skip("Garrison system unavailable")
+
+    async def noop_event(*args, **kwargs):  # pragma: no cover - test stub
+        return None
+
+    monkeypatch.setattr(server.event_dispatcher, "emit", noop_event)
+
+    owner_id = "toll_owner"
+    sector_id = 5
+
+    world.knowledge_manager.initialize_ship(owner_id, ShipType.KESTREL_COURIER)
+    world.knowledge_manager.update_credits(owner_id, 100)
+
+    world.garrisons.deploy(
+        sector_id=sector_id,
+        owner_id=owner_id,
+        fighters=20,
+        mode="toll",
+        toll_amount=25,
+        toll_balance=46,
+    )
+
+    result = await collect_fighters_handle(
+        {
+            "character_id": owner_id,
+            "sector": sector_id,
+            "quantity": 5,
+        },
+        world,
+    )
+
+    assert result["credits_collected"] == 46
+    garrisons = world.garrisons.list_sector(sector_id)
+    assert garrisons[0].toll_balance == 0
+    updated_credits = world.knowledge_manager.get_credits(owner_id)
+    assert updated_credits == 146
+
+
+@pytest.mark.asyncio
+async def test_destroyed_toll_garrison_awards_bank(monkeypatch, hydrated_world):
+    world, _ = hydrated_world
+
+    async def noop_event(*args, **kwargs):  # pragma: no cover - test stub
+        return None
+
+    monkeypatch.setattr(server.event_dispatcher, "emit", noop_event)
+
+    if world.garrisons is None:
+        pytest.skip("Garrison system unavailable")
+
+    attacker = "khk_aggressive"
+    owner = "khk_passive"
+    sector_id = 8
+
+    world.knowledge_manager.update_credits(attacker, 0)
+
+    garrison_state = world.garrisons.deploy(
+        sector_id=sector_id,
+        owner_id=owner,
+        fighters=15,
+        mode="toll",
+        toll_amount=20,
+        toll_balance=50,
+    )
+
+    world.characters[attacker].sector = sector_id
+
+    encounter = CombatEncounter(
+        combat_id="destroy-toll",
+        sector_id=sector_id,
+        participants={
+            f"garrison:{sector_id}:{owner}": CombatantState(
+                combatant_id=f"garrison:{sector_id}:{owner}",
+                combatant_type="garrison",
+                name="Toll Fighters",
+                fighters=0,
+                shields=0,
+                turns_per_warp=0,
+                max_fighters=garrison_state.fighters,
+                max_shields=0,
+                owner_character_id=owner,
+            ),
+            attacker: CombatantState(
+                combatant_id=attacker,
+                combatant_type="character",
+                name=attacker,
+                fighters=10,
+                shields=50,
+                turns_per_warp=5,
+                max_fighters=10,
+                max_shields=50,
+                owner_character_id=attacker,
+            ),
+        },
+        context={
+            "garrison_sources": [
+                {
+                    "owner_id": owner,
+                    "mode": "toll",
+                    "toll_amount": 20,
+                    "toll_balance": 50,
+                }
+            ]
+        },
+    )
+
+    outcome = CombatRoundOutcome(
+        round_number=1,
+        hits={attacker: 0},
+        offensive_losses={attacker: 0},
+        defensive_losses={attacker: 0},
+        shield_loss={attacker: 0},
+        fighters_remaining={
+            attacker: 10,
+            f"garrison:{sector_id}:{owner}": 0,
+        },
+        shields_remaining={
+            attacker: 50,
+            f"garrison:{sector_id}:{owner}": 0,
+        },
+        flee_results={},
+        end_state="victory",
+        effective_actions={},
+    )
+
+    await server._finalize_combat(encounter, outcome)
+
+    updated = world.knowledge_manager.get_credits(attacker)
+    assert updated == 50
 
 
 @pytest.mark.asyncio

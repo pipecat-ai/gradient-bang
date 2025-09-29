@@ -37,14 +37,22 @@ class GarrisonStore:
         fighters: int,
         mode: GarrisonMode,
         toll_amount: int = 0,
+        toll_balance: Optional[int] = None,
     ) -> GarrisonState:
         with self._lock:
             garrisons = self._by_sector.setdefault(sector_id, [])
             existing = _find_garrison(garrisons, owner_id)
+            other_owner = next((g for g in garrisons if g.owner_id != owner_id), None)
+            if other_owner:
+                raise ValueError(
+                    f"Sector {sector_id} already has a garrison owned by {other_owner.owner_id}"
+                )
             if existing:
                 existing.fighters = fighters
                 existing.mode = mode
                 existing.toll_amount = toll_amount
+                if toll_balance is not None:
+                    existing.toll_balance = toll_balance
                 garrison = existing
             else:
                 garrison = GarrisonState(
@@ -52,6 +60,7 @@ class GarrisonStore:
                     fighters=fighters,
                     mode=mode,
                     toll_amount=toll_amount,
+                    toll_balance=toll_balance or 0,
                 )
                 garrisons.append(garrison)
             self._save()
@@ -81,6 +90,8 @@ class GarrisonStore:
                 return None
             garrison.mode = mode
             garrison.toll_amount = toll_amount
+            if mode != "toll":
+                garrison.toll_balance = 0
             self._save()
             return garrison
 

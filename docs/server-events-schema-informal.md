@@ -616,3 +616,8 @@ Example:
 - Push events never carry `error` fields. If a subscription fails, the client learns about it from the RPC error response to the `subscribe` call.
 
 With this reference you can construct every client message, know what to expect back, and consume each server-initiated event confidently. For exhaustive JSON Schema definitions, see `docs/server-events-schema.md`.
+## Toll garrisons and the `pay` combat action
+
+- Toll-mode garrisons now maintain a `toll_balance`. When a player pays the toll during combat, the credits are debited from the payer and banked on the garrison. The owner recovers the balance by collecting or redeploying their fighters; victors receive the balance automatically when the garrison is destroyed.
+- The `combat.action` RPC accepts a new `"action": "pay"` value. On success the response payload includes `"pay_processed": true`; if the player lacks the required credits, `pay_processed` is `false` and the turn reverts to a brace with a human-readable `message`.
+- When toll fighters are paid they immediately brace for the remainder of the encounter. If the same round also resolves their attack while every other participant braces, the round result is the new terminal state `"toll_satisfied"`.
