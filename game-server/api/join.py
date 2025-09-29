@@ -90,17 +90,53 @@ async def handle(request: dict, world) -> dict:
             if sector < 0 or sector >= world.universe_graph.sector_count:
                 raise HTTPException(status_code=400, detail=f"Invalid sector: {sector}")
             old_sector = character.sector
-            character.sector = sector
-            await event_dispatcher.emit(
-                "character.moved",
-                {
+            if old_sector != sector:
+                character.sector = sector
+
+                mover_payload = {
                     "character_id": character_id,
                     "from_sector": old_sector,
                     "to_sector": sector,
                     "timestamp": character.last_active.isoformat(),
                     "move_type": "teleport",
-                },
-            )
+                }
+                await event_dispatcher.emit(
+                    "character.moved",
+                    mover_payload,
+                    character_filter=[character_id],
+                )
+
+                observer_payload = {
+                    "name": character.id,
+                    "ship_type": knowledge.ship_config.ship_type,
+                    "timestamp": character.last_active.isoformat(),
+                    "move_type": "teleport",
+                }
+
+                arriving_observers = [
+                    cid
+                    for cid, info in world.characters.items()
+                    if info.sector == sector and cid != character_id
+                ]
+                departing_observers = [
+                    cid
+                    for cid, info in world.characters.items()
+                    if info.sector == old_sector and cid != character_id
+                ]
+                if arriving_observers:
+                    await event_dispatcher.emit(
+                        "character.moved",
+                        {**observer_payload, "movement": "arrive"},
+                        character_filter=arriving_observers,
+                    )
+                if departing_observers:
+                    await event_dispatcher.emit(
+                        "character.moved",
+                        {**observer_payload, "movement": "depart"},
+                        character_filter=departing_observers,
+                    )
+            else:
+                character.sector = sector
         if credits is not None:
             world.knowledge_manager.update_credits(character_id, credits)
 

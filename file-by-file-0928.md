@@ -20,7 +20,7 @@
 - Normalise chat IDs (e.g., `chat-{id}`) in the store so the panel doesn’t need to create composite keys per render.
 
 ## client/src/schemas/serverEvents.ts
-- Extended the `status.update` schema so each `other_players` entry can optionally include a `ship_type`, matching the richer payload now returned by the server.
+- Updated `CharacterMovedEvent` to accept both full mover payloads and the trimmed observer variant (`name`/`ship_type`/`movement`) so schema validation matches the new server broadcasts.
 
 ### Suggestions
 - Regenerate the schema from the authoritative JSON source (if available) to ensure hand edits stay in sync with generated typings.
@@ -85,15 +85,13 @@
 - Add optional query params (e.g., `include_history=false`) to reduce payload size for latency-sensitive consumers.
 
 ## game-server/api/join.py
-- Reworked join flow to hydrate characters with full fighter/shield totals from knowledge, log combats, and auto-trigger combat if hostile garrisons are present on arrival.
-- Existing characters now refresh their ship stats from knowledge, and both new/returning joins participate in auto-engage logic via `start_sector_combat`.
+- Teleport joins now mirror the movement redaction rules: movers receive the full teleport payload, while sector observers get minimal arrive/depart frames containing only `name`, `ship_type`, and timing info.
 
 ### Suggestions
 - Return a flag when auto-engaging due to garrisons so clients can notify users about surprise combat.
 
 ## game-server/api/move.py
-- Refactored parsing/validation helpers (exported `parse_move_destination`/`validate_move_destination`) and blocked movement while in combat via `ensure_not_in_combat`.
-- After movement, auto-adds movers to any combat already in the sector, and auto-engages hostile garrisons by calling `start_sector_combat` with detailed logging.
+- Splits movement broadcasting into two payloads: the mover still gets full from/to sector data, but observers now see redacted arrive/depart notices carrying only the character name, ship hull, and timestamp.
 
 ### Suggestions
 - Consider debouncing auto-engage when multiple hostile garrisons are present to avoid repeated `start_sector_combat` attempts in the same tick.
@@ -172,13 +170,13 @@
 - Capture failed combat manager initialization with clearer error messages to simplify diagnosing startup issues.
 
 ## game-server/events.py
-- Adds schemas and helpers for newly emitted `combat.*`, `sector.garrison_updated`, and salvage-related events.
+- Event dispatcher supports an optional `sector_filter`, delegating sector-aware routing to sinks that implement `matches_sectors`.
 
 ### Suggestions
 - Group combat-related event helpers in a dedicated module so this file remains focused on registry definitions.
 
 ## game-server/server.py
-- Integrates the combat manager into the websocket/event pipeline, handles active combat resolution, and emits salvage after defeats—including direct credit transfers and escape-pod conversion.
+- WebSocket connections now cache the latest sector for characters they track via `status.update`, enabling upcoming sector-based filtering through `matches_sectors`.
 
 ### Suggestions
 - Log salvage creation with combat ID/sector to aid future auditing of missing-loot reports.
@@ -202,7 +200,7 @@
 - Introduce log rotation or a max-file-size policy so long-running sessions don’t exhaust disk space.
 
 ## npc/combat_session.py
-- Async helper that subscribes to combat/player events, maintains encounter state, and exposes high-level helpers (available actions, waiters) for the TUIs.
+- Movement handler now understands redacted observer frames (`movement` + `name`) so occupant tracking stays correct even without sector IDs.
 
 ### Suggestions
 - Add reconnection logic or event replay support for websocket disconnects during combat to prevent stale state.
@@ -225,6 +223,12 @@
 ### Suggestions
 - Split the class into UI/layout, task-controller, and combat-controller modules to keep the file maintainable and unit-testable.
 - Handle successful flee events by auto-switching back to task mode even if no `combat.ended` arrives (defensive guard).
+
+## tests/test_websocket_messaging.py
+- Websocket helper utilities enforce ≤15 s receive timeouts, retain unmatched frames per connection, and new regression coverage verifies observers only get redacted movement payloads.
+
+### Suggestions
+- Extract the timeout-aware helpers into a shared test utility module so other websocket suites can reuse them.
 
 ## pipecat/voice_task_manager.py
 - Subscribed the voice task manager to chat events and forwards them to RTVI clients; registers the new `send_message` tool and subscribes to personal messages after join.
@@ -286,4 +290,3 @@
 
 ### Suggestions
 - Audit transitive dependencies added by the new subsystems and prune unused packages to keep the environment lean.
-

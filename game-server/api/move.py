@@ -133,15 +133,48 @@ async def handle(request: dict, world) -> dict:
         character_filter=[character_id],
     )
 
+    mover_payload = {
+        "character_id": character_id,
+        "from_sector": old_sector,
+        "to_sector": to_sector,
+        "timestamp": character.last_active.isoformat(),
+        "move_type": "normal",
+    }
+
     await event_dispatcher.emit(
         "character.moved",
-        {
-            "character_id": character_id,
-            "from_sector": old_sector,
-            "to_sector": to_sector,
-            "timestamp": character.last_active.isoformat(),
-            "move_type": "normal",
-        },
+        mover_payload,
+        character_filter=[character_id],
     )
+
+    observer_payload = {
+        "name": character.id,
+        "ship_type": knowledge.ship_config.ship_type,
+        "timestamp": character.last_active.isoformat(),
+        "move_type": "normal",
+    }
+    if old_sector != to_sector:
+        arriving_observers = [
+            cid
+            for cid, info in world.characters.items()
+            if info.sector == to_sector and cid != character_id
+        ]
+        departing_observers = [
+            cid
+            for cid, info in world.characters.items()
+            if info.sector == old_sector and cid != character_id
+        ]
+        if arriving_observers:
+            await event_dispatcher.emit(
+                "character.moved",
+                {**observer_payload, "movement": "arrive"},
+                character_filter=arriving_observers,
+            )
+        if departing_observers:
+            await event_dispatcher.emit(
+                "character.moved",
+                {**observer_payload, "movement": "depart"},
+                character_filter=departing_observers,
+            )
 
     return status_payload

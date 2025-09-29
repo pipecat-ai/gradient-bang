@@ -21,6 +21,9 @@ class EventSink(Protocol):
     def matches_names(self, names: Sequence[str]) -> bool:
         ...
 
+    def matches_sectors(self, sectors: Sequence[int]) -> bool:
+        ...
+
 
 logger = logging.getLogger("gradient-bang.events")
 
@@ -48,6 +51,7 @@ class EventDispatcher:
         character_filter: Sequence[str] | None = None,
         name_filter: Sequence[str] | None = None,
         meta: dict | None = None,
+        sector_filter: Sequence[int] | None = None,
     ) -> None:
         """Broadcast an event to all sinks that match the provided filters."""
 
@@ -59,6 +63,11 @@ class EventDispatcher:
         name_filter_list = (
             [n for n in name_filter if n]
             if name_filter is not None
+            else None
+        )
+        sector_filter_list = (
+            [int(s) for s in sector_filter]
+            if sector_filter is not None
             else None
         )
 
@@ -90,6 +99,11 @@ class EventDispatcher:
             ):
                 continue
             if name_filter_list is not None and not sink.matches_names(name_filter_list):
+                continue
+            if (
+                sector_filter_list is not None
+                and not sink.matches_sectors(sector_filter_list)
+            ):
                 continue
             logger.debug(
                 "Dispatch event=%s to connection=%s", event, getattr(sink, "connection_id", "<unknown>")

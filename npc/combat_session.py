@@ -359,36 +359,66 @@ class CombatSession:
     async def _on_character_moved(self, payload: Dict[str, Any]) -> None:
         if not payload:
             return
-        moving_character = payload.get("character_id")
-        if moving_character == self.character_id:
-            return
-        to_sector = payload.get("to_sector")
-        from_sector = payload.get("from_sector")
+
         current_sector = self._current_sector
         if current_sector is None:
             return
-        if to_sector != current_sector and from_sector != current_sector:
+
+        movement = payload.get("movement")
+        mover_identifier = payload.get("character_id")
+        mover_name = payload.get("name")
+
+        # Ignore self-movement regardless of identifier format
+        if mover_identifier == self.character_id or mover_name == self.character_id:
             return
+
+        to_sector = payload.get("to_sector")
+        from_sector = payload.get("from_sector")
+
+        arriving = False
+        departing = False
+
+        if movement == "arrive":
+            arriving = True
+        elif movement == "depart":
+            departing = True
+        else:
+            if to_sector == current_sector:
+                arriving = True
+            if from_sector == current_sector:
+                departing = True
+            if not arriving and not departing:
+                return
+
+        key_source = mover_identifier or mover_name
+        if not key_source:
+            return
+        key = str(key_source)
+        display_name = str(mover_name or mover_identifier or key)
+
         self.logger.debug(
-            "Movement event detected: %s -> %s for %s",
+            "Movement event detected: movement=%s from=%s to=%s identifier=%s",
+            movement,
             from_sector,
             to_sector,
-            moving_character,
+            key,
         )
+
         changed = False
-        key = str(moving_character)
         async with self._status_lock:
-            if from_sector == current_sector:
-                if self._other_players.pop(key, None) is not None:
-                    changed = True
-            if to_sector == current_sector:
-                # placeholder entry until refresh fills details
-                self._other_players.setdefault(key, {"name": key})
+            if departing and self._other_players.pop(key, None) is not None:
                 changed = True
+            if arriving:
+                # placeholder entry until refresh fills details
+                entry = self._other_players.setdefault(key, {"name": display_name})
+                entry["name"] = display_name
+                changed = True
+
         if changed:
             async with self._occupant_condition:
                 self._occupant_version += 1
                 self._occupant_condition.notify_all()
+
         await self._refresh_status()
 
     async def _handle_combat_event(

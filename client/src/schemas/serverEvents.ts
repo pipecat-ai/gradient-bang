@@ -468,39 +468,90 @@ export const serverEventSchema = {
       "additionalProperties": false
     },
     "CharacterMovedEvent": {
-      "type": "object",
-      "required": [
-        "character_id",
-        "from_sector",
-        "to_sector",
-        "timestamp"
-      ],
-      "properties": {
-        "character_id": {
-          "type": "string"
-        },
-        "from_sector": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "to_sector": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "timestamp": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "move_type": {
-          "type": "string",
-          "enum": [
-            "normal",
-            "teleport"
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "character_id",
+            "from_sector",
+            "to_sector",
+            "timestamp"
           ],
-          "description": "Indicates whether the move was a standard adjacency hop or an admin teleport."
+          "properties": {
+            "character_id": {
+              "type": "string"
+            },
+            "from_sector": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "to_sector": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "timestamp": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "move_type": {
+              "type": "string",
+              "enum": [
+                "normal",
+                "teleport"
+              ],
+              "description": "Indicates whether the move was a standard adjacency hop or an admin teleport."
+            },
+            "movement": {
+              "type": "string",
+              "enum": [
+                "arrive",
+                "depart"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "name",
+            "ship_type",
+            "timestamp",
+            "move_type",
+            "movement"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "ship_type": {
+              "type": "string"
+            },
+            "timestamp": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "move_type": {
+              "type": "string",
+              "enum": [
+                "normal",
+                "teleport"
+              ]
+            },
+            "movement": {
+              "type": "string",
+              "enum": [
+                "arrive",
+                "depart"
+              ]
+            },
+            "character_id": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
         }
-      },
-      "additionalProperties": false
+      ]
     },
     "LocalMapNode": {
       "type": "object",

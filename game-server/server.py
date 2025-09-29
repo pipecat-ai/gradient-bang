@@ -565,6 +565,7 @@ class Connection(EventSink):
         self.known_names: set[str] = set()
         self.chat_subscribed = False
         self._send_lock = asyncio.Lock()
+        self.character_sectors: dict[str, int] = {}
 
     async def send_event(self, envelope: dict) -> None:
         logger.debug(
@@ -575,6 +576,13 @@ class Connection(EventSink):
         logger.debug(
             "Connection %s sent event %s", self.connection_id, envelope.get("event")
         )
+        if envelope.get("event") == "status.update":
+            payload = envelope.get("payload", {})
+            sector = payload.get("sector")
+            if isinstance(sector, int):
+                for character_id in envelope.get("character_filter", []) or []:
+                    if character_id:
+                        self.character_sectors[str(character_id)] = sector
 
     def matches_characters(self, character_ids: Iterable[str]) -> bool:
         tracked = self.status_subscriptions | self.known_character_ids
@@ -587,6 +595,14 @@ class Connection(EventSink):
         if not names:
             return True
         return any(name in self.known_names for name in names)
+
+    def matches_sectors(self, sectors: Iterable[int]) -> bool:
+        sectors = list(sectors)
+        if not sectors:
+            return True
+        return any(
+            sector in sectors for sector in self.character_sectors.values()
+        )
 
     def register_character(self, character_id: str | None, name: str | None) -> None:
         if character_id:
