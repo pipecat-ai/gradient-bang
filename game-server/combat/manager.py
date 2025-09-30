@@ -51,7 +51,8 @@ class CombatManager:
     ) -> None:
         self._encounters: Dict[str, CombatEncounter] = {}
         self._completed: Dict[str, CombatEncounter] = {}
-        self._lock = asyncio.Lock()
+        self._registry_lock = asyncio.Lock()  # Lock for encounter registry operations
+        self._locks: Dict[str, asyncio.Lock] = {}  # Per-combat locks for fine-grained concurrency
         self._timers: Dict[str, asyncio.Task[None]] = {}
         self._round_timeout = round_timeout
         self._on_round_waiting = on_round_waiting
@@ -77,6 +78,15 @@ class CombatManager:
             self._on_combat_ended = on_combat_ended
         if on_pay_action is not None:
             self._on_pay_action = on_pay_action
+
+    def _get_lock(self, combat_id: str) -> asyncio.Lock:
+        """Get or create a lock for the specified combat_id.
+
+        This enables per-combat locking so independent combats don't serialize on a global lock.
+        """
+        if combat_id not in self._locks:
+            self._locks[combat_id] = asyncio.Lock()
+        return self._locks[combat_id]
 
     async def _process_toll_payment(
         self,
@@ -205,7 +215,7 @@ class CombatManager:
     ) -> CombatEncounter:
         """Register a new encounter and begin waiting for round 1 actions."""
 
-        async with self._lock:
+        async with self._get_lock(encounter.combat_id):
             if encounter.combat_id in self._encounters:
                 raise ValueError(f"Combat ID already exists: {encounter.combat_id}")
             self._completed.pop(encounter.combat_id, None)
@@ -239,7 +249,7 @@ class CombatManager:
         """
 
         round_to_resolve = False
-        async with self._lock:
+        async with self._get_lock(combat_id):
             encounter = self._require_encounter(combat_id)
             if encounter.ended:
                 raise ValueError("Combat encounter already ended")
@@ -306,14 +316,14 @@ class CombatManager:
         return None
 
     async def get_encounter(self, combat_id: str) -> Optional[CombatEncounter]:
-        async with self._lock:
+        async with self._registry_lock:
             encounter = self._encounters.get(combat_id)
             if encounter:
                 return encounter
             return self._completed.get(combat_id)
 
     async def find_encounter_for(self, combatant_id: str) -> Optional[CombatEncounter]:
-        async with self._lock:
+        async with self._registry_lock:
             for encounter in self._encounters.values():
                 if encounter.ended:
                     continue
@@ -322,7 +332,7 @@ class CombatManager:
         return None
 
     async def find_encounter_in_sector(self, sector_id: int) -> Optional[CombatEncounter]:
-        async with self._lock:
+        async with self._registry_lock:
             for encounter in self._encounters.values():
                 if encounter.ended:
                     continue
@@ -335,7 +345,7 @@ class CombatManager:
         combat_id: str,
         state: CombatantState,
     ) -> CombatEncounter:
-        async with self._lock:
+        async with self._get_lock(combat_id):
             encounter = self._require_encounter(combat_id)
             if encounter.ended:
                 raise ValueError("Cannot add participant to completed encounter")
@@ -346,16 +356,18 @@ class CombatManager:
         return encounter
 
     async def cancel_encounter(self, combat_id: str) -> None:
-        async with self._lock:
+        async with self._get_lock(combat_id):
             encounter = self._encounters.pop(combat_id, None)
             if not encounter:
                 encounter = self._completed.pop(combat_id, None)
             if not encounter:
                 return
             self._cancel_timer_locked(combat_id)
+            # Clean up the lock for this combat
+            self._locks.pop(combat_id, None)
 
     async def emit_round_waiting(self, combat_id: str) -> None:
-        async with self._lock:
+        async with self._registry_lock:
             encounter = self._encounters.get(combat_id)
         if encounter:
             await self._emit_round_waiting(encounter)
@@ -365,7 +377,7 @@ class CombatManager:
     # ------------------------------------------------------------------
     async def _resolve_round(self, combat_id: str) -> Optional[CombatRoundOutcome]:
         callbacks = []
-        async with self._lock:
+        async with self._get_lock(combat_id):
             encounter = self._require_encounter(combat_id)
             if encounter.ended:
                 return None
@@ -529,7 +541,7 @@ class CombatManager:
 
         # Schedule next timeout AFTER callbacks complete to avoid self-cancellation
         if schedule_next_timeout:
-            async with self._lock:
+            async with self._get_lock(combat_id):
                 # Re-check encounter still exists and needs timeout
                 enc = self._encounters.get(combat_id)
                 if enc and not enc.ended:
@@ -546,7 +558,7 @@ class CombatManager:
         current = asyncio.current_task()
         try:
             await asyncio.sleep(max(0.0, sleep_seconds))
-            async with self._lock:
+            async with self._get_lock(combat_id):
                 encounter = self._encounters.get(combat_id)
                 if (
                     not encounter
@@ -564,7 +576,7 @@ class CombatManager:
         except asyncio.CancelledError:
             return
         finally:
-            async with self._lock:
+            async with self._get_lock(combat_id):
                 task = self._timers.get(combat_id)
                 if task is current and task.done():
                     self._timers.pop(combat_id, None)
