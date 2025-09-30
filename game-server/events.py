@@ -90,7 +90,8 @@ class EventDispatcher:
             name_filter_list,
         )
 
-        tasks: list[asyncio.Task[None]] = []
+        # Collect coroutines for matching sinks
+        coros = []
         async with self._lock:
             sinks_snapshot = list(self._sinks)
         for sink in sinks_snapshot:
@@ -109,37 +110,37 @@ class EventDispatcher:
             logger.debug(
                 "Dispatch event=%s to connection=%s", event, getattr(sink, "connection_id", "<unknown>")
             )
-            task = asyncio.create_task(sink.send_event(envelope))
-            logger.debug("WEBSOCKET: Created send task=%s for event=%s", id(task), event)
-            tasks.append(task)
+            coros.append(sink.send_event(envelope))
 
-        logger.debug("Event %s queued for %s sink(s)", event, len(tasks))
-        if tasks:
-            logger.info("DISPATCHER: Starting as_completed loop for event=%s with %s tasks", event, len(tasks))
-            completed_count = 0
-            for task in asyncio.as_completed(tasks):
-                try:
-                    logger.debug("DISPATCHER: Awaiting task from as_completed for event=%s", event)
-                    await task
-                    completed_count += 1
-                    logger.debug(
-                        "WEBSOCKET: Task %s completed for event=%s (completed=%s/%s)",
-                        id(task), event, completed_count, len(tasks),
-                    )
-                except asyncio.CancelledError:
+        logger.debug("Event %s queued for %s sink(s)", event, len(coros))
+        if coros:
+            logger.info("DISPATCHER: Dispatching event=%s to %s sinks", event, len(coros))
+            # Use gather() with return_exceptions=True for cleaner exception handling
+            results = await asyncio.gather(*coros, return_exceptions=True)
+
+            success_count = 0
+            cancelled_count = 0
+            for i, result in enumerate(results):
+                if isinstance(result, asyncio.CancelledError):
+                    cancelled_count += 1
                     logger.warning(
-                        "WEBSOCKET: Send task %s CANCELLED for event=%s\nStack trace:\n%s",
-                        id(task),
+                        "WEBSOCKET: Send CANCELLED for event=%s sink_index=%s\nStack trace:\n%s",
                         event,
+                        i,
                         "".join(traceback.format_stack()),
                     )
-                    raise
-                except Exception:
-                    # Errors from a sink should not crash the dispatcher.
-                    logger.exception("Error delivering event=%s", event)
-                    continue
-            logger.info("DISPATCHER: Completed as_completed loop for event=%s (%s/%s tasks succeeded)",
-                       event, completed_count, len(tasks))
+                elif isinstance(result, Exception):
+                    # Errors from a sink should not crash the dispatcher
+                    logger.exception("Error delivering event=%s to sink_index=%s: %s", event, i, result)
+                else:
+                    success_count += 1
+
+            logger.info("DISPATCHER: Completed event=%s (%s/%s sinks succeeded, %s cancelled)",
+                       event, success_count, len(results), cancelled_count)
+
+            # Re-raise CancelledError if any sink was cancelled (preserve original behavior)
+            if cancelled_count > 0:
+                raise asyncio.CancelledError(f"{cancelled_count} sink(s) cancelled for event={event}")
 
 
 event_dispatcher = EventDispatcher()
