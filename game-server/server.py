@@ -422,14 +422,6 @@ async def _combat_round_resolved(encounter, outcome) -> None:
             recent_flee_ids.append(str(pid))
         logger.info("flee_followups populated: %s entries", len(flee_followups))
 
-        # Store flee movements in context so they persist across callback cancellations
-        existing_flee_followups = encounter.context.get("pending_flee_movements", [])
-        if isinstance(existing_flee_followups, list):
-            existing_flee_followups.extend(flee_followups)
-            encounter.context["pending_flee_movements"] = existing_flee_followups
-        else:
-            encounter.context["pending_flee_movements"] = flee_followups
-
     if recent_flee_ids:
         # Accumulate fled character IDs across all rounds so they receive combat.ended
         existing_fled = encounter.context.get("recent_flee_character_ids")
@@ -506,13 +498,9 @@ async def _combat_round_resolved(encounter, outcome) -> None:
         if character:
             character.update_ship_state(fighters=fighters, shields=shields)
 
-    # Execute flee movements - retrieve from context in case callback was cancelled before
-    pending_movements = encounter.context.get("pending_flee_movements", [])
-    if not isinstance(pending_movements, list):
-        pending_movements = []
-
-    logger.info("Starting flee movements: %s entries to process", len(pending_movements))
-    for entry in pending_movements:
+    # Execute flee movements immediately (now that self-cancellation bug is fixed)
+    logger.info("Starting flee movements: %s entries to process", len(flee_followups))
+    for entry in flee_followups:
         character_id = entry["character_id"]
         destination = entry["destination"]
         logger.info(
@@ -537,9 +525,6 @@ async def _combat_round_resolved(encounter, outcome) -> None:
                 destination,
                 exc,
             )
-
-    # Clear pending movements after execution
-    encounter.context["pending_flee_movements"] = []
     logger.debug("_combat_round_resolved complete")
 
 async def _combat_ended(encounter, outcome) -> None:

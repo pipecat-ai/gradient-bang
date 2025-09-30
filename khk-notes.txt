@@ -118,3 +118,13 @@ Other notes:
 - Several issues you've identified and suggested fixes for are race conditions. Are there a real problem given that the server itself is single-threaded Python code?
 - In addition to persisting game state on disk, we should save all game actions in a log. Suggest a log format. We could use JSONL and a file on disk. Or a SQLite table. Eventually we are going to port the game server to use supabase as a backend, so think about an interim step that will be a good transition to the final supabase-based solution.
 - Are there places in the game server code where we should be handling how we persist game state to disk differently? For example, I could imagine using the game actions log above as our persistent message store, as well, rather than keeping separate message history files. Each client could keep a pointer to the last JSONL line number read, and scan the file from that point forward to catch up on any missed messages.
+
+----
+
+  Recommended Priority:
+
+  1. Sector-specific locks - High impact on multi-player scalability
+  2. EventDispatcher simplification - Medium impact on reliability
+  3. Other issues - Low priority, document and monitor
+
+  
