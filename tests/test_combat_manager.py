@@ -60,7 +60,7 @@ async def test_stalemate_round_keeps_combat_active():
 async def test_toll_pay_action_triggers_standdown():
     credits = {"runner": 100}
 
-    def pay_handler(payer: str, amount: int) -> bool:
+    async def pay_handler(payer: str, amount: int) -> bool:
         balance = credits.get(payer, 0)
         if balance < amount:
             return False
@@ -156,7 +156,7 @@ async def test_toll_pay_action_triggers_standdown():
 
 @pytest.mark.asyncio
 async def test_toll_pay_insufficient_funds_braces():
-    def pay_handler(_payer: str, _amount: int) -> bool:
+    async def pay_handler(_payer: str, _amount: int) -> bool:
         return False
 
     manager = CombatManager(on_pay_action=pay_handler)

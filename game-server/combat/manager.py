@@ -20,7 +20,7 @@ from .models import (
 RoundResolvedCallback = Callable[[CombatEncounter, CombatRoundOutcome], Awaitable[None]]
 RoundWaitingCallback = Callable[[CombatEncounter], Awaitable[None]]
 CombatEndedCallback = Callable[[CombatEncounter, CombatRoundOutcome], Awaitable[None]]
-PayHandler = Callable[[str, int], bool]
+PayHandler = Callable[[str, int], Awaitable[bool]]
 
 
 logger = logging.getLogger("gradient-bang.combat.manager")
@@ -78,7 +78,7 @@ class CombatManager:
         if on_pay_action is not None:
             self._on_pay_action = on_pay_action
 
-    def _process_toll_payment(
+    async def _process_toll_payment(
         self,
         encounter: CombatEncounter,
         payer_id: str,
@@ -111,7 +111,7 @@ class CombatManager:
             amount = 0
 
         if amount > 0:
-            if not self._on_pay_action or not self._on_pay_action(payer_id, amount):
+            if not self._on_pay_action or not await self._on_pay_action(payer_id, amount):
                 return False, None
 
         entry["paid"] = True
@@ -244,7 +244,7 @@ class CombatManager:
                 target_id = None
 
             if action == CombatantAction.PAY:
-                success, resolved_target = self._process_toll_payment(
+                success, resolved_target = await self._process_toll_payment(
                     encounter,
                     combatant_id,
                     target_id,

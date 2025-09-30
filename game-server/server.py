@@ -87,6 +87,9 @@ RPCHandler = Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]
 _MESSAGES = MessageStore(get_world_data_path() / "messages")
 _RATE_LIMIT_LAST: Dict[str, float] = {}
 
+# Per-character locks for atomic credit operations
+_CREDIT_LOCKS: Dict[str, asyncio.Lock] = {}
+
 
 async def _handle_send_message(payload: Dict[str, Any]) -> Dict[str, Any]:
     def _rate_limit(from_id: str) -> None:
@@ -173,26 +176,39 @@ def _garrison_commit_for_mode(mode: str, fighters: int) -> int:
     return max(1, min(fighters, max(50, fighters // 2)))
 
 
-def _handle_toll_payment(payer_id: str, amount: int) -> bool:
+async def _handle_toll_payment(payer_id: str, amount: int) -> bool:
+    """Handle toll payment with atomic credit operations.
+
+    Uses per-character locking to prevent race conditions between concurrent
+    toll payments, trades, or other credit operations.
+    """
     if amount <= 0:
         return True
-    try:
-        credits = world.knowledge_manager.get_credits(payer_id)
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.warning("Unable to read credits for %s during toll payment: %s", payer_id, exc)
-        return False
-    if credits < amount:
-        logger.info(
-            "Toll payment declined for %s (credits=%s, required=%s)",
-            payer_id,
-            credits,
-            amount,
-        )
-        return False
-    world.knowledge_manager.update_credits(payer_id, credits - amount)
-    asyncio.create_task(_emit_status_update(payer_id))
-    logger.info("Toll payment accepted: payer=%s amount=%s", payer_id, amount)
-    return True
+
+    # Get or create per-character lock
+    if payer_id not in _CREDIT_LOCKS:
+        _CREDIT_LOCKS[payer_id] = asyncio.Lock()
+
+    async with _CREDIT_LOCKS[payer_id]:
+        try:
+            credits = world.knowledge_manager.get_credits(payer_id)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Unable to read credits for %s during toll payment: %s", payer_id, exc)
+            return False
+
+        if credits < amount:
+            logger.info(
+                "Toll payment declined for %s (credits=%s, required=%s)",
+                payer_id,
+                credits,
+                amount,
+            )
+            return False
+
+        world.knowledge_manager.update_credits(payer_id, credits - amount)
+        await _emit_status_update(payer_id)
+        logger.info("Toll payment accepted: payer=%s amount=%s", payer_id, amount)
+        return True
 
 
 async def _combat_round_waiting(encounter) -> None:
