@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import traceback
 from typing import Iterable, Protocol, Sequence
 
 from schemas.generated_events import ServerEventName
@@ -108,20 +109,37 @@ class EventDispatcher:
             logger.debug(
                 "Dispatch event=%s to connection=%s", event, getattr(sink, "connection_id", "<unknown>")
             )
-            tasks.append(asyncio.create_task(sink.send_event(envelope)))
+            task = asyncio.create_task(sink.send_event(envelope))
+            logger.debug("WEBSOCKET: Created send task=%s for event=%s", id(task), event)
+            tasks.append(task)
 
         logger.debug("Event %s queued for %s sink(s)", event, len(tasks))
         if tasks:
+            logger.info("DISPATCHER: Starting as_completed loop for event=%s with %s tasks", event, len(tasks))
+            completed_count = 0
             for task in asyncio.as_completed(tasks):
                 try:
+                    logger.debug("DISPATCHER: Awaiting task from as_completed for event=%s", event)
                     await task
+                    completed_count += 1
                     logger.debug(
-                        "Event delivery complete for event=%s", event,
+                        "WEBSOCKET: Task %s completed for event=%s (completed=%s/%s)",
+                        id(task), event, completed_count, len(tasks),
                     )
+                except asyncio.CancelledError:
+                    logger.warning(
+                        "WEBSOCKET: Send task %s CANCELLED for event=%s\nStack trace:\n%s",
+                        id(task),
+                        event,
+                        "".join(traceback.format_stack()),
+                    )
+                    raise
                 except Exception:
                     # Errors from a sink should not crash the dispatcher.
                     logger.exception("Error delivering event=%s", event)
                     continue
+            logger.info("DISPATCHER: Completed as_completed loop for event=%s (%s/%s tasks succeeded)",
+                       event, completed_count, len(tasks))
 
 
 event_dispatcher = EventDispatcher()

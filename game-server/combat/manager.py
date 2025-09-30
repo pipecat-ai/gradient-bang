@@ -445,13 +445,15 @@ class CombatManager:
                 callbacks.append(("ended", encounter, outcome))
                 self._encounters.pop(combat_id, None)
                 self._completed[combat_id] = encounter
+                schedule_next_timeout = False
             else:
                 outcome.end_state = None
                 encounter.round_number += 1
                 encounter.deadline = self._next_deadline()
-                self._schedule_timeout_locked(encounter)
+                # Don't schedule timeout yet - will do after callbacks to avoid self-cancellation
                 callbacks.append(("resolved", encounter, outcome))
                 callbacks.append(("waiting", encounter, outcome))
+                schedule_next_timeout = True
         tags = [tag for tag, _, _ in callbacks]
         logger.info(
             "Callbacks prepared for combat_id=%s: %s",
@@ -460,6 +462,13 @@ class CombatManager:
         )
 
         # Emit callbacks outside the lock
+        current_task_id = id(asyncio.current_task())
+        logger.info(
+            "RESOLVE: Starting callbacks for combat_id=%s round=%s task_id=%s",
+            combat_id,
+            encounter.round_number if callbacks else "N/A",
+            current_task_id,
+        )
         for tag, enc, out in list(callbacks):
             logger.info("Processing callback entry: tag=%s for combat_id=%s", tag, enc.combat_id)
             logger.info(
@@ -481,21 +490,27 @@ class CombatManager:
                     )
                     await self._emit_combat_ended(enc, out)
                 logger.info(
-                    "Callback completed: combat_id=%s round=%s tag=%s",
+                    "RESOLVE: Callback %s completed for combat_id=%s round=%s task_id=%s",
+                    tag,
                     enc.combat_id,
                     out.round_number,
-                    tag,
+                    current_task_id,
                 )
             except asyncio.CancelledError:
+                import traceback as tb
                 logger.warning(
-                    "Callback cancelled: combat_id=%s round=%s tag=%s",
+                    "Callback cancelled: combat_id=%s round=%s tag=%s task_id=%s\nStack trace:\n%s",
                     enc.combat_id,
                     out.round_number,
                     tag,
+                    current_task_id,
+                    "".join(tb.format_stack()),
                 )
                 # Don't re-raise for resolved callbacks - let waiting/ended continue
                 if tag == "ended":
+                    logger.info("Re-raising CancelledError for ended callback")
                     raise
+                logger.info("Continuing to next callback despite cancellation")
                 continue
             except Exception:
                 logger.exception(
@@ -505,6 +520,26 @@ class CombatManager:
                     tag,
                 )
                 raise
+        logger.info(
+            "RESOLVE: All callbacks completed for combat_id=%s round=%s task_id=%s",
+            combat_id,
+            encounter.round_number if callbacks else "N/A",
+            current_task_id,
+        )
+
+        # Schedule next timeout AFTER callbacks complete to avoid self-cancellation
+        if schedule_next_timeout:
+            async with self._lock:
+                # Re-check encounter still exists and needs timeout
+                enc = self._encounters.get(combat_id)
+                if enc and not enc.ended:
+                    logger.info(
+                        "RESOLVE: Scheduling next timeout for combat_id=%s round=%s",
+                        combat_id,
+                        enc.round_number,
+                    )
+                    self._schedule_timeout_locked(enc)
+
         return outcome
 
     async def _timeout_worker(self, combat_id: str, round_number: int, sleep_seconds: float) -> None:
@@ -519,6 +554,12 @@ class CombatManager:
                     or encounter.round_number != round_number
                 ):
                     return
+            logger.info(
+                "TIMEOUT: Firing for combat_id=%s round=%s task_id=%s",
+                combat_id,
+                round_number,
+                id(asyncio.current_task()),
+            )
             await self._resolve_round(combat_id)
         except asyncio.CancelledError:
             return
@@ -541,7 +582,15 @@ class CombatManager:
     def _cancel_timer_locked(self, combat_id: str) -> None:
         task = self._timers.pop(combat_id, None)
         if task and not task.done():
-            task.cancel()
+            # Don't cancel the current task (would cause self-cancellation)
+            current = asyncio.current_task()
+            if task is not current:
+                task.cancel()
+            else:
+                logger.debug(
+                    "Skipping cancellation of current task for combat_id=%s",
+                    combat_id,
+                )
 
     def _next_deadline(self) -> datetime:
         return datetime.now(timezone.utc) + timedelta(seconds=self._round_timeout)
