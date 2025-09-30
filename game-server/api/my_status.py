@@ -10,6 +10,6 @@ async def handle(request: dict, world) -> dict:
         raise HTTPException(status_code=404, detail=f"Character '{character_id}' not found")
     character = world.characters[character_id]
     character.update_activity()
-    contents = sector_contents(world, character.sector, character_id)
+    contents = await sector_contents(world, character.sector, character_id)
     return {**character.to_response(), "sector_contents": contents, "ship": build_ship_status(world, character_id)}
 

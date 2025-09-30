@@ -41,7 +41,7 @@ async def start_sector_combat(
         return states
 
     if garrisons_to_include is None and world.garrisons is not None:
-        garrisons_to_include = world.garrisons.list_sector(sector_id)
+        garrisons_to_include = await world.garrisons.list_sector(sector_id)
 
     def _collect_garrisons() -> tuple[List[object], List[dict]]:
         """Collect garrisons to add as combat participants WITHOUT removing them from sector.

@@ -82,7 +82,7 @@ async def handle(request: dict, world) -> dict:
         character_filter=[character_id],
     )
 
-    status_payload = build_status_payload(world, character_id)
+    status_payload = await build_status_payload(world, character_id)
     await event_dispatcher.emit("status.update", status_payload, character_filter=[character_id])
 
     return {

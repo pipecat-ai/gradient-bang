@@ -40,7 +40,7 @@ async def handle(request: dict, world) -> dict:
     if character.sector != sector:
         raise HTTPException(status_code=409, detail="Character not in requested sector")
 
-    existing_garrisons = world.garrisons.list_sector(sector)
+    existing_garrisons = await world.garrisons.list_sector(sector)
     for garrison in existing_garrisons:
         if garrison.owner_id != character_id:
             raise HTTPException(
@@ -60,7 +60,7 @@ async def handle(request: dict, world) -> dict:
     new_total = quantity + (existing.fighters if existing else 0)
     existing_balance = existing.toll_balance if existing else None
     try:
-        updated = world.garrisons.deploy(
+        updated = await world.garrisons.deploy(
             sector_id=sector,
             owner_id=character_id,
             fighters=new_total,
@@ -79,7 +79,7 @@ async def handle(request: dict, world) -> dict:
         "sector.garrison_updated",
         {
             "sector": sector,
-            "garrisons": world.garrisons.to_payload(sector),
+            "garrisons": await world.garrisons.to_payload(sector),
         },
         character_filter=[character_id],
     )

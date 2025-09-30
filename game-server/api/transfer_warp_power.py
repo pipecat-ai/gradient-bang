@@ -68,7 +68,7 @@ async def handle(request: dict, world) -> dict:
     )
 
     for cid in (from_character_id, to_character_id):
-        payload = build_status_payload(world, cid)
+        payload = await build_status_payload(world, cid)
         await event_dispatcher.emit("status.update", payload, character_filter=[cid])
 
     return {

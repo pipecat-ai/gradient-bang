@@ -19,6 +19,9 @@ from .port_helpers import (
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of character status entries to cache
+MAX_STATUS_CACHE_SIZE = 1000
+
 
 class LLMResult(dict):
     """Dictionary-like result enriched with LLM-specific metadata."""
@@ -324,11 +327,27 @@ class AsyncGameClient:
                     self._current_sector = payload.get("sector")
                 if "ship" in payload:
                     self._ship_status = payload.get("ship")
-            self._status_cache[character_id] = payload
+            self._cache_status(character_id, payload)
         try:
             await self._update_map_cache_from_status(character_id, payload)
         except Exception:
             logger.exception("Failed to update map cache from status event")
+
+    # ------------------------------------------------------------------
+    # Cache helpers
+    # ------------------------------------------------------------------
+
+    def _cache_status(self, character_id: str, status: Dict[str, Any]) -> None:
+        """Cache status with LRU eviction to prevent unbounded growth."""
+        self._status_cache[character_id] = deepcopy(status)
+        # Evict oldest entry if we exceed max size
+        if len(self._status_cache) > MAX_STATUS_CACHE_SIZE:
+            oldest_id = next(iter(self._status_cache))
+            self._status_cache.pop(oldest_id)
+            logger.debug(
+                "Evicted oldest status cache entry for %s (total: %s)",
+                oldest_id, len(self._status_cache)
+            )
 
     # ------------------------------------------------------------------
     # Diff / summarization helpers
@@ -429,7 +448,7 @@ class AsyncGameClient:
             result,
             delta if isinstance(delta, dict) else {},
         )
-        self._status_cache[character_id] = deepcopy(result)
+        self._cache_status(character_id, result)
         if self._current_character == character_id:
             self._current_sector = result.get("sector")
             self._ship_status = result.get("ship")
@@ -558,7 +577,7 @@ class AsyncGameClient:
             updated_status.setdefault("ship", {})
             updated_status["ship"]["credits"] = credits_after
             updated_status["ship"]["cargo"] = cargo_after
-            self._status_cache[character_id] = updated_status
+            self._cache_status(character_id, updated_status)
             if self._current_character == character_id:
                 self._ship_status = updated_status.get("ship")
 
@@ -606,7 +625,7 @@ class AsyncGameClient:
                 updated_status["ship"]["warp_power"] = warp_after
             if credits_after is not None:
                 updated_status["ship"]["credits"] = credits_after
-            self._status_cache[character_id] = updated_status
+            self._cache_status(character_id, updated_status)
             if self._current_character == character_id:
                 self._ship_status = updated_status.get("ship")
 
@@ -1343,7 +1362,7 @@ class AsyncGameClient:
             updated = deepcopy(self._status_cache[from_id])
             updated.setdefault("ship", {})
             updated["ship"]["warp_power"] = from_remaining
-            self._status_cache[from_id] = updated
+            self._cache_status(from_id, updated)
             if self._current_character == from_id:
                 self._ship_status = updated.get("ship")
 
@@ -1351,7 +1370,7 @@ class AsyncGameClient:
             updated = deepcopy(self._status_cache[to_id])
             updated.setdefault("ship", {})
             updated["ship"]["warp_power"] = to_current
-            self._status_cache[to_id] = updated
+            self._cache_status(to_id, updated)
             if self._current_character == to_id:
                 self._ship_status = updated.get("ship")
 

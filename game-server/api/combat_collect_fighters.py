@@ -20,7 +20,7 @@ async def handle(request: dict, world) -> dict:
     if world.garrisons is None:
         raise HTTPException(status_code=503, detail="Garrison system unavailable")
 
-    garrisons = world.garrisons.list_sector(sector)
+    garrisons = await world.garrisons.list_sector(sector)
     garrison = next((g for g in garrisons if g.owner_id == character_id), None)
     if not garrison:
         raise HTTPException(status_code=404, detail="No garrison found for character in this sector")
@@ -35,7 +35,7 @@ async def handle(request: dict, world) -> dict:
         world.knowledge_manager.update_credits(character_id, current_credits + toll_payout)
 
     if remaining_fighters > 0:
-        world.garrisons.deploy(
+        await world.garrisons.deploy(
             sector_id=sector,
             owner_id=character_id,
             fighters=remaining_fighters,
@@ -44,7 +44,7 @@ async def handle(request: dict, world) -> dict:
             toll_balance=0,
         )
     else:
-        world.garrisons.remove(sector, character_id)
+        await world.garrisons.remove(sector, character_id)
 
     world.knowledge_manager.adjust_fighters(character_id, quantity)
     updated_knowledge = world.knowledge_manager.load_knowledge(character_id)
@@ -59,7 +59,7 @@ async def handle(request: dict, world) -> dict:
         "sector.garrison_updated",
         {
             "sector": sector,
-            "garrisons": world.garrisons.to_payload(sector) if world.garrisons else [],
+            "garrisons": await world.garrisons.to_payload(sector) if world.garrisons else [],
         },
         character_filter=[character_id],
     )

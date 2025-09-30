@@ -79,7 +79,7 @@ async def handle(request: dict, world) -> dict:
     character.sector = to_sector
     character.update_activity()
 
-    contents = sector_contents(world, character.sector, character_id)
+    contents = await sector_contents(world, character.sector, character_id)
     world.knowledge_manager.update_sector_visit(
         character_id=character_id,
         sector_id=character.sector,
@@ -87,7 +87,7 @@ async def handle(request: dict, world) -> dict:
         planets=contents.get("planets", []),
         adjacent_sectors=contents.get("adjacent_sectors", []),
     )
-    status_payload = build_status_payload(
+    status_payload = await build_status_payload(
         world, character_id, sector_snapshot=contents
     )
 
@@ -101,7 +101,7 @@ async def handle(request: dict, world) -> dict:
 
         auto_garrisons = []
         if world.garrisons is not None:
-            for garrison in world.garrisons.list_sector(character.sector):
+            for garrison in await world.garrisons.list_sector(character.sector):
                 if garrison.owner_id == character_id:
                     continue
                 if garrison.mode in {"offensive", "toll"}:

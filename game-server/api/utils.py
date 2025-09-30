@@ -82,7 +82,7 @@ def build_ship_status(world, character_id: str) -> Dict[str, Any]:
     }
 
 
-def sector_contents(
+async def sector_contents(
     world, sector_id: int, current_character_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """Compute contents of a sector visible to a character.
@@ -153,7 +153,7 @@ def sector_contents(
         # Garrisons
     garrisons = []
     if getattr(world, "garrisons", None):
-        for garrison in world.garrisons.list_sector(sector_id):
+        for garrison in await world.garrisons.list_sector(sector_id):
             entry = garrison.to_dict()
             entry["is_friendly"] = garrison.owner_id == current_character_id
             garrisons.append(entry)
@@ -179,7 +179,7 @@ def sector_contents(
     }
 
 
-def build_status_payload(
+async def build_status_payload(
     world,
     character_id: str,
     *,
@@ -187,7 +187,7 @@ def build_status_payload(
 ) -> Dict[str, Any]:
     """Assemble the canonical status payload for a character."""
     character = world.characters[character_id]
-    snapshot = sector_snapshot or sector_contents(
+    snapshot = sector_snapshot or await sector_contents(
         world, character.sector, character_id
     )
     return {

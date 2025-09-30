@@ -27,6 +27,7 @@ logger = logging.getLogger("gradient-bang.combat.manager")
 
 
 TERMINAL_STATES = {"mutual_defeat", "stalemate", "victory", "toll_satisfied"}
+MAX_COMPLETED_ENCOUNTERS = 1000  # Maximum completed encounters to keep in memory
 
 
 def _is_terminal_state(end_state: str | None) -> bool:
@@ -457,6 +458,14 @@ class CombatManager:
                 callbacks.append(("ended", encounter, outcome))
                 self._encounters.pop(combat_id, None)
                 self._completed[combat_id] = encounter
+                # Evict oldest completed encounter if we exceed max size
+                if len(self._completed) > MAX_COMPLETED_ENCOUNTERS:
+                    oldest_id = next(iter(self._completed))
+                    self._completed.pop(oldest_id)
+                    logger.debug(
+                        "Evicted oldest completed encounter %s (total: %s)",
+                        oldest_id, len(self._completed)
+                    )
                 schedule_next_timeout = False
             else:
                 outcome.end_state = None

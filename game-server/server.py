@@ -570,7 +570,7 @@ async def _emit_status_update(character_id: str) -> None:
         logger.debug("_emit_status_update skipped; character %s not connected", character_id)
         return
     logger.debug("_emit_status_update building status for %s", character_id)
-    payload = build_status_payload(world, character_id)
+    payload = await build_status_payload(world, character_id)
     await event_dispatcher.emit(
         "status.update",
         payload,
@@ -636,7 +636,7 @@ async def _finalize_combat(encounter, outcome):
             toll_amount = source_info.get("toll_amount", 0)
             toll_balance = source_info.get("toll_balance", 0)
             try:
-                world.garrisons.deploy(
+                await world.garrisons.deploy(
                     sector_id=encounter.sector_id,
                     owner_id=owner,
                     fighters=state.fighters,
@@ -656,7 +656,7 @@ async def _finalize_combat(encounter, outcome):
         else:
             # Remove destroyed garrison from store
             try:
-                world.garrisons.remove(encounter.sector_id, owner)
+                await world.garrisons.remove(encounter.sector_id, owner)
                 logger.info(
                     "Removed destroyed garrison for owner=%s from sector=%s",
                     owner,
@@ -688,7 +688,7 @@ async def _finalize_combat(encounter, outcome):
             "sector.garrison_updated",
             {
                 "sector": encounter.sector_id,
-                "garrisons": world.garrisons.to_payload(encounter.sector_id),
+                "garrisons": await world.garrisons.to_payload(encounter.sector_id),
             },
             character_filter=[source.get("owner_id") for source in garrison_sources if source.get("owner_id")],
         )
@@ -847,7 +847,7 @@ async def _send_initial_status(connection: Connection, character_id: str) -> Non
         raise HTTPException(
             status_code=404, detail=f"Character '{character_id}' not found"
         )
-    payload = build_status_payload(world, character_id)
+    payload = await build_status_payload(world, character_id)
     envelope = {
         "frame_type": "event",
         "event": "status.update",

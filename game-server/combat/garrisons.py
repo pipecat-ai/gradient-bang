@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
-import threading
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -15,22 +15,22 @@ class GarrisonStore:
 
     def __init__(self, data_path: Path) -> None:
         self._path = data_path
-        self._lock = threading.RLock()
+        self._lock = asyncio.Lock()
         self._by_sector: Dict[int, List[GarrisonState]] = {}
         self._load()
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def list_sector(self, sector_id: int) -> List[GarrisonState]:
-        with self._lock:
+    async def list_sector(self, sector_id: int) -> List[GarrisonState]:
+        async with self._lock:
             return [g for g in self._by_sector.get(sector_id, [])]
 
-    def get_sector_summary(self) -> Dict[int, List[GarrisonState]]:
-        with self._lock:
+    async def get_sector_summary(self) -> Dict[int, List[GarrisonState]]:
+        async with self._lock:
             return {sector: [g for g in garrisons] for sector, garrisons in self._by_sector.items()}
 
-    def deploy(
+    async def deploy(
         self,
         sector_id: int,
         owner_id: str,
@@ -39,7 +39,9 @@ class GarrisonStore:
         toll_amount: int = 0,
         toll_balance: Optional[int] = None,
     ) -> GarrisonState:
-        with self._lock:
+        # Validate toll_amount to prevent negative values
+        toll_amount = max(0, int(toll_amount))
+        async with self._lock:
             garrisons = self._by_sector.setdefault(sector_id, [])
             existing = _find_garrison(garrisons, owner_id)
             other_owner = next((g for g in garrisons if g.owner_id != owner_id), None)
@@ -66,8 +68,8 @@ class GarrisonStore:
             self._save()
             return garrison
 
-    def adjust_fighters(self, sector_id: int, owner_id: str, delta: int) -> Optional[GarrisonState]:
-        with self._lock:
+    async def adjust_fighters(self, sector_id: int, owner_id: str, delta: int) -> Optional[GarrisonState]:
+        async with self._lock:
             garrisons = self._by_sector.get(sector_id)
             if not garrisons:
                 return None
@@ -80,8 +82,10 @@ class GarrisonStore:
             self._save()
             return garrison if garrison.fighters > 0 else None
 
-    def set_mode(self, sector_id: int, owner_id: str, mode: GarrisonMode, toll_amount: int) -> Optional[GarrisonState]:
-        with self._lock:
+    async def set_mode(self, sector_id: int, owner_id: str, mode: GarrisonMode, toll_amount: int) -> Optional[GarrisonState]:
+        # Validate toll_amount to prevent negative values
+        toll_amount = max(0, int(toll_amount))
+        async with self._lock:
             garrisons = self._by_sector.get(sector_id)
             if not garrisons:
                 return None
@@ -95,8 +99,8 @@ class GarrisonStore:
             self._save()
             return garrison
 
-    def remove(self, sector_id: int, owner_id: str) -> bool:
-        with self._lock:
+    async def remove(self, sector_id: int, owner_id: str) -> bool:
+        async with self._lock:
             garrisons = self._by_sector.get(sector_id)
             if not garrisons:
                 return False
@@ -109,8 +113,8 @@ class GarrisonStore:
             self._save()
             return True
 
-    def pop(self, sector_id: int, owner_id: str) -> Optional[GarrisonState]:
-        with self._lock:
+    async def pop(self, sector_id: int, owner_id: str) -> Optional[GarrisonState]:
+        async with self._lock:
             garrisons = self._by_sector.get(sector_id)
             if not garrisons:
                 return None
@@ -123,8 +127,9 @@ class GarrisonStore:
             self._save()
             return garrison
 
-    def to_payload(self, sector_id: int) -> List[dict]:
-        return [garrison.to_dict() for garrison in self.list_sector(sector_id)]
+    async def to_payload(self, sector_id: int) -> List[dict]:
+        garrisons = await self.list_sector(sector_id)
+        return [garrison.to_dict() for garrison in garrisons]
 
     # ------------------------------------------------------------------
     # Internal helpers

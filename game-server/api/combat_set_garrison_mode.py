@@ -21,12 +21,12 @@ async def handle(request: dict, world) -> dict:
     if world.garrisons is None:
         raise HTTPException(status_code=503, detail="Garrison system unavailable")
 
-    garrisons = world.garrisons.list_sector(sector)
+    garrisons = await world.garrisons.list_sector(sector)
     garrison = next((g for g in garrisons if g.owner_id == character_id), None)
     if not garrison:
         raise HTTPException(status_code=404, detail="No garrison found for character in this sector")
 
-    updated = world.garrisons.set_mode(
+    updated = await world.garrisons.set_mode(
         sector_id=sector,
         owner_id=character_id,
         mode=mode,
@@ -39,7 +39,7 @@ async def handle(request: dict, world) -> dict:
         "sector.garrison_updated",
         {
             "sector": sector,
-            "garrisons": world.garrisons.to_payload(sector) if world.garrisons else [],
+            "garrisons": await world.garrisons.to_payload(sector) if world.garrisons else [],
         },
         character_filter=[character_id],
     )
