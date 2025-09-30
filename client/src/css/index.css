@@ -4,7 +4,7 @@
 
 @font-face {
   font-family: "TX-02";
-  src: url("../assets/tx-02.woff2") format("woff2");
+  src: url("/tx-02.woff2") format("woff2");
   font-display: swap;
 }
 
@@ -20,7 +20,6 @@
   --font-sans: "TX-02", sans-serif;
   --font-mono: "TX-02", sans-serif;
 
-  --color-card-background: red;
   --color-border: oklch(1 0 0 / 20%);
   --radius-element: 0px;
   --color-agent: oklch(86.5% 0.127 207.078);
@@ -32,12 +31,12 @@
 
 html,
 body {
-  background-color: var(--color-background);
+  background: var(--color-background);
+  color: var(--color-foreground);
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow: hidden;
-  background: black;
 }
 
 #root {

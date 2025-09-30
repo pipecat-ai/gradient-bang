@@ -1,0 +1,13 @@
+.connect-bar {
+  margin-bottom: 20px;
+}
+
+body {
+  color: white;
+}
+
+[data-theme="light"] {
+  body {
+    color: black;
+  }
+}
