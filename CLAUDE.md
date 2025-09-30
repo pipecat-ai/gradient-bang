@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+NEVER ADD OR COMMIT ANY FILES TO GIT. USER WILL ADD AND COMMIT TO GIT MANUALLY.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview

@@ -542,7 +542,7 @@ class SimpleTUI(App):
             salvage = payload.get("salvage") or []
             if salvage:
                 await self._append_log(f"Salvage available: {salvage}")
-            await self._log_my_action(state, payload, deltas)
+            # Don't log action here - it was already logged in combat.round_resolved
             self._combatant_stats.clear()
             self._last_player_stats = (fighters, shields)
             if self.session:
@@ -1161,13 +1161,26 @@ class SimpleTUI(App):
         elif self.character in actions:
             my_action = actions.get(self.character)
         if isinstance(my_action, Mapping):
-            pieces = [str(my_action.get("action"))]
+            action_type = str(my_action.get("action"))
+            pieces = [action_type]
             if my_action.get("commit"):
                 pieces.append(f"commit={my_action['commit']}")
             if my_action.get("target"):
                 pieces.append(f"target={my_action['target']}")
             if my_action.get("destination_sector") is not None:
                 pieces.append(f"to_sector={my_action['destination_sector']}")
+
+            # Add explicit flee result if this was a flee action
+            if action_type == "flee" and payload:
+                flee_results = payload.get("flee_results")
+                if isinstance(flee_results, Mapping):
+                    my_id = player_id or self.character
+                    if my_id in flee_results:
+                        if flee_results[my_id]:
+                            pieces.append("✓ FLEE SUCCEEDED")
+                        else:
+                            pieces.append("✗ FLEE FAILED - still in combat")
+
             deltas = deltas or {}
 
             def resolve_delta(identifier: str) -> Tuple[int, int]:

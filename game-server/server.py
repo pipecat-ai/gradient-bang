@@ -390,10 +390,20 @@ async def _combat_round_resolved(encounter, outcome) -> None:
     flee_followups: List[Dict[str, Any]] = []
     recent_flee_ids: List[str] = []
     if outcome.flee_results:
+        logger.info(
+            "Processing flee_results: %s",
+            {pid: fled for pid, fled in outcome.flee_results.items()},
+        )
         for pid, fled in outcome.flee_results.items():
             if not fled:
                 continue
             action = outcome.effective_actions.get(pid)
+            logger.info(
+                "Flee successful for %s: action=%s destination_sector=%s",
+                pid,
+                action,
+                getattr(action, "destination_sector", None) if action else None,
+            )
             destination = getattr(action, "destination_sector", None) if action else None
             if destination is None:
                 logger.warning(
@@ -410,11 +420,28 @@ async def _combat_round_resolved(encounter, outcome) -> None:
                 }
             )
             recent_flee_ids.append(str(pid))
+        logger.info("flee_followups populated: %s entries", len(flee_followups))
+
+        # Store flee movements in context so they persist across callback cancellations
+        existing_flee_followups = encounter.context.get("pending_flee_movements", [])
+        if isinstance(existing_flee_followups, list):
+            existing_flee_followups.extend(flee_followups)
+            encounter.context["pending_flee_movements"] = existing_flee_followups
+        else:
+            encounter.context["pending_flee_movements"] = flee_followups
 
     if recent_flee_ids:
-        encounter.context["recent_flee_character_ids"] = recent_flee_ids.copy()
-    else:
-        encounter.context.pop("recent_flee_character_ids", None)
+        # Accumulate fled character IDs across all rounds so they receive combat.ended
+        existing_fled = encounter.context.get("recent_flee_character_ids")
+        if isinstance(existing_fled, list):
+            # Extend with new fled IDs, avoiding duplicates
+            all_fled = list(existing_fled)
+            for fid in recent_flee_ids:
+                if fid not in all_fled:
+                    all_fled.append(fid)
+            encounter.context["recent_flee_character_ids"] = all_fled
+        else:
+            encounter.context["recent_flee_character_ids"] = recent_flee_ids.copy()
 
     payload = serialize_round(encounter, outcome, include_logs=True)
     payload["combat_id"] = encounter.combat_id
@@ -479,9 +506,21 @@ async def _combat_round_resolved(encounter, outcome) -> None:
         if character:
             character.update_ship_state(fighters=fighters, shields=shields)
 
-    for entry in flee_followups:
+    # Execute flee movements - retrieve from context in case callback was cancelled before
+    pending_movements = encounter.context.get("pending_flee_movements", [])
+    if not isinstance(pending_movements, list):
+        pending_movements = []
+
+    logger.info("Starting flee movements: %s entries to process", len(pending_movements))
+    for entry in pending_movements:
         character_id = entry["character_id"]
         destination = entry["destination"]
+        logger.info(
+            "Executing flee movement: character=%s from sector=%s to sector=%s",
+            character_id,
+            encounter.sector_id,
+            destination,
+        )
         try:
             await api_move.handle(
                 {
@@ -490,6 +529,7 @@ async def _combat_round_resolved(encounter, outcome) -> None:
                 },
                 world,
             )
+            logger.info("Flee movement completed: character=%s now in sector=%s", character_id, destination)
         except HTTPException as exc:  # pragma: no cover - defensive logging
             logger.warning(
                 "Failed to move fleeing character %s to sector %s: %s",
@@ -497,6 +537,9 @@ async def _combat_round_resolved(encounter, outcome) -> None:
                 destination,
                 exc,
             )
+
+    # Clear pending movements after execution
+    encounter.context["pending_flee_movements"] = []
     logger.debug("_combat_round_resolved complete")
 
 async def _combat_ended(encounter, outcome) -> None:
@@ -598,10 +641,15 @@ async def _finalize_combat(encounter, outcome):
         if state.combatant_type != "garrison":
             continue
         owner = state.owner_character_id
-        if owner and state.fighters > 0 and world.garrisons:
+        if not owner or not world.garrisons:
+            continue
+
+        if state.fighters > 0:
+            # Update garrison fighter count using deploy (garrison stays in store)
             source_info = garrison_lookup.get(owner, {})
             mode = source_info.get("mode", "offensive")
             toll_amount = source_info.get("toll_amount", 0)
+            toll_balance = source_info.get("toll_balance", 0)
             try:
                 world.garrisons.deploy(
                     sector_id=encounter.sector_id,
@@ -609,18 +657,31 @@ async def _finalize_combat(encounter, outcome):
                     fighters=state.fighters,
                     mode=mode,
                     toll_amount=toll_amount,
-                    toll_balance=source_info.get("toll_balance", 0),
+                    toll_balance=toll_balance,
                 )
-            except ValueError as exc:
+                await _emit_status_update(owner)
+                notified_owners.add(owner)
+            except Exception as exc:
                 logger.warning(
-                    "Failed to redeploy garrison for owner=%s sector=%s: %s",
+                    "Failed to update garrison for owner=%s sector=%s: %s",
                     owner,
                     encounter.sector_id,
                     exc,
                 )
-                continue
-            await _emit_status_update(owner)
-            notified_owners.add(owner)
+        else:
+            # Remove destroyed garrison from store
+            try:
+                world.garrisons.remove(encounter.sector_id, owner)
+                logger.info(
+                    "Removed destroyed garrison for owner=%s from sector=%s",
+                    owner,
+                    encounter.sector_id,
+                )
+                await _emit_status_update(owner)
+                notified_owners.add(owner)
+            except Exception:
+                # Garrison already removed or never existed in store
+                pass
 
     surviving_garrison_owners = {
         state.owner_character_id

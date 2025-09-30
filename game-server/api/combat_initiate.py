@@ -43,28 +43,33 @@ async def start_sector_combat(
     if garrisons_to_include is None and world.garrisons is not None:
         garrisons_to_include = world.garrisons.list_sector(sector_id)
 
-    def _pop_garrisons() -> tuple[List[object], List[dict]]:
+    def _collect_garrisons() -> tuple[List[object], List[dict]]:
+        """Collect garrisons to add as combat participants WITHOUT removing them from sector.
+
+        Garrisons remain visible in sector_contents during combat so clients can:
+        - Display toll demands
+        - Offer "pay" action
+        - Show garrison status
+        """
         results: List[object] = []
         sources: List[dict] = []
         if not garrisons_to_include or world.garrisons is None:
             return results, sources
         for garrison in garrisons_to_include:
             owner_id = getattr(garrison, "owner_id", None)
-            if owner_id is None:
+            if owner_id is None or garrison.fighters <= 0:
                 continue
-            popped = world.garrisons.pop(sector_id, owner_id)
-            if not popped or popped.fighters <= 0:
-                continue
-            results.append(build_garrison_combatant(sector_id, popped))
+            # Reference garrison without removing it from the store
+            results.append(build_garrison_combatant(sector_id, garrison))
             sources.append(
                 {
                     "sector": sector_id,
                     "owner_id": owner_id,
-                    "fighters": popped.fighters,
-                    "mode": popped.mode,
-                    "toll_amount": popped.toll_amount,
-                    "toll_balance": popped.toll_balance,
-                    "deployed_at": popped.deployed_at,
+                    "fighters": garrison.fighters,
+                    "mode": garrison.mode,
+                    "toll_amount": garrison.toll_amount,
+                    "toll_balance": garrison.toll_balance,
+                    "deployed_at": garrison.deployed_at,
                 }
             )
         return results, sources
@@ -81,7 +86,7 @@ async def start_sector_combat(
                     existing.combat_id,
                     build_character_combatant(world, cid),
                 )
-        garrison_states, garrison_sources = _pop_garrisons()
+        garrison_states, garrison_sources = _collect_garrisons()
         for state in garrison_states:
             await manager.add_participant(existing.combat_id, state)
         if garrison_sources:
@@ -106,7 +111,7 @@ async def start_sector_combat(
         return payload
 
     participants = _collect_characters()
-    garrison_states, garrison_sources = _pop_garrisons()
+    garrison_states, garrison_sources = _collect_garrisons()
     participants.extend(garrison_states)
 
     unique = {}

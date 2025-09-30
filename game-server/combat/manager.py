@@ -176,10 +176,20 @@ class CombatManager:
             participant = encounter.participants.get(garrison_id)
             if not participant or participant.fighters <= 0:
                 continue
+
+            # Check if the garrison's original target is still present and attackable
+            target_id = entry.get("target_id")
+            if target_id and isinstance(target_id, str):
+                target_state = encounter.participants.get(target_id)
+                # If target fled or became unable to fight (e.g., escape pod), end toll demand
+                if not target_state or target_state.fighters <= 0 or target_state.max_fighters == 0:
+                    continue  # This garrison's toll demand is satisfied/abandoned
+
+            # Check if ANY character with fighters > 0 remains (potential payment source)
             for pid, state in encounter.participants.items():
                 if pid == garrison_id:
                     continue
-                if state.combatant_type == "character" and state.fighters > 0:
+                if state.combatant_type == "character" and state.fighters > 0 and state.max_fighters > 0:
                     return True
         return False
 
@@ -432,7 +442,6 @@ class CombatManager:
                 encounter.ended = True
                 encounter.end_state = round_result
                 callbacks.append(("resolved", encounter, outcome))
-                callbacks.append(("final_resolved", encounter, outcome))
                 callbacks.append(("ended", encounter, outcome))
                 self._encounters.pop(combat_id, None)
                 self._completed[combat_id] = encounter
@@ -463,8 +472,6 @@ class CombatManager:
             try:
                 if tag == "resolved":
                     await self._emit_round_resolved(enc, out)
-                elif tag == "final_resolved":
-                    await self._emit_round_resolved(enc, out)
                 elif tag == "waiting":
                     await self._emit_round_waiting(enc)
                 elif tag == "ended":
@@ -486,6 +493,9 @@ class CombatManager:
                     out.round_number,
                     tag,
                 )
+                # Don't re-raise for resolved callbacks - let waiting/ended continue
+                if tag == "ended":
+                    raise
                 continue
             except Exception:
                 logger.exception(
@@ -556,4 +566,4 @@ class CombatManager:
         self, encounter: CombatEncounter, outcome: CombatRoundOutcome
     ) -> None:
         if self._on_combat_ended:
-            asyncio.create_task(self._on_combat_ended(encounter, outcome))
+            await self._on_combat_ended(encounter, outcome)
