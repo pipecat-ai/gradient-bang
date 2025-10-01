@@ -12,6 +12,7 @@ import { createHistorySlice, type HistorySlice } from "./historySlice";
 import { createMapSlice, type MapSlice } from "./mapSlice";
 import { createSettingsSlice, type SettingsSlice } from "./settingsSlice";
 import { createTaskSlice, type TaskSlice } from "./taskSlice";
+import { createUISlice, type UISlice } from "./uiSlice";
 
 type WithSelectors<S> = S extends { getState: () => infer T }
   ? S & { use: { [K in keyof T]: () => T[K] } }
@@ -66,6 +67,7 @@ const createGameSlice: StateCreator<
     MapSlice &
     HistorySlice &
     TaskSlice &
+    UISlice &
     SettingsSlice,
   [],
   [],
@@ -119,7 +121,13 @@ const createGameSlice: StateCreator<
 });
 
 const useGameStoreBase = create<
-  GameSlice & ActionsSlice & MapSlice & HistorySlice & TaskSlice & SettingsSlice
+  GameSlice &
+    ActionsSlice &
+    MapSlice &
+    HistorySlice &
+    TaskSlice &
+    SettingsSlice &
+    UISlice
 >()((...a) => ({
   ...createGameSlice(...a),
   ...createActionsSlice(...a),
@@ -127,6 +135,7 @@ const useGameStoreBase = create<
   ...createHistorySlice(...a),
   ...createTaskSlice(...a),
   ...createSettingsSlice(...a),
+  ...createUISlice(...a),
 }));
 
 const useGameStore = createSelectors(useGameStoreBase);

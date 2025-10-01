@@ -19,7 +19,7 @@ export const createActionsSlice: StateCreator<
     newSector: Sector,
     bypassAnimation: boolean = false
   ) => {
-    console.log("[ACTION] Beginning movement action", newSector);
+    console.debug("[ACTION] Beginning movement action", newSector);
 
     // Early exit if starfield instance not found
     const starfield = get().starfieldInstance;
@@ -49,7 +49,7 @@ export const createActionsSlice: StateCreator<
       bypassAnimation
     );
 
-    console.log("[ACTION] Movement complete");
+    console.debug("[ACTION] Movement complete");
 
     // 3. Return to idle state
     set({ uiState: "idle" });
