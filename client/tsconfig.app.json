@@ -19,8 +19,9 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
+      "@fx/*": ["./src/fx/*"],
       "@hud/*": ["./src/hud/*"],
-      "@state/*": ["./src/state/*"],
+      "@views/*": ["./src/views/*"],
       "@stores/*": ["./src/stores/*"],
     },
 

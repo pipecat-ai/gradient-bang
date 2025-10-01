@@ -6,7 +6,7 @@ import {
   type UseBoundStore,
 } from "zustand";
 
-import { GalaxyStarfield } from "../starfield/";
+import { GalaxyStarfield } from "../fx/starfield";
 import { createActionsSlice, type ActionsSlice } from "./actionSlice";
 import { createHistorySlice, type HistorySlice } from "./historySlice";
 import { createMapSlice, type MapSlice } from "./mapSlice";

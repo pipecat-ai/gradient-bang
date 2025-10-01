@@ -4,8 +4,6 @@ import type { Story } from "@ladle/react";
 export const Init: Story = () => {
   const gameStore = useGameStore();
 
-  console.log(gameStore);
-
   return (
     <ul>
       <li>Credits: {gameStore.credits}</li>
