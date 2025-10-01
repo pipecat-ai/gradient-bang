@@ -42,6 +42,7 @@ class CombatantState:
     max_shields: int
     is_escape_pod: bool = False
     owner_character_id: Optional[str] = None
+    ship_type: Optional[str] = None  # Ship type name for characters, None for garrisons
 
     def mitigation(self) -> float:
         """Return shield mitigation percentage (0.0-0.5)."""
@@ -89,6 +90,7 @@ class CombatRoundOutcome:
     flee_results: Dict[str, bool]
     end_state: Optional[str]
     effective_actions: Dict[str, RoundAction]
+    participant_deltas: Optional[Dict[str, Dict[str, int]]] = None
 
 
 @dataclass

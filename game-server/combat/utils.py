@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Dict, Iterable
+from typing import Dict, Iterable, Optional
 
 from ships import ShipType, get_ship_stats
 from .models import CombatEncounter, CombatantState, GarrisonState
@@ -30,6 +30,7 @@ def build_character_combatant(world, character_id: str) -> CombatantState:
         max_shields=stats.shields,
         is_escape_pod=(ship_type == ShipType.ESCAPE_POD),
         owner_character_id=character_id,
+        ship_type=ship_type.value,
     )
 
 
@@ -52,6 +53,52 @@ def build_garrison_combatant(
         is_escape_pod=False,
         owner_character_id=garrison.owner_id,
     )
+
+
+def compute_combatant_deltas(
+    current_encounter: CombatEncounter,
+    previous_encounter: Optional[CombatEncounter]
+) -> Dict[str, Dict[str, int]]:
+    """
+    Compute fighter and shield deltas for each combatant.
+
+    Returns: {"combatant_id": {"fighters": -2, "shields": -5}, ...}
+
+    For the first round or new participants, deltas are 0.
+    """
+    if not previous_encounter:
+        # First round, no deltas
+        return {pid: {"fighters": 0, "shields": 0} for pid in current_encounter.participants}
+
+    deltas = {}
+    for pid, current in current_encounter.participants.items():
+        prev = previous_encounter.participants.get(pid)
+        if prev:
+            deltas[pid] = {
+                "fighters": current.fighters - prev.fighters,
+                "shields": current.shields - prev.shields
+            }
+        else:
+            # New participant this round
+            deltas[pid] = {"fighters": 0, "shields": 0}
+    return deltas
+
+
+def serialize_combatant(state: CombatantState) -> dict:
+    """Serialize a combatant with all relevant fields for UI display."""
+    return {
+        "combatant_id": state.combatant_id,
+        "combatant_type": state.combatant_type,
+        "name": state.name,
+        "fighters": state.fighters,
+        "shields": state.shields,
+        "max_fighters": state.max_fighters,
+        "max_shields": state.max_shields,
+        "turns_per_warp": state.turns_per_warp,
+        "is_escape_pod": state.is_escape_pod,
+        "owner_character_id": state.owner_character_id,
+        "ship_type": state.ship_type,  # None for garrisons, ship type string for characters
+    }
 
 
 def serialize_encounter(encounter: CombatEncounter) -> dict:
@@ -115,6 +162,21 @@ def serialize_round(encounter: CombatEncounter, outcome, *, include_logs: bool =
         "result": result_flag,
         "deadline": encounter.deadline.isoformat() if encounter.deadline else None,
     }
+
+    # Include participants with deltas
+    participants_with_deltas = {}
+    for pid, state in encounter.participants.items():
+        participant_dict = serialize_combatant(state)
+        # Add deltas if available
+        if outcome.participant_deltas and pid in outcome.participant_deltas:
+            participant_dict["fighters_delta"] = outcome.participant_deltas[pid]["fighters"]
+            participant_dict["shields_delta"] = outcome.participant_deltas[pid]["shields"]
+        else:
+            participant_dict["fighters_delta"] = 0
+            participant_dict["shields_delta"] = 0
+        participants_with_deltas[pid] = participant_dict
+    payload["participants"] = participants_with_deltas
+
     if include_logs:
         payload["actions"] = {
             pid: {

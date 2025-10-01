@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field, replace
@@ -16,6 +17,7 @@ from .models import (
     CombatantAction,
     RoundAction,
 )
+from .utils import compute_combatant_deltas
 
 RoundResolvedCallback = Callable[[CombatEncounter, CombatRoundOutcome], Awaitable[None]]
 RoundWaitingCallback = Callable[[CombatEncounter], Awaitable[None]]
@@ -404,6 +406,8 @@ class CombatManager:
                 encounter.round_number,
                 {pid: action_map[pid].action.value for pid in action_map},
             )
+            # Save previous state for delta computation (before resolve_round modifies anything)
+            previous_encounter = copy.deepcopy(encounter)
             outcome = resolve_round(encounter, action_map)
             round_result = outcome.end_state
             if round_result == "stalemate" and self._require_toll_followup(encounter):
@@ -442,6 +446,10 @@ class CombatManager:
                 state = encounter.participants[pid]
                 state.fighters = fighters
                 state.shields = outcome.shields_remaining.get(pid, state.shields)
+
+            # Compute deltas after applying updates
+            deltas = compute_combatant_deltas(encounter, previous_encounter)
+            outcome.participant_deltas = deltas
 
             for pid, fled in outcome.flee_results.items():
                 if not fled:

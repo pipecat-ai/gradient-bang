@@ -33,6 +33,7 @@ from textual.widgets import Header, Input, Log, Static
 
 from npc.combat_session import CombatSession
 from npc.combat_utils import ensure_position
+from npc.status_bars import StatusBarUpdater
 from utils.api_client import AsyncGameClient, RPCError
 from utils.base_llm_agent import LLMConfig
 from utils.task_agent import TaskAgent
@@ -184,12 +185,7 @@ class SimpleTUI(App):
         height: 1fr;
     }
 
-    #status-bar {
-        height: auto;
-        padding: 0 1;
-    }
-
-    #occupant-bar, #port-bar {
+    #status-bars {
         height: auto;
         padding: 0 1;
     }
@@ -267,17 +263,14 @@ class SimpleTUI(App):
         self._task_last_prompt: Optional[str] = None
         self.task_max_iterations = max(1, max_iterations)
         self._last_ship_meta: Dict[str, Any] = {"credits": None, "cargo": {}}
+        self.status_updater = StatusBarUpdater(character)
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         self.task_banner = Static("task idle", id="task-banner")
         yield self.task_banner
-        self.status_display = Static("quiet | fighters: 0 shields: 0", id="status-bar")
+        self.status_display = Static("", id="status-bars")
         yield self.status_display
-        self.occupant_display = Static("occupants: --", id="occupant-bar")
-        yield self.occupant_display
-        self.port_display = Static("port: --", id="port-bar")
-        yield self.port_display
         self.ws_log = Log(id="ws-log", highlight=True)
         yield self.ws_log
         with Horizontal(id="prompt-bar"):
@@ -487,11 +480,12 @@ class SimpleTUI(App):
             await self._enter_combat_mode()
 
         if event_name == "combat.started":
+            # Update StatusBarUpdater
+            self.status_updater.update_from_combat_started(payload)
+            self._refresh_status_display()
+
+            # Keep legacy tracking for defeat detection
             self._update_combatant_stats(state)
-            fighters, shields = self._player_stats_from_state(state)
-            self._update_status_bar(
-                in_combat=True, fighters=fighters, shields=shields
-            )
             await self._announce_defeats()
             opponents = [
                 p.name for pid, p in state.participants.items() if pid != self.character
@@ -503,11 +497,12 @@ class SimpleTUI(App):
             return
 
         if event_name == "combat.round_waiting":
+            # Update StatusBarUpdater
+            self.status_updater.update_from_combat_round_waiting(payload)
+            self._refresh_status_display()
+
+            # Keep legacy tracking for defeat detection
             self._update_combatant_stats(state)
-            fighters, shields = self._player_stats_from_state(state)
-            self._update_status_bar(
-                in_combat=True, fighters=fighters, shields=shields
-            )
             await self._announce_defeats()
             await self._cancel_round_prompt()
             task = asyncio.create_task(self._prompt_for_round_action(state, payload))
@@ -516,12 +511,13 @@ class SimpleTUI(App):
             return
 
         if event_name == "combat.round_resolved":
+            # Update StatusBarUpdater
+            self.status_updater.update_from_combat_round_resolved(payload)
+            self._refresh_status_display()
+
             await self._cancel_round_prompt()
+            # Keep legacy tracking for defeat detection and action logging
             deltas = self._update_combatant_stats(state, capture_deltas=True)
-            fighters, shields = self._player_stats_from_state(state)
-            self._update_status_bar(
-                in_combat=True, fighters=fighters, shields=shields
-            )
             await self._announce_defeats()
             summary = summarize_round(payload)
             await self._append_log(f"Round {state.round} resolved: {summary}")
@@ -530,12 +526,13 @@ class SimpleTUI(App):
             return
 
         if event_name == "combat.ended":
+            # Update StatusBarUpdater
+            self.status_updater.update_from_combat_ended(payload)
+            self._refresh_status_display()
+
             await self._cancel_round_prompt()
+            # Keep legacy tracking for defeat detection
             deltas = self._update_combatant_stats(state, capture_deltas=True)
-            fighters, shields = self._player_stats_from_state(state)
-            self._update_status_bar(
-                in_combat=False, fighters=fighters, shields=shields
-            )
             await self._announce_defeats()
             result = payload.get("result") or payload.get("end") or "no result"
             await self._append_log(f"Combat ended ({result})")
@@ -544,7 +541,6 @@ class SimpleTUI(App):
                 await self._append_log(f"Salvage available: {salvage}")
             # Don't log action here - it was already logged in combat.round_resolved
             self._combatant_stats.clear()
-            self._last_player_stats = (fighters, shields)
             if self.session:
                 await self._handle_occupants(self.session.other_players())
             await self._return_to_task_mode()
@@ -665,6 +661,8 @@ class SimpleTUI(App):
         cargo: Optional[Mapping[str, Any]] = None,
         warp: Optional[Dict[str, int]] = None,
     ) -> None:
+        # Legacy method - StatusBarUpdater handles display now
+        # Keep for backward compatibility but only update internal tracking
         if fighters is None or shields is None:
             prev_fighters, prev_shields = self._last_player_stats
             fighters = prev_fighters if fighters is None else fighters
@@ -676,6 +674,9 @@ class SimpleTUI(App):
             shields = 0
 
         self._last_player_stats = (fighters, shields)
+
+        # Don't update display widget - StatusBarUpdater handles that now
+        return
         mode = "combat" if in_combat else "quiet"
         self._last_status_mode = mode
         if credits is not None:
@@ -727,6 +728,14 @@ class SimpleTUI(App):
             return
         self.task_banner.update(text)
 
+    def _refresh_status_display(self) -> None:
+        """Update the status-bars widget from status_updater state."""
+        if self.status_display is None:
+            return
+        lines = self.status_updater.format_status_bars()
+        text = "\n".join(lines)
+        self.status_display.update(text)
+
     def _set_task_input_enabled(self, enabled: bool) -> None:
         if getattr(self, "input", None) is None:
             return
@@ -761,6 +770,8 @@ class SimpleTUI(App):
         other_players_list: Sequence[Mapping[str, Any]],
         garrisons: Sequence[Mapping[str, Any]],
     ) -> None:
+        # Legacy method - StatusBarUpdater handles display now
+        return
         if self.occupant_display is None:
             return
 
@@ -806,6 +817,8 @@ class SimpleTUI(App):
         )
 
     def _update_port_display(self, port: Optional[Mapping[str, Any]]) -> None:
+        # Legacy method - StatusBarUpdater handles display now
+        return
         if self.port_display is None:
             return
         if not isinstance(port, Mapping):
@@ -980,13 +993,9 @@ class SimpleTUI(App):
             )
 
     def _sync_status_bar_from_status(self, status: Mapping[str, Any]) -> None:
-        snapshot = status.get("sector_contents") if isinstance(status, Mapping) else None
-        self._update_sector_details(snapshot)
-        ship = status.get("ship") if isinstance(status, Mapping) else None
-        if isinstance(ship, Mapping):
-            self._sync_status_bar_from_ship(ship)
-        else:
-            self._update_status_bar(in_combat=False)
+        # Update StatusBarUpdater - this now handles all status display
+        self.status_updater.update_from_status(dict(status))
+        self._refresh_status_display()
 
     def _sync_status_bar_from_ship(self, ship: Mapping[str, Any]) -> None:
         fighters = int(ship.get("fighters", 0))
