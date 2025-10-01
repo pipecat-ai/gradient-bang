@@ -1,11 +1,13 @@
+import { GalaxyStarfield } from "@fx/starfield";
 import { memo, useEffect } from "react";
-import { GalaxyStarfield } from "../starfield/";
 import useGameStore from "../stores/game";
 
 import { usePlaySound } from "../hooks/usePlaySound";
+
+// @TODO: replace with slice
 import Settings from "../settings.json";
 
-export const Starfield = memo(() => {
+export const StarField = memo(() => {
   const playSound = usePlaySound();
 
   useEffect(() => {
@@ -44,4 +46,4 @@ export const Starfield = memo(() => {
   return null;
 });
 
-Starfield.displayName = "Starfield";
+StarField.displayName = "StarField";

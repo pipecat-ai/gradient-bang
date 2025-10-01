@@ -1,12 +1,12 @@
+import useGameStore from "@stores/game";
 import { useCallback } from "react";
-import useGameStore from "../stores/game";
 
 export type Sound = "warp" | "start" | "ambience";
 
 const SoundMap = {
-  warp: "/assets/warp.wav",
-  start: "/assets/start.wav",
-  ambience: "/assets/ambience.wav",
+  warp: "/sounds/warp.wav",
+  start: "/sounds/start.wav",
+  ambience: "/sounds/ambience.wav",
 };
 
 export const usePlaySound = () => {

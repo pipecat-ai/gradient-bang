@@ -1,7 +1,7 @@
 import { RTVIEvent } from "@pipecat-ai/client-js";
 import { useRTVIClientEvent } from "@pipecat-ai/client-react";
+import useGameStore from "@stores/game";
 import { createContext, useCallback, type ReactNode } from "react";
-import useGameStore from "./stores/game";
 
 interface ServerMessage {
   event: string;
