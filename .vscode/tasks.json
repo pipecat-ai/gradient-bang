@@ -1,0 +1,67 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Check World Data",
+      "type": "shell",
+      "command": "if [ ! -d \"world-data\" ]; then echo 'Generating world data...' && mkdir -p world-data && uv run scripts/universe-bang.py 5000 1234; else echo 'World data already exists.'; fi",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "close": true
+      }
+    },
+    {
+      "label": "Game Server",
+      "type": "shell",
+      "command": "uv run game-server/server.py",
+      "dependsOn": ["Check World Data"],
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "python",
+        "focus": false
+      }
+    },
+    {
+      "label": "Bot",
+      "type": "shell",
+      "command": "sleep 2 && uv run pipecat/bot.py",
+      "dependsOn": ["Check World Data"],
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "python",
+        "focus": false
+      }
+    },
+    {
+      "label": "Client",
+      "type": "shell",
+      "command": "sleep 2 && cd client && pnpm run dev",
+      "dependsOn": ["Check World Data"],
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "client",
+        "focus": false
+      }
+    },
+    {
+      "label": "Dev Environment",
+      "dependsOn": ["Game Server", "Bot", "Client"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    }
+  ]
+}
