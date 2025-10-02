@@ -1,12 +1,11 @@
+import { PortBadge } from "@/components/PortBadge";
+import { SectorBadge } from "@/components/SectorBadge";
+import useGameStore from "@/stores/game";
 import { Card, Divider } from "@pipecat-ai/voice-ui-kit";
-import useImageStore from "../stores/image";
-import { PortBadge } from "./PortBadge";
-import { RetroGlitchImage } from "./RetroGlitchImage";
-import { SectorBadge } from "./SectorBadge";
+import { RetroGlitchImage } from "../fx/RetroGlitchImage";
 
 export const ImagePanel = () => {
-  const { getImage } = useImageStore();
-  const currentImage = getImage() || undefined;
+  const { osdImage } = useGameStore.use.visualElements();
 
   return (
     <div className="flex flex-col gap-panel h-full w-full">
@@ -18,12 +17,11 @@ export const ImagePanel = () => {
           <RetroGlitchImage
             terminalColor="#b4ff49"
             imageFit="cover"
-            src={currentImage || ""}
+            src={osdImage || ""}
             pixelSize={1}
             fillContainer={true}
           />
         </div>
-        {/*!!port && <PortInfoPanel />*/}
       </Card>
       <Divider className="w-full py-1.5" variant="dotted" />
       <div className="flex flex-row gap-panel">

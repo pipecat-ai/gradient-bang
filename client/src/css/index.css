@@ -4,7 +4,7 @@
 
 @font-face {
   font-family: "TX-02";
-  src: url("../assets/tx-02.woff2") format("woff2");
+  src: url("/fonts/tx-02.woff2") format("woff2");
   font-display: swap;
 }
 
@@ -20,7 +20,6 @@
   --font-sans: "TX-02", sans-serif;
   --font-mono: "TX-02", sans-serif;
 
-  --color-card-background: red;
   --color-border: oklch(1 0 0 / 20%);
   --radius-element: 0px;
   --color-agent: oklch(86.5% 0.127 207.078);
@@ -30,27 +29,18 @@
   --grid-opacity: 0.25;
 }
 
-*:not(.normal-case) {
-  text-transform: uppercase;
-}
-
-.normal-case * {
-  text-transform: none;
-}
-
 html,
 body {
-  background-color: var(--color-background);
+  background: var(--color-background);
+  color: var(--color-foreground);
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow: hidden;
-  background: black;
 }
 
 #root {
   position: relative;
-  z-index: 99999;
   height: 100vh;
 }
 
@@ -474,16 +464,6 @@ body {
 
 .numerical-badge-flashing-inactive {
   animation: flash-glow-inactive 0.8s ease-out;
-}
-
-.hud-map-canvas {
-  position: absolute !important;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
 }
 
 @import "./starfield.css";

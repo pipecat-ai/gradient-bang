@@ -1,11 +1,9 @@
 import { Badge, Progress } from "@pipecat-ai/voice-ui-kit";
 import { useMemo } from "react";
-import { useGameManager } from "../hooks/useGameManager";
+import useGameStore from "../stores/game";
 
 export const CargoCapacityBadge = () => {
-  const { game } = useGameManager();
-
-  const ship = game.ship;
+  const ship = useGameStore.use.ship();
 
   const progressProps = useMemo(() => {
     if (!ship) return { color: "primary", percent: 0 };

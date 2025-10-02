@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Set, Optional, Any
+from typing import Dict, List, Set, Optional, Any, Tuple
 from collections import deque, defaultdict
 
 from contextlib import asynccontextmanager
@@ -19,10 +19,13 @@ class UniverseGraph:
     def __init__(self, universe_data: dict):
         self.sector_count = universe_data["meta"]["sector_count"]
         self.adjacency: Dict[int, List[int]] = {}
+        self.positions: Dict[int, Tuple[int, int]] = {}
+
         undirected: Dict[int, set[int]] = defaultdict(set)
 
         for sector in universe_data["sectors"]:
             sector_id = sector["id"]
+            self.positions[sector_id] = [sector["position"].get("x"), sector["position"].get("y")]
             targets = [warp["to"] for warp in sector["warps"]]
             self.adjacency[sector_id] = targets
             for target in targets:

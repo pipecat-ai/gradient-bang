@@ -894,11 +894,16 @@ async def local_map_get(center: int = 0, max_hops: int = 3, max_nodes: int = 25)
             if port_state:
                 port_type = port_state.code
 
+        position = None
+        if world.universe_graph:
+            position = world.universe_graph.positions.get(sector_id, (0, 0))
+
         nodes_by_id[sector_id] = {
             "id": sector_id,
             "visited": True,
             "port_type": port_type,
             "adjacent": adjacent,
+            "position": position,
         }
 
         if distance < max_hops:

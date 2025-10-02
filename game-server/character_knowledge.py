@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import os
 import threading
-from typing import Dict, Iterator, List, Set, Optional, Any
+from typing import Dict, Iterator, List, Set, Optional, Any, Tuple
 from pydantic import BaseModel, Field
 from ships import ShipType, get_ship_stats
 from core.config import get_world_data_path
@@ -22,6 +22,7 @@ class SectorKnowledge(BaseModel):
     sector_id: int
     last_visited: str
     port: Optional[dict] = None
+    position: Tuple[int, int] = (0, 0)
     planets: List[dict] = []
     adjacent_sectors: List[int] = []
 
@@ -187,6 +188,7 @@ class CharacterKnowledgeManager:
         character_id: str,
         sector_id: int,
         port: Optional[dict] = None,
+        position: Tuple[int, int] = (0, 0),
         planets: List[dict] = None,
         adjacent_sectors: List[int] = None
     ):
@@ -219,6 +221,7 @@ class CharacterKnowledgeManager:
             last_visited=now,
             port=port,
             planets=planets or [],
+            position=position,
             adjacent_sectors=adjacent_sectors or []
         )
         

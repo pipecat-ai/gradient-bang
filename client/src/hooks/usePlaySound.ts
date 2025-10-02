@@ -1,16 +1,22 @@
+import useGameStore from "@stores/game";
 import { useCallback } from "react";
 
 export type Sound = "warp" | "start" | "ambience";
 
 const SoundMap = {
-  warp: "/assets/warp.wav",
-  start: "/assets/start.wav",
-  ambience: "/assets/ambience.wav",
+  warp: "/sounds/warp.wav",
+  start: "/sounds/start.wav",
+  ambience: "/sounds/ambience.wav",
 };
 
 export const usePlaySound = () => {
+  const { disabledSounds } = useGameStore.use.settings();
+
   return useCallback(
     (sound: Sound, options?: { volume?: number; loop?: boolean }) => {
+      // If sounds are disabled, don't play anything
+      if (disabledSounds) return;
+
       const audio = new Audio(SoundMap[sound]);
       audio.currentTime = 0;
 
@@ -30,6 +36,6 @@ export const usePlaySound = () => {
         });
       }
     },
-    []
+    [disabledSounds]
   );
 };
