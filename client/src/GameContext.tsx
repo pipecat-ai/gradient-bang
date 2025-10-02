@@ -1,513 +1,286 @@
 import { RTVIEvent } from "@pipecat-ai/client-js";
-import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react";
-import type { ReactNode } from "react";
-import React, { createContext, useCallback, useReducer } from "react";
+import { useRTVIClientEvent } from "@pipecat-ai/client-react";
+import useGameStore from "@stores/game";
+import { createContext, useCallback, type ReactNode } from "react";
 
-// Stores
-import { useUI } from "./hooks/useUI";
-import useMovementHistoryStore from "./stores/history";
-import type { IncomingSectorData } from "./stores/map";
-import useMapStore from "./stores/map";
-import useSectorStore, { type SectorContents } from "./stores/sector";
-import useStarfieldStore from "./stores/starfield";
-import useTaskStore, { type TaskOutput } from "./stores/tasks";
-import useTradeHistoryStore, { type TradeHistoryItem } from "./stores/trades";
-import useLocalMapStore, { type LocalMapPayload } from "./stores/localMap";
-import useChatStore, { type ChatMessage } from "./stores/chat";
-
-const ServerMessageKey = "gg-action";
-
-/**
- * CLIENT INTERFACES
- */
-export interface Cargo {
-  fuel_ore: number;
-  organics: number;
-  equipment: number;
-  [key: string]: number | undefined;
+interface ServerMessage {
+  event: string;
+  tool_name?: string;
+  payload: ServerMessagePayload & Record<string, unknown>;
 }
 
-export interface Ship {
-  ship_name: string;
-  ship_type: string;
-  cargo: Cargo;
-  cargo_capacity: number;
-  cargo_used: number;
-  warp_power: number;
-  warp_power_capacity: number;
-  shields: number;
-  max_shields: number;
-  fighters: number;
-  max_fighters: number;
-  credits: number;
+interface ServerMessagePayload {
+  delta?: Record<string, unknown>;
+  result?: StatusUpdateMessage | Record<string, unknown>;
+  summary?: string;
 }
 
-export interface GameState {
+interface StatusUpdateMessage {
   id: string;
-  ship?: Ship;
-}
-
-/**
- * SERVER MESSAGE TYPINGS
- */
-type StatusUpdate = {
-  id: string;
-  sector: number;
-  ship?: Ship;
-  sector_contents?: SectorContents;
+  name: string;
   last_active?: string;
-};
+  sector: number;
+  ship: Ship & { credits: number };
+  sector_contents?: Sector;
+}
 
-type GameAction =
-  | { type: "SET_STATUS"; status: StatusUpdate | Partial<StatusUpdate> }
-  | { type: "SET_SHIP"; ship: Ship }
-  | { type: "RESET_GAME" }
-  | { type: "SET_HIGHLIGHTED_COMPONENT"; component: string | null };
+interface MapDataMessage {
+  sectors_visited: Record<string, SectorMap>;
+  total_sectors_visited: number;
+  first_visit: string;
+  last_update: string;
+}
 
-// Initial game state
-const initialState: GameState = {
-  id: "Unknown",
-  ship: undefined,
-};
+/*
+interface TradeResultMessage extends StatusUpdateMessage {
+  new_cargo: Cargo;
+  new_credits: number;
+  trade_type: "buy" | "sell";
+  commodity: string;
+  units: number;
+  price_per_unit: number;
+  total_price: number;
+}
 
-/**
- * GAME REDUCER
- */
-function gameReducer(state: GameState, action: GameAction): GameState {
-  switch (action.type) {
-    case "SET_STATUS":
-      console.log("[GAME] Updating status", action);
-      return {
-        ...state,
-        ...(action.status as Partial<StatusUpdate>),
-      };
+interface WarpPowerResultMessage {
+  new_warp_power: number;
+  warp_power_capacity: number;
+  new_credits: number;
+}
+*/
 
-    case "SET_SHIP": {
-      console.log("[GAME] Updating ship", action);
-      return {
-        ...state,
-        ship: state.ship ? { ...state.ship, ...action.ship } : action.ship,
-      };
+// Action types that can be dispatched to the reducer
+export type GameAction =
+  | { type: "INIT"; payload: StatusUpdateMessage }
+  | { type: "STATUS_UPDATE"; payload: StatusUpdateMessage }
+  | { type: "MOVE"; payload: StatusUpdateMessage };
+/*| { type: "TRADE"; payload: TradeResultMessage }
+  | { type: "CHECK_TRADE"; payload: unknown }
+  | { type: "RECHARGE_WARP_POWER"; payload: WarpPowerResultMessage }; 
+  | {
+      type: "MAP_DATA";
+      payload: { sectors_visited: Record<string, IncomingSectorData> };
     }
+  | { type: "TASK_START"; payload: unknown }
+  | { type: "TASK_STOP"; payload: unknown }
+  | { type: "TASK_COMPLETE"; payload: { was_cancelled?: boolean } }
+  | { type: "TASK_OUTPUT"; payload: TaskOutput }
+  | { type: "RESET_GAME"; payload: unknown };*/
 
-    case "RESET_GAME":
-      return initialState;
+const GameContext = createContext(undefined);
 
-    default:
-      return state;
-  }
-}
-
-// Create the context
-export interface GameContextType {
-  game: GameState;
-  dispatch: React.Dispatch<GameAction>;
-  setShip: (ship: Ship) => void;
-  resetGame: () => void;
-  getCargo: (resource: string) => number;
-  getAllCargo: () => Cargo;
-  getStatusFromServer: () => void;
-}
-
-const GameContext = createContext<GameContextType | undefined>(undefined);
-
-// Export the context for use in the hook
-export { GameContext };
-
-// Provider component
 interface GameProviderProps {
   children: ReactNode;
 }
 
-export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
-  const [game, dispatch] = useReducer(gameReducer, initialState);
-  const sectorStore = useSectorStore();
-  const movementHistoryStore = useMovementHistoryStore();
-  const mapStore = useMapStore();
-  const taskStore = useTaskStore();
-  const starfieldStore = useStarfieldStore();
-  const client = usePipecatClient();
-  const { resetActivePanels } = useUI();
-  const tradeHistoryStore = useTradeHistoryStore();
-  const setLocalMap = useLocalMapStore((state) => state.setLocalMap);
-  const clearLocalMaps = useLocalMapStore((state) => state.clear);
-  const addChatMessage = useChatStore((state) => state.addMessage);
+export function GameProvider({ children }: GameProviderProps) {
+  const gameStore = useGameStore();
 
-  const setShip = useCallback(
-    (ship: Ship) => {
-      dispatch({ type: "SET_SHIP", ship });
-    },
-    [dispatch]
-  );
-
-  const handleMovement = useCallback(
-    (data: StatusUpdate) => {
-      console.log("[GAME] Handling movement", data);
-      // 1. Update the current sector
-      sectorStore.setSector(data.sector, data.sector_contents);
-
-      // 2. Update movement history
-      movementHistoryStore.addMovementHistory({
-        timestamp: new Date().toLocaleTimeString("en-GB", {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-          hour12: false,
-        }),
-        from: data.sector,
-        to: data.sector,
-        port: data.sector_contents?.port,
-      });
-
-      // Finally, update our current state
-      dispatch({ type: "SET_STATUS", status: data });
-    },
-    [sectorStore, movementHistoryStore]
-  );
-
-  const handleMapData = useCallback(
-    (data: unknown) => {
-      if (data && typeof data === "object" && "sectors_visited" in data) {
-        console.log("[GAME] Map data", data);
-
-        mapStore.importSectorsFromData(
-          data.sectors_visited as Record<string, IncomingSectorData>
-        );
-      }
-    },
-    [mapStore]
-  );
-
-  const getCargo = useCallback(
-    (resource: string) => {
-      return game.ship?.cargo[resource] ?? 0;
-    },
-    [game.ship]
-  );
-
-  const getAllCargo = useCallback(() => {
-    return game.ship?.cargo ?? { fuel_ore: 0, organics: 0, equipment: 0 };
-  }, [game.ship]);
-
-  const getStatusFromServer = useCallback(() => {
-    client?.sendClientMessage("get-my-status", { id: game.id });
-  }, [client, game]);
-
-  const resetGame = () => {
-    dispatch({ type: "RESET_GAME" });
-    clearLocalMaps();
-  };
-
-  /**
-   * SERVER MESSAGE HANDLER / REDUCER
-   */
   useRTVIClientEvent(
     RTVIEvent.ServerMessage,
     useCallback(
-      (data: Record<string, unknown>) => {
-        const rawAction =
-          typeof data.event === "string"
-            ? (data.event as string)
-            : (data[ServerMessageKey] as string | undefined);
+      (e: ServerMessage) => {
+        if ("event" in e) {
+          console.log("[GAME REDUCER] Server message received", e.event, e);
 
-        if (!rawAction) {
-          return;
-        }
+          // Transform if this is a tool call result so we can handle it like a direct action
+          let action: string = e.event;
+          let data: ServerMessagePayload = e.payload as ServerMessagePayload;
 
-        console.log("[GAME] Server message received", rawAction, data);
-
-        let action = rawAction;
-        let payload: Record<string, unknown> =
-          (typeof data.payload === "object" && data.payload !== null
-            ? (data.payload as Record<string, unknown>)
-            : (data.result as Record<string, unknown>)) ||
-          (data as Record<string, unknown>);
-
-        // Transform if this is a tool call result
-        if (action === "tool_result" && "tool_name" in data) {
-          action = data.tool_name as string;
-          payload = (data.payload as Record<string, unknown>) ?? {};
-          console.log("[GAME] Transformed tool result", action, payload);
-        }
-
-        switch (action) {
-          case "status.init": {
-            const statusPayload = payload.status as StatusUpdate | undefined;
-            if (statusPayload) {
-              dispatch({ type: "SET_STATUS", status: statusPayload });
-              sectorStore.setSector(
-                statusPayload.sector,
-                statusPayload.sector_contents
-              );
-            }
-            if (payload.map_data) {
-              handleMapData(payload.map_data);
-            }
-            break;
-          }
-          case "status.update":
-          case "init": {
-            const newStatus =
-              (payload as StatusUpdate) ?? (payload.result as StatusUpdate);
-            if (!newStatus) {
-              break;
-            }
-            dispatch({
-              type: "SET_STATUS",
-              status: newStatus,
-            });
-            sectorStore.setSector(
-              newStatus.sector,
-              newStatus.sector_contents
+          if (e.event === "tool_result" && "tool_name" in e) {
+            action = e.tool_name!;
+            data = e.payload as ServerMessagePayload;
+            //if (e.content) {
+            //  data = JSON.parse(data.content as string);
+            //}
+            console.log(
+              "[GAME REDUCER] Transformed server message",
+              action,
+              data
             );
-            if (payload.map_data) {
-              handleMapData(payload.map_data);
-            }
-            break;
           }
-          case "my_status": {
-            // we need to get payload.result.result if it exists.
-            const newStatus = (payload.result?.result as StatusUpdate) // this is correct, how do we ignore linter?
-            if (!newStatus) {
-              break;
-            }
-            dispatch({
-              type: "SET_STATUS",
-              status: newStatus,
-            });
-            sectorStore.setSector(
-              newStatus.sector,
-              newStatus.sector_contents
-            );
-            if (payload.map_data) {
-              handleMapData(payload.map_data);
-            }
-            break;
-          }
-          case "move":
-          case "character.moved": {
-            console.log("[MOVE] Movement", payload);
-            resetActivePanels();
-            const payloadWithResult = payload as {
-              result?: unknown;
-              content?: unknown;
-            };
-            let moveStatus: StatusUpdate | undefined;
-            if (payloadWithResult.result && typeof payloadWithResult.result === "object") {
-              moveStatus = payloadWithResult.result as StatusUpdate;
-            } else if (
-              typeof payloadWithResult.content === "string" &&
-              payloadWithResult.content.trim()
-            ) {
-              try {
-                const parsed = JSON.parse(payloadWithResult.content);
-                if (parsed && typeof parsed === "object") {
-                  moveStatus = parsed as StatusUpdate;
-                }
-              } catch (err) {
-                console.warn("[MOVE] Unable to parse move payload", err, payload);
+
+          switch (action) {
+            // ----- TOOL CALL
+            // Used to preempt actions ahead of results
+            // mostly to support transition animations etc.
+            case "tool_call": {
+              console.log("[GAME REDUCER] Tool call", e);
+              const preaction = e.tool_name;
+              switch (preaction) {
+                case "move":
+                  //gameStore.preemptMoveToSectorAction();
+                  break;
+                default:
+                  break;
               }
-            } else if (action === "character.moved") {
-              moveStatus = payload as unknown as StatusUpdate;
-            }
-
-            if (moveStatus && typeof moveStatus.sector === "number") {
-              handleMovement(moveStatus);
-            }
-            break;
-          }
-          case "my_map": {
-            handleMapData(payload.result ?? payload);
-            break;
-          }
-          case "combat.started":
-          case "combat.round_waiting":
-          case "combat.round_resolved":
-          case "combat.ended": {
-            console.log(`[COMBAT] ${action}`, payload);
-            break;
-          }
-          case "sector.garrison_updated": {
-            console.log("[COMBAT] Garrison update", payload);
-            break;
-          }
-          case "chat.message": {
-            const messagePayload = payload as Record<string, unknown>;
-            const content =
-              typeof messagePayload.content === "string"
-                ? messagePayload.content
-                : undefined;
-            if (!content) {
               break;
             }
 
-            const idRaw = messagePayload.id;
-            const timestampRaw =
-              typeof messagePayload.timestamp === "string"
-                ? messagePayload.timestamp
-                : new Date().toISOString();
-            const fallbackId = Math.random().toString(36).slice(2);
-            const message: ChatMessage = {
-              id:
-                typeof idRaw === "string"
-                  ? idRaw
-                  : idRaw !== undefined && idRaw !== null
-                  ? String(idRaw)
-                  : fallbackId,
-              timestamp: timestampRaw,
-              type:
-                typeof messagePayload.type === "string"
-                  ? messagePayload.type
-                  : "broadcast",
-              from_name:
-                typeof messagePayload.from_name === "string"
-                  ? messagePayload.from_name
-                  : undefined,
-              to_name:
-                typeof messagePayload.to_name === "string"
-                  ? messagePayload.to_name
-                  : undefined,
-              content,
-            };
+            // ----- INIT & STATUS
+            case "status.init":
+            case "status.update":
+            case "my_status": {
+              console.log("[GAME REDUCER] Status update", data);
+              const status: StatusUpdateMessage =
+                "status" in data
+                  ? (data.status as StatusUpdateMessage)
+                  : (data.result as StatusUpdateMessage);
+              const map_data =
+                "map_data" in data
+                  ? (data.map_data as MapDataMessage)
+                  : undefined;
 
-            addChatMessage(message);
+              // Update status data
+              // Note: we do a little bit of remapping here to conform
+              // the status blob to our store shape
+              gameStore.setState({
+                ship: status.ship,
+                player: {
+                  name: status.name,
+                  last_active: status.last_active,
+                },
+                sector: {
+                  ...status.sector_contents,
+                  id: status.sector,
+                },
+                credits: status.ship.credits,
+              });
+
+              // Update map store with discovered sectors
+              if (map_data) {
+                gameStore.setMappedSectors(map_data.sectors_visited);
+              }
+
+              // If initializing, warp starfield to current sector
+              if (action === "status.init") {
+                gameStore.moveToSectorAction(
+                  {
+                    ...status.sector_contents,
+                    id: status.sector,
+                  },
+                  true
+                );
+              }
+
+              break;
+            }
+
+            // ----- MOVE
+            case "move":
+            case "character.moved": {
+              console.log("[GAME] Move", data);
+              const result = data.result as StatusUpdateMessage;
+              // Map new sector to a Sector object
+              const newSector = {
+                id: result.sector,
+                ...result.sector_contents,
+              } as Sector;
+
+              gameStore.moveToSectorAction(newSector);
+              break;
+            }
+
+            // ----- MAP DATA
+            case "my_map": {
+              console.log("[GAME] Map data", data);
+              //gameStore.setMappedSectors(data.result.sectors_visited);
+              break;
+            }
+            /*
+          case "my_map": {
+            dispatch({
+              type: "MAP_DATA",
+              payload: data.result as
+                | { sectors_visited: Record<string, IncomingSectorData> }
+                | undefined,
+            });
             break;
           }
+
           case "trade": {
-            let result: unknown = payload.result ?? payload;
-            if (payload.content) {
-              result = JSON.parse(payload.content as string);
-              if ((result as { error?: unknown }).error) {
-                console.error("[GAME] Trade error", (result as { error: unknown }).error);
+            let result;
+            if (data.content) {
+              result = JSON.parse(data.content as string);
+              if (result.error) {
+                console.error("[GAME REDUCER] Trade error", result.error);
                 break;
               }
-            }
-            const tradeResult = result as StatusUpdate & {
-              new_cargo: Cargo;
-              new_credits: number;
-            };
-            dispatch({
-              type: "SET_SHIP",
-              ship: {
-                cargo: tradeResult.new_cargo,
-                credits: tradeResult.new_credits,
-              } as Ship,
-            });
-            const historyResult = result as TradeHistoryItem;
-            tradeHistoryStore.addTrade({
-              timestamp: new Date().toISOString(),
-              trade_type: historyResult.trade_type,
-              commodity: historyResult.commodity,
-              units: historyResult.units,
-              price_per_unit: historyResult.price_per_unit,
-              total_price: historyResult.total_price,
-            } as TradeHistoryItem);
-            getStatusFromServer();
-            break;
-          }
-          case "tool_call": {
-            const payloadWithPossibleName = payload as {
-              tool_name?: unknown;
-              arguments?: { tool_name?: unknown };
-            };
-            const toolName =
-              (data.tool_name as string | undefined) ??
-              (typeof payloadWithPossibleName.tool_name === "string"
-                ? payloadWithPossibleName.tool_name
-                : undefined) ??
-              (payloadWithPossibleName.arguments &&
-              typeof payloadWithPossibleName.arguments.tool_name === "string"
-                ? payloadWithPossibleName.arguments.tool_name
-                : undefined) ??
-              "unknown";
-            const prefix = taskStore.active ? "[TOOL][TASK]" : "[TOOL]";
-            console.log(`${prefix} Tool call started`, toolName, payload);
-            // !!! Jon, we can add the tool start UI dispatching here.
-            break;
-          }
-          case "check_trade": {
-            const instance = starfieldStore.getInstance();
-            if (!instance) return;
-            const go = instance.getAllGameObjects()[0];
-            if (!go) return;
-            instance.selectGameObject(go.id);
-            break;
-          }
-          case "recharge_warp_power": {
-            const result = payload.result as Record<string, unknown>;
-            dispatch({
-              type: "SET_SHIP",
-              ship: {
-                warp_power: result?.new_warp_power as number,
-                warp_power_capacity: result?.warp_power_capacity as number,
-                credits: result?.new_credits as number,
-              } as Ship,
-            });
-            break;
-          }
-          case "start_task":
-            taskStore.setActive(true);
-            taskStore.setStatus(undefined);
-            resetActivePanels();
-            break;
-          case "stop_task":
-            taskStore.setActive(false);
-            taskStore.setStatus("cancelled");
-            break;
-          case "task_complete": {
-            taskStore.setActive(false);
-            const taskCompletePayload = payload as {
-              was_cancelled?: boolean;
-            };
-            if (taskCompletePayload.was_cancelled) {
-              taskStore.setStatus("cancelled");
             } else {
-              taskStore.setStatus("completed");
+              result = data.result;
             }
+            dispatch({
+              type: "TRADE",
+              payload: result as TradeResult | undefined,
+            });
             break;
           }
-          case "task_output":
-            taskStore.addTaskOutput({
-              ...(payload as Record<string, unknown>),
-              timestamp: new Date().toISOString(),
-            } as TaskOutput);
-            break;
-          case "local_map": {
-            const localMapPayload = (payload as LocalMapPayload) ?? undefined;
-            if (localMapPayload) {
-              setLocalMap(localMapPayload);
-            }
+
+          case "check_trade": {
+            dispatch({ type: "CHECK_TRADE", payload: data });
             break;
           }
-          default:
-            console.warn("Unhandled game action", action);
+
+          case "recharge_warp_power": {
+            dispatch({
+              type: "RECHARGE_WARP_POWER",
+              payload: data.result as WarpPowerResult,
+            });
             break;
+          }
+
+          case "start_task": {
+            dispatch({ type: "TASK_START", payload: data });
+            break;
+          }
+
+          case "stop_task": {
+            dispatch({ type: "TASK_STOP", payload: data });
+            break;
+          }
+
+          case "task-complete": {
+            dispatch({
+              type: "TASK_COMPLETE",
+              payload: data.result || {},
+            });
+            break;
+          }
+
+          case "task-output": {
+            dispatch({
+              type: "TASK_OUTPUT",
+              payload: data as TaskOutput,
+            });
+            break;
+          }*/
+
+            default:
+              console.warn(
+                "[GAME REDUCER] Unhandled server action:",
+                action,
+                data
+              );
+          }
+
+          // ----- SUMMARY
+          // Add any summary messages to task output
+          if ("summary" in (e.payload as ServerMessagePayload)) {
+            console.debug(
+              "[GAME] Adding task summary to store",
+              e.payload.summary
+            );
+            gameStore.addTask(e.payload.summary!);
+          }
         }
       },
-      [
-        sectorStore,
-        handleMovement,
-        handleMapData,
-        taskStore,
-        starfieldStore,
-        tradeHistoryStore,
-        getStatusFromServer,
-        resetActivePanels,
-        setLocalMap,
-        addChatMessage,
-      ]
+      [gameStore]
     )
   );
 
-  const value: GameContextType = {
-    game,
-    getStatusFromServer,
-    dispatch,
-    setShip,
-    resetGame,
-    getCargo,
-    getAllCargo,
-  };
+  return (
+    <GameContext.Provider value={undefined}>{children}</GameContext.Provider>
+  );
+}
 
-  return <GameContext.Provider value={value}>{children}</GameContext.Provider>;
-};
+export { GameContext };
