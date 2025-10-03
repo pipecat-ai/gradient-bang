@@ -6,7 +6,7 @@ Gradient Bang HTTP server - thin FastAPI app delegating to api modules.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from core.world import world, lifespan
+from world import world, lifespan
 from api import (
     plot_course as api_plot_course,
     join as api_join,

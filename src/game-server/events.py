@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Iterable, Protocol, Sequence
 
-from schemas.generated_events import ServerEventName
+from core.schemas.generated_events import ServerEventName
 
 
 class EventSink(Protocol):

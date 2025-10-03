@@ -1,5 +1,5 @@
 from fastapi import HTTPException
-from .utils import log_trade, build_status_payload
+from api.utils import log_trade, build_status_payload
 from ships import ShipType, get_ship_stats
 from events import event_dispatcher
 

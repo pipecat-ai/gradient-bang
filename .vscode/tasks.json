@@ -15,7 +15,7 @@
     {
       "label": "Game Server",
       "type": "shell",
-      "command": "uv run game-server/server.py",
+      "command": "uv run src/game-server/server.py",
       "dependsOn": ["Check World Data"],
       "isBackground": true,
       "problemMatcher": [],
@@ -29,7 +29,7 @@
     {
       "label": "Bot",
       "type": "shell",
-      "command": "sleep 2 && uv run pipecat/bot.py",
+      "command": "sleep 2 && uv run src/pipecat/bot.py",
       "dependsOn": ["Check World Data"],
       "isBackground": true,
       "problemMatcher": [],
@@ -43,7 +43,7 @@
     {
       "label": "Client",
       "type": "shell",
-      "command": "sleep 2 && cd client && pnpm run dev",
+      "command": "sleep 2 && cd clients/web && pnpm run dev",
       "dependsOn": ["Check World Data"],
       "isBackground": true,
       "problemMatcher": [],

@@ -1,48 +1,88 @@
-# Quickstart (VSCode)
+<img width="640" src="docs/image.png" style="margin-bottom:20px;" />
 
-`CMD+SHIFT+B` (Run the build task `Dev Environment`)
+# Quickstart
 
-# Notes
+1. Create `.env` file in root directory (if using Pipecat bot)
+2. Generate world data (universe bang)
+3. Run the game server
+4. Run the Pipecat bot and client *or* TUI client
 
-## Create a universe
+```bash
+# .env
+OPENAI_API_KEY=
+DEEPGRAM_API_KEY=
+CARTESIA_API_KEY=
+```
+
+### VS Code 
+
+Run the dev environment task with `cmd+shift+b` (Runs the `Dev Environment`build task. Manually accessible via `Terminal/Run Task...` )
+
+This will generate world data if non-existent, then the Python processes and web client.
+
+### Manual
+
+**Generate universe and player data**
 
 ```
 mkdir world-data
-cd world-data
-uv run ../scripts/universe-bang.py 5000 1234
-cd ..
+uv run scripts/universe-bang.py 5000 1234
 ```
 
-## Run the game server
+**Run the game server process**
 
 ```
-uv run game-server/server.py
+uv run src/game-server/server.py
 ```
 
+**Run bot process**
 
-## Bot that sends RTVI messages
+```
+uv run src/pipecat/bot.py
+```
 
-This bot implements some of the task handling and RTVI messages needed to implement the same functionality as the TUI.
+**Run the client dev server**
+
+```
+cd clients/web
+pnpm i
+pnpm run dev
+```
+
+*Note: `npm i` and `npm run dev` works too if you do not have pnpm installed. pnp, is recommended as lockfile included.*
+
+
+## Clients
+
+### Web (graphical)
+
+`clients/web`
+
+Requires you run the Pipecat bot that implements some of the task handling and RTVI messages
 
 ```
 uv run pipecat/bot.py
+
+cd clients/www
+pnpm i
+pnpm run dev
 ```
 
-## Run the client dev server
+### TUI (textual)
+
+`clients/tui`
+
+**Note: the TUI does not load the .env - you must export the LLM key in the terminal process first!**
 
 ```
-cd client
-npm i
-npm run dev
+export OPENAI_API_KEY=sk-proj-...
+uv run clients/tui/player_tui.py JoePlayer
 ```
 
-## Local map visualization
+Once the console starts, close the debug panel (ctrl+d). Then try running a task like "Navigate on auto-pilot to sector 1000."
 
-New component HudMapVisualization.tsx has been badly glued into the HUD.
 
-You can test the graph rendering logic by loading http://localhost:5173/map-demo.html
-
-# NOTE
+# OLD
 
 There is now a tool_call stared RTVI message, followed by a 2-second delay before the tool call completes.
 
@@ -54,10 +94,6 @@ The delays are specified in VoiceTaskManager::TOOL_CALL_DELAYS.
 
 This should allow us to fix the warp overlay and other UI timing stuff, maybe.
 
-
-
-
-# OLD
 
 ## Open firehose viewer
 

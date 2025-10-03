@@ -27,7 +27,7 @@ from textual.message import Message
 from rich.text import Text
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from utils.api_client import AsyncGameClient
+from core.utils.api_client import AsyncGameClient
 
 
 class FirehoseEvent(Message):

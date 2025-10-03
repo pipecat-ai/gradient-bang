@@ -12,9 +12,15 @@ dependencies = [
     "websockets>=13.1,<15.0",  # Match pipecat-ai's requirement
     "textual>=0.86.0",
     "loguru>=0.7.0",
-    "pipecat-ai[deepgram,speechmatics,openai,cartesia,webrtc,silero,local-smart-turn,rime]==0.0.85",
+    "pipecat-ai[deepgram,speechmatics,openai,cartesia,webrtc,silero,local-smart-turn,rime]==0.0.87",
     "pipecat-ai-small-webrtc-prebuilt"
 ]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [dependency-groups]
 dev = [

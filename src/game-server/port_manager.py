@@ -9,7 +9,7 @@ from typing import Dict, Optional, Any
 from datetime import datetime, timezone
 from dataclasses import dataclass, asdict
 import threading
-from core.config import get_world_data_path
+from config import get_world_data_path
 
 
 @dataclass

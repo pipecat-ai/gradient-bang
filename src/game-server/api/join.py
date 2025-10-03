@@ -1,7 +1,6 @@
-from datetime import datetime, timezone
 from fastapi import HTTPException
 
-from .utils import build_status_payload, sector_contents
+from api.utils import build_status_payload, sector_contents
 from ships import validate_ship_type
 from events import event_dispatcher
 
@@ -32,7 +31,7 @@ async def handle(request: dict, world) -> dict:
         if start_sector < 0 or start_sector >= world.universe_graph.sector_count:
             raise HTTPException(status_code=400, detail=f"Invalid sector: {start_sector}")
 
-        from core.world import Character
+        from world import Character
         character = Character(character_id, sector=start_sector)
         world.characters[character_id] = character
 

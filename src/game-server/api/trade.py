@@ -1,5 +1,5 @@
 from fastapi import HTTPException
-from .utils import log_trade
+from api.utils import log_trade
 
 
 async def handle(request: dict, world) -> dict:

@@ -1,13 +1,13 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `game-server/`: FastAPI backend (`server.py`) and game logic.
-- `client/`: React + Vite UI (TypeScript). Run locally via `npm`.
-- `tui/`: Textual-based terminal UI used by `player_tui.py`.
-- `utils/`: Python clients, agents, prompts, and tool schemas.
-- `npc/` and `pipecat/`: Voice/agent runners and examples (`env.example` for config).
-- `tools/` and `scripts/`: Admin utilities and data generation (`scripts/universe-bang.py`).
-- `tests/`: Pytest suite (async + integration). Generated data lives in `world-data/`.
+- `src/game-server/`: FastAPI backend (`server.py`) and game logic.
+- `clients/www`: React + Vite UI (TypeScript). Run locally via `npm`.
+- `clients/tui/`: Textual-based terminal UI used by `player_tui.py`.
+- `src/utils/`: Python clients, agents, prompts, and tool schemas.
+- `src/npc/` and `pipecat/`: Voice/agent runners and examples (`env.example` for config).
+- `src/tools/` and `scripts/`: Admin utilities and data generation (`scripts/universe-bang.py`).
+- `src/tests/`: Pytest suite (async + integration). Generated data lives in `world-data/`.
 
 ## Architecture & Conventions
 - JSON everywhere: APIs and tools use plain dictionaries (no Pydantic). Access with `resp['field']`.

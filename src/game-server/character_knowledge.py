@@ -14,7 +14,7 @@ import threading
 from typing import Dict, List, Set, Optional, Any, Tuple
 from pydantic import BaseModel, Field
 from ships import ShipType, get_ship_stats
-from core.config import get_world_data_path
+from config import get_world_data_path
 
 
 class SectorKnowledge(BaseModel):

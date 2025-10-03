@@ -1,5 +1,4 @@
 from fastapi import HTTPException
-from .utils import build_ship_status
 
 
 async def handle(request: dict, world) -> dict:

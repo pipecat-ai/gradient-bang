@@ -1,6 +1,6 @@
 from fastapi import HTTPException
 
-from .utils import sector_contents, build_status_payload
+from api.utils import sector_contents, build_status_payload
 from ships import ShipType, get_ship_stats
 from events import event_dispatcher
 

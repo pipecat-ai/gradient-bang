@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Set, Optional, Any, Tuple
+from typing import Dict, List, Set, Optional, Tuple
 from collections import deque, defaultdict
 
 from contextlib import asynccontextmanager
@@ -10,7 +10,7 @@ from fastapi import FastAPI
 
 from character_knowledge import CharacterKnowledgeManager
 from port_manager import PortManager
-from .config import get_world_data_path
+from config import get_world_data_path
 
 
 class UniverseGraph:

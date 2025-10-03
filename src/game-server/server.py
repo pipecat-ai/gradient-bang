@@ -20,7 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from core.world import lifespan, world
+from world import lifespan, world
 from api import (
     plot_course as api_plot_course,
     join as api_join,
@@ -37,10 +37,9 @@ from api import (
     send_message as api_send_message,
 )
 from api.utils import build_status_payload
-from core.config import get_world_data_path
 from events import EventSink, event_dispatcher
 from messaging.store import MessageStore
-from schemas.generated_events import ServerEventName
+from config import get_world_data_path
 
 
 logger = logging.getLogger("gradient-bang.server")
