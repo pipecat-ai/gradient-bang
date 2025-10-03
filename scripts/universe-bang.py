@@ -1,71 +1,108 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.9"
+# dependencies = [
+#     "numpy",
+#     "scipy", 
+#     "networkx",
+# ]
+# ///
 """
-Generate a universe with self-describing ports that include inventory (stock/demand).
-- 0-indexed sector IDs
-- Connected directed graph with mix of one-way/two-way warps
-- Ports include class, code, stock/stock_max, demand/demand_max
-- Optional complementary-pair tuning so many ports have a nearby complement
-- Planets: OFF by default for MVP (set GENERATE_PLANETS=True to re-enable)
+Generate a spatially-aware, low-crossing universe with regional structure and
+guaranteed navigability.
+
+Core techniques and features:
+- Hexagonal grid base with snapped integer coordinates for stable layouts
+- Regions via Voronoi-like clustering; sector counts allocated by regional density
+- Sparse sector placement within regions for visual separation
+- Per-region Delaunay triangulation pruned by distance to reduce crossings
+  - Probabilistic one-way / two-way edges based on proximity
+- Cross-region border connections between nearby sectors along region boundaries
+- Global two-way backbone using an MST over a global Delaunay graph to ensure
+  strong connectivity (no unreachable regions)
+- Accessibility pass that upgrades a subset of short one-way edges to two-way to
+  reduce trap-like areas without over-connecting
+- Degree capping that preserves backbone edges and favors shorter connections
+- Hyperlanes added last as strictly additional cross-region links:
+  - Long-distance, two-way; endpoints must already have a same-region neighbor
+    (so a hyperlane is never the only way out of a sector)
+  - Preference for safe-to-safe region links to avoid forcing players through
+    dangerous territory from safe zones
+- Ports placed with regional bias and graph-awareness (crossroads favored);
+  mega port located in a safe high-degree sector; complementary trade pairs are
+  tuned within a small hop radius
 
 Outputs:
-  - universe_structure.json
-  - sector_contents.json
+  - world-data/universe_structure.json
+  - world-data/sector_contents.json
 
 Usage:
-  python generate_universe.py <sector_count> [seed]
+  python generate_spatial_universe.py <sector_count> [seed]
 """
-
-import sys, json, random, heapq
+import sys, json, random, math
+import numpy as np
 from collections import deque
+from scipy.spatial import Delaunay, Voronoi
+import networkx as nx
+from dataclasses import dataclass
+from typing import Dict, List, Set, Tuple, Optional
 
 # ===================== Tunables / Defaults =====================
 
-# --- Port density (stock-ish TWGS feel) ---
-BASE_PORT_DENSITY = 0.40  # ~ "maximum possible starports"
-INITIAL_PORT_BUILD_RATE = 0.95  # ~ "initial starports to build"
-PORT_PERCENTAGE = BASE_PORT_DENSITY * INITIAL_PORT_BUILD_RATE  # ~0.38 effective
+# --- Regions configuration ---
+REGIONS = [
+    {"name": "Core Worlds", "density": 0.7, "port_bias": 1.3, "safe": True},
+    {"name": "Trade Federation", "density": 0.6, "port_bias": 1.5, "safe": True},
+    {"name": "Frontier", "density": 0.35, "port_bias": 0.9, "safe": False},
+    {"name": "Pirate Space", "density": 0.4, "port_bias": 0.6, "safe": False},
+    {"name": "Neutral Zone", "density": 0.25, "port_bias": 1.0, "safe": True},
+]
 
-# --- Planets (MVP OFF) ---
-GENERATE_PLANETS = False
-PLANET_PERCENTAGE = 0.00  # raise if you re-enable planets
+# --- Hex grid parameters ---
+
+# --- Connection parameters ---
+MAX_DELAUNAY_EDGE_LENGTH = 3.5  # In hex units
+BORDER_CONNECTION_DISTANCE = 2.0  # In hex units
+HYPERLANE_MIN_DISTANCE = 10.0  # In hex units
+HYPERLANE_RATIO = 0.01  # 1% of sectors get hyperlanes
+
+# --- Port density (from original) ---
+BASE_PORT_DENSITY = 0.40
+INITIAL_PORT_BUILD_RATE = 0.95
+PORT_PERCENTAGE = BASE_PORT_DENSITY * INITIAL_PORT_BUILD_RATE
+
+# --- Mega port configuration ---
+MEGA_PORT_STOCK_MULTIPLIER = 10  # 10x normal capacity
+MEGA_PORT_COUNT = 1  # One mega port per universe
 
 # --- Warps / topology ---
 MIN_WARPS_PER_SECTOR = 1
 MAX_WARPS_PER_SECTOR = 2
-TWO_WAY_PROBABILITY = 0.05  # extras: mostly one-way; two-way is special
-DEGREE_CAP_UND = 4  # hard cap for undirected degree (applied to extras; tree respects this too)
-MAX_TREE_DEG = 4    # maximum undirected degree in the spanning backbone (root included)
-RARE_SPUR_TARGET = 100  # aim for ~100 two-hop cul-de-sacs in a 5k universe
-RARE_SPUR_MIN_SEP = 10  # hop separation between spur anchors (fallback to 8, then 6)
+TWO_WAY_PROBABILITY_ADJACENT = 0.7  # For nearby sectors
+TWO_WAY_PROBABILITY_DISTANT = 0.3  # For distant sectors
+DEGREE_CAP = 6  # Maximum connections per sector
 
-# --- Encourage complementary port pairs nearby ---
+# --- Complementary pairs ---
 ENSURE_COMPLEMENTARY_PAIRS = True
-COMPLEMENTARY_PAIR_RADIUS = 2  # hops (undirected)
-COMPLEMENTARY_PAIR_COVERAGE = 0.70  # try to reach >= 70%
+COMPLEMENTARY_PAIR_RADIUS = 2
+COMPLEMENTARY_PAIR_COVERAGE = 0.70
 MAX_PAIR_TUNING_PASSES = 2
 
-# --- Port inventory model (used by your runtime pricing) ---
-# Price bands (server uses these to compute dynamic prices from stock/demand)
-SELL_MIN, SELL_MAX = 0.75, 1.10  # port sells to player
-BUY_MIN, BUY_MAX = 0.90, 1.30  # port buys from player
-# Inventory capacities & starting fill
-PORT_DEFAULT_CAP = 1000  # per-commodity capacity baseline
-PORT_STARTING_FILL = 0.70  # start at 70% stock/demand available
-# Optional regen hints (the generator only records these in meta)
+# --- Port inventory model ---
+SELL_MIN, SELL_MAX = 0.75, 1.10
+BUY_MIN, BUY_MAX = 0.90, 1.30
+PORT_DEFAULT_CAP = 1000
+PORT_STARTING_FILL = 0.70
 REGEN_FRACTION_STOCK = 0.25
 REGEN_FRACTION_DEMAND = 0.25
-
-# --- Cosmetic / meta hints ---
-COURSE_LENGTH_HINT = 45  # classic feel
 
 # --- Commodities & classes ---
 COM_LONG = {
     "FO": "fuel_ore",
     "OG": "organics",
     "EQ": "equipment",
-}  # labels for readability
+}
 
-# Port class (1..8) -> code ("B"/"S") for FO, OG, EQ
 CLASS_DEFS = {
     1: "BBS",
     2: "BSB",
@@ -78,496 +115,806 @@ CLASS_DEFS = {
 }
 CODE_TO_CLASS = {code: c for c, code in CLASS_DEFS.items()}
 
-# Planet classes (if you re-enable)
-PLANET_CLASS_INFO = {
-    "M": {"name": "Earthlike"},
-    "K": {"name": "Desert"},
-    "O": {"name": "Oceanic"},
-    "L": {"name": "Mountainous"},
-    "C": {"name": "Glacial"},
-    "H": {"name": "Volcanic"},
-    "U": {"name": "Gaseous"},
-}
+# ===================== Hex Grid Functions =====================
 
-# ===================== Helpers =====================
+def generate_hex_grid(width: int, height: int) -> List[Tuple[float, float]]:
+    """Generate hexagonal grid positions with integer coordinates."""
+    positions = []
+    for row in range(height):
+        for col in range(width):
+            x = col * 1.5
+            y = row * math.sqrt(3)
+            if col % 2 == 1:
+                y += math.sqrt(3) / 2
+            # Round to integers for clean coordinates
+            positions.append((round(x), round(y)))
+    return positions
 
+def euclidean_distance(p1: Tuple[float, float], p2: Tuple[float, float]) -> float:
+    """Calculate Euclidean distance between two points."""
+    return math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
 
-def usage_and_exit():
-    print("Usage: python generate_universe.py <sector_count> [seed]")
-    sys.exit(1)
+def hex_distance(p1: Tuple[float, float], p2: Tuple[float, float]) -> float:
+    """Calculate distance in hex units."""
+    return euclidean_distance(p1, p2)
 
+# ===================== Region Assignment =====================
+
+def assign_hexes_to_regions(
+    hex_positions: List[Tuple[float, float]], 
+    num_regions: int
+) -> Dict[int, int]:
+    """Assign each hex position to a region using Voronoi-like clustering."""
+    # Select region centers spread out across the grid
+    indices = list(range(len(hex_positions)))
+    random.shuffle(indices)
+    
+    # Space out region centers
+    region_centers = []
+    used_indices = set()
+    
+    for _ in range(num_regions):
+        best_idx = None
+        best_min_dist = 0
+        
+        for idx in indices:
+            if idx in used_indices:
+                continue
+            
+            if not region_centers:
+                best_idx = idx
+                break
+            
+            # Find minimum distance to existing centers
+            min_dist = min(euclidean_distance(hex_positions[idx], hex_positions[c]) 
+                          for c in region_centers)
+            if min_dist > best_min_dist:
+                best_min_dist = min_dist
+                best_idx = idx
+        
+        if best_idx is not None:
+            region_centers.append(best_idx)
+            used_indices.add(best_idx)
+    
+    # Assign each hex to nearest region center
+    hex_to_region = {}
+    for i, pos in enumerate(hex_positions):
+        distances = [(euclidean_distance(pos, hex_positions[c]), r) 
+                    for r, c in enumerate(region_centers)]
+        distances.sort()
+        hex_to_region[i] = distances[0][1]
+    
+    return hex_to_region
+
+# ===================== Sector Placement =====================
+
+def place_sectors_in_regions(
+    hex_positions: List[Tuple[float, float]],
+    hex_to_region: Dict[int, int],
+    sector_count: int,
+    regions_info: List[Dict]
+) -> Tuple[Dict[int, Tuple[float, float]], Dict[int, int]]:
+    """Place sectors sparsely within their regions, snapped to hex grid."""
+    sector_positions = {}
+    sector_regions = {}
+    
+    # Calculate sectors per region based on density
+    total_density = sum(r["density"] for r in regions_info)
+    sectors_per_region = []
+    for i, region in enumerate(regions_info):
+        count = int(sector_count * region["density"] / total_density)
+        sectors_per_region.append(count)
+    
+    # Adjust for rounding errors
+    while sum(sectors_per_region) < sector_count:
+        sectors_per_region[random.randint(0, len(sectors_per_region)-1)] += 1
+    while sum(sectors_per_region) > sector_count:
+        idx = random.randint(0, len(sectors_per_region)-1)
+        if sectors_per_region[idx] > 1:
+            sectors_per_region[idx] -= 1
+    
+    # Place sectors
+    sector_id = 0
+    for region_id, region_sector_count in enumerate(sectors_per_region):
+        # Get hexes for this region
+        region_hexes = [i for i, r in hex_to_region.items() if r == region_id]
+        
+        if not region_hexes:
+            continue
+        
+        # Sample positions for sectors (this creates the sparse placement)
+        num_to_place = min(region_sector_count, len(region_hexes))
+        selected_hexes = random.sample(region_hexes, num_to_place)
+        
+        for hex_idx in selected_hexes:
+            # Snap exactly to hex position - no jitter!
+            sector_positions[sector_id] = hex_positions[hex_idx]
+            sector_regions[sector_id] = region_id
+            sector_id += 1
+    
+    return sector_positions, sector_regions
+
+# ===================== Connection Generation =====================
+
+def generate_regional_connections(
+    positions: Dict[int, Tuple[float, float]],
+    regions: Dict[int, int],
+    regions_info: List[Dict]
+) -> Tuple[Dict[int, Set[int]], List[Tuple[int, int]]]:
+    """Generate connections with spatial awareness and minimal crossings."""
+    warps = {s: set() for s in positions.keys()}
+    
+    # 1. Build Delaunay within each region
+    for region_id in range(len(regions_info)):
+        region_sectors = [s for s, r in regions.items() if r == region_id]
+        
+        if len(region_sectors) < 3:
+            # Too few sectors for triangulation, connect linearly
+            for i in range(len(region_sectors) - 1):
+                s1, s2 = region_sectors[i], region_sectors[i + 1]
+                warps[s1].add(s2)
+                warps[s2].add(s1)
+            continue
+        
+        # Get positions for triangulation
+        region_positions = np.array([positions[s] for s in region_sectors])
+        tri = Delaunay(region_positions)
+        
+        # Extract edges from triangulation
+        edges = set()
+        for simplex in tri.simplices:
+            for i in range(3):
+                a_idx, b_idx = simplex[i], simplex[(i+1)%3]
+                a, b = region_sectors[a_idx], region_sectors[b_idx]
+                if a > b:
+                    a, b = b, a
+                edges.add((a, b))
+        
+        # Add edges based on distance
+        for s1, s2 in edges:
+            dist = hex_distance(positions[s1], positions[s2])
+            
+            # Skip very long edges
+            if dist > MAX_DELAUNAY_EDGE_LENGTH:
+                continue
+            
+            # Determine connection type
+            if dist <= 1.5:  # Adjacent hexes
+                if random.random() < TWO_WAY_PROBABILITY_ADJACENT:
+                    warps[s1].add(s2)
+                    warps[s2].add(s1)
+                else:
+                    if random.random() < 0.5:
+                        warps[s1].add(s2)
+                    else:
+                        warps[s2].add(s1)
+            else:  # More distant
+                if random.random() < TWO_WAY_PROBABILITY_DISTANT:
+                    warps[s1].add(s2)
+                    warps[s2].add(s1)
+                else:
+                    if random.random() < 0.5:
+                        warps[s1].add(s2)
+                    else:
+                        warps[s2].add(s1)
+    
+    # 2. Add border connections
+    add_border_connections(warps, positions, regions)
+    
+    # 3. Add global two-way backbone to guarantee strong connectivity
+    backbone_edges = build_backbone_edges(positions)
+    for s1, s2 in backbone_edges:
+        warps[s1].add(s2)
+        warps[s2].add(s1)
+    
+    # 4. Ensure accessibility (dead-ends and limited reachability clean-up)
+    ensure_connectivity(warps, positions)
+    
+    # 5. Cap degrees while preserving backbone edges
+    cap_degrees(warps, positions, protected_undirected_edges=backbone_edges)
+    
+    # 6. Add hyperlanes (special long-distance warps) AFTER connectivity/capping
+    hyperlanes = add_hyperlanes(warps, positions, regions)
+    
+    return warps, hyperlanes
+
+def add_border_connections(
+    warps: Dict[int, Set[int]],
+    positions: Dict[int, Tuple[float, float]],
+    regions: Dict[int, int]
+) -> None:
+    """Add connections between regions at borders."""
+    border_pairs = []
+    sectors = list(positions.keys())
+    
+    for i, s1 in enumerate(sectors):
+        for s2 in sectors[i+1:]:
+            if regions[s1] != regions[s2]:
+                dist = hex_distance(positions[s1], positions[s2])
+                if dist <= BORDER_CONNECTION_DISTANCE:
+                    border_pairs.append((dist, s1, s2))
+    
+    # Sort by distance and add connections
+    border_pairs.sort()
+    num_borders = min(len(border_pairs), len(sectors) // 20)
+    
+    for _, s1, s2 in border_pairs[:num_borders]:
+        # Border crossings
+        if random.random() < 0.3:
+            warps[s1].add(s2)
+            warps[s2].add(s1)
+        else:
+            if random.random() < 0.7:
+                warps[s1].add(s2)
+            else:
+                warps[s2].add(s1)
+
+def add_hyperlanes(
+    warps: Dict[int, Set[int]],
+    positions: Dict[int, Tuple[float, float]],
+    regions: Dict[int, int]
+) -> List[Tuple[int, int]]:
+    """Add long-distance hyperlanes after the graph is already connected.
+    Rules:
+      - Only connect sectors in different regions and far apart (min distance)
+      - Never be the only way out of a sector: endpoints must already have a
+        same-region neighbor before adding the hyperlane
+      - Prefer safe-to-safe region links when possible
+    """
+    hyperlanes: List[Tuple[int, int]] = []
+    sectors = list(positions.keys())
+    num_hyperlanes = max(1, int(len(sectors) * HYPERLANE_RATIO))
+    
+    # Build helper for region safety
+    def is_safe(sector_id: int) -> bool:
+        region_id = regions[sector_id]
+        return REGIONS[region_id].get("safe", False)
+    
+    def has_same_region_neighbor(sector_id: int) -> bool:
+        region_id = regions[sector_id]
+        for neighbor in warps.get(sector_id, set()):
+            if regions[neighbor] == region_id:
+                return True
+        return False
+    
+    attempts = 0
+    # Allow higher attempt budget because of constraints
+    max_attempts = num_hyperlanes * 50
+    while len(hyperlanes) < num_hyperlanes and attempts < max_attempts:
+        attempts += 1
+        s1 = random.choice(sectors)
+        # Endpoint must already have an intra-region neighbor so the hyperlane is not the only exit
+        if not has_same_region_neighbor(s1):
+            continue
+        
+        # Base cross-region, far-enough, not already connected, and also has intra-region neighbor
+        base_candidates = [
+            s for s in sectors
+            if regions[s] != regions[s1]
+            and hex_distance(positions[s1], positions[s]) >= HYPERLANE_MIN_DISTANCE
+            and s not in warps[s1]
+            and has_same_region_neighbor(s)
+        ]
+        if not base_candidates:
+            continue
+        
+        # Prefer safe-to-safe when possible
+        if is_safe(s1):
+            preferred = [s for s in base_candidates if is_safe(s)]
+            if preferred:
+                s2 = random.choice(preferred)
+            else:
+                s2 = random.choice(base_candidates)
+        else:
+            s2 = random.choice(base_candidates)
+        
+        # Add two-way hyperlane
+        warps[s1].add(s2)
+        warps[s2].add(s1)
+        a, b = (s1, s2) if s1 < s2 else (s2, s1)
+        hyperlanes.append((a, b))
+    
+    return hyperlanes
+
+def build_backbone_edges(
+    positions: Dict[int, Tuple[float, float]]
+) -> Set[Tuple[int, int]]:
+    """Build a global two-way backbone using an MST over a sparse planar graph.
+    We construct a Delaunay triangulation over all sectors to get a sparse,
+    low-crossing candidate graph, then compute a Euclidean MST and return its edges
+    as undirected pairs (min_id, max_id).
+    """
+    sectors = list(positions.keys())
+    if len(sectors) <= 1:
+        return set()
+    
+    # Build Delaunay over all points for sparsity and low crossings
+    pts = np.array([positions[s] for s in sectors])
+    tri = Delaunay(pts)
+    
+    # Map local triangle vertex indices to sector ids
+    edges = set()
+    for simplex in tri.simplices:
+        for i in range(3):
+            a_idx, b_idx = simplex[i], simplex[(i+1) % 3]
+            a, b = sectors[a_idx], sectors[b_idx]
+            if a > b:
+                a, b = b, a
+            edges.add((a, b))
+    
+    # Build weighted sparse graph
+    G = nx.Graph()
+    G.add_nodes_from(sectors)
+    for a, b in edges:
+        dist = euclidean_distance(positions[a], positions[b])
+        G.add_edge(a, b, weight=dist)
+    
+    # Compute MST
+    mst = nx.minimum_spanning_tree(G, algorithm="kruskal")
+    backbone = set()
+    for a, b in mst.edges():
+        if a > b:
+            a, b = b, a
+        backbone.add((a, b))
+    return backbone
+
+def ensure_connectivity(
+    warps: Dict[int, Set[int]],
+    positions: Dict[int, Tuple[float, float]]
+) -> None:
+    """Ensure basic connectivity with minimal changes to preserve planarity."""
+    sectors = list(positions.keys())
+    
+    # First, ensure minimum outgoing connections per sector
+    for s in sectors:
+        out_degree = len(warps[s])
+        
+        if out_degree < MIN_WARPS_PER_SECTOR:
+            # Find nearest unconnected sectors
+            candidates = [
+                (hex_distance(positions[s], positions[other]), other)
+                for other in sectors
+                if other != s and other not in warps[s]
+            ]
+            candidates.sort()
+            
+            # Add connections to nearest sectors only
+            for _, other in candidates[:MIN_WARPS_PER_SECTOR - out_degree]:
+                warps[s].add(other)
+    
+    # Create undirected graph to check basic connectivity
+    G_undirected = nx.Graph()
+    G_undirected.add_nodes_from(sectors)
+    
+    # Add edges (treat as undirected for basic connectivity)
+    for s in sectors:
+        for target in warps.get(s, set()):
+            G_undirected.add_edge(s, target)
+    
+    # Find weakly connected components
+    components = list(nx.connected_components(G_undirected))
+    
+    if len(components) > 1:
+        print(f"Found {len(components)} disconnected components, connecting them...")
+        
+        # Sort by size - largest is main component
+        components.sort(key=len, reverse=True)
+        main_component = components[0]
+        
+        # Connect each smaller component to main with minimal connections
+        for comp_idx, component in enumerate(components[1:], 1):
+            # Find the absolute closest pair between components
+            best_dist = float('inf')
+            best_pair = None
+            
+            for s1 in main_component:
+                for s2 in component:
+                    dist = hex_distance(positions[s1], positions[s2])
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_pair = (s1, s2)
+            
+            if best_pair and best_dist <= MAX_DELAUNAY_EDGE_LENGTH * 1.5:
+                # Only connect if reasonably close
+                s1, s2 = best_pair
+                # Add bidirectional connection to ensure basic connectivity
+                warps[s1].add(s2)
+                warps[s2].add(s1)
+                print(f"  Connected component {comp_idx} ({len(component)} sectors) at distance {best_dist:.1f}")
+                main_component = main_component.union(component)
+            else:
+                print(f"  Warning: Component {comp_idx} too far to connect (distance: {best_dist:.1f})")
+    
+    # Now check for dead-end paths and upgrade some one-way connections to two-way
+    # This is less aggressive than full strong connectivity
+    print("Checking for accessibility issues...")
+    
+    G_directed = nx.DiGraph()
+    G_directed.add_nodes_from(sectors)
+    for s in sectors:
+        for target in warps.get(s, set()):
+            G_directed.add_edge(s, target)
+    
+    # Find sectors that are hard to escape from
+    problem_sectors = []
+    for sector in sectors:
+        # Can we reach at least 50% of the graph from this sector?
+        reachable = nx.descendants(G_directed, sector)
+        if len(reachable) < len(sectors) * 0.5:
+            problem_sectors.append(sector)
+    
+    if problem_sectors:
+        print(f"  Found {len(problem_sectors)} sectors with limited reachability")
+        
+        # For problem sectors, upgrade some of their connections to two-way
+        upgrades_made = 0
+        for sector in problem_sectors[:100]:  # Limit to avoid over-correction
+            # Find existing one-way connections that could be made two-way
+            for target in list(warps.get(sector, set())):
+                if sector not in warps.get(target, set()):
+                    # This is one-way, make it two-way if it's short
+                    dist = hex_distance(positions[sector], positions[target])
+                    if dist <= MAX_DELAUNAY_EDGE_LENGTH:
+                        warps[target].add(sector)
+                        upgrades_made += 1
+                        break  # Only upgrade one per problem sector
+        
+        if upgrades_made > 0:
+            print(f"  Upgraded {upgrades_made} connections to two-way")
+
+def cap_degrees(
+    warps: Dict[int, Set[int]],
+    positions: Dict[int, Tuple[float, float]],
+    protected_undirected_edges: Optional[Set[Tuple[int, int]]] = None
+) -> None:
+    """Cap maximum degree by removing longest connections while preserving protected edges.
+    protected_undirected_edges is a set of (min_id, max_id) pairs that must be retained
+    bidirectionally.
+    """
+    protected_by_node: Dict[int, Set[int]] = {}
+    if protected_undirected_edges:
+        for a, b in protected_undirected_edges:
+            protected_by_node.setdefault(a, set()).add(b)
+            protected_by_node.setdefault(b, set()).add(a)
+    
+    for s, targets in warps.items():
+        if len(targets) <= DEGREE_CAP:
+            continue
+        
+        protected_neighbors = protected_by_node.get(s, set())
+        # Sort by distance so we prefer to keep closer edges
+        sorted_targets = sorted(
+            targets,
+            key=lambda t: hex_distance(positions[s], positions[t])
+        )
+        # Always include protected neighbors
+        kept: List[int] = []
+        kept_set: Set[int] = set()
+        for t in sorted_targets:
+            if t in protected_neighbors:
+                kept.append(t)
+                kept_set.add(t)
+        # Fill remaining slots up to cap, but never drop protected ones
+        cap = max(DEGREE_CAP, len(kept))
+        for t in sorted_targets:
+            if len(kept) >= cap:
+                break
+            if t in kept_set:
+                continue
+            kept.append(t)
+            kept_set.add(t)
+        warps[s] = set(kept)
+
+# ===================== Port Generation =====================
 
 def complement_code(code: str) -> str:
+    """Get complement trading code."""
     return "".join("S" if ch == "B" else "B" for ch in code)
 
-
 def complement_class(port_class: int) -> int:
+    """Get complement port class."""
     return CODE_TO_CLASS[complement_code(CLASS_DEFS[port_class])]
-
-
-def bfs_within_radius(start: int, neighbors: list[list[int]], radius: int) -> set:
-    """Undirected BFS up to 'radius' hops; returns visited nodes excluding start."""
-    from collections import deque
-
-    visited = {start}
-    q = deque([(start, 0)])
-    result = set()
-    while q:
-        node, dist = q.popleft()
-        if dist == radius:
-            continue
-        for nb in neighbors[node]:
-            if nb not in visited:
-                visited.add(nb)
-                result.add(nb)
-                q.append((nb, dist + 1))
-    result.discard(start)
-    return result
-
-
-def build_planet_object(pid: int) -> dict:
-    class_code = random.choice(list(PLANET_CLASS_INFO.keys()))
-    return {
-        "id": f"PL-{pid:05d}",
-        "class_code": class_code,
-        "class_name": PLANET_CLASS_INFO[class_code]["name"],
-    }
-
 
 def build_port_object(
     port_class: int,
     default_cap: int = PORT_DEFAULT_CAP,
     start_fill: float = PORT_STARTING_FILL,
+    is_mega: bool = False
 ) -> dict:
-    """
-    Create a self-describing port with inventory fields for your runtime pricing model.
-    - For letters 'S' (sell): fill stock/stock_max.
-    - For letters 'B' (buy):  fill demand/demand_max.
-    """
+    """Create a port with inventory fields."""
     code = CLASS_DEFS[port_class]
-
-    # Initialize dictionaries for all commodities
+    
+    # Adjust capacity for mega port
+    capacity = default_cap * (MEGA_PORT_STOCK_MULTIPLIER if is_mega else 1)
+    
+    # Initialize inventories
     stock = {"FO": 0, "OG": 0, "EQ": 0}
     stock_max = {"FO": 0, "OG": 0, "EQ": 0}
     demand = {"FO": 0, "OG": 0, "EQ": 0}
     demand_max = {"FO": 0, "OG": 0, "EQ": 0}
-
+    
     buys, sells = [], []
     for com, idx in (("FO", 0), ("OG", 1), ("EQ", 2)):
         if code[idx] == "S":
-            stock_max[com] = default_cap
-            stock[com] = int(round(default_cap * start_fill))
+            stock_max[com] = capacity
+            stock[com] = int(round(capacity * start_fill))
             sells.append(COM_LONG[com])
         else:  # 'B'
-            demand_max[com] = default_cap
-            demand[com] = int(round(default_cap * start_fill))
+            demand_max[com] = capacity
+            demand[com] = int(round(capacity * start_fill))
             buys.append(COM_LONG[com])
-
-    return {
+    
+    port_data = {
         "class": port_class,
         "code": code,
-        "buys": buys,  # human-readable commodity names
-        "sells": sells,  # human-readable commodity names
+        "buys": buys,
+        "sells": sells,
         "stock": stock,
         "stock_max": stock_max,
         "demand": demand,
         "demand_max": demand_max,
     }
+    
+    if is_mega:
+        port_data["is_mega"] = True
+    
+    return port_data
 
+def place_ports(
+    sector_positions: Dict[int, Tuple[float, float]],
+    sector_regions: Dict[int, int],
+    regions_info: List[Dict],
+    warps: Dict[int, Set[int]]
+) -> Tuple[Dict[int, int], int]:
+    """Place ports with regional bias and ensure mega port in safe zone."""
+    target_port_count = round(PORT_PERCENTAGE * len(sector_positions))
+    
+    # Calculate port probability for each sector
+    port_probabilities = {}
+    for s, region_id in sector_regions.items():
+        base_prob = regions_info[region_id]["port_bias"]
+        
+        # Boost probability for crossroads (high degree)
+        degree = len(warps[s])
+        if degree >= 5:
+            base_prob *= 1.5
+        elif degree == 1:
+            base_prob *= 0.7
+        
+        port_probabilities[s] = base_prob
+    
+    # Normalize probabilities
+    total_prob = sum(port_probabilities.values())
+    for s in port_probabilities:
+        port_probabilities[s] /= total_prob
+    
+    # Select sectors for ports
+    sectors = list(sector_positions.keys())
+    weights = [port_probabilities[s] for s in sectors]
+    
+    # Use numpy for weighted selection if available, else fall back
+    try:
+        selected = np.random.choice(
+            sectors, 
+            size=min(target_port_count, len(sectors)),
+            replace=False,
+            p=weights
+        )
+        # Convert numpy int64 to Python int
+        port_sectors = set(int(s) for s in selected)
+    except:
+        # Fallback: sort by probability and take top
+        sorted_sectors = sorted(sectors, key=lambda s: port_probabilities[s], reverse=True)
+        port_sectors = set(sorted_sectors[:target_port_count])
+    
+    # Assign initial random classes
+    port_class_by_sector = {s: random.randint(1, 8) for s in port_sectors}
+    
+    # Choose mega port location (in safe zone with high degree)
+    safe_regions = [i for i, r in enumerate(regions_info) if r.get("safe", False)]
+    safe_ports = [s for s in port_sectors 
+                  if sector_regions[s] in safe_regions]
+    
+    if safe_ports:
+        # Prefer high-degree safe port
+        mega_port_sector = int(max(safe_ports, key=lambda s: len(warps[s])))
+    else:
+        # Fallback: any high-degree port
+        mega_port_sector = int(max(port_sectors, key=lambda s: len(warps[s])))
+    
+    # Make it class 7 (SSS - sells all)
+    port_class_by_sector[mega_port_sector] = 7
+    
+    # Tune complementary pairs
+    tune_complementary_pairs(port_class_by_sector, warps, sector_positions)
+    
+    return port_class_by_sector, mega_port_sector
 
-# ===================== Main =====================
+def tune_complementary_pairs(
+    port_class_by_sector: Dict[int, int],
+    warps: Dict[int, Set[int]],
+    positions: Dict[int, Tuple[float, float]]
+) -> None:
+    """Ensure ports have complementary pairs nearby."""
+    if not ENSURE_COMPLEMENTARY_PAIRS or not port_class_by_sector:
+        return
+    
+    def find_nearby_sectors(sector: int, radius: int) -> Set[int]:
+        """BFS to find sectors within radius hops."""
+        visited = {sector}
+        queue = deque([(sector, 0)])
+        result = set()
+        
+        while queue:
+            current, dist = queue.popleft()
+            if dist >= radius:
+                continue
+            
+            # Check outgoing and incoming connections
+            neighbors = warps[current]
+            for next_sector in neighbors:
+                if next_sector not in visited:
+                    visited.add(next_sector)
+                    result.add(next_sector)
+                    queue.append((next_sector, dist + 1))
+        
+        return result
+    
+    for _ in range(MAX_PAIR_TUNING_PASSES):
+        lacking = []
+        
+        for s, cls in port_class_by_sector.items():
+            comp = complement_class(cls)
+            nearby = find_nearby_sectors(s, COMPLEMENTARY_PAIR_RADIUS)
+            
+            has_complement = any(
+                n in port_class_by_sector and port_class_by_sector[n] == comp
+                for n in nearby
+            )
+            
+            if not has_complement:
+                lacking.append(s)
+        
+        if len(lacking) / len(port_class_by_sector) <= (1 - COMPLEMENTARY_PAIR_COVERAGE):
+            break
+        
+        random.shuffle(lacking)
+        for s in lacking[:len(lacking)//2]:  # Adjust half of lacking ports
+            nearby = find_nearby_sectors(s, COMPLEMENTARY_PAIR_RADIUS)
+            candidates = [n for n in nearby if n in port_class_by_sector]
+            
+            if candidates:
+                target = random.choice(candidates)
+                desired = complement_class(port_class_by_sector[target])
+                port_class_by_sector[s] = desired
 
+# ===================== Main Generation =====================
 
 def main():
     if len(sys.argv) < 2:
-        usage_and_exit()
-
+        print("Usage: python generate_spatial_universe.py <sector_count> [seed]")
+        sys.exit(1)
+    
     sector_count = int(sys.argv[1])
     if sector_count <= 0:
         print("sector_count must be a positive integer.")
         sys.exit(1)
-
-    # Optional RNG seed for reproducibility
+    
+    # Set random seed
     if len(sys.argv) >= 3:
         seed = int(sys.argv[2])
     else:
         seed = random.randrange(0, 2**32 - 1)
     random.seed(seed)
-
-    # --- Build a connected undirected tree with bounded degree (capacity-limited BFS) ---
-    # Then convert to a two-way directed backbone. This prevents high-degree hubs in the tree.
-    warps_outgoing = {s: set() for s in range(sector_count)}
-
-    n = sector_count
-    tree_neighbors = [set() for _ in range(n)]
-    if sector_count == 1:
-        parent = {0: None}
-    else:
-        # Remaining capacity for each node (how many total neighbors it may have)
-        cap = [MAX_TREE_DEG] * n
-        # Choose a random root to avoid density bias near 0
-        root = random.randrange(n)
-        parent = {root: None}
-        # Frontier of nodes that can accept new children (start with root)
-        frontier = [root]
-        # Create a random order of the remaining nodes
-        remaining = [i for i in range(n) if i != root]
-        random.shuffle(remaining)
-        for s in remaining:
-            if not frontier:
-                frontier = [random.choice(list(range(n)))]
-            # Pick a parent from frontier with available capacity
-            p = random.choice(frontier)
-            if cap[p] <= 0:
-                # find someone else with capacity
-                frontier = [f for f in frontier if cap[f] > 0] or [p]
-                p = random.choice(frontier)
-            # Connect p <-> s
-            tree_neighbors[p].add(s)
-            tree_neighbors[s].add(p)
-            warps_outgoing[p].add(s)
-            warps_outgoing[s].add(p)
-            parent[s] = p
-            # Update capacities: one slot consumed for p and for s
-            cap[p] -= 1
-            cap[s] = MAX_TREE_DEG - 1  # one used by parent link
-            # Maintain frontier
-            if cap[p] <= 0 and p in frontier:
-                frontier.remove(p)
-            if cap[s] > 0:
-                frontier.append(s)
-
-    # --- Identify rare two-hop cul-de-sacs on the tree and seal their interior nodes ---
-    # tree_neighbors already computed from the Prüfer tree above
-
-    # Candidate triples (a,u,v): v is leaf, u has degree 2, a is parent of u
-    candidates = []
-    for v in range(sector_count):
-        if len(tree_neighbors[v]) != 1:
-            continue
-        u = parent.get(v)
-        if u is None:
-            # v might be 0 (root)
-            continue
-        if len(tree_neighbors[u]) != 2:
-            continue
-        a = parent.get(u)
-        if a is None:
-            continue
-        candidates.append((a, u, v))
-
-    # Keep at most one triple per anchor a
-    by_anchor = {}
-    for a, u, v in candidates:
-        if a not in by_anchor:
-            by_anchor[a] = (a, u, v)
-
-    anchors = list(by_anchor.keys())
-
-    # Helper: BFS within radius on the tree
-    def bfs_tree_radius(start: int, radius: int) -> set[int]:
-        visited = {start}
-        q = deque([(start, 0)])
-        result = set()
-        while q:
-            n, d = q.popleft()
-            if d == radius:
-                continue
-            for nb in tree_neighbors[n]:
-                if nb not in visited:
-                    visited.add(nb)
-                    result.add(nb)
-                    q.append((nb, d + 1))
-        return result
-
-    # Greedy, spaced selection of anchors
-    selected = []
-    def select_with_minsep(min_sep: int):
-        selected.clear()
-        remaining = set(anchors)
-        # Prefer anchors far from node 0 (coarse spread)
-        # Compute tree rings from 0 for simple priority
-        dist0 = {0: 0}
-        q = deque([0])
-        while q:
-            x = q.popleft()
-            for y in tree_neighbors[x]:
-                if y not in dist0:
-                    dist0[y] = dist0[x] + 1
-                    q.append(y)
-        ordered = sorted(list(remaining), key=lambda a: dist0.get(a, 0), reverse=True)
-        blocked = set()
-        for a in ordered:
-            if a in blocked or a not in remaining:
-                continue
-            selected.append(a)
-            if len(selected) >= RARE_SPUR_TARGET:
-                break
-            # Block anchors within min_sep hops
-            for n in bfs_tree_radius(a, min_sep):
-                if n in remaining:
-                    blocked.add(n)
-        return len(selected)
-
-    ok = select_with_minsep(RARE_SPUR_MIN_SEP)
-    if ok < RARE_SPUR_TARGET:
-        ok = select_with_minsep(max(8, RARE_SPUR_MIN_SEP - 2))
-    if ok < RARE_SPUR_TARGET:
-        select_with_minsep(max(6, RARE_SPUR_MIN_SEP - 4))
-
-    SEALED = set()
-    selected_triples = []
-    for a in selected[:RARE_SPUR_TARGET]:
-        a, u, v = by_anchor[a]
-        SEALED.add(u)
-        SEALED.add(v)
-        selected_triples.append((a, u, v))
-
-    # Compute coarse rings (from node 0 on the tree) for cross-ring discipline
-    ring = {root: 0}
-    q = deque([root])
-    while q:
-        x = q.popleft()
-        for y in tree_neighbors[x]:
-            if y not in ring:
-                ring[y] = ring[x] + 1
-                q.append(y)
-
-    # Precompute depth and parent for LCA approximation on the backbone tree
-    depth = ring.copy()
-    up = parent  # immediate parent mapping from earlier tree build
-
-    def lca_depth(a: int, b: int) -> int:
-        # Bring to same depth
-        da, db = depth.get(a, 0), depth.get(b, 0)
-        while da > db:
-            a = up.get(a)
-            da -= 1
-            if a is None:
-                break
-        while db > da:
-            b = up.get(b)
-            db -= 1
-            if b is None:
-                break
-        # Climb together
-        while a is not None and b is not None and a != b:
-            a = up.get(a)
-            b = up.get(b)
-        return depth.get(a, 0) if a is not None else 0
-
-    # Extra warps: mix of one-way/two-way with guardrails
-    # Maintain dynamic undirected degree for the soft cap
-    und_adj = tree_neighbors  # dynamic undirected adjacency
-    und_deg = [len(neis) for neis in und_adj]
-
-    # Precompute desired extras per node to avoid order bias
-    desired_map = {}
-    for s in range(sector_count):
-        desired_map[s] = random.randint(MIN_WARPS_PER_SECTOR, MAX_WARPS_PER_SECTOR)
-
-    # Round-robin passes to distribute extras evenly
-    max_passes = 4
-    for _pass in range(max_passes):
-        order = list(range(sector_count))
-        random.shuffle(order)
-        changed_any = False
-        for s in order:
-            # Skip extras for sealed nodes to preserve cul-de-sacs
-            if s in SEALED:
-                continue
-            desired_out = desired_map[s]
-            if len(warps_outgoing[s]) >= desired_out:
-                continue
-            if und_deg[s] >= DEGREE_CAP_UND:
-                continue
-            # Build candidates excluding existing edges, self, and sealed nodes; also degree-cap filtered
-            base = set(range(sector_count)) - {s} - warps_outgoing[s] - SEALED
-            base = {t for t in base if und_deg[t] < DEGREE_CAP_UND}
-            if not base:
-                continue
-            # Sort candidates with locality bias and degree fairness
-            def key_t(t):
-                dr = abs(ring.get(s, 0) - ring.get(t, 0))
-                ldepth = lca_depth(s, t)
-                closeness = max(0, min(depth.get(s,0), depth.get(t,0)) - ldepth)
-                return (0 if dr <= 1 else 1, closeness, und_deg[t], random.random())
-            candidates = sorted(list(base), key=key_t)
-            added_this_node = False
-            for t in candidates:
-                if len(warps_outgoing[s]) >= desired_out:
-                    break
-                if und_deg[t] >= DEGREE_CAP_UND:
-                    continue
-                # Hard reject long chords and far subtrees
-                dr = abs(ring.get(s, 0) - ring.get(t, 0))
-                if dr > 1:
-                    continue
-                ldepth = lca_depth(s, t)
-                closeness = max(0, min(depth.get(s,0), depth.get(t,0)) - ldepth)
-                if closeness > 1:
-                    continue
-                # Avoid creating triangles to keep clustering low
-                if any((u in und_adj[t]) for u in und_adj[s]):
-                    continue
-                # Add directed s->t
-                warps_outgoing[s].add(t)
-                und_adj[s].add(t)
-                und_adj[t].add(s)
-                und_deg[s] += 1
-                und_deg[t] += 1
-                # With probability, add reverse to make two-way
-                if random.random() < TWO_WAY_PROBABILITY and und_deg[s] < DEGREE_CAP_UND and und_deg[t] < DEGREE_CAP_UND:
-                    warps_outgoing[t].add(s)
-                changed_any = True
-                added_this_node = True
-                break  # at most one per pass per node to spread edges
-        if not changed_any:
-            break
-
-    # Undirected neighbors (after extras)
-    undirected_neighbors = [set() for _ in range(sector_count)]
-    for s in range(sector_count):
-        for t in warps_outgoing[s]:
-            undirected_neighbors[s].add(t)
-            undirected_neighbors[t].add(s)
-    undirected_neighbors = [sorted(neis) for neis in undirected_neighbors]
-
-    # Actual two-way arc fraction (for meta)
-    total_arcs = sum(len(v) for v in warps_outgoing.values())
-    two_way_arcs = sum(
-        1
-        for s in range(sector_count)
-        for t in warps_outgoing[s]
-        if s in warps_outgoing.get(t, ())
+    np.random.seed(seed)
+    
+    print(f"Generating spatial universe with {sector_count} sectors...")
+    print(f"Random seed: {seed}")
+    
+    # Generate hex grid (oversized)
+    grid_size = int(math.sqrt(sector_count * 4))
+    hex_positions = generate_hex_grid(grid_size, grid_size)
+    
+    # Assign hexes to regions
+    hex_to_region = assign_hexes_to_regions(hex_positions, len(REGIONS))
+    
+    # Place sectors
+    sector_positions, sector_regions = place_sectors_in_regions(
+        hex_positions, hex_to_region, sector_count, REGIONS
     )
-    actual_two_way_arc_fraction = (two_way_arcs / total_arcs) if total_arcs else 0.0
-
-    # Count two-hop cul-de-sacs preserved after extras
-    def is_culdesac(triple) -> bool:
-        a, u, v = triple
-        return (
-            len(undirected_neighbors[u]) == 2 and a in undirected_neighbors[u] and v in undirected_neighbors[u]
-            and len(undirected_neighbors[v]) == 1 and u in undirected_neighbors[v]
-        )
-    culdesacs = sum(1 for tri in selected_triples if is_culdesac(tri))
-
-    # --- Port placement (exact count to hit density target) ---
-    target_port_count = round(PORT_PERCENTAGE * sector_count)
-    degrees = [len(neis) for neis in undirected_neighbors]
-    # Prefer low-degree locations for ports (leaves/near-leaves first)
-    all_sectors = list(range(sector_count))
-    all_sectors.sort(key=lambda s: (degrees[s], random.random()))
-    port_sectors = set(all_sectors[:target_port_count])
-
-    # Assign random classes initially
-    port_class_by_sector = {s: random.randint(1, 8) for s in port_sectors}
-
-    # Complementary-pair encouragement (optional)
-    def coverage_fraction() -> float:
-        if not port_class_by_sector:
-            return 0.0
-        ok = 0
-        for s, cls in port_class_by_sector.items():
-            comp = complement_class(cls)
-            in_range = bfs_within_radius(
-                s, undirected_neighbors, COMPLEMENTARY_PAIR_RADIUS
-            )
-            if any(
-                (n in port_class_by_sector) and (port_class_by_sector[n] == comp)
-                for n in in_range
-            ):
-                ok += 1
-        return ok / len(port_class_by_sector)
-
-    if ENSURE_COMPLEMENTARY_PAIRS and port_class_by_sector:
-        for _ in range(MAX_PAIR_TUNING_PASSES):
-            lacking = []
-            for s, cls in port_class_by_sector.items():
-                comp = complement_class(cls)
-                in_range = bfs_within_radius(
-                    s, undirected_neighbors, COMPLEMENTARY_PAIR_RADIUS
-                )
-                if not any(
-                    (n in port_class_by_sector) and (port_class_by_sector[n] == comp)
-                    for n in in_range
-                ):
-                    lacking.append(s)
-            random.shuffle(lacking)
-            for s in lacking:
-                # Flip s to complement *someone* nearby if possible
-                candidates = [
-                    n
-                    for n in bfs_within_radius(
-                        s, undirected_neighbors, COMPLEMENTARY_PAIR_RADIUS
-                    )
-                    if n in port_class_by_sector and n != s
-                ]
-                random.shuffle(candidates)
-                for t in candidates:
-                    desired = complement_class(port_class_by_sector[t])
-                    if port_class_by_sector[s] != desired:
-                        port_class_by_sector[s] = desired
-                        break
-            if coverage_fraction() >= COMPLEMENTARY_PAIR_COVERAGE:
-                break
-
-    actual_pair_coverage = coverage_fraction()
-
-    # --- Planet placement (MVP: disabled) ---
-    planet_sectors = set()
-    if GENERATE_PLANETS and PLANET_PERCENTAGE > 0:
-        target_planet_count = round(PLANET_PERCENTAGE * sector_count)
-        # Deterministic pick based on shuffled list
-        remaining = [s for s in all_sectors if s not in port_sectors] + [
-            s for s in all_sectors if s in port_sectors
-        ]
-        planet_sectors = set(remaining[:target_planet_count])
-
-    # --- Build universe_structure.json ---
+    
+    print(f"Placed {len(sector_positions)} sectors across {len(REGIONS)} regions")
+    
+    # Generate connections
+    warps, hyperlanes = generate_regional_connections(
+        sector_positions, sector_regions, REGIONS
+    )
+    
+    # Convert hyperlanes to set for easy lookup
+    hyperlane_set = set()
+    for s1, s2 in hyperlanes:
+        hyperlane_set.add((min(s1, s2), max(s1, s2)))
+    
+    # Place ports
+    port_class_by_sector, mega_port_sector = place_ports(
+        sector_positions, sector_regions, REGIONS, warps
+    )
+    
+    print(f"Placed {len(port_class_by_sector)} ports including mega port at sector {mega_port_sector}")
+    
+    # Calculate statistics
+    total_arcs = sum(len(v) for v in warps.values())
+    two_way_arcs = sum(
+        1 for s in sector_positions
+        for t in warps[s]
+        if s in warps.get(t, set())
+    )
+    two_way_fraction = two_way_arcs / total_arcs if total_arcs else 0.0
+    
+    # Build universe_structure.json
     universe_structure = {
         "meta": {
             "sector_count": sector_count,
             "id_base": 0,
             "directed": True,
             "seed": seed,
-            "warp_outgoing_range": [MIN_WARPS_PER_SECTOR, MAX_WARPS_PER_SECTOR],
-            "two_way_probability_setting": TWO_WAY_PROBABILITY,
-            "actual_two_way_arc_fraction": round(actual_two_way_arc_fraction, 3),
-            "course_length_hint": COURSE_LENGTH_HINT,
-            "rare_spurs": {
-                "target": RARE_SPUR_TARGET,
-                "selected": len(selected_triples),
-                "preserved": culdesacs,
-                "min_sep": RARE_SPUR_MIN_SEP,
-                "degree_cap": DEGREE_CAP_UND,
-            },
+            "spatial": True,
+            "regions": [
+                {
+                    "id": i,
+                    "name": r["name"],
+                    "safe": r.get("safe", False)
+                }
+                for i, r in enumerate(REGIONS)
+            ],
+            "actual_two_way_arc_fraction": round(two_way_fraction, 3),
         },
-        "sectors": [],
+        "sectors": []
     }
+    
     for s in range(sector_count):
-        warps = [
-            {"to": t, "two_way": (s in warps_outgoing[t])}
-            for t in sorted(warps_outgoing[s])
-        ]
-        universe_structure["sectors"].append({"id": s, "warps": warps})
-
-    # --- Build sector_contents.json ---
+        if s in sector_positions:
+            warp_list = []
+            for t in sorted(warps.get(s, set())):
+                warp_data = {
+                    "to": t,
+                    "two_way": s in warps.get(t, set())
+                }
+                
+                # Flag cross-region warps
+                target_sector = next((sec for sec in universe_structure["sectors"] 
+                                     if sec["id"] == t), None)
+                if target_sector and "region" in target_sector:
+                    if target_sector["region"] != sector_regions[s]:
+                        warp_data["crosses_region"] = True
+                        warp_data["to_region"] = target_sector["region"]
+                
+                # Flag if this is a hyperlane (long-distance warp)
+                pair = (min(s, t), max(s, t))
+                if pair in hyperlane_set:
+                    warp_data["is_hyperlane"] = True
+                    warp_data["distance"] = round(hex_distance(sector_positions[s], sector_positions[t]), 1)
+                
+                warp_list.append(warp_data)
+            
+            universe_structure["sectors"].append({
+                "id": s,
+                "position": {
+                    "x": int(sector_positions[s][0]),
+                    "y": int(sector_positions[s][1])
+                },
+                "region": sector_regions[s],
+                "warps": warp_list
+            })
+    
+    # Build sector_contents.json
     contents_meta = {
         "sector_count": sector_count,
         "seed": seed,
         "base_port_density": BASE_PORT_DENSITY,
         "initial_port_build_rate": INITIAL_PORT_BUILD_RATE,
         "port_percentage_effective": round(PORT_PERCENTAGE, 3),
-        "planets_enabled": GENERATE_PLANETS,
-        "planet_percentage": PLANET_PERCENTAGE,
-        "complementary_pairs": {
-            "enabled": ENSURE_COMPLEMENTARY_PAIRS,
-            "radius": COMPLEMENTARY_PAIR_RADIUS,
-            "target_coverage": COMPLEMENTARY_PAIR_COVERAGE,
-            "actual_coverage": round(actual_pair_coverage, 3),
-        },
-        # Hints for your runtime pricing/regen systems
+        "mega_port_sector": mega_port_sector,
         "pricing_bands": {
             "sell_min": SELL_MIN,
             "sell_max": SELL_MAX,
@@ -580,51 +927,55 @@ def main():
             "regen_fraction_stock": REGEN_FRACTION_STOCK,
             "regen_fraction_demand": REGEN_FRACTION_DEMAND,
         },
-        "commodities": COM_LONG,  # FO/OG/EQ labels for readability
+        "commodities": COM_LONG,
     }
-
+    
     sector_contents_list = []
-    next_planet_id = 0
-
+    
     for s in range(sector_count):
+        if s not in sector_positions:
+            continue
+        
         port = None
-        planets = []
-
         if s in port_class_by_sector:
             port = build_port_object(
                 port_class_by_sector[s],
-                default_cap=PORT_DEFAULT_CAP,
-                start_fill=PORT_STARTING_FILL,
+                PORT_DEFAULT_CAP,
+                PORT_STARTING_FILL,
+                is_mega=(s == mega_port_sector)
             )
-
-        if GENERATE_PLANETS and s in planet_sectors:
-            planets.append(build_planet_object(next_planet_id))
-            next_planet_id += 1
-
-        sector_contents_list.append(
-            {
-                "id": s,
-                "port": port,
-                "planets": planets,  # empty when GENERATE_PLANETS=False
-            }
-        )
-
-    universe_contents = {"meta": contents_meta, "sectors": sector_contents_list}
-
-    # --- Write files ---
-    with open("universe_structure.json", "w") as f:
+        
+        sector_contents_list.append({
+            "id": s,
+            "port": port,
+            "planets": []  # No planets for now
+        })
+    
+    universe_contents = {
+        "meta": contents_meta,
+        "sectors": sector_contents_list
+    }
+    
+    # Write files to world-data directory (create if doesn't exist)
+    import os
+    output_dir = "world-data"
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    universe_structure_path = os.path.join(output_dir, "universe_structure.json")
+    sector_contents_path = os.path.join(output_dir, "sector_contents.json")
+    
+    with open(universe_structure_path, "w") as f:
         json.dump(universe_structure, f, indent=2)
-    with open("sector_contents.json", "w") as f:
+    
+    with open(sector_contents_path, "w") as f:
         json.dump(universe_contents, f, indent=2)
-
-    print(f"Generated universe with {sector_count} sectors (0-indexed).")
-    print("Two-way arcs (actual): {p:.1%}".format(p=actual_two_way_arc_fraction))
-    print(
-        "Complementary pair coverage (actual): {c:.1%}".format(c=actual_pair_coverage)
-    )
-    print(f"Two-hop cul-de-sacs preserved: {culdesacs} (target {RARE_SPUR_TARGET})")
-    print("Files created: universe_structure.json, sector_contents.json")
-
+    
+    print(f"Generated universe with {sector_count} sectors")
+    print(f"Two-way arcs: {two_way_fraction:.1%}")
+    print(f"Regions: {', '.join(r['name'] for r in REGIONS)}")
+    print(f"Mega port in {REGIONS[sector_regions[mega_port_sector]]['name']} at sector {mega_port_sector}")
+    print(f"Files created: {universe_structure_path}, {sector_contents_path}")
 
 if __name__ == "__main__":
     main()
