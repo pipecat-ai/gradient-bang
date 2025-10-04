@@ -168,6 +168,6 @@ Dispatched when remote player connects / disconnects to the game server.
         "created_at": "2025-09-21T18:04:12.123456Z",
         "last_active": "2025-09-21T18:04:12.123456Z"
     },
-    "sector": 0
+    "in_same_sector": false
 }
 ```
