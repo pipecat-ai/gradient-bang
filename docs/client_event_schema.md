@@ -88,7 +88,7 @@ Formerly `status.init`
         "scene_config": {},
         "last_visited": "2025-09-21T18:04:12.123456Z",
     },
-    "map_local": [ // type: MapNode[]
+    "map_local": [ // type: `MapNode[]`
         {
             "id": 0,
             "position": [
@@ -96,7 +96,7 @@ Formerly `status.init`
                 0
             ],
             "visited": true,
-            "sector": { // type: Sector
+            "sector": { // type: `Sector`
                 "id": 0,
                 "region": { // type: `Region`
                     "id": 0,
@@ -110,24 +110,24 @@ Formerly `status.init`
                 ],
                 "port": { // type: `Port`
                     "code": "BSS",
-                    "stock": { // type: Record<Resource, number>
+                    "stock": { // type: `Record<Resource, number>`
                         "FO": 10,
                         "OG": 10,
                         "EQ": 10
                     },
-                    "max_capacity": { // type: Record<Resource, number>
+                    "max_capacity": { // type: `Record<Resource, number>`
                         "FO": 10,
                         "OG": 10,
                         "EQ": 10
                     },
-                    "warp_power_depot": { // type: PortWarpPowerDepot; 
+                    "warp_power_depot": { // type: `PortWarpPowerDepot`; 
                         "price_per_unit": 100,
                         "note": ""
                     },
                     "observed_at": "2025-09-21T18:04:12.123456Z"
                 },
             },
-            "lanes": [ // type: MapLane[]
+            "lanes": [ // type: `MapLane[]`
                 {
                     "to": 4,
                     "two_way": true,
@@ -142,17 +142,17 @@ Formerly `status.init`
             // ...
         }
     ],
-    "map_discovered": [ // type: MapNode[]
+    "map_discovered": [ // type: `MapNode[]`
         {
             // ...
         }
     ],
     "map_plot": [],
-    "movement_history": [ // type: MovementHistory[]
+    "movement_history": [ // type: `MovementHistory[]`
         {
             "from": 0,
             "to": 1,
-            "port": { // type: PortBase
+            "port": { // type: `PortBase`
                 "code": "BSS"
             },
             "timestamp": "2025-09-21T18:04:12.123456Z"
