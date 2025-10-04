@@ -12,7 +12,7 @@ Formerly `status.init`
         "name": "TraderJ",
         "credits": 0,
         "created_at": "2025-09-21T18:04:12.123456Z",
-        "last_active": "2025-09-21T18:04:12.123456Z",
+        "last_active": "2025-09-21T18:04:12.123456Z"
     },
     "ship": { // type: `Ship`
         "ship_name": "Serenity",
@@ -48,17 +48,17 @@ Formerly `status.init`
         ],
         "port": { // type: `Port`
             "code": "BSS",
-            "stock": { // type: Record<Resource, number>
+            "stock": { // type: `Record<Resource, number>`
                 "FO": 10,
                 "OG": 10,
                 "EQ": 10
             },
-            "max_capacity": { // type: Record<Resource, number>
+            "max_capacity": { // type: `Record<Resource, number>`
                 "FO": 10,
                 "OG": 10,
                 "EQ": 10
             },
-            "warp_power_depot": { // type: PortWarpPowerDepot; 
+            "warp_power_depot": { // type: `PortWarpPowerDepot`
                 "price_per_unit": 100,
                 "note": ""
             }
@@ -74,7 +74,7 @@ Formerly `status.init`
                     "ship_type": { // type: `ShipType`
                         "id": "kestrel_courier",
                         "name": "Kestrel Courier"
-                    },
+                    }
                 }
             }
         ],
@@ -86,7 +86,7 @@ Formerly `status.init`
             }
         ],
         "scene_config": {},
-        "last_visited": "2025-09-21T18:04:12.123456Z",
+        "last_visited": "2025-09-21T18:04:12.123456Z"
     },
     "map_local": [ // type: `MapNode[]`
         {
@@ -120,12 +120,12 @@ Formerly `status.init`
                         "OG": 10,
                         "EQ": 10
                     },
-                    "warp_power_depot": { // type: `PortWarpPowerDepot`; 
+                    "warp_power_depot": { // type: `PortWarpPowerDepot`
                         "price_per_unit": 100,
                         "note": ""
                     },
                     "observed_at": "2025-09-21T18:04:12.123456Z"
-                },
+                }
             },
             "lanes": [ // type: `MapLane[]`
                 {
