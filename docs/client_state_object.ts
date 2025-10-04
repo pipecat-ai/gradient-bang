@@ -70,7 +70,7 @@ interface SectorBase {
 }
 
 interface Sector extends SectorBase {
-  port?: PortMemory; // Show last known port state
+  port?: Port; // Show last known port state
   planets?: Planet[];
 }
 
@@ -96,14 +96,15 @@ interface PortBase {
 }
 
 interface Port extends PortBase {
-  stock: Record<Resource, number>;
-  max_capacity: Record<Resource, number>;
+  stock: Record<Resource, number>; // can be current or last known
+  max_capacity: Record<Resource, number>; // can be current or last known
+  warp_power_depot?: PortWarpPowerDepot; // can be current or last known
+  observed_at?: string;
 }
 
-interface PortMemory extends PortBase {
-  last_seen_prices: Record<Resource, number>;
-  last_seen_stock: Record<Resource, number>;
-  observed_at: string;
+interface PortWarpPowerDepot {
+  price_per_unit: number;
+  note?: string;
 }
 
 interface MapNode {
@@ -145,7 +146,7 @@ export interface GradientBangStateSchema {
   sector: SectorCurrent;
   credits: number;
 
-  // Mapp
+  // Map
   map_local: MapNode[]; // minimap (subset of entire map)
   map_discovered: MapNode[]; // universe map of all discovered sectors
   map_plot?: MapNode[]; // subset with proposed flight path (if plotting)
