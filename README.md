@@ -1,3 +1,7 @@
+# Quickstart (VSCode)
+
+`CMD+SHIFT+B` (Run the build task `Dev Environment`)
+
 # Notes
 
 ## Create a universe
