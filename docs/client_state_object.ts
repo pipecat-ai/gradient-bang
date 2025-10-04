@@ -1,25 +1,22 @@
 //----- Types -----//
 
-interface Player {
+export interface Player {
   id: string;
   name: string;
   created_at: string;
   last_active?: string;
 }
 
-interface PlayerLocal extends Player {
-  id: string;
-  name: string;
-  created_at: string;
-  last_active?: string;
+export interface PlayerLocal extends Player {
+  credits: number;
 }
 
-interface PlayerRemote extends Player {
+export interface PlayerRemote extends Player {
   player_type: "npc" | "human";
   ship: ShipBase;
 }
 
-interface Settings {
+export interface Settings {
   startMuted: false;
   enableMic: true;
   disableRemoteAudio: false;
@@ -34,12 +31,12 @@ interface Settings {
   qualityPreset: "text" | "low" | "medium" | "high";
 }
 
-interface ShipBase {
+export interface ShipBase {
   ship_name: string;
-  ship_type: string;
+  ship_type: { id: string; name: string };
 }
 
-interface Ship extends ShipBase {
+export interface Ship extends ShipBase {
   cargo: Record<Resource, number>;
   cargo_capacity: number;
   cargo_used: number;
@@ -51,7 +48,7 @@ interface Ship extends ShipBase {
   max_fighters: number;
 }
 
-interface Region {
+export interface Region {
   id: number;
   name:
     | "core_worlds"
@@ -62,19 +59,19 @@ interface Region {
   safe: boolean;
 }
 
-interface SectorBase {
+export interface SectorBase {
   id: number;
   region: Region;
   adjacent_sectors?: number[];
   last_visited?: string;
 }
 
-interface Sector extends SectorBase {
+export interface Sector extends SectorBase {
   port?: Port; // Show last known port state
   planets?: Planet[];
 }
 
-interface SectorCurrent extends SectorBase {
+export interface SectorCurrent extends SectorBase {
   port?: Port; // Show current port state
   players?: PlayerRemote[];
   planets?: Planet[];
@@ -82,32 +79,31 @@ interface SectorCurrent extends SectorBase {
   scene_config: Partial<GalaxyStarfieldConfig>;
 }
 
-interface Planet {
+export interface Planet {
   id: number;
   class_code: string;
   class_name: string;
 }
 
-type Resource = "EQ" | "FO" | "OG";
+export type Resource = "EQ" | "FO" | "OG";
 
-interface PortBase {
+export interface PortBase {
   code: string;
-  discovered_at?: string;
 }
 
-interface Port extends PortBase {
+export interface Port extends PortBase {
   stock: Record<Resource, number>; // can be current or last known
   max_capacity: Record<Resource, number>; // can be current or last known
   warp_power_depot?: PortWarpPowerDepot; // can be current or last known
   observed_at?: string;
 }
 
-interface PortWarpPowerDepot {
+export interface PortWarpPowerDepot {
   price_per_unit: number;
   note?: string;
 }
 
-interface MapNode {
+export interface MapNode {
   id: number;
   position: [number, number];
   sector: Sector;
@@ -115,21 +111,21 @@ interface MapNode {
   visited: boolean;
 }
 
-interface MapLane {
+export interface MapLane {
   to: number;
   two_way: boolean;
   hyperlane: boolean;
 }
 
-interface MovementHistory {
+export interface MovementHistory {
   from: Sector;
   to: Sector;
   port?: PortBase;
   timestamp?: string;
 }
 
-interface UIState {
-  ui: "idle" | "warping" | "moving" | "plotting" | "trading"; // Note: client configured
+export interface UIState {
+  state: "idle" | "warping" | "moving" | "plotting" | "trading"; // Note: client configured
   active_modal?: "trade" | "ship" | "player" | "remote_player" | "map";
   highlight_element_id?: string;
 }
@@ -139,12 +135,12 @@ interface UIState {
 export interface GradientBangStateSchema {
   // Client configured
   settings: Settings;
+  ui: UIState;
 
   // Core
   player: PlayerLocal;
   ship: Ship;
   sector: SectorCurrent;
-  credits: number;
 
   // Map
   map_local: MapNode[]; // minimap (subset of entire map)
