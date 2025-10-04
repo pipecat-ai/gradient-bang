@@ -76,7 +76,7 @@ export interface SectorCurrent extends SectorBase {
   players?: PlayerRemote[];
   planets?: Planet[];
   // Nice to have sooner rather than later for persistence FX
-  scene_config: Partial<GalaxyStarfieldConfig>;
+  scene_config: unknown;
 }
 
 export interface Planet {
@@ -118,8 +118,8 @@ export interface MapLane {
 }
 
 export interface MovementHistory {
-  from: Sector;
-  to: Sector;
+  from: number;
+  to: number;
   port?: PortBase;
   timestamp?: string;
 }

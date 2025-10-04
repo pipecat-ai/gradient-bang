@@ -7,7 +7,6 @@ Formerly `status.init`
 
 ```json
 {
-  
   "player": {  // type: `PlayerLocal`
     "id": 1,
     "name": "TraderJ",
@@ -34,7 +33,7 @@ Formerly `status.init`
     "max_shields": 0,
     "fighters": 0,
     "max_fighters": 0
-  },
+},
 "sector": { // type: `SectorCurrent`
     "id": 0,
     "region": { // type: `Region`
@@ -84,13 +83,63 @@ Formerly `status.init`
     ],
     "scene_config": {},
     "last_visited": "2025-09-21T18:04:12.123456Z",
+},
 
-  // Map
-  //map_local: MapNode[]; // minimap (subset of entire map)
-  //map_discovered: MapNode[]; // universe map of all discovered sectors
-  //map_plot?: MapNode[]; // subset with proposed flight path (if plotting)
+"map_local": [ // type: MapNode[]
+    { 
+        "id": 0,
+        "position": [0, 0], 
+        "visited": true,
+        "sector": { // type: Sector
+            "id": 0,
+            "region": { // type: `Region`
+                "id": 0,
+                "name": "Core Worlds",
+                "safe": true
+            },
+            "adjacent_sectors": [4, 6, 9],
+            "port": { // type: `Port`
+                "code": "BSS",
+                "stock": { // type: Record<Resource, number>
+                    "FO": 10,
+                    "OG": 10,
+                    "EQ": 10
+                },
+                "max_capacity": { // type: Record<Resource, number>
+                    "FO": 10,
+                    "OG": 10,
+                    "EQ": 10
+                },
+                "warp_power_depot": { // type: PortWarpPowerDepot; 
+                    "price_per_unit": 100,
+                    "note": ""
+                },
+                "observed_at": "2025-09-21T18:04:12.123456Z"
+            },
+        },
+        "lanes": [ // type: MapLane[]
+            {
+                "to": 4,
+                "two_way": true,
+                "hyperlane": false,
+            },
+            {
+                // ...
+            }
+        ],
+    },
+    {
+        // ...
+    }
+],
+    "map_discovered": [ // type: MapNode[]
+        { 
+            // ...
+        }
+    ],
+    "map_plot": [],
+    "movement_history": [
 
-  // Movement
-  //movement_history: MovementHistory[];
+    ]
 }
 ```
