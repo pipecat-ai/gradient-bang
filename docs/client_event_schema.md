@@ -1,7 +1,7 @@
 ## status
 
-### `status.join`
-Sent by bot after local client connects and is in ready state.
+### `status.join` | `status.update`
+Sent by bot after local client connects and is in ready state, or used to rehydrate client with entire game state.
 
 Formerly `status.init`
 
@@ -141,5 +141,33 @@ Formerly `status.init`
     "movement_history": [
 
     ]
+}
+```
+
+## player
+
+### `player.joined` | `player.left`
+
+Dispatched when remote player connects / disconnects to the game server.
+
+```json
+{
+    "player": { // type: `PlayerRemote`
+        "id": 1,
+        "name": "TraderJ",
+        "player_type": "npc",
+        "ship": { // type: ShipBase
+            "ship": { // type: `ShipBase`
+                "ship_name": "Rocinate",
+                "ship_type": { // type: `ShipType`
+                    "id": "kestrel_courier",
+                    "name": "Kestrel Courier"
+                }
+            }
+        },
+        "created_at": "2025-09-21T18:04:12.123456Z",
+        "last_active": "2025-09-21T18:04:12.123456Z"
+    },
+    "sector": 0
 }
 ```
