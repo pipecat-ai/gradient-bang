@@ -125,7 +125,8 @@ Formerly `status.init`
                         "note": ""
                     },
                     "observed_at": "2025-09-21T18:04:12.123456Z"
-                }
+                },
+                "planets": [],
             },
             "lanes": [ // type: `MapLane[]`
                 {
@@ -187,7 +188,152 @@ Dispatched when remote player connects / disconnects to the game server.
         },
         "created_at": "2025-09-21T18:04:12.123456Z",
         "last_active": "2025-09-21T18:04:12.123456Z"
+    }
+}
+```
+```json
+{ 
+    "meta": {
+       "in_same_sector": false
+    }
+}
+```
+
+## movement
+
+### `movement.start` 
+
+```json
+{
+    "sector": { // type: `SectorCurrent`
+        "id": 0,
+        "region": { // type: `Region`
+            "id": 0,
+            "name": "Core Worlds",
+            "safe": true
+        },
+        "adjacent_sectors": [
+            4,
+            6,
+            9
+        ],
+        "port": { // type: `Port`
+            "code": "BSS",
+            "stock": { // type: `Record<Resource, number>`
+                "FO": 10,
+                "OG": 10,
+                "EQ": 10
+            },
+            "max_capacity": { // type: `Record<Resource, number>`
+                "FO": 10,
+                "OG": 10,
+                "EQ": 10
+            },
+            "warp_power_depot": { // type: `PortWarpPowerDepot`
+                "price_per_unit": 100,
+                "note": ""
+            }
+        },
+        "players": [ // type: `PlayerRemote`
+            {
+                "id": 1,
+                "name": "Trader K",
+                "created_at": "2025-09-21T18:04:12.123456Z",
+                "player_type": "human",
+                "ship": { // type: `ShipBase`
+                    "ship_name": "Rocinate",
+                    "ship_type": { // type: `ShipType`
+                        "id": "kestrel_courier",
+                        "name": "Kestrel Courier"
+                    }
+                }
+            }
+        ],
+        "planets": [ // type: `Planet`
+            {
+                "id": 11,
+                "class_code": "H",
+                "class_name": "Habitable"
+            }
+        ],
+        "scene_config": {},
+        "last_visited": "2025-09-21T18:04:12.123456Z"
     },
-    "in_same_sector": false
+    "to": 1,
+}
+```
+```json
+{ 
+    "meta": {
+        "move_type": "normal" 
+    }
+}
+```
+
+### `movement.complete` 
+
+```json
+{ 
+    "sector": { // type: `SectorCurrent`
+        "id": 0,
+        "region": { // type: `Region`
+            "id": 0,
+            "name": "Core Worlds",
+            "safe": true
+        },
+        "adjacent_sectors": [
+            4,
+            6,
+            9
+        ],
+        "port": { // type: `Port`
+            "code": "BSS",
+            "stock": { // type: `Record<Resource, number>`
+                "FO": 10,
+                "OG": 10,
+                "EQ": 10
+            },
+            "max_capacity": { // type: `Record<Resource, number>`
+                "FO": 10,
+                "OG": 10,
+                "EQ": 10
+            },
+            "warp_power_depot": { // type: `PortWarpPowerDepot`
+                "price_per_unit": 100,
+                "note": ""
+            }
+        },
+        "players": [ // type: `PlayerRemote`
+            {
+                "id": 1,
+                "name": "Trader K",
+                "created_at": "2025-09-21T18:04:12.123456Z",
+                "player_type": "human",
+                "ship": { // type: `ShipBase`
+                    "ship_name": "Rocinate",
+                    "ship_type": { // type: `ShipType`
+                        "id": "kestrel_courier",
+                        "name": "Kestrel Courier"
+                    }
+                }
+            }
+        ],
+        "planets": [ // type: `Planet`
+            {
+                "id": 11,
+                "class_code": "H",
+                "class_name": "Habitable"
+            }
+        ],
+        "scene_config": {},
+        "last_visited": "2025-09-21T18:04:12.123456Z"
+    }
+}
+```
+```json
+{ 
+    "meta": {
+        "move_type": "normal" 
+    }
 }
 ```
