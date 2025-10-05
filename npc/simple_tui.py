@@ -7,12 +7,15 @@ import asyncio
 import inspect
 import json
 import os
+import re
 import uuid
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum, auto
 from datetime import datetime
 from pathlib import Path
+
+import pyperclip
 from typing import (
     Any,
     Callable,
@@ -22,6 +25,7 @@ from typing import (
     Mapping,
     Optional,
     Sequence,
+    Set,
     Tuple,
     TextIO,
 )
@@ -29,7 +33,7 @@ from typing import (
 from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
-from textual.widgets import Header, Input, Log, Static
+from textual.widgets import Header, Input, ListItem, ListView, Static
 
 from npc.combat_session import CombatSession
 from npc.combat_utils import ensure_position
@@ -131,6 +135,135 @@ class LoggingAsyncGameClient(AsyncGameClient):
             self._pending.clear()
 
 
+class AutoScrollListView(ListView):
+    """ListView with auto-scroll when scrolled to bottom."""
+
+    def append_item(self, item: ListItem) -> None:
+        """Append an item and auto-scroll if at bottom."""
+        # Check if we're scrolled to bottom before adding
+        was_at_bottom = self._is_at_bottom()
+
+        self.append(item)
+
+        # Only auto-scroll if we were at bottom
+        if was_at_bottom:
+            self.scroll_end(animate=False)
+
+    def _is_at_bottom(self) -> bool:
+        """Check if the view is scrolled to the bottom."""
+        # If there are no items yet, we're at the bottom
+        if len(self) == 0:
+            return True
+
+        # Check if scroll is at or near the end
+        # Allow small tolerance (1 line) for floating point issues
+        max_scroll = self.max_scroll_y
+        current_scroll = self.scroll_y
+
+        return (max_scroll - current_scroll) <= 1
+
+
+def extract_and_format_json(text: str) -> Optional[str]:
+    """
+    Extract JSON from text and return pretty-printed version.
+
+    Returns None if no JSON found or parsing fails.
+    """
+    # Try to find JSON object or array in the text
+    # Look for {...} or [...]
+    json_pattern = r'(\{.*\}|\[.*\])'
+    match = re.search(json_pattern, text, re.DOTALL)
+
+    if not match:
+        return None
+
+    json_str = match.group(1)
+
+    try:
+        parsed = json.loads(json_str)
+        pretty = json.dumps(parsed, indent=2, sort_keys=True)
+
+        # Get prefix (text before JSON) and suffix (text after JSON)
+        prefix = text[:match.start()].rstrip()
+        suffix = text[match.end():].lstrip()
+
+        result_parts = []
+        if prefix:
+            result_parts.append(prefix)
+        result_parts.append(pretty)
+        if suffix:
+            result_parts.append(suffix)
+
+        return "\n".join(result_parts)
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
+def copy_to_system_clipboard(text: str) -> tuple[bool, str]:
+    """
+    Copy text to system clipboard using pyperclip.
+
+    Returns (success: bool, error_msg: str).
+    """
+    try:
+        pyperclip.copy(text)
+        return True, ""
+    except pyperclip.PyperclipException as e:
+        return False, str(e)
+    except Exception as e:
+        return False, f"Clipboard error: {e}"
+
+
+def extract_json_only(text: str) -> Optional[str]:
+    """
+    Extract and return only the pretty-printed JSON from text.
+
+    Returns None if no JSON found or parsing fails.
+    Used for clipboard copy.
+    """
+    # Try to find JSON object or array in the text
+    json_pattern = r'(\{.*\}|\[.*\])'
+    match = re.search(json_pattern, text, re.DOTALL)
+
+    if not match:
+        return None
+
+    json_str = match.group(1)
+
+    try:
+        parsed = json.loads(json_str)
+        return json.dumps(parsed, indent=2, sort_keys=True)
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
+def format_log_line(text: str, expanded: bool) -> str:
+    """
+    Format a log line with expand/collapse indicator.
+
+    Args:
+        text: Original log line text
+        expanded: Whether the line is currently expanded
+
+    Returns:
+        Formatted text with indicator
+    """
+    indicator = "▼" if expanded else "▶"
+
+    if expanded:
+        # Try to extract and format JSON
+        formatted = extract_and_format_json(text)
+        if formatted:
+            return f"{indicator} {formatted}"
+        else:
+            # No JSON found, just return wrapped text
+            # The Static widget will handle wrapping based on CSS
+            return f"{indicator} {text}"
+    else:
+        # Collapsed - single line
+        return f"{indicator} {text}"
+
+
 @dataclass
 class PromptRequest:
     label: str
@@ -185,6 +318,26 @@ class SimpleTUI(App):
         height: 1fr;
     }
 
+    #ws-log > ListItem {
+        height: auto;
+        padding: 0 1;
+    }
+
+    #ws-log > ListItem > Static {
+        width: 100%;
+        height: auto;
+    }
+
+    #ws-log > ListItem.expanded > Static {
+        text-wrap: wrap;
+    }
+
+    #ws-log > ListItem.collapsed > Static {
+        text-wrap: nowrap;
+        overflow-x: hidden;
+        text-overflow: ellipsis;
+    }
+
     #status-bars {
         height: auto;
         padding: 0 1;
@@ -216,6 +369,7 @@ class SimpleTUI(App):
         ("ctrl+q", "quit", "Quit"),
         ("ctrl+x", "start_combat", "Start Combat"),
         ("ctrl+g", "cancel_task", "Cancel Task"),
+        ("ctrl+y", "copy_log_line", "Copy Log Line"),
     ]
 
     def __init__(
@@ -264,6 +418,9 @@ class SimpleTUI(App):
         self.task_max_iterations = max(1, max_iterations)
         self._last_ship_meta: Dict[str, Any] = {"credits": None, "cargo": {}}
         self.status_updater = StatusBarUpdater(character)
+        self._expanded_lines: Set[int] = set()
+        self._line_counter = 0
+        self._log_lines: Dict[int, str] = {}  # Map line_id -> original text
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -271,7 +428,7 @@ class SimpleTUI(App):
         yield self.task_banner
         self.status_display = Static("", id="status-bars")
         yield self.status_display
-        self.ws_log = Log(id="ws-log", highlight=True)
+        self.ws_log = AutoScrollListView(id="ws-log")
         yield self.ws_log
         with Horizontal(id="prompt-bar"):
             self.prompt_label = Static("Initializing", id="prompt-label")
@@ -1295,7 +1452,24 @@ class SimpleTUI(App):
 
     async def _append_log(self, message: str) -> None:
         self._mirror_to_file(message)
-        self.ws_log.write_line(message)
+
+        # Create new log line with unique ID
+        line_id = self._line_counter
+        self._line_counter += 1
+        self._log_lines[line_id] = message
+
+        # Format the line (collapsed by default)
+        formatted = format_log_line(message, expanded=False)
+
+        # Create ListItem with Static content
+        item = ListItem(Static(formatted), id=f"log-{line_id}")
+        item.add_class("collapsed")
+
+        # Store line_id as metadata on the item
+        item.data_line_id = line_id  # type: ignore
+
+        # Append to the list view with auto-scroll
+        self.ws_log.append_item(item)
 
     def _mirror_to_file(self, message: str) -> None:
         if self.log_path is None:
@@ -1344,6 +1518,44 @@ class SimpleTUI(App):
                 asyncio.create_task(self._start_task(value))
             else:
                 asyncio.create_task(self._append_log(f"(ignored input) {value}"))
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        """Handle clicking on a log line to toggle expansion."""
+        item = event.item
+
+        # Get the line_id from the item's metadata
+        line_id = getattr(item, "data_line_id", None)
+        if line_id is None:
+            return
+
+        # Get the original text
+        original_text = self._log_lines.get(line_id)
+        if original_text is None:
+            return
+
+        # Toggle expansion state
+        is_expanded = line_id in self._expanded_lines
+        new_state = not is_expanded
+
+        if new_state:
+            self._expanded_lines.add(line_id)
+        else:
+            self._expanded_lines.discard(line_id)
+
+        # Format the line with new state
+        formatted = format_log_line(original_text, expanded=new_state)
+
+        # Update the Static widget inside the ListItem
+        static_widget = item.query_one(Static)
+        static_widget.update(formatted)
+
+        # Update CSS classes
+        if new_state:
+            item.remove_class("collapsed")
+            item.add_class("expanded")
+        else:
+            item.remove_class("expanded")
+            item.add_class("collapsed")
 
     async def _handle_action_outcome(self, response: Mapping[str, Any]) -> None:
         if not isinstance(response, Mapping):
@@ -1399,6 +1611,73 @@ class SimpleTUI(App):
 
     async def action_cancel_task(self) -> None:
         await self._cancel_active_task("user requested cancellation")
+
+    async def action_copy_log_line(self) -> None:
+        """Copy the currently highlighted log line to clipboard."""
+        await self._append_log("[DEBUG] action_copy_log_line called")
+
+        # Get the currently highlighted item in the ListView
+        await self._append_log(f"[DEBUG] ws_log.index = {self.ws_log.index}")
+
+        if self.ws_log.index is None:
+            await self._append_log("[DEBUG] No index - line not selected")
+            self.notify("No log line selected", severity="warning", timeout=2)
+            return
+
+        # Get the ListItem at the current index
+        try:
+            items = list(self.ws_log.children)
+            await self._append_log(f"[DEBUG] Found {len(items)} items in ListView")
+
+            if not items or self.ws_log.index >= len(items):
+                await self._append_log("[DEBUG] Index out of range")
+                self.notify("No log line selected", severity="warning", timeout=2)
+                return
+
+            item = items[self.ws_log.index]
+            if not isinstance(item, ListItem):
+                await self._append_log(f"[DEBUG] Item is not ListItem: {type(item)}")
+                return
+
+            # Get the line_id from the item's metadata
+            line_id = getattr(item, "data_line_id", None)
+            await self._append_log(f"[DEBUG] line_id = {line_id}")
+
+            if line_id is None:
+                await self._append_log("[DEBUG] line_id is None")
+                return
+
+            # Get the original text
+            original_text = self._log_lines.get(line_id)
+            if original_text is None:
+                await self._append_log("[DEBUG] original_text not found in _log_lines")
+                return
+
+            await self._append_log(f"[DEBUG] Copying text (length={len(original_text)})")
+
+            # Try to extract JSON - if found, copy only the JSON
+            json_content = extract_json_only(original_text)
+            if json_content:
+                await self._append_log("[DEBUG] Copying JSON content")
+                success, error = copy_to_system_clipboard(json_content)
+                if success:
+                    self.notify("JSON copied to clipboard", timeout=2)
+                else:
+                    await self._append_log(f"[DEBUG] xclip failed: {error}")
+                    self.notify(f"Copy failed: {error}", severity="error", timeout=3)
+            else:
+                await self._append_log("[DEBUG] Copying full text (no JSON)")
+                # No JSON found, copy the full text
+                success, error = copy_to_system_clipboard(original_text)
+                if success:
+                    self.notify("Log line copied to clipboard", timeout=2)
+                else:
+                    await self._append_log(f"[DEBUG] xclip failed: {error}")
+                    self.notify(f"Copy failed: {error}", severity="error", timeout=3)
+
+        except Exception as exc:  # noqa: BLE001
+            await self._append_log(f"[DEBUG] Exception: {exc}")
+            self.notify(f"Copy failed: {exc}", severity="error", timeout=3)
 
     async def action_start_combat(self) -> None:
         if self.client is None or self.session is None:
