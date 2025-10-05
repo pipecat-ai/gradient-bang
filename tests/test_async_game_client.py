@@ -356,3 +356,133 @@ class TestCombatAPIs:
                 salvage_id="test_salvage",
                 character_id="wrong_char"
             )
+
+
+class TestLocalMapQueryAPIs:
+    """Tests for local map query API methods."""
+
+    async def test_local_map_region_basic(self, client):
+        """Test local_map_region with default parameters."""
+        await client.join("test_client_char")
+
+        result = await client.local_map_region(character_id="test_client_char")
+
+        assert isinstance(result, dict)
+        assert "center_sector" in result
+        assert "sectors" in result
+        assert "total_sectors" in result
+        assert "total_visited" in result
+        assert "total_unvisited" in result
+
+    async def test_local_map_region_with_params(self, client):
+        """Test local_map_region with custom parameters."""
+        await client.join("test_client_char")
+
+        result = await client.local_map_region(
+            character_id="test_client_char",
+            center_sector=0,
+            max_hops=2,
+            max_sectors=50
+        )
+
+        assert isinstance(result, dict)
+        assert result["center_sector"] == 0
+        assert result["total_sectors"] <= 50
+
+    async def test_local_map_region_wrong_character_id(self, client):
+        """Test local_map_region with mismatched character_id raises error."""
+        await client.join("test_client_char")
+
+        with pytest.raises(ValueError, match="bound to character_id"):
+            await client.local_map_region(character_id="wrong_char")
+
+    async def test_list_known_ports_basic(self, client):
+        """Test list_known_ports with default parameters."""
+        await client.join("test_client_char")
+
+        result = await client.list_known_ports(character_id="test_client_char")
+
+        assert isinstance(result, dict)
+        assert "from_sector" in result
+        assert "ports" in result
+        assert "total_ports_found" in result
+        assert "searched_sectors" in result
+
+    async def test_list_known_ports_with_filters(self, client):
+        """Test list_known_ports with various filters."""
+        await client.join("test_client_char")
+
+        result = await client.list_known_ports(
+            character_id="test_client_char",
+            from_sector=0,
+            max_hops=3,
+            port_type="BBB"
+        )
+
+        assert isinstance(result, dict)
+        assert result["from_sector"] == 0
+
+    async def test_list_known_ports_commodity_filter(self, client):
+        """Test list_known_ports with commodity filter."""
+        await client.join("test_client_char")
+
+        result = await client.list_known_ports(
+            character_id="test_client_char",
+            commodity="equipment",
+            trade_type="buy"
+        )
+
+        assert isinstance(result, dict)
+        assert "ports" in result
+
+    async def test_list_known_ports_wrong_character_id(self, client):
+        """Test list_known_ports with mismatched character_id raises error."""
+        await client.join("test_client_char")
+
+        with pytest.raises(ValueError, match="bound to character_id"):
+            await client.list_known_ports(character_id="wrong_char")
+
+    async def test_path_with_region_basic(self, client):
+        """Test path_with_region with default parameters."""
+        await client.join("test_client_char")
+
+        # Use plot_course first to find a valid destination
+        course = await client.plot_course(to_sector=1, character_id="test_client_char")
+        assert "path" in course
+
+        result = await client.path_with_region(
+            to_sector=1,
+            character_id="test_client_char"
+        )
+
+        assert isinstance(result, dict)
+        assert "path" in result
+        assert "distance" in result
+        assert "sectors" in result
+        assert "total_sectors" in result
+        assert "known_sectors" in result
+        assert "unknown_sectors" in result
+
+    async def test_path_with_region_with_params(self, client):
+        """Test path_with_region with custom parameters."""
+        await client.join("test_client_char")
+
+        result = await client.path_with_region(
+            to_sector=1,
+            character_id="test_client_char",
+            region_hops=2,
+            max_sectors=100
+        )
+
+        assert isinstance(result, dict)
+        assert result["total_sectors"] <= 100
+
+    async def test_path_with_region_wrong_character_id(self, client):
+        """Test path_with_region with mismatched character_id raises error."""
+        await client.join("test_client_char")
+
+        with pytest.raises(ValueError, match="bound to character_id"):
+            await client.path_with_region(
+                to_sector=1,
+                character_id="wrong_char"
+            )

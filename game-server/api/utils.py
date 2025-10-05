@@ -123,7 +123,6 @@ async def sector_contents(
                 "last_seen_stock": stock,
                 "observed_at": datetime.now(timezone.utc).isoformat(),
             }
-            print(f"!!! Port info for sector {sector_id}: {port}")
 
     # Planets
     planets = []

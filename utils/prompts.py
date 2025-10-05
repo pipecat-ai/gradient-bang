@@ -222,11 +222,27 @@ To view your map knowledge:
 - Use: my_map()
 - Returns: All sectors you've visited, ports you've discovered, and connections you know
 
-To find ports:
-- Use: find_port(commodity="organics", buy_or_sell="sell")
-- Returns: Nearest known port that sells organics, with distance and path
-- Use: find_port(commodity="equipment", buy_or_sell="buy")
-- Returns: Nearest known port that buys equipment
+To query local map area:
+- Use: local_map_region()
+- Returns: All known sectors around your current location with full details (ports, adjacents, positions)
+- Use: local_map_region(center_sector=50, max_hops=5, max_sectors=100)
+- Returns: Known sectors within 5 hops of sector 50 (up to 100 sectors max)
+
+To list known ports within a map area:
+- Use: list_known_ports()
+- Returns: All known ports within default range (5 hops) from current sector
+- Use: list_known_ports(max_hops=3, port_type="BBB")
+- Returns: All BBB ports within 3 hops
+- Use: list_known_ports(commodity="equipment", trade_type="buy")
+- Returns: Ports where you can buy equipment (ports that sell equipment)
+- Use: list_known_ports(commodity="fuel_ore", trade_type="sell")
+- Returns: Ports where you can sell fuel_ore (ports that buy fuel_ore)
+
+To get path with regional context:
+- Use: path_with_region(to_sector=100)
+- Returns: Path to sector 100 plus known sectors around each path node for route visualization
+- Use: path_with_region(to_sector=100, region_hops=2, max_sectors=150)
+- Returns: Path with 2 hops around each path node (up to 150 sectors total)
 
 To complete a task:
 - Use: finished(message="Successfully reached sector 10")

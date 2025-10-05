@@ -509,6 +509,127 @@ class AsyncGameClient:
         result = await self._request("local_map", payload)
         return self._apply_summary("local_map", result)
 
+    async def local_map_region(
+        self,
+        character_id: str,
+        center_sector: Optional[int] = None,
+        max_hops: int = 3,
+        max_sectors: int = 100,
+    ) -> Dict[str, Any]:
+        """Get all known sectors around current location for local navigation.
+
+        Args:
+            character_id: Character to query (must match bound ID)
+            center_sector: Optional center sector; defaults to current sector
+            max_hops: Maximum BFS depth (default 3, max 10)
+            max_sectors: Maximum sectors to return (default 100)
+
+        Returns:
+            Dict with center_sector, sectors list, totals
+
+        Raises:
+            RPCError: If the request fails
+            ValueError: If character_id doesn't match bound ID
+        """
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        payload: Dict[str, Any] = {"character_id": character_id}
+        if center_sector is not None:
+            payload["center_sector"] = int(center_sector)
+        payload["max_hops"] = int(max_hops)
+        payload["max_sectors"] = int(max_sectors)
+
+        result = await self._request("local_map_region", payload)
+        return self._apply_summary("local_map_region", result)
+
+    async def list_known_ports(
+        self,
+        character_id: str,
+        from_sector: Optional[int] = None,
+        max_hops: int = 5,
+        port_type: Optional[str] = None,
+        commodity: Optional[str] = None,
+        trade_type: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Find all known ports within travel range for trading/planning.
+
+        Args:
+            character_id: Character to query (must match bound ID)
+            from_sector: Optional starting sector; defaults to current sector
+            max_hops: Maximum distance (default 5, max 10)
+            port_type: Optional filter by port code (e.g., "BBB")
+            commodity: Optional filter ports that trade this commodity
+            trade_type: Optional "buy" or "sell" (requires commodity)
+
+        Returns:
+            Dict with from_sector, ports list, totals
+
+        Raises:
+            RPCError: If the request fails
+            ValueError: If character_id doesn't match bound ID
+        """
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        payload: Dict[str, Any] = {"character_id": character_id}
+        if from_sector is not None:
+            payload["from_sector"] = int(from_sector)
+        payload["max_hops"] = int(max_hops)
+        if port_type is not None:
+            payload["port_type"] = port_type
+        if commodity is not None:
+            payload["commodity"] = commodity
+        if trade_type is not None:
+            payload["trade_type"] = trade_type
+
+        result = await self._request("list_known_ports", payload)
+        return self._apply_summary("list_known_ports", result)
+
+    async def path_with_region(
+        self,
+        to_sector: int,
+        character_id: str,
+        region_hops: int = 1,
+        max_sectors: int = 200,
+    ) -> Dict[str, Any]:
+        """Get path plus local context around each node for route visualization.
+
+        Args:
+            to_sector: Destination sector
+            character_id: Character to plot route for (must match bound ID)
+            region_hops: How many hops around each path node (default 1)
+            max_sectors: Total sector limit (default 200)
+
+        Returns:
+            Dict with path, distance, sectors list, totals
+
+        Raises:
+            RPCError: If the request fails
+            ValueError: If character_id doesn't match bound ID
+        """
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        payload: Dict[str, Any] = {
+            "character_id": character_id,
+            "to_sector": int(to_sector),
+            "region_hops": int(region_hops),
+            "max_sectors": int(max_sectors),
+        }
+
+        result = await self._request("path_with_region", payload)
+        return self._apply_summary("path_with_region", result)
+
     async def check_trade(
         self,
         commodity: str,

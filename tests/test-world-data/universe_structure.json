@@ -12,6 +12,7 @@
   "sectors": [
     {
       "id": 0,
+      "position": {"x": 0, "y": 0},
       "warps": [
         {"to": 1, "two_way": true},
         {"to": 2, "two_way": true},
@@ -20,6 +21,7 @@
     },
     {
       "id": 1,
+      "position": {"x": 10, "y": 5},
       "warps": [
         {"to": 0, "two_way": true},
         {"to": 3, "two_way": true},
@@ -28,6 +30,7 @@
     },
     {
       "id": 2,
+      "position": {"x": 5, "y": 10},
       "warps": [
         {"to": 0, "two_way": true},
         {"to": 3, "two_way": false},
@@ -36,6 +39,7 @@
     },
     {
       "id": 3,
+      "position": {"x": 15, "y": 15},
       "warps": [
         {"to": 1, "two_way": true},
         {"to": 4, "two_way": true},
@@ -44,6 +48,7 @@
     },
     {
       "id": 4,
+      "position": {"x": 20, "y": 10},
       "warps": [
         {"to": 3, "two_way": true},
         {"to": 8, "two_way": true}
@@ -51,6 +56,7 @@
     },
     {
       "id": 5,
+      "position": {"x": -5, "y": 10},
       "warps": [
         {"to": 6, "two_way": true},
         {"to": 9, "two_way": false}
@@ -58,6 +64,7 @@
     },
     {
       "id": 6,
+      "position": {"x": 0, "y": 15},
       "warps": [
         {"to": 2, "two_way": true},
         {"to": 5, "two_way": true},
@@ -66,6 +73,7 @@
     },
     {
       "id": 7,
+      "position": {"x": 10, "y": 20},
       "warps": [
         {"to": 3, "two_way": true},
         {"to": 8, "two_way": false},
@@ -74,6 +82,7 @@
     },
     {
       "id": 8,
+      "position": {"x": 20, "y": 20},
       "warps": [
         {"to": 4, "two_way": true},
         {"to": 9, "two_way": true}
@@ -81,6 +90,7 @@
     },
     {
       "id": 9,
+      "position": {"x": 5, "y": 25},
       "warps": [
         {"to": 7, "two_way": true},
         {"to": 8, "two_way": true}

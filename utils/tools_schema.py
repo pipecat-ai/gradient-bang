@@ -87,6 +87,130 @@ class PlotCourse(GameClientTool):
         )
 
 
+class LocalMapRegion(GameClientTool):
+    def __call__(self, center_sector=None, max_hops=3, max_sectors=100):
+        return self.game_client.local_map_region(
+            character_id=self.game_client.character_id,
+            center_sector=center_sector,
+            max_hops=max_hops,
+            max_sectors=max_sectors,
+        )
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="local_map_region",
+            description="Get all known sectors around current location for local navigation and awareness. Shows visited sectors with full details (ports, adjacents, position) and nearby unvisited sectors seen in adjacency lists.",
+            properties={
+                "center_sector": {
+                    "type": "integer",
+                    "description": "Optional center sector; defaults to current sector",
+                    "minimum": 0,
+                },
+                "max_hops": {
+                    "type": "integer",
+                    "description": "Maximum BFS depth (default 3, max 10)",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "default": 3,
+                },
+                "max_sectors": {
+                    "type": "integer",
+                    "description": "Maximum sectors to return (default 100)",
+                    "minimum": 1,
+                    "default": 100,
+                },
+            },
+            required=[],
+        )
+
+
+class ListKnownPorts(GameClientTool):
+    def __call__(self, from_sector=None, max_hops=5, port_type=None, commodity=None, trade_type=None):
+        return self.game_client.list_known_ports(
+            character_id=self.game_client.character_id,
+            from_sector=from_sector,
+            max_hops=max_hops,
+            port_type=port_type,
+            commodity=commodity,
+            trade_type=trade_type,
+        )
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="list_known_ports",
+            description="Find all known ports within travel range for trading/planning. Useful for finding nearest port of specific type or ports that buy/sell specific commodities.",
+            properties={
+                "from_sector": {
+                    "type": "integer",
+                    "description": "Optional starting sector; defaults to current sector",
+                    "minimum": 0,
+                },
+                "max_hops": {
+                    "type": "integer",
+                    "description": "Maximum distance (default 5, max 10)",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "default": 5,
+                },
+                "port_type": {
+                    "type": "string",
+                    "description": "Optional filter by port code (e.g., 'BBB', 'SSS', 'BBS')",
+                },
+                "commodity": {
+                    "type": "string",
+                    "enum": ["fuel_ore", "organics", "equipment"],
+                    "description": "Optional filter ports that trade this commodity",
+                },
+                "trade_type": {
+                    "type": "string",
+                    "enum": ["buy", "sell"],
+                    "description": "Optional 'buy' or 'sell' (requires commodity). 'buy' finds ports that sell to you, 'sell' finds ports that buy from you.",
+                },
+            },
+            required=[],
+        )
+
+
+class PathWithRegion(GameClientTool):
+    def __call__(self, to_sector, region_hops=1, max_sectors=200):
+        return self.game_client.path_with_region(
+            to_sector=to_sector,
+            character_id=self.game_client.character_id,
+            region_hops=region_hops,
+            max_sectors=max_sectors,
+        )
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="path_with_region",
+            description="Get path to destination plus local context around each path node for route visualization. Shows path, nearby known sectors, and identifies potential hazards or alternatives along the route.",
+            properties={
+                "to_sector": {
+                    "type": "integer",
+                    "description": "Destination sector ID",
+                    "minimum": 0,
+                },
+                "region_hops": {
+                    "type": "integer",
+                    "description": "How many hops around each path node (default 1)",
+                    "minimum": 0,
+                    "maximum": 3,
+                    "default": 1,
+                },
+                "max_sectors": {
+                    "type": "integer",
+                    "description": "Total sector limit (default 200)",
+                    "minimum": 1,
+                    "default": 200,
+                },
+            },
+            required=["to_sector"],
+        )
+
+
 class Move(GameClientTool):
     def __call__(self, to_sector):
         return self.game_client.move(

@@ -11,6 +11,9 @@ from utils.tools_schema import (
     MyMap,
     MyStatus,
     PlotCourse,
+    LocalMapRegion,
+    ListKnownPorts,
+    PathWithRegion,
     Move,
     CheckTrade,
     Trade,
@@ -120,8 +123,12 @@ class TaskAgent(BaseLLMAgent):
         # for now let's define all tools for the task agent
         self.set_tools(
             [
+                MyMap,
                 MyStatus,
                 PlotCourse,
+                LocalMapRegion,
+                ListKnownPorts,
+                PathWithRegion,
                 Move,
                 CheckTrade,
                 Trade,
