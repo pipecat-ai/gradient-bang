@@ -1,0 +1,75 @@
+# Rate limit configuration for Gradient Bang server
+#
+# Format:
+#   endpoint_name:
+#     limit: <requests per window>
+#     window: <seconds>
+#     queue_timeout: <max wait time in seconds (optional, default 30)>
+#
+# For endpoints with sub-types (like send_message):
+#   endpoint_name:
+#     subtype_name:
+#       limit: <requests per window>
+#       window: <seconds>
+
+# Default rate limit for all endpoints
+default:
+  limit: 1.0      # 1 request per second
+  window: 1.0     # 1 second window
+  queue_timeout: 30.0
+
+# Messaging endpoints
+send_message:
+  # Broadcast messages are limited more strictly
+  broadcast:
+    limit: 1.0    # 1 request per 10 seconds
+    window: 10.0
+  # Direct messages are less restricted
+  direct:
+    limit: 1.0    # 1 request per 2 seconds
+    window: 2.0
+
+# Movement endpoints
+move:
+  limit: 1.0      # 1 move per second
+  window: 1.0
+
+# Trading endpoints
+trade:
+  limit: 1.0      # 1 trade per 2 seconds
+  window: 2.0
+
+check_trade:
+  limit: 2.0      # 2 checks per second (read-only)
+  window: 1.0
+
+# Combat endpoints
+combat.action:
+  limit: 2.0      # 2 combat actions per second
+  window: 1.0
+
+combat.initiate:
+  limit: 1.0      # 1 combat initiation per 5 seconds
+  window: 5.0
+
+# Port operations
+recharge_warp_power:
+  limit: 1.0      # 1 recharge per 2 seconds
+  window: 2.0
+
+transfer_warp_power:
+  limit: 1.0      # 1 transfer per 2 seconds
+  window: 2.0
+
+# Map/status queries (more permissive)
+my_status:
+  limit: 2.0      # 2 status checks per second
+  window: 1.0
+
+my_map:
+  limit: 1.0      # 1 map query per second
+  window: 1.0
+
+plot_course:
+  limit: 1.0      # 1 pathfinding per second
+  window: 1.0
