@@ -3,14 +3,13 @@ import json
 from collections import deque
 from typing import Optional, Callable, Dict, Any
 from loguru import logger
-from copy import deepcopy
 import time
 
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame, RTVIProcessor
 
-from utils.api_client import AsyncGameClient, LLMResult
+from utils.api_client import AsyncGameClient
 from utils.base_llm_agent import LLMConfig
 from utils.task_agent import TaskAgent
 from utils.tools_schema import (
@@ -118,19 +117,16 @@ class VoiceTaskManager:
         normalized: Dict[str, Any] = {}
         result = payload.get("result")
         summary = payload.get("summary")
-        delta = payload.get("delta")
 
-        if isinstance(result, LLMResult):
-            normalized["result"] = dict(result)
-            summary = summary or getattr(result, "llm_summary", "")
-            delta = delta or getattr(result, "llm_delta", None)
-        elif result is not None:
+        if result is not None:
             normalized["result"] = result
 
-        if summary:
-            normalized["summary"] = str(summary).strip()
-        if delta:
-            normalized["delta"] = delta
+        # Extract summary from result dict if not already provided
+        if not summary and isinstance(result, dict):
+            summary = result.get("summary")
+
+        if summary and isinstance(summary, str):
+            normalized["summary"] = summary.strip()
 
         if "tool_message" in payload:
             normalized["tool_message"] = payload["tool_message"]
@@ -412,26 +408,23 @@ class VoiceTaskManager:
             # Emit tool result message for clients to consume
             await self._on_tool_result_event(tool_name, payload)
 
-            callback_payload = deepcopy(payload)
             logger.info(f"!!! TOOL RESULT: {payload}")
+
+            # Extract summary if present
+            summary = None
             result_obj = payload.get("result")
-            if isinstance(result_obj, LLMResult):
-                summary = (result_obj.llm_summary or "").strip()
-                delta = result_obj.llm_delta or None
-                cb: Dict[str, Any] = {}
-                # Special case my_status to return the full object. If the conversation LLM
-                # calls my_status, it may need full status info to return a useful result.
-                if tool_name == "my_status":
-                    cb = payload
-                else:
-                    if summary:
-                        cb["summary"] = summary
-                    elif delta:
-                        cb["delta"] = delta
-                    if not cb:
-                        cb["result"] = dict(result_obj)
-                callback_payload = cb
+            if isinstance(result_obj, dict):
+                summary = result_obj.get("summary")
+                if summary and isinstance(summary, str):
+                    summary = summary.strip()
+
+            # Send summary or full payload to LLM
+            if summary and tool_name != "my_status":
+                callback_payload = {"summary": summary}
                 logger.info(f"!!! FORMATTED FOR LLM: {callback_payload}")
+            else:
+                callback_payload = payload
+
             await params.result_callback(callback_payload)
             # await params.result_callback(payload)
         except Exception as e:

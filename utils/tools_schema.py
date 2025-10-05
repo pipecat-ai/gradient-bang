@@ -37,8 +37,8 @@ class GameClientTool:
 
 
 class MyStatus(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.my_status()
+    def __call__(self):
+        return self.game_client.my_status(character_id=self.game_client.character_id)
 
     @classmethod
     def schema(cls):
@@ -51,8 +51,8 @@ class MyStatus(GameClientTool):
 
 
 class MyMap(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.my_map(**args)
+    def __call__(self):
+        return self.game_client.my_map(character_id=self.game_client.character_id)
 
     @classmethod
     def schema(cls):
@@ -65,33 +65,34 @@ class MyMap(GameClientTool):
 
 
 class PlotCourse(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.plot_course(**args)
+    def __call__(self, to_sector):
+        return self.game_client.plot_course(
+            to_sector=to_sector,
+            character_id=self.game_client.character_id
+        )
 
     @classmethod
     def schema(cls):
         return FunctionSchema(
             name="plot_course",
-            description="Calculate shortest path between two sectors",
+            description="Calculate shortest path from your current sector to the destination",
             properties={
-                "from_sector": {
-                    "type": "integer",
-                    "description": "Starting sector ID",
-                    "minimum": 0,
-                },
                 "to_sector": {
                     "type": "integer",
                     "description": "Destination sector ID",
                     "minimum": 0,
                 },
             },
-            required=["from_sector", "to_sector"],
+            required=["to_sector"],
         )
 
 
 class Move(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.move(**args)
+    def __call__(self, to_sector):
+        return self.game_client.move(
+            to_sector=to_sector,
+            character_id=self.game_client.character_id
+        )
 
     @classmethod
     def schema(cls):
@@ -109,8 +110,11 @@ class Move(GameClientTool):
 
 
 class StartTask(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.start_task(**args)
+    def __call__(self, task_description, context=None):
+        kwargs = {"task_description": task_description}
+        if context:
+            kwargs["context"] = context
+        return self.game_client.start_task(**kwargs)
 
     @classmethod
     def schema(cls):
@@ -132,7 +136,7 @@ class StartTask(GameClientTool):
 
 
 class StopTask(GameClientTool):
-    def __call__(self, **args):
+    def __call__(self):
         return self.game_client.stop_task()
 
     @classmethod
@@ -146,8 +150,13 @@ class StopTask(GameClientTool):
 
 
 class CheckTrade(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.check_trade(**args)
+    def __call__(self, commodity, quantity, trade_type):
+        return self.game_client.check_trade(
+            commodity=commodity,
+            quantity=quantity,
+            trade_type=trade_type,
+            character_id=self.game_client.character_id
+        )
 
     @classmethod
     def schema(cls):
@@ -176,8 +185,13 @@ class CheckTrade(GameClientTool):
 
 
 class Trade(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.trade(**args)
+    def __call__(self, commodity, quantity, trade_type):
+        return self.game_client.trade(
+            commodity=commodity,
+            quantity=quantity,
+            trade_type=trade_type,
+            character_id=self.game_client.character_id
+        )
 
     @classmethod
     def schema(cls):
@@ -206,8 +220,11 @@ class Trade(GameClientTool):
 
 
 class SalvageCollect(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.salvage_collect(**args)
+    def __call__(self, salvage_id):
+        return self.game_client.salvage_collect(
+            salvage_id=salvage_id,
+            character_id=self.game_client.character_id
+        )
 
     @classmethod
     def schema(cls):
@@ -225,8 +242,11 @@ class SalvageCollect(GameClientTool):
 
 
 class RechargeWarpPower(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.recharge_warp_power(**args)
+    def __call__(self, units):
+        return self.game_client.recharge_warp_power(
+            units=units,
+            character_id=self.game_client.character_id
+        )
 
     @classmethod
     def schema(cls):
@@ -245,8 +265,12 @@ class RechargeWarpPower(GameClientTool):
 
 
 class TransferWarpPower(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.transfer_warp_power(**args)
+    def __call__(self, to_character_id, units):
+        return self.game_client.transfer_warp_power(
+            to_character_id=to_character_id,
+            units=units,
+            character_id=self.game_client.character_id
+        )
 
     @classmethod
     def schema(cls):
@@ -254,7 +278,7 @@ class TransferWarpPower(GameClientTool):
             name="transfer_warp_power",
             description="Transfer warp power to another character in the same sector",
             properties={
-                "to_name": {
+                "to_character_id": {
                     "type": "string",
                     "description": "Character ID to transfer warp power to",
                     "minLength": 1,
@@ -272,8 +296,13 @@ class TransferWarpPower(GameClientTool):
 
 
 class SendMessage(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.send_message(**args)
+    def __call__(self, content, msg_type="broadcast", to_name=None):
+        return self.game_client.send_message(
+            content=content,
+            msg_type=msg_type,
+            to_name=to_name,
+            character_id=self.game_client.character_id
+        )
 
     @classmethod
     def schema(cls):
@@ -300,8 +329,8 @@ class SendMessage(GameClientTool):
 
 
 class TaskFinished(Tool):
-    def __call__(self, **args):
-        return {"success": True, "message": args.get("message", "Done")}
+    def __call__(self, message="Done"):
+        return {"success": True, "message": message}
 
     @classmethod
     def schema(cls):
@@ -320,8 +349,14 @@ class TaskFinished(Tool):
 
 
 class PlaceFighters(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.combat_leave_fighters(**args)
+    def __call__(self, sector, quantity, mode="offensive", toll_amount=0):
+        return self.game_client.combat_leave_fighters(
+            sector=sector,
+            quantity=quantity,
+            mode=mode,
+            toll_amount=toll_amount,
+            character_id=self.game_client.character_id
+        )
 
     @classmethod
     def schema(cls):
@@ -357,8 +392,12 @@ class PlaceFighters(GameClientTool):
 
 
 class CollectFighters(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.combat_collect_fighters(**args)
+    def __call__(self, sector, quantity):
+        return self.game_client.combat_collect_fighters(
+            sector=sector,
+            quantity=quantity,
+            character_id=self.game_client.character_id
+        )
 
     @classmethod
     def schema(cls):

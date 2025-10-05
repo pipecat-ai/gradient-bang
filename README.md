@@ -62,6 +62,40 @@ New component HudMapVisualization.tsx has been badly glued into the HUD.
 
 You can test the graph rendering logic by loading http://localhost:5173/map-demo.html
 
+## Testing
+
+### Running AsyncGameClient Integration Tests
+
+The AsyncGameClient integration tests verify that all API methods work correctly against a running server. These tests require a live server instance.
+
+**Start the game server:**
+
+```bash
+uv run python -m game-server
+```
+
+**In a separate terminal, run the tests:**
+
+```bash
+uv run pytest tests/test_async_game_client.py -v
+```
+
+The test suite includes 25 tests covering:
+- Join and authentication
+- Movement and pathfinding
+- Status queries
+- Map knowledge
+- Trading operations
+- Combat operations
+- Messaging
+- Character ID validation
+
+**Run all tests:**
+
+```bash
+uv run pytest
+```
+
 # NOTE
 
 There is now a tool_call stared RTVI message, followed by a 2-second delay before the tool call completes.

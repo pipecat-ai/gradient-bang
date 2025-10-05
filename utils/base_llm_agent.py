@@ -2,13 +2,12 @@
 
 import os
 import json
-from copy import deepcopy
 import httpx
 from typing import Dict, Any, Optional, List, Callable, Tuple
 from dataclasses import dataclass
 from openai import AsyncOpenAI
 from loguru import logger
-from utils.api_client import AsyncGameClient, LLMResult
+from utils.api_client import AsyncGameClient
 
 from utils.tools_schema import get_openai_tools_list
 
@@ -86,13 +85,12 @@ class BaseLLMAgent:
 
     def add_message(self, message: Dict[str, Any]):
         """Add a message to the conversation history."""
-        msg = deepcopy(message)
-        if "token_usage" in msg:
-            del msg["token_usage"]
+        # Create a shallow copy without token_usage to avoid mutating caller's dict
+        msg = {k: v for k, v in message.items() if k != "token_usage"}
         self.messages.append(msg)
 
         if self.verbose_prompts:
-            self._log_message(message)
+            self._log_message(msg)
 
     def _log_message(self, message: Dict[str, Any]):
         """Log a message for debugging."""
@@ -319,29 +317,26 @@ class BaseLLMAgent:
 
         Args:
             tool_call_id: ID of the tool call
-            result: Result from tool execution
+            result: Result from tool execution (plain dict or string)
 
         Returns:
             Tool message dictionary
         """
-        if isinstance(result, LLMResult) or hasattr(result, "llm_summary"):
-            summary = getattr(result, "llm_summary", "")
-            summary = summary.strip() if isinstance(summary, str) else ""
-            delta = getattr(result, "llm_delta", None)
-            payload: Dict[str, Any] = {}
-            if summary:
-                payload["summary"] = summary
-            if delta:
-                payload["delta"] = delta
-            if not payload:
+        if isinstance(result, str):
+            content = result
+        elif isinstance(result, dict):
+            # Check if result has a summary field
+            summary = result.get("summary")
+            if summary and isinstance(summary, str) and summary.strip():
+                # Use summary if available
+                payload = {"summary": summary.strip()}
+            else:
+                # Otherwise use full result
                 payload = {"result": result}
             content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         else:
-            if isinstance(result, str):
-                content = result
-            else:
-                payload = {"result": result}
-                content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+            payload = {"result": result}
+            content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         return {"role": "tool", "tool_call_id": tool_call_id, "content": content}
 
     def clear_messages(self):
