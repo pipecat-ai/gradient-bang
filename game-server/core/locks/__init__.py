@@ -2,5 +2,6 @@
 
 from .base import TimedLock
 from .credit_locks import CreditLockManager
+from .port_locks import PortLockManager
 
-__all__ = ["TimedLock", "CreditLockManager"]
+__all__ = ["TimedLock", "CreditLockManager", "PortLockManager"]

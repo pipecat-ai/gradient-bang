@@ -41,12 +41,13 @@ from api import (
 from api.utils import build_status_payload
 from core.config import get_world_data_path
 from messaging.store import MessageStore
+from messaging.handlers import handle_send_message
 from combat.models import CombatantAction
 from combat.utils import serialize_encounter, serialize_round
 from combat.callbacks import on_round_waiting, on_round_resolved, on_combat_ended, on_toll_payment
 from ships import ShipType, get_ship_stats
 from rpc import Connection, event_dispatcher, rpc_error, rpc_success, send_initial_status, RPCHandler, RateLimiter
-from core.locks import CreditLockManager
+from core.locks import CreditLockManager, PortLockManager
 
 logger = logging.getLogger("gradient-bang.server")
 logging.basicConfig(level=logging.INFO)
@@ -83,35 +84,8 @@ rate_limiter = RateLimiter(_CONFIG_DIR / "rate_limits.yaml")
 # Per-character credit lock manager for atomic credit operations
 credit_locks = CreditLockManager(timeout=30.0)
 
-
-async def _handle_send_message(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle send_message RPC with event emission.
-
-    Note: Rate limiting is handled at the RPC_HANDLERS level via rate_limiter.
-    """
-    record = await api_send_message.handle(
-        payload,
-        world,
-        _MESSAGES,
-        rate_limit_check=None,
-    )
-
-    # Strip internal fields from public event
-    public_record = {k: v for k, v in record.items() if k not in ("from_character_id", "to_character_id")}
-
-    # For direct messages, only notify sender and recipient by character ID
-    character_filter: Optional[List[str]] = None
-    if record.get("type") == "direct":
-        from_id = record.get("from_character_id")
-        to_id = record.get("to_character_id")
-        character_filter = [cid for cid in (from_id, to_id) if cid]
-
-    await event_dispatcher.emit(
-        "chat.message",
-        public_record,
-        character_filter=character_filter,
-    )
-    return {"id": record["id"]}
+# Per-port lock manager for atomic trade operations
+port_locks = PortLockManager(timeout=30.0)
 
 
 async def _rpc_server_status(_: Dict[str, Any]) -> Dict[str, Any]:
@@ -164,12 +138,15 @@ RPC_HANDLERS: Dict[str, RPCHandler] = {
     "my_map": lambda payload: api_my_map.handle(payload, world),
     "local_map": lambda payload: api_local_map.handle(payload, world),
     "check_trade": lambda payload: api_check_trade.handle(payload, world),
-    "trade": _with_rate_limit("trade", lambda payload: api_trade.handle(payload, world)),
+    "trade": _with_rate_limit("trade", lambda payload: api_trade.handle(payload, world, port_locks)),
     "recharge_warp_power": lambda payload: api_recharge.handle(payload, world),
     "transfer_warp_power": lambda payload: api_transfer.handle(payload, world),
     "reset_ports": lambda payload: api_reset_ports.handle(payload, world),
     "regenerate_ports": lambda payload: api_regen_ports.handle(payload, world),
-    "send_message": _with_rate_limit("send_message", _handle_send_message),
+    "send_message": _with_rate_limit(
+        "send_message",
+        lambda payload: handle_send_message(payload, world, _MESSAGES, event_dispatcher),
+    ),
     "combat.initiate": lambda payload: api_combat_initiate.handle(payload, world),
     "combat.action": lambda payload: api_combat_action.handle(payload, world),
     "combat.status": lambda payload: api_combat_status.handle(payload, world),
