@@ -4,12 +4,10 @@
 
 ```ts
 interface ServerMessage {
+  delta?: Record<string, unknown>;
   event: string;
-  payload: {
-    delta?: Record<string, unknown>;
-    result?: unknown;
-    summary?: string;
-  }
+  payload: unknown;
+  summary?: string;
   tool_name?: string;
 }
 ```
@@ -20,18 +18,18 @@ Client only
 
 ```typescript
 interface Settings {
-  startMuted: false;
-  enableMic: true;
-  disableRemoteAudio: false;
-  remoteAudioVolume: number;
-  disabledSoundFX: false;
-  soundFXVolume: number;
-  disabledAmbience: false;
   ambienceVolume: number;
+  disabledAmbience: false;
+  disabledSoundFX: false;
   disableMusic: false;
+  disableRemoteAudio: false;
+  enableMic: true;
   musicVolume: number;
-  renderStarfield: true;
   qualityPreset: "text" | "low" | "medium" | "high";
+  remoteAudioVolume: number;
+  renderStarfield: true;
+  soundFXVolume: number;
+  startMuted: false;
 }
 ```
 
@@ -39,10 +37,10 @@ interface Settings {
 
 ```ts
 interface PlayerBase {
-  id: string;
-  name: string;
   created_at: string;
+  id: string;
   last_active?: string;
+  name: string;
 }
 
 // Local player 
@@ -69,20 +67,20 @@ type Resource = "EQ" | "FO" | "OG";
 
 ```ts
 interface Ship {
+  fighters?: number; // nullable, shown for `Player` only when in combat
+  shields?: number;  // nullable, shown for `Player` only when in combat
   ship_name: string;
   ship_type: ShipType;
-  shields?: number;  // nullable, shown for `Player` only when in combat
-  fighters?: number; // nullable, shown for `Player` only when in combat
 }
 
 interface ShipType {
   id: string;
-  name: string;
+  max_cargo: number; // total max cargo capacity (was `cargo_capacity`)
+  max_fighters: number;
   max_holds: number;
   max_shields: number;
-  max_fighters: number;
-  max_cargo: number; // total max cargo capacity (was `cargo_capacity`)
   max_warp_power: number;
+  name: string;
 }
 
 interface ShipSelf extends Ship {
@@ -109,22 +107,20 @@ interface Region {
 }
 
 interface Sector {
-  id: number;
-  region: Region;
   adjacent_sectors?: number[];
-
-  port?: Port;
+  id: number;
+  last_visited?: string;
   planets?: Planet[];
   players?: Player[];
-
+  port?: Port;
+  region: Region;
   scene_config: unknown;
-  last_visited?: string;
 }
 
 interface Planet {
-  id: number;
   class_code: string;
   class_name: string;
+  id: number;
 }
 ```
 
@@ -138,15 +134,15 @@ interface PortBase {
 }
 
 interface Port extends PortBase {
-  stock: Record<Resource, number>;
   max_capacity: Record<Resource, number>;
-  warp_power_depot?: PortWarpPowerDepot;
   observed_at?: string;
+  stock: Record<Resource, number>;
+  warp_power_depot?: PortWarpPowerDepot;
 }
 
 interface PortWarpPowerDepot {
-  price_per_unit: number;
   note?: string;
+  price_per_unit: number;
 }
 
 ```
@@ -156,16 +152,16 @@ interface PortWarpPowerDepot {
 ```ts
 interface MapNode {
   id: number;
+  lanes: MapLane[];
   position: [number, number];
   sector: Sector;
-  lanes: MapLane[];
   visited: boolean;
 }
 
 interface MapLane {
+  hyperlane: boolean;
   to: number;
   two_way: boolean;
-  hyperlane: boolean;
 }
 ```
 
@@ -174,9 +170,9 @@ interface MapLane {
 ```ts
 interface MovementHistory {
   from: number;
-  to: number;
   port?: PortBase;
   timestamp?: string;
+  to: number;
 }
 
 interface DiscoveredPorts {
@@ -190,7 +186,6 @@ Note: client only
 
 ```ts
 export interface UIState {
-  state: "idle" | "warping" | "moving" | "plotting" | "trading";
   active_modal?:
     | "trade"
     | "ship"
@@ -199,6 +194,7 @@ export interface UIState {
     | "map"
     | "combat";
   highlight_element_id?: string;
+  state: "idle" | "warping" | "moving" | "plotting" | "trading";
 }
 ```
 
