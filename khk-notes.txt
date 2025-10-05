@@ -1,22 +1,98 @@
 
-In-progress
+Natural language -> conversation bot -> task LLM -> game server
+
+
+TUI
+  - Rip out and replace MyMap
+    - map_region(center_sector, max_hops, max_count)
+    - map_path(start_sector, end_sector, max_hops)
+    - known_ports(center_sector, max_hops, max_count)
+  - Router/memory equivalent to voice LLM?
+
+
+----
+
+Tool calls
+  - my_status
+  - plot_course
+  - map_region
+  - map_path
+  - known_ports
+  - move
+  - check_trade
+  - trade
+  - recharge_warp_power
+  - transfer_warp_power
+  - transfer_credits
+  - send_message
+  - place_fighters
+  - collect_fighters
+  - attack
+  - round_action
+  - finished
+  
+
+  
+
+----
+
+
+Next:
+
+- Remove everything in tui/ 
+
+- The combat_interactive_tui.py code needs to automatically detect when a sector is in combat mode and switch to combat mode. Currently it does not do this. I see websocket combat events arriving, but the UI gives me a fight/wait choice rather than presenting me with the combat choices for the round.
+- Add a "quiet|combat" indicator to the status bar. Update this information each time we receive a combat event.
+- Add "fighters: N shields: M" information to the status bar. Update this information each time we receive a combat event.
+--- done ---
+
+- Whenever we prompt for input in the tui, provide a single-character response option. Either the first letter of the action name, or a number if there are target or sector options. Accept either the single-character or the full action string, whenever possible. Examine the code for all places where we prompt for a response and update them to use this approach. For single-character input options derived from the action name, indicate this option to the user by enclosing the first letter in parentheses. For example: (a)ttack, (b)race, (f)lee.
+
+- Examine flee code and explain the success/fail logic
+
+- Add Placeoption when the sector is not yet in combat mode: 
+
+- Make another version of this TUI that can automatically switch between Task mode and Combat mode. Call it simple_tui.py. Use the code structure from combat_interactive_tui.py as a starting point.
+  - When we're in task mode, send the full text of the input prompt to TaskAgent. Look at how ncp/run_npc.py does this. Append the _output from the TaskAgent using _append_log(). Rename anything in the code that should have more generic names, now that we support more modes.
+  - When we are in a sector with active combat, use the same state and UI logic we have now in combat_interactive_tui.py.
+
+- Examine the logic for collecting salvage.
+
+- Fighters and sector visibility
+  - DM whenever a player moves into a sector where you have fighters
+  - DM whenever a player attacks your fighters
+
+
+
+
 - why is api_send_message in server.py rather than defined in ./api/?
   - same question for server_status
 
 Sunday
+- Add a ws callback to AsyncGameClient so we can get rid of LoggingAsyncGameClient in combat_interactive_tup.py
 - Clean up finished({message}) in TASK OUTPUT
 - Fix AsyncGameClient caching/
 - Further look at all tool calls to better summarize the resulting data structures in text
 - See why we broke move UI graphics
 - test run_npc.py and status_subscription_demo.py
 - commit all files
-- remove legacy gg-action keys and legacy result semantics (?)
+- remove legacy gg-action keys and legacy result semantics (?)s
 - utilities to create and manage characters and ports
   - remove character mod args from rpc join
   - create new admin rpc commands grouping that includes port management, too
     - create an admin password that we store in plain text in the world data file
 - add transfer_credits rpc
   
+
+# For supabase
+- we should have table lines for everything
+  - combat rounds
+  - messages
+  - player moves
+  - etc etc
+- the goals are
+  - cleanly implement the same logic we have in game-server in supabase edge functions
+  - be able to analyze what happened in a game by looking at everything that happened across a time range, in the database tables
 
 # Things to write about.
 
@@ -25,5 +101,57 @@ Trying to write as little code as possible to perform game functions on behalf o
 How to avoid sending lots of data to the conversation LLM. my_map() tool as an example.
 
 
-==
+== sunday ==
 
+----
+
+Explain this code in AsyncGameClient
+
+    async def _send_command(self, frame: Dict[str, Any]) -> Dict[str, Any]:
+        await self._ensure_ws()
+        req_id = frame.setdefault("id", str(uuid.uuid4()))
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._pending[req_id] = fut
+        await self._ws.send(json.dumps(frame))
+        msg = await fut
+        if not msg.get("ok"):
+            err = msg.get("error", {})
+            raise RPCError(
+                frame.get("type", "command"),
+                int(err.get("status", 500)),
+                str(err.get("detail", "Unknown error")),
+                err.get("code"),
+            )
+        return msg.get("result", {})
+
+----
+
+  The most serious findings are:
+  - Toll payment race condition in server.py (HIGH severity) - could corrupt credits
+  - Event ordering bug in manager.py (MEDIUM-HIGH) - breaks client assumptions
+  - Multiple memory leaks that will cause OOM over time
+
+The suggestions are great. We'll work through implementing them soon.
+
+But first let's make sure we're on the same page about the overall design of the system.
+
+1. All game state is stored canonically on the server, in-memory in the game-server/server.py running process.
+2. AsyncGameClient is a client-side library for accessing that state over a websocket connection and for sending game commands to the server.
+3. All new combat logic is implemented in the game-server/combat/ directory. AsyncGameClient has no combat logic. The client sends combat actions to the server, which processes them and emits combat events to the client.
+
+Before we proceed, add a section to the end of file-by-file-0928.md that lists all of the new websocket messages that we have added to this branch. (New websocket messages that do not exist in the `main` branch.) For each new websocket message, provide a complete example of the message, with all fields populated.
+
+Other notes:
+- Several issues you've identified and suggested fixes for are race conditions. Are there a real problem given that the server itself is single-threaded Python code?
+- In addition to persisting game state on disk, we should save all game actions in a log. Suggest a log format. We could use JSONL and a file on disk. Or a SQLite table. Eventually we are going to port the game server to use supabase as a backend, so think about an interim step that will be a good transition to the final supabase-based solution.
+- Are there places in the game server code where we should be handling how we persist game state to disk differently? For example, I could imagine using the game actions log above as our persistent message store, as well, rather than keeping separate message history files. Each client could keep a pointer to the last JSONL line number read, and scan the file from that point forward to catch up on any missed messages.
+
+----
+
+  Recommended Priority:
+
+  1. Sector-specific locks - High impact on multi-player scalability
+  2. EventDispatcher simplification - Medium impact on reliability
+  3. Other issues - Low priority, document and monitor
+
+  

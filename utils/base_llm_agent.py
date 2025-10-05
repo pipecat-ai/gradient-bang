@@ -2,13 +2,12 @@
 
 import os
 import json
-from copy import deepcopy
 import httpx
 from typing import Dict, Any, Optional, List, Callable, Tuple
 from dataclasses import dataclass
 from openai import AsyncOpenAI
 from loguru import logger
-from utils.api_client import AsyncGameClient, LLMResult
+from utils.api_client import AsyncGameClient
 
 from utils.tools_schema import get_openai_tools_list
 
@@ -66,22 +65,32 @@ class BaseLLMAgent:
         """tools_list is a list of tool classes from tools_schema.py
         todo: rename that file"""
 
-        self.openai_tools = get_openai_tools_list(self.game_client, tools_list)
-        self.tools: Dict[str, Callable[Any]] = {}
-        for tool_class in tools_list:
-            self.tools[tool_class.schema().name] = tool_class(
-                game_client=self.game_client
-            )
+        tool_entries: List[Tuple[Any, Dict[str, Any]]] = []
+        for entry in tools_list:
+            if isinstance(entry, (tuple, list)):
+                tool_class, init_kwargs = entry
+            else:
+                tool_class, init_kwargs = entry, {}
+            tool_entries.append((tool_class, dict(init_kwargs)))
+
+        self.openai_tools = get_openai_tools_list(
+            self.game_client, [cls for cls, _ in tool_entries]
+        )
+        self.tools = {}
+        for tool_class, init_kwargs in tool_entries:
+            init_args = {"game_client": self.game_client}
+            init_args.update(init_kwargs)
+            tool_instance = tool_class(**init_args)
+            self.tools[tool_class.schema().name] = tool_instance
 
     def add_message(self, message: Dict[str, Any]):
         """Add a message to the conversation history."""
-        msg = deepcopy(message)
-        if "token_usage" in msg:
-            del msg["token_usage"]
+        # Create a shallow copy without token_usage to avoid mutating caller's dict
+        msg = {k: v for k, v in message.items() if k != "token_usage"}
         self.messages.append(msg)
 
         if self.verbose_prompts:
-            self._log_message(message)
+            self._log_message(msg)
 
     def _log_message(self, message: Dict[str, Any]):
         """Log a message for debugging."""
@@ -103,7 +112,7 @@ class BaseLLMAgent:
                 try:
                     result = json.loads(message["content"])
                     self._output(
-                        f"TOOL_RESULT [{message['tool_call_id']}]: {json.dumps(result)[:200]}"
+                        f"TOOL_RESULT [{message['tool_call_id']}]: {json.dumps(result)}"
                     )
                 except Exception as e:
                     self._output(
@@ -308,29 +317,26 @@ class BaseLLMAgent:
 
         Args:
             tool_call_id: ID of the tool call
-            result: Result from tool execution
+            result: Result from tool execution (plain dict or string)
 
         Returns:
             Tool message dictionary
         """
-        if isinstance(result, LLMResult) or hasattr(result, "llm_summary"):
-            summary = getattr(result, "llm_summary", "")
-            summary = summary.strip() if isinstance(summary, str) else ""
-            delta = getattr(result, "llm_delta", None)
-            payload: Dict[str, Any] = {}
-            if summary:
-                payload["summary"] = summary
-            if delta:
-                payload["delta"] = delta
-            if not payload:
+        if isinstance(result, str):
+            content = result
+        elif isinstance(result, dict):
+            # Check if result has a summary field
+            summary = result.get("summary")
+            if summary and isinstance(summary, str) and summary.strip():
+                # Use summary if available
+                payload = {"summary": summary.strip()}
+            else:
+                # Otherwise use full result
                 payload = {"result": result}
             content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         else:
-            if isinstance(result, str):
-                content = result
-            else:
-                payload = {"result": result}
-                content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+            payload = {"result": result}
+            content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         return {"role": "tool", "tool_call_id": tool_call_id, "content": content}
 
     def clear_messages(self):

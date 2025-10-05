@@ -1,8 +1,8 @@
 from fastapi import HTTPException
-from .utils import log_trade
+from .utils import log_trade, ensure_not_in_combat
 
 
-async def handle(request: dict, world) -> dict:
+async def handle(request: dict, world, port_locks=None) -> dict:
     character_id = request.get("character_id")
     commodity = request.get("commodity")
     quantity = request.get("quantity")
@@ -13,11 +13,14 @@ async def handle(request: dict, world) -> dict:
     if character_id not in world.characters:
         raise HTTPException(status_code=404, detail="Character not found")
 
+    await ensure_not_in_combat(world, character_id)
+
     character = world.characters[character_id]
     knowledge = world.knowledge_manager.load_knowledge(character_id)
     from ships import ShipType, get_ship_stats
     ship_stats = get_ship_stats(ShipType(knowledge.ship_config.ship_type))
 
+    # Pre-validation before acquiring lock
     port_state = world.port_manager.load_port_state(character.sector)
     if not port_state:
         raise HTTPException(status_code=400, detail="No port at current location")
@@ -33,6 +36,44 @@ async def handle(request: dict, world) -> dict:
         validate_buy_transaction,
         validate_sell_transaction,
         TradingError,
+        get_port_prices,
+    )
+
+    # Acquire port lock for atomic trade operation
+    # If port_locks not provided (for backwards compatibility), skip locking
+    if port_locks is not None:
+        async with port_locks.lock(character.sector, character_id):
+            return await _execute_trade(
+                trade_type, commodity, commodity_key, quantity,
+                character, character_id, knowledge, ship_stats,
+                world, port_state
+            )
+    else:
+        return await _execute_trade(
+            trade_type, commodity, commodity_key, quantity,
+            character, character_id, knowledge, ship_stats,
+            world, port_state
+        )
+
+
+async def _execute_trade(
+    trade_type: str,
+    commodity: str,
+    commodity_key: str,
+    quantity: int,
+    character,
+    character_id: str,
+    knowledge,
+    ship_stats,
+    world,
+    port_state,
+) -> dict:
+    """Execute trade operation (must be called with port lock held)."""
+    from trading import (
+        calculate_price_sell_to_player,
+        calculate_price_buy_from_player,
+        validate_buy_transaction,
+        validate_sell_transaction,
         get_port_prices,
     )
 

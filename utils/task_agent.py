@@ -6,18 +6,23 @@ from typing import Dict, Any, Optional, Tuple, List, Callable
 
 
 from utils.base_llm_agent import BaseLLMAgent
-from utils.api_client import LLMResult
 from utils.prompts import GAME_DESCRIPTION, TASK_EXECUTION_INSTRUCTIONS
 from utils.tools_schema import (
     MyMap,
     MyStatus,
     PlotCourse,
+    LocalMapRegion,
+    ListKnownPorts,
+    PathWithRegion,
     Move,
     CheckTrade,
     Trade,
+    SalvageCollect,
     SendMessage,
     RechargeWarpPower,
     TransferWarpPower,
+    PlaceFighters,
+    CollectFighters,
     TaskFinished,
 )
 
@@ -121,12 +126,18 @@ class TaskAgent(BaseLLMAgent):
                 MyMap,
                 MyStatus,
                 PlotCourse,
+                LocalMapRegion,
+                ListKnownPorts,
+                PathWithRegion,
                 Move,
                 CheckTrade,
                 Trade,
+                SalvageCollect,
                 SendMessage,
                 RechargeWarpPower,
                 TransferWarpPower,
+                PlaceFighters,
+                CollectFighters,
                 TaskFinished,
             ]
         )
@@ -173,19 +184,12 @@ class TaskAgent(BaseLLMAgent):
         if self.tool_result_event_callback:
             structured_payload: Dict[str, Any] = {}
             if raw_result is not None:
-                if isinstance(raw_result, LLMResult) or hasattr(
-                    raw_result, "llm_summary"
-                ):
-                    structured_payload["result"] = dict(raw_result)
-                    summary = (getattr(raw_result, "llm_summary", "") or "").strip()
-                    structured_payload["summary"] = summary
-                    delta = getattr(raw_result, "llm_delta", None)
-                    if delta:
-                        structured_payload["delta"] = delta
-                elif isinstance(raw_result, (dict, list, str, int, float, bool)):
-                    structured_payload["result"] = raw_result
-                else:
-                    structured_payload["result"] = raw_result
+                structured_payload["result"] = raw_result
+                # Extract summary if present in result dict
+                if isinstance(raw_result, dict):
+                    summary = raw_result.get("summary")
+                    if summary and isinstance(summary, str) and summary.strip():
+                        structured_payload["summary"] = summary.strip()
             if tool_message is not None:
                 structured_payload["tool_message"] = tool_message
 

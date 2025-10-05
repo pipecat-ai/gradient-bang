@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 
 from .utils import build_status_payload
-from events import event_dispatcher
+from rpc.events import event_dispatcher
 
 
 async def handle(request: dict, world) -> dict:
@@ -68,7 +68,7 @@ async def handle(request: dict, world) -> dict:
     )
 
     for cid in (from_character_id, to_character_id):
-        payload = build_status_payload(world, cid)
+        payload = await build_status_payload(world, cid)
         await event_dispatcher.emit("status.update", payload, character_filter=[cid])
 
     return {

@@ -3,19 +3,21 @@ import json
 from collections import deque
 from typing import Optional, Callable, Dict, Any
 from loguru import logger
-from copy import deepcopy
 import time
 
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame, RTVIProcessor
 
-from utils.api_client import AsyncGameClient, LLMResult
+from utils.api_client import AsyncGameClient
 from utils.base_llm_agent import LLMConfig
 from utils.task_agent import TaskAgent
 from utils.tools_schema import (
     MyStatus,
     PlotCourse,
+    LocalMapRegion,
+    ListKnownPorts,
+    PathWithRegion,
     Move,
     StartTask,
     StopTask,
@@ -76,15 +78,42 @@ class VoiceTaskManager:
 
         # Build generic tool dispatch map for common game tools
         # Start/stop/ui_show_panel are handled inline in execute_tool_call
+        # Note: Most game_client methods require character_id, but the LLM tools
+        # don't expose it. We wrap methods to inject self.character_id automatically.
         self._tool_dispatch = {
-            "my_status": self.game_client.my_status,
-            "plot_course": self.game_client.plot_course,
-            "move": self.game_client.move,
-            "check_trade": self.game_client.check_trade,
-            "trade": self.game_client.trade,
-            "send_message": self.game_client.send_message,
-            "recharge_warp_power": self.game_client.recharge_warp_power,
-            "transfer_warp_power": self.game_client.transfer_warp_power,
+            "my_status": lambda: self.game_client.my_status(
+                character_id=self.character_id
+            ),
+            "plot_course": lambda to_sector: self.game_client.plot_course(
+                to_sector=to_sector, character_id=self.character_id
+            ),
+            "local_map_region": lambda **kwargs: self.game_client.local_map_region(
+                character_id=self.character_id, **kwargs
+            ),
+            "list_known_ports": lambda **kwargs: self.game_client.list_known_ports(
+                character_id=self.character_id, **kwargs
+            ),
+            "path_with_region": lambda **kwargs: self.game_client.path_with_region(
+                character_id=self.character_id, **kwargs
+            ),
+            "move": lambda to_sector: self.game_client.move(
+                to_sector=to_sector, character_id=self.character_id
+            ),
+            "check_trade": lambda **kwargs: self.game_client.check_trade(
+                character_id=self.character_id, **kwargs
+            ),
+            "trade": lambda **kwargs: self.game_client.trade(
+                character_id=self.character_id, **kwargs
+            ),
+            "send_message": lambda **kwargs: self.game_client.send_message(
+                character_id=self.character_id, **kwargs
+            ),
+            "recharge_warp_power": lambda amount: self.game_client.recharge_warp_power(
+                character_id=self.character_id, amount=amount
+            ),
+            "transfer_warp_power": lambda **kwargs: self.game_client.transfer_warp_power(
+                character_id=self.character_id, **kwargs
+            ),
         }
 
     async def join(self):
@@ -118,19 +147,16 @@ class VoiceTaskManager:
         normalized: Dict[str, Any] = {}
         result = payload.get("result")
         summary = payload.get("summary")
-        delta = payload.get("delta")
 
-        if isinstance(result, LLMResult):
-            normalized["result"] = dict(result)
-            summary = summary or getattr(result, "llm_summary", "")
-            delta = delta or getattr(result, "llm_delta", None)
-        elif result is not None:
+        if result is not None:
             normalized["result"] = result
 
-        if summary:
-            normalized["summary"] = str(summary).strip()
-        if delta:
-            normalized["delta"] = delta
+        # Extract summary from result dict if not already provided
+        if not summary and isinstance(result, dict):
+            summary = result.get("summary")
+
+        if summary and isinstance(summary, str):
+            normalized["summary"] = summary.strip()
 
         if "tool_message" in payload:
             normalized["tool_message"] = payload["tool_message"]
@@ -412,26 +438,23 @@ class VoiceTaskManager:
             # Emit tool result message for clients to consume
             await self._on_tool_result_event(tool_name, payload)
 
-            callback_payload = deepcopy(payload)
             logger.info(f"!!! TOOL RESULT: {payload}")
+
+            # Extract summary if present
+            summary = None
             result_obj = payload.get("result")
-            if isinstance(result_obj, LLMResult):
-                summary = (result_obj.llm_summary or "").strip()
-                delta = result_obj.llm_delta or None
-                cb: Dict[str, Any] = {}
-                # Special case my_status to return the full object. If the conversation LLM
-                # calls my_status, it may need full status info to return a useful result.
-                if tool_name == "my_status":
-                    cb = payload
-                else:
-                    if summary:
-                        cb["summary"] = summary
-                    elif delta:
-                        cb["delta"] = delta
-                    if not cb:
-                        cb["result"] = dict(result_obj)
-                callback_payload = cb
+            if isinstance(result_obj, dict):
+                summary = result_obj.get("summary")
+                if summary and isinstance(summary, str):
+                    summary = summary.strip()
+
+            # Send summary or full payload to LLM
+            if summary and tool_name != "my_status":
+                callback_payload = {"summary": summary}
                 logger.info(f"!!! FORMATTED FOR LLM: {callback_payload}")
+            else:
+                callback_payload = payload
+
             await params.result_callback(callback_payload)
             # await params.result_callback(payload)
         except Exception as e:
@@ -452,7 +475,9 @@ class VoiceTaskManager:
 
             task_desc = params.arguments.get("task_description", "")
             context = params.arguments.get("context", "")
-            game_state = await self.game_client.my_status()
+            game_state = await self.game_client.my_status(
+                character_id=self.character_id
+            )
             task_content = f"{context}\n{task_desc}" if context else task_desc
             self.task_buffer.clear()
             self.task_running = True
@@ -492,6 +517,9 @@ class VoiceTaskManager:
             standard_tools=[
                 MyStatus.schema(),
                 PlotCourse.schema(),
+                LocalMapRegion.schema(),
+                ListKnownPorts.schema(),
+                PathWithRegion.schema(),
                 Move.schema(),
                 CheckTrade.schema(),
                 Trade.schema(),

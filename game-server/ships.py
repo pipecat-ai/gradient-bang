@@ -17,6 +17,7 @@ class ShipType(str, Enum):
     AEGIS_CRUISER = "aegis_cruiser"
     PIONEER_LIFTER = "pioneer_lifter"
     SOVEREIGN_STARCRUISER = "sovereign_starcruiser"
+    ESCAPE_POD = "escape_pod"
 
 
 @dataclass
@@ -166,6 +167,19 @@ SHIP_REGISTRY = {
         warp_power_capacity=3000,
         equipment_slots=5,
         built_in_features=["transwarp"]
+    ),
+    ShipType.ESCAPE_POD: ShipStats(
+        name="Escape Pod",
+        role="lifeboat",
+        price=0,
+        trade_in_value=0,
+        cargo_holds=0,
+        fighters=0,
+        shields=0,
+        turns_per_warp=1,
+        warp_power_capacity=800,
+        equipment_slots=0,
+        built_in_features=["indestructible"]
     ),
 }
 

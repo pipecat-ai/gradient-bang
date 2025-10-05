@@ -3,24 +3,18 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import uuid
 from collections import deque
-from typing import Any, Awaitable, Callable, Dict, Iterable, Optional
-
-import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any, Dict
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
-from core.world import lifespan, world
+from core.world import lifespan as world_lifespan, world
 from api import (
     plot_course as api_plot_course,
     join as api_join,
@@ -28,25 +22,70 @@ from api import (
     my_status as api_my_status,
     my_map as api_my_map,
     local_map as api_local_map,
+    local_map_region as api_local_map_region,
+    list_known_ports as api_list_known_ports,
+    path_with_region as api_path_with_region,
     check_trade as api_check_trade,
     trade as api_trade,
     recharge_warp_power as api_recharge,
     transfer_warp_power as api_transfer,
     reset_ports as api_reset_ports,
     regenerate_ports as api_regen_ports,
-    send_message as api_send_message,
+    combat_initiate as api_combat_initiate,
+    combat_action as api_combat_action,
+    combat_status as api_combat_status,
+    combat_leave_fighters as api_combat_leave_fighters,
+    combat_collect_fighters as api_combat_collect_fighters,
+    combat_set_garrison_mode as api_combat_set_garrison_mode,
+    salvage_collect as api_salvage_collect,
 )
-from api.utils import build_status_payload
 from core.config import get_world_data_path
-from events import EventSink, event_dispatcher
 from messaging.store import MessageStore
-from schemas.generated_events import ServerEventName
-
+from messaging.handlers import handle_send_message
+from combat.callbacks import (
+    on_round_waiting,
+    on_round_resolved,
+    on_combat_ended,
+    on_toll_payment,
+)
+from rpc import (
+    Connection,
+    event_dispatcher,
+    rpc_error,
+    rpc_success,
+    send_initial_status,
+    RPCHandler,
+    RateLimiter,
+)
+from core.locks import CreditLockManager, PortLockManager
 
 logger = logging.getLogger("gradient-bang.server")
 logging.basicConfig(level=logging.INFO)
 
-app = FastAPI(title="Gradient Bang", version="0.2.0", lifespan=lifespan)
+
+@asynccontextmanager
+async def app_lifespan(app: FastAPI):
+    async with world_lifespan(app):
+        if world.combat_manager:
+            # Configure combat callbacks with dependencies
+            world.combat_manager.configure_callbacks(
+                on_round_waiting=lambda enc: on_round_waiting(
+                    enc, world, event_dispatcher
+                ),
+                on_round_resolved=lambda enc, out: on_round_resolved(
+                    enc, out, world, event_dispatcher
+                ),
+                on_combat_ended=lambda enc, out: on_combat_ended(
+                    enc, out, world, event_dispatcher
+                ),
+                on_pay_action=lambda payer, amt: on_toll_payment(
+                    payer, amt, world, credit_locks
+                ),
+            )
+        yield
+
+
+app = FastAPI(title="Gradient Bang", version="0.2.0", lifespan=app_lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:8080", "http://localhost:5173"],
@@ -55,44 +94,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-RPCHandler = Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]
-
-
-# Initialise messaging store + rate limits for chat
+# Initialise messaging store and rate limiter
 _MESSAGES = MessageStore(get_world_data_path() / "messages")
-_RATE_LIMIT_LAST: Dict[str, float] = {}
+_CONFIG_DIR = Path(__file__).parent / "config"
+rate_limiter = RateLimiter(_CONFIG_DIR / "rate_limits.yaml")
 
+# Per-character credit lock manager for atomic credit operations
+credit_locks = CreditLockManager(timeout=30.0)
 
-async def _handle_send_message(payload: Dict[str, Any]) -> Dict[str, Any]:
-    def _rate_limit(from_id: str) -> None:
-        now = asyncio.get_running_loop().time()
-        last = _RATE_LIMIT_LAST.get(from_id, 0.0)
-        if now - last < 1.0:
-            raise HTTPException(status_code=429, detail="Rate limit 1 msg/sec")
-        _RATE_LIMIT_LAST[from_id] = now
-
-    record = await api_send_message.handle(
-        payload,
-        world,
-        _MESSAGES,
-        rate_limit_check=_rate_limit,
-    )
-
-    public_record = {k: v for k, v in record.items() if k != "from_character_id"}
-    name_filter: Optional[Iterable[str]]
-    if public_record.get("type") == "direct":
-        to_name = public_record.get("to_name")
-        from_name = public_record.get("from_name")
-        name_filter = [n for n in (to_name, from_name) if n]
-    else:
-        name_filter = []
-    await event_dispatcher.emit(
-        "chat.message",
-        public_record,
-        name_filter=name_filter,
-    )
-    return {"id": record["id"]}
+# Per-port lock manager for atomic trade operations
+port_locks = PortLockManager(timeout=30.0)
 
 
 async def _rpc_server_status(_: Dict[str, Any]) -> Dict[str, Any]:
@@ -104,103 +115,114 @@ async def _rpc_server_status(_: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-RPC_HANDLERS: Dict[str, RPCHandler] = {
-    "plot_course": lambda payload: api_plot_course.handle(payload, world),
-    "join": lambda payload: api_join.handle(payload, world),
-    "move": lambda payload: api_move.handle(payload, world),
-    "my_status": lambda payload: api_my_status.handle(payload, world),
-    "my_map": lambda payload: api_my_map.handle(payload, world),
-    "local_map": lambda payload: api_local_map.handle(payload, world),
-    "check_trade": lambda payload: api_check_trade.handle(payload, world),
-    "trade": lambda payload: api_trade.handle(payload, world),
-    "recharge_warp_power": lambda payload: api_recharge.handle(payload, world),
-    "transfer_warp_power": lambda payload: api_transfer.handle(payload, world),
-    "reset_ports": lambda payload: api_reset_ports.handle(payload, world),
-    "regenerate_ports": lambda payload: api_regen_ports.handle(payload, world),
-    "send_message": _handle_send_message,
-    "server_status": _rpc_server_status,
-}
+def _with_rate_limit(endpoint: str, handler: RPCHandler) -> RPCHandler:
+    """Wrap an RPC handler with rate limiting.
 
+    Args:
+        endpoint: The endpoint name for rate limit lookup
+        handler: The handler function to wrap
 
-def _rpc_success(
-    frame_id: str, endpoint: str, result: Dict[str, Any]
-) -> Dict[str, Any]:
-    return {
-        "frame_type": "rpc",
-        "id": frame_id,
-        "endpoint": endpoint,
-        "ok": True,
-        "result": result,
-    }
+    Returns:
+        Rate-limited handler function
+    """
 
+    async def wrapped(payload: Dict[str, Any]) -> Dict[str, Any]:
+        # Extract character_id from payload
+        character_id = payload.get("character_id")
+        if not character_id:
+            # No character_id means no rate limiting (e.g., server_status)
+            return await handler(payload)
 
-def _rpc_error(
-    frame_id: str, endpoint: str, exc: HTTPException | Exception
-) -> Dict[str, Any]:
-    status = exc.status_code if isinstance(exc, HTTPException) else 500
-    detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
-    code = getattr(exc, "code", None)
-    payload = {
-        "frame_type": "rpc",
-        "id": frame_id,
-        "endpoint": endpoint,
-        "ok": False,
-        "error": {"status": status, "detail": detail},
-    }
-    if code:
-        payload["error"]["code"] = code
-    return payload
+        # For send_message, determine message type for rate limiting
+        message_type = None
+        if endpoint == "send_message":
+            message_type = payload.get("type")  # "broadcast" or "direct"
 
-
-class Connection(EventSink):
-    """Represents a connected WebSocket client."""
-
-    def __init__(self, websocket: WebSocket) -> None:
-        self.websocket = websocket
-        self.connection_id = str(uuid.uuid4())
-        self.status_subscriptions: set[str] = set()
-        self.known_character_ids: set[str] = set()
-        self.known_names: set[str] = set()
-        self.chat_subscribed = False
-        self._send_lock = asyncio.Lock()
-
-    async def send_event(self, envelope: dict) -> None:
-        async with self._send_lock:
-            await self.websocket.send_json(envelope)
-
-    def matches_characters(self, character_ids: Iterable[str]) -> bool:
-        tracked = self.status_subscriptions | self.known_character_ids
-        return any(cid in tracked for cid in character_ids)
-
-    def matches_names(self, names: Iterable[str]) -> bool:
-        if not self.chat_subscribed:
-            return False
-        names = list(names)
-        if not names:
-            return True
-        return any(name in self.known_names for name in names)
-
-    def register_character(self, character_id: str | None, name: str | None) -> None:
-        if character_id:
-            self.known_character_ids.add(str(character_id))
-        if name:
-            self.known_names.add(str(name))
-
-
-async def _send_initial_status(connection: Connection, character_id: str) -> None:
-    if character_id not in world.characters:
-        raise HTTPException(
-            status_code=404, detail=f"Character '{character_id}' not found"
+        # Enqueue request with rate limiting
+        return await rate_limiter.enqueue_request(
+            endpoint=endpoint,
+            character_id=character_id,
+            handler=lambda: handler(payload),
+            message_type=message_type,
         )
-    payload = build_status_payload(world, character_id)
-    envelope = {
-        "frame_type": "event",
-        "event": "status.update",
-        "payload": payload,
-        "gg-action": "status.update",
-        "character_filter": [character_id],
-    }
-    await connection.send_event(envelope)
+
+    return wrapped
+
+
+RPC_HANDLERS: Dict[str, RPCHandler] = {
+    "plot_course": _with_rate_limit(
+        "plot_course", lambda payload: api_plot_course.handle(payload, world)
+    ),
+    "join": _with_rate_limit("join", lambda payload: api_join.handle(payload, world)),
+    "move": _with_rate_limit("move", lambda payload: api_move.handle(payload, world)),
+    "my_status": _with_rate_limit(
+        "my_status", lambda payload: api_my_status.handle(payload, world)
+    ),
+    "my_map": _with_rate_limit(
+        "my_map", lambda payload: api_my_map.handle(payload, world)
+    ),
+    "local_map": _with_rate_limit(
+        "local_map", lambda payload: api_local_map.handle(payload, world)
+    ),
+    "local_map_region": _with_rate_limit(
+        "local_map_region", lambda payload: api_local_map_region.handle(payload, world)
+    ),
+    "list_known_ports": _with_rate_limit(
+        "list_known_ports", lambda payload: api_list_known_ports.handle(payload, world)
+    ),
+    "path_with_region": _with_rate_limit(
+        "path_with_region", lambda payload: api_path_with_region.handle(payload, world)
+    ),
+    "check_trade": _with_rate_limit(
+        "check_trade", lambda payload: api_check_trade.handle(payload, world)
+    ),
+    "trade": _with_rate_limit(
+        "trade", lambda payload: api_trade.handle(payload, world, port_locks)
+    ),
+    "recharge_warp_power": _with_rate_limit(
+        "recharge_warp_power", lambda payload: api_recharge.handle(payload, world)
+    ),
+    "transfer_warp_power": _with_rate_limit(
+        "transfer_warp_power", lambda payload: api_transfer.handle(payload, world)
+    ),
+    "reset_ports": _with_rate_limit(
+        "reset_ports", lambda payload: api_reset_ports.handle(payload, world)
+    ),
+    "regenerate_ports": _with_rate_limit(
+        "regenerate_ports", lambda payload: api_regen_ports.handle(payload, world)
+    ),
+    "send_message": _with_rate_limit(
+        "send_message",
+        lambda payload: handle_send_message(
+            payload, world, _MESSAGES, event_dispatcher
+        ),
+    ),
+    "combat.initiate": _with_rate_limit(
+        "combat.initiate", lambda payload: api_combat_initiate.handle(payload, world)
+    ),
+    "combat.action": _with_rate_limit(
+        "combat.action", lambda payload: api_combat_action.handle(payload, world)
+    ),
+    "combat.status": _with_rate_limit(
+        "combat.status", lambda payload: api_combat_status.handle(payload, world)
+    ),
+    "combat.leave_fighters": _with_rate_limit(
+        "combat.leave_fighters",
+        lambda payload: api_combat_leave_fighters.handle(payload, world),
+    ),
+    "combat.collect_fighters": _with_rate_limit(
+        "combat.collect_fighters",
+        lambda payload: api_combat_collect_fighters.handle(payload, world),
+    ),
+    "combat.set_garrison_mode": _with_rate_limit(
+        "combat.set_garrison_mode",
+        lambda payload: api_combat_set_garrison_mode.handle(payload, world),
+    ),
+    "salvage.collect": _with_rate_limit(
+        "salvage.collect", lambda payload: api_salvage_collect.handle(payload, world)
+    ),
+    "server_status": _with_rate_limit("server_status", _rpc_server_status),
+}
 
 
 @app.get("/")
@@ -279,7 +301,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 frame = json.loads(raw)
             except json.JSONDecodeError:
                 await websocket.send_json(
-                    _rpc_error(
+                    rpc_error(
                         str(uuid.uuid4()),
                         "unknown",
                         HTTPException(status_code=400, detail="Invalid JSON"),
@@ -291,22 +313,31 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             message_type = frame.get("type", "rpc")
 
             if message_type == "identify":
-                name = frame.get("name")
                 character_id = frame.get("character_id")
-                if not name and not character_id:
+                if not character_id:
                     await websocket.send_json(
-                        _rpc_error(
+                        rpc_error(
                             frame_id,
                             "identify",
                             HTTPException(
-                                status_code=400, detail="Missing name or character_id"
+                                status_code=400, detail="Missing character_id"
                             ),
                         )
                     )
                     continue
-                connection.register_character(character_id, name)
+                try:
+                    connection.set_character(character_id)
+                except ValueError as e:
+                    await websocket.send_json(
+                        rpc_error(
+                            frame_id,
+                            "identify",
+                            HTTPException(status_code=400, detail=str(e)),
+                        )
+                    )
+                    continue
                 await websocket.send_json(
-                    _rpc_success(frame_id, "identify", {"identified": True})
+                    rpc_success(frame_id, "identify", {"identified": True})
                 )
                 continue
 
@@ -316,7 +347,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     character_id = frame.get("character_id")
                     if not character_id:
                         await websocket.send_json(
-                            _rpc_error(
+                            rpc_error(
                                 frame_id,
                                 "subscribe",
                                 HTTPException(
@@ -325,10 +356,19 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                             )
                         )
                         continue
-                    connection.status_subscriptions.add(str(character_id))
-                    connection.register_character(character_id, frame.get("name"))
+                    try:
+                        connection.set_character(character_id)
+                    except ValueError as e:
+                        await websocket.send_json(
+                            rpc_error(
+                                frame_id,
+                                "subscribe",
+                                HTTPException(status_code=400, detail=str(e)),
+                            )
+                        )
+                        continue
                     await websocket.send_json(
-                        _rpc_success(
+                        rpc_success(
                             frame_id,
                             "subscribe",
                             {
@@ -338,22 +378,20 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                         )
                     )
                     try:
-                        await _send_initial_status(connection, str(character_id))
+                        await send_initial_status(connection, str(character_id), world)
                     except HTTPException as exc:
-                        await websocket.send_json(
-                            _rpc_error(frame_id, "subscribe", exc)
-                        )
+                        await websocket.send_json(rpc_error(frame_id, "subscribe", exc))
                     continue
                 if event_name == "chat.message":
-                    connection.chat_subscribed = True
+                    # Chat messages routed via character_filter, no separate subscription needed
                     await websocket.send_json(
-                        _rpc_success(
+                        rpc_success(
                             frame_id, "subscribe", {"subscribed": "chat.message"}
                         )
                     )
                     continue
                 await websocket.send_json(
-                    _rpc_error(
+                    rpc_error(
                         frame_id,
                         "subscribe",
                         HTTPException(
@@ -366,7 +404,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
             if message_type != "rpc":
                 await websocket.send_json(
-                    _rpc_error(
+                    rpc_error(
                         frame_id,
                         message_type,
                         HTTPException(
@@ -382,7 +420,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             handler = RPC_HANDLERS.get(endpoint)
             if not handler:
                 await websocket.send_json(
-                    _rpc_error(
+                    rpc_error(
                         frame_id,
                         endpoint or "unknown",
                         HTTPException(
@@ -395,23 +433,34 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             try:
                 result = await handler(payload)
                 if endpoint in {"join", "my_status"}:
-                    # Register the character for subsequent targeted events
+                    # Associate character with this connection
                     character_id = payload.get("character_id")
                     if character_id:
-                        connection.register_character(character_id, result.get("name"))
-                await websocket.send_json(_rpc_success(frame_id, endpoint, result))
+                        try:
+                            connection.set_character(character_id)
+                        except ValueError:
+                            # Already set to this character, that's fine
+                            pass
+                await websocket.send_json(rpc_success(frame_id, endpoint, result))
             except HTTPException as exc:
-                await websocket.send_json(_rpc_error(frame_id, endpoint, exc))
+                await websocket.send_json(rpc_error(frame_id, endpoint, exc))
             except Exception as exc:  # noqa: BLE001
                 logger.exception("RPC handler error endpoint=%s", endpoint)
-                await websocket.send_json(_rpc_error(frame_id, endpoint, exc))
+                await websocket.send_json(rpc_error(frame_id, endpoint, exc))
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected id=%s", connection.connection_id)
     finally:
+        # Mark character as disconnected
+        if connection.character_id:
+            character = world.characters.get(connection.character_id)
+            if character:
+                character.connected = False
         await event_dispatcher.unregister(connection)
 
 
 if __name__ == "__main__":
+    # For direct execution: cd game-server && uv run python server.py
+    # Recommended: uv run python -m game-server (from project root)
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -15,7 +15,8 @@ from openai.types.chat import ChatCompletionToolParam
 def get_openai_tools_list(game_client, tools_classes) -> List[ChatCompletionToolParam]:
     adapter = OpenAILLMAdapter()
     ts = []
-    for tool_class in tools_classes:
+    for entry in tools_classes:
+        tool_class = entry[0] if isinstance(entry, (tuple, list)) else entry
         ts.append(tool_class.schema())
     return adapter.to_provider_tools_format(ToolsSchema(ts))
 
@@ -36,8 +37,8 @@ class GameClientTool:
 
 
 class MyStatus(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.my_status()
+    def __call__(self):
+        return self.game_client.my_status(character_id=self.game_client.character_id)
 
     @classmethod
     def schema(cls):
@@ -50,8 +51,8 @@ class MyStatus(GameClientTool):
 
 
 class MyMap(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.my_map(**args)
+    def __call__(self):
+        return self.game_client.my_map(character_id=self.game_client.character_id)
 
     @classmethod
     def schema(cls):
@@ -64,33 +65,158 @@ class MyMap(GameClientTool):
 
 
 class PlotCourse(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.plot_course(**args)
+    def __call__(self, to_sector):
+        return self.game_client.plot_course(
+            to_sector=to_sector,
+            character_id=self.game_client.character_id
+        )
 
     @classmethod
     def schema(cls):
         return FunctionSchema(
             name="plot_course",
-            description="Calculate shortest path between two sectors",
+            description="Calculate shortest path from your current sector to the destination",
             properties={
-                "from_sector": {
-                    "type": "integer",
-                    "description": "Starting sector ID",
-                    "minimum": 0,
-                },
                 "to_sector": {
                     "type": "integer",
                     "description": "Destination sector ID",
                     "minimum": 0,
                 },
             },
-            required=["from_sector", "to_sector"],
+            required=["to_sector"],
+        )
+
+
+class LocalMapRegion(GameClientTool):
+    def __call__(self, center_sector=None, max_hops=3, max_sectors=100):
+        return self.game_client.local_map_region(
+            character_id=self.game_client.character_id,
+            center_sector=center_sector,
+            max_hops=max_hops,
+            max_sectors=max_sectors,
+        )
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="local_map_region",
+            description="Get all known sectors around current location for local navigation and awareness. Shows visited sectors with full details (ports, adjacents, position) and nearby unvisited sectors seen in adjacency lists.",
+            properties={
+                "center_sector": {
+                    "type": "integer",
+                    "description": "Optional center sector; defaults to current sector",
+                    "minimum": 0,
+                },
+                "max_hops": {
+                    "type": "integer",
+                    "description": "Maximum BFS depth (default 3, max 10)",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "default": 3,
+                },
+                "max_sectors": {
+                    "type": "integer",
+                    "description": "Maximum sectors to return (default 100)",
+                    "minimum": 1,
+                    "default": 100,
+                },
+            },
+            required=[],
+        )
+
+
+class ListKnownPorts(GameClientTool):
+    def __call__(self, from_sector=None, max_hops=5, port_type=None, commodity=None, trade_type=None):
+        return self.game_client.list_known_ports(
+            character_id=self.game_client.character_id,
+            from_sector=from_sector,
+            max_hops=max_hops,
+            port_type=port_type,
+            commodity=commodity,
+            trade_type=trade_type,
+        )
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="list_known_ports",
+            description="Find all known ports within travel range for trading/planning. Useful for finding nearest port of specific type or ports that buy/sell specific commodities.",
+            properties={
+                "from_sector": {
+                    "type": "integer",
+                    "description": "Optional starting sector; defaults to current sector",
+                    "minimum": 0,
+                },
+                "max_hops": {
+                    "type": "integer",
+                    "description": "Maximum distance (default 5, max 10)",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "default": 5,
+                },
+                "port_type": {
+                    "type": "string",
+                    "description": "Optional filter by port code (e.g., 'BBB', 'SSS', 'BBS')",
+                },
+                "commodity": {
+                    "type": "string",
+                    "enum": ["fuel_ore", "organics", "equipment"],
+                    "description": "Optional filter ports that trade this commodity",
+                },
+                "trade_type": {
+                    "type": "string",
+                    "enum": ["buy", "sell"],
+                    "description": "Optional 'buy' or 'sell' (requires commodity). 'buy' finds ports that sell to you, 'sell' finds ports that buy from you.",
+                },
+            },
+            required=[],
+        )
+
+
+class PathWithRegion(GameClientTool):
+    def __call__(self, to_sector, region_hops=1, max_sectors=200):
+        return self.game_client.path_with_region(
+            to_sector=to_sector,
+            character_id=self.game_client.character_id,
+            region_hops=region_hops,
+            max_sectors=max_sectors,
+        )
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="path_with_region",
+            description="Get path to destination plus local context around each path node for route visualization. Shows path, nearby known sectors, and identifies potential hazards or alternatives along the route.",
+            properties={
+                "to_sector": {
+                    "type": "integer",
+                    "description": "Destination sector ID",
+                    "minimum": 0,
+                },
+                "region_hops": {
+                    "type": "integer",
+                    "description": "How many hops around each path node (default 1)",
+                    "minimum": 0,
+                    "maximum": 3,
+                    "default": 1,
+                },
+                "max_sectors": {
+                    "type": "integer",
+                    "description": "Total sector limit (default 200)",
+                    "minimum": 1,
+                    "default": 200,
+                },
+            },
+            required=["to_sector"],
         )
 
 
 class Move(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.move(**args)
+    def __call__(self, to_sector):
+        return self.game_client.move(
+            to_sector=to_sector,
+            character_id=self.game_client.character_id
+        )
 
     @classmethod
     def schema(cls):
@@ -108,8 +234,11 @@ class Move(GameClientTool):
 
 
 class StartTask(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.start_task(**args)
+    def __call__(self, task_description, context=None):
+        kwargs = {"task_description": task_description}
+        if context:
+            kwargs["context"] = context
+        return self.game_client.start_task(**kwargs)
 
     @classmethod
     def schema(cls):
@@ -131,7 +260,7 @@ class StartTask(GameClientTool):
 
 
 class StopTask(GameClientTool):
-    def __call__(self, **args):
+    def __call__(self):
         return self.game_client.stop_task()
 
     @classmethod
@@ -145,8 +274,13 @@ class StopTask(GameClientTool):
 
 
 class CheckTrade(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.check_trade(**args)
+    def __call__(self, commodity, quantity, trade_type):
+        return self.game_client.check_trade(
+            commodity=commodity,
+            quantity=quantity,
+            trade_type=trade_type,
+            character_id=self.game_client.character_id
+        )
 
     @classmethod
     def schema(cls):
@@ -175,8 +309,13 @@ class CheckTrade(GameClientTool):
 
 
 class Trade(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.trade(**args)
+    def __call__(self, commodity, quantity, trade_type):
+        return self.game_client.trade(
+            commodity=commodity,
+            quantity=quantity,
+            trade_type=trade_type,
+            character_id=self.game_client.character_id
+        )
 
     @classmethod
     def schema(cls):
@@ -204,9 +343,34 @@ class Trade(GameClientTool):
         )
 
 
+class SalvageCollect(GameClientTool):
+    def __call__(self, salvage_id):
+        return self.game_client.salvage_collect(
+            salvage_id=salvage_id,
+            character_id=self.game_client.character_id
+        )
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="salvage_collect",
+            description="Collect salvage by salvage ID in the current sector.",
+            properties={
+                "salvage_id": {
+                    "type": "string",
+                    "description": "Identifier of the salvage container to collect",
+                }
+            },
+            required=["salvage_id"],
+        )
+
+
 class RechargeWarpPower(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.recharge_warp_power(**args)
+    def __call__(self, units):
+        return self.game_client.recharge_warp_power(
+            units=units,
+            character_id=self.game_client.character_id
+        )
 
     @classmethod
     def schema(cls):
@@ -225,8 +389,12 @@ class RechargeWarpPower(GameClientTool):
 
 
 class TransferWarpPower(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.transfer_warp_power(**args)
+    def __call__(self, to_character_id, units):
+        return self.game_client.transfer_warp_power(
+            to_character_id=to_character_id,
+            units=units,
+            character_id=self.game_client.character_id
+        )
 
     @classmethod
     def schema(cls):
@@ -234,7 +402,7 @@ class TransferWarpPower(GameClientTool):
             name="transfer_warp_power",
             description="Transfer warp power to another character in the same sector",
             properties={
-                "to_name": {
+                "to_character_id": {
                     "type": "string",
                     "description": "Character ID to transfer warp power to",
                     "minLength": 1,
@@ -252,8 +420,13 @@ class TransferWarpPower(GameClientTool):
 
 
 class SendMessage(GameClientTool):
-    def __call__(self, **args):
-        return self.game_client.send_message(**args)
+    def __call__(self, content, msg_type="broadcast", to_name=None):
+        return self.game_client.send_message(
+            content=content,
+            msg_type=msg_type,
+            to_name=to_name,
+            character_id=self.game_client.character_id
+        )
 
     @classmethod
     def schema(cls):
@@ -280,8 +453,8 @@ class SendMessage(GameClientTool):
 
 
 class TaskFinished(Tool):
-    def __call__(self, **args):
-        return {"success": True, "message": args.get("message", "Done")}
+    def __call__(self, message="Done"):
+        return {"success": True, "message": message}
 
     @classmethod
     def schema(cls):
@@ -296,6 +469,78 @@ class TaskFinished(Tool):
                 }
             },
             required=["message"],
+        )
+
+
+class PlaceFighters(GameClientTool):
+    def __call__(self, sector, quantity, mode="offensive", toll_amount=0):
+        return self.game_client.combat_leave_fighters(
+            sector=sector,
+            quantity=quantity,
+            mode=mode,
+            toll_amount=toll_amount,
+            character_id=self.game_client.character_id
+        )
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="place_fighters",
+            description="Leave fighters behind in the current sector as a garrison.",
+            properties={
+                "sector": {
+                    "type": "integer",
+                    "description": "Sector ID where fighters will be stationed",
+                    "minimum": 0,
+                },
+                "quantity": {
+                    "type": "integer",
+                    "description": "Number of fighters to leave behind",
+                    "minimum": 1,
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["offensive", "defensive", "toll"],
+                    "description": "Behavior mode for stationed fighters",
+                    "default": "offensive",
+                },
+                "toll_amount": {
+                    "type": "integer",
+                    "description": "Credits required to pass when mode is toll",
+                    "minimum": 0,
+                    "default": 0,
+                },
+            },
+            required=["sector", "quantity"],
+        )
+
+
+class CollectFighters(GameClientTool):
+    def __call__(self, sector, quantity):
+        return self.game_client.combat_collect_fighters(
+            sector=sector,
+            quantity=quantity,
+            character_id=self.game_client.character_id
+        )
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="collect_fighters",
+            description="Retrieve fighters previously stationed in the current sector.",
+            properties={
+                "sector": {
+                    "type": "integer",
+                    "description": "Sector ID to collect fighters from",
+                    "minimum": 0,
+                },
+                "quantity": {
+                    "type": "integer",
+                    "description": "Number of fighters to retrieve",
+                    "minimum": 1,
+                },
+            },
+            required=["sector", "quantity"],
         )
 
 

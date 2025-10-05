@@ -1,7 +1,7 @@
 from fastapi import HTTPException
 from datetime import datetime, timezone
 
-from events import event_dispatcher
+from rpc.events import event_dispatcher
 
 
 async def handle(request: dict, world) -> dict:

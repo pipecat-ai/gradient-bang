@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+NEVER ADD OR COMMIT ANY FILES TO GIT. USER WILL ADD AND COMMIT TO GIT MANUALLY.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
@@ -22,8 +24,12 @@ uv run <script>      # Run any Python script
 
 ### Running the Server
 ```bash
-cd game-server
-uv run server.py     # Starts server on http://localhost:8000
+# Standard method (from project root)
+uv run python -m game-server     # Starts server on http://localhost:8000
+
+# Alternative methods
+cd game-server && uv run python server.py
+cd game-server && uv run python -m .
 ```
 
 ### Running Tests
@@ -82,6 +88,9 @@ Available tools:
 - `my_status`: Get current position and ship status
 - `my_map`: Get known map data
 - `plot_course`: Calculate path between sectors
+- `local_map_region`: Get all known sectors around current location for local navigation
+- `list_known_ports`: Find all known ports within travel range with optional filtering
+- `path_with_region`: Get path to destination plus local context around each path node
 - `move`: Move to adjacent sector
 - `trade`: Buy/sell commodities at ports
 - `check_trade`: Preview trade without executing
@@ -106,6 +115,9 @@ All endpoints accept and return JSON dictionaries:
 - `POST /api/my_status` - Get current status (params: `character_id`)
 - `POST /api/my_map` - Get map knowledge (params: `character_id`)
 - `POST /api/plot_course` - Find path (params: `from_sector`, `to_sector`)
+- `local_map_region` - Get sectors around location (params: `character_id`, optional `center_sector`, `max_hops`, `max_sectors`)
+- `list_known_ports` - Find ports within range (params: `character_id`, optional `from_sector`, `max_hops`, `port_type`, `commodity`, `trade_type`)
+- `path_with_region` - Get path with context (params: `character_id`, `to_sector`, optional `region_hops`, `max_sectors`)
 - `POST /api/trade` - Execute trade (params: `character_id`, `commodity`, `quantity`, `trade_type`)
 - `POST /api/check_trade` - Preview trade
 - `POST /api/recharge_warp_power` - Buy fuel at sector 0

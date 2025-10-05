@@ -145,7 +145,7 @@ async def run_bot(transport, runner_args: RunnerArguments):
         task_complete_callback=task_complete_callback,
     )
     initial_status = await task_manager.join()
-    initial_map_data = await task_manager.game_client.my_map()
+    initial_map_data = await task_manager.game_client.my_map(character_id="TraderP")
 
     # Initialize STT service
     logger.info("Init STT…")
@@ -304,6 +304,7 @@ async def run_bot(transport, runner_args: RunnerArguments):
                         raise ValueError("max_hops must be non-negative")
                     limit_kwargs = {"max_hops": max_hops}
 
+                # todo: replace this with the new local_map_region endpoint
                 local_map = await task_manager.game_client.local_map(
                     current_sector=sector,
                     **limit_kwargs,

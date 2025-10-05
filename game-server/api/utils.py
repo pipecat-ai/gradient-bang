@@ -4,8 +4,26 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+from fastapi import HTTPException
+
 from ships import ShipType, get_ship_stats
 from trading import get_port_prices, get_port_stock
+
+
+COMBAT_ACTION_REQUIRED = (
+    "Cannot perform this action during combat. Submit attack/brace/flee instead."
+)
+
+
+async def ensure_not_in_combat(world, character_id: str) -> None:
+    """Raise if the character is currently participating in active combat."""
+
+    manager = getattr(world, "combat_manager", None)
+    if manager is None:
+        return
+    encounter = await manager.find_encounter_for(character_id)
+    if encounter and not encounter.ended:
+        raise HTTPException(status_code=409, detail=COMBAT_ACTION_REQUIRED)
 
 
 def log_trade(
@@ -64,7 +82,7 @@ def build_ship_status(world, character_id: str) -> Dict[str, Any]:
     }
 
 
-def sector_contents(
+async def sector_contents(
     world, sector_id: int, current_character_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """Compute contents of a sector visible to a character.
@@ -105,7 +123,6 @@ def sector_contents(
                 "last_seen_stock": stock,
                 "observed_at": datetime.now(timezone.utc).isoformat(),
             }
-            print(f"!!! Port info for sector {sector_id}: {port}")
 
     # Planets
     planets = []
@@ -120,11 +137,31 @@ def sector_contents(
                 }
             )
 
-    # Other players (names only)
+    # Other players (names + ship type when known)
     other_players = []
     for char_id, character in world.characters.items():
-        if character.sector == sector_id and char_id != current_character_id:
-            other_players.append({"name": char_id})
+        if character.sector != sector_id or char_id == current_character_id:
+            continue
+        entry = {"name": char_id}
+        knowledge = world.knowledge_manager.load_knowledge(char_id)
+        ship_type = knowledge.ship_config.ship_type if knowledge else None
+        if ship_type:
+            entry["ship_type"] = ship_type
+        other_players.append(entry)
+
+        # Garrisons
+    garrisons = []
+    if getattr(world, "garrisons", None):
+        for garrison in await world.garrisons.list_sector(sector_id):
+            entry = garrison.to_dict()
+            entry["is_friendly"] = garrison.owner_id == current_character_id
+            garrisons.append(entry)
+
+    # Salvage containers
+    salvage = []
+    if getattr(world, "salvage_manager", None):
+        for container in world.salvage_manager.list_sector(sector_id):
+            salvage.append(container.to_dict())
 
     # Adjacent sectors
     adjacent_sectors = []
@@ -139,11 +176,13 @@ def sector_contents(
         "position": position,
         "planets": planets,
         "other_players": other_players,
-        "adjacent_sectors": adjacent_sectors
+        "garrisons": garrisons,
+        "salvage": salvage,
+        "adjacent_sectors": adjacent_sectors,
     }
 
 
-def build_status_payload(
+async def build_status_payload(
     world,
     character_id: str,
     *,
@@ -151,7 +190,7 @@ def build_status_payload(
 ) -> Dict[str, Any]:
     """Assemble the canonical status payload for a character."""
     character = world.characters[character_id]
-    snapshot = sector_snapshot or sector_contents(
+    snapshot = sector_snapshot or await sector_contents(
         world, character.sector, character_id
     )
     return {
