@@ -25,7 +25,7 @@ interface Settings {
 ## Player
 
 ```ts
-interface Player {
+interface PlayerBase {
   id: string;
   name: string;
   created_at: string;
@@ -33,14 +33,14 @@ interface Player {
 }
 
 // Local player 
-interface PlayerSelf extends Player {
+interface PlayerSelf extends PlayerBase {
   credits: number;
   credits_in_bank: number;
   credits_in_hand: number;
 }
 
 // Remote player / npc
-interface PlayerOther extends Player {
+interface Player extends PlayerBase {
   player_type: "npc" | "human";
   ship: Ship;
 }
@@ -58,8 +58,8 @@ type Resource = "EQ" | "FO" | "OG";
 interface Ship {
   ship_name: string;
   ship_type: ShipType;
-  shields?: number;  // nullable, shown for `PlayerOther` only when in combat
-  fighters?: number; // nullable, shown for `PlayerOther` only when in combat
+  shields?: number;  // nullable, shown for `Player` only when in combat
+  fighters?: number; // nullable, shown for `Player` only when in combat
 }
 
 interface ShipType {
@@ -102,7 +102,7 @@ interface Sector {
 
   port?: Port;
   planets?: Planet[];
-  players?: PlayerOther[];
+  players?: Player[];
 
   scene_config: unknown;
   last_visited?: string;
@@ -117,7 +117,7 @@ interface Planet {
 
 ## Port
 
-Ports use the same data model if current or distant. Client determines whether prices and stock are live or last seen via `observed_at` (`null` if live).
+Ports use the same data model if current or distant. Client determines whether prices and stock are live or last seen via `observed_at` (`null` if live.)
 
 ```ts
 interface PortBase {
