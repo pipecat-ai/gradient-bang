@@ -9,6 +9,7 @@ import logging
 import uuid
 from collections import deque
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -43,7 +44,8 @@ from messaging.store import MessageStore
 from combat.models import CombatantAction
 from combat.utils import serialize_encounter, serialize_round
 from ships import ShipType, get_ship_stats
-from rpc import Connection, event_dispatcher, rpc_error, rpc_success, send_initial_status, RPCHandler
+from rpc import Connection, event_dispatcher, rpc_error, rpc_success, send_initial_status, RPCHandler, RateLimiter
+from core.locks import CreditLockManager
 
 logger = logging.getLogger("gradient-bang.server")
 logging.basicConfig(level=logging.INFO)
@@ -71,27 +73,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialise messaging store + rate limits for chat
+# Initialise messaging store and rate limiter
 _MESSAGES = MessageStore(get_world_data_path() / "messages")
-_RATE_LIMIT_LAST: Dict[str, float] = {}
+_CONFIG_DIR = Path(__file__).parent / "config"
+rate_limiter = RateLimiter(_CONFIG_DIR / "rate_limits.yaml")
 
-# Per-character locks for atomic credit operations
-_CREDIT_LOCKS: Dict[str, asyncio.Lock] = {}
+# Per-character credit lock manager for atomic credit operations
+credit_locks = CreditLockManager(timeout=30.0)
 
 
 async def _handle_send_message(payload: Dict[str, Any]) -> Dict[str, Any]:
-    def _rate_limit(from_id: str) -> None:
-        now = asyncio.get_running_loop().time()
-        last = _RATE_LIMIT_LAST.get(from_id, 0.0)
-        if now - last < 1.0:
-            raise HTTPException(status_code=429, detail="Rate limit 1 msg/sec")
-        _RATE_LIMIT_LAST[from_id] = now
+    """Handle send_message RPC with event emission.
 
+    Note: Rate limiting is handled at the RPC_HANDLERS level via rate_limiter.
+    """
     record = await api_send_message.handle(
         payload,
         world,
         _MESSAGES,
-        rate_limit_check=_rate_limit,
+        rate_limit_check=None,
     )
 
     # Strip internal fields from public event
@@ -121,20 +121,53 @@ async def _rpc_server_status(_: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _with_rate_limit(endpoint: str, handler: RPCHandler) -> RPCHandler:
+    """Wrap an RPC handler with rate limiting.
+
+    Args:
+        endpoint: The endpoint name for rate limit lookup
+        handler: The handler function to wrap
+
+    Returns:
+        Rate-limited handler function
+    """
+    async def wrapped(payload: Dict[str, Any]) -> Dict[str, Any]:
+        # Extract character_id from payload
+        character_id = payload.get("character_id")
+        if not character_id:
+            # No character_id means no rate limiting (e.g., server_status)
+            return await handler(payload)
+
+        # For send_message, determine message type for rate limiting
+        message_type = None
+        if endpoint == "send_message":
+            message_type = payload.get("type")  # "broadcast" or "direct"
+
+        # Enqueue request with rate limiting
+        return await rate_limiter.enqueue_request(
+            endpoint=endpoint,
+            character_id=character_id,
+            handler=lambda: handler(payload),
+            message_type=message_type,
+        )
+
+    return wrapped
+
+
 RPC_HANDLERS: Dict[str, RPCHandler] = {
     "plot_course": lambda payload: api_plot_course.handle(payload, world),
     "join": lambda payload: api_join.handle(payload, world),
-    "move": lambda payload: api_move.handle(payload, world),
+    "move": _with_rate_limit("move", lambda payload: api_move.handle(payload, world)),
     "my_status": lambda payload: api_my_status.handle(payload, world),
     "my_map": lambda payload: api_my_map.handle(payload, world),
     "local_map": lambda payload: api_local_map.handle(payload, world),
     "check_trade": lambda payload: api_check_trade.handle(payload, world),
-    "trade": lambda payload: api_trade.handle(payload, world),
+    "trade": _with_rate_limit("trade", lambda payload: api_trade.handle(payload, world)),
     "recharge_warp_power": lambda payload: api_recharge.handle(payload, world),
     "transfer_warp_power": lambda payload: api_transfer.handle(payload, world),
     "reset_ports": lambda payload: api_reset_ports.handle(payload, world),
     "regenerate_ports": lambda payload: api_regen_ports.handle(payload, world),
-    "send_message": _handle_send_message,
+    "send_message": _with_rate_limit("send_message", _handle_send_message),
     "combat.initiate": lambda payload: api_combat_initiate.handle(payload, world),
     "combat.action": lambda payload: api_combat_action.handle(payload, world),
     "combat.status": lambda payload: api_combat_status.handle(payload, world),
@@ -169,36 +202,26 @@ def _garrison_commit_for_mode(mode: str, fighters: int) -> int:
 async def _handle_toll_payment(payer_id: str, amount: int) -> bool:
     """Handle toll payment with atomic credit operations.
 
-    Uses per-character locking to prevent race conditions between concurrent
+    Uses CreditLockManager to prevent race conditions between concurrent
     toll payments, trades, or other credit operations.
     """
     if amount <= 0:
         return True
 
-    # Get or create per-character lock
-    if payer_id not in _CREDIT_LOCKS:
-        _CREDIT_LOCKS[payer_id] = asyncio.Lock()
+    # Use credit lock manager for atomic deduction
+    success = await credit_locks.deduct_credits(payer_id, amount, world)
 
-    async with _CREDIT_LOCKS[payer_id]:
-        try:
-            credits = world.knowledge_manager.get_credits(payer_id)
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("Unable to read credits for %s during toll payment: %s", payer_id, exc)
-            return False
-
-        if credits < amount:
-            logger.info(
-                "Toll payment declined for %s (credits=%s, required=%s)",
-                payer_id,
-                credits,
-                amount,
-            )
-            return False
-
-        world.knowledge_manager.update_credits(payer_id, credits - amount)
+    if success:
         await _emit_status_update(payer_id)
         logger.info("Toll payment accepted: payer=%s amount=%s", payer_id, amount)
-        return True
+    else:
+        logger.info(
+            "Toll payment declined for %s (insufficient credits, required=%s)",
+            payer_id,
+            amount,
+        )
+
+    return success
 
 
 async def _combat_round_waiting(encounter) -> None:
