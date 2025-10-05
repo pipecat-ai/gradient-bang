@@ -459,6 +459,48 @@ class CombatManager:
 
             encounter.pending_actions.clear()
 
+            # Check if combat should end due to insufficient combatants
+            active_participants = [
+                (pid, state)
+                for pid, state in encounter.participants.items()
+                if outcome.fighters_remaining.get(pid, 0) > 0
+            ]
+
+            if not round_result and len(active_participants) <= 2:
+                should_end = False
+                if len(active_participants) == 1:
+                    # Only one participant remains - end as stalemate (all others fled)
+                    should_end = True
+                    logger.info(
+                        "Combat ending: only one participant remains after flee: combat_id=%s participant=%s",
+                        combat_id,
+                        active_participants[0][0],
+                    )
+                elif len(active_participants) == 2:
+                    # Check if garrison + owner (can't fight each other)
+                    p1_id, p1_state = active_participants[0]
+                    p2_id, p2_state = active_participants[1]
+
+                    if (
+                        p1_state.combatant_type == "garrison"
+                        and p2_state.combatant_type == "character"
+                        and p1_state.owner_character_id == p2_id
+                    ) or (
+                        p2_state.combatant_type == "garrison"
+                        and p1_state.combatant_type == "character"
+                        and p2_state.owner_character_id == p1_id
+                    ):
+                        should_end = True
+                        logger.info(
+                            "Combat ending: only garrison and owner remain: combat_id=%s participants=%s",
+                            combat_id,
+                            [p1_id, p2_id],
+                        )
+
+                if should_end:
+                    round_result = "stalemate"
+                    outcome.end_state = "stalemate"
+
             if _is_terminal_state(round_result):
                 encounter.ended = True
                 encounter.end_state = round_result

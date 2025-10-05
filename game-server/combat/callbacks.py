@@ -270,6 +270,29 @@ async def on_round_resolved(encounter, outcome, world, event_dispatcher) -> None
                 character_id,
                 destination,
             )
+
+            # Send immediate combat.ended event to fled character
+            fled_payload = {
+                "combat_id": encounter.combat_id,
+                "sector": encounter.sector_id,  # Where they fled FROM
+                "result": "fled",
+                "round": outcome.round_number,
+                "fled_to_sector": destination,
+                "salvage": [],  # Fled characters don't participate in salvage
+            }
+
+            await event_dispatcher.emit(
+                "combat.ended",
+                fled_payload,
+                character_filter=[character_id],
+            )
+            logger.info(
+                "Sent immediate combat.ended to fled character %s (fled from sector %s to %s)",
+                character_id,
+                encounter.sector_id,
+                destination,
+            )
+
         except HTTPException as exc:  # pragma: no cover
             logger.warning(
                 "Failed to move fleeing character %s to sector %s: %s",
@@ -326,17 +349,16 @@ async def on_combat_ended(encounter, outcome, world, event_dispatcher) -> None:
     )
     logger.info("combat.ended payload %s", payload)
 
-    # Notify all participants and recently fled characters
-    base_filter = extract_character_filter(encounter)
-    recent_flee_ids = encounter.context.pop("recent_flee_character_ids", [])
-    notify_ids = set(base_filter)
-    if isinstance(recent_flee_ids, list):
-        notify_ids.update(str(cid) for cid in recent_flee_ids if cid)
+    # Notify only current participants (fled characters already received their own combat.ended)
+    character_filter = extract_character_filter(encounter)
+
+    # Clean up fled character tracking from context
+    encounter.context.pop("recent_flee_character_ids", None)
 
     await event_dispatcher.emit(
         "combat.ended",
         payload,
-        character_filter=sorted(notify_ids),
+        character_filter=character_filter,
     )
 
     logger.debug("on_combat_ended complete: combat_id=%s", encounter.combat_id)
