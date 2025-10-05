@@ -8,7 +8,7 @@ Dispatched after local client connects and is in ready state, or used to rehydra
 
 ```json
 {
-    "local_map": [ // type: `MapNode[]`
+    "map_local": [ // type: `MapNode[]`
         {
             "id": 0,
             "lanes": [ // type: `MapLane[]`
@@ -59,19 +59,6 @@ Dispatched after local client connects and is in ready state, or used to rehydra
                 "scene_config": {}
             },
             "visited": true
-        },
-        {
-            // ...
-        }
-    ],
-    "movement_history": [ // type: `MovementHistory[]`
-        {
-            "from": 0,
-            "port": { // type: `PortBase`
-                "code": "BSS"
-            },
-            "timestamp": "2025-09-21T18:04:12.123456Z",
-            "to": 1
         },
         {
             // ...
@@ -170,3 +157,65 @@ Dispatched after local client connects and is in ready state, or used to rehydra
     }
 }
 ```
+
+## Movement
+
+### `movement.start` 
+
+Sector model represents sector you're moving into.
+
+```json
+{
+    "sector": {
+        "adjacent_sectors": [],
+        "id": 1,
+        "last_visited": null,
+        "planets": [],
+        "players": [],
+        "port": null,
+        "region": {
+            "id": "core_worlds",
+            "name": "Core Worlds",
+            "safe": true
+        },
+        "scene_config": {}
+    }
+}
+```
+
+### `movement.complete`
+
+Sector model represents current sector
+
+Local map updated once new sector move is complete 
+
+```json
+{
+    "sector" : {},
+    "map_local": []
+}
+```
+
+## History
+
+### `history.movement_history`
+
+Array of type `MovementHistory[]`.
+
+```json
+{
+    "movement_history": [
+        {
+            "from": 0,
+            "port": {
+                "code": "BSS"
+            },
+            "timestamp": "2025-09-21T18:04:12.123456Z",
+            "to": 1
+        }
+    ]
+}
+```
+
+### `history.discovered_ports`
+

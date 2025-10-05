@@ -96,13 +96,13 @@ interface ShipSelf extends Ship {
 
 ```ts
 interface Region {
-  id: number;
-  name:
+  id:
     | "core_worlds"
     | "trade_federation"
     | "frontier"
     | "pirate_space"
     | "neutral_zone";
+  name: string;
   safe: boolean;
 }
 
@@ -114,7 +114,7 @@ interface Sector {
   players?: Player[];
   port?: Port;
   region: Region;
-  scene_config: unknown;
+  scene_config?: unknown;
 }
 
 interface Planet {
