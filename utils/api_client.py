@@ -757,12 +757,12 @@ class AsyncGameClient:
 
         return wrapped
 
-    async def plot_course(self, from_sector: int, to_sector: int) -> Dict[str, Any]:
-        """Plot a course between two sectors.
+    async def plot_course(self, to_sector: int, character_id: Optional[str] = None) -> Dict[str, Any]:
+        """Plot a course from character's current sector to destination.
 
         Args:
-            from_sector: Starting sector
             to_sector: Destination sector
+            character_id: Character to plot course for (defaults to current character)
 
         Returns:
             Course information including path and distance
@@ -770,9 +770,12 @@ class AsyncGameClient:
         Raises:
             RPCError: If the request fails
         """
+        character_id = self._resolve_character_id(character_id)
+
         result = await self._request(
-            "plot_course", {"from_sector": from_sector, "to_sector": to_sector}
+            "plot_course", {"character_id": character_id, "to_sector": to_sector}
         )
+        from_sector = result.get("from_sector")
         path = result.get("path", []) or []
         distance = result.get("distance")
         summary_parts = [f"Course {from_sector} → {to_sector}"]
@@ -972,35 +975,36 @@ class AsyncGameClient:
                 ]
 
     async def find_nearest_known_port(
-        self, from_sector: int
+        self, character_id: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
-        """Find the nearest known port of any type from a given sector.
+        """Find the nearest known port of any type from character's current location.
 
         This is CLIENT-SIDE logic that analyzes the character's map knowledge.
 
         Args:
-            from_sector: Sector to search from
+            character_id: Character to search for (defaults to current character)
 
         Returns:
             Port information with distance and path, or None if not found
 
         Raises:
-            ValueError: If from_sector has not been visited
+            ValueError: If character has no current sector
         """
-        # Ensure we have map data for current character
-        if not self._current_character:
-            raise ValueError("No character currently tracked")
+        character_id = self._resolve_character_id(character_id)
 
-        await self._ensure_map_cached(self._current_character)
-        map_knowledge = self._map_cache.get(self._current_character, {})
+        # Get character's current sector
+        if character_id == self._current_character and self._current_sector is not None:
+            from_sector = self._current_sector
+        else:
+            # Fetch status to get current sector
+            status = await self.my_status(character_id)
+            from_sector = status.get("sector")
+            if from_sector is None:
+                raise ValueError(f"Character {character_id} has no current sector")
+
+        await self._ensure_map_cached(character_id)
+        map_knowledge = self._map_cache.get(character_id, {})
         sectors_visited = map_knowledge.get("sectors_visited", {})
-
-        # Check if from_sector has been visited (support numeric and legacy keys)
-        if (
-            str(from_sector) not in sectors_visited
-            and f"sector_{from_sector}" not in sectors_visited
-        ):
-            raise ValueError(f"Sector {from_sector} has not been visited")
 
         # Find all ports
         all_ports = []
@@ -1024,7 +1028,7 @@ class AsyncGameClient:
 
         for port_data in all_ports:
             try:
-                course = await self.plot_course(from_sector, port_data["sector"])
+                course = await self.plot_course(port_data["sector"], character_id)
                 distance = course.get("distance")
                 if distance is None:
                     continue
@@ -1039,24 +1043,21 @@ class AsyncGameClient:
                     }
             except RPCError as e:
                 logger.warning(
-                    "RPC error while plotting course from %s to %s: %s",
-                    from_sector,
+                    "RPC error while plotting course to %s: %s",
                     port_data["sector"],
                     e,
                 )
                 continue
             except ValueError as e:
                 logger.warning(
-                    "Value error while plotting course from %s to %s: %s",
-                    from_sector,
+                    "Value error while plotting course to %s: %s",
                     port_data["sector"],
                     e,
                 )
                 continue
             except Exception:
                 logger.exception(
-                    "Unexpected error while plotting course from %s to %s",
-                    from_sector,
+                    "Unexpected error while plotting course to %s",
                     port_data["sector"],
                 )
                 raise
@@ -1064,37 +1065,38 @@ class AsyncGameClient:
         return nearest
 
     async def find_nearest_known_port_with_commodity(
-        self, from_sector: int, commodity: str, buy_or_sell: str
+        self, commodity: str, buy_or_sell: str, character_id: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """Find the nearest known port that buys or sells a specific commodity.
 
         This is CLIENT-SIDE logic that analyzes the character's map knowledge.
 
         Args:
-            from_sector: Sector to search from
             commodity: Commodity to search for (must be exact: 'fuel_ore', 'organics', or 'equipment')
             buy_or_sell: Whether to find a port that 'buy's or 'sell's the commodity
+            character_id: Character to search for (defaults to current character)
 
         Returns:
             Port information with distance and path, or None if not found
 
         Raises:
-            ValueError: If from_sector has not been visited
+            ValueError: If character has no current sector
         """
-        # Ensure we have map data for current character
-        if not self._current_character:
-            raise ValueError("No character currently tracked")
+        character_id = self._resolve_character_id(character_id)
 
-        await self._ensure_map_cached(self._current_character)
-        map_knowledge = self._map_cache.get(self._current_character, {})
+        # Get character's current sector
+        if character_id == self._current_character and self._current_sector is not None:
+            from_sector = self._current_sector
+        else:
+            # Fetch status to get current sector
+            status = await self.my_status(character_id)
+            from_sector = status.get("sector")
+            if from_sector is None:
+                raise ValueError(f"Character {character_id} has no current sector")
+
+        await self._ensure_map_cached(character_id)
+        map_knowledge = self._map_cache.get(character_id, {})
         sectors_visited = map_knowledge.get("sectors_visited", {})
-
-        # Check if from_sector has been visited (support numeric and legacy keys)
-        if (
-            str(from_sector) not in sectors_visited
-            and f"sector_{from_sector}" not in sectors_visited
-        ):
-            raise ValueError(f"Sector {from_sector} has not been visited")
 
         # Find all ports that match the criteria
         matching_ports = []
@@ -1128,7 +1130,7 @@ class AsyncGameClient:
 
         for port_data in matching_ports:
             try:
-                course = await self.plot_course(from_sector, port_data["sector"])
+                course = await self.plot_course(port_data["sector"], character_id)
                 distance = course.get("distance")
                 if distance is None:
                     continue
@@ -1141,24 +1143,21 @@ class AsyncGameClient:
                     }
             except RPCError as e:
                 logger.warning(
-                    "RPC error while plotting course from %s to %s: %s",
-                    from_sector,
+                    "RPC error while plotting course to %s: %s",
                     port_data["sector"],
                     e,
                 )
                 continue
             except ValueError as e:
                 logger.warning(
-                    "Value error while plotting course from %s to %s: %s",
-                    from_sector,
+                    "Value error while plotting course to %s: %s",
                     port_data["sector"],
                     e,
                 )
                 continue
             except Exception:
                 logger.exception(
-                    "Unexpected error while plotting course from %s to %s",
-                    from_sector,
+                    "Unexpected error while plotting course to %s",
                     port_data["sector"],
                 )
                 raise

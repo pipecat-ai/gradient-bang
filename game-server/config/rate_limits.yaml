@@ -73,3 +73,48 @@ my_map:
 plot_course:
   limit: 1.0      # 1 pathfinding per second
   window: 1.0
+
+local_map:
+  limit: 2.0      # 2 local map queries per second
+  window: 1.0
+
+# Authentication
+join:
+  limit: 1.0      # 1 join per 5 seconds
+  window: 5.0
+
+# Combat query/management
+combat.status:
+  limit: 2.0      # 2 status checks per second
+  window: 1.0
+
+combat.leave_fighters:
+  limit: 1.0      # 1 garrison operation per 2 seconds
+  window: 2.0
+
+combat.collect_fighters:
+  limit: 1.0      # 1 garrison operation per 2 seconds
+  window: 2.0
+
+combat.set_garrison_mode:
+  limit: 1.0      # 1 mode change per 2 seconds
+  window: 2.0
+
+# Salvage
+salvage.collect:
+  limit: 1.0      # 1 collection per 2 seconds
+  window: 2.0
+
+# Admin operations (restrictive to prevent abuse)
+reset_ports:
+  limit: 0.1      # 1 reset per 10 seconds
+  window: 10.0
+
+regenerate_ports:
+  limit: 0.1      # 1 regeneration per 10 seconds
+  window: 10.0
+
+# Server status (no character_id, but still rate limit globally)
+server_status:
+  limit: 5.0      # 5 checks per second (read-only)
+  window: 1.0
