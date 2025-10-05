@@ -247,15 +247,14 @@ Map typeof `MapNode[]`
 
 Typeof `DiscoveredPorts` (array of `Sector`)
 
+Note: `region` is required by the Sector model, so we cannot null it out here. We could create a subclass that omits this field to keep this payload light.
+
 ```json
 {
     "ports": [
         {
-            "adjacent_sectors": null,
             "id": 1,
             "last_visited": "2025-09-21T18:04:12.123456Z",
-            "planets": null,
-            "players": null,
             "port": { 
                 "code": "BSS",
                 "max_capacity": { 
@@ -278,8 +277,7 @@ Typeof `DiscoveredPorts` (array of `Sector`)
                 "id": 0,
                 "name": "core_worlds",
                 "safe": true
-            },
-            "scene_config": null
+            }
         }
     ]
 }
