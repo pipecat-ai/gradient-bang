@@ -186,8 +186,8 @@ export interface UIState {
   active_modal?:
     | "trade"
     | "ship"
+    | "self"
     | "player"
-    | "remote_player"
     | "map"
     | "combat";
   highlight_element_id?: string;
