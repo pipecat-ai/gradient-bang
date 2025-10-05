@@ -14,7 +14,7 @@ from combat.utils import (
     new_combat_id,
     serialize_encounter,
 )
-from events import event_dispatcher
+from rpc.events import event_dispatcher
 
 logger = logging.getLogger("gradient-bang.api.combat_initiate")
 

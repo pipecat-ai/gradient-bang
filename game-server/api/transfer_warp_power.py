@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 
 from .utils import build_status_payload
-from events import event_dispatcher
+from rpc.events import event_dispatcher
 
 
 async def handle(request: dict, world) -> dict:

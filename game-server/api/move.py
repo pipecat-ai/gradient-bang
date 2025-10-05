@@ -5,7 +5,7 @@ from fastapi import HTTPException
 
 from .utils import sector_contents, build_status_payload, ensure_not_in_combat
 from ships import ShipType, get_ship_stats, ShipStats
-from events import event_dispatcher
+from rpc.events import event_dispatcher
 from combat.utils import build_character_combatant
 from api.combat_initiate import start_sector_combat
 

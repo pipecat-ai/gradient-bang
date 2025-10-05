@@ -4,7 +4,7 @@ import logging
 
 from fastapi import HTTPException
 
-from events import event_dispatcher
+from rpc.events import event_dispatcher
 from .combat_initiate import start_sector_combat
 
 

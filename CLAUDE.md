@@ -24,8 +24,12 @@ uv run <script>      # Run any Python script
 
 ### Running the Server
 ```bash
-cd game-server
-uv run server.py     # Starts server on http://localhost:8000
+# Standard method (from project root)
+uv run python -m game-server     # Starts server on http://localhost:8000
+
+# Alternative methods
+cd game-server && uv run python server.py
+cd game-server && uv run python -m .
 ```
 
 ### Running Tests

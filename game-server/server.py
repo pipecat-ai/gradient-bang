@@ -11,15 +11,8 @@ from collections import deque
 from contextlib import asynccontextmanager
 from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional
 
-import sys
-from pathlib import Path
-
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
 from core.world import lifespan as world_lifespan, world
 from api import (
@@ -46,12 +39,11 @@ from api import (
 )
 from api.utils import build_status_payload
 from core.config import get_world_data_path
-from events import EventSink, event_dispatcher
 from messaging.store import MessageStore
-from schemas.generated_events import ServerEventName
 from combat.models import CombatantAction
 from combat.utils import serialize_encounter, serialize_round
 from ships import ShipType, get_ship_stats
+from rpc import Connection, event_dispatcher, rpc_error, rpc_success, send_initial_status, RPCHandler
 
 logger = logging.getLogger("gradient-bang.server")
 logging.basicConfig(level=logging.INFO)
@@ -79,10 +71,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-RPCHandler = Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]
-
-
 # Initialise messaging store + rate limits for chat
 _MESSAGES = MessageStore(get_world_data_path() / "messages")
 _RATE_LIMIT_LAST: Dict[str, float] = {}
@@ -106,18 +94,20 @@ async def _handle_send_message(payload: Dict[str, Any]) -> Dict[str, Any]:
         rate_limit_check=_rate_limit,
     )
 
-    public_record = {k: v for k, v in record.items() if k != "from_character_id"}
-    name_filter: Optional[Iterable[str]]
-    if public_record.get("type") == "direct":
-        to_name = public_record.get("to_name")
-        from_name = public_record.get("from_name")
-        name_filter = [n for n in (to_name, from_name) if n]
-    else:
-        name_filter = []
+    # Strip internal fields from public event
+    public_record = {k: v for k, v in record.items() if k not in ("from_character_id", "to_character_id")}
+
+    # For direct messages, only notify sender and recipient by character ID
+    character_filter: Optional[List[str]] = None
+    if record.get("type") == "direct":
+        from_id = record.get("from_character_id")
+        to_id = record.get("to_character_id")
+        character_filter = [cid for cid in (from_id, to_id) if cid]
+
     await event_dispatcher.emit(
         "chat.message",
         public_record,
-        name_filter=name_filter,
+        character_filter=character_filter,
     )
     return {"id": record["id"]}
 
@@ -751,111 +741,6 @@ async def _finalize_combat(encounter, outcome):
             await _emit_status_update(winner_owner)
 
     return salvages
-def _rpc_success(
-    frame_id: str, endpoint: str, result: Dict[str, Any]
-) -> Dict[str, Any]:
-    return {
-        "frame_type": "rpc",
-        "id": frame_id,
-        "endpoint": endpoint,
-        "ok": True,
-        "result": result,
-    }
-
-
-def _rpc_error(
-    frame_id: str, endpoint: str, exc: HTTPException | Exception
-) -> Dict[str, Any]:
-    status = exc.status_code if isinstance(exc, HTTPException) else 500
-    detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
-    code = getattr(exc, "code", None)
-    payload = {
-        "frame_type": "rpc",
-        "id": frame_id,
-        "endpoint": endpoint,
-        "ok": False,
-        "error": {"status": status, "detail": detail},
-    }
-    if code:
-        payload["error"]["code"] = code
-    return payload
-
-
-class Connection(EventSink):
-    """Represents a connected WebSocket client."""
-
-    def __init__(self, websocket: WebSocket) -> None:
-        self.websocket = websocket
-        self.connection_id = str(uuid.uuid4())
-        self.status_subscriptions: set[str] = set()
-        self.known_character_ids: set[str] = set()
-        self.controlled_character_ids: set[str] = set()
-        self.known_names: set[str] = set()
-        self.chat_subscribed = False
-        self._send_lock = asyncio.Lock()
-        self.character_sectors: dict[str, int] = {}
-
-    async def send_event(self, envelope: dict) -> None:
-        logger.debug(
-            "Connection %s sending event %s", self.connection_id, envelope.get("event")
-        )
-        async with self._send_lock:
-            await self.websocket.send_json(envelope)
-        logger.debug(
-            "Connection %s sent event %s", self.connection_id, envelope.get("event")
-        )
-        if envelope.get("event") == "status.update":
-            payload = envelope.get("payload", {})
-            sector = payload.get("sector")
-            if isinstance(sector, int):
-                for character_id in envelope.get("character_filter", []) or []:
-                    if character_id:
-                        self.character_sectors[str(character_id)] = sector
-
-    def matches_characters(self, character_ids: Iterable[str]) -> bool:
-        tracked = self.status_subscriptions | self.known_character_ids
-        return any(cid in tracked for cid in character_ids)
-
-    def matches_names(self, names: Iterable[str]) -> bool:
-        if not self.chat_subscribed:
-            return False
-        names = list(names)
-        if not names:
-            return True
-        return any(name in self.known_names for name in names)
-
-    def matches_sectors(self, sectors: Iterable[int]) -> bool:
-        sectors = list(sectors)
-        if not sectors:
-            return True
-        return any(
-            sector in sectors for sector in self.character_sectors.values()
-        )
-
-    def register_character(self, character_id: str | None, name: str | None) -> None:
-        if character_id:
-            cid = str(character_id)
-            self.known_character_ids.add(cid)
-            self.status_subscriptions.add(cid)
-        if name:
-            self.known_names.add(str(name))
-        self.chat_subscribed = True
-
-
-async def _send_initial_status(connection: Connection, character_id: str) -> None:
-    if character_id not in world.characters:
-        raise HTTPException(
-            status_code=404, detail=f"Character '{character_id}' not found"
-        )
-    payload = await build_status_payload(world, character_id)
-    envelope = {
-        "frame_type": "event",
-        "event": "status.update",
-        "payload": payload,
-        "gg-action": "status.update",
-        "character_filter": [character_id],
-    }
-    await connection.send_event(envelope)
 
 
 @app.get("/")
@@ -934,7 +819,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 frame = json.loads(raw)
             except json.JSONDecodeError:
                 await websocket.send_json(
-                    _rpc_error(
+                    rpc_error(
                         str(uuid.uuid4()),
                         "unknown",
                         HTTPException(status_code=400, detail="Invalid JSON"),
@@ -946,22 +831,27 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             message_type = frame.get("type", "rpc")
 
             if message_type == "identify":
-                name = frame.get("name")
                 character_id = frame.get("character_id")
-                if not name and not character_id:
+                if not character_id:
                     await websocket.send_json(
-                        _rpc_error(
+                        rpc_error(
                             frame_id,
                             "identify",
                             HTTPException(
-                                status_code=400, detail="Missing name or character_id"
+                                status_code=400, detail="Missing character_id"
                             ),
                         )
                     )
                     continue
-                connection.register_character(character_id, name)
+                try:
+                    connection.set_character(character_id)
+                except ValueError as e:
+                    await websocket.send_json(
+                        rpc_error(frame_id, "identify", HTTPException(status_code=400, detail=str(e)))
+                    )
+                    continue
                 await websocket.send_json(
-                    _rpc_success(frame_id, "identify", {"identified": True})
+                    rpc_success(frame_id, "identify", {"identified": True})
                 )
                 continue
 
@@ -971,7 +861,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     character_id = frame.get("character_id")
                     if not character_id:
                         await websocket.send_json(
-                            _rpc_error(
+                            rpc_error(
                                 frame_id,
                                 "subscribe",
                                 HTTPException(
@@ -980,10 +870,15 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                             )
                         )
                         continue
-                    connection.status_subscriptions.add(str(character_id))
-                    connection.register_character(character_id, frame.get("name"))
+                    try:
+                        connection.set_character(character_id)
+                    except ValueError as e:
+                        await websocket.send_json(
+                            rpc_error(frame_id, "subscribe", HTTPException(status_code=400, detail=str(e)))
+                        )
+                        continue
                     await websocket.send_json(
-                        _rpc_success(
+                        rpc_success(
                             frame_id,
                             "subscribe",
                             {
@@ -993,22 +888,22 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                         )
                     )
                     try:
-                        await _send_initial_status(connection, str(character_id))
+                        await send_initial_status(connection, str(character_id), world)
                     except HTTPException as exc:
                         await websocket.send_json(
-                            _rpc_error(frame_id, "subscribe", exc)
+                            rpc_error(frame_id, "subscribe", exc)
                         )
                     continue
                 if event_name == "chat.message":
-                    connection.chat_subscribed = True
+                    # Chat messages routed via character_filter, no separate subscription needed
                     await websocket.send_json(
-                        _rpc_success(
+                        rpc_success(
                             frame_id, "subscribe", {"subscribed": "chat.message"}
                         )
                     )
                     continue
                 await websocket.send_json(
-                    _rpc_error(
+                    rpc_error(
                         frame_id,
                         "subscribe",
                         HTTPException(
@@ -1021,7 +916,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
             if message_type != "rpc":
                 await websocket.send_json(
-                    _rpc_error(
+                    rpc_error(
                         frame_id,
                         message_type,
                         HTTPException(
@@ -1037,7 +932,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             handler = RPC_HANDLERS.get(endpoint)
             if not handler:
                 await websocket.send_json(
-                    _rpc_error(
+                    rpc_error(
                         frame_id,
                         endpoint or "unknown",
                         HTTPException(
@@ -1050,29 +945,33 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             try:
                 result = await handler(payload)
                 if endpoint in {"join", "my_status"}:
-                    # Register the character for subsequent targeted events
+                    # Associate character with this connection
                     character_id = payload.get("character_id")
                     if character_id:
-                        connection.register_character(character_id, result.get("name"))
-                        if endpoint == "join":
-                            connection.controlled_character_ids.add(str(character_id))
-                await websocket.send_json(_rpc_success(frame_id, endpoint, result))
+                        try:
+                            connection.set_character(character_id)
+                        except ValueError:
+                            # Already set to this character, that's fine
+                            pass
+                await websocket.send_json(rpc_success(frame_id, endpoint, result))
             except HTTPException as exc:
-                await websocket.send_json(_rpc_error(frame_id, endpoint, exc))
+                await websocket.send_json(rpc_error(frame_id, endpoint, exc))
             except Exception as exc:  # noqa: BLE001
                 logger.exception("RPC handler error endpoint=%s", endpoint)
-                await websocket.send_json(_rpc_error(frame_id, endpoint, exc))
+                await websocket.send_json(rpc_error(frame_id, endpoint, exc))
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected id=%s", connection.connection_id)
     finally:
-        for character_id in connection.controlled_character_ids:
-            character = world.characters.get(character_id)
+        # Mark character as disconnected
+        if connection.character_id:
+            character = world.characters.get(connection.character_id)
             if character:
                 character.connected = False
         await event_dispatcher.unregister(connection)
 
 
 if __name__ == "__main__":
+    # For direct execution: cd game-server && uv run python server.py
+    # Recommended: uv run python -m game-server (from project root)
     import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8000)

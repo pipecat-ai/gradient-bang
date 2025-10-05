@@ -1,19 +1,46 @@
 
+Natural language -> conversation bot -> task LLM -> game server
+
+
+TUI
+  - Rip out and replace MyMap
+    - map_region(center_sector, max_hops, max_count)
+    - map_path(start_sector, end_sector, max_hops)
+    - known_ports(center_sector, max_hops, max_count)
+  - Router/memory equivalent to voice LLM?
+
+
+----
+
+Tool calls
+  - my_status
+  - plot_course
+  - map_region
+  - map_path
+  - known_ports
+  - move
+  - check_trade
+  - trade
+  - recharge_warp_power
+  - transfer_warp_power
+  - transfer_credits
+  - send_message
+  - place_fighters
+  - collect_fighters
+  - attack
+  - round_action
+  - finished
+  
+
+  
+
+----
+
+
 Next:
 
-- test
-  - Player a place offensive fighters in 1234 and 2178
-  - Player a move to 1346
-  - Player b move into 2178
-  - Player b flee to 1234
+- Remove everything in tui/ 
 
-
-- When there is combat in a sector, return a "not allowed" message of some kind for any movement or trading actions. Only combat actions (attack, brace, flee) are allowed if a participant is in a sector where there is combat. Examine the game server code for tracking combat state in a sector and explain the logic, so we understand how it works. Then suggest a way to implement the "only combat actions are allowed" logic described above. Ask any questions you have so we can work together to clarify the implementation goals.
-
-
-
-  - 
---- done ---
 - The combat_interactive_tui.py code needs to automatically detect when a sector is in combat mode and switch to combat mode. Currently it does not do this. I see websocket combat events arriving, but the UI gives me a fight/wait choice rather than presenting me with the combat choices for the round.
 - Add a "quiet|combat" indicator to the status bar. Update this information each time we receive a combat event.
 - Add "fighters: N shields: M" information to the status bar. Update this information each time we receive a combat event.
