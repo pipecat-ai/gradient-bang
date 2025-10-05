@@ -217,5 +217,82 @@ Array of type `MovementHistory[]`.
 }
 ```
 
-### `history.discovered_ports`
+### `history.trades`
 
+```json
+TBD
+```
+
+## Map
+
+### `map.local`
+
+Map typeof `MapNode[]`
+
+```json
+{
+    "map_local": []
+}
+```
+
+### `request.map.local`
+
+```json
+{
+    "sector": 1
+}
+```
+
+### `map.discovered_ports`
+
+Typeof `DiscoveredPorts` (array of `Sector`)
+
+```json
+{
+    "ports": [
+        {
+            "adjacent_sectors": null,
+            "id": 1,
+            "last_visited": "2025-09-21T18:04:12.123456Z",
+            "planets": null,
+            "players": null,
+            "port": { 
+                "code": "BSS",
+                "max_capacity": { 
+                    "EQ": 10,
+                    "FO": 10,
+                    "OG": 10
+                },
+                "stock": {
+                    "EQ": 10,
+                    "FO": 10,
+                    "OG": 10
+                },
+                "warp_power_depot": {
+                    "note": "",
+                    "price_per_unit": 100
+                },
+                "observed_at": "2025-09-21T18:04:12.123456Z"
+            },
+            "region": {
+                "id": 0,
+                "name": "core_worlds",
+                "safe": true
+            },
+            "scene_config": null
+        }
+    ]
+}
+```
+
+### `map.known_universe`
+
+```json
+TBD
+```
+
+### `map.plot`
+
+```json
+TBD
+```
