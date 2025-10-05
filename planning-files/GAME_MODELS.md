@@ -1,8 +1,22 @@
 # Models
 
+## Base
+
+```ts
+interface ServerMessage {
+  event: string;
+  payload: {
+    delta?: Record<string, unknown>;
+    result?: unknown;
+    summary?: string;
+  }
+  tool_name?: string;
+}
+```
+
 ## System
 
-Note: client only
+Client only
 
 ```typescript
 interface Settings {
@@ -19,7 +33,6 @@ interface Settings {
   renderStarfield: true;
   qualityPreset: "text" | "low" | "medium" | "high";
 }
-
 ```
 
 ## Player
@@ -156,14 +169,9 @@ interface MapLane {
 }
 ```
 
-## Logs & History
+## History
 
 ```ts
-interface Log{
-  summary: text;
-  timestamp: string;
-}
-
 interface MovementHistory {
   from: number;
   to: number;
