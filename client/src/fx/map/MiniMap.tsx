@@ -53,345 +53,479 @@ export interface MiniMapProps {
   maxDistance?: number; // BFS depth from current sector
 }
 
-// Utility: build adjacency from edges for quick BFS traversals
-export function buildAdjacency(data: MiniMapData): Map<number, number[]> {
-  const adjacency = new Map<number, number[]>();
-  const push = (a: number, b: number) => {
-    const arr = adjacency.get(a);
-    if (arr) arr.push(b);
-    else adjacency.set(a, [b]);
-  };
-  Object.values(data).forEach((node) => {
-    if (!node.lanes) return;
-    for (const e of node.lanes) {
-      push(node.id, e.to);
-      if (e.two_way) push(e.to, node.id);
-    }
-  });
-  return adjacency;
-}
-
-// Utility: BFS limited by depth from a start node id
-export function bfsWithinDistance(
-  startId: number,
-  maxDistance: number,
-  adjacency: Map<number, number[]>
-): Map<number, number> {
-  const distanceById = new Map<number, number>();
-  const queue: { id: number; d: number }[] = [];
-  distanceById.set(startId, 0);
-  queue.push({ id: startId, d: 0 });
-  while (queue.length) {
-    const { id, d } = queue.shift()!;
-    if (d >= maxDistance) continue;
-    const neighbors = adjacency.get(id) || [];
-    for (const n of neighbors) {
-      if (!distanceById.has(n)) {
-        distanceById.set(n, d + 1);
-        queue.push({ id: n, d: d + 1 });
-      }
-    }
-  }
-  return distanceById;
-}
-
-// Utility: transform MapSectorNode[] into MiniMapData
-export function mapSectorNodesToMiniMapData(
-  nodes: MapSectorNode[],
-  regionBySectorId?: Record<number, string>
-): MiniMapData {
-  const outNodes: Record<number, MiniMapNode> = {};
-  for (const n of nodes) {
-    outNodes[n.id] = {
-      id: n.id,
-      position: n.position,
-      visited: Boolean(n.visited || n.last_visited),
-      port: n.port,
-      region: regionBySectorId ? regionBySectorId[n.id] : undefined,
-      lanes: (n.lanes || []).map((l) => ({
-        from: n.id,
-        to: l.to,
-        two_way: l.two_way,
-        hyperlane: l.hyperlane,
-      })),
-    };
-  }
-  return outNodes;
-}
-
-// Convert hex grid coordinates to world pixels (flat-top hexes, offset coordinates)
-// hexX, hexY are offset/grid coordinates (not axial)
-// gridSpacing is the actual distance between hex centers in pixels
-export function hexToPixel(
+/**
+ * Convert hex grid coordinates (q, r) to world pixel coordinates
+ * Uses offset coordinate system matching world_viewer.html
+ */
+function hexToWorld(
   hexX: number,
   hexY: number,
-  gridSpacing: number
+  scale: number
 ): { x: number; y: number } {
-  const x = gridSpacing * hexX;
-  const y = ((gridSpacing * Math.sqrt(3)) / 2) * (hexY * 2 + (hexX & 1));
+  const x = scale * 1.5 * hexX;
+  const y = scale * Math.sqrt(3) * (hexY + 0.5 * (hexX & 1));
   return { x, y };
 }
 
-// Draw a hex outline at (x, y) center (flat-top orientation)
-export function drawHex(
+/**
+ * Draw a hexagon outline at the given position
+ */
+function drawHex(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   size: number,
-  fillStyle?: string,
-  strokeStyle?: string
+  fill: boolean = false
 ) {
   ctx.beginPath();
   for (let i = 0; i < 6; i++) {
-    const angle = (Math.PI / 3) * i; // flat-top (no offset)
+    const angle = (Math.PI / 3) * i;
     const px = x + size * Math.cos(angle);
     const py = y + size * Math.sin(angle);
-    if (i === 0) ctx.moveTo(px, py);
-    else ctx.lineTo(px, py);
+    if (i === 0) {
+      ctx.moveTo(px, py);
+    } else {
+      ctx.lineTo(px, py);
+    }
   }
   ctx.closePath();
-  if (fillStyle) {
-    ctx.fillStyle = fillStyle;
-    ctx.fill();
+  if (fill) ctx.fill();
+  ctx.stroke();
+}
+
+/**
+ * Calculate all sectors reachable from current sector via BFS traversal
+ * Returns a Map of sector ID to distance (number of jumps from current)
+ */
+function calculateReachableSectors(
+  data: MiniMapData,
+  currentSectorId: number,
+  maxDistance: number
+): Map<number, number> {
+  const reachableMap = new Map<number, number>();
+  const currentSector = data[currentSectorId];
+
+  if (!currentSector) return reachableMap;
+
+  // BFS queue: { id, distance }
+  const queue: Array<{ id: number; distance: number }> = [
+    { id: currentSectorId, distance: 0 },
+  ];
+  const visited = new Set<number>([currentSectorId]);
+  reachableMap.set(currentSectorId, 0);
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+
+    // Stop if we've reached max distance
+    if (current.distance >= maxDistance) continue;
+
+    const sector = data[current.id];
+    if (!sector) continue;
+
+    // Process all outgoing lanes
+    sector.lanes.forEach((lane) => {
+      if (!visited.has(lane.to)) {
+        visited.add(lane.to);
+        reachableMap.set(lane.to, current.distance + 1);
+        queue.push({ id: lane.to, distance: current.distance + 1 });
+      }
+    });
   }
-  if (strokeStyle) {
-    ctx.strokeStyle = strokeStyle;
-    ctx.stroke();
+
+  return reachableMap;
+}
+
+/**
+ * Filter data to only include reachable sectors
+ */
+function filterReachableSectors(
+  data: MiniMapData,
+  reachableMap: Map<number, number>
+): MiniMapData {
+  const filtered: MiniMapData = {};
+
+  reachableMap.forEach((_distance, sectorId) => {
+    if (data[sectorId]) {
+      filtered[sectorId] = data[sectorId];
+    }
+  });
+
+  return filtered;
+}
+
+/**
+ * Calculate bounds of all sectors in world coordinates
+ */
+function calculateSectorBounds(
+  data: MiniMapData,
+  scale: number
+): { minX: number; minY: number; maxX: number; maxY: number } {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  Object.values(data).forEach((node) => {
+    const world = hexToWorld(node.position[0], node.position[1], scale);
+    minX = Math.min(minX, world.x);
+    minY = Math.min(minY, world.y);
+    maxX = Math.max(maxX, world.x);
+    maxY = Math.max(maxY, world.y);
+  });
+
+  return { minX, minY, maxX, maxY };
+}
+
+/**
+ * Calculate camera transform to fit all sectors and center on current sector
+ */
+function calculateCameraTransform(
+  data: MiniMapData,
+  currentSectorId: number,
+  width: number,
+  height: number,
+  scale: number,
+  hexSize: number
+): { offsetX: number; offsetY: number; zoom: number } {
+  const bounds = calculateSectorBounds(data, scale);
+  const boundsWidth = bounds.maxX - bounds.minX;
+  const boundsHeight = bounds.maxY - bounds.minY;
+
+  // Calculate zoom to fit all sectors with some padding
+  const padding = hexSize * 3;
+  const scaleX = (width - padding * 2) / boundsWidth;
+  const scaleY = (height - padding * 2) / boundsHeight;
+  const zoom = Math.min(scaleX, scaleY, 1.5);
+
+  // Find current sector position
+  const currentSector = data[currentSectorId];
+  if (!currentSector) {
+    // If current sector not found, center on bounds center
+    const centerX = (bounds.minX + bounds.maxX) / 2;
+    const centerY = (bounds.minY + bounds.maxY) / 2;
+    return { offsetX: -centerX, offsetY: -centerY, zoom };
+  }
+
+  // Center on current sector
+  const currentWorld = hexToWorld(
+    currentSector.position[0],
+    currentSector.position[1],
+    scale
+  );
+  return { offsetX: -currentWorld.x, offsetY: -currentWorld.y, zoom };
+}
+
+/**
+ * Render an arrow for one-way lanes
+ */
+function renderArrow(
+  ctx: CanvasRenderingContext2D,
+  from: { x: number; y: number },
+  to: { x: number; y: number }
+) {
+  const angle = Math.atan2(to.y - from.y, to.x - from.x);
+  const arrowX = to.x - 15 * Math.cos(angle);
+  const arrowY = to.y - 15 * Math.sin(angle);
+
+  ctx.beginPath();
+  ctx.moveTo(arrowX, arrowY);
+  ctx.lineTo(
+    arrowX - 8 * Math.cos(angle - Math.PI / 6),
+    arrowY - 8 * Math.sin(angle - Math.PI / 6)
+  );
+  ctx.moveTo(arrowX, arrowY);
+  ctx.lineTo(
+    arrowX - 8 * Math.cos(angle + Math.PI / 6),
+    arrowY - 8 * Math.sin(angle + Math.PI / 6)
+  );
+  ctx.stroke();
+}
+
+/**
+ * Calculate intersection point of line with hex boundary
+ * Moves from center towards target, stopping at hex edge
+ */
+function getHexEdgePoint(
+  center: { x: number; y: number },
+  target: { x: number; y: number },
+  hexSize: number
+): { x: number; y: number } {
+  const dx = target.x - center.x;
+  const dy = target.y - center.y;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+
+  if (distance === 0) return center;
+
+  // Move from center towards target by hexSize distance
+  const ratio = hexSize / distance;
+  return {
+    x: center.x + dx * ratio,
+    y: center.y + dy * ratio,
+  };
+}
+
+/**
+ * Render a single lane connecting two sectors
+ */
+function renderLane(
+  ctx: CanvasRenderingContext2D,
+  lane: MiniMapLane,
+  fromNode: MiniMapNode,
+  toNode: MiniMapNode,
+  scale: number,
+  hexSize: number,
+  config: MiniMapRenderConfig
+) {
+  const fromCenter = hexToWorld(
+    fromNode.position[0],
+    fromNode.position[1],
+    scale
+  );
+  const toCenter = hexToWorld(toNode.position[0], toNode.position[1], scale);
+
+  // Calculate edge points instead of center points
+  const from = getHexEdgePoint(fromCenter, toCenter, hexSize);
+  const to = getHexEdgePoint(toCenter, fromCenter, hexSize);
+
+  // Choose color based on lane type
+  if (lane.hyperlane && config.show_hyperlanes) {
+    ctx.strokeStyle = config.colors.hyperlane;
+    ctx.lineWidth = 2;
+  } else if (lane.two_way) {
+    ctx.strokeStyle = config.colors.lane;
+    ctx.lineWidth = 1.5;
+  } else {
+    ctx.strokeStyle = config.colors.lane_one_way;
+    ctx.lineWidth = 1.5;
+  }
+
+  // Draw the lane
+  ctx.beginPath();
+  ctx.moveTo(from.x, from.y);
+  ctx.lineTo(to.x, to.y);
+  ctx.stroke();
+
+  // Draw arrow for one-way lanes
+  if (!lane.two_way) {
+    renderArrow(ctx, from, to);
   }
 }
 
+/**
+ * Render all lanes for the visible sectors
+ */
+function renderAllLanes(
+  ctx: CanvasRenderingContext2D,
+  data: MiniMapData,
+  scale: number,
+  hexSize: number,
+  config: MiniMapRenderConfig
+) {
+  const renderedLanes = new Set<string>();
+
+  Object.values(data).forEach((fromNode) => {
+    fromNode.lanes.forEach((lane) => {
+      const toNode = data[lane.to];
+      if (!toNode) return; // Skip if target not in filtered data
+
+      // For two-way lanes, only render once (use sorted IDs to create unique key)
+      if (lane.two_way) {
+        const laneKey = [lane.from, lane.to].sort((a, b) => a - b).join("-");
+        if (renderedLanes.has(laneKey)) return;
+        renderedLanes.add(laneKey);
+      }
+
+      renderLane(ctx, lane, fromNode, toNode, scale, hexSize, config);
+    });
+  });
+}
+
+/**
+ * Render a single sector hex
+ */
+function renderSector(
+  ctx: CanvasRenderingContext2D,
+  node: MiniMapNode,
+  scale: number,
+  hexSize: number,
+  config: MiniMapRenderConfig,
+  currentRegion?: string
+) {
+  const world = hexToWorld(node.position[0], node.position[1], scale);
+  const isVisited = node.visited ?? false;
+  const isCurrent = node.id === config.current_sector_id;
+  const isCrossRegion =
+    currentRegion && node.region && node.region !== currentRegion;
+
+  // Set fill color based on visited state
+  ctx.fillStyle = isVisited ? config.colors.visited : config.colors.empty;
+
+  // Set border color and width
+  if (isCurrent) {
+    ctx.strokeStyle = config.colors.sector_border_current;
+    ctx.lineWidth = 2;
+  } else if (isCrossRegion) {
+    ctx.strokeStyle = config.colors.cross_region_outline;
+    ctx.lineWidth = 2;
+  } else {
+    ctx.strokeStyle = config.colors.sector_border;
+    ctx.lineWidth = 1;
+  }
+
+  // Draw the hex
+  drawHex(ctx, world.x, world.y, hexSize, true);
+
+  // Draw port indicator if present
+  if (config.show_ports && node.port) {
+    const isMegaPort = node.port === "MEGA";
+    ctx.fillStyle = isMegaPort ? config.colors.mega_port : config.colors.port;
+    ctx.beginPath();
+    ctx.arc(world.x, world.y, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+/**
+ * Render hex grid background covering the visible area
+ */
+function renderHexGrid(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  cameraZoom: number,
+  cameraOffsetX: number,
+  cameraOffsetY: number,
+  scale: number,
+  hexSize: number,
+  gridColor: string
+) {
+  const stepX = scale * 1.5;
+  const invScale = 1 / scale;
+  const sqrt3 = Math.sqrt(3);
+
+  // Calculate world bounds visible in the canvas after camera transform
+  // Canvas corner to world: (canvas - width/2) / zoom - offset
+  const worldLeft = -width / 2 / cameraZoom - cameraOffsetX;
+  const worldRight = width / 2 / cameraZoom - cameraOffsetX;
+  const worldTop = -height / 2 / cameraZoom - cameraOffsetY;
+  const worldBottom = height / 2 / cameraZoom - cameraOffsetY;
+
+  const minHexX = Math.floor(worldLeft / stepX) - 2;
+  let maxHexX = Math.ceil(worldRight / stepX) + 2;
+
+  // Safety clamp
+  if (maxHexX - minHexX > 500) {
+    maxHexX = minHexX + 500;
+  }
+
+  ctx.save();
+  ctx.strokeStyle = gridColor;
+  ctx.lineWidth = 1;
+
+  for (let hx = minHexX; hx <= maxHexX; hx++) {
+    const yOffset = 0.5 * (hx & 1);
+    const minHexY = Math.floor((worldTop * invScale) / sqrt3 - yOffset) - 2;
+    const maxHexY = Math.ceil((worldBottom * invScale) / sqrt3 - yOffset) + 2;
+
+    for (let hy = minHexY; hy <= maxHexY; hy++) {
+      const world = hexToWorld(hx, hy, scale);
+      drawHex(ctx, world.x, world.y, hexSize);
+    }
+  }
+
+  ctx.restore();
+}
+
+/**
+ * Main render function for the MiniMap canvas
+ */
 export function renderMiniMapCanvas(
   canvas: HTMLCanvasElement,
   props: MiniMapProps
 ) {
   const { width, height, data, config, maxDistance = 3 } = props;
-  canvas.width = width;
-  canvas.height = height;
+
+  // Set canvas resolution
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
-  // Background
-  ctx.clearRect(0, 0, width, height);
+  // Scale for device pixel ratio
+  ctx.scale(dpr, dpr);
+
+  // Clear canvas with background color
   ctx.fillStyle = config.colors.background;
   ctx.fillRect(0, 0, width, height);
 
-  // Build traversal state
-  const adjacency = buildAdjacency(data);
-  const distanceById = bfsWithinDistance(
+  // Calculate hex sizing
+  // Default grid_spacing: fit reasonable number of hexes in view
+  const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
+  const hexSize = config.hex_size ?? gridSpacing * 0.85;
+  const scale = gridSpacing;
+
+  // Calculate reachable sectors from current sector
+  const reachableMap = calculateReachableSectors(
+    data,
     config.current_sector_id,
-    maxDistance,
-    adjacency
+    maxDistance
   );
 
-  // Determine the nodes to render (include current node even if isolated)
-  const visibleIds = new Set<number>([config.current_sector_id]);
-  for (const id of distanceById.keys()) visibleIds.add(id);
+  // Filter data to only include reachable sectors
+  const filteredData = filterReachableSectors(data, reachableMap);
 
-  // Centered layout: place current sector at canvas center
-  // Calculate grid spacing (distance between hex centers)
-  const defaultGridSpacing = Math.max(20, Math.min(width, height) / 10);
-  const gridSpacing =
-    config.grid_spacing &&
-    Number.isFinite(config.grid_spacing) &&
-    config.grid_spacing > 0
-      ? Math.max(10, Math.min(300, config.grid_spacing))
-      : defaultGridSpacing;
+  // If no reachable sectors, just render empty canvas
+  if (Object.keys(filteredData).length === 0) {
+    return;
+  }
 
-  // Calculate hex visual radius (size of drawn hexes)
-  // Default to 85% of grid spacing to create nice gaps
-  const hexRadius =
-    config.hex_size && Number.isFinite(config.hex_size) && config.hex_size > 0
-      ? Math.max(4, Math.min(gridSpacing, config.hex_size))
-      : gridSpacing * 0.85;
-
-  const currentNode = data[config.current_sector_id];
-  if (!currentNode) return;
-  const currentWorld = hexToPixel(
-    currentNode.position[0],
-    currentNode.position[1],
-    gridSpacing
+  // Calculate camera transform to fit and center on current sector (using filtered data)
+  const camera = calculateCameraTransform(
+    filteredData,
+    config.current_sector_id,
+    width,
+    height,
+    scale,
+    hexSize
   );
-  const transformPoint = (x: number, y: number) => ({
-    x: x - currentWorld.x + width / 2,
-    y: y - currentWorld.y + height / 2,
+
+  // Apply camera transform (center canvas, then zoom and pan)
+  ctx.save();
+  ctx.translate(width / 2, height / 2);
+  ctx.scale(camera.zoom, camera.zoom);
+  ctx.translate(camera.offsetX, camera.offsetY);
+
+  // Render background grid
+  if (config.show_grid) {
+    renderHexGrid(
+      ctx,
+      width,
+      height,
+      camera.zoom,
+      camera.offsetX,
+      camera.offsetY,
+      scale,
+      hexSize,
+      config.colors.grid
+    );
+  }
+
+  // Render lanes (before sectors so they appear behind)
+  if (config.show_warps) {
+    renderAllLanes(ctx, filteredData, scale, hexSize, config);
+  }
+
+  // Get current sector's region for cross-region highlighting
+  const currentSector = filteredData[config.current_sector_id];
+  const currentRegion = currentSector?.region;
+
+  // Render only reachable sectors
+  Object.values(filteredData).forEach((node) => {
+    renderSector(ctx, node, scale, hexSize, config, currentRegion);
   });
 
-  // Grid background: tile hex outlines around current sector
-  if (config.show_grid) {
-    ctx.strokeStyle = config.colors.grid;
-    ctx.lineWidth = 1;
-    const q0 = currentNode.position[0];
-    const r0 = currentNode.position[1];
-    const range = Math.ceil(Math.max(width, height) / gridSpacing) + 2;
-    for (let dq = -range; dq <= range; dq++) {
-      for (let dr = -range; dr <= range; dr++) {
-        const q = q0 + dq;
-        const r = r0 + dr;
-        const w = hexToPixel(q, r, gridSpacing);
-        const t = transformPoint(w.x, w.y);
-        if (
-          t.x < -gridSpacing ||
-          t.x > width + gridSpacing ||
-          t.y < -gridSpacing ||
-          t.y > height + gridSpacing
-        )
-          continue;
-        drawHex(ctx, t.x, t.y, hexRadius, undefined, config.colors.grid);
-      }
-    }
-  }
-
-  // Draw lanes first (behind nodes)
-  if (config.show_warps) {
-    const drawArrowHead = (
-      ctx2: CanvasRenderingContext2D,
-      from: { x: number; y: number },
-      to: { x: number; y: number },
-      color: string
-    ) => {
-      const angle = Math.atan2(to.y - from.y, to.x - from.x);
-      const size = Math.max(4, Math.min(10, hexRadius * 0.6));
-      const ax = to.x - size * Math.cos(angle);
-      const ay = to.y - size * Math.sin(angle);
-      ctx2.save();
-      ctx2.fillStyle = color;
-      ctx2.beginPath();
-      ctx2.moveTo(to.x, to.y);
-      ctx2.lineTo(
-        ax - size * 0.6 * Math.cos(angle - Math.PI / 2),
-        ay - size * 0.6 * Math.sin(angle - Math.PI / 2)
-      );
-      ctx2.lineTo(
-        ax + size * 0.6 * Math.cos(angle - Math.PI / 2),
-        ay + size * 0.6 * Math.sin(angle - Math.PI / 2)
-      );
-      ctx2.closePath();
-      ctx2.fill();
-      ctx2.restore();
-    };
-
-    const drawn = new Set<string>();
-    Object.values(data).forEach((a) => {
-      if (!a.lanes || !visibleIds.has(a.id)) return;
-      const pa = transformPoint(
-        ...(Object.values(
-          hexToPixel(a.position[0], a.position[1], gridSpacing)
-        ) as [number, number])
-      );
-      for (const e of a.lanes) {
-        if (!visibleIds.has(e.to)) continue;
-        const b = data[e.to];
-        if (!b) continue;
-        const pb = transformPoint(
-          ...(Object.values(
-            hexToPixel(b.position[0], b.position[1], gridSpacing)
-          ) as [number, number])
-        );
-        const isReachable = distanceById.has(a.id) && distanceById.has(e.to);
-
-        let strokeColor: string;
-        if (e.hyperlane && config.show_hyperlanes) {
-          strokeColor = e.two_way
-            ? config.colors.hyperlane
-            : config.colors.lane_one_way;
-          ctx.strokeStyle = strokeColor;
-          ctx.setLineDash([12, 7]);
-          ctx.lineWidth = 3;
-        } else {
-          strokeColor = e.two_way
-            ? config.colors.lane
-            : config.colors.lane_one_way;
-          ctx.strokeStyle = strokeColor;
-          ctx.setLineDash([]);
-          ctx.lineWidth = isReachable ? 3 : 1.75;
-        }
-
-        if (e.two_way) {
-          const key = `${Math.min(a.id, e.to)}-${Math.max(a.id, e.to)}-${
-            e.hyperlane ? 1 : 0
-          }`;
-          if (drawn.has(key)) continue;
-          drawn.add(key);
-        }
-
-        ctx.save();
-        ctx.globalAlpha = isReachable ? 1 : 0.5;
-        // Trim to hex edges (trim by hex visual radius)
-        const dx = pb.x - pa.x;
-        const dy = pb.y - pa.y;
-        const len = Math.max(1e-3, Math.hypot(dx, dy));
-        const off = hexRadius;
-        const sx = pa.x + (dx / len) * off;
-        const sy = pa.y + (dy / len) * off;
-        const ex = pb.x - (dx / len) * off;
-        const ey = pb.y - (dy / len) * off;
-        ctx.beginPath();
-        ctx.moveTo(sx, sy);
-        ctx.lineTo(ex, ey);
-        ctx.stroke();
-        if (!e.two_way) {
-          drawArrowHead(ctx, { x: sx, y: sy }, { x: ex, y: ey }, strokeColor);
-        }
-        ctx.restore();
-      }
-    });
-  }
-
-  // Draw nodes
-  for (const id of visibleIds) {
-    const node = data[id];
-    if (!node) continue;
-    const p = hexToPixel(node.position[0], node.position[1], gridSpacing);
-    const t = transformPoint(p.x, p.y);
-    const isCurrent = id === config.current_sector_id;
-    const isVisited = !!node.visited;
-    const hasPort = !!node.port;
-    const currentRegion = data[config.current_sector_id]?.region;
-    const crossRegionVsCurrent = Boolean(
-      currentRegion && node.region && node.region !== currentRegion
-    );
-
-    const fill = isVisited ? config.colors.visited : config.colors.empty;
-    drawHex(
-      ctx,
-      t.x,
-      t.y,
-      hexRadius,
-      fill,
-      isCurrent
-        ? config.colors.sector_border_current
-        : config.colors.sector_border
-    );
-
-    // Add a distinct outline if this sector is in a different region than current
-    if (crossRegionVsCurrent) {
-      ctx.save();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = config.colors.cross_region_outline;
-      drawHex(
-        ctx,
-        t.x,
-        t.y,
-        hexRadius + 2,
-        undefined,
-        config.colors.cross_region_outline
-      );
-      ctx.restore();
-    }
-
-    if (config.show_ports && hasPort) {
-      const isMega = node.port === "MEGA";
-      ctx.fillStyle = isMega ? config.colors.mega_port : config.colors.port;
-      ctx.beginPath();
-      ctx.arc(t.x, t.y, Math.max(3, hexRadius * 0.35), 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    if (config.show_sector_ids) {
-      ctx.fillStyle = config.colors.sector_id_text;
-      ctx.font = `${Math.max(9, Math.floor(hexRadius * 0.8))}px monospace`;
-      ctx.textAlign = "center";
-      ctx.fillText(String(id), t.x, t.y + 3);
-    }
-  }
+  ctx.restore();
 }

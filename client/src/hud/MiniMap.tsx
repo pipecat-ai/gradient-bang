@@ -5,8 +5,8 @@ import { useEffect, useRef } from "react";
 export const MiniMap = ({
   config,
   map_data,
-  width = 220,
-  height = 220,
+  width = 440,
+  height = 440,
   maxDistance = 3,
 }: {
   config: MiniMapRenderConfig;
