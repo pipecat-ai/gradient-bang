@@ -1,4 +1,3 @@
-// Slim render config, removing unused global-style fields like current_region/show_regions
 export interface MiniMapRenderConfig {
   current_sector_id: number;
   colors: {
@@ -17,10 +16,15 @@ export interface MiniMapRenderConfig {
     label_bg: string;
     grid: string;
     background: string;
+    current: string;
+    current_outline: string;
   };
   grid_spacing?: number; // Distance between hex centers in pixels (default: auto-calculated)
   hex_size?: number; // Visual radius of each hex in pixels (default: grid_spacing * 0.85)
   sector_label_offset?: number; // Pixel offset for sector ID labels from hex edge (default: 2)
+  frame_padding?: number; // Padding around the bounding box when framing (default: 0)
+  current_sector_outer_border?: number; // Thickness of outer border for current sector (default: 0, disabled)
+  debug?: boolean; // Show debug visualizations (bounding boxes, etc.)
   show_grid: boolean;
   show_warps: boolean;
   show_sector_ids: boolean;
@@ -221,42 +225,55 @@ function calculateSectorBounds(
 }
 
 /**
- * Calculate camera transform to fit all sectors and center on current sector
+ * Calculate camera transform to fit and frame all connected sectors optimally
  */
 function calculateCameraTransform(
   data: MiniMapData,
-  currentSectorId: number,
+  _currentSectorId: number,
   width: number,
   height: number,
   scale: number,
-  hexSize: number
+  _hexSize: number,
+  framePadding: number = 0
 ): { offsetX: number; offsetY: number; zoom: number } {
   const bounds = calculateSectorBounds(data, scale);
   const boundsWidth = bounds.maxX - bounds.minX;
   const boundsHeight = bounds.maxY - bounds.minY;
 
-  // Calculate zoom to fit all sectors with some padding
-  const padding = hexSize * 3;
-  const scaleX = (width - padding * 2) / boundsWidth;
-  const scaleY = (height - padding * 2) / boundsHeight;
+  // Calculate zoom to fit all sectors with configurable padding
+  const scaleX = (width - framePadding * 2) / boundsWidth;
+  const scaleY = (height - framePadding * 2) / boundsHeight;
   const zoom = Math.min(scaleX, scaleY, 1.5);
 
-  // Find current sector position
-  const currentSector = data[currentSectorId];
-  if (!currentSector) {
-    // If current sector not found, center on bounds center
-    const centerX = (bounds.minX + bounds.maxX) / 2;
-    const centerY = (bounds.minY + bounds.maxY) / 2;
-    return { offsetX: -centerX, offsetY: -centerY, zoom };
-  }
+  // Center on the center of all connected sectors' bounding box
+  // This maximizes use of canvas space
+  const centerX = (bounds.minX + bounds.maxX) / 2;
+  const centerY = (bounds.minY + bounds.maxY) / 2;
 
-  // Center on current sector
-  const currentWorld = hexToWorld(
-    currentSector.position[0],
-    currentSector.position[1],
-    scale
-  );
-  return { offsetX: -currentWorld.x, offsetY: -currentWorld.y, zoom };
+  return { offsetX: -centerX, offsetY: -centerY, zoom };
+}
+
+/**
+ * Render debug bounding box (for debugging framing)
+ */
+function renderDebugBounds(
+  ctx: CanvasRenderingContext2D,
+  data: MiniMapData,
+  scale: number
+) {
+  const bounds = calculateSectorBounds(data, scale);
+
+  ctx.save();
+  ctx.strokeStyle = "#00ff00"; // Green
+  ctx.lineWidth = 2;
+  ctx.setLineDash([5, 5]); // Dashed line
+
+  const width = bounds.maxX - bounds.minX;
+  const height = bounds.maxY - bounds.minY;
+
+  ctx.strokeRect(bounds.minX, bounds.minY, width, height);
+
+  ctx.restore();
 }
 
 /**
@@ -401,12 +418,22 @@ function renderSector(
   const isCrossRegion =
     currentRegion && node.region && node.region !== currentRegion;
 
+  // Draw outer border for current sector if configured
+  if (isCurrent && config.current_sector_outer_border) {
+    const outerBorderSize = config.current_sector_outer_border;
+    ctx.save();
+    ctx.strokeStyle = config.colors.current_outline;
+    ctx.lineWidth = outerBorderSize;
+    drawHex(ctx, world.x, world.y, hexSize + outerBorderSize / 2 + 2, false);
+    ctx.restore();
+  }
+
   // Set fill color based on visited state
   ctx.fillStyle = isVisited ? config.colors.visited : config.colors.empty;
 
   // Set border color and width
   if (isCurrent) {
-    ctx.strokeStyle = config.colors.sector_border_current;
+    ctx.strokeStyle = config.colors.current;
     ctx.lineWidth = 2;
   } else if (isCrossRegion) {
     ctx.strokeStyle = config.colors.cross_region_outline;
@@ -514,7 +541,8 @@ function calculateCameraState(
     width,
     height,
     scale,
-    hexSize
+    hexSize,
+    config.frame_padding ?? 0
   );
 
   return {
@@ -671,6 +699,11 @@ function renderWithCameraState(
   Object.values(cameraState.filteredData).forEach((node) => {
     renderSector(ctx, node, scale, hexSize, config, currentRegion);
   });
+
+  // Render debug bounds if enabled (before restore, so affected by camera transform)
+  if (config.debug) {
+    renderDebugBounds(ctx, cameraState.filteredData, scale);
+  }
 
   ctx.restore();
 

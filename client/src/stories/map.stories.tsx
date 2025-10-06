@@ -145,15 +145,20 @@ const baseConfig: Omit<MiniMapRenderConfig, "current_sector_id"> = {
     background: "#000000",
     label: "#000000",
     label_bg: "#ffffff",
+    current: "#4a90e2",
+    current_outline: "rgba(74,144,226,0.6",
   },
   grid_spacing: 30, // Distance between hex centers in pixels (leave undefined for auto-calculate)
   hex_size: 20, // Visual radius of each hex (leave undefined for auto: 85% of grid_spacing)
+  sector_label_offset: 5,
+  frame_padding: 20,
+  current_sector_outer_border: 5, // Thickness of outer border for current sector
+  debug: true, // Show debug bounding box
   show_grid: true,
   show_warps: true,
   show_sector_ids: true,
   show_ports: true,
   show_hyperlanes: true,
-  sector_label_offset: 5,
 };
 
 export const MiniMapMock: Story = () => {
@@ -211,4 +216,5 @@ MiniMapMock.meta = {
   connectOnMount: false,
   disableAudioOutput: true,
   enableMic: false,
+  disconnectedStory: true,
 };
