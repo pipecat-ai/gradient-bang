@@ -87,6 +87,7 @@ class Character:
         last_active: Optional[datetime] = None,
         player_type: Optional[str] = None,
         connected: bool = True,
+        in_hyperspace: bool = False,
     ) -> None:
         self.id = character_id
         self.sector = sector
@@ -98,6 +99,7 @@ class Character:
         self.max_shields = max_shields
         self.player_type = player_type or "human"
         self.connected = connected
+        self.in_hyperspace = in_hyperspace
 
     def update_activity(self) -> None:
         self.last_active = datetime.now(timezone.utc)

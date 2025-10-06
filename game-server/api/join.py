@@ -68,6 +68,7 @@ async def handle(request: dict, world) -> dict:
             max_fighters=ship_stats.fighters,
             max_shields=ship_stats.shields,
             connected=True,
+            in_hyperspace=False,  # Ensure character is not in hyperspace on join
         )
         world.characters[character_id] = character
         character.update_activity()
@@ -94,6 +95,7 @@ async def handle(request: dict, world) -> dict:
             max_shields=ship_stats.shields,
         )
         character.connected = True
+        character.in_hyperspace = False  # Clear hyperspace on rejoin (e.g., after disconnect)
         if sector is not None:
             if sector < 0 or sector >= world.universe_graph.sector_count:
                 raise HTTPException(status_code=400, detail=f"Invalid sector: {sector}")

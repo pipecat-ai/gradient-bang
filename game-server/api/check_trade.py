@@ -13,9 +13,14 @@ async def handle(request: dict, world) -> dict:
     if character_id not in world.characters:
         raise HTTPException(status_code=404, detail="Character not found")
 
-    await ensure_not_in_combat(world, character_id)
-
     character = world.characters[character_id]
+    if character.in_hyperspace:
+        raise HTTPException(
+            status_code=400,
+            detail="Character is in hyperspace, cannot check trade",
+        )
+
+    await ensure_not_in_combat(world, character_id)
     knowledge = world.knowledge_manager.load_knowledge(character_id)
     from ships import ShipType, get_ship_stats
 

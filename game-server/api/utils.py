@@ -148,6 +148,8 @@ async def sector_contents(
     for char_id, character in world.characters.items():
         if character.sector != sector_id or char_id == current_character_id:
             continue
+        if character.in_hyperspace:  # Skip characters in transit
+            continue
         # fill in created_at, name, player_type, ship
         knowledge = world.knowledge_manager.load_knowledge(char_id)
         ship_config = knowledge.ship_config

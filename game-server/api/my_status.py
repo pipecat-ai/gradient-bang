@@ -11,5 +11,12 @@ async def handle(request: dict, world) -> dict:
             status_code=404, detail=f"Character '{character_id}' not found"
         )
 
+    character = world.characters[character_id]
+    if character.in_hyperspace:
+        raise HTTPException(
+            status_code=400,
+            detail="Character is in hyperspace, status unavailable until arrival",
+        )
+
     status_payload = await build_status_payload(world, character_id)
     return status_payload

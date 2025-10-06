@@ -17,6 +17,16 @@ async def handle(request: dict, world) -> dict:
     if quantity <= 0:
         raise HTTPException(status_code=400, detail="Quantity must be positive")
 
+    if character_id not in world.characters:
+        raise HTTPException(status_code=404, detail="Character not found")
+
+    character = world.characters[character_id]
+    if character.in_hyperspace:
+        raise HTTPException(
+            status_code=400,
+            detail="Character is in hyperspace, cannot collect fighters",
+        )
+
     if world.garrisons is None:
         raise HTTPException(status_code=503, detail="Garrison system unavailable")
 

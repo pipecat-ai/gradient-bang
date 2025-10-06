@@ -52,7 +52,11 @@ class VoiceTaskManager:
             base_url="http://localhost:8000",
             transport="websocket",
         )
+        # Register event handlers for server events
         self.game_client.on("chat.message")(self._handle_chat_message)
+        self.game_client.on("character.moved")(self._handle_character_moved)
+        self.game_client.on("movement.start")(self._handle_movement_start)
+        self.game_client.on("movement.complete")(self._handle_movement_complete)
 
         self.task_config = LLMConfig(model="gpt-5")
 
@@ -177,19 +181,38 @@ class VoiceTaskManager:
             )
         )
 
-    async def _handle_chat_message(self, payload: Dict[str, Any]) -> None:
-        """Relay chat.message events to RTVI clients."""
+    async def _handle_event(self, event_name: str, payload: Dict[str, Any]) -> None:
+        """General handler to relay any event to RTVI clients.
 
+        Args:
+            event_name: Name of the event (e.g., "chat.message", "character.moved")
+            payload: Event payload data
+        """
         await self.rtvi_processor.push_frame(
             RTVIServerMessageFrame(
                 {
                     "frame_type": "event",
-                    "event": "chat.message",
-                    "gg-action": "chat.message",
+                    "event": event_name,
                     "payload": payload,
                 }
             )
         )
+
+    async def _handle_chat_message(self, payload: Dict[str, Any]) -> None:
+        """Relay chat.message events to RTVI clients."""
+        await self._handle_event("chat.message", payload)
+
+    async def _handle_character_moved(self, payload: Dict[str, Any]) -> None:
+        """Relay character.moved events to RTVI clients."""
+        await self._handle_event("character.moved", payload)
+
+    async def _handle_movement_start(self, payload: Dict[str, Any]) -> None:
+        """Relay movement.start events to RTVI clients."""
+        await self._handle_event("movement.start", payload)
+
+    async def _handle_movement_complete(self, payload: Dict[str, Any]) -> None:
+        """Relay movement.complete events to RTVI clients."""
+        await self._handle_event("movement.complete", payload)
 
     #
     # Task management
@@ -369,19 +392,6 @@ class VoiceTaskManager:
                 "Cancellation requested - stopping task...", "cancelled"
             )
 
-    #
-    # Tools
-    #
-
-    # Hard-code a fixed not-less-than execution time for some tool calls. Note this
-    # is only implemented for conversation LLM tool calls. (Not for async task tool calls.)
-    TOOL_CALL_DELAYS = {
-        "move": 2.0,
-        "trade": 2.0,
-        "recharge_warp_power": 2.0,
-        "transfer_warp_power": 2.0,
-    }
-
     async def execute_tool_call(self, params: FunctionCallParams):
         """Generic executor for all declared tools, for tool calls from the
         conversation LLM.
@@ -426,14 +436,6 @@ class VoiceTaskManager:
                 func = self._tool_dispatch[tool_name]
                 result = await func(**arguments)
                 payload = {"result": result}
-
-            if tool_name in self.TOOL_CALL_DELAYS:
-                elapsed = time.time() - start_time
-                if elapsed < self.TOOL_CALL_DELAYS[tool_name]:
-                    logger.info(
-                        f"!!! TOOL CALL DELAY: {self.TOOL_CALL_DELAYS[tool_name] - elapsed}"
-                    )
-                    await asyncio.sleep(self.TOOL_CALL_DELAYS[tool_name] - elapsed)
 
             # Emit tool result message for clients to consume
             await self._on_tool_result_event(tool_name, payload)
