@@ -55,6 +55,7 @@ const storyData: MiniMapData = {
       { from: 566, to: 389, two_way: true },
       { from: 566, to: 653, two_way: true },
       { from: 566, to: 1317, two_way: false },
+      { from: 566, to: 777, hyperlane: true, two_way: true },
     ],
   },
   581: {

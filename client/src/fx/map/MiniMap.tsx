@@ -373,7 +373,128 @@ function renderLane(
 }
 
 /**
+ * Find an available edge direction that doesn't conflict with existing lanes
+ */
+function findAvailableEdgeDirection(
+  fromNode: MiniMapNode,
+  data: MiniMapData,
+  scale: number
+): number {
+  // Calculate angles to all connected sectors
+  const usedAngles = fromNode.lanes
+    .map((lane) => {
+      const toNode = data[lane.to];
+      if (!toNode) return null;
+      const fromWorld = hexToWorld(
+        fromNode.position[0],
+        fromNode.position[1],
+        scale
+      );
+      const toWorld = hexToWorld(toNode.position[0], toNode.position[1], scale);
+      return Math.atan2(toWorld.y - fromWorld.y, toWorld.x - fromWorld.x);
+    })
+    .filter((angle): angle is number => angle !== null);
+
+  // Six possible hex directions (60° apart)
+  const hexDirections = [
+    0,
+    Math.PI / 3,
+    (2 * Math.PI) / 3,
+    Math.PI,
+    (4 * Math.PI) / 3,
+    (5 * Math.PI) / 3,
+  ];
+
+  // Find first direction that doesn't conflict (at least 45° away from any used angle)
+  for (const direction of hexDirections) {
+    const isAvailable = usedAngles.every((usedAngle) => {
+      let diff = Math.abs(direction - usedAngle);
+      if (diff > Math.PI) diff = 2 * Math.PI - diff;
+      return diff > Math.PI / 4; // 45° threshold
+    });
+    if (isAvailable) return direction;
+  }
+
+  // Fallback to right direction
+  return 0;
+}
+
+/**
+ * Render hyperlane stub for destinations outside visible area
+ * Returns label info to be rendered later on top of everything
+ */
+function renderHyperlaneStub(
+  ctx: CanvasRenderingContext2D,
+  fromNode: MiniMapNode,
+  destinationId: number,
+  direction: number,
+  scale: number,
+  hexSize: number,
+  config: MiniMapRenderConfig
+): { x: number; y: number; text: string } | null {
+  const fromWorld = hexToWorld(
+    fromNode.position[0],
+    fromNode.position[1],
+    scale
+  );
+
+  // Draw stub extending one hex space in the direction
+  const stubLength = hexSize * 2;
+  const startEdge = getHexEdgePoint(
+    fromWorld,
+    {
+      x: fromWorld.x + Math.cos(direction),
+      y: fromWorld.y + Math.sin(direction),
+    },
+    hexSize
+  );
+  const endPoint = {
+    x: startEdge.x + stubLength * Math.cos(direction),
+    y: startEdge.y + stubLength * Math.sin(direction),
+  };
+
+  // Draw the stub lane
+  ctx.save();
+  ctx.strokeStyle = config.colors.hyperlane;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([4, 4]); // Dashed to indicate it continues
+  ctx.beginPath();
+  ctx.moveTo(startEdge.x, startEdge.y);
+  ctx.lineTo(endPoint.x, endPoint.y);
+  ctx.stroke();
+  ctx.restore();
+
+  // Draw arrow at the end
+  ctx.save();
+  ctx.strokeStyle = config.colors.hyperlane;
+  ctx.fillStyle = config.colors.hyperlane;
+  ctx.lineWidth = 2;
+  const arrowSize = 6;
+  ctx.beginPath();
+  ctx.moveTo(endPoint.x, endPoint.y);
+  ctx.lineTo(
+    endPoint.x - arrowSize * Math.cos(direction - Math.PI / 6),
+    endPoint.y - arrowSize * Math.sin(direction - Math.PI / 6)
+  );
+  ctx.lineTo(
+    endPoint.x - arrowSize * Math.cos(direction + Math.PI / 6),
+    endPoint.y - arrowSize * Math.sin(direction + Math.PI / 6)
+  );
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // Return label info to be rendered later (on top of everything)
+  return {
+    x: endPoint.x + 4,
+    y: endPoint.y - 4,
+    text: `→${destinationId}`,
+  };
+}
+
+/**
  * Render all lanes for the visible sectors
+ * Returns hyperlane stub label info to be rendered later
  */
 function renderAllLanes(
   ctx: CanvasRenderingContext2D,
@@ -381,13 +502,33 @@ function renderAllLanes(
   scale: number,
   hexSize: number,
   config: MiniMapRenderConfig
-) {
+): Array<{ x: number; y: number; text: string }> {
   const renderedLanes = new Set<string>();
+  const hyperlaneLabels: Array<{ x: number; y: number; text: string }> = [];
 
   Object.values(data).forEach((fromNode) => {
     fromNode.lanes.forEach((lane) => {
       const toNode = data[lane.to];
-      if (!toNode) return; // Skip if target not in filtered data
+
+      if (!toNode) {
+        // Destination not visible - if it's a hyperlane, render a stub
+        if (lane.hyperlane && config.show_hyperlanes) {
+          const direction = findAvailableEdgeDirection(fromNode, data, scale);
+          const labelInfo = renderHyperlaneStub(
+            ctx,
+            fromNode,
+            lane.to,
+            direction,
+            scale,
+            hexSize,
+            config
+          );
+          if (labelInfo) {
+            hyperlaneLabels.push(labelInfo);
+          }
+        }
+        return;
+      }
 
       // For two-way lanes, only render once (use sorted IDs to create unique key)
       if (lane.two_way) {
@@ -399,6 +540,8 @@ function renderAllLanes(
       renderLane(ctx, lane, fromNode, toNode, scale, hexSize, config);
     });
   });
+
+  return hyperlaneLabels;
 }
 
 /**
@@ -687,9 +830,10 @@ function renderWithCameraState(
   }
 
   // Render lanes (before sectors so they appear behind)
-  if (config.show_warps) {
-    renderAllLanes(ctx, cameraState.filteredData, scale, hexSize, config);
-  }
+  // Collect hyperlane labels to render later
+  const hyperlaneLabels = config.show_warps
+    ? renderAllLanes(ctx, cameraState.filteredData, scale, hexSize, config)
+    : [];
 
   // Get current sector's region for cross-region highlighting
   const currentSector = cameraState.filteredData[config.current_sector_id];
@@ -707,7 +851,10 @@ function renderWithCameraState(
 
   ctx.restore();
 
-  // Render sector labels (after restore, so they're not affected by zoom)
+  // IMPORTANT: Render ALL labels LAST so they're always on top of everything
+  // (after restore, so they're not affected by zoom and always in screen space)
+
+  // Render sector ID labels
   renderSectorLabels(
     ctx,
     cameraState.filteredData,
@@ -718,6 +865,31 @@ function renderWithCameraState(
     cameraState,
     config
   );
+
+  // Render hyperlane stub labels (converted to screen space)
+  if (hyperlaneLabels.length > 0) {
+    ctx.save();
+    ctx.font = "8px monospace";
+    hyperlaneLabels.forEach((label) => {
+      const screenPos = worldToScreen(
+        label.x,
+        label.y,
+        width,
+        height,
+        cameraState
+      );
+      const metrics = ctx.measureText(label.text);
+
+      // Draw background
+      ctx.fillStyle = config.colors.label_bg;
+      ctx.fillRect(screenPos.x - 1, screenPos.y - 7, metrics.width + 2, 10);
+
+      // Draw text
+      ctx.fillStyle = config.colors.label;
+      ctx.fillText(label.text, screenPos.x, screenPos.y);
+    });
+    ctx.restore();
+  }
 }
 
 /**
