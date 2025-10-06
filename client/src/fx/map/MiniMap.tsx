@@ -65,6 +65,8 @@ export interface CameraState {
   offsetY: number;
   zoom: number;
   filteredData: MiniMapData;
+  fadingOutData?: MiniMapData; // Sectors that were visible but are now disconnected
+  fadeProgress?: number; // 0 = fully visible, 1 = fully faded
 }
 
 interface AnimationState {
@@ -97,6 +99,8 @@ function interpolateCameraState(
     offsetY: start.offsetY + (target.offsetY - start.offsetY) * easedProgress,
     zoom: start.zoom + (target.zoom - start.zoom) * easedProgress,
     filteredData: target.filteredData, // Use target data (no interpolation)
+    fadingOutData: start.fadingOutData, // Keep fading sectors from start
+    fadeProgress: progress, // Current fade progress
   };
 }
 
@@ -199,6 +203,25 @@ function filterReachableSectors(
   });
 
   return filtered;
+}
+
+/**
+ * Calculate sectors that are in oldData but not in newData (for fade-out)
+ */
+function calculateFadingOutSectors(
+  oldData: MiniMapData,
+  newData: MiniMapData
+): MiniMapData {
+  const fadingOut: MiniMapData = {};
+
+  Object.keys(oldData).forEach((sectorIdStr) => {
+    const sectorId = parseInt(sectorIdStr, 10);
+    if (!newData[sectorId]) {
+      fadingOut[sectorId] = oldData[sectorId];
+    }
+  });
+
+  return fadingOut;
 }
 
 /**
@@ -545,6 +568,36 @@ function renderAllLanes(
 }
 
 /**
+ * Apply alpha/opacity to a color string (multiplies existing alpha)
+ */
+function applyAlpha(color: string, alpha: number): string {
+  if (color.startsWith("#")) {
+    const r = parseInt(color.slice(1, 3), 16);
+    const g = parseInt(color.slice(3, 5), 16);
+    const b = parseInt(color.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  } else if (color.startsWith("rgba")) {
+    // Extract existing alpha and multiply with new alpha
+    const match = color.match(
+      /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/
+    );
+    if (match) {
+      const existingAlpha = parseFloat(match[4]);
+      return `rgba(${match[1]}, ${match[2]}, ${match[3]}, ${
+        existingAlpha * alpha
+      })`;
+    }
+    return color.replace(/[\d.]+\)$/, `${alpha})`);
+  } else if (color.startsWith("rgb")) {
+    const match = color.match(/rgb\(([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/);
+    if (match) {
+      return `rgba(${match[1]}, ${match[2]}, ${match[3]}, ${alpha})`;
+    }
+  }
+  return color;
+}
+
+/**
  * Render a single sector hex
  */
 function renderSector(
@@ -553,7 +606,8 @@ function renderSector(
   scale: number,
   hexSize: number,
   config: MiniMapRenderConfig,
-  currentRegion?: string
+  currentRegion?: string,
+  opacity: number = 1
 ) {
   const world = hexToWorld(node.position[0], node.position[1], scale);
   const isVisited = node.visited ?? false;
@@ -565,26 +619,29 @@ function renderSector(
   if (isCurrent && config.current_sector_outer_border) {
     const outerBorderSize = config.current_sector_outer_border;
     ctx.save();
-    ctx.strokeStyle = config.colors.current_outline;
+    ctx.strokeStyle = applyAlpha(config.colors.current_outline, opacity);
     ctx.lineWidth = outerBorderSize;
     drawHex(ctx, world.x, world.y, hexSize + outerBorderSize / 2 + 2, false);
     ctx.restore();
   }
 
   // Set fill color based on visited state
-  ctx.fillStyle = isVisited ? config.colors.visited : config.colors.empty;
+  const fillColor = isVisited ? config.colors.visited : config.colors.empty;
+  ctx.fillStyle = applyAlpha(fillColor, opacity);
 
   // Set border color and width
+  let strokeColor: string;
   if (isCurrent) {
-    ctx.strokeStyle = config.colors.current;
+    strokeColor = config.colors.current;
     ctx.lineWidth = 2;
   } else if (isCrossRegion) {
-    ctx.strokeStyle = config.colors.cross_region_outline;
+    strokeColor = config.colors.cross_region_outline;
     ctx.lineWidth = 2;
   } else {
-    ctx.strokeStyle = config.colors.sector_border;
+    strokeColor = config.colors.sector_border;
     ctx.lineWidth = 1;
   }
+  ctx.strokeStyle = applyAlpha(strokeColor, opacity);
 
   // Draw the hex
   drawHex(ctx, world.x, world.y, hexSize, true);
@@ -592,7 +649,8 @@ function renderSector(
   // Draw port indicator if present
   if (config.show_ports && node.port) {
     const isMegaPort = node.port === "MEGA";
-    ctx.fillStyle = isMegaPort ? config.colors.mega_port : config.colors.port;
+    const portColor = isMegaPort ? config.colors.mega_port : config.colors.port;
+    ctx.fillStyle = applyAlpha(portColor, opacity);
     ctx.beginPath();
     ctx.arc(world.x, world.y, 5, 0, Math.PI * 2);
     ctx.fill();
@@ -909,6 +967,22 @@ function renderWithCameraState(
   const currentSector = cameraState.filteredData[config.current_sector_id];
   const currentRegion = currentSector?.region;
 
+  // Render fading out sectors (if any) with reduced opacity
+  if (cameraState.fadingOutData && cameraState.fadeProgress !== undefined) {
+    const fadeOpacity = 1 - cameraState.fadeProgress; // Fade from 1 to 0
+    Object.values(cameraState.fadingOutData).forEach((node) => {
+      renderSector(
+        ctx,
+        node,
+        scale,
+        hexSize,
+        config,
+        currentRegion,
+        fadeOpacity
+      );
+    });
+  }
+
   // Render only reachable sectors
   Object.values(cameraState.filteredData).forEach((node) => {
     renderSector(ctx, node, scale, hexSize, config, currentRegion);
@@ -1095,12 +1169,24 @@ export function updateCurrentSector(
     return () => {}; // No-op cleanup
   }
 
-  // Setup animation
+  // Calculate sectors that need to fade out (in old but not in new)
+  const fadingOutData = calculateFadingOutSectors(
+    currentCameraState.filteredData,
+    targetCameraState.filteredData
+  );
+
+  // Setup animation with fading sectors
+  const startCameraWithFade: CameraState = {
+    ...currentCameraState,
+    fadingOutData,
+    fadeProgress: 0,
+  };
+
   const animationState: AnimationState = {
     isAnimating: true,
     startTime: performance.now(),
     duration,
-    startCamera: currentCameraState,
+    startCamera: startCameraWithFade,
     targetCamera: targetCameraState,
   };
 
