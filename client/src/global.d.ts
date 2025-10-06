@@ -1,62 +1,125 @@
 declare global {
-  interface Player {
-    name: string;
+  interface ServerMessage {
+    event: string;
+    payload: unknown;
+    summary?: string;
+    tool_name?: string;
+  }
+
+  // --- PLAYER
+  interface PlayerBase {
+    created_at: string;
+    id: string;
     last_active?: string;
+    name: string;
   }
 
-  interface Cargo {
-    fuel_ore: number;
-    organics: number;
-    equipment: number;
-    [key: string]: number | undefined;
+  interface PlayerSelf extends PlayerBase {
+    credits: number;
+    credits_in_bank: number;
+    credits_in_hand: number;
   }
 
-  interface Ship {
-    ship_name: string;
-    ship_type: string;
-    cargo: Cargo;
-    cargo_capacity: number;
-    cargo_used: number;
-    warp_power: number;
-    warp_power_capacity: number;
-    shields: number;
-    max_shields: number;
-    fighters: number;
-    max_fighters: number;
+  interface Player extends PlayerBase {
+    player_type: "npc" | "human";
+    ship: Ship;
   }
 
-  interface ResourceStock {
-    FO: number;
-    OG: number;
-    EQ: number;
-  }
-
-  type Resource = "equipment" | "fuel_ore" | "organics";
+  // --- RESOURCE
+  type Resource = "EQ" | "FO" | "OG";
   type ResourceList = Resource[];
 
-  interface Port {
-    code: string;
-    last_seen_prices: Record<Resource, number>;
-    last_seen_stock: Record<Resource, number>;
-    observed_at: string;
+  // --- SHIP
+  interface Ship {
+    fighters?: number;
+    shields?: number;
+    ship_name: string;
+    ship_type: ShipType;
+  }
+
+  interface ShipType {
+    id: string;
+    max_cargo: number;
+    max_fighters: number;
+    max_holds: number;
+    max_shields: number;
+    max_warp_power: number;
+    name: string;
+  }
+
+  interface ShipSelf extends Ship {
+    cargo: Record<Resource, number>;
+    cargo_capacity: number;
+    holds: number;
+    warp_power: number;
+    warp_power_capacity: number;
+  }
+
+  // --- REGION AND SECTOR
+  interface Region {
+    id:
+      | "core_worlds"
+      | "trade_federation"
+      | "frontier"
+      | "pirate_space"
+      | "neutral_zone";
+    name: string;
+    safe: boolean;
   }
 
   interface Sector {
-    id: number;
-    port?: Port;
-    planets?: [];
     adjacent_sectors?: number[];
+    id: number;
     last_visited?: string;
+    planets?: Planet[];
+    players?: Player[];
+    port?: Port;
+    region: Region;
+    scene_config?: unknown;
+
+    // Not yet implemented
+    garrisons?: [];
+    salvage?: [];
   }
 
-  interface SectorCurrent extends Sector {
-    other_players?: [];
-  }
-  interface SectorMap extends Sector {
-    sector_id: number;
+  interface Planet {
+    class_code: string;
+    class_name: string;
+    id: number;
   }
 
-  type UIState = "idle" | "warping" | "moving" | "plotting" | "trading";
+  // --- PORT
+  interface PortBase {
+    code: string;
+  }
+
+  interface Port extends PortBase {
+    max_capacity: Record<Resource, number>;
+    observed_at?: string;
+    stock: Record<Resource, number>;
+    prices: Record<Resource, number>;
+    warp_power_depot?: PortWarpPowerDepot;
+  }
+
+  interface PortWarpPowerDepot {
+    note?: string;
+    price_per_unit: number;
+  }
+
+  // --- MAP
+  interface MapNode {
+    id: number;
+    lanes: MapLane[];
+    position: [number, number];
+    sector: Sector;
+    visited: boolean;
+  }
+
+  interface MapLane {
+    hyperlane: boolean;
+    to: number;
+    two_way: boolean;
+  }
 }
 
 export {};

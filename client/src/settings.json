@@ -1,9 +1,5 @@
 {
     "startMuted": false,
     "enableMic": true,
-    "disabledSounds": false,
-    "disableAudioOutput": false,
-    "renderStarfield": true,
-    "debugMode": false,
-    "qualityPreset": "high"
+    "disableRemoteAudio": false
 }

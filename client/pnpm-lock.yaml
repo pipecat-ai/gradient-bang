@@ -12,17 +12,17 @@ importers:
         specifier: ^2.1.10
         version: 2.1.10(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@pipecat-ai/client-js':
-        specifier: ^1.3.0
-        version: 1.3.0
+        specifier: ^1.4.0
+        version: 1.4.0
       '@pipecat-ai/client-react':
         specifier: ^1.0.1
-        version: 1.0.1(@babel/core@7.28.3)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.3.0)(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
+        version: 1.0.1(@babel/core@7.28.3)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.4.0)(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@pipecat-ai/small-webrtc-transport':
-        specifier: ^1.4.0
-        version: 1.4.0(@pipecat-ai/client-js@1.3.0)
+        specifier: ^1.6.0
+        version: 1.6.0(@pipecat-ai/client-js@1.4.0)
       '@pipecat-ai/voice-ui-kit':
-        specifier: 0.3.0
-        version: 0.3.0(@daily-co/daily-js@0.83.1)(@pipecat-ai/client-js@1.3.0)(@pipecat-ai/client-react@1.0.1(@babel/core@7.28.3)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.3.0)(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(@pipecat-ai/small-webrtc-transport@1.4.0(@pipecat-ai/client-js@1.3.0))(@types/react-dom@19.1.7(@types/react@19.1.10))(@types/react@19.1.10)(immer@10.1.3)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)(three@0.180.0)
+        specifier: 0.4.0
+        version: 0.4.0(@daily-co/daily-js@0.83.1)(@pipecat-ai/client-js@1.4.0)(@pipecat-ai/client-react@1.0.1(@babel/core@7.28.3)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.4.0)(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(@pipecat-ai/small-webrtc-transport@1.6.0(@pipecat-ai/client-js@1.4.0))(@types/react-dom@19.1.7(@types/react@19.1.10))(@types/react@19.1.10)(immer@10.1.3)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)(three@0.180.0)
       camera-controls:
         specifier: ^3.1.0
         version: 3.1.0(three@0.180.0)
@@ -563,8 +563,8 @@ packages:
       react: '>= 16.8'
       react-dom: '>= 16.8'
 
-  '@pipecat-ai/client-js@1.3.0':
-    resolution: {integrity: sha512-vT6FoGVoCRlqL1XH3lwxFjasuM682ntyjxs3PDiSM1voqLcz74WPO+5LhC3bLrE0IZ1KDaUvvOrC3J6TRaLZ2Q==}
+  '@pipecat-ai/client-js@1.4.0':
+    resolution: {integrity: sha512-HOWz4OWXbIetkywwrfVuEiEpU8FVFksmyP/rSWHSQGu/V2MJflAXfFt2tQmtu8RiQCA7C1qurfZGsxeccYmJXw==}
 
   '@pipecat-ai/client-react@1.0.1':
     resolution: {integrity: sha512-ziW7OnBB/FGN/TLHB00KJcVU+6HToS82CSpJJrqm9dBP54hFxQ/iTjkmTnDyMRftv57HTPqbw4klqhjvJDLANQ==}
@@ -573,17 +573,17 @@ packages:
       react: '>=18'
       react-dom: '>=18'
 
-  '@pipecat-ai/small-webrtc-transport@1.4.0':
-    resolution: {integrity: sha512-nvmz1C8xIWh9RcwwYX3O3xE15Fs7qsMOiVX4eF0D7DgqkWU21eS1rO+PPmRpe1HT077hW4mhUmtdeRoaUD/ILw==}
+  '@pipecat-ai/small-webrtc-transport@1.6.0':
+    resolution: {integrity: sha512-Ld2QGpisTx2bzRUCbQjvDubLUr3dkHX/kNXvKdIO/Q2cbh/RWpvNmv+DeYwdAcid2Y978oSAZTwfyPT201fv4A==}
     peerDependencies:
-      '@pipecat-ai/client-js': ~1.3.0
+      '@pipecat-ai/client-js': ~1.4.0
 
-  '@pipecat-ai/voice-ui-kit@0.3.0':
-    resolution: {integrity: sha512-WkXM/FOlg1rn/jJ6EJTUAzssjmOOcYtx1WTd3qOAn8LvTv09dAi975NRGzWPisHtrr2ypFXngRBJdJTaDyLsOQ==}
+  '@pipecat-ai/voice-ui-kit@0.4.0':
+    resolution: {integrity: sha512-ZT+sGnxydMnClmCr2+4xzpupquXXZEzloLqjsD9GgJ2+ew3Gz18mjhAyyVax9f7wwlzdoDsIuJ3wG9zs6QYHWA==}
     engines: {node: '>=18'}
     peerDependencies:
-      '@daily-co/daily-js': '>=0.80.0'
-      '@pipecat-ai/client-js': '>=1.2.0'
+      '@daily-co/daily-js': '>=0.84.0'
+      '@pipecat-ai/client-js': '>=1.4.0'
       '@pipecat-ai/client-react': '>=1.0.1'
       '@pipecat-ai/daily-transport': '>=1.2.1'
       '@pipecat-ai/small-webrtc-transport': '>=1.3.0'
@@ -2740,8 +2740,8 @@ packages:
       '@types/react':
         optional: true
 
-  react-resizable-panels@3.0.4:
-    resolution: {integrity: sha512-8Y4KNgV94XhUvI2LeByyPIjoUJb71M/0hyhtzkHaqpVHs+ZQs8b627HmzyhmVYi3C9YP6R+XD1KmG7hHjEZXFQ==}
+  react-resizable-panels@3.0.6:
+    resolution: {integrity: sha512-b3qKHQ3MLqOgSS+FRYKapNkJZf5EQzuf6+RLiq1/IlTHw99YrZ2NJZLk4hQIzTnnIkRg2LUqyVinu6YWWpUYew==}
     peerDependencies:
       react: ^16.14.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc
       react-dom: ^16.14.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc
@@ -3766,7 +3766,7 @@ snapshots:
       react: 19.1.1
       react-dom: 19.1.1(react@19.1.1)
 
-  '@pipecat-ai/client-js@1.3.0':
+  '@pipecat-ai/client-js@1.4.0':
     dependencies:
       '@types/events': 3.0.3
       bowser: 2.12.0
@@ -3775,9 +3775,9 @@ snapshots:
       typed-emitter: 2.1.0
       uuid: 10.0.0
 
-  '@pipecat-ai/client-react@1.0.1(@babel/core@7.28.3)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.3.0)(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)':
+  '@pipecat-ai/client-react@1.0.1(@babel/core@7.28.3)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.4.0)(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)':
     dependencies:
-      '@pipecat-ai/client-js': 1.3.0
+      '@pipecat-ai/client-js': 1.4.0
       jotai: 2.13.1(@babel/core@7.28.3)(@babel/template@7.27.2)(@types/react@19.1.10)(react@19.1.1)
       react: 19.1.1
       react-dom: 19.1.1(react@19.1.1)
@@ -3786,18 +3786,18 @@ snapshots:
       - '@babel/template'
       - '@types/react'
 
-  '@pipecat-ai/small-webrtc-transport@1.4.0(@pipecat-ai/client-js@1.3.0)':
+  '@pipecat-ai/small-webrtc-transport@1.6.0(@pipecat-ai/client-js@1.4.0)':
     dependencies:
       '@daily-co/daily-js': 0.83.1
-      '@pipecat-ai/client-js': 1.3.0
+      '@pipecat-ai/client-js': 1.4.0
       dequal: 2.0.3
       lodash: 4.17.21
 
-  '@pipecat-ai/voice-ui-kit@0.3.0(@daily-co/daily-js@0.83.1)(@pipecat-ai/client-js@1.3.0)(@pipecat-ai/client-react@1.0.1(@babel/core@7.28.3)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.3.0)(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(@pipecat-ai/small-webrtc-transport@1.4.0(@pipecat-ai/client-js@1.3.0))(@types/react-dom@19.1.7(@types/react@19.1.10))(@types/react@19.1.10)(immer@10.1.3)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)(three@0.180.0)':
+  '@pipecat-ai/voice-ui-kit@0.4.0(@daily-co/daily-js@0.83.1)(@pipecat-ai/client-js@1.4.0)(@pipecat-ai/client-react@1.0.1(@babel/core@7.28.3)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.4.0)(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(@pipecat-ai/small-webrtc-transport@1.6.0(@pipecat-ai/client-js@1.4.0))(@types/react-dom@19.1.7(@types/react@19.1.10))(@types/react@19.1.10)(immer@10.1.3)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)(three@0.180.0)':
     dependencies:
       '@daily-co/daily-js': 0.83.1
-      '@pipecat-ai/client-js': 1.3.0
-      '@pipecat-ai/client-react': 1.0.1(@babel/core@7.28.3)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.3.0)(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
+      '@pipecat-ai/client-js': 1.4.0
+      '@pipecat-ai/client-react': 1.0.1(@babel/core@7.28.3)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.4.0)(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-dropdown-menu': 2.1.16(@types/react-dom@19.1.7(@types/react@19.1.10))(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-popover': 1.1.15(@types/react-dom@19.1.7(@types/react@19.1.10))(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       '@radix-ui/react-progress': 1.1.7(@types/react-dom@19.1.7(@types/react@19.1.10))(@types/react@19.1.10)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
@@ -3814,11 +3814,11 @@ snapshots:
       react: 19.1.1
       react-chartjs-2: 5.3.0(chart.js@4.5.0)(react@19.1.1)
       react-dom: 19.1.1(react@19.1.1)
-      react-resizable-panels: 3.0.4(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
+      react-resizable-panels: 3.0.6(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       tailwind-merge: 3.3.1
       zustand: 5.0.8(@types/react@19.1.10)(immer@10.1.3)(react@19.1.1)
     optionalDependencies:
-      '@pipecat-ai/small-webrtc-transport': 1.4.0(@pipecat-ai/client-js@1.3.0)
+      '@pipecat-ai/small-webrtc-transport': 1.6.0(@pipecat-ai/client-js@1.4.0)
       three: 0.180.0
     transitivePeerDependencies:
       - '@types/react'
@@ -6236,7 +6236,7 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.1.10
 
-  react-resizable-panels@3.0.4(react-dom@19.1.1(react@19.1.1))(react@19.1.1):
+  react-resizable-panels@3.0.6(react-dom@19.1.1(react@19.1.1))(react@19.1.1):
     dependencies:
       react: 19.1.1
       react-dom: 19.1.1(react@19.1.1)

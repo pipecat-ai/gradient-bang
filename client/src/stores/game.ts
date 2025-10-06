@@ -7,7 +7,6 @@ import {
 } from "zustand";
 
 import { GalaxyStarfield } from "../fx/starfield";
-import { createActionsSlice, type ActionsSlice } from "./actionSlice";
 import { createHistorySlice, type HistorySlice } from "./historySlice";
 import { createMapSlice, type MapSlice } from "./mapSlice";
 import { createSettingsSlice, type SettingsSlice } from "./settingsSlice";
@@ -31,58 +30,55 @@ const createSelectors = <S extends UseBoundStore<StoreApi<object>>>(
   return store;
 };
 
-export interface GameObjectInstance {
-  id: string;
-  type: "port" | "ship" | "npc";
-  data: Record<string, unknown>;
-}
-
 export interface GameState {
-  uiState: UIState;
-  player: Player;
-  ship: Ship | undefined;
-  credits: number | undefined;
-  sector: Sector | undefined;
+  player: PlayerSelf;
+  ship: ShipSelf;
+  sector?: Sector;
 
-  /* GameObject & Singleton Instances */
-  gameObjects: GameObjectInstance[];
-  starfieldInstance: GalaxyStarfield | undefined;
+  /* Singleton Instances */
+  starfieldInstance?: GalaxyStarfield;
+
+  /* Buffers & Caches */
+  sectorBuffer?: Sector;
 }
 
 export interface GameSlice extends GameState {
   setState: (newState: Partial<GameState>) => void;
-  setShip: (ship: Partial<Ship>) => void;
   setSector: (sector: Sector) => void;
-  setPlayer: (player: Player) => void;
-  setCredits: (credits: number) => void;
-  setUIState: (state: UIState) => void;
+  setSectorBuffer: (sector: Sector) => void;
+  setShip: (ship: Partial<ShipSelf>) => void;
   setStarfieldInstance: (
     starfieldInstance: GalaxyStarfield | undefined
   ) => void;
 }
 
 const createGameSlice: StateCreator<
-  GameSlice &
-    ActionsSlice &
-    MapSlice &
-    HistorySlice &
-    TaskSlice &
-    UISlice &
-    SettingsSlice,
+  GameSlice & MapSlice & HistorySlice & TaskSlice & UISlice & SettingsSlice,
   [],
   [],
   GameSlice
 > = (set, get) => ({
-  uiState: "idle",
-  player: { name: "Unknown" },
-  ship: undefined,
+  player: {} as PlayerSelf,
+  ship: {} as ShipSelf,
   sector: undefined,
-  credits: undefined,
-  gameObjects: [],
   starfieldInstance: undefined,
 
   setState: (newState: Partial<GameState>) =>
     set({ ...get(), ...newState }, true),
+
+  setSector: (sector: Sector) =>
+    set(
+      produce((state) => {
+        state.sector = sector;
+      })
+    ),
+
+  setSectorBuffer: (sector: Sector) =>
+    set(
+      produce((state) => {
+        state.sectorBuffer = sector;
+      })
+    ),
 
   setShip: (ship: Partial<Ship>) =>
     set(
@@ -94,43 +90,15 @@ const createGameSlice: StateCreator<
         }
       })
     ),
-  setSector: (sector: Sector) => {
-    const prevSector = get().sector?.id;
 
-    // Update the current sector
-    set(
-      produce((state) => {
-        state.sector = sector;
-      })
-    );
-    // Update the sector map
-    get().addMappedSector(sector);
-    // Update movement history
-    get().addMovementHistory(prevSector, sector);
-  },
-  setPlayer: (player: Player) =>
-    set(
-      produce((state) => {
-        state.player = player;
-      })
-    ),
-  setCredits: (credits: number) => set({ credits }),
-  setUIState: (uiState: UIState) => set({ uiState }),
   setStarfieldInstance: (starfieldInstance: GalaxyStarfield | undefined) =>
     set({ starfieldInstance }),
 });
 
 const useGameStoreBase = create<
-  GameSlice &
-    ActionsSlice &
-    MapSlice &
-    HistorySlice &
-    TaskSlice &
-    SettingsSlice &
-    UISlice
+  GameSlice & MapSlice & HistorySlice & TaskSlice & SettingsSlice & UISlice
 >()((...a) => ({
   ...createGameSlice(...a),
-  ...createActionsSlice(...a),
   ...createMapSlice(...a),
   ...createHistorySlice(...a),
   ...createTaskSlice(...a),

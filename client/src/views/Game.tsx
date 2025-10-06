@@ -1,11 +1,10 @@
 import { usePipecatClient } from "@pipecat-ai/client-react";
 import { usePipecatConnectionState } from "@pipecat-ai/voice-ui-kit";
 
-import { Debug } from "@/debug/Debug";
 import useGameStore from "@/stores/game";
 import { ShipHUD } from "@hud/ShipHUD";
 import { TopBar } from "@hud/TopBar";
-import { useCallback, useEffect } from "react";
+import { useEffect } from "react";
 import { Connect } from "../components/Connect";
 import { StarField } from "../components/StarField";
 import { usePlaySound } from "../hooks/usePlaySound";
@@ -14,41 +13,16 @@ export const Game = ({ onConnect }: { onConnect?: () => void }) => {
   const { isConnected } = usePipecatConnectionState();
   const playSound = usePlaySound();
   const client = usePipecatClient();
-  const { debugMode } = useGameStore.use.settings();
 
   const { startMuted } = useGameStore.use.settings();
-
-  const sendUserTextInput = useCallback(
-    (text: string) => {
-      if (!client) {
-        console.error("[GAME] Client not available");
-        return;
-      }
-      if (client.state !== "ready") {
-        console.error(
-          `[GAME] Client not ready. Current state: ${client.state}`
-        );
-        return;
-      }
-      console.debug(`[GAME] Sending user text input: "${text}"`);
-      client.sendClientMessage("user-text-input", { text });
-      console.debug("[GAME] Message sent successfully");
-    },
-    [client]
-  );
 
   useEffect(() => {
     if (client) {
       if (client.state !== "initialized" && !startMuted) {
         client.initDevices();
       }
-
-      // Attach send user text input function to window object
-      (
-        window as typeof window & { sendUserTextInput?: (text: string) => void }
-      ).sendUserTextInput = sendUserTextInput;
     }
-  }, [client, startMuted, sendUserTextInput]);
+  }, [client, startMuted]);
 
   useEffect(() => {
     if (isConnected) {
@@ -77,7 +51,6 @@ export const Game = ({ onConnect }: { onConnect?: () => void }) => {
 
       {/* Other Renderables */}
       <StarField />
-      {debugMode && <Debug />}
     </>
   );
 };
