@@ -147,6 +147,7 @@ async def sector_contents(
     if (
         current_character_id
         and world.characters[current_character_id].sector == sector_id
+        and port
     ):
         port["observed_at"] = None
 
