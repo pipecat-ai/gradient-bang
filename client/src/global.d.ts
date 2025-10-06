@@ -107,18 +107,22 @@ declare global {
   }
 
   // --- MAP
-  interface MapNode {
+  type MapData = Record<number, MapSectorNode>;
+
+  interface MapSectorNode {
     id: number;
-    lanes: MapLane[];
     position: [number, number];
-    sector: Sector;
-    visited: boolean;
+    visited?: boolean;
+    port?: string;
+    region?: string;
+    lanes: MapLane[];
   }
 
   interface MapLane {
-    hyperlane: boolean;
+    from: number;
     to: number;
     two_way: boolean;
+    hyperlane?: boolean;
   }
 }
 
