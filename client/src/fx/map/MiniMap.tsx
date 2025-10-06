@@ -13,11 +13,14 @@ export interface MiniMapRenderConfig {
     sector_border_current: string;
     cross_region_outline: string;
     sector_id_text: string;
+    label: string;
+    label_bg: string;
     grid: string;
     background: string;
   };
   grid_spacing?: number; // Distance between hex centers in pixels (default: auto-calculated)
   hex_size?: number; // Visual radius of each hex in pixels (default: grid_spacing * 0.85)
+  sector_label_offset?: number; // Pixel offset for sector ID labels from hex edge (default: 2)
   show_grid: boolean;
   show_warps: boolean;
   show_sector_ids: boolean;
@@ -51,6 +54,46 @@ export interface MiniMapProps {
   data: MiniMapData;
   config: MiniMapRenderConfig;
   maxDistance?: number; // BFS depth from current sector
+}
+
+export interface CameraState {
+  offsetX: number;
+  offsetY: number;
+  zoom: number;
+  filteredData: MiniMapData;
+}
+
+interface AnimationState {
+  isAnimating: boolean;
+  startTime: number;
+  duration: number;
+  startCamera: CameraState;
+  targetCamera: CameraState;
+  animationFrameId?: number;
+}
+
+/**
+ * Easing function for smooth animation (ease-in-out cubic)
+ */
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+/**
+ * Interpolate between two camera states
+ */
+function interpolateCameraState(
+  start: CameraState,
+  target: CameraState,
+  progress: number
+): CameraState {
+  const easedProgress = easeInOutCubic(progress);
+  return {
+    offsetX: start.offsetX + (target.offsetX - start.offsetX) * easedProgress,
+    offsetY: start.offsetY + (target.offsetY - start.offsetY) * easedProgress,
+    zoom: start.zoom + (target.zoom - start.zoom) * easedProgress,
+    filteredData: target.filteredData, // Use target data (no interpolation)
+  };
 }
 
 /**
@@ -438,35 +481,17 @@ function renderHexGrid(
 }
 
 /**
- * Main render function for the MiniMap canvas
+ * Calculate camera state for given props (reusable for animation)
  */
-export function renderMiniMapCanvas(
-  canvas: HTMLCanvasElement,
-  props: MiniMapProps
-) {
-  const { width, height, data, config, maxDistance = 3 } = props;
-
-  // Set canvas resolution
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = width * dpr;
-  canvas.height = height * dpr;
-
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-
-  // Scale for device pixel ratio
-  ctx.scale(dpr, dpr);
-
-  // Clear canvas with background color
-  ctx.fillStyle = config.colors.background;
-  ctx.fillRect(0, 0, width, height);
-
-  // Calculate hex sizing
-  // Default grid_spacing: fit reasonable number of hexes in view
-  const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
-  const hexSize = config.hex_size ?? gridSpacing * 0.85;
-  const scale = gridSpacing;
-
+function calculateCameraState(
+  data: MiniMapData,
+  config: MiniMapRenderConfig,
+  width: number,
+  height: number,
+  scale: number,
+  hexSize: number,
+  maxDistance: number
+): CameraState | null {
   // Calculate reachable sectors from current sector
   const reachableMap = calculateReachableSectors(
     data,
@@ -477,12 +502,12 @@ export function renderMiniMapCanvas(
   // Filter data to only include reachable sectors
   const filteredData = filterReachableSectors(data, reachableMap);
 
-  // If no reachable sectors, just render empty canvas
+  // If no reachable sectors, return null
   if (Object.keys(filteredData).length === 0) {
-    return;
+    return null;
   }
 
-  // Calculate camera transform to fit and center on current sector (using filtered data)
+  // Calculate camera transform to fit and center on current sector
   const camera = calculateCameraTransform(
     filteredData,
     config.current_sector_id,
@@ -492,11 +517,131 @@ export function renderMiniMapCanvas(
     hexSize
   );
 
+  return {
+    offsetX: camera.offsetX,
+    offsetY: camera.offsetY,
+    zoom: camera.zoom,
+    filteredData,
+  };
+}
+
+/**
+ * Convert world coordinates to screen coordinates given camera state
+ */
+function worldToScreen(
+  worldX: number,
+  worldY: number,
+  width: number,
+  height: number,
+  cameraState: CameraState
+): { x: number; y: number } {
+  return {
+    x: (worldX + cameraState.offsetX) * cameraState.zoom + width / 2,
+    y: (worldY + cameraState.offsetY) * cameraState.zoom + height / 2,
+  };
+}
+
+/**
+ * Render sector labels (fixed size, positioned at top-right of each hex)
+ */
+function renderSectorLabels(
+  ctx: CanvasRenderingContext2D,
+  data: MiniMapData,
+  scale: number,
+  hexSize: number,
+  width: number,
+  height: number,
+  cameraState: CameraState,
+  config: MiniMapRenderConfig
+) {
+  if (!config.show_sector_ids) return;
+
+  ctx.save();
+  ctx.font = "8px monospace";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+
+  const labelOffset = config.sector_label_offset ?? 2;
+  const padding = 1; // Padding around text inside background
+
+  Object.values(data).forEach((node) => {
+    const worldPos = hexToWorld(node.position[0], node.position[1], scale);
+
+    // Calculate top-right edge of hex in world coordinates
+    // Hex vertices are at 60° intervals starting at 0°
+    // Top-right vertex is at 300° (-60° or 5π/3)
+    const angle = -Math.PI / 3;
+    const edgeWorldX = worldPos.x + hexSize * Math.cos(angle);
+    const edgeWorldY = worldPos.y + hexSize * Math.sin(angle);
+
+    // Convert to screen coordinates
+    const screenPos = worldToScreen(
+      edgeWorldX,
+      edgeWorldY,
+      width,
+      height,
+      cameraState
+    );
+
+    const text = node.id.toString();
+    const textX = screenPos.x + labelOffset;
+    const textY = screenPos.y;
+
+    // Measure text to draw background
+    const metrics = ctx.measureText(text);
+    const textWidth = metrics.width;
+    const textHeight = 8; // Font size
+
+    // Draw background rectangle
+    ctx.fillStyle = config.colors.label_bg;
+    ctx.fillRect(
+      textX - padding,
+      textY - padding,
+      textWidth + padding * 2,
+      textHeight + padding * 2
+    );
+
+    // Draw text on top
+    ctx.fillStyle = config.colors.label;
+    ctx.fillText(text, textX, textY);
+  });
+
+  ctx.restore();
+}
+
+/**
+ * Internal render function that renders with a specific camera state
+ */
+function renderWithCameraState(
+  canvas: HTMLCanvasElement,
+  props: MiniMapProps,
+  cameraState: CameraState
+) {
+  const { width, height, config } = props;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  // Clear and setup canvas
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  ctx.scale(dpr, dpr);
+
+  // Clear canvas with background color
+  ctx.fillStyle = config.colors.background;
+  ctx.fillRect(0, 0, width, height);
+
+  // Calculate hex sizing
+  const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
+  const hexSize = config.hex_size ?? gridSpacing * 0.85;
+  const scale = gridSpacing;
+
   // Apply camera transform (center canvas, then zoom and pan)
   ctx.save();
   ctx.translate(width / 2, height / 2);
-  ctx.scale(camera.zoom, camera.zoom);
-  ctx.translate(camera.offsetX, camera.offsetY);
+  ctx.scale(cameraState.zoom, cameraState.zoom);
+  ctx.translate(cameraState.offsetX, cameraState.offsetY);
 
   // Render background grid
   if (config.show_grid) {
@@ -504,9 +649,9 @@ export function renderMiniMapCanvas(
       ctx,
       width,
       height,
-      camera.zoom,
-      camera.offsetX,
-      camera.offsetY,
+      cameraState.zoom,
+      cameraState.offsetX,
+      cameraState.offsetY,
       scale,
       hexSize,
       config.colors.grid
@@ -515,17 +660,200 @@ export function renderMiniMapCanvas(
 
   // Render lanes (before sectors so they appear behind)
   if (config.show_warps) {
-    renderAllLanes(ctx, filteredData, scale, hexSize, config);
+    renderAllLanes(ctx, cameraState.filteredData, scale, hexSize, config);
   }
 
   // Get current sector's region for cross-region highlighting
-  const currentSector = filteredData[config.current_sector_id];
+  const currentSector = cameraState.filteredData[config.current_sector_id];
   const currentRegion = currentSector?.region;
 
   // Render only reachable sectors
-  Object.values(filteredData).forEach((node) => {
+  Object.values(cameraState.filteredData).forEach((node) => {
     renderSector(ctx, node, scale, hexSize, config, currentRegion);
   });
 
   ctx.restore();
+
+  // Render sector labels (after restore, so they're not affected by zoom)
+  renderSectorLabels(
+    ctx,
+    cameraState.filteredData,
+    scale,
+    hexSize,
+    width,
+    height,
+    cameraState,
+    config
+  );
+}
+
+/**
+ * Main render function for the MiniMap canvas (stateless)
+ */
+export function renderMiniMapCanvas(
+  canvas: HTMLCanvasElement,
+  props: MiniMapProps
+) {
+  const { width, height, data, config, maxDistance = 3 } = props;
+
+  // Calculate hex sizing
+  const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
+  const hexSize = config.hex_size ?? gridSpacing * 0.85;
+  const scale = gridSpacing;
+
+  // Calculate camera state
+  const cameraState = calculateCameraState(
+    data,
+    config,
+    width,
+    height,
+    scale,
+    hexSize,
+    maxDistance
+  );
+
+  // If no reachable sectors, just render empty canvas
+  if (!cameraState) {
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      ctx.scale(dpr, dpr);
+      ctx.fillStyle = config.colors.background;
+      ctx.fillRect(0, 0, width, height);
+    }
+    return;
+  }
+
+  // Render with calculated camera state
+  renderWithCameraState(canvas, props, cameraState);
+}
+
+/**
+ * Get current camera state for the given props (useful for tracking state)
+ */
+export function getCurrentCameraState(props: MiniMapProps): CameraState | null {
+  const { width, height, data, config, maxDistance = 3 } = props;
+
+  // Calculate hex sizing
+  const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
+  const hexSize = config.hex_size ?? gridSpacing * 0.85;
+  const scale = gridSpacing;
+
+  return calculateCameraState(
+    data,
+    config,
+    width,
+    height,
+    scale,
+    hexSize,
+    maxDistance
+  );
+}
+
+/**
+ * Update current sector with animation
+ * Returns a cleanup function to cancel the animation
+ */
+export function updateCurrentSector(
+  canvas: HTMLCanvasElement,
+  props: MiniMapProps,
+  newSectorId: number,
+  currentCameraState: CameraState | null,
+  duration: number = 500
+): () => void {
+  const { width, height, data, config, maxDistance = 3 } = props;
+
+  // Calculate hex sizing
+  const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
+  const hexSize = config.hex_size ?? gridSpacing * 0.85;
+  const scale = gridSpacing;
+
+  // Create new config with updated sector ID
+  const newConfig = { ...config, current_sector_id: newSectorId };
+
+  // Calculate target camera state
+  const targetCameraState = calculateCameraState(
+    data,
+    newConfig,
+    width,
+    height,
+    scale,
+    hexSize,
+    maxDistance
+  );
+
+  if (!targetCameraState) {
+    // If no valid target, just render empty
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      ctx.scale(dpr, dpr);
+      ctx.fillStyle = config.colors.background;
+      ctx.fillRect(0, 0, width, height);
+    }
+    return () => {}; // No-op cleanup
+  }
+
+  // If no current state, just render target directly
+  if (!currentCameraState) {
+    renderWithCameraState(
+      canvas,
+      { ...props, config: newConfig },
+      targetCameraState
+    );
+    return () => {}; // No-op cleanup
+  }
+
+  // Setup animation
+  const animationState: AnimationState = {
+    isAnimating: true,
+    startTime: performance.now(),
+    duration,
+    startCamera: currentCameraState,
+    targetCamera: targetCameraState,
+  };
+
+  // Animation loop
+  const animate = (currentTime: number) => {
+    if (!animationState.isAnimating) return;
+
+    const elapsed = currentTime - animationState.startTime;
+    const progress = Math.min(elapsed / animationState.duration, 1);
+
+    // Interpolate camera state
+    const interpolatedCamera = interpolateCameraState(
+      animationState.startCamera,
+      animationState.targetCamera,
+      progress
+    );
+
+    // Render with interpolated state
+    renderWithCameraState(
+      canvas,
+      { ...props, config: newConfig },
+      interpolatedCamera
+    );
+
+    // Continue animation if not complete
+    if (progress < 1) {
+      animationState.animationFrameId = requestAnimationFrame(animate);
+    } else {
+      animationState.isAnimating = false;
+    }
+  };
+
+  // Start animation
+  animationState.animationFrameId = requestAnimationFrame(animate);
+
+  // Return cleanup function
+  return () => {
+    animationState.isAnimating = false;
+    if (animationState.animationFrameId !== undefined) {
+      cancelAnimationFrame(animationState.animationFrameId);
+    }
+  };
 }

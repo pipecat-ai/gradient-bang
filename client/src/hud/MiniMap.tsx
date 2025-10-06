@@ -1,5 +1,13 @@
-import type { MiniMapData, MiniMapRenderConfig } from "@fx/map/MiniMap";
-import { renderMiniMapCanvas } from "@fx/map/MiniMap";
+import type {
+  CameraState,
+  MiniMapData,
+  MiniMapRenderConfig,
+} from "@fx/map/MiniMap";
+import {
+  getCurrentCameraState,
+  renderMiniMapCanvas,
+  updateCurrentSector,
+} from "@fx/map/MiniMap";
 import { useEffect, useRef } from "react";
 
 export const MiniMap = ({
@@ -8,26 +16,60 @@ export const MiniMap = ({
   width = 440,
   height = 440,
   maxDistance = 3,
+  animationDuration = 500,
 }: {
   config: MiniMapRenderConfig;
   map_data: MiniMapData;
   width?: number;
   height?: number;
   maxDistance?: number;
+  animationDuration?: number;
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const cameraStateRef = useRef<CameraState | null>(null);
+  const prevSectorIdRef = useRef<number>(config.current_sector_id);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    renderMiniMapCanvas(canvas, {
+
+    const props = {
       width,
       height,
       data: map_data,
       config,
       maxDistance,
-    });
-  }, [config, map_data, width, height, maxDistance]);
+    };
+
+    // Check if current sector changed
+    const currentSectorId = config.current_sector_id;
+    const prevSectorId = prevSectorIdRef.current;
+
+    if (currentSectorId !== prevSectorId && cameraStateRef.current) {
+      // Animate transition to new sector
+      const cleanup = updateCurrentSector(
+        canvas,
+        props,
+        currentSectorId,
+        cameraStateRef.current,
+        animationDuration
+      );
+
+      // Update camera state after animation
+      setTimeout(() => {
+        cameraStateRef.current = getCurrentCameraState(props);
+      }, animationDuration);
+
+      prevSectorIdRef.current = currentSectorId;
+
+      return cleanup;
+    } else {
+      // No animation needed, just render
+      renderMiniMapCanvas(canvas, props);
+      cameraStateRef.current = getCurrentCameraState(props);
+      prevSectorIdRef.current = currentSectorId;
+    }
+  }, [config, map_data, width, height, maxDistance, animationDuration]);
 
   return (
     <div style={{ display: "grid", gap: 8 }}>

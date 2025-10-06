@@ -74,7 +74,7 @@ const storyData: MiniMapData = {
     position: [117, 125],
     visited: false,
     region: "frontier",
-    lanes: [{ from: 653, to: 566, two_way: true }],
+    lanes: [],
   },
   657: {
     id: 657,
@@ -117,14 +117,14 @@ const storyData: MiniMapData = {
     position: [117, 123],
     visited: false,
     region: "frontier",
-    lanes: [{ from: 1317, to: 566, two_way: false }],
+    lanes: [],
   },
   1401: {
     id: 1401,
     position: [131, 120],
     visited: false,
     region: "frontier",
-    lanes: [{ from: 1401, to: 1284, two_way: true }],
+    lanes: [],
   },
 };
 
@@ -141,8 +141,10 @@ const baseConfig: Omit<MiniMapRenderConfig, "current_sector_id"> = {
     sector_border_current: "#4a90e2",
     cross_region_outline: "rgba(255,120,120,0.9)",
     sector_id_text: "#dddddd",
-    grid: "rgba(255,255,255,0.5)",
+    grid: "rgba(255,255,255,0.3)",
     background: "#000000",
+    label: "#000000",
+    label_bg: "#ffffff",
   },
   grid_spacing: 30, // Distance between hex centers in pixels (leave undefined for auto-calculate)
   hex_size: 20, // Visual radius of each hex (leave undefined for auto: 85% of grid_spacing)
@@ -151,9 +153,10 @@ const baseConfig: Omit<MiniMapRenderConfig, "current_sector_id"> = {
   show_sector_ids: true,
   show_ports: true,
   show_hyperlanes: true,
+  sector_label_offset: 5,
 };
 
-export const MiniMap: Story = () => {
+export const MiniMapMock: Story = () => {
   const [currentSectorId, setCurrentSectorId] = useState<number>(0);
   const [maxDistance, setMaxDistance] = useState<number>(3);
   const mergedConfig: MiniMapRenderConfig = useMemo(
@@ -191,8 +194,8 @@ export const MiniMap: Story = () => {
               className="flex-1"
             />
           </div>
-          <div className="flex gap-2">
-            {[0, 581, 657, 849, 126, 389].map((id) => (
+          <div className="flex gap-2 flex-wrap">
+            {[0, 581, 389, 566, 849, 1284].map((id) => (
               <Button size="sm" key={id} onClick={() => handleSetSector(id)}>
                 Center {id}
               </Button>
@@ -204,7 +207,7 @@ export const MiniMap: Story = () => {
   );
 };
 
-MiniMap.meta = {
+MiniMapMock.meta = {
   connectOnMount: false,
   disableAudioOutput: true,
   enableMic: false,
