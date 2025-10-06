@@ -21,7 +21,6 @@ from api import (
     move as api_move,
     my_status as api_my_status,
     my_map as api_my_map,
-    local_map as api_local_map,
     local_map_region as api_local_map_region,
     list_known_ports as api_list_known_ports,
     path_with_region as api_path_with_region,
@@ -161,9 +160,6 @@ RPC_HANDLERS: Dict[str, RPCHandler] = {
     "my_map": _with_rate_limit(
         "my_map", lambda payload: api_my_map.handle(payload, world)
     ),
-    "local_map": _with_rate_limit(
-        "local_map", lambda payload: api_local_map.handle(payload, world)
-    ),
     "local_map_region": _with_rate_limit(
         "local_map_region", lambda payload: api_local_map_region.handle(payload, world)
     ),
@@ -233,58 +229,6 @@ async def root() -> Dict[str, Any]:
         "status": "running",
         "sectors": world.universe_graph.sector_count if world.universe_graph else 0,
     }
-
-
-# For testing - http://localhost:5173/map-demo.html
-@app.get("/api/local_map")
-async def local_map_get(center: int = 0, max_hops: int = 3, max_nodes: int = 25):
-    if not world.universe_graph:
-        return {"node_list": []}
-
-    visited = set()
-    queue = deque([(center, 0)])
-    nodes_by_id: Dict[int, Dict[str, Any]] = {}
-
-    while queue and len(nodes_by_id) < max_nodes:
-        sector_id, distance = queue.popleft()
-        if sector_id in visited or distance > max_hops:
-            continue
-
-        visited.add(sector_id)
-        adjacent = world.universe_graph.adjacency.get(sector_id, [])
-        if sector_id not in world.universe_graph.adjacency:
-            continue
-
-        port_type = None
-        if world.port_manager:
-            port_state = world.port_manager.load_port_state(sector_id)
-            if port_state:
-                port_type = port_state.code
-
-        position = None
-        if world.universe_graph:
-            position = world.universe_graph.positions.get(sector_id, (0, 0))
-
-        nodes_by_id[sector_id] = {
-            "id": sector_id,
-            "visited": True,
-            "port_type": port_type,
-            "adjacent": adjacent,
-            "position": position,
-        }
-
-        if distance < max_hops:
-            for neighbor in adjacent:
-                if neighbor not in visited:
-                    queue.append((neighbor, distance + 1))
-
-    node_list = []
-    for node_id in sorted(nodes_by_id.keys()):
-        node = nodes_by_id[node_id]
-        node["adjacent"] = [adj for adj in node["adjacent"] if adj in nodes_by_id]
-        node_list.append(node)
-
-    return {"node_list": node_list}
 
 
 @app.websocket("/ws")
@@ -431,9 +375,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 continue
 
             try:
-                result = await handler(payload)
+                # Associate character with this connection BEFORE calling handler
+                # so that events emitted during join/my_status are properly delivered
                 if endpoint in {"join", "my_status"}:
-                    # Associate character with this connection
                     character_id = payload.get("character_id")
                     if character_id:
                         try:
@@ -441,6 +385,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                         except ValueError:
                             # Already set to this character, that's fine
                             pass
+
+                result = await handler(payload)
                 await websocket.send_json(rpc_success(frame_id, endpoint, result))
             except HTTPException as exc:
                 await websocket.send_json(rpc_error(frame_id, endpoint, exc))

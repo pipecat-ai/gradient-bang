@@ -18,6 +18,14 @@ async def handle(request: dict, world) -> dict:
     if not character_id or not combat_id or not action_raw:
         raise HTTPException(status_code=400, detail="Missing required fields")
 
+    if character_id in world.characters:
+        character = world.characters[character_id]
+        if character.in_hyperspace:
+            raise HTTPException(
+                status_code=400,
+                detail="Character is in hyperspace, cannot perform combat action",
+            )
+
     if world.combat_manager is None:
         raise HTTPException(status_code=503, detail="Combat system not initialised")
 

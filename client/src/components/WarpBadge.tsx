@@ -27,7 +27,7 @@ export const WarpBadge = () => {
   return (
     <Badge size="lg" variant="elbow" color={progressProps.variant}>
       Warp:
-      <Progress {...progressProps} size="xl" className="h-[8px]" />
+      <Progress {...progressProps} size="xl" />
       <div>
         {ship?.warp_power ?? 0}
         <span className="opacity-30"> / </span>

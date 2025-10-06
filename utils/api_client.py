@@ -1,6 +1,6 @@
 """Game server API client for Gradient Bang."""
 
-from typing import List, Optional, Dict, Any, Callable, Awaitable, Tuple
+from typing import List, Optional, Dict, Any, Callable, Awaitable, Tuple, Mapping
 import logging
 import asyncio
 import json
@@ -34,12 +34,16 @@ class AsyncGameClient:
         *,
         character_id: str,
         transport: str = "websocket",
+        websocket_frame_callback: Optional[
+            Callable[[str, Mapping[str, Any]], Any]
+        ] = None,
     ):
         """Initialize the async game client.
 
         Args:
             base_url: Base URL of the game server
             character_id: Character ID this client will operate on (immutable)
+            websocket_frame_callback: Optional callback for WebSocket frame logging/debugging
         """
         if not character_id:
             raise ValueError("AsyncGameClient requires a non-empty character_id")
@@ -65,6 +69,9 @@ class AsyncGameClient:
 
         # Optional summary formatters: endpoint_name -> formatter_function
         self._summary_formatters: Dict[str, Callable[[Dict[str, Any]], str]] = {}
+
+        # Optional WebSocket frame callback for logging/debugging
+        self._websocket_frame_callback = websocket_frame_callback
 
     @property
     def character_id(self) -> str:
@@ -240,6 +247,22 @@ class AsyncGameClient:
             if not future.done() and token is not None:
                 self.remove_event_handler(token)
 
+    async def _emit_frame(self, direction: str, frame: Mapping[str, Any]) -> None:
+        """Emit a WebSocket frame to the registered callback if present.
+
+        Args:
+            direction: "send" or "recv"
+            frame: The WebSocket frame dict
+        """
+        if self._websocket_frame_callback is None:
+            return
+        try:
+            result = self._websocket_frame_callback(direction, frame)
+            if inspect.isawaitable(result):
+                await result
+        except Exception:  # pragma: no cover - logging must never crash the client
+            pass
+
     async def _ensure_ws(self):
         if self._ws is not None:
             return
@@ -255,6 +278,7 @@ class AsyncGameClient:
                     msg = json.loads(raw)
                 except Exception:
                     continue
+                await self._emit_frame("recv", msg)
                 frame_type = msg.get("frame_type")
                 if frame_type == "event":
                     event_name = msg.get("event")
@@ -294,6 +318,7 @@ class AsyncGameClient:
             "endpoint": endpoint,
             "payload": payload,
         }
+        await self._emit_frame("send", frame)
         await self._ws.send(json.dumps(frame))
         msg = await fut
         if not msg.get("ok"):
@@ -311,6 +336,7 @@ class AsyncGameClient:
         req_id = frame.setdefault("id", str(uuid.uuid4()))
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[req_id] = fut
+        await self._emit_frame("send", frame)
         await self._ws.send(json.dumps(frame))
         msg = await fut
         if not msg.get("ok"):
@@ -356,9 +382,7 @@ class AsyncGameClient:
         result = await self._request("join", payload)
         return self._apply_summary("join", result)
 
-    async def move(
-        self, to_sector: int, character_id: str
-    ) -> Dict[str, Any]:
+    async def move(self, to_sector: int, character_id: str) -> Dict[str, Any]:
         """Move a character to an adjacent sector.
 
         Args:
@@ -405,9 +429,7 @@ class AsyncGameClient:
         result = await self._request("my_status", {"character_id": character_id})
         return self._apply_summary("my_status", result)
 
-    async def plot_course(
-        self, to_sector: int, character_id: str
-    ) -> Dict[str, Any]:
+    async def plot_course(self, to_sector: int, character_id: str) -> Dict[str, Any]:
         """Plot a course from character's current sector to destination.
 
         Args:
@@ -465,49 +487,6 @@ class AsyncGameClient:
 
         result = await self._request("my_map", {"character_id": character_id})
         return self._apply_summary("my_map", result)
-
-    async def local_map(
-        self,
-        character_id: str,
-        max_hops: Optional[int] = None,
-        current_sector: Optional[int] = None,
-        max_sectors: Optional[int] = None,
-    ) -> Dict[str, Any]:
-        """Get a local view of the player's known graph.
-
-        Args:
-            character_id: Character to query (must match bound ID)
-            max_hops: Number of rings to include around the center (legacy mode)
-            current_sector: Optional explicit center; defaults to character's sector
-            max_sectors: Optional node cap (takes precedence over `max_hops`)
-
-        Returns:
-            Local map centered on character or specified sector
-
-        Raises:
-            RPCError: If the request fails
-            ValueError: If character_id doesn't match bound ID
-        """
-        if character_id != self._character_id:
-            raise ValueError(
-                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
-                f"received {character_id!r}"
-            )
-
-        payload: Dict[str, Any] = {
-            "character_id": character_id,
-        }
-        if current_sector is not None:
-            payload["current_sector"] = int(current_sector)
-
-        if max_sectors is not None:
-            payload["max_sectors"] = int(max_sectors)
-        else:
-            hops_value = 3 if max_hops is None else int(max_hops)
-            payload["max_hops"] = hops_value
-
-        result = await self._request("local_map", payload)
-        return self._apply_summary("local_map", result)
 
     async def local_map_region(
         self,
@@ -1083,6 +1062,7 @@ class AsyncGameClient:
             if asyncio.iscoroutinefunction(handler):
                 self.on("chat.message")(handler)
             else:
+
                 async def _wrapper(payload: Dict[str, Any]) -> None:
                     handler(payload)
 

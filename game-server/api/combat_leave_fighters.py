@@ -37,6 +37,12 @@ async def handle(request: dict, world) -> dict:
         raise HTTPException(status_code=404, detail=f"Character '{character_id}' not found")
 
     character = world.characters[character_id]
+    if character.in_hyperspace:
+        raise HTTPException(
+            status_code=400,
+            detail="Character is in hyperspace, cannot leave fighters",
+        )
+
     if character.sector != sector:
         raise HTTPException(status_code=409, detail="Character not in requested sector")
 

@@ -1,7 +1,6 @@
 import json
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Dict, List, Set, Optional, Any, Tuple
+from typing import Dict, List, Set, Optional, Tuple
 from collections import deque, defaultdict
 
 from contextlib import asynccontextmanager
@@ -25,7 +24,10 @@ class UniverseGraph:
 
         for sector in universe_data["sectors"]:
             sector_id = sector["id"]
-            self.positions[sector_id] = [sector["position"].get("x"), sector["position"].get("y")]
+            self.positions[sector_id] = [
+                sector["position"].get("x"),
+                sector["position"].get("y"),
+            ]
             targets = [warp["to"] for warp in sector["warps"]]
             self.adjacency[sector_id] = targets
             for target in targets:
@@ -34,8 +36,7 @@ class UniverseGraph:
 
         # Freeze undirected adjacency into regular dicts for easier access
         self.undirected_adjacency: Dict[int, List[int]] = {
-            sector_id: sorted(neighbors)
-            for sector_id, neighbors in undirected.items()
+            sector_id: sorted(neighbors) for sector_id, neighbors in undirected.items()
         }
 
     def neighbors(self, sector_id: int) -> set[int]:
@@ -82,17 +83,23 @@ class Character:
         shields: int = 0,
         max_fighters: int = 0,
         max_shields: int = 0,
+        first_visit: Optional[datetime] = None,
         last_active: Optional[datetime] = None,
+        player_type: Optional[str] = None,
         connected: bool = True,
+        in_hyperspace: bool = False,
     ) -> None:
         self.id = character_id
         self.sector = sector
         self.last_active = last_active or datetime.now(timezone.utc)
+        self.first_visit = first_visit or datetime.now(timezone.utc)
         self.fighters = fighters
         self.shields = shields
         self.max_fighters = max_fighters
         self.max_shields = max_shields
+        self.player_type = player_type or "human"
         self.connected = connected
+        self.in_hyperspace = in_hyperspace
 
     def update_activity(self) -> None:
         self.last_active = datetime.now(timezone.utc)
@@ -121,6 +128,7 @@ class Character:
             "name": self.id,
             "sector": self.sector,
             "last_active": self.last_active.isoformat(),
+            "first_visit": self.first_visit.isoformat(),
         }
 
 
@@ -140,7 +148,9 @@ class GameWorld:
 
         universe_path = world_data_path / "universe_structure.json"
         if not universe_path.exists():
-            raise FileNotFoundError(f"Universe structure file not found: {universe_path}")
+            raise FileNotFoundError(
+                f"Universe structure file not found: {universe_path}"
+            )
         with open(universe_path, "r") as f:
             universe_data = json.load(f)
         self.universe_graph = UniverseGraph(universe_data)

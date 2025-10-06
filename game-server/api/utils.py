@@ -1,5 +1,5 @@
 import json
-import asyncio
+from collections import deque, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -60,96 +60,117 @@ def log_trade(
         print(f"Failed to log trade: {e}")
 
 
-def build_ship_status(world, character_id: str) -> Dict[str, Any]:
-    """Build ship status dict for a character from knowledge and ship stats."""
+def player_self(world, character_id: str) -> Dict[str, Any]:
+    """Build player status for player's own character."""
+    character = world.characters[character_id]
+    return {
+        "created_at": character.first_visit.isoformat(),
+        "last_active": character.last_active.isoformat(),
+        "id": character.id,
+        "name": character.id,  # todo: make name settable
+        "credits_on_hand": world.knowledge_manager.get_credits(character_id),
+        "credits_in_bank": 0,
+    }
+
+
+def ship_self(world, character_id: str) -> Dict[str, Any]:
+    """Build ship status for player's own ship."""
     knowledge = world.knowledge_manager.load_knowledge(character_id)
     ship_config = knowledge.ship_config
     ship_stats = get_ship_stats(ShipType(ship_config.ship_type))
 
+    # Use custom name if set, otherwise default to ship type name
+    display_name = ship_config.ship_name or ship_stats.name
+
+    # todo: refactor ship_config and ship_stats
     return {
         "ship_type": ship_config.ship_type,
-        "ship_name": ship_stats.name,
+        "ship_name": display_name,
         "cargo": ship_config.cargo,
         "cargo_capacity": ship_stats.cargo_holds,
-        "cargo_used": sum(ship_config.cargo.values()),
         "warp_power": ship_config.current_warp_power,
         "warp_power_capacity": ship_stats.warp_power_capacity,
         "shields": ship_config.current_shields,
         "max_shields": ship_stats.shields,
         "fighters": ship_config.current_fighters,
         "max_fighters": ship_stats.fighters,
-        "credits": knowledge.credits,
     }
+
+
+def port_snapshot(world, sector_id: int) -> Dict[str, Any]:
+    """Compute port snapshot visible to a character."""
+    port = None
+    port_state = world.port_manager.load_port_state(sector_id)
+    if port_state:
+        # Compute current prices now, but only store/send minimal snapshot
+        full_port_for_pricing = {
+            "class": port_state.port_class,
+            "code": port_state.code,
+            "stock": port_state.stock,
+            "max_capacity": port_state.max_capacity,
+            "buys": [],
+            "sells": [],
+        }
+        commodities = [("FO", "fuel_ore"), ("OG", "organics"), ("EQ", "equipment")]
+        for i, (key, name) in enumerate(commodities):
+            if port_state.code[i] == "B":
+                full_port_for_pricing["buys"].append(name)
+            else:
+                full_port_for_pricing["sells"].append(name)
+        prices = get_port_prices(full_port_for_pricing)
+        stock = get_port_stock(full_port_for_pricing)
+        if sector_id == 0:
+            prices["warp_power_depot"] = {
+                "price_per_unit": 2,
+                "note": "Special warp power depot - recharge your ship",
+            }
+        port = {
+            "code": port_state.code,
+            "last_seen_prices": prices,
+            "last_seen_stock": stock,
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+        }
+    return port
 
 
 async def sector_contents(
     world, sector_id: int, current_character_id: Optional[str] = None
 ) -> Dict[str, Any]:
-    """Compute contents of a sector visible to a character.
+    """Compute contents of a sector visible to a character."""
 
-    Returns minimal port snapshot (code, last_seen_prices, last_seen_stock), planets, other players, adjacency.
-    """
+    # adjacent_sectors
+    adjacent_sectors = sorted(world.universe_graph.adjacency[sector_id])
 
     # Port (minimal snapshot) -- todo: write tests and refactor this. there's much more logic here than there needs to be
-    port = None
-    if world.port_manager:
-        port_state = world.port_manager.load_port_state(sector_id)
-        if port_state:
-            # Compute current prices now, but only store/send minimal snapshot
-            full_port_for_pricing = {
-                "class": port_state.port_class,
-                "code": port_state.code,
-                "stock": port_state.stock,
-                "max_capacity": port_state.max_capacity,
-                "buys": [],
-                "sells": [],
-            }
-            commodities = [("FO", "fuel_ore"), ("OG", "organics"), ("EQ", "equipment")]
-            for i, (key, name) in enumerate(commodities):
-                if port_state.code[i] == "B":
-                    full_port_for_pricing["buys"].append(name)
-                else:
-                    full_port_for_pricing["sells"].append(name)
-            prices = get_port_prices(full_port_for_pricing)
-            stock = get_port_stock(full_port_for_pricing)
-            if sector_id == 0:
-                prices["warp_power_depot"] = {
-                    "price_per_unit": 2,
-                    "note": "Special warp power depot - recharge your ship",
-                }
-            port = {
-                "code": port_state.code,
-                "last_seen_prices": prices,
-                "last_seen_stock": stock,
-                "observed_at": datetime.now(timezone.utc).isoformat(),
-            }
-
-    # Planets
-    planets = []
-    if world.sector_contents and sector_id < len(world.sector_contents["sectors"]):
-        sector_data = world.sector_contents["sectors"][sector_id]
-        for planet_data in sector_data.get("planets", []):
-            planets.append(
-                {
-                    "id": planet_data["id"],
-                    "class_code": planet_data["class_code"],
-                    "class_name": planet_data["class_name"],
-                }
-            )
+    port = port_snapshot(world, sector_id)
 
     # Other players (names + ship type when known)
-    other_players = []
+    players = []
     for char_id, character in world.characters.items():
         if character.sector != sector_id or char_id == current_character_id:
             continue
-        entry = {"name": char_id}
+        if character.in_hyperspace:  # Skip characters in transit
+            continue
+        # fill in created_at, name, player_type, ship
         knowledge = world.knowledge_manager.load_knowledge(char_id)
-        ship_type = knowledge.ship_config.ship_type if knowledge else None
-        if ship_type:
-            entry["ship_type"] = ship_type
-        other_players.append(entry)
+        ship_config = knowledge.ship_config
+        ship_stats = get_ship_stats(ShipType(ship_config.ship_type))
 
-        # Garrisons
+        # Use custom name if set, otherwise default to ship type name
+        display_name = ship_config.ship_name or ship_stats.name
+
+        player = {
+            "created_at": character.first_visit.isoformat(),
+            "name": character.id,  # todo: make name settable
+            "player_type": character.player_type,
+            "ship": {
+                "ship_type": ship_config.ship_type,
+                "ship_name": display_name,
+            },
+        }
+        players.append(player)
+
+    # Garrisons
     garrisons = []
     if getattr(world, "garrisons", None):
         for garrison in await world.garrisons.list_sector(sector_id):
@@ -163,41 +184,145 @@ async def sector_contents(
         for container in world.salvage_manager.list_sector(sector_id):
             salvage.append(container.to_dict())
 
-    # Adjacent sectors
-    adjacent_sectors = []
-    if world.universe_graph and sector_id in world.universe_graph.adjacency:
-        adjacent_sectors = sorted(world.universe_graph.adjacency[sector_id])
-
-    # Position
-    position = world.universe_graph.positions.get(sector_id, (0, 0))
-
     return {
+        "id": sector_id,
+        "adjacent_sectors": adjacent_sectors,
         "port": port,
-        "position": position,
-        "planets": planets,
-        "other_players": other_players,
+        "players": players,
         "garrisons": garrisons,
         "salvage": salvage,
-        "adjacent_sectors": adjacent_sectors,
     }
 
 
 async def build_status_payload(
     world,
     character_id: str,
-    *,
-    sector_snapshot: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Assemble the canonical status payload for a character."""
     character = world.characters[character_id]
-    snapshot = sector_snapshot or await sector_contents(
-        world, character.sector, character_id
-    )
+
     return {
-        "character_id": character_id,
-        "name": character.id,
-        "sector": character.sector,
-        "last_active": character.last_active.isoformat(),
-        "sector_contents": snapshot,
-        "ship": build_ship_status(world, character_id),
+        "player": player_self(world, character_id),
+        "ship": ship_self(world, character_id),
+        "sector": await sector_contents(world, character.sector, character_id),
+    }
+
+
+async def build_local_map_region(
+    world,
+    *,
+    character_id: str,
+    center_sector: int,
+    max_hops: int = 3,
+    max_sectors: int = 100,
+) -> Dict[str, Any]:
+    """Build local map region with visited/unvisited sectors around a center.
+
+    Args:
+        world: World instance
+        character_id: Character ID for knowledge lookup
+        center_sector: Center sector for the map
+        max_hops: Number of hops from center (default 3, max 10)
+        max_sectors: Cap on number of sectors to return (default 100)
+
+    Returns:
+        Dict with center_sector, sectors list, and totals
+    """
+    knowledge = world.knowledge_manager.load_knowledge(character_id)
+    visited_sectors = set(int(k) for k in knowledge.sectors_visited.keys())
+
+    # BFS to find sectors within range
+    result_sectors = []
+    distance_map: Dict[int, int] = {center_sector: 0}
+    queue = deque([(center_sector, 0)])
+    visited_in_bfs = {center_sector}
+
+    # Track which unvisited sectors we've seen
+    unvisited_seen: Dict[int, set[int]] = {}
+
+    while queue and len(distance_map) < max_sectors:
+        current, hops = queue.popleft()
+
+        if hops >= max_hops:
+            continue
+
+        # Get adjacent sectors from knowledge if this sector is visited
+        if current in visited_sectors:
+            sector_knowledge = knowledge.sectors_visited[str(current)]
+            adjacent = sector_knowledge.adjacent_sectors or []
+
+            for adj_id in adjacent:
+                adj_id = int(adj_id)
+
+                if adj_id not in visited_in_bfs:
+                    visited_in_bfs.add(adj_id)
+                    distance_map[adj_id] = hops + 1
+
+                    # Track unvisited sectors
+                    if adj_id not in visited_sectors:
+                        if adj_id not in unvisited_seen:
+                            unvisited_seen[adj_id] = set()
+                        unvisited_seen[adj_id].add(current)
+
+                    # Only continue BFS from visited sectors
+                    if adj_id in visited_sectors:
+                        queue.append((adj_id, hops + 1))
+
+                    # Check sector limit
+                    if len(distance_map) >= max_sectors:
+                        break
+
+    # Build result with full data for visited, minimal for unvisited
+    for sector_id in sorted(distance_map.keys()):
+        hops_from_center = distance_map[sector_id]
+
+        if sector_id in visited_sectors:
+            # Get full sector contents
+            contents = await sector_contents(world, sector_id, character_id)
+
+            # Get last visited time
+            sector_knowledge = knowledge.sectors_visited[str(sector_id)]
+            last_visited = (
+                sector_knowledge.last_visited
+                if hasattr(sector_knowledge, "last_visited")
+                else None
+            )
+
+            # Get sector position from universe graph
+            position = world.universe_graph.positions.get(sector_id, (0, 0)) if world.universe_graph else (0, 0)
+
+            sector_dict = {
+                "id": sector_id,
+                "visited": True,
+                "hops_from_center": hops_from_center,
+                "adjacent_sectors": contents["adjacent_sectors"],
+                "port": contents["port"].get("code", "") if contents["port"] else "",
+                "last_visited": last_visited,
+                "position": position,
+            }
+
+            if last_visited:
+                sector_dict["last_visited"] = last_visited
+
+            result_sectors.append(sector_dict)
+        else:
+            # Minimal info for unvisited sectors
+            result_sectors.append(
+                {
+                    "sector_id": sector_id,
+                    "visited": False,
+                    "hops_from_center": hops_from_center,
+                    "seen_from": sorted(unvisited_seen.get(sector_id, set())),
+                }
+            )
+
+    total_visited = sum(1 for s in result_sectors if s["visited"])
+    total_unvisited = len(result_sectors) - total_visited
+
+    return {
+        "center_sector": center_sector,
+        "sectors": result_sectors,
+        "total_sectors": len(result_sectors),
+        "total_visited": total_visited,
+        "total_unvisited": total_unvisited,
     }

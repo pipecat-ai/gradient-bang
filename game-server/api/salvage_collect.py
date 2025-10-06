@@ -10,6 +10,16 @@ async def handle(request: dict, world) -> dict:
     if not character_id or not salvage_id:
         raise HTTPException(status_code=400, detail="Missing character_id or salvage_id")
 
+    if character_id not in world.characters:
+        raise HTTPException(status_code=404, detail="Character not found")
+
+    character = world.characters[character_id]
+    if character.in_hyperspace:
+        raise HTTPException(
+            status_code=400,
+            detail="Character is in hyperspace, cannot collect salvage",
+        )
+
     if world.salvage_manager is None:
         raise HTTPException(status_code=503, detail="Salvage system unavailable")
 

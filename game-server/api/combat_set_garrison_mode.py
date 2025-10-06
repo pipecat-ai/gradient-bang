@@ -18,6 +18,16 @@ async def handle(request: dict, world) -> dict:
     if mode not in {"offensive", "defensive", "toll"}:
         raise HTTPException(status_code=400, detail="Invalid garrison mode")
 
+    if character_id not in world.characters:
+        raise HTTPException(status_code=404, detail="Character not found")
+
+    character = world.characters[character_id]
+    if character.in_hyperspace:
+        raise HTTPException(
+            status_code=400,
+            detail="Character is in hyperspace, cannot set garrison mode",
+        )
+
     if world.garrisons is None:
         raise HTTPException(status_code=503, detail="Garrison system unavailable")
 

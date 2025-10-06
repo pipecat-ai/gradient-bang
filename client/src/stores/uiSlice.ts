@@ -1,16 +1,27 @@
 import type { StateCreator } from "zustand";
 
-export interface UIState {
-  osdImage?: string;
-}
+import { produce } from "immer";
 
 export interface UISlice {
-  visualElements: UIState;
+  ui: {
+    active_modal?: "trade" | "ship" | "self" | "player" | "map" | "combat";
+    highlight_element_id?: string;
+    state: "idle" | "moving" | "plotting" | "trading";
+  };
+  setUIState: (newState: "idle" | "moving" | "plotting" | "trading") => void;
 }
 
-export const createUISlice: StateCreator<UISlice> = (_set, get) => ({
-  visualElements: {
-    osdImage: undefined,
+export const createUISlice: StateCreator<UISlice> = (set) => ({
+  ui: {
+    active_modal: undefined,
+    highlight_element_id: undefined,
+    state: "idle",
   },
-  getVisualElements: () => get().visualElements,
+  setUIState: (newState: "idle" | "moving" | "plotting" | "trading") => {
+    set(
+      produce((state) => {
+        state.ui.state = newState;
+      })
+    );
+  },
 });

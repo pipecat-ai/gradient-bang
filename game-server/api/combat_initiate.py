@@ -36,7 +36,7 @@ async def start_sector_combat(
     def _collect_characters() -> List[object]:
         states: List[object] = []
         for cid, character in world.characters.items():
-            if character.sector == sector_id:
+            if character.sector == sector_id and not character.in_hyperspace:
                 states.append(build_character_combatant(world, cid))
         return states
 
@@ -81,7 +81,11 @@ async def start_sector_combat(
                 build_character_combatant(world, initiator_id),
             )
         for cid, character in world.characters.items():
-            if character.sector == sector_id and cid not in existing.participants:
+            if (
+                character.sector == sector_id
+                and cid not in existing.participants
+                and not character.in_hyperspace
+            ):
                 await manager.add_participant(
                     existing.combat_id,
                     build_character_combatant(world, cid),

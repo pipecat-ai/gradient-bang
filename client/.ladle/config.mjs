@@ -3,7 +3,7 @@ export default {
   defaultStory: "game--init",
   addons: {
     theme: {
-      enabled: true,
+      enabled: false,
       defaultState: "dark",
     },
   },

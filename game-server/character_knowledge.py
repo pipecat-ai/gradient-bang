@@ -19,6 +19,7 @@ from core.config import get_world_data_path
 
 class SectorKnowledge(BaseModel):
     """Knowledge about a specific sector."""
+
     sector_id: int
     last_visited: str
     port: Optional[dict] = None
@@ -29,7 +30,9 @@ class SectorKnowledge(BaseModel):
 
 class ShipConfiguration(BaseModel):
     """Current ship configuration for a character."""
+
     ship_type: str = ShipType.KESTREL_COURIER.value
+    ship_name: Optional[str] = None  # User-configurable custom ship name
     cargo: Dict[str, int] = {"fuel_ore": 0, "organics": 0, "equipment": 0}
     current_warp_power: int = 300  # Start with full warp power for Kestrel
     current_shields: int = 150  # Start with full shields
@@ -39,6 +42,7 @@ class ShipConfiguration(BaseModel):
 
 class MapKnowledge(BaseModel):
     """Complete map knowledge for a character."""
+
     character_id: str
     sectors_visited: Dict[str, SectorKnowledge] = {}  # sector_id as string -> knowledge
     total_sectors_visited: int = 0
@@ -51,10 +55,10 @@ class MapKnowledge(BaseModel):
 
 class CharacterKnowledgeManager:
     """Manages persistent map knowledge for all characters."""
-    
+
     def __init__(self, data_dir: Path = None):
         """Initialize the knowledge manager.
-        
+
         Args:
             data_dir: Directory to store character knowledge files
         """
@@ -63,30 +67,30 @@ class CharacterKnowledgeManager:
             self.data_dir = get_world_data_path() / "character-map-knowledge"
         else:
             self.data_dir = data_dir
-        
+
         # Ensure directory exists
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Cache for loaded knowledge
         self.cache: Dict[str, MapKnowledge] = {}
         # Per-character locks for in-process concurrency
         self._locks: Dict[str, threading.Lock] = {}
-    
+
     def initialize_ship(self, character_id: str, ship_type: Optional[ShipType] = None):
         """Initialize or update a character's ship configuration.
-        
+
         Args:
             character_id: Character ID
             ship_type: Ship type to assign (defaults to Kestrel Courier)
         """
         knowledge = self.load_knowledge(character_id)
-        
+
         if ship_type is None:
             ship_type = ShipType.KESTREL_COURIER
-        
+
         # Get ship stats
         stats = get_ship_stats(ship_type)
-        
+
         # Update ship configuration
         knowledge.ship_config = ShipConfiguration(
             ship_type=ship_type.value,
@@ -94,18 +98,18 @@ class CharacterKnowledgeManager:
             current_warp_power=stats.warp_power_capacity,  # Start with full warp power
             current_shields=stats.shields,  # Start with full shields
             current_fighters=stats.fighters,  # Start with full fighters
-            equipped_modules=[]
+            equipped_modules=[],
         )
-        
+
         # Save the updated knowledge
         self.save_knowledge(knowledge)
-    
+
     def get_file_path(self, character_id: str) -> Path:
         """Get the file path for a character's knowledge.
-        
+
         Args:
             character_id: Character ID
-            
+
         Returns:
             Path to the character's knowledge file
         """
@@ -132,22 +136,22 @@ class CharacterKnowledgeManager:
             # Cache the loaded knowledge for future callers.
             self.cache[knowledge.character_id] = knowledge
             yield knowledge
-    
+
     def load_knowledge(self, character_id: str) -> MapKnowledge:
         """Load map knowledge for a character.
-        
+
         Args:
             character_id: Character ID
-            
+
         Returns:
             Character's map knowledge
         """
         # Check cache first
         if character_id in self.cache:
             return self.cache[character_id]
-        
+
         file_path = self.get_file_path(character_id)
-        
+
         if file_path.exists():
             try:
                 with open(file_path, "r") as f:
@@ -160,19 +164,19 @@ class CharacterKnowledgeManager:
         else:
             # Create new knowledge for character
             knowledge = MapKnowledge(character_id=character_id)
-        
+
         # Cache the knowledge
         self.cache[character_id] = knowledge
         return knowledge
-    
+
     def save_knowledge(self, knowledge: MapKnowledge):
         """Save map knowledge for a character.
-        
+
         Args:
             knowledge: Character's map knowledge
         """
         file_path = self.get_file_path(knowledge.character_id)
-        
+
         try:
             tmp = file_path.with_suffix(".tmp")
             with open(tmp, "w") as f:
@@ -182,7 +186,7 @@ class CharacterKnowledgeManager:
             self.cache[knowledge.character_id] = knowledge
         except Exception as e:
             print(f"Error saving knowledge for {knowledge.character_id}: {e}")
-    
+
     def update_sector_visit(
         self,
         character_id: str,
@@ -190,10 +194,10 @@ class CharacterKnowledgeManager:
         port: Optional[dict] = None,
         position: Tuple[int, int] = (0, 0),
         planets: List[dict] = None,
-        adjacent_sectors: List[int] = None
+        adjacent_sectors: List[int] = None,
     ):
         """Update knowledge when a character visits a sector.
-        
+
         Args:
             character_id: Character ID
             sector_id: Sector visited
@@ -204,27 +208,26 @@ class CharacterKnowledgeManager:
         lock = self._locks.setdefault(character_id, threading.Lock())
         with lock:
             knowledge = self.load_knowledge(character_id)
-        
+
         now = datetime.now(timezone.utc).isoformat()
         sector_key = str(sector_id)
-        
+
         # Update first visit time if needed
         if knowledge.first_visit is None:
             knowledge.first_visit = now
-        
+
         # Create or update sector knowledge
         if sector_key not in knowledge.sectors_visited:
             knowledge.total_sectors_visited += 1
-        
+
         sector_knowledge = SectorKnowledge(
             sector_id=sector_id,
             last_visited=now,
             port=port,
-            planets=planets or [],
             position=position,
-            adjacent_sectors=adjacent_sectors or []
+            adjacent_sectors=adjacent_sectors or [],
         )
-        
+
         # Merge with existing knowledge if present
         if sector_key in knowledge.sectors_visited:
             existing = knowledge.sectors_visited[sector_key]
@@ -233,17 +236,12 @@ class CharacterKnowledgeManager:
                 sector_knowledge.port = port
             elif existing.port is not None:
                 sector_knowledge.port = existing.port
-            
-            if planets:
-                sector_knowledge.planets = planets
-            elif existing.planets:
-                sector_knowledge.planets = existing.planets
-            
+
             if adjacent_sectors:
                 sector_knowledge.adjacent_sectors = adjacent_sectors
             elif existing.adjacent_sectors:
                 sector_knowledge.adjacent_sectors = existing.adjacent_sectors
-        
+
         knowledge.sectors_visited[sector_key] = sector_knowledge
         knowledge.last_update = now
         knowledge.current_sector = sector_id
@@ -262,127 +260,129 @@ class CharacterKnowledgeManager:
         """Return the last known sector for a character, if any."""
         knowledge = self.load_knowledge(character_id)
         return knowledge.current_sector
-    
+
     def get_known_ports(self, character_id: str) -> List[Dict[str, Any]]:
         """Get all ports known by a character.
-        
+
         Args:
             character_id: Character ID
-            
+
         Returns:
             List of known ports with sector information
         """
         knowledge = self.load_knowledge(character_id)
         ports = []
-        
+
         for sector_key, sector_knowledge in knowledge.sectors_visited.items():
             if sector_knowledge.port:
                 port_data = {
                     "sector": sector_knowledge.sector_id,
                     "last_visited": sector_knowledge.last_visited,
-                    **sector_knowledge.port
+                    **sector_knowledge.port,
                 }
                 ports.append(port_data)
-        
+
         return ports
-    
+
     def find_nearest_port_with_commodity(
         self,
         character_id: str,
         current_sector: int,
         commodity: str,
         buy_or_sell: str,
-        universe_graph
+        universe_graph,
     ) -> Optional[Dict[str, Any]]:
         """Find the nearest known port that buys or sells a commodity.
-        
+
         Args:
             character_id: Character ID
             current_sector: Current sector of the character
             commodity: Commodity to search for
             buy_or_sell: "buy" or "sell"
             universe_graph: Universe graph for pathfinding
-            
+
         Returns:
             Port information with distance, or None if not found
         """
         knowledge = self.load_knowledge(character_id)
         matching_ports = []
-        
+
         for sector_key, sector_knowledge in knowledge.sectors_visited.items():
             if sector_knowledge.port:
                 port = sector_knowledge.port
-                
+
                 # Check if port has the commodity
                 if buy_or_sell == "sell" and commodity in port.get("sells", []):
-                    matching_ports.append({
-                        "sector": sector_knowledge.sector_id,
-                        "port": port,
-                        "last_visited": sector_knowledge.last_visited
-                    })
+                    matching_ports.append(
+                        {
+                            "sector": sector_knowledge.sector_id,
+                            "port": port,
+                            "last_visited": sector_knowledge.last_visited,
+                        }
+                    )
                 elif buy_or_sell == "buy" and commodity in port.get("buys", []):
-                    matching_ports.append({
-                        "sector": sector_knowledge.sector_id,
-                        "port": port,
-                        "last_visited": sector_knowledge.last_visited
-                    })
-        
+                    matching_ports.append(
+                        {
+                            "sector": sector_knowledge.sector_id,
+                            "port": port,
+                            "last_visited": sector_knowledge.last_visited,
+                        }
+                    )
+
         if not matching_ports:
             return None
-        
+
         # Find closest port
         closest = None
-        min_distance = float('inf')
-        
+        min_distance = float("inf")
+
         for port_data in matching_ports:
             path = universe_graph.find_path(current_sector, port_data["sector"])
             if path:
                 distance = len(path) - 1
                 if distance < min_distance:
                     min_distance = distance
-                    closest = {
-                        **port_data,
-                        "distance": distance,
-                        "path": path
-                    }
-        
+                    closest = {**port_data, "distance": distance, "path": path}
+
         return closest
-    
+
     def get_adjacent_port_pairs(self, character_id: str) -> List[Dict[str, Any]]:
         """Find all known pairs of ports in adjacent sectors.
-        
+
         Args:
             character_id: Character ID
-            
+
         Returns:
             List of adjacent port pairs
         """
         knowledge = self.load_knowledge(character_id)
         port_pairs = []
-        
+
         # Get all sectors with ports
         port_sectors = {}
         for sector_key, sector_knowledge in knowledge.sectors_visited.items():
             if sector_knowledge.port:
                 port_sectors[sector_knowledge.sector_id] = sector_knowledge
-        
+
         # Check for adjacent pairs
         for sector_id, sector_knowledge in port_sectors.items():
             for adjacent in sector_knowledge.adjacent_sectors:
-                if adjacent in port_sectors and adjacent > sector_id:  # Avoid duplicates
+                if (
+                    adjacent in port_sectors and adjacent > sector_id
+                ):  # Avoid duplicates
                     pair = {
                         "sector1": sector_id,
                         "port1": sector_knowledge.port,
                         "sector2": adjacent,
-                        "port2": port_sectors[adjacent].port
+                        "port2": port_sectors[adjacent].port,
                     }
                     port_pairs.append(pair)
-        
+
         return port_pairs
-    
+
     def update_credits(self, character_id: str, credits: int) -> None:
         """Update a character's credits and save to disk.
-        
+
         Args:
             character_id: Character ID
             credits: New credit amount
@@ -392,20 +392,22 @@ class CharacterKnowledgeManager:
             knowledge = self.load_knowledge(character_id)
             knowledge.credits = credits
             self.save_knowledge(knowledge)
-    
+
     def get_credits(self, character_id: str) -> int:
         """Get a character's current credits.
-        
+
         Args:
             character_id: Character ID
-            
+
         Returns:
             Current credit amount
         """
         knowledge = self.load_knowledge(character_id)
         return knowledge.credits
-    
-    def set_fighters(self, character_id: str, fighters: int, *, max_fighters: int | None = None) -> None:
+
+    def set_fighters(
+        self, character_id: str, fighters: int, *, max_fighters: int | None = None
+    ) -> None:
         """Set the character's fighter count, clamped to [0, ship max]."""
         lock = self._locks.setdefault(character_id, threading.Lock())
         with lock:
@@ -415,7 +417,9 @@ class CharacterKnowledgeManager:
             knowledge.ship_config.current_fighters = max(0, min(fighters, cap))
             self.save_knowledge(knowledge)
 
-    def adjust_fighters(self, character_id: str, delta: int, *, max_fighters: int | None = None) -> None:
+    def adjust_fighters(
+        self, character_id: str, delta: int, *, max_fighters: int | None = None
+    ) -> None:
         """Increment fighters by delta with optional max clamp."""
         lock = self._locks.setdefault(character_id, threading.Lock())
         with lock:
@@ -426,7 +430,9 @@ class CharacterKnowledgeManager:
             knowledge.ship_config.current_fighters = max(0, min(base + delta, cap))
             self.save_knowledge(knowledge)
 
-    def set_shields(self, character_id: str, shields: int, *, max_shields: int | None = None) -> None:
+    def set_shields(
+        self, character_id: str, shields: int, *, max_shields: int | None = None
+    ) -> None:
         """Set the character's shields, clamped to [0, ship max]."""
         lock = self._locks.setdefault(character_id, threading.Lock())
         with lock:
@@ -436,9 +442,11 @@ class CharacterKnowledgeManager:
             knowledge.ship_config.current_shields = max(0, min(shields, cap))
             self.save_knowledge(knowledge)
 
-    def update_cargo(self, character_id: str, commodity: str, quantity_delta: int) -> None:
+    def update_cargo(
+        self, character_id: str, commodity: str, quantity_delta: int
+    ) -> None:
         """Update a character's cargo and save to disk.
-        
+
         Args:
             character_id: Character ID
             commodity: Commodity type (fuel_ore, organics, equipment)
@@ -450,15 +458,40 @@ class CharacterKnowledgeManager:
             current = knowledge.ship_config.cargo.get(commodity, 0)
             knowledge.ship_config.cargo[commodity] = max(0, current + quantity_delta)
             self.save_knowledge(knowledge)
-    
+
     def get_cargo(self, character_id: str) -> Dict[str, int]:
         """Get a character's current cargo.
-        
+
         Args:
             character_id: Character ID
-            
+
         Returns:
             Current cargo dictionary
         """
         knowledge = self.load_knowledge(character_id)
         return knowledge.ship_config.cargo.copy()
+
+    def get_ship_name(self, character_id: str) -> Optional[str]:
+        """Get a character's custom ship name.
+
+        Args:
+            character_id: Character ID
+
+        Returns:
+            Custom ship name if set, None otherwise
+        """
+        knowledge = self.load_knowledge(character_id)
+        return knowledge.ship_config.ship_name
+
+    def set_ship_name(self, character_id: str, ship_name: str) -> None:
+        """Set a character's custom ship name.
+
+        Args:
+            character_id: Character ID
+            ship_name: New ship name to set
+        """
+        lock = self._locks.setdefault(character_id, threading.Lock())
+        with lock:
+            knowledge = self.load_knowledge(character_id)
+            knowledge.ship_config.ship_name = ship_name
+            self.save_knowledge(knowledge)

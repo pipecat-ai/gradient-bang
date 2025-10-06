@@ -22,7 +22,7 @@ createRoot(document.getElementById("root")!).render(
     }}
     transportType="smallwebrtc"
     noThemeProvider={true}
-    noAudioOutput={Settings.disableAudioOutput}
+    noAudioOutput={Settings.disableRemoteAudio}
   >
     {({ handleConnect, error }) =>
       error ? (

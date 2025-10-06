@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import inspect
 import json
 import os
-import uuid
+import re
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum, auto
 from datetime import datetime
 from pathlib import Path
+
+import pyperclip
 from typing import (
     Any,
     Callable,
@@ -22,6 +23,7 @@ from typing import (
     Mapping,
     Optional,
     Sequence,
+    Set,
     Tuple,
     TextIO,
 )
@@ -29,7 +31,7 @@ from typing import (
 from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
-from textual.widgets import Header, Input, Log, Static
+from textual.widgets import Header, Input, ListItem, ListView, Static
 
 from npc.combat_session import CombatSession
 from npc.combat_utils import ensure_position
@@ -39,96 +41,133 @@ from utils.base_llm_agent import LLMConfig
 from utils.task_agent import TaskAgent
 
 
-class LoggingAsyncGameClient(AsyncGameClient):
-    """AsyncGameClient variant that surfaces raw WebSocket frames."""
+class AutoScrollListView(ListView):
+    """ListView with auto-scroll when scrolled to bottom."""
 
-    def __init__(
-        self,
-        *,
-        on_frame: Optional[Callable[[str, Mapping[str, Any]], Any]] = None,
-        **kwargs: Any,
-    ) -> None:
-        super().__init__(**kwargs)
-        self._frame_callback = on_frame
+    def append_item(self, item: ListItem) -> None:
+        """Append an item and auto-scroll if at bottom."""
+        # Check if we're scrolled to bottom before adding
+        was_at_bottom = self._is_at_bottom()
 
-    async def _emit_frame(self, direction: str, frame: Mapping[str, Any]) -> None:
-        if self._frame_callback is None:
-            return
-        try:
-            result = self._frame_callback(direction, frame)
-            if inspect.isawaitable(result):
-                await result
-        except Exception:  # pragma: no cover - logging must never crash the client
-            pass
+        self.append(item)
 
-    async def _request(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        await self._ensure_ws()
-        req_id = str(uuid.uuid4())
-        fut: asyncio.Future = asyncio.get_running_loop().create_future()
-        self._pending[req_id] = fut
-        frame = {
-            "id": req_id,
-            "type": "rpc",
-            "endpoint": endpoint,
-            "payload": payload,
-        }
-        await self._emit_frame("send", frame)
-        await self._ws.send(json.dumps(frame))
-        msg = await fut
-        if not msg.get("ok"):
-            err = msg.get("error", {})
-            raise RPCError(
-                endpoint,
-                int(err.get("status", 500)),
-                str(err.get("detail", "Unknown error")),
-                err.get("code"),
-            )
-        return msg.get("result", {})
+        # Only auto-scroll if we were at bottom
+        if was_at_bottom:
+            self.scroll_end(animate=False)
 
-    async def _send_command(self, frame: Dict[str, Any]) -> Dict[str, Any]:
-        await self._ensure_ws()
-        req_id = frame.setdefault("id", str(uuid.uuid4()))
-        fut: asyncio.Future = asyncio.get_running_loop().create_future()
-        self._pending[req_id] = fut
-        await self._emit_frame("send", frame)
-        await self._ws.send(json.dumps(frame))
-        msg = await fut
-        if not msg.get("ok"):
-            err = msg.get("error", {})
-            raise RPCError(
-                frame.get("type", "command"),
-                int(err.get("status", 500)),
-                str(err.get("detail", "Unknown error")),
-                err.get("code"),
-            )
-        return msg.get("result", {})
+    def _is_at_bottom(self) -> bool:
+        """Check if the view is scrolled to the bottom."""
+        # If there are no items yet, we're at the bottom
+        if len(self) == 0:
+            return True
 
-    async def _ws_reader(self):
-        try:
-            async for raw in self._ws:
-                try:
-                    msg = json.loads(raw)
-                except Exception:
-                    continue
-                await self._emit_frame("recv", msg)
-                frame_type = msg.get("frame_type")
-                if frame_type == "event":
-                    event_name = msg.get("event")
-                    payload = msg.get("payload", {})
-                    if event_name:
-                        asyncio.create_task(self._dispatch_event(event_name, payload))
-                    continue
-                req_id = msg.get("id")
-                fut = self._pending.pop(req_id, None)
-                if fut and not fut.done():
-                    fut.set_result(msg)
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            for fut in self._pending.values():
-                if not fut.done():
-                    fut.set_exception(RuntimeError("WebSocket connection lost"))
-            self._pending.clear()
+        # Check if scroll is at or near the end
+        # Allow small tolerance (1 line) for floating point issues
+        max_scroll = self.max_scroll_y
+        current_scroll = self.scroll_y
+
+        return (max_scroll - current_scroll) <= 1
+
+
+def extract_and_format_json(text: str) -> Optional[str]:
+    """
+    Extract JSON from text and return pretty-printed version.
+
+    Returns None if no JSON found or parsing fails.
+    """
+    # Try to find JSON object or array in the text
+    # Look for {...} or [...]
+    json_pattern = r"(\{.*\}|\[.*\])"
+    match = re.search(json_pattern, text, re.DOTALL)
+
+    if not match:
+        return None
+
+    json_str = match.group(1)
+
+    try:
+        parsed = json.loads(json_str)
+        pretty = json.dumps(parsed, indent=2, sort_keys=True)
+
+        # Get prefix (text before JSON) and suffix (text after JSON)
+        prefix = text[: match.start()].rstrip()
+        suffix = text[match.end() :].lstrip()
+
+        result_parts = []
+        if prefix:
+            result_parts.append(prefix)
+        result_parts.append(pretty)
+        if suffix:
+            result_parts.append(suffix)
+
+        return "\n".join(result_parts)
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
+def copy_to_system_clipboard(text: str) -> tuple[bool, str]:
+    """
+    Copy text to system clipboard using pyperclip.
+
+    Returns (success: bool, error_msg: str).
+    """
+    try:
+        pyperclip.copy(text)
+        return True, ""
+    except pyperclip.PyperclipException as e:
+        return False, str(e)
+    except Exception as e:
+        return False, f"Clipboard error: {e}"
+
+
+def extract_json_only(text: str) -> Optional[str]:
+    """
+    Extract and return only the pretty-printed JSON from text.
+
+    Returns None if no JSON found or parsing fails.
+    Used for clipboard copy.
+    """
+    # Try to find JSON object or array in the text
+    json_pattern = r"(\{.*\}|\[.*\])"
+    match = re.search(json_pattern, text, re.DOTALL)
+
+    if not match:
+        return None
+
+    json_str = match.group(1)
+
+    try:
+        parsed = json.loads(json_str)
+        return json.dumps(parsed, indent=2, sort_keys=True)
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
+def format_log_line(text: str, expanded: bool) -> str:
+    """
+    Format a log line with expand/collapse indicator.
+
+    Args:
+        text: Original log line text
+        expanded: Whether the line is currently expanded
+
+    Returns:
+        Formatted text with indicator
+    """
+    indicator = "▼" if expanded else "▶"
+
+    if expanded:
+        # Try to extract and format JSON
+        formatted = extract_and_format_json(text)
+        if formatted:
+            return f"{indicator} {formatted}"
+        else:
+            # No JSON found, just return wrapped text
+            # The Static widget will handle wrapping based on CSS
+            return f"{indicator} {text}"
+    else:
+        # Collapsed - single line
+        return f"{indicator} {text}"
 
 
 @dataclass
@@ -185,6 +224,26 @@ class SimpleTUI(App):
         height: 1fr;
     }
 
+    #ws-log > ListItem {
+        height: auto;
+        padding: 0 1;
+    }
+
+    #ws-log > ListItem > Static {
+        width: 100%;
+        height: auto;
+    }
+
+    #ws-log > ListItem.expanded > Static {
+        text-wrap: wrap;
+    }
+
+    #ws-log > ListItem.collapsed > Static {
+        text-wrap: nowrap;
+        overflow-x: hidden;
+        text-overflow: ellipsis;
+    }
+
     #status-bars {
         height: auto;
         padding: 0 1;
@@ -216,6 +275,7 @@ class SimpleTUI(App):
         ("ctrl+q", "quit", "Quit"),
         ("ctrl+x", "start_combat", "Start Combat"),
         ("ctrl+g", "cancel_task", "Cancel Task"),
+        ("ctrl+y", "copy_log_line", "Copy Log Line"),
     ]
 
     def __init__(
@@ -235,10 +295,8 @@ class SimpleTUI(App):
         self.character = character
         self.target_sector = sector
         self.verbose = verbose
-        self.log_path = (
-            Path(log_path) if log_path else Path.cwd() / "simple_tui.log"
-        )
-        self.client: Optional[LoggingAsyncGameClient] = None
+        self.log_path = Path(log_path) if log_path else Path.cwd() / "simple_tui.log"
+        self.client: Optional[AsyncGameClient] = None
         self.session: Optional[CombatSession] = None
         self.monitor_task: Optional[asyncio.Task] = None
         self.round_prompt_task: Optional[asyncio.Task] = None
@@ -264,6 +322,9 @@ class SimpleTUI(App):
         self.task_max_iterations = max(1, max_iterations)
         self._last_ship_meta: Dict[str, Any] = {"credits": None, "cargo": {}}
         self.status_updater = StatusBarUpdater(character)
+        self._expanded_lines: Set[int] = set()
+        self._line_counter = 0
+        self._log_lines: Dict[int, str] = {}  # Map line_id -> original text
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -271,7 +332,7 @@ class SimpleTUI(App):
         yield self.task_banner
         self.status_display = Static("", id="status-bars")
         yield self.status_display
-        self.ws_log = Log(id="ws-log", highlight=True)
+        self.ws_log = AutoScrollListView(id="ws-log")
         yield self.ws_log
         with Horizontal(id="prompt-bar"):
             self.prompt_label = Static("Initializing", id="prompt-label")
@@ -305,10 +366,10 @@ class SimpleTUI(App):
             text = json.dumps(frame, sort_keys=True, ensure_ascii=False)
             await self._append_log(f"{direction.upper()}: {text}")
 
-        self.client = LoggingAsyncGameClient(
+        self.client = AsyncGameClient(
             base_url=self.server,
             character_id=self.character,
-            on_frame=log_frame,
+            websocket_frame_callback=log_frame,
         )
 
         llm_config = LLMConfig(api_key=None, model=self.task_model)
@@ -324,7 +385,6 @@ class SimpleTUI(App):
 
         try:
             status = await self.client.join(self.character)
-            await self._append_log(f"Join call returned: {status!r}")
             await self._append_log(
                 f"Joined as {self.character}; sector {status.get('sector')}"
             )
@@ -361,9 +421,7 @@ class SimpleTUI(App):
             self._update_task_banner(
                 "Task idle. Enter a goal and press Enter to run the TaskAgent."
             )
-            await self._update_prompt(
-                "Task mode", "Describe the task you want to run"
-            )
+            await self._update_prompt("Task mode", "Describe the task you want to run")
         except Exception as exc:  # noqa: BLE001
             await self._append_log(
                 f"Initialization failed: {exc!r} ({type(exc).__name__})"
@@ -457,15 +515,10 @@ class SimpleTUI(App):
             return
 
         if opponents_changed:
-            await self._append_log(
-                "Opponents detected: " + ", ".join(opponent_labels)
-            )
+            await self._append_log("Opponents detected: " + ", ".join(opponent_labels))
             await self._append_log("Press Ctrl+X to initiate combat.")
 
-        if (
-            self.mode is InteractionMode.TASK
-            and not self._is_task_running()
-        ):
+        if self.mode is InteractionMode.TASK and not self._is_task_running():
             self._update_task_banner(
                 "Opponents present. Press Ctrl+X to initiate combat."
             )
@@ -585,7 +638,8 @@ class SimpleTUI(App):
             new_snapshot[pid] = {
                 "fighters": participant.fighters,
                 "shields": participant.shields,
-                "type": getattr(participant, "type", None) or getattr(participant, "combatant_type", None),
+                "type": getattr(participant, "type", None)
+                or getattr(participant, "combatant_type", None),
                 "name": participant.name,
                 "owner": getattr(participant, "owner", None),
             }
@@ -600,7 +654,9 @@ class SimpleTUI(App):
                     )
         self._combatant_stats = current
         for pid, info in previous_snapshot.items():
-            prev_fighters = int(info.get("fighters", 0)) if isinstance(info, Mapping) else 0
+            prev_fighters = (
+                int(info.get("fighters", 0)) if isinstance(info, Mapping) else 0
+            )
             prev_type = info.get("type") if isinstance(info, Mapping) else None
             prev_owner = info.get("owner") if isinstance(info, Mapping) else None
             prev_name = info.get("name") if isinstance(info, Mapping) else pid
@@ -614,7 +670,9 @@ class SimpleTUI(App):
             )
             if current_info is not None and current_fighters > 0:
                 continue
-            if prev_type == "character" and (pid == self.character or prev_owner == self.character):
+            if prev_type == "character" and (
+                pid == self.character or prev_owner == self.character
+            ):
                 continue
             if prev_type not in {"character", "garrison"}:
                 continue
@@ -713,7 +771,11 @@ class SimpleTUI(App):
         warp_now = warp_meta.get("current")
         warp_cap = warp_meta.get("capacity")
 
-        sector = self.session.sector if self.session and self.session.sector is not None else "?"
+        sector = (
+            self.session.sector
+            if self.session and self.session.sector is not None
+            else "?"
+        )
         text = f"sector {sector} | {mode} | fighters: {fighters} shields: {shields}"
         if credits_val is not None:
             text += f" | credits: {credits_val}"
@@ -810,7 +872,9 @@ class SimpleTUI(App):
                 tag += "*"
             garrison_segments.append(tag)
 
-        garrison_text = ", ".join(sorted(garrison_segments)) if garrison_segments else "none"
+        garrison_text = (
+            ", ".join(sorted(garrison_segments)) if garrison_segments else "none"
+        )
 
         self.occupant_display.update(
             f"Occupants | Players: {player_text} | Garrisons: {garrison_text}"
@@ -898,7 +962,9 @@ class SimpleTUI(App):
             "time": datetime.utcnow().isoformat(),
         }
 
-        snapshot = status.get("sector_contents") if isinstance(status, Mapping) else None
+        snapshot = (
+            status.get("sector_contents") if isinstance(status, Mapping) else None
+        )
         self._update_sector_details(snapshot)
 
         success = False
@@ -928,9 +994,7 @@ class SimpleTUI(App):
         except asyncio.CancelledError:
             asyncio.create_task(self._append_log("Task cancelled."))
         except Exception as exc:  # noqa: BLE001
-            asyncio.create_task(
-                self._append_log(f"Task ended with error: {exc!r}")
-            )
+            asyncio.create_task(self._append_log(f"Task ended with error: {exc!r}"))
         finally:
             self.task_runner = None
             if self.mode is InteractionMode.TASK:
@@ -988,9 +1052,7 @@ class SimpleTUI(App):
                 "Task idle. Enter a goal and press Enter to run the TaskAgent."
             )
             self._set_task_input_enabled(True)
-            await self._update_prompt(
-                "Task mode", "Describe the task you want to run"
-            )
+            await self._update_prompt("Task mode", "Describe the task you want to run")
 
     def _sync_status_bar_from_status(self, status: Mapping[str, Any]) -> None:
         # Update StatusBarUpdater - this now handles all status display
@@ -1146,7 +1208,10 @@ class SimpleTUI(App):
             await self._update_prompt("Waiting for round resolution", "")
             await self._handle_action_outcome(result)
         except RPCError as exc:
-            if exc.status_code == 403 and "not part of this combat" in exc.detail.lower():
+            if (
+                exc.status_code == 403
+                and "not part of this combat" in exc.detail.lower()
+            ):
                 await self._append_log(
                     "Server reports you’re no longer part of this combat; returning to task mode."
                 )
@@ -1198,10 +1263,7 @@ class SimpleTUI(App):
                 participant = state.participants.get(identifier)
                 if participant:
                     for pid, info in state.participants.items():
-                        if (
-                            info.combatant_id == identifier
-                            or info.name == identifier
-                        ):
+                        if info.combatant_id == identifier or info.name == identifier:
                             return deltas.get(pid, (0, 0))
                 for pid, info in state.participants.items():
                     if info.combatant_id == identifier:
@@ -1210,7 +1272,9 @@ class SimpleTUI(App):
 
             def format_delta(label: str, change: Tuple[int, int]) -> str:
                 fighters_delta, shields_delta = change
-                return f"{label} Δfighters={fighters_delta:+d} Δshields={shields_delta:+d}"
+                return (
+                    f"{label} Δfighters={fighters_delta:+d} Δshields={shields_delta:+d}"
+                )
 
             if player_id:
                 player_delta = resolve_delta(player_id)
@@ -1295,7 +1359,24 @@ class SimpleTUI(App):
 
     async def _append_log(self, message: str) -> None:
         self._mirror_to_file(message)
-        self.ws_log.write_line(message)
+
+        # Create new log line with unique ID
+        line_id = self._line_counter
+        self._line_counter += 1
+        self._log_lines[line_id] = message
+
+        # Format the line (collapsed by default)
+        formatted = format_log_line(message, expanded=False)
+
+        # Create ListItem with Static content
+        item = ListItem(Static(formatted), id=f"log-{line_id}")
+        item.add_class("collapsed")
+
+        # Store line_id as metadata on the item
+        item.data_line_id = line_id  # type: ignore
+
+        # Append to the list view with auto-scroll
+        self.ws_log.append_item(item)
 
     def _mirror_to_file(self, message: str) -> None:
         if self.log_path is None:
@@ -1344,6 +1425,44 @@ class SimpleTUI(App):
                 asyncio.create_task(self._start_task(value))
             else:
                 asyncio.create_task(self._append_log(f"(ignored input) {value}"))
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        """Handle clicking on a log line to toggle expansion."""
+        item = event.item
+
+        # Get the line_id from the item's metadata
+        line_id = getattr(item, "data_line_id", None)
+        if line_id is None:
+            return
+
+        # Get the original text
+        original_text = self._log_lines.get(line_id)
+        if original_text is None:
+            return
+
+        # Toggle expansion state
+        is_expanded = line_id in self._expanded_lines
+        new_state = not is_expanded
+
+        if new_state:
+            self._expanded_lines.add(line_id)
+        else:
+            self._expanded_lines.discard(line_id)
+
+        # Format the line with new state
+        formatted = format_log_line(original_text, expanded=new_state)
+
+        # Update the Static widget inside the ListItem
+        static_widget = item.query_one(Static)
+        static_widget.update(formatted)
+
+        # Update CSS classes
+        if new_state:
+            item.remove_class("collapsed")
+            item.add_class("expanded")
+        else:
+            item.remove_class("expanded")
+            item.add_class("collapsed")
 
     async def _handle_action_outcome(self, response: Mapping[str, Any]) -> None:
         if not isinstance(response, Mapping):
@@ -1400,6 +1519,75 @@ class SimpleTUI(App):
     async def action_cancel_task(self) -> None:
         await self._cancel_active_task("user requested cancellation")
 
+    async def action_copy_log_line(self) -> None:
+        """Copy the currently highlighted log line to clipboard."""
+        await self._append_log("[DEBUG] action_copy_log_line called")
+
+        # Get the currently highlighted item in the ListView
+        await self._append_log(f"[DEBUG] ws_log.index = {self.ws_log.index}")
+
+        if self.ws_log.index is None:
+            await self._append_log("[DEBUG] No index - line not selected")
+            self.notify("No log line selected", severity="warning", timeout=2)
+            return
+
+        # Get the ListItem at the current index
+        try:
+            items = list(self.ws_log.children)
+            await self._append_log(f"[DEBUG] Found {len(items)} items in ListView")
+
+            if not items or self.ws_log.index >= len(items):
+                await self._append_log("[DEBUG] Index out of range")
+                self.notify("No log line selected", severity="warning", timeout=2)
+                return
+
+            item = items[self.ws_log.index]
+            if not isinstance(item, ListItem):
+                await self._append_log(f"[DEBUG] Item is not ListItem: {type(item)}")
+                return
+
+            # Get the line_id from the item's metadata
+            line_id = getattr(item, "data_line_id", None)
+            await self._append_log(f"[DEBUG] line_id = {line_id}")
+
+            if line_id is None:
+                await self._append_log("[DEBUG] line_id is None")
+                return
+
+            # Get the original text
+            original_text = self._log_lines.get(line_id)
+            if original_text is None:
+                await self._append_log("[DEBUG] original_text not found in _log_lines")
+                return
+
+            await self._append_log(
+                f"[DEBUG] Copying text (length={len(original_text)})"
+            )
+
+            # Try to extract JSON - if found, copy only the JSON
+            json_content = extract_json_only(original_text)
+            if json_content:
+                await self._append_log("[DEBUG] Copying JSON content")
+                success, error = copy_to_system_clipboard(json_content)
+                if success:
+                    self.notify("JSON copied to clipboard", timeout=2)
+                else:
+                    await self._append_log(f"[DEBUG] xclip failed: {error}")
+                    self.notify(f"Copy failed: {error}", severity="error", timeout=3)
+            else:
+                await self._append_log("[DEBUG] Copying full text (no JSON)")
+                # No JSON found, copy the full text
+                success, error = copy_to_system_clipboard(original_text)
+                if success:
+                    self.notify("Log line copied to clipboard", timeout=2)
+                else:
+                    await self._append_log(f"[DEBUG] xclip failed: {error}")
+                    self.notify(f"Copy failed: {error}", severity="error", timeout=3)
+
+        except Exception as exc:  # noqa: BLE001
+            await self._append_log(f"[DEBUG] Exception: {exc}")
+            self.notify(f"Copy failed: {exc}", severity="error", timeout=3)
+
     async def action_start_combat(self) -> None:
         if self.client is None or self.session is None:
             await self._append_log("Client not ready; cannot start combat.")
@@ -1420,7 +1608,10 @@ class SimpleTUI(App):
             for garrison in snapshot.get("garrisons") or []:
                 if not isinstance(garrison, Mapping):
                     continue
-                if not garrison.get("is_friendly") and int(garrison.get("fighters", 0)) > 0:
+                if (
+                    not garrison.get("is_friendly")
+                    and int(garrison.get("fighters", 0)) > 0
+                ):
                     opponents_present = True
                     break
 
@@ -1432,7 +1623,9 @@ class SimpleTUI(App):
             await self.client.combat_initiate(character_id=self.character)
             await self._append_log("Combat initiation requested.")
             if self.mode is InteractionMode.TASK and not self._is_task_running():
-                self._update_task_banner("Combat requested. Awaiting combat start events…")
+                self._update_task_banner(
+                    "Combat requested. Awaiting combat start events…"
+                )
         except RPCError as exc:
             await self._append_log(f"combat.initiate failed: {exc}")
 
@@ -1482,7 +1675,9 @@ class SimpleTUI(App):
         labels: List[str] = sorted(players.keys())
         label_set = set(labels)
         for garrison in garrisons:
-            owner_id = str(garrison.get("owner_id")) if garrison.get("owner_id") else None
+            owner_id = (
+                str(garrison.get("owner_id")) if garrison.get("owner_id") else None
+            )
             fighters = int(garrison.get("fighters", 0))
             if not owner_id or owner_id == self.character or fighters <= 0:
                 continue

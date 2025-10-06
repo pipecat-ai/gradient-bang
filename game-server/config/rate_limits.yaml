@@ -74,10 +74,6 @@ plot_course:
   limit: 1.0      # 1 pathfinding per second
   window: 1.0
 
-local_map:
-  limit: 2.0      # 2 local map queries per second
-  window: 1.0
-
 # Authentication
 join:
   limit: 1.0      # 1 join per 5 seconds

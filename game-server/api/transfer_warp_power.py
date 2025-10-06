@@ -19,6 +19,18 @@ async def handle(request: dict, world) -> dict:
 
     from_character = world.characters[from_character_id]
     to_character = world.characters[to_character_id]
+
+    if from_character.in_hyperspace:
+        raise HTTPException(
+            status_code=400,
+            detail="Sender is in hyperspace, cannot transfer warp power",
+        )
+    if to_character.in_hyperspace:
+        raise HTTPException(
+            status_code=400,
+            detail="Receiver is in hyperspace, cannot transfer warp power",
+        )
+
     if from_character.sector != to_character.sector:
         raise HTTPException(status_code=400, detail="Characters must be in the same sector")
 

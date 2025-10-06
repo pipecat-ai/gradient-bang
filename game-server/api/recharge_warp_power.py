@@ -13,6 +13,12 @@ async def handle(request: dict, world) -> dict:
         raise HTTPException(status_code=404, detail=f"Character not found: {character_id}")
 
     character = world.characters[character_id]
+    if character.in_hyperspace:
+        raise HTTPException(
+            status_code=400,
+            detail="Character is in hyperspace, cannot recharge warp power",
+        )
+
     if character.sector != 0:
         raise HTTPException(status_code=400, detail=f"Warp power depot is only available in sector 0. You are in sector {character.sector}")
 
