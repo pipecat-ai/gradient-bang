@@ -1,3 +1,4 @@
+import MiniMap from "@/hud/MiniMap";
 import useGameStore from "@/stores/game";
 import type { Story } from "@ladle/react";
 
@@ -5,6 +6,7 @@ export const Init: Story = () => {
   const player = useGameStore((state) => state.player);
   const ship = useGameStore((state) => state.ship);
   const sector = useGameStore((state) => state.sector);
+  const localMapData = useGameStore((state) => state.local_map_data);
 
   return (
     <>
@@ -55,6 +57,19 @@ export const Init: Story = () => {
             ))}
           </ul>
         )}
+
+        <div className="story-card  bg-card">
+          <h3 className="story-heading">Local Area Map:</h3>
+          {sector && localMapData && (
+            <MiniMap
+              current_sector_id={sector.id}
+              map_data={localMapData}
+              width={440}
+              height={440}
+              maxDistance={3}
+            />
+          )}
+        </div>
       </div>
     </>
   );

@@ -126,8 +126,8 @@ def port_snapshot(world, sector_id: int) -> Dict[str, Any]:
             }
         port = {
             "code": port_state.code,
-            "last_seen_prices": prices,
-            "last_seen_stock": stock,
+            "prices": prices,
+            "stock": stock,
             "observed_at": datetime.now(timezone.utc).isoformat(),
         }
     return port
@@ -143,6 +143,13 @@ async def sector_contents(
 
     # Port (minimal snapshot) -- todo: write tests and refactor this. there's much more logic here than there needs to be
     port = port_snapshot(world, sector_id)
+    # if the character is currently in this sector, set observed_at to null
+    if (
+        current_character_id
+        and world.characters[current_character_id].sector == sector_id
+        and port
+    ):
+        port["observed_at"] = None
 
     # Other players (names + ship type when known)
     players = []
@@ -289,7 +296,21 @@ async def build_local_map_region(
             )
 
             # Get sector position from universe graph
-            position = world.universe_graph.positions.get(sector_id, (0, 0)) if world.universe_graph else (0, 0)
+            position = (
+                world.universe_graph.positions.get(sector_id, (0, 0))
+                if world.universe_graph
+                else (0, 0)
+            )
+
+            # Build lanes from warp data
+            lanes = []
+            if world.universe_graph and sector_id in world.universe_graph.warps:
+                for warp in world.universe_graph.warps[sector_id]:
+                    lanes.append({
+                        "to": warp["to"],
+                        "two_way": warp["two_way"],
+                        "hyperlane": warp["hyperlane"],
+                    })
 
             sector_dict = {
                 "id": sector_id,
@@ -299,6 +320,7 @@ async def build_local_map_region(
                 "port": contents["port"].get("code", "") if contents["port"] else "",
                 "last_visited": last_visited,
                 "position": position,
+                "lanes": lanes,
             }
 
             if last_visited:
@@ -307,12 +329,38 @@ async def build_local_map_region(
             result_sectors.append(sector_dict)
         else:
             # Minimal info for unvisited sectors
+            # Get sector position from universe graph
+            position = (
+                world.universe_graph.positions.get(sector_id, (0, 0))
+                if world.universe_graph
+                else (0, 0)
+            )
+
+            # For unvisited sectors, build lanes from known adjacent visited sectors
+            # (these are the lanes we know about that lead to this sector)
+            lanes = []
+            seen_from_sectors = unvisited_seen.get(sector_id, set())
+            for source_sector in seen_from_sectors:
+                if world.universe_graph and source_sector in world.universe_graph.warps:
+                    # Find the warp from source to this unvisited sector
+                    for warp in world.universe_graph.warps[source_sector]:
+                        if warp["to"] == sector_id:
+                            # This is an incoming lane from the visited sector
+                            lanes.append({
+                                "to": source_sector,
+                                "two_way": warp["two_way"],
+                                "hyperlane": warp["hyperlane"],
+                            })
+                            break
+
             result_sectors.append(
                 {
-                    "sector_id": sector_id,
+                    "id": sector_id,
                     "visited": False,
                     "hops_from_center": hops_from_center,
-                    "seen_from": sorted(unvisited_seen.get(sector_id, set())),
+                    "position": position,
+                    "port": "",
+                    "lanes": lanes,
                 }
             )
 

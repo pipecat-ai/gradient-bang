@@ -34,6 +34,7 @@ export interface GameState {
   player: PlayerSelf;
   ship: ShipSelf;
   sector?: Sector;
+  local_map_data?: MapData;
 
   /* Singleton Instances */
   starfieldInstance?: GalaxyStarfield;
@@ -47,6 +48,7 @@ export interface GameSlice extends GameState {
   setSector: (sector: Sector) => void;
   setSectorBuffer: (sector: Sector) => void;
   setShip: (ship: Partial<ShipSelf>) => void;
+  setLocalMapData: (localMapData: MapData) => void;
   setStarfieldInstance: (
     starfieldInstance: GalaxyStarfield | undefined
   ) => void;
@@ -61,6 +63,7 @@ const createGameSlice: StateCreator<
   player: {} as PlayerSelf,
   ship: {} as ShipSelf,
   sector: undefined,
+  local_map_data: undefined, // TODO: Move to slice
   starfieldInstance: undefined,
 
   setState: (newState: Partial<GameState>) =>
@@ -77,6 +80,13 @@ const createGameSlice: StateCreator<
     set(
       produce((state) => {
         state.sectorBuffer = sector;
+      })
+    ),
+
+  setLocalMapData: (localMapData: MapData) =>
+    set(
+      produce((state) => {
+        state.local_map_data = localMapData;
       })
     ),
 

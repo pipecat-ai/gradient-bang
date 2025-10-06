@@ -175,11 +175,14 @@ async def handle(request: dict, world) -> dict:
         character.update_activity()
 
         # Send movement.complete and map.local events to the character
+        # get sector contents again in case things changed
+        new_sector_contents = await sector_contents(world, to_sector, character_id)
         await event_dispatcher.emit(
             "movement.complete",
             {
                 "player": player_self(world, character_id),
                 "ship": ship_self(world, character_id),
+                "sector": new_sector_contents,
             },
             character_filter=[character_id],
         )

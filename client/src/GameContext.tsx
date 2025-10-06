@@ -32,6 +32,14 @@ interface MovementCompleteMessage {
   player: PlayerSelf;
 }
 
+interface MapLocalMessage {
+  sectors: MapData;
+  center_sector: number;
+  total_sectors: number;
+  total_unvisited: number;
+  total_visited: number;
+}
+
 /**
  * Game context
  */
@@ -123,6 +131,14 @@ export function GameProvider({ children }: GameProviderProps) {
               }
 
               gameStore.setUIState("idle");
+              break;
+            }
+
+            case "map.local": {
+              console.debug("[GAME EVENT] Local map data", e.payload);
+              // For now, we only store the map data
+              // @TODO: implement proper slice
+              gameStore.setLocalMapData((e.payload as MapLocalMessage).sectors);
               break;
             }
 
