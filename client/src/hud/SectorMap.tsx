@@ -1,7 +1,6 @@
 import useGameStore from "@/stores/game";
 
 interface SectorMapConfig {
-  max_walk_distance: number;
   colors: {
     empty: string;
     port: string;

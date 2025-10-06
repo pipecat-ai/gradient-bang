@@ -107,12 +107,14 @@ declare global {
   }
 
   // --- MAP
-  interface MapNode {
+  interface MapSectorNode {
     id: number;
+    adjacent_sectors: number[];
+    last_visited: string;
     lanes: MapLane[];
     position: [number, number];
-    sector: Sector;
     visited: boolean;
+    port?: string;
   }
 
   interface MapLane {
