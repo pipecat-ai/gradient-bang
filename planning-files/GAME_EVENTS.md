@@ -46,6 +46,11 @@ Dispatched after local client connects and is in ready state, or used to rehydra
                         "FO": 10,
                         "OG": 10
                     },
+                    "prices": { // type: `Record<Resource, number>`
+                        "EQ": 1,
+                        "FO": 1,
+                        "OG": 1
+                    },
                     "warp_power_depot": { // type: `PortWarpPowerDepot`
                         "note": "",
                         "price_per_unit": 100
@@ -120,6 +125,11 @@ Dispatched after local client connects and is in ready state, or used to rehydra
                 "FO": 10,
                 "OG": 10
             },
+            "prices": { // type: `Record<Resource, number>`
+                "EQ": 1,
+                "FO": 1,
+                "OG": 1
+            },
             "warp_power_depot": { // type: `PortWarpPowerDepot`
                 "note": "",
                 "price_per_unit": 100
@@ -167,7 +177,7 @@ Sector model represents sector you're moving into.
 ```json
 {
     "sector": {
-        "adjacent_sectors": [],
+        "adjacent_sectors": [0],
         "id": 1,
         "last_visited": null,
         "planets": [],
@@ -267,6 +277,11 @@ Note: `region` is required by the Sector model, so we cannot null it out here. W
                     "FO": 10,
                     "OG": 10
                 },
+                "prices": {
+                    "EQ": 1,
+                    "FO": 1,
+                    "OG": 1
+                 },
                 "warp_power_depot": {
                     "note": "",
                     "price_per_unit": 100

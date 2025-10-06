@@ -137,6 +137,7 @@ interface Port extends PortBase {
   max_capacity: Record<Resource, number>;
   observed_at?: string;
   stock: Record<Resource, number>;
+  prices: Record<Resource, number>;
   warp_power_depot?: PortWarpPowerDepot;
 }
 
