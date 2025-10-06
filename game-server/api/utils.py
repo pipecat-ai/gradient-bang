@@ -282,13 +282,23 @@ async def build_local_map_region(
 
             # Get last visited time
             sector_knowledge = knowledge.sectors_visited[str(sector_id)]
-            last_visited = sector_knowledge.last_visited if hasattr(sector_knowledge, 'last_visited') else None
+            last_visited = (
+                sector_knowledge.last_visited
+                if hasattr(sector_knowledge, "last_visited")
+                else None
+            )
+
+            # Get sector position from universe graph
+            position = world.universe_graph.positions.get(sector_id, (0, 0)) if world.universe_graph else (0, 0)
 
             sector_dict = {
-                "sector_id": sector_id,
+                "id": sector_id,
                 "visited": True,
                 "hops_from_center": hops_from_center,
-                **contents
+                "adjacent_sectors": contents["adjacent_sectors"],
+                "port": contents["port"].get("code", "") if contents["port"] else "",
+                "last_visited": last_visited,
+                "position": position,
             }
 
             if last_visited:
@@ -297,12 +307,14 @@ async def build_local_map_region(
             result_sectors.append(sector_dict)
         else:
             # Minimal info for unvisited sectors
-            result_sectors.append({
-                "sector_id": sector_id,
-                "visited": False,
-                "hops_from_center": hops_from_center,
-                "seen_from": sorted(unvisited_seen.get(sector_id, set()))
-            })
+            result_sectors.append(
+                {
+                    "sector_id": sector_id,
+                    "visited": False,
+                    "hops_from_center": hops_from_center,
+                    "seen_from": sorted(unvisited_seen.get(sector_id, set())),
+                }
+            )
 
     total_visited = sum(1 for s in result_sectors if s["visited"])
     total_unvisited = len(result_sectors) - total_visited
@@ -312,5 +324,5 @@ async def build_local_map_region(
         "sectors": result_sectors,
         "total_sectors": len(result_sectors),
         "total_visited": total_visited,
-        "total_unvisited": total_unvisited
+        "total_unvisited": total_unvisited,
     }
