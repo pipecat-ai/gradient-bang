@@ -19,18 +19,54 @@ export interface MiniMapRenderConfig {
     current: string;
     current_outline: string;
   };
-  grid_spacing?: number;
-  hex_size?: number;
-  sector_label_offset?: number;
-  frame_padding?: number;
-  current_sector_outer_border?: number;
-  debug?: boolean;
+  grid_spacing: number;
+  hex_size: number;
+  sector_label_offset: number;
+  frame_padding: number;
+  current_sector_outer_border: number;
+  debug: boolean;
   show_grid: boolean;
   show_warps: boolean;
   show_sector_ids: boolean;
   show_ports: boolean;
   show_hyperlanes: boolean;
 }
+
+export const DEFAULT_MINIMAP_CONFIG: Omit<
+  MiniMapRenderConfig,
+  "current_sector_id"
+> = {
+  colors: {
+    empty: "rgba(0,0,0,0.35)",
+    visited: "rgba(0,255,0,0.25)",
+    port: "#4a90e2",
+    mega_port: "#ffd700",
+    lane: "rgba(120,230,160,1)",
+    hyperlane: "rgba(190,160,255,1)",
+    lane_one_way: "#4a90e2",
+    sector_border: "rgba(200,200,200,0.7)",
+    sector_border_current: "#4a90e2",
+    cross_region_outline: "rgba(255,120,120,0.9)",
+    sector_id_text: "#dddddd",
+    grid: "rgba(255,255,255,0.3)",
+    background: "#000000",
+    label: "#000000",
+    label_bg: "#ffffff",
+    current: "#4a90e2",
+    current_outline: "rgba(74,144,226,0.6)",
+  },
+  grid_spacing: 30,
+  hex_size: 20,
+  sector_label_offset: 5,
+  frame_padding: 40,
+  current_sector_outer_border: 5,
+  debug: false,
+  show_grid: true,
+  show_warps: true,
+  show_sector_ids: true,
+  show_ports: true,
+  show_hyperlanes: true,
+};
 
 export interface MiniMapProps {
   width: number;
@@ -46,6 +82,7 @@ export interface CameraState {
   zoom: number;
   filteredData: MapData;
   fadingOutData?: MapData;
+  fadingInData?: MapData;
   fadeProgress?: number;
 }
 
@@ -62,6 +99,14 @@ function easeInOutCubic(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
+/** Find sector by ID in array */
+function findSector(
+  data: MapData,
+  sectorId: number
+): MapSectorNode | undefined {
+  return data.find((s) => s.id === sectorId);
+}
+
 function interpolateCameraState(
   start: CameraState,
   target: CameraState,
@@ -72,8 +117,9 @@ function interpolateCameraState(
     offsetX: start.offsetX + (target.offsetX - start.offsetX) * easedProgress,
     offsetY: start.offsetY + (target.offsetY - start.offsetY) * easedProgress,
     zoom: start.zoom + (target.zoom - start.zoom) * easedProgress,
-    filteredData: target.filteredData,
+    filteredData: start.filteredData,
     fadingOutData: start.fadingOutData,
+    fadingInData: start.fadingInData,
     fadeProgress: progress,
   };
 }
@@ -118,7 +164,7 @@ function calculateReachableSectors(
   maxDistance: number
 ): Map<number, number> {
   const reachableMap = new Map<number, number>();
-  const currentSector = data[currentSectorId];
+  const currentSector = findSector(data, currentSectorId);
   if (!currentSector) return reachableMap;
 
   const queue: Array<{ id: number; distance: number }> = [
@@ -131,7 +177,7 @@ function calculateReachableSectors(
     const current = queue.shift()!;
     if (current.distance >= maxDistance) continue;
 
-    const sector = data[current.id];
+    const sector = findSector(data, current.id);
     if (!sector) continue;
 
     sector.lanes.forEach((lane) => {
@@ -151,28 +197,7 @@ function filterReachableSectors(
   data: MapData,
   reachableMap: Map<number, number>
 ): MapData {
-  const filtered: MapData = {};
-  reachableMap.forEach((_distance, sectorId) => {
-    if (data[sectorId]) {
-      filtered[sectorId] = data[sectorId];
-    }
-  });
-  return filtered;
-}
-
-/** Calculate sectors that are being disconnected (for fade-out) */
-function calculateFadingOutSectors(
-  oldData: MapData,
-  newData: MapData
-): MapData {
-  const fadingOut: MapData = {};
-  Object.keys(oldData).forEach((sectorIdStr) => {
-    const sectorId = parseInt(sectorIdStr, 10);
-    if (!newData[sectorId]) {
-      fadingOut[sectorId] = oldData[sectorId];
-    }
-  });
-  return fadingOut;
+  return data.filter((sector) => reachableMap.has(sector.id));
 }
 
 /** Calculate bounding box of all sectors */
@@ -185,7 +210,7 @@ function calculateSectorBounds(
   let maxX = -Infinity;
   let maxY = -Infinity;
 
-  Object.values(data).forEach((node) => {
+  data.forEach((node) => {
     const world = hexToWorld(node.position[0], node.position[1], scale);
     minX = Math.min(minX, world.x);
     minY = Math.min(minY, world.y);
@@ -328,7 +353,7 @@ function findAvailableEdgeDirection(
 ): number {
   const usedAngles = fromNode.lanes
     .map((lane) => {
-      const toNode = data[lane.to];
+      const toNode = findSector(data, lane.to);
       if (!toNode) return null;
       const fromWorld = hexToWorld(
         fromNode.position[0],
@@ -438,9 +463,9 @@ function renderAllLanes(
   const renderedLanes = new Set<string>();
   const hyperlaneLabels: Array<{ x: number; y: number; text: string }> = [];
 
-  Object.values(data).forEach((fromNode) => {
+  data.forEach((fromNode) => {
     fromNode.lanes.forEach((lane) => {
-      const toNode = data[lane.to];
+      const toNode = findSector(data, lane.to);
 
       if (!toNode) {
         if (lane.hyperlane && config.show_hyperlanes) {
@@ -462,7 +487,7 @@ function renderAllLanes(
       }
 
       if (lane.two_way) {
-        const laneKey = [lane.from, lane.to].sort((a, b) => a - b).join("-");
+        const laneKey = [fromNode.id, lane.to].sort((a, b) => a - b).join("-");
         if (renderedLanes.has(laneKey)) return;
         renderedLanes.add(laneKey);
       }
@@ -619,7 +644,7 @@ function calculateCameraState(
   );
   const filteredData = filterReachableSectors(data, reachableMap);
 
-  if (Object.keys(filteredData).length === 0) {
+  if (filteredData.length === 0) {
     return null;
   }
 
@@ -676,7 +701,7 @@ function renderSectorLabels(
   const labelOffset = config.sector_label_offset ?? 2;
   const padding = 1;
 
-  Object.values(data).forEach((node) => {
+  data.forEach((node) => {
     const worldPos = hexToWorld(node.position[0], node.position[1], scale);
     const angle = -Math.PI / 3;
     const edgeWorldX = worldPos.x + hexSize * Math.cos(angle);
@@ -734,7 +759,7 @@ function renderPortLabels(
   const labelOffset = config.sector_label_offset ?? 2;
   const padding = 1;
 
-  Object.values(data).forEach((node) => {
+  data.forEach((node) => {
     if (!node.port) return;
 
     const worldPos = hexToWorld(node.position[0], node.position[1], scale);
@@ -818,12 +843,17 @@ function renderWithCameraState(
     ? renderAllLanes(ctx, cameraState.filteredData, scale, hexSize, config)
     : [];
 
-  const currentSector = cameraState.filteredData[config.current_sector_id];
+  const currentSector = findSector(
+    cameraState.filteredData,
+    config.current_sector_id
+  );
   const currentRegion = currentSector?.region;
+
+  const fadingInIds = new Set(cameraState.fadingInData?.map((s) => s.id) ?? []);
 
   if (cameraState.fadingOutData && cameraState.fadeProgress !== undefined) {
     const fadeOpacity = 1 - cameraState.fadeProgress;
-    Object.values(cameraState.fadingOutData).forEach((node) => {
+    cameraState.fadingOutData.forEach((node) => {
       renderSector(
         ctx,
         node,
@@ -836,8 +866,12 @@ function renderWithCameraState(
     });
   }
 
-  Object.values(cameraState.filteredData).forEach((node) => {
-    renderSector(ctx, node, scale, hexSize, config, currentRegion);
+  cameraState.filteredData.forEach((node) => {
+    const opacity =
+      fadingInIds.has(node.id) && cameraState.fadeProgress !== undefined
+        ? cameraState.fadeProgress
+        : 1;
+    renderSector(ctx, node, scale, hexSize, config, currentRegion, opacity);
   });
 
   if (config.debug) {
@@ -992,14 +1026,35 @@ export function updateCurrentSector(
     return () => {};
   }
 
-  const fadingOutData = calculateFadingOutSectors(
-    currentCameraState.filteredData,
-    targetCameraState.filteredData
+  const newDataIds = new Set(data.map((s) => s.id));
+  const currentDataIds = new Set(
+    currentCameraState.filteredData.map((s) => s.id)
+  );
+  const targetDataIds = new Set(
+    targetCameraState.filteredData.map((s) => s.id)
+  );
+
+  const disconnectedNodes = currentCameraState.filteredData.filter(
+    (sector) => newDataIds.has(sector.id) && !targetDataIds.has(sector.id)
+  );
+
+  const staleNodes = currentCameraState.filteredData.filter(
+    (sector) => !newDataIds.has(sector.id)
+  );
+
+  const fadingOutData = [...disconnectedNodes, ...staleNodes];
+
+  const newNodes = targetCameraState.filteredData.filter(
+    (sector) => !currentDataIds.has(sector.id)
   );
 
   const startCameraWithFade: CameraState = {
-    ...currentCameraState,
+    offsetX: currentCameraState.offsetX,
+    offsetY: currentCameraState.offsetY,
+    zoom: currentCameraState.zoom,
+    filteredData: targetCameraState.filteredData,
     fadingOutData,
+    fadingInData: newNodes,
     fadeProgress: 0,
   };
 

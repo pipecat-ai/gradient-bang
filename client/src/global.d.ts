@@ -107,7 +107,7 @@ declare global {
   }
 
   // --- MAP
-  type MapData = Record<number, MapSectorNode>;
+  type MapData = MapSectorNode[];
 
   interface MapSectorNode {
     id: number;
@@ -119,7 +119,6 @@ declare global {
   }
 
   interface MapLane {
-    from: number;
     to: number;
     two_way: boolean;
     hyperlane?: boolean;
