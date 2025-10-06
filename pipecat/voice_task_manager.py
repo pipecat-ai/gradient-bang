@@ -57,6 +57,7 @@ class VoiceTaskManager:
         self.game_client.on("character.moved")(self._handle_character_moved)
         self.game_client.on("movement.start")(self._handle_movement_start)
         self.game_client.on("movement.complete")(self._handle_movement_complete)
+        self.game_client.on("map.local")(self._handle_map_local)
 
         self.task_config = LLMConfig(model="gpt-5")
 
@@ -213,6 +214,10 @@ class VoiceTaskManager:
     async def _handle_movement_complete(self, payload: Dict[str, Any]) -> None:
         """Relay movement.complete events to RTVI clients."""
         await self._handle_event("movement.complete", payload)
+
+    async def _handle_map_local(self, payload: Dict[str, Any]) -> None:
+        """Relay map.local events to RTVI clients."""
+        await self._handle_event("map.local", payload)
 
     #
     # Task management

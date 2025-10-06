@@ -1,3 +1,67 @@
+# suggestions
+
+## ship
+
+Just send ship_type as a string, not the full ship config. We'll be sending this a lot. Maybe better to have a lookup table of ship types for the static info.
+
+## port
+
+Can we do this for port?
+
+```
+        "port": {
+          "code": "SSS",
+          "last_seen_prices": {
+            "equipment": 38,
+            "fuel_ore": 24,
+            "organics": 9
+          },
+          "last_seen_stock": {
+            "equipment": 700,
+            "fuel_ore": 700,
+            "organics": 700
+          },
+          "observed_at": "2025-10-05T23:31:15.362890+00:00"
+        },
+```
+
+## sector
+
+We need
+  - garrisons?
+  - salvage?
+
+
+## players
+
+For the non-self Player type
+  - No id -- Player IDs are a game secret. I was thinking we can use unique IDs as a secret login token for player-created NPCs. So you never see another player's ID.
+  - No extra information about the ship. You never see cargo for another player, and you only see shields and fighters when you are in combat.
+
+```
+        "players": [
+          {
+            "created_at": "2025-10-05T23:31:11.952390+00:00",
+            "name": "toll-f",
+            "player_type": "human"
+            "ship": {
+              "ship_type": "kestrel_courier",
+              "ship_name": "Rolling Thunder",
+            }
+          }
+        ],
+```
+
+----
+
+
+
+next:
+  - status payload
+  - map local
+  - movement start
+  - movement end
+
 
 Natural language -> conversation bot -> task LLM -> game server
 

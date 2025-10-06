@@ -1,4 +1,5 @@
 import json
+from collections import deque, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -204,4 +205,112 @@ async def build_status_payload(
         "player": player_self(world, character_id),
         "ship": ship_self(world, character_id),
         "sector": await sector_contents(world, character.sector, character_id),
+    }
+
+
+async def build_local_map_region(
+    world,
+    *,
+    character_id: str,
+    center_sector: int,
+    max_hops: int = 3,
+    max_sectors: int = 100,
+) -> Dict[str, Any]:
+    """Build local map region with visited/unvisited sectors around a center.
+
+    Args:
+        world: World instance
+        character_id: Character ID for knowledge lookup
+        center_sector: Center sector for the map
+        max_hops: Number of hops from center (default 3, max 10)
+        max_sectors: Cap on number of sectors to return (default 100)
+
+    Returns:
+        Dict with center_sector, sectors list, and totals
+    """
+    knowledge = world.knowledge_manager.load_knowledge(character_id)
+    visited_sectors = set(int(k) for k in knowledge.sectors_visited.keys())
+
+    # BFS to find sectors within range
+    result_sectors = []
+    distance_map: Dict[int, int] = {center_sector: 0}
+    queue = deque([(center_sector, 0)])
+    visited_in_bfs = {center_sector}
+
+    # Track which unvisited sectors we've seen
+    unvisited_seen: Dict[int, set[int]] = {}
+
+    while queue and len(distance_map) < max_sectors:
+        current, hops = queue.popleft()
+
+        if hops >= max_hops:
+            continue
+
+        # Get adjacent sectors from knowledge if this sector is visited
+        if current in visited_sectors:
+            sector_knowledge = knowledge.sectors_visited[str(current)]
+            adjacent = sector_knowledge.adjacent_sectors or []
+
+            for adj_id in adjacent:
+                adj_id = int(adj_id)
+
+                if adj_id not in visited_in_bfs:
+                    visited_in_bfs.add(adj_id)
+                    distance_map[adj_id] = hops + 1
+
+                    # Track unvisited sectors
+                    if adj_id not in visited_sectors:
+                        if adj_id not in unvisited_seen:
+                            unvisited_seen[adj_id] = set()
+                        unvisited_seen[adj_id].add(current)
+
+                    # Only continue BFS from visited sectors
+                    if adj_id in visited_sectors:
+                        queue.append((adj_id, hops + 1))
+
+                    # Check sector limit
+                    if len(distance_map) >= max_sectors:
+                        break
+
+    # Build result with full data for visited, minimal for unvisited
+    for sector_id in sorted(distance_map.keys()):
+        hops_from_center = distance_map[sector_id]
+
+        if sector_id in visited_sectors:
+            # Get full sector contents
+            contents = await sector_contents(world, sector_id, character_id)
+
+            # Get last visited time
+            sector_knowledge = knowledge.sectors_visited[str(sector_id)]
+            last_visited = sector_knowledge.last_visited if hasattr(sector_knowledge, 'last_visited') else None
+
+            sector_dict = {
+                "sector_id": sector_id,
+                "visited": True,
+                "hops_from_center": hops_from_center,
+                **contents
+            }
+
+            if last_visited:
+                sector_dict["last_visited"] = last_visited
+
+            result_sectors.append(sector_dict)
+        else:
+            # Minimal info for unvisited sectors
+            result_sectors.append({
+                "sector_id": sector_id,
+                "visited": False,
+                "hops_from_center": hops_from_center,
+                "seen_from": sorted(unvisited_seen.get(sector_id, set()))
+            })
+
+    total_visited = sum(1 for s in result_sectors if s["visited"])
+    total_unvisited = len(result_sectors) - total_visited
+
+    return {
+        "center_sector": center_sector,
+        "sectors": result_sectors,
+        "total_sectors": len(result_sectors),
+        "total_visited": total_visited,
+        "total_unvisited": total_unvisited
     }

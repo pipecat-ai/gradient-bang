@@ -4,7 +4,13 @@ from typing import Tuple, TYPE_CHECKING
 
 from fastapi import HTTPException
 
-from .utils import sector_contents, ensure_not_in_combat, player_self, ship_self
+from .utils import (
+    sector_contents,
+    ensure_not_in_combat,
+    player_self,
+    ship_self,
+    build_local_map_region,
+)
 from ships import ShipType, get_ship_stats, ShipStats
 from rpc.events import event_dispatcher
 from combat.utils import build_character_combatant
@@ -21,6 +27,9 @@ logger = logging.getLogger("gradient-bang.api.move")
 # 3 * 0.667 ≈ 2.0 seconds total. Faster ships (Sparrow, turns=2) take
 # ~1.3s, slower ships (Atlas, turns=4) take ~2.7s.
 MOVE_DELAY = 2.0 / 3  # seconds per warp turn
+
+MAX_LOCAL_MAP_HOPS = 4
+MAX_LOCAL_MAP_NODES = 28
 
 
 def parse_move_destination(request: dict) -> int:
@@ -165,13 +174,26 @@ async def handle(request: dict, world) -> dict:
         # Update character activity timestamp after arrival
         character.update_activity()
 
-        # Send movement.complete event to the character
+        # Send movement.complete and map.local events to the character
         await event_dispatcher.emit(
             "movement.complete",
             {
                 "player": player_self(world, character_id),
                 "ship": ship_self(world, character_id),
             },
+            character_filter=[character_id],
+        )
+
+        map_data = await build_local_map_region(
+            world,
+            character_id=character_id,
+            center_sector=character.sector,
+            max_hops=MAX_LOCAL_MAP_HOPS,
+            max_sectors=MAX_LOCAL_MAP_NODES,
+        )
+        await event_dispatcher.emit(
+            "map.local",
+            map_data,
             character_filter=[character_id],
         )
 

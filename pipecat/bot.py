@@ -144,8 +144,6 @@ async def run_bot(transport, runner_args: RunnerArguments):
         rtvi_processor=rtvi,
         task_complete_callback=task_complete_callback,
     )
-    initial_status = await task_manager.join()
-    initial_map_data = await task_manager.game_client.my_map(character_id="TraderP")
 
     # Initialize STT service
     logger.info("Init STT…")
@@ -215,6 +213,8 @@ async def run_bot(transport, runner_args: RunnerArguments):
 
     @rtvi.event_handler("on_client_ready")
     async def on_client_ready(rtvi):
+        initial_status = await task_manager.join()
+
         # Dispatch initialization data to client
         await rtvi.push_frame(
             RTVIServerMessageFrame(
@@ -225,7 +225,30 @@ async def run_bot(transport, runner_args: RunnerArguments):
                 }
             )
         )
+
+        try:
+            current_sector = initial_status.get("sector", {}).get("id")
+            if current_sector is not None:
+                map_data = await task_manager.game_client.local_map_region(
+                    character_id=task_manager.character_id,
+                    center_sector=current_sector,
+                    max_hops=4,
+                    max_sectors=28,
+                )
+                await rtvi.push_frame(
+                    RTVIServerMessageFrame(
+                        {
+                            "frame_type": "event",
+                            "event": "map.local",
+                            "payload": map_data,
+                        }
+                    )
+                )
+        except Exception as exc:
+            logger.exception("Failed to send initial map")
+
         await rtvi.set_bot_ready()
+
         # Kick off the conversation
         await task.queue_frames([context_aggregator.user().get_context_frame()])
 
@@ -288,47 +311,42 @@ async def run_bot(transport, runner_args: RunnerArguments):
                 max_sectors_raw = msg_data.get("max_sectors")
                 max_hops_raw = msg_data.get("max_hops")
 
-                if max_sectors_raw is not None:
-                    max_sectors = int(max_sectors_raw)
-                    if max_sectors <= 0:
-                        raise ValueError("max_sectors must be positive")
-                    limit_kwargs = {"max_sectors": max_sectors}
-                else:
-                    max_hops = int(max_hops_raw) if max_hops_raw is not None else 3
-                    if max_hops < 0:
-                        raise ValueError("max_hops must be non-negative")
-                    limit_kwargs = {"max_hops": max_hops}
+                max_hops = int(max_hops_raw) if max_hops_raw is not None else 3
+                if max_hops < 0 or max_hops > 10:
+                    raise ValueError("max_hops must be between 0 and 10")
 
-                # todo: replace this with the new local_map_region endpoint
-                local_map = await task_manager.game_client.local_map(
-                    current_sector=sector,
-                    **limit_kwargs,
+                max_sectors = (
+                    int(max_sectors_raw) if max_sectors_raw is not None else 100
+                )
+                if max_sectors <= 0:
+                    raise ValueError("max_sectors must be positive")
+
+                # Use local_map_region endpoint
+                map_data = await task_manager.game_client.local_map_region(
+                    center_sector=sector,
+                    max_hops=max_hops,
+                    max_sectors=max_sectors,
                 )
 
                 await rtvi.push_frame(
                     RTVIServerMessageFrame(
                         {
                             "frame_type": "event",
-                            "event": "local_map",
-                            "payload": {
-                                "character_id": task_manager.character_id,
-                                "sector": sector,
-                                **limit_kwargs,
-                                "node_list": local_map.get("node_list", []),
-                            },
+                            "event": "map.local",
+                            "payload": map_data,
                         }
                     )
                 )
             except Exception as exc:  # noqa: BLE001
-                logger.exception("Failed to fetch local_map via client message")
+                logger.exception("Failed to fetch local map region via client message")
                 await rtvi.push_frame(
                     RTVIServerMessageFrame(
                         {
                             "frame_type": "event",
-                            "event": "local_map",
+                            "event": "map.local",
                             "payload": {
                                 "error": str(exc),
-                                "sector": msg_data.get("sector")
+                                "center_sector": msg_data.get("sector")
                                 if isinstance(msg_data, dict)
                                 else None,
                             },

@@ -1,5 +1,4 @@
 import logging
-from datetime import datetime, timezone
 from fastapi import HTTPException
 
 from .utils import build_status_payload, sector_contents
@@ -95,7 +94,9 @@ async def handle(request: dict, world) -> dict:
             max_shields=ship_stats.shields,
         )
         character.connected = True
-        character.in_hyperspace = False  # Clear hyperspace on rejoin (e.g., after disconnect)
+        character.in_hyperspace = (
+            False  # Clear hyperspace on rejoin (e.g., after disconnect)
+        )
         if sector is not None:
             if sector < 0 or sector >= world.universe_graph.sector_count:
                 raise HTTPException(status_code=400, detail=f"Invalid sector: {sector}")
@@ -201,11 +202,7 @@ async def handle(request: dict, world) -> dict:
                     exc,
                 )
 
-    # note: currently no client is subscribing to this. todo: revisist
-    await event_dispatcher.emit(
-        "status.update",
-        status_payload,
-        character_filter=[character_id],
-    )
-
+    # Note: We don't emit map.local here because the RTVI pipeline may not be
+    # started yet. Clients should request the map explicitly after they're ready,
+    # or rely on move events to trigger map updates.
     return status_payload
