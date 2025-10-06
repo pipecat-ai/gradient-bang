@@ -1,8 +1,4 @@
-import type {
-  CameraState,
-  MiniMapData,
-  MiniMapRenderConfig,
-} from "@fx/map/MiniMap";
+import type { CameraState, MiniMapRenderConfig } from "@fx/map/MiniMap";
 import {
   getCurrentCameraState,
   renderMiniMapCanvas,
@@ -19,7 +15,7 @@ export const MiniMap = ({
   animationDuration = 500,
 }: {
   config: MiniMapRenderConfig;
-  map_data: MiniMapData;
+  map_data: MapData;
   width?: number;
   height?: number;
   maxDistance?: number;
@@ -41,12 +37,10 @@ export const MiniMap = ({
       maxDistance,
     };
 
-    // Check if current sector changed
     const currentSectorId = config.current_sector_id;
     const prevSectorId = prevSectorIdRef.current;
 
     if (currentSectorId !== prevSectorId && cameraStateRef.current) {
-      // Animate transition to new sector
       const cleanup = updateCurrentSector(
         canvas,
         props,
@@ -55,16 +49,13 @@ export const MiniMap = ({
         animationDuration
       );
 
-      // Update camera state after animation
       setTimeout(() => {
         cameraStateRef.current = getCurrentCameraState(props);
       }, animationDuration);
 
       prevSectorIdRef.current = currentSectorId;
-
       return cleanup;
     } else {
-      // No animation needed, just render
       renderMiniMapCanvas(canvas, props);
       cameraStateRef.current = getCurrentCameraState(props);
       prevSectorIdRef.current = currentSectorId;

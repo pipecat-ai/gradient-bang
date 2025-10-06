@@ -19,12 +19,12 @@ export interface MiniMapRenderConfig {
     current: string;
     current_outline: string;
   };
-  grid_spacing?: number; // Distance between hex centers in pixels (default: auto-calculated)
-  hex_size?: number; // Visual radius of each hex in pixels (default: grid_spacing * 0.85)
-  sector_label_offset?: number; // Pixel offset for sector ID labels from hex edge (default: 2)
-  frame_padding?: number; // Padding around the bounding box when framing (default: 0)
-  current_sector_outer_border?: number; // Thickness of outer border for current sector (default: 0, disabled)
-  debug?: boolean; // Show debug visualizations (bounding boxes, etc.)
+  grid_spacing?: number;
+  hex_size?: number;
+  sector_label_offset?: number;
+  frame_padding?: number;
+  current_sector_outer_border?: number;
+  debug?: boolean;
   show_grid: boolean;
   show_warps: boolean;
   show_sector_ids: boolean;
@@ -32,41 +32,21 @@ export interface MiniMapRenderConfig {
   show_hyperlanes: boolean;
 }
 
-// Suggested optimized data structures for MiniMap rendering
-// These align closely with server data while optimizing lookup and traversal.
-export interface MiniMapNode {
-  id: number;
-  position: [number, number]; // axial hex coords (q, r)
-  visited?: boolean;
-  port?: string; // truthy indicates a port; string can be code/type
-  region?: string; // region identifier for cross-region lane styling
-  lanes: MiniMapLane[]; // lanes originating from this node
-}
-
-export interface MiniMapLane {
-  from: number;
-  to: number;
-  two_way: boolean;
-  hyperlane?: boolean;
-}
-
-export type MiniMapData = Record<number, MiniMapNode>; // id -> node (lanes embedded per node)
-
 export interface MiniMapProps {
   width: number;
   height: number;
-  data: MiniMapData;
+  data: MapData;
   config: MiniMapRenderConfig;
-  maxDistance?: number; // BFS depth from current sector
+  maxDistance?: number;
 }
 
 export interface CameraState {
   offsetX: number;
   offsetY: number;
   zoom: number;
-  filteredData: MiniMapData;
-  fadingOutData?: MiniMapData; // Sectors that were visible but are now disconnected
-  fadeProgress?: number; // 0 = fully visible, 1 = fully faded
+  filteredData: MapData;
+  fadingOutData?: MapData;
+  fadeProgress?: number;
 }
 
 interface AnimationState {
@@ -78,16 +58,10 @@ interface AnimationState {
   animationFrameId?: number;
 }
 
-/**
- * Easing function for smooth animation (ease-in-out cubic)
- */
 function easeInOutCubic(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
-/**
- * Interpolate between two camera states
- */
 function interpolateCameraState(
   start: CameraState,
   target: CameraState,
@@ -98,16 +72,12 @@ function interpolateCameraState(
     offsetX: start.offsetX + (target.offsetX - start.offsetX) * easedProgress,
     offsetY: start.offsetY + (target.offsetY - start.offsetY) * easedProgress,
     zoom: start.zoom + (target.zoom - start.zoom) * easedProgress,
-    filteredData: target.filteredData, // Use target data (no interpolation)
-    fadingOutData: start.fadingOutData, // Keep fading sectors from start
-    fadeProgress: progress, // Current fade progress
+    filteredData: target.filteredData,
+    fadingOutData: start.fadingOutData,
+    fadeProgress: progress,
   };
 }
 
-/**
- * Convert hex grid coordinates (q, r) to world pixel coordinates
- * Uses offset coordinate system matching world_viewer.html
- */
 function hexToWorld(
   hexX: number,
   hexY: number,
@@ -118,15 +88,12 @@ function hexToWorld(
   return { x, y };
 }
 
-/**
- * Draw a hexagon outline at the given position
- */
 function drawHex(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   size: number,
-  fill: boolean = false
+  fill = false
 ) {
   ctx.beginPath();
   for (let i = 0; i < 6; i++) {
@@ -144,21 +111,16 @@ function drawHex(
   ctx.stroke();
 }
 
-/**
- * Calculate all sectors reachable from current sector via BFS traversal
- * Returns a Map of sector ID to distance (number of jumps from current)
- */
+/** BFS traversal to find all sectors reachable within maxDistance jumps */
 function calculateReachableSectors(
-  data: MiniMapData,
+  data: MapData,
   currentSectorId: number,
   maxDistance: number
 ): Map<number, number> {
   const reachableMap = new Map<number, number>();
   const currentSector = data[currentSectorId];
-
   if (!currentSector) return reachableMap;
 
-  // BFS queue: { id, distance }
   const queue: Array<{ id: number; distance: number }> = [
     { id: currentSectorId, distance: 0 },
   ];
@@ -167,14 +129,11 @@ function calculateReachableSectors(
 
   while (queue.length > 0) {
     const current = queue.shift()!;
-
-    // Stop if we've reached max distance
     if (current.distance >= maxDistance) continue;
 
     const sector = data[current.id];
     if (!sector) continue;
 
-    // Process all outgoing lanes
     sector.lanes.forEach((lane) => {
       if (!visited.has(lane.to)) {
         visited.add(lane.to);
@@ -187,48 +146,38 @@ function calculateReachableSectors(
   return reachableMap;
 }
 
-/**
- * Filter data to only include reachable sectors
- */
+/** Filter to only sectors in the reachable map */
 function filterReachableSectors(
-  data: MiniMapData,
+  data: MapData,
   reachableMap: Map<number, number>
-): MiniMapData {
-  const filtered: MiniMapData = {};
-
+): MapData {
+  const filtered: MapData = {};
   reachableMap.forEach((_distance, sectorId) => {
     if (data[sectorId]) {
       filtered[sectorId] = data[sectorId];
     }
   });
-
   return filtered;
 }
 
-/**
- * Calculate sectors that are in oldData but not in newData (for fade-out)
- */
+/** Calculate sectors that are being disconnected (for fade-out) */
 function calculateFadingOutSectors(
-  oldData: MiniMapData,
-  newData: MiniMapData
-): MiniMapData {
-  const fadingOut: MiniMapData = {};
-
+  oldData: MapData,
+  newData: MapData
+): MapData {
+  const fadingOut: MapData = {};
   Object.keys(oldData).forEach((sectorIdStr) => {
     const sectorId = parseInt(sectorIdStr, 10);
     if (!newData[sectorId]) {
       fadingOut[sectorId] = oldData[sectorId];
     }
   });
-
   return fadingOut;
 }
 
-/**
- * Calculate bounds of all sectors in world coordinates
- */
+/** Calculate bounding box of all sectors */
 function calculateSectorBounds(
-  data: MiniMapData,
+  data: MapData,
   scale: number
 ): { minX: number; minY: number; maxX: number; maxY: number } {
   let minX = Infinity;
@@ -247,61 +196,48 @@ function calculateSectorBounds(
   return { minX, minY, maxX, maxY };
 }
 
-/**
- * Calculate camera transform to fit and frame all connected sectors optimally
- */
+/** Calculate camera transform to optimally frame all connected sectors */
 function calculateCameraTransform(
-  data: MiniMapData,
+  data: MapData,
   _currentSectorId: number,
   width: number,
   height: number,
   scale: number,
   _hexSize: number,
-  framePadding: number = 0
+  framePadding = 0
 ): { offsetX: number; offsetY: number; zoom: number } {
   const bounds = calculateSectorBounds(data, scale);
   const boundsWidth = bounds.maxX - bounds.minX;
   const boundsHeight = bounds.maxY - bounds.minY;
 
-  // Calculate zoom to fit all sectors with configurable padding
   const scaleX = (width - framePadding * 2) / boundsWidth;
   const scaleY = (height - framePadding * 2) / boundsHeight;
   const zoom = Math.min(scaleX, scaleY, 1.5);
 
-  // Center on the center of all connected sectors' bounding box
-  // This maximizes use of canvas space
   const centerX = (bounds.minX + bounds.maxX) / 2;
   const centerY = (bounds.minY + bounds.maxY) / 2;
 
   return { offsetX: -centerX, offsetY: -centerY, zoom };
 }
 
-/**
- * Render debug bounding box (for debugging framing)
- */
+/** Render debug bounding box visualization */
 function renderDebugBounds(
   ctx: CanvasRenderingContext2D,
-  data: MiniMapData,
+  data: MapData,
   scale: number
 ) {
   const bounds = calculateSectorBounds(data, scale);
-
   ctx.save();
-  ctx.strokeStyle = "#00ff00"; // Green
+  ctx.strokeStyle = "#00ff00";
   ctx.lineWidth = 2;
-  ctx.setLineDash([5, 5]); // Dashed line
-
+  ctx.setLineDash([5, 5]);
   const width = bounds.maxX - bounds.minX;
   const height = bounds.maxY - bounds.minY;
-
   ctx.strokeRect(bounds.minX, bounds.minY, width, height);
-
   ctx.restore();
 }
 
-/**
- * Render an arrow for one-way lanes
- */
+/** Render directional arrow for one-way lanes */
 function renderArrow(
   ctx: CanvasRenderingContext2D,
   from: { x: number; y: number },
@@ -325,10 +261,7 @@ function renderArrow(
   ctx.stroke();
 }
 
-/**
- * Calculate intersection point of line with hex boundary
- * Moves from center towards target, stopping at hex edge
- */
+/** Calculate point on hex edge in direction of target */
 function getHexEdgePoint(
   center: { x: number; y: number },
   target: { x: number; y: number },
@@ -337,10 +270,8 @@ function getHexEdgePoint(
   const dx = target.x - center.x;
   const dy = target.y - center.y;
   const distance = Math.sqrt(dx * dx + dy * dy);
-
   if (distance === 0) return center;
 
-  // Move from center towards target by hexSize distance
   const ratio = hexSize / distance;
   return {
     x: center.x + dx * ratio,
@@ -348,14 +279,12 @@ function getHexEdgePoint(
   };
 }
 
-/**
- * Render a single lane connecting two sectors
- */
+/** Render a single lane between two sectors */
 function renderLane(
   ctx: CanvasRenderingContext2D,
-  lane: MiniMapLane,
-  fromNode: MiniMapNode,
-  toNode: MiniMapNode,
+  lane: MapLane,
+  fromNode: MapSectorNode,
+  toNode: MapSectorNode,
   scale: number,
   hexSize: number,
   config: MiniMapRenderConfig
@@ -367,11 +296,9 @@ function renderLane(
   );
   const toCenter = hexToWorld(toNode.position[0], toNode.position[1], scale);
 
-  // Calculate edge points instead of center points
   const from = getHexEdgePoint(fromCenter, toCenter, hexSize);
   const to = getHexEdgePoint(toCenter, fromCenter, hexSize);
 
-  // Choose color based on lane type
   if (lane.hyperlane && config.show_hyperlanes) {
     ctx.strokeStyle = config.colors.hyperlane;
     ctx.lineWidth = 2;
@@ -383,27 +310,22 @@ function renderLane(
     ctx.lineWidth = 1.5;
   }
 
-  // Draw the lane
   ctx.beginPath();
   ctx.moveTo(from.x, from.y);
   ctx.lineTo(to.x, to.y);
   ctx.stroke();
 
-  // Draw arrow for one-way lanes
   if (!lane.two_way) {
     renderArrow(ctx, from, to);
   }
 }
 
-/**
- * Find an available edge direction that doesn't conflict with existing lanes
- */
+/** Find hex edge direction that avoids existing lane directions */
 function findAvailableEdgeDirection(
-  fromNode: MiniMapNode,
-  data: MiniMapData,
+  fromNode: MapSectorNode,
+  data: MapData,
   scale: number
 ): number {
-  // Calculate angles to all connected sectors
   const usedAngles = fromNode.lanes
     .map((lane) => {
       const toNode = data[lane.to];
@@ -418,7 +340,6 @@ function findAvailableEdgeDirection(
     })
     .filter((angle): angle is number => angle !== null);
 
-  // Six possible hex directions (60° apart)
   const hexDirections = [
     0,
     Math.PI / 3,
@@ -428,27 +349,22 @@ function findAvailableEdgeDirection(
     (5 * Math.PI) / 3,
   ];
 
-  // Find first direction that doesn't conflict (at least 45° away from any used angle)
   for (const direction of hexDirections) {
     const isAvailable = usedAngles.every((usedAngle) => {
       let diff = Math.abs(direction - usedAngle);
       if (diff > Math.PI) diff = 2 * Math.PI - diff;
-      return diff > Math.PI / 4; // 45° threshold
+      return diff > Math.PI / 4;
     });
     if (isAvailable) return direction;
   }
 
-  // Fallback to right direction
   return 0;
 }
 
-/**
- * Render hyperlane stub for destinations outside visible area
- * Returns label info to be rendered later on top of everything
- */
+/** Render short stub for hyperlanes to invisible destinations */
 function renderHyperlaneStub(
   ctx: CanvasRenderingContext2D,
-  fromNode: MiniMapNode,
+  fromNode: MapSectorNode,
   destinationId: number,
   direction: number,
   scale: number,
@@ -461,7 +377,6 @@ function renderHyperlaneStub(
     scale
   );
 
-  // Draw stub extending one hex space in the direction
   const stubLength = hexSize * 2;
   const startEdge = getHexEdgePoint(
     fromWorld,
@@ -476,18 +391,16 @@ function renderHyperlaneStub(
     y: startEdge.y + stubLength * Math.sin(direction),
   };
 
-  // Draw the stub lane
   ctx.save();
   ctx.strokeStyle = config.colors.hyperlane;
   ctx.lineWidth = 2;
-  ctx.setLineDash([4, 4]); // Dashed to indicate it continues
+  ctx.setLineDash([4, 4]);
   ctx.beginPath();
   ctx.moveTo(startEdge.x, startEdge.y);
   ctx.lineTo(endPoint.x, endPoint.y);
   ctx.stroke();
   ctx.restore();
 
-  // Draw arrow at the end
   ctx.save();
   ctx.strokeStyle = config.colors.hyperlane;
   ctx.fillStyle = config.colors.hyperlane;
@@ -507,7 +420,6 @@ function renderHyperlaneStub(
   ctx.fill();
   ctx.restore();
 
-  // Return label info to be rendered later (on top of everything)
   return {
     x: endPoint.x + 4,
     y: endPoint.y - 4,
@@ -515,13 +427,10 @@ function renderHyperlaneStub(
   };
 }
 
-/**
- * Render all lanes for the visible sectors
- * Returns hyperlane stub label info to be rendered later
- */
+/** Render all lanes and return hyperlane stub labels for later rendering */
 function renderAllLanes(
   ctx: CanvasRenderingContext2D,
-  data: MiniMapData,
+  data: MapData,
   scale: number,
   hexSize: number,
   config: MiniMapRenderConfig
@@ -534,7 +443,6 @@ function renderAllLanes(
       const toNode = data[lane.to];
 
       if (!toNode) {
-        // Destination not visible - if it's a hyperlane, render a stub
         if (lane.hyperlane && config.show_hyperlanes) {
           const direction = findAvailableEdgeDirection(fromNode, data, scale);
           const labelInfo = renderHyperlaneStub(
@@ -553,7 +461,6 @@ function renderAllLanes(
         return;
       }
 
-      // For two-way lanes, only render once (use sorted IDs to create unique key)
       if (lane.two_way) {
         const laneKey = [lane.from, lane.to].sort((a, b) => a - b).join("-");
         if (renderedLanes.has(laneKey)) return;
@@ -567,17 +474,15 @@ function renderAllLanes(
   return hyperlaneLabels;
 }
 
-/**
- * Apply alpha/opacity to a color string (multiplies existing alpha)
- */
+/** Apply opacity to color (multiplies existing alpha if present) */
 function applyAlpha(color: string, alpha: number): string {
   if (color.startsWith("#")) {
     const r = parseInt(color.slice(1, 3), 16);
     const g = parseInt(color.slice(3, 5), 16);
     const b = parseInt(color.slice(5, 7), 16);
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  } else if (color.startsWith("rgba")) {
-    // Extract existing alpha and multiply with new alpha
+  }
+  if (color.startsWith("rgba")) {
     const match = color.match(
       /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/
     );
@@ -588,7 +493,8 @@ function applyAlpha(color: string, alpha: number): string {
       })`;
     }
     return color.replace(/[\d.]+\)$/, `${alpha})`);
-  } else if (color.startsWith("rgb")) {
+  }
+  if (color.startsWith("rgb")) {
     const match = color.match(/rgb\(([\d.]+),\s*([\d.]+),\s*([\d.]+)\)/);
     if (match) {
       return `rgba(${match[1]}, ${match[2]}, ${match[3]}, ${alpha})`;
@@ -597,17 +503,15 @@ function applyAlpha(color: string, alpha: number): string {
   return color;
 }
 
-/**
- * Render a single sector hex
- */
+/** Render a sector hex with optional opacity for fade effects */
 function renderSector(
   ctx: CanvasRenderingContext2D,
-  node: MiniMapNode,
+  node: MapSectorNode,
   scale: number,
   hexSize: number,
   config: MiniMapRenderConfig,
   currentRegion?: string,
-  opacity: number = 1
+  opacity = 1
 ) {
   const world = hexToWorld(node.position[0], node.position[1], scale);
   const isVisited = node.visited ?? false;
@@ -615,7 +519,6 @@ function renderSector(
   const isCrossRegion =
     currentRegion && node.region && node.region !== currentRegion;
 
-  // Draw outer border for current sector if configured
   if (isCurrent && config.current_sector_outer_border) {
     const outerBorderSize = config.current_sector_outer_border;
     ctx.save();
@@ -625,11 +528,9 @@ function renderSector(
     ctx.restore();
   }
 
-  // Set fill color based on visited state
   const fillColor = isVisited ? config.colors.visited : config.colors.empty;
   ctx.fillStyle = applyAlpha(fillColor, opacity);
 
-  // Set border color and width
   let strokeColor: string;
   if (isCurrent) {
     strokeColor = config.colors.current;
@@ -643,10 +544,8 @@ function renderSector(
   }
   ctx.strokeStyle = applyAlpha(strokeColor, opacity);
 
-  // Draw the hex
   drawHex(ctx, world.x, world.y, hexSize, true);
 
-  // Draw port indicator if present
   if (config.show_ports && node.port) {
     const isMegaPort = node.port === "MEGA";
     const portColor = isMegaPort ? config.colors.mega_port : config.colors.port;
@@ -657,9 +556,7 @@ function renderSector(
   }
 }
 
-/**
- * Render hex grid background covering the visible area
- */
+/** Render hex grid background covering viewport */
 function renderHexGrid(
   ctx: CanvasRenderingContext2D,
   width: number,
@@ -675,8 +572,6 @@ function renderHexGrid(
   const invScale = 1 / scale;
   const sqrt3 = Math.sqrt(3);
 
-  // Calculate world bounds visible in the canvas after camera transform
-  // Canvas corner to world: (canvas - width/2) / zoom - offset
   const worldLeft = -width / 2 / cameraZoom - cameraOffsetX;
   const worldRight = width / 2 / cameraZoom - cameraOffsetX;
   const worldTop = -height / 2 / cameraZoom - cameraOffsetY;
@@ -685,7 +580,6 @@ function renderHexGrid(
   const minHexX = Math.floor(worldLeft / stepX) - 2;
   let maxHexX = Math.ceil(worldRight / stepX) + 2;
 
-  // Safety clamp
   if (maxHexX - minHexX > 500) {
     maxHexX = minHexX + 500;
   }
@@ -708,11 +602,9 @@ function renderHexGrid(
   ctx.restore();
 }
 
-/**
- * Calculate camera state for given props (reusable for animation)
- */
+/** Calculate complete camera state for given props */
 function calculateCameraState(
-  data: MiniMapData,
+  data: MapData,
   config: MiniMapRenderConfig,
   width: number,
   height: number,
@@ -720,22 +612,17 @@ function calculateCameraState(
   hexSize: number,
   maxDistance: number
 ): CameraState | null {
-  // Calculate reachable sectors from current sector
   const reachableMap = calculateReachableSectors(
     data,
     config.current_sector_id,
     maxDistance
   );
-
-  // Filter data to only include reachable sectors
   const filteredData = filterReachableSectors(data, reachableMap);
 
-  // If no reachable sectors, return null
   if (Object.keys(filteredData).length === 0) {
     return null;
   }
 
-  // Calculate camera transform to fit and center on current sector
   const camera = calculateCameraTransform(
     filteredData,
     config.current_sector_id,
@@ -754,9 +641,7 @@ function calculateCameraState(
   };
 }
 
-/**
- * Convert world coordinates to screen coordinates given camera state
- */
+/** Convert world coordinates to screen coordinates */
 function worldToScreen(
   worldX: number,
   worldY: number,
@@ -770,12 +655,10 @@ function worldToScreen(
   };
 }
 
-/**
- * Render sector labels (fixed size, positioned at top-right of each hex)
- */
+/** Render sector ID labels at top-right of hexes */
 function renderSectorLabels(
   ctx: CanvasRenderingContext2D,
-  data: MiniMapData,
+  data: MapData,
   scale: number,
   hexSize: number,
   width: number,
@@ -791,19 +674,14 @@ function renderSectorLabels(
   ctx.textBaseline = "top";
 
   const labelOffset = config.sector_label_offset ?? 2;
-  const padding = 1; // Padding around text inside background
+  const padding = 1;
 
   Object.values(data).forEach((node) => {
     const worldPos = hexToWorld(node.position[0], node.position[1], scale);
-
-    // Calculate top-right edge of hex in world coordinates
-    // Hex vertices are at 60° intervals starting at 0°
-    // Top-right vertex is at 300° (-60° or 5π/3)
     const angle = -Math.PI / 3;
     const edgeWorldX = worldPos.x + hexSize * Math.cos(angle);
     const edgeWorldY = worldPos.y + hexSize * Math.sin(angle);
 
-    // Convert to screen coordinates
     const screenPos = worldToScreen(
       edgeWorldX,
       edgeWorldY,
@@ -816,12 +694,10 @@ function renderSectorLabels(
     const textX = screenPos.x + labelOffset;
     const textY = screenPos.y;
 
-    // Measure text to draw background
     const metrics = ctx.measureText(text);
     const textWidth = metrics.width;
-    const textHeight = 8; // Font size
+    const textHeight = 8;
 
-    // Draw background rectangle
     ctx.fillStyle = config.colors.label_bg;
     ctx.fillRect(
       textX - padding,
@@ -830,7 +706,6 @@ function renderSectorLabels(
       textHeight + padding * 2
     );
 
-    // Draw text on top
     ctx.fillStyle = config.colors.label;
     ctx.fillText(text, textX, textY);
   });
@@ -838,12 +713,10 @@ function renderSectorLabels(
   ctx.restore();
 }
 
-/**
- * Render port code labels (fixed size, positioned at bottom-right of each hex)
- */
+/** Render port code labels at bottom-right of hexes */
 function renderPortLabels(
   ctx: CanvasRenderingContext2D,
-  data: MiniMapData,
+  data: MapData,
   scale: number,
   hexSize: number,
   width: number,
@@ -859,21 +732,16 @@ function renderPortLabels(
   ctx.textBaseline = "top";
 
   const labelOffset = config.sector_label_offset ?? 2;
-  const padding = 1; // Padding around text inside background
+  const padding = 1;
 
   Object.values(data).forEach((node) => {
-    if (!node.port) return; // Skip sectors without ports
+    if (!node.port) return;
 
     const worldPos = hexToWorld(node.position[0], node.position[1], scale);
-
-    // Calculate bottom-right edge of hex in world coordinates
-    // Hex vertices are at 60° intervals starting at 0°
-    // Bottom-right vertex is at 60° (π/3)
     const angle = Math.PI / 3;
     const edgeWorldX = worldPos.x + hexSize * Math.cos(angle);
     const edgeWorldY = worldPos.y + hexSize * Math.sin(angle);
 
-    // Convert to screen coordinates
     const screenPos = worldToScreen(
       edgeWorldX,
       edgeWorldY,
@@ -886,12 +754,10 @@ function renderPortLabels(
     const textX = screenPos.x + labelOffset;
     const textY = screenPos.y;
 
-    // Measure text to draw background
     const metrics = ctx.measureText(text);
     const textWidth = metrics.width;
-    const textHeight = 8; // Font size
+    const textHeight = 8;
 
-    // Draw background rectangle
     ctx.fillStyle = config.colors.label_bg;
     ctx.fillRect(
       textX - padding,
@@ -900,7 +766,6 @@ function renderPortLabels(
       textHeight + padding * 2
     );
 
-    // Draw text on top
     ctx.fillStyle = config.colors.label;
     ctx.fillText(text, textX, textY);
   });
@@ -908,41 +773,33 @@ function renderPortLabels(
   ctx.restore();
 }
 
-/**
- * Internal render function that renders with a specific camera state
- */
+/** Core rendering with explicit camera state */
 function renderWithCameraState(
   canvas: HTMLCanvasElement,
   props: MiniMapProps,
   cameraState: CameraState
 ) {
   const { width, height, config } = props;
-
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
-  // Clear and setup canvas
   const dpr = window.devicePixelRatio || 1;
   canvas.width = width * dpr;
   canvas.height = height * dpr;
   ctx.scale(dpr, dpr);
 
-  // Clear canvas with background color
   ctx.fillStyle = config.colors.background;
   ctx.fillRect(0, 0, width, height);
 
-  // Calculate hex sizing
   const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
   const hexSize = config.hex_size ?? gridSpacing * 0.85;
   const scale = gridSpacing;
 
-  // Apply camera transform (center canvas, then zoom and pan)
   ctx.save();
   ctx.translate(width / 2, height / 2);
   ctx.scale(cameraState.zoom, cameraState.zoom);
   ctx.translate(cameraState.offsetX, cameraState.offsetY);
 
-  // Render background grid
   if (config.show_grid) {
     renderHexGrid(
       ctx,
@@ -957,19 +814,15 @@ function renderWithCameraState(
     );
   }
 
-  // Render lanes (before sectors so they appear behind)
-  // Collect hyperlane labels to render later
   const hyperlaneLabels = config.show_warps
     ? renderAllLanes(ctx, cameraState.filteredData, scale, hexSize, config)
     : [];
 
-  // Get current sector's region for cross-region highlighting
   const currentSector = cameraState.filteredData[config.current_sector_id];
   const currentRegion = currentSector?.region;
 
-  // Render fading out sectors (if any) with reduced opacity
   if (cameraState.fadingOutData && cameraState.fadeProgress !== undefined) {
-    const fadeOpacity = 1 - cameraState.fadeProgress; // Fade from 1 to 0
+    const fadeOpacity = 1 - cameraState.fadeProgress;
     Object.values(cameraState.fadingOutData).forEach((node) => {
       renderSector(
         ctx,
@@ -983,22 +836,16 @@ function renderWithCameraState(
     });
   }
 
-  // Render only reachable sectors
   Object.values(cameraState.filteredData).forEach((node) => {
     renderSector(ctx, node, scale, hexSize, config, currentRegion);
   });
 
-  // Render debug bounds if enabled (before restore, so affected by camera transform)
   if (config.debug) {
     renderDebugBounds(ctx, cameraState.filteredData, scale);
   }
 
   ctx.restore();
 
-  // IMPORTANT: Render ALL labels LAST so they're always on top of everything
-  // (after restore, so they're not affected by zoom and always in screen space)
-
-  // Render sector ID labels
   renderSectorLabels(
     ctx,
     cameraState.filteredData,
@@ -1009,8 +856,6 @@ function renderWithCameraState(
     cameraState,
     config
   );
-
-  // Render port code labels
   renderPortLabels(
     ctx,
     cameraState.filteredData,
@@ -1022,7 +867,6 @@ function renderWithCameraState(
     config
   );
 
-  // Render hyperlane stub labels (converted to screen space)
   if (hyperlaneLabels.length > 0) {
     ctx.save();
     ctx.font = "8px monospace";
@@ -1036,11 +880,9 @@ function renderWithCameraState(
       );
       const metrics = ctx.measureText(label.text);
 
-      // Draw background
       ctx.fillStyle = config.colors.label_bg;
       ctx.fillRect(screenPos.x - 1, screenPos.y - 7, metrics.width + 2, 10);
 
-      // Draw text
       ctx.fillStyle = config.colors.label;
       ctx.fillText(label.text, screenPos.x, screenPos.y);
     });
@@ -1048,21 +890,17 @@ function renderWithCameraState(
   }
 }
 
-/**
- * Main render function for the MiniMap canvas (stateless)
- */
+/** Render minimap canvas (stateless) */
 export function renderMiniMapCanvas(
   canvas: HTMLCanvasElement,
   props: MiniMapProps
 ) {
   const { width, height, data, config, maxDistance = 3 } = props;
 
-  // Calculate hex sizing
   const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
   const hexSize = config.hex_size ?? gridSpacing * 0.85;
   const scale = gridSpacing;
 
-  // Calculate camera state
   const cameraState = calculateCameraState(
     data,
     config,
@@ -1073,7 +911,6 @@ export function renderMiniMapCanvas(
     maxDistance
   );
 
-  // If no reachable sectors, just render empty canvas
   if (!cameraState) {
     const ctx = canvas.getContext("2d");
     if (ctx) {
@@ -1087,21 +924,15 @@ export function renderMiniMapCanvas(
     return;
   }
 
-  // Render with calculated camera state
   renderWithCameraState(canvas, props, cameraState);
 }
 
-/**
- * Get current camera state for the given props (useful for tracking state)
- */
+/** Get current camera state for tracking between renders */
 export function getCurrentCameraState(props: MiniMapProps): CameraState | null {
   const { width, height, data, config, maxDistance = 3 } = props;
-
-  // Calculate hex sizing
   const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
   const hexSize = config.hex_size ?? gridSpacing * 0.85;
   const scale = gridSpacing;
-
   return calculateCameraState(
     data,
     config,
@@ -1113,28 +944,22 @@ export function getCurrentCameraState(props: MiniMapProps): CameraState | null {
   );
 }
 
-/**
- * Update current sector with animation
- * Returns a cleanup function to cancel the animation
- */
+/** Animate transition to new sector */
 export function updateCurrentSector(
   canvas: HTMLCanvasElement,
   props: MiniMapProps,
   newSectorId: number,
   currentCameraState: CameraState | null,
-  duration: number = 500
+  duration = 500
 ): () => void {
   const { width, height, data, config, maxDistance = 3 } = props;
 
-  // Calculate hex sizing
   const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
   const hexSize = config.hex_size ?? gridSpacing * 0.85;
   const scale = gridSpacing;
 
-  // Create new config with updated sector ID
   const newConfig = { ...config, current_sector_id: newSectorId };
 
-  // Calculate target camera state
   const targetCameraState = calculateCameraState(
     data,
     newConfig,
@@ -1146,7 +971,6 @@ export function updateCurrentSector(
   );
 
   if (!targetCameraState) {
-    // If no valid target, just render empty
     const ctx = canvas.getContext("2d");
     if (ctx) {
       const dpr = window.devicePixelRatio || 1;
@@ -1156,26 +980,23 @@ export function updateCurrentSector(
       ctx.fillStyle = config.colors.background;
       ctx.fillRect(0, 0, width, height);
     }
-    return () => {}; // No-op cleanup
+    return () => {};
   }
 
-  // If no current state, just render target directly
   if (!currentCameraState) {
     renderWithCameraState(
       canvas,
       { ...props, config: newConfig },
       targetCameraState
     );
-    return () => {}; // No-op cleanup
+    return () => {};
   }
 
-  // Calculate sectors that need to fade out (in old but not in new)
   const fadingOutData = calculateFadingOutSectors(
     currentCameraState.filteredData,
     targetCameraState.filteredData
   );
 
-  // Setup animation with fading sectors
   const startCameraWithFade: CameraState = {
     ...currentCameraState,
     fadingOutData,
@@ -1190,28 +1011,24 @@ export function updateCurrentSector(
     targetCamera: targetCameraState,
   };
 
-  // Animation loop
   const animate = (currentTime: number) => {
     if (!animationState.isAnimating) return;
 
     const elapsed = currentTime - animationState.startTime;
     const progress = Math.min(elapsed / animationState.duration, 1);
 
-    // Interpolate camera state
     const interpolatedCamera = interpolateCameraState(
       animationState.startCamera,
       animationState.targetCamera,
       progress
     );
 
-    // Render with interpolated state
     renderWithCameraState(
       canvas,
       { ...props, config: newConfig },
       interpolatedCamera
     );
 
-    // Continue animation if not complete
     if (progress < 1) {
       animationState.animationFrameId = requestAnimationFrame(animate);
     } else {
@@ -1219,10 +1036,8 @@ export function updateCurrentSector(
     }
   };
 
-  // Start animation
   animationState.animationFrameId = requestAnimationFrame(animate);
 
-  // Return cleanup function
   return () => {
     animationState.isAnimating = false;
     if (animationState.animationFrameId !== undefined) {

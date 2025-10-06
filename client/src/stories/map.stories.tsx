@@ -1,11 +1,11 @@
 import type { Story } from "@ladle/react";
 import { useCallback, useMemo, useState } from "react";
 
-import type { MiniMapData, MiniMapRenderConfig } from "@fx/map/MiniMap";
+import type { MiniMapRenderConfig } from "@fx/map/MiniMap";
 import { MiniMap as MiniMapComponent } from "@hud/MiniMap";
 import { Button } from "@pipecat-ai/voice-ui-kit";
 
-const storyData: MiniMapData = {
+const storyData: MapData = {
   0: {
     id: 0,
     position: [126, 126],
@@ -152,7 +152,7 @@ const baseConfig: Omit<MiniMapRenderConfig, "current_sector_id"> = {
   grid_spacing: 30, // Distance between hex centers in pixels (leave undefined for auto-calculate)
   hex_size: 20, // Visual radius of each hex (leave undefined for auto: 85% of grid_spacing)
   sector_label_offset: 5,
-  frame_padding: 20,
+  frame_padding: 40,
   current_sector_outer_border: 5, // Thickness of outer border for current sector
   debug: true, // Show debug bounding box
   show_grid: true,
