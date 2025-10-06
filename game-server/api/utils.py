@@ -126,8 +126,8 @@ def port_snapshot(world, sector_id: int) -> Dict[str, Any]:
             }
         port = {
             "code": port_state.code,
-            "last_seen_prices": prices,
-            "last_seen_stock": stock,
+            "prices": prices,
+            "stock": stock,
             "observed_at": datetime.now(timezone.utc).isoformat(),
         }
     return port
@@ -143,6 +143,12 @@ async def sector_contents(
 
     # Port (minimal snapshot) -- todo: write tests and refactor this. there's much more logic here than there needs to be
     port = port_snapshot(world, sector_id)
+    # if the character is currently in this sector, set observed_at to null
+    if (
+        current_character_id
+        and world.characters[current_character_id].sector == sector_id
+    ):
+        port["observed_at"] = None
 
     # Other players (names + ship type when known)
     players = []
@@ -289,7 +295,11 @@ async def build_local_map_region(
             )
 
             # Get sector position from universe graph
-            position = world.universe_graph.positions.get(sector_id, (0, 0)) if world.universe_graph else (0, 0)
+            position = (
+                world.universe_graph.positions.get(sector_id, (0, 0))
+                if world.universe_graph
+                else (0, 0)
+            )
 
             sector_dict = {
                 "id": sector_id,
