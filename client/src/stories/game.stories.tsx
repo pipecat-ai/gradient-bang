@@ -18,7 +18,7 @@ export const Init: Story = () => {
           <ul className="story-value-list">
             {Object.entries(player).map(([key, value]) => (
               <li key={key}>
-                <span>{key}</span> <span>{value.toString()}</span>
+                <span>{key}</span> <span>{value?.toString()}</span>
               </li>
             ))}
           </ul>
@@ -29,7 +29,12 @@ export const Init: Story = () => {
           <ul className="story-value-list">
             {Object.entries(ship).map(([key, value]) => (
               <li key={key}>
-                <span>{key}</span> <span>{value.toString()}</span>
+                <span className="flex-1">{key}</span>
+                <span className="flex-1">
+                  {typeof value === "object"
+                    ? JSON.stringify(value)
+                    : value.toString()}
+                </span>
               </li>
             ))}
           </ul>
@@ -40,7 +45,12 @@ export const Init: Story = () => {
           <ul className="story-value-list">
             {Object.entries(sector).map(([key, value]) => (
               <li key={key}>
-                <span>{key}</span> <span>{value.toString()}</span>
+                <span className="flex-1">{key}</span>
+                <span className="flex-1">
+                  {typeof value === "object"
+                    ? JSON.stringify(value)
+                    : value.toString()}
+                </span>
               </li>
             ))}
           </ul>

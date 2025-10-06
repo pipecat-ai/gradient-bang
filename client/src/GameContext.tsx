@@ -5,10 +5,15 @@ import { createContext, useCallback, type ReactNode } from "react";
 
 import { moveToSector, startMoveToSector } from "@/actions";
 
+/**
+ * Server message interfaces
+ */
 interface ServerMessage {
   event: string;
-  tool_name?: string;
   payload: unknown;
+
+  summary?: string;
+  tool_name?: string;
 }
 
 interface StatusMessage {
@@ -27,9 +32,16 @@ interface MovementCompleteMessage {
   player: PlayerSelf;
 }
 
-const GameContext = createContext<((text: string) => void) | undefined>(
-  undefined
-);
+/**
+ * Game context
+ */
+interface GameContextProps {
+  sendUserTextInput: (text: string) => void;
+}
+
+const GameContext = createContext<GameContextProps>({
+  sendUserTextInput: () => {},
+});
 
 interface GameProviderProps {
   children: ReactNode;
@@ -42,18 +54,17 @@ export function GameProvider({ children }: GameProviderProps) {
   const sendUserTextInput = useCallback(
     (text: string) => {
       if (!client) {
-        console.error("[GAME] Client not available");
+        console.error("[GAME CONTEXT] Client not available");
         return;
       }
       if (client.state !== "ready") {
         console.error(
-          `[GAME] Client not ready. Current state: ${client.state}`
+          `[GAME CONTEXT] Client not ready. Current state: ${client.state}`
         );
         return;
       }
-      console.debug(`[GAME] Sending user text input: "${text}"`);
+      console.debug(`[GAME CONTEXT] Sending user text input: "${text}"`);
       client.sendClientMessage("user-text-input", { text });
-      console.debug("[GAME] Message sent successfully");
     },
     [client]
   );
@@ -86,7 +97,7 @@ export function GameProvider({ children }: GameProviderProps) {
               break;
             }
 
-            // ----- MOVE
+            // ----- MOVEMENT
             case "movement.start": {
               console.debug("[GAME EVENT] Move started", e.payload);
 
@@ -99,12 +110,13 @@ export function GameProvider({ children }: GameProviderProps) {
               const data = e.payload as MovementCompleteMessage;
 
               // Update ship and player
+              // This hydrates things like warp power, player last active, etc.
               gameStore.setState({
                 ship: data.ship,
                 player: data.player,
               });
 
-              // Swap the buffered sector for the completed sector
+              // Swap in the buffered sector
               // Note: Starfield instance should already be in sync
               if (gameStore.sectorBuffer) {
                 gameStore.setSector(gameStore.sectorBuffer as Sector);
@@ -114,6 +126,7 @@ export function GameProvider({ children }: GameProviderProps) {
               break;
             }
 
+            // ----- UNHANDLED :(
             default:
               console.warn(
                 "[GAME EVENT] Unhandled server action:",
@@ -138,7 +151,7 @@ export function GameProvider({ children }: GameProviderProps) {
   );
 
   return (
-    <GameContext.Provider value={sendUserTextInput}>
+    <GameContext.Provider value={{ sendUserTextInput }}>
       {children}
     </GameContext.Provider>
   );

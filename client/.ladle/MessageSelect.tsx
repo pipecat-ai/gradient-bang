@@ -11,7 +11,7 @@ import { GameContext } from "../src/GameContext";
 
 export const MessageSelect = ({ messages }: { messages: string[][] }) => {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  const sendUserTextInput = useContext(GameContext);
+  const { sendUserTextInput } = useContext(GameContext);
 
   return (
     <div className="flex flex-row gap-2">
