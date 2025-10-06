@@ -781,6 +781,76 @@ function renderSectorLabels(
 }
 
 /**
+ * Render port code labels (fixed size, positioned at bottom-right of each hex)
+ */
+function renderPortLabels(
+  ctx: CanvasRenderingContext2D,
+  data: MiniMapData,
+  scale: number,
+  hexSize: number,
+  width: number,
+  height: number,
+  cameraState: CameraState,
+  config: MiniMapRenderConfig
+) {
+  if (!config.show_ports) return;
+
+  ctx.save();
+  ctx.font = "8px monospace";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+
+  const labelOffset = config.sector_label_offset ?? 2;
+  const padding = 1; // Padding around text inside background
+
+  Object.values(data).forEach((node) => {
+    if (!node.port) return; // Skip sectors without ports
+
+    const worldPos = hexToWorld(node.position[0], node.position[1], scale);
+
+    // Calculate bottom-right edge of hex in world coordinates
+    // Hex vertices are at 60° intervals starting at 0°
+    // Bottom-right vertex is at 60° (π/3)
+    const angle = Math.PI / 3;
+    const edgeWorldX = worldPos.x + hexSize * Math.cos(angle);
+    const edgeWorldY = worldPos.y + hexSize * Math.sin(angle);
+
+    // Convert to screen coordinates
+    const screenPos = worldToScreen(
+      edgeWorldX,
+      edgeWorldY,
+      width,
+      height,
+      cameraState
+    );
+
+    const text = node.port;
+    const textX = screenPos.x + labelOffset;
+    const textY = screenPos.y;
+
+    // Measure text to draw background
+    const metrics = ctx.measureText(text);
+    const textWidth = metrics.width;
+    const textHeight = 8; // Font size
+
+    // Draw background rectangle
+    ctx.fillStyle = config.colors.label_bg;
+    ctx.fillRect(
+      textX - padding,
+      textY - padding,
+      textWidth + padding * 2,
+      textHeight + padding * 2
+    );
+
+    // Draw text on top
+    ctx.fillStyle = config.colors.label;
+    ctx.fillText(text, textX, textY);
+  });
+
+  ctx.restore();
+}
+
+/**
  * Internal render function that renders with a specific camera state
  */
 function renderWithCameraState(
@@ -856,6 +926,18 @@ function renderWithCameraState(
 
   // Render sector ID labels
   renderSectorLabels(
+    ctx,
+    cameraState.filteredData,
+    scale,
+    hexSize,
+    width,
+    height,
+    cameraState,
+    config
+  );
+
+  // Render port code labels
+  renderPortLabels(
     ctx,
     cameraState.filteredData,
     scale,
