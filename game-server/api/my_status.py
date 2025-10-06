@@ -1,5 +1,5 @@
 from fastapi import HTTPException
-from .utils import build_ship_status, sector_contents
+from .utils import build_status_payload
 
 
 async def handle(request: dict, world) -> dict:
@@ -7,9 +7,9 @@ async def handle(request: dict, world) -> dict:
     if not character_id:
         raise HTTPException(status_code=400, detail="Missing character_id")
     if character_id not in world.characters:
-        raise HTTPException(status_code=404, detail=f"Character '{character_id}' not found")
-    character = world.characters[character_id]
-    character.update_activity()
-    contents = await sector_contents(world, character.sector, character_id)
-    return {**character.to_response(), "sector_contents": contents, "ship": build_ship_status(world, character_id)}
+        raise HTTPException(
+            status_code=404, detail=f"Character '{character_id}' not found"
+        )
 
+    status_payload = await build_status_payload(world, character_id)
+    return status_payload

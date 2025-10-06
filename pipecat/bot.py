@@ -220,12 +220,8 @@ async def run_bot(transport, runner_args: RunnerArguments):
             RTVIServerMessageFrame(
                 {
                     "frame_type": "event",
-                    "event": "status.init",
-                    "payload": {
-                        "status": initial_status,
-                        "map_data": initial_map_data,
-                    },
-                    "gg-action": "status.init",
+                    "event": "status.update",
+                    "payload": initial_status,
                 }
             )
         )
@@ -274,7 +270,6 @@ async def run_bot(transport, runner_args: RunnerArguments):
                         "frame_type": "event",
                         "event": "status.update",
                         "payload": status,
-                        "gg-action": "status.update",
                     }
                 )
             )
@@ -315,7 +310,6 @@ async def run_bot(transport, runner_args: RunnerArguments):
                         {
                             "frame_type": "event",
                             "event": "local_map",
-                            "gg-action": "local_map",
                             "payload": {
                                 "character_id": task_manager.character_id,
                                 "sector": sector,
@@ -332,7 +326,6 @@ async def run_bot(transport, runner_args: RunnerArguments):
                         {
                             "frame_type": "event",
                             "event": "local_map",
-                            "gg-action": "local_map",
                             "payload": {
                                 "error": str(exc),
                                 "sector": msg_data.get("sector")

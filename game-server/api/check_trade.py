@@ -1,5 +1,5 @@
 from fastapi import HTTPException
-from .utils import build_ship_status, ensure_not_in_combat
+from .utils import ensure_not_in_combat
 
 
 async def handle(request: dict, world) -> dict:
@@ -18,6 +18,7 @@ async def handle(request: dict, world) -> dict:
     character = world.characters[character_id]
     knowledge = world.knowledge_manager.load_knowledge(character_id)
     from ships import ShipType, get_ship_stats
+
     ship_stats = get_ship_stats(ShipType(knowledge.ship_config.ship_type))
 
     port_state = world.port_manager.load_port_state(character.sector)
@@ -64,7 +65,9 @@ async def handle(request: dict, world) -> dict:
                     "cargo_used": sum(knowledge.ship_config.cargo.values()),
                 }
             price_per_unit = calculate_price_sell_to_player(
-                commodity, port_state.stock[commodity_key], port_state.max_capacity[commodity_key]
+                commodity,
+                port_state.stock[commodity_key],
+                port_state.max_capacity[commodity_key],
             )
             validate_buy_transaction(
                 knowledge.credits,
@@ -87,7 +90,9 @@ async def handle(request: dict, world) -> dict:
                     "cargo_used": sum(knowledge.ship_config.cargo.values()),
                 }
             price_per_unit = calculate_price_buy_from_player(
-                commodity, port_state.stock[commodity_key], port_state.max_capacity[commodity_key]
+                commodity,
+                port_state.stock[commodity_key],
+                port_state.max_capacity[commodity_key],
             )
             validate_sell_transaction(
                 knowledge.ship_config.cargo,
