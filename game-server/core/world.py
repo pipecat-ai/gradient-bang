@@ -19,6 +19,8 @@ class UniverseGraph:
         self.sector_count = universe_data["meta"]["sector_count"]
         self.adjacency: Dict[int, List[int]] = {}
         self.positions: Dict[int, Tuple[int, int]] = {}
+        # Store warp metadata: sector_id -> list of {to, two_way, hyperlane}
+        self.warps: Dict[int, List[Dict[str, any]]] = {}
 
         undirected: Dict[int, set[int]] = defaultdict(set)
 
@@ -28,6 +30,17 @@ class UniverseGraph:
                 sector["position"].get("x"),
                 sector["position"].get("y"),
             ]
+
+            # Parse warp metadata
+            warp_list = []
+            for warp in sector["warps"]:
+                warp_list.append({
+                    "to": warp["to"],
+                    "two_way": warp.get("two_way", False),
+                    "hyperlane": warp.get("is_hyperlane", False),
+                })
+            self.warps[sector_id] = warp_list
+
             targets = [warp["to"] for warp in sector["warps"]]
             self.adjacency[sector_id] = targets
             for target in targets:
