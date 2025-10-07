@@ -43,46 +43,47 @@ const StoryWrapper = ({
   return (
     <>
       {!storyMeta?.disconnectedStory && (
-        <div className="story-connect-bar">
-          <div>
-            {!isConnected ? (
-              <Button
-                onClick={handleConnect}
-                disabled={connecting}
-                isLoading={connecting}
-                variant="active"
-              >
-                {connecting ? "Connecting..." : "Connect [SPACE]"}
-              </Button>
-            ) : (
-              <Button onClick={handleDisconnect} variant="inactive">
-                Disconnected
-              </Button>
-            )}
+        <>
+          <div className="story-connect-bar">
+            <div>
+              {!isConnected ? (
+                <Button
+                  onClick={handleConnect}
+                  disabled={connecting}
+                  isLoading={connecting}
+                  variant="active"
+                >
+                  {connecting ? "Connecting..." : "Connect [SPACE]"}
+                </Button>
+              ) : (
+                <Button onClick={handleDisconnect} variant="inactive">
+                  Disconnected
+                </Button>
+              )}
+            </div>
+            <div className="flex flex-row gap-2">
+              {storyMeta?.enableMic ? (
+                <UserAudioControl />
+              ) : (
+                <Badge buttonSizing={true} variant="elbow" color="secondary">
+                  Audio Disabled
+                </Badge>
+              )}
+              {storyMeta?.messages && (
+                <MessageSelect messages={storyMeta?.messages ?? []} />
+              )}
+            </div>
           </div>
-          <div className="flex flex-row gap-2">
-            {storyMeta?.enableMic ? (
-              <UserAudioControl />
-            ) : (
-              <Badge buttonSizing={true} variant="elbow" color="secondary">
-                Audio Disabled
-              </Badge>
-            )}
-            {storyMeta?.messages && (
-              <MessageSelect messages={storyMeta?.messages ?? []} />
-            )}
-          </div>
-        </div>
+          <Divider decoration="plus" size="md" />
+        </>
       )}
 
-      <Divider decoration="plus" size="md" />
       {children}
     </>
   );
 };
 
 export const Provider: GlobalProvider = ({ children, storyMeta }) => {
-  // Memoize object props to prevent unnecessary re-renders
   const connectParams = useMemo(
     () => ({
       webrtcRequestParams: { endpoint: "api/offer" },
