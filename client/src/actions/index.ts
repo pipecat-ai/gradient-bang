@@ -1,6 +1,6 @@
 import useGameStore from "@/stores/game";
 
-export const moveToSector = async (
+/*export const moveToSector = async (
   newSector: Sector,
   bypassAnimation: boolean = false
 ) => {
@@ -43,9 +43,12 @@ export const moveToSector = async (
   }
 
   gameStore.setSector(newSector);
-};
+};*/
 
-export const startMoveToSector = (newSector: Sector) => {
+export const startMoveToSector = (
+  newSector: Sector,
+  options: { bypassAnimation: boolean } = { bypassAnimation: false }
+) => {
   const gameStore = useGameStore.getState();
   const starfield = gameStore.starfieldInstance;
 
@@ -64,6 +67,14 @@ export const startMoveToSector = (newSector: Sector) => {
     );
     return;
   }
+
+  console.debug("[GAME ACTION] Updating Starfield to", newSector);
+  starfield.warpToSector(
+    {
+      id: newSector.id.toString(),
+    },
+    options.bypassAnimation
+  );
 
   // @TODO: are we moving as part of a task? If so, we bypass animation
   // in favor of the screen 'shake' effect. The Starfield still needs

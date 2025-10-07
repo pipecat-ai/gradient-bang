@@ -1,9 +1,14 @@
+import { StarField } from "@/components/StarField";
 import { WarpBadge } from "@/components/WarpBadge";
 import { useGameContext } from "@/hooks/useGameContext";
 import MiniMap from "@/hud/MiniMap";
 import useGameStore from "@/stores/game";
 import type { Story } from "@ladle/react";
-import { Badge, TextInputComponent } from "@pipecat-ai/voice-ui-kit";
+import {
+  Badge,
+  TextInputComponent,
+  usePipecatConnectionState,
+} from "@pipecat-ai/voice-ui-kit";
 
 export const Sequencing: Story = () => {
   const sector = useGameStore((state) => state.sector);
@@ -84,6 +89,28 @@ Sequencing.meta = {
     [
       "Hop 3 adjacent sectors",
       "Hop 3 times across random adjacent sectors immediately.",
+    ],
+  ],
+};
+
+export const MovementWithStarfield: Story = () => {
+  const { isConnected } = usePipecatConnectionState();
+
+  return (
+    <div className="relative w-full h-full bg-card">
+      {isConnected && <StarField />}
+    </div>
+  );
+};
+
+MovementWithStarfield.meta = {
+  connectOnMount: false,
+  enableMic: false,
+  disableAudioOutput: true,
+  messages: [
+    [
+      "Hop to a random adjacent sector",
+      "Pick one random adjacent sector and move to it immediately.",
     ],
   ],
 };

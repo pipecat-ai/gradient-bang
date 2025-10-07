@@ -58,7 +58,7 @@ export interface StarfieldCallbacks {
   onWarpComplete?: (() => void) | null;
   onWarpCancel?: (() => void) | null;
   onSceneIsLoading?: (() => void) | null;
-  onSceneReady?: (() => void) | null;
+  onSceneReady?: ((isInitialRender: boolean) => void) | null;
 }
 
 /** Frame state for animation loop */
@@ -285,6 +285,7 @@ export class GalaxyStarfield {
   private _sceneSettling: boolean = false;
   private _sceneSettleStartTime: number | undefined;
   private _flashHoldStartTime: number | undefined;
+  private _isFirstRender: boolean = true;
   private readonly SCENE_SETTLE_DURATION = 150;
   private readonly MIN_FLASH_HOLD_TIME = 500;
   private readonly MAX_FLASH_HOLD_TIME = 5000;
@@ -1256,7 +1257,8 @@ export class GalaxyStarfield {
                 this.callbacks.onSceneReady &&
                 typeof this.callbacks.onSceneReady === "function"
               ) {
-                this.callbacks.onSceneReady();
+                this.callbacks.onSceneReady(this._isFirstRender);
+                this._isFirstRender = false;
               }
             }
           }
@@ -1273,7 +1275,8 @@ export class GalaxyStarfield {
               this.callbacks.onSceneReady &&
               typeof this.callbacks.onSceneReady === "function"
             ) {
-              this.callbacks.onSceneReady();
+              this.callbacks.onSceneReady(this._isFirstRender);
+              this._isFirstRender = false;
             }
           }
 
@@ -1723,7 +1726,8 @@ export class GalaxyStarfield {
             this.callbacks.onSceneReady &&
             typeof this.callbacks.onSceneReady === "function"
           ) {
-            this.callbacks.onSceneReady();
+            this.callbacks.onSceneReady(this._isFirstRender);
+            this._isFirstRender = false;
           }
           if (this._warpPromiseResolver) {
             this._warpPromiseResolver(true);
@@ -2285,7 +2289,8 @@ export class GalaxyStarfield {
       this.callbacks.onSceneReady &&
       typeof this.callbacks.onSceneReady === "function"
     ) {
-      this.callbacks.onSceneReady();
+      this.callbacks.onSceneReady(this._isFirstRender);
+      this._isFirstRender = false;
     }
   }
 

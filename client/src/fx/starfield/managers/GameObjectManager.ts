@@ -103,12 +103,6 @@ export class GameObjectManager {
         };
       }
     );
-
-    console.debug(
-      `GameObjectManager: Initialized ${
-        Object.keys(this.objectTypes).length
-      } object types`
-    );
   }
 
   /**
@@ -116,12 +110,10 @@ export class GameObjectManager {
    */
   public initialize(): void {
     if (!this.config.gameObjectsEnabled) {
-      console.debug("GameObjectManager: Game objects disabled in config");
       return;
     }
 
     this.createGameObjects();
-    console.debug("GameObjectManager: Initialization complete");
   }
 
   /**
@@ -132,7 +124,6 @@ export class GameObjectManager {
     this.destroyAllObjects();
 
     if (!this.config.gameObjects || !Array.isArray(this.config.gameObjects)) {
-      console.debug("GameObjectManager: No game objects array found in config");
       return;
     }
 
@@ -140,10 +131,6 @@ export class GameObjectManager {
     this.config.gameObjects.forEach((gameObjectConfig) => {
       this.createGameObject(gameObjectConfig);
     });
-
-    console.debug(
-      `GameObjectManager: Created ${this.gameObjects.size} game objects`
-    );
   }
 
   /**
@@ -185,11 +172,6 @@ export class GameObjectManager {
 
     this.gameObjects.set(id, gameObject);
     this.scene.add(mesh);
-
-    console.debug(
-      `Created game object: ${gameObject.metadata.name} at position`,
-      position
-    );
   }
 
   /**
@@ -234,7 +216,7 @@ export class GameObjectManager {
     gameObject.mesh.material = this.selectionMaterial;
     this.selectedObjectId = objectId;
 
-    console.debug(`Selected: ${gameObject.metadata.name}`);
+    console.debug(`[STARFIELD] Selected: ${gameObject.metadata.name}`);
     return true;
   }
 
@@ -295,7 +277,10 @@ export class GameObjectManager {
    * Update configuration and recreate objects if needed
    */
   public updateConfig(newConfig: Partial<GalaxyStarfieldConfig>): void {
-    console.debug("GameObjectManager: updateConfig called with:", newConfig);
+    console.debug(
+      "[STARFIELD] GameObjectManager: updateConfig called with:",
+      newConfig
+    );
 
     // Deep merge the new config, but replace arrays instead of merging them
     // This matches the JS behavior of arrayMerge: (target, source) => source
@@ -304,7 +289,7 @@ export class GameObjectManager {
       newConfig
     ) as GalaxyStarfieldConfig;
 
-    console.debug("GameObjectManager: Merged config:", this.config);
+    console.debug("[STARFIELD] GameObjectManager: Merged config:", this.config);
 
     // Reinitialize object types if gameObjectTypes changed
     if (newConfig.gameObjectTypes) {
@@ -322,11 +307,13 @@ export class GameObjectManager {
     // Recreate objects if game objects are enabled
     if (this.config.gameObjectsEnabled) {
       console.debug(
-        "GameObjectManager: Recreating objects due to config update"
+        "[STARFIELD] GameObjectManager: Recreating objects due to config update"
       );
       this.createGameObjects();
     } else {
-      console.debug("GameObjectManager: Game objects disabled, not recreating");
+      console.debug(
+        "[STARFIELD] GameObjectManager: Game objects disabled, not recreating"
+      );
     }
   }
 
