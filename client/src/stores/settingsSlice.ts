@@ -1,5 +1,6 @@
 import { type StateCreator } from "zustand";
-import LocalSettings from "../settings.json";
+
+import { getLocalSettings } from "@/utils/settings";
 
 export interface SettingsSlice {
   settings: {
@@ -15,6 +16,7 @@ export interface SettingsSlice {
     soundFXVolume: number;
     startMuted: boolean;
     qualityPreset: "text" | "low" | "high";
+    saveSettings: boolean;
   };
 }
 
@@ -31,11 +33,12 @@ const defaultSettings = {
   soundFXVolume: 0.5,
   startMuted: false,
   qualityPreset: "high" as const,
+  saveSettings: true,
 };
 
 export const createSettingsSlice: StateCreator<SettingsSlice> = () => ({
   settings: {
     ...defaultSettings,
-    ...LocalSettings,
+    ...getLocalSettings(),
   },
 });

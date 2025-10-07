@@ -1,9 +1,10 @@
 import { RTVIEvent } from "@pipecat-ai/client-js";
 import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react";
 import useGameStore from "@stores/game";
-import { createContext, useCallback, type ReactNode } from "react";
+import { useCallback, type ReactNode } from "react";
 
 import { moveToSector, startMoveToSector } from "@/actions";
+import { GameContext } from "@/hooks/useGameContext";
 
 /**
  * Server message interfaces
@@ -39,17 +40,6 @@ interface MapLocalMessage {
   total_unvisited: number;
   total_visited: number;
 }
-
-/**
- * Game context
- */
-interface GameContextProps {
-  sendUserTextInput: (text: string) => void;
-}
-
-const GameContext = createContext<GameContextProps>({
-  sendUserTextInput: () => {},
-});
 
 interface GameProviderProps {
   children: ReactNode;
@@ -200,5 +190,3 @@ export function GameProvider({ children }: GameProviderProps) {
     </GameContext.Provider>
   );
 }
-
-export { GameContext };

@@ -1,16 +1,15 @@
 import { WarpBadge } from "@/components/WarpBadge";
-import { GameContext } from "@/GameContext";
+import { useGameContext } from "@/hooks/useGameContext";
 import MiniMap from "@/hud/MiniMap";
 import useGameStore from "@/stores/game";
 import type { Story } from "@ladle/react";
 import { Badge, TextInputComponent } from "@pipecat-ai/voice-ui-kit";
-import { useContext } from "react";
 
 export const Sequencing: Story = () => {
   const sector = useGameStore((state) => state.sector);
   const localMapData = useGameStore((state) => state.local_map_data);
   const ui = useGameStore((state) => state.ui);
-  const { sendUserTextInput } = useContext(GameContext);
+  const { sendUserTextInput } = useGameContext();
 
   return (
     <div className="flex flex-col gap-3">

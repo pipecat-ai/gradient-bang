@@ -2,15 +2,14 @@ import { createRoot } from "react-dom/client";
 
 import { PipecatAppBase } from "@pipecat-ai/voice-ui-kit";
 
-import { GameProvider } from "./GameContext";
-
+import { GameProvider } from "@/GameContext";
+import { getLocalSettings } from "@/utils/settings";
 import Error from "@views/Error";
 import Game from "@views/Game";
 
-//@TODO: replace with slice (mindful of root re-renders)
-import Settings from "./settings.json";
-
 import "./css/index.css";
+
+const Settings = getLocalSettings();
 
 createRoot(document.getElementById("root")!).render(
   <PipecatAppBase
