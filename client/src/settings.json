@@ -1,5 +1,6 @@
 {
     "startMuted": false,
     "enableMic": true,
-    "disableRemoteAudio": false
+    "disableRemoteAudio": false,
+    "saveSettings": false
 }

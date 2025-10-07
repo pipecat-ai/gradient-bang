@@ -23,7 +23,7 @@ export class Background extends FX {
     this._planetRandomOffset = null;
   }
 
-  public create(config: GalaxyStarfieldConfig): void {
+  public create(config: GalaxyStarfieldConfig): Promise<void> {
     console.debug("[BACKGROUND] Creating");
 
     if (this._background) {
@@ -34,89 +34,97 @@ export class Background extends FX {
 
     // Create background image
     const loader = new THREE.TextureLoader();
-    loader.load(
-      config.planetImageUrl,
-      (tex) => {
-        tex.colorSpace = THREE.SRGBColorSpace;
-        tex.minFilter = THREE.LinearFilter;
-        tex.magFilter = THREE.LinearFilter;
-        tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
 
-        const bgMat = new THREE.ShaderMaterial({
-          uniforms: {
-            tDiffuse: { value: tex },
-            opacity: {
-              value: config.planetOpacity || 1.0,
+    return new Promise((resolve, reject) => {
+      loader.load(
+        config.planetImageUrl,
+        (tex) => {
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.minFilter = THREE.LinearFilter;
+          tex.magFilter = THREE.LinearFilter;
+          tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+
+          const bgMat = new THREE.ShaderMaterial({
+            uniforms: {
+              tDiffuse: { value: tex },
+              opacity: {
+                value: config.planetOpacity || 1.0,
+              },
+              time: { value: 0 },
+              shakeIntensity: { value: 0 },
+              shakePhase: { value: 0 },
+              shakeAmplitude: { value: 0 },
+              warpProgress: { value: 0 },
+              tunnelEffect: { value: 0 },
             },
-            time: { value: 0 },
-            shakeIntensity: { value: 0 },
-            shakePhase: { value: 0 },
-            shakeAmplitude: { value: 0 },
-            warpProgress: { value: 0 },
-            tunnelEffect: { value: 0 },
-          },
-          vertexShader: backgroundVertexShader,
-          fragmentShader: backgroundFragmentShader,
-          depthTest: false,
-          depthWrite: false,
-          transparent: true,
-          blending: config.planetBlendMode,
-        });
+            vertexShader: backgroundVertexShader,
+            fragmentShader: backgroundFragmentShader,
+            depthTest: false,
+            depthWrite: false,
+            transparent: true,
+            blending: config.planetBlendMode,
+          });
 
-        this._uniformManager.registerMaterial("background", bgMat, {
-          opacity: { type: "number", min: 0, max: 1 },
-          time: { type: "number" },
-          shakeIntensity: { type: "number", min: 0 },
-          shakePhase: { type: "number" },
-          shakeAmplitude: { type: "number", min: 0 },
-          warpProgress: { type: "number", min: 0, max: 1 },
-          tunnelEffect: { type: "number", min: 0, max: 1 },
-        });
+          this._uniformManager.registerMaterial("background", bgMat, {
+            opacity: { type: "number", min: 0, max: 1 },
+            time: { type: "number" },
+            shakeIntensity: { type: "number", min: 0 },
+            shakePhase: { type: "number" },
+            shakeAmplitude: { type: "number", min: 0 },
+            warpProgress: { type: "number", min: 0, max: 1 },
+            tunnelEffect: { type: "number", min: 0, max: 1 },
+          });
 
-        const imageAspect = tex.image
-          ? tex.image.width / tex.image.height
-          : 1.0;
-        const planeSize = 80;
-        const quad = new THREE.Mesh(
-          new THREE.PlaneGeometry(planeSize * imageAspect, planeSize),
-          bgMat
-        );
-        quad.frustumCulled = false;
-        quad.renderOrder = -1000;
+          const imageAspect = tex.image
+            ? tex.image.width / tex.image.height
+            : 1.0;
+          const planeSize = 80;
+          const quad = new THREE.Mesh(
+            new THREE.PlaneGeometry(planeSize * imageAspect, planeSize),
+            bgMat
+          );
+          quad.frustumCulled = false;
+          quad.renderOrder = -1000;
 
-        const initX = config.planetPositionX || 0;
-        const initY = config.planetPositionY || 0;
-        const initZ = config.planetZ || -300;
-        quad.position.set(initX, initY, initZ);
+          const initX = config.planetPositionX || 0;
+          const initY = config.planetPositionY || 0;
+          const initZ = config.planetZ || -300;
+          quad.position.set(initX, initY, initZ);
 
-        this._planetRandomOffset = { x: initX, y: initY };
+          this._planetRandomOffset = { x: initX, y: initY };
 
-        quad.scale.set(1, 1, 1);
-        quad.layers.set(1);
+          quad.scale.set(1, 1, 1);
+          quad.layers.set(1);
 
-        this._backgroundMaterial = bgMat;
-        this._background = quad;
+          this._backgroundMaterial = bgMat;
+          this._background = quad;
 
-        // Create a group so the planet and shadow move/scale together
-        const planetGroup = new THREE.Group();
-        planetGroup.position.copy(quad.position);
-        planetGroup.scale.set(1, 1, 1);
-        planetGroup.layers.set(1);
-        this._scene.add(planetGroup);
+          // Create a group so the planet and shadow move/scale together
+          const planetGroup = new THREE.Group();
+          planetGroup.position.copy(quad.position);
+          planetGroup.scale.set(1, 1, 1);
+          planetGroup.layers.set(1);
+          this._scene.add(planetGroup);
 
-        // Parent planet to group
-        planetGroup.add(quad);
-        quad.position.set(0, 0, 0);
+          // Parent planet to group
+          planetGroup.add(quad);
+          quad.position.set(0, 0, 0);
 
-        // Apply initial scale from config
-        planetGroup.scale.set(config.planetScale, config.planetScale, 1);
-        this._planetGroup = planetGroup;
-      },
-      undefined,
-      (err) => {
-        console.warn("Background image load failed:", err);
-      }
-    );
+          // Apply initial scale from config
+          planetGroup.scale.set(config.planetScale, config.planetScale, 1);
+          this._planetGroup = planetGroup;
+
+          // Resolve promise when texture is loaded and scene is updated
+          console.debug("[BACKGROUND] Texture loaded successfully");
+          resolve();
+        },
+        undefined,
+        (err) => {
+          console.warn("Background image load failed:", err);
+          reject(err);
+        }
+      );
+    });
   }
 
   public destroy(): void {
@@ -144,13 +152,14 @@ export class Background extends FX {
     this._planetRandomOffset = null;
   }
 
-  public toggle(enabled: boolean): void {
-    if (enabled === !!this._background) return;
+  public toggle(enabled: boolean): Promise<void> {
+    if (enabled === !!this._background) return Promise.resolve();
 
     if (enabled && this._config) {
-      this.create(this._config);
+      return this.create(this._config);
     } else {
       this.destroy();
+      return Promise.resolve();
     }
   }
 

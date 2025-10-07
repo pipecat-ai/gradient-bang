@@ -4,7 +4,7 @@
  */
 
 import { type StarfieldState } from ".";
-import { type GalaxyStarfieldConfig } from "./constants";
+import { type GalaxyStarfieldConfig, type WarpPhase } from "./constants";
 import { UniformManager } from "./managers/UniformManager";
 
 // ============================================================================
@@ -49,6 +49,7 @@ export interface FrameState {
   cloudsShakeProgress: number;
   warpProgress: number;
   tunnelEffectValue: number;
+  warpPhase: WarpPhase;
   cameraRotation: {
     x: number;
     y: number;
@@ -273,6 +274,14 @@ export class ConfigUniformMapper {
 
     // Background updates
     if (this.uniformManager.hasMaterial("background")) {
+      // Determine if planet should shake
+      const shouldShake =
+        state.currentState === "shake" ||
+        (state.currentState === "warping" &&
+          state.warpPhase !== "FLASH" &&
+          state.warpPhase !== "COOLDOWN" &&
+          state.warpPhase !== "IDLE");
+
       updates.background = {
         opacity: this.calculateBackgroundOpacity(
           config,
@@ -280,11 +289,9 @@ export class ConfigUniformMapper {
         ),
         shakeIntensity: state.currentShakeIntensity || 0,
         shakePhase: state.shakePhase || 0,
-        shakeAmplitude:
-          state.currentState === "shake"
-            ? (state.currentShakeIntensity || 0) *
-              (config.shakeAmplitude || 0.02)
-            : 0,
+        shakeAmplitude: shouldShake
+          ? (state.currentShakeIntensity || 0) * (config.shakeAmplitude || 0.02)
+          : 0,
         warpProgress: state.warpProgress || 0,
         tunnelEffect: state.tunnelEffectValue || 0,
       };

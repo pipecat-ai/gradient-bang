@@ -6,12 +6,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@pipecat-ai/voice-ui-kit";
-import React, { useContext, useState } from "react";
-import { GameContext } from "../src/GameContext";
+import React, { useState } from "react";
+import { useGameContext } from "../src/hooks/useGameContext";
 
 export const MessageSelect = ({ messages }: { messages: string[][] }) => {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  const { sendUserTextInput } = useContext(GameContext);
+  const { sendUserTextInput } = useGameContext();
 
   return (
     <div className="flex flex-row gap-2">

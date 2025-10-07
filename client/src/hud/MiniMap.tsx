@@ -31,7 +31,6 @@ export const MiniMap = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const controllerRef = useRef<MiniMapController | null>(null);
   const prevSectorIdRef = useRef<number>(current_sector_id);
-  const prevMapDataRef = useRef<MapData>(map_data);
 
   const mergedConfig = useMemo<MiniMapRenderConfig>(
     () => ({
@@ -51,7 +50,7 @@ export const MiniMap = ({
     if (!canvas) return;
 
     if (!controllerRef.current) {
-      console.log("[MiniMap] Initial render");
+      console.debug("[MiniMap] Initial render");
       controllerRef.current = createMiniMapController(canvas, {
         width,
         height,
@@ -60,19 +59,17 @@ export const MiniMap = ({
         maxDistance,
       });
       prevSectorIdRef.current = current_sector_id;
-      prevMapDataRef.current = map_data;
       return;
     }
 
     const sectorChanged = current_sector_id !== prevSectorIdRef.current;
 
     if (sectorChanged) {
-      console.log(
+      console.debug(
         `[MiniMap] moveToSector called: ${prevSectorIdRef.current} → ${current_sector_id}`
       );
       controllerRef.current.moveToSector(current_sector_id, map_data);
       prevSectorIdRef.current = current_sector_id;
-      prevMapDataRef.current = map_data;
     }
   }, [current_sector_id, map_data, width, height, maxDistance, mergedConfig]);
 

@@ -24,7 +24,7 @@ export class ShadowManager {
     initialConfig?: GalaxyStarfieldConfig
   ) {
     console.debug(
-      "[ShadowManager] Constructor called with config:",
+      "[STARFIELD] ShadowManager] Constructor called with config:",
       initialConfig
     );
 
@@ -37,7 +37,7 @@ export class ShadowManager {
     this._config = initialConfig || null;
 
     console.debug(
-      "[ShadowManager] Config stored, will apply when materials are ready"
+      "[STARFIELD] ShadowManager] Config stored, will apply when materials are ready"
     );
   }
 
@@ -47,7 +47,7 @@ export class ShadowManager {
   public applyInitialSettings(): void {
     if (this._config) {
       console.debug(
-        "[ShadowManager] Applying initial shadow settings now that materials are ready"
+        "[STARFIELD] ShadowManager] Applying initial shadow settings now that materials are ready"
       );
       this.updateShadowSettings(this._config);
     }
@@ -61,7 +61,7 @@ export class ShadowManager {
     randomOffset: { x: number; y: number }
   ): void {
     console.debug(
-      "[ShadowManager] setPlanetGroup called with:",
+      "[STARFIELD] ShadowManager] setPlanetGroup called with:",
       planetGroup,
       randomOffset
     );
@@ -157,7 +157,7 @@ export class ShadowManager {
    */
   public updateShadowSettings(config: GalaxyStarfieldConfig): void {
     console.debug(
-      "[ShadowManager] updateShadowSettings called with config:",
+      "[STARFIELD] ShadowManager] updateShadowSettings called with config:",
       config
     );
     this._config = config;
@@ -173,21 +173,27 @@ export class ShadowManager {
         : 0, // 0 when disabled
     };
 
-    console.debug("[ShadowManager] Shadow scaling:", {
+    console.debug("[STARFIELD] ShadowManager] Shadow scaling:", {
       baseRadius: config.planetShadowRadius,
       planetScale: config.planetScale,
       scaledRadius: scaledShadowRadius,
     });
-    console.debug("[ShadowManager] Shadow updates:", shadowUpdates);
+    console.debug("[STARFIELD] ShadowManager] Shadow updates:", shadowUpdates);
 
     // Apply to all shadow-supporting materials
     const shadowMaterials = ["clouds", "nebula"];
     for (const materialId of shadowMaterials) {
       if (this._uniformManager.hasMaterial(materialId)) {
-        console.debug("[ShadowManager] Updating material:", materialId);
+        console.debug(
+          "[STARFIELD] ShadowManager] Updating material:",
+          materialId
+        );
         this._uniformManager.updateUniforms(materialId, shadowUpdates);
       } else {
-        console.debug("[ShadowManager] Material not found:", materialId);
+        console.debug(
+          "[STARFIELD] ShadowManager] Material not found:",
+          materialId
+        );
       }
     }
   }

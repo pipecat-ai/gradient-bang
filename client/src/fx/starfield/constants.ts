@@ -52,8 +52,47 @@ export interface StarLODConfig {
 /** Debug game object counts */
 export interface DebugGameObjectCounts {
   playerShip: number;
-  starport: number;
+  port: number;
   npc: number;
+}
+
+/**
+ * Scene-specific configuration (properties that vary per scene)
+ * This is a lightweight subset used for scene transitions via warpToSector
+ * All properties are optional - missing properties get random defaults
+ */
+export interface StarfieldSceneConfig {
+  // Nebula variant (colors, intensity, visual properties)
+  nebulaColor1?: RGBColor;
+  nebulaColor2?: RGBColor;
+  nebulaColorMid?: RGBColor;
+  nebulaIntensity?: number;
+  nebulaDarkLaneStrength?: number;
+  nebulaDomainWarpStrength?: number;
+  nebulaIdleNoiseSpeed?: number;
+  nebulaAnisotropy?: number;
+  nebulaFilamentContrast?: number;
+
+  // Clouds variant (colors, iteration counts, visual properties)
+  cloudsIntensity?: number;
+  cloudsColorPrimary?: RGBColor;
+  cloudsColorSecondary?: RGBColor;
+  cloudsIterPrimary?: number;
+  cloudsIterSecondary?: number;
+  cloudsDomainScale?: number;
+  cloudsSpeed?: number;
+
+  // Planet variant (image, position, scale)
+  planetImageUrl?: string;
+  planetScale?: number;
+  planetPositionX?: number;
+  planetPositionY?: number;
+
+  // Star size variant (slight variation per sector)
+  starSize?: number;
+
+  // Game objects (completely per-scene)
+  gameObjects?: GameObjectConfig[];
 }
 
 /** Main galaxy starfield configuration interface */
@@ -449,15 +488,17 @@ export const DEFAULT_GALAXY_CONFIG: GalaxyStarfieldConfig = {
   layerDimOpacity: 0.4,
   layerDimDuration: 3,
 
+  // === GAME OBJECTS ===
   gameObjects: [],
 
+  // === DEBUG ===
   debugMode: false,
 
   renderingEnabled: true,
 
   debugGameObjectCounts: {
     playerShip: 1,
-    starport: 2,
+    port: 2,
     npc: 5,
   },
 };

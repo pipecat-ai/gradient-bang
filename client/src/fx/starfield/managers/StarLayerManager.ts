@@ -135,7 +135,9 @@ export class StarLayerManager {
       }
     });
 
-    console.debug(`StarLayerManager: Created ${this.layers.size} star layers`);
+    console.debug(
+      `[STARFIELD] StarLayerManager: Created ${this.layers.size} star layers`
+    );
   }
 
   /**
@@ -279,7 +281,7 @@ export class StarLayerManager {
     });
 
     console.debug(
-      `StarLayerManager: Created ${layerName} layer with ${starCount} stars`
+      `[STARFIELD] StarLayerManager: Created ${layerName} layer with ${starCount} stars`
     );
   }
 
@@ -336,7 +338,7 @@ export class StarLayerManager {
     const starPropertiesChanged = this.hasStarPropertiesChanged(newConfig);
     if (starPropertiesChanged) {
       console.debug(
-        "StarLayerManager: Star properties changed, recreating layers"
+        "[STARFIELD] StarLayerManager: Star properties changed, recreating layers"
       );
       this.createStarfield();
     } else {
@@ -393,7 +395,7 @@ export class StarLayerManager {
     if (layer) {
       layer.mesh.visible = visible;
       console.debug(
-        `StarLayerManager: Set ${layerName} layer visibility to ${visible}`
+        `[STARFIELD] StarLayerManager: Set ${layerName} layer visibility to ${visible}`
       );
     }
   }
@@ -482,7 +484,9 @@ export class StarLayerManager {
       // Unregister from uniform manager
       this.uniformManager.unregisterMaterial(`stars-${layerName}`);
 
-      console.debug(`StarLayerManager: Destroyed ${layerName} layer`);
+      console.debug(
+        `[STARFIELD] StarLayerManager: Destroyed ${layerName} layer`
+      );
     }
 
     this.layers.clear();

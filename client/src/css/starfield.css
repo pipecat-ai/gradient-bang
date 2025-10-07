@@ -99,11 +99,12 @@
   pointer-events: none;
   z-index: 100;
   opacity: 0;
-  transition: opacity 0.3s;
+  transition: opacity 0.8s ease-out;
 }
 
 #warpOverlay.active {
   opacity: 1;
+  transition: opacity 0.2s ease-in;
 }
 
 #whiteFlash {

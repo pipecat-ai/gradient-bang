@@ -4,9 +4,6 @@ import useGameStore from "../stores/game";
 
 import { usePlaySound } from "../hooks/usePlaySound";
 
-// @TODO: replace with slice
-import Settings from "../settings.json";
-
 export const StarField = memo(() => {
   const playSound = usePlaySound();
 
@@ -16,16 +13,22 @@ export const StarField = memo(() => {
       console.log("[STARFIELD] Initializing Starfield instance");
       const targetElement = document.getElementById("starfield") ?? undefined;
       const s = new GalaxyStarfield(
+        {},
         {
-          renderingEnabled: Settings.renderStarfield,
-        },
-        {
+          onSceneIsLoading: () => {
+            console.log("[STARFIELD] 🔄 Scene is loading...");
+          },
           onSceneReady: () => {
+            console.log("[STARFIELD] ✅ Scene ready!");
             targetElement?.parentElement?.classList.add("starfield-active");
             playSound("start", { volume: 0.5 });
           },
           onWarpStart: () => {
+            console.log("[STARFIELD] 🚀 Warp started");
             playSound("warp", { volume: 0.1 });
+          },
+          onGameObjectInView: (gameObject) => {
+            console.log("[STARFIELD] Game object in view:", gameObject.name);
           },
         },
         targetElement
@@ -43,7 +46,15 @@ export const StarField = memo(() => {
     };
   }, [playSound]);
 
-  return null;
+  return (
+    <div id="starfield-container" className="relative">
+      <div id="whiteFlash"></div>
+      <canvas id="warpOverlay"></canvas>
+      <div id="vignette"></div>
+      <div id="transition"></div>
+      <div id="starfield"></div>
+    </div>
+  );
 });
 
 StarField.displayName = "StarField";

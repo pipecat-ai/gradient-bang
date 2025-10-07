@@ -9,8 +9,10 @@ import {
   PLANET_IMAGES,
   type GalaxyStarfieldConfig,
   type NebulaPalette,
+  type StarfieldSceneConfig,
 } from "../constants";
 import {
+  type GameObjectBaseConfig,
   type GameObjectConfig,
   type GameObjectSpawnRules,
 } from "../types/GameObject";
@@ -37,12 +39,23 @@ interface SceneHistoryEntry {
 export class SceneManager {
   public currentSceneId: number;
   private sceneHistory: SceneHistoryEntry[];
-  private namedConfigs: Map<string, StoredConfig>;
+  private namedConfigs: Map<string, StoredConfig | StarfieldSceneConfig>;
 
   constructor() {
     this.currentSceneId = 0;
     this.sceneHistory = [];
     this.namedConfigs = new Map();
+  }
+
+  /**
+   * Store a scene variant (lightweight, recommended for scene transitions)
+   */
+  storeSceneVariant(
+    configId: string,
+    variant: StarfieldSceneConfig
+  ): StarfieldSceneConfig {
+    this.namedConfigs.set(configId, variant);
+    return variant;
   }
 
   /**
@@ -53,52 +66,42 @@ export class SceneManager {
     customConfig: Partial<GalaxyStarfieldConfig> = {},
     mergeWithRandom: boolean = true
   ): StoredConfig {
-    console.debug(`Storing named config: ${configId}`);
-
     let finalConfig: StoredConfig;
 
     if (mergeWithRandom) {
-      // Generate fresh random values and merge with custom config
       const randomNebula = this._getRandomNebula();
       const randomPlanet = this._getRandomPlanet();
       const baseConfig = this._cycleDefaultConfig(randomNebula, randomPlanet);
 
-      // Merge: base random config + custom overrides
-      // Use custom deepmerge with arrays replaced, not merged
       finalConfig = customDeepmerge(baseConfig, customConfig) as StoredConfig;
     } else {
-      // Use custom config as-is, only filling in missing required properties
       finalConfig = customDeepmerge(
         DEFAULT_GALAXY_CONFIG,
         customConfig
       ) as StoredConfig;
     }
 
-    // Add metadata
     finalConfig.configId = configId;
     finalConfig.storedAt = Date.now();
     finalConfig.mergedWithRandom = mergeWithRandom;
 
-    // Store the config - store a deep copy to preserve all values exactly
     this.namedConfigs.set(configId, JSON.parse(JSON.stringify(finalConfig)));
 
-    console.debug(`Named config "${configId}" stored successfully`);
     return finalConfig;
   }
 
   /**
    * Retrieve a stored named configuration
    */
-  getNamedConfig(configId: string): StoredConfig | null {
+  getNamedConfig(configId: string): StoredConfig | StarfieldSceneConfig | null {
     const config = this.namedConfigs.get(configId);
     if (!config) {
-      console.warn(`Named config "${configId}" not found`);
+      console.warn(
+        `[STARFIELD] SceneManager: Named config "${configId}" not found`
+      );
       return null;
     }
 
-    console.debug(`Retrieved named config: ${configId}`);
-    console.debug(`Sector "${configId}" configuration:`, config);
-    // Return a deep copy to prevent modification and preserve all values exactly
     return JSON.parse(JSON.stringify(config));
   }
 
@@ -117,134 +120,127 @@ export class SceneManager {
   }
 
   /**
-   * Update an existing named config
+   * Prepare a scene variant for a sector (get existing or create new)
+   * This is the main method to use for scene transitions
+   * @param id - Sector/scene identifier
+   * @param sceneConfig - Partial scene config (merges with random defaults), undefined = fully random
+   * @param gameObjects - Base game object configs to add to scene
+   * @param gameObjectManager - Manager to generate full game object configs
    */
-  updateNamedConfig(
-    configId: string,
-    updates: Partial<GalaxyStarfieldConfig>
-  ): StoredConfig | null {
-    if (!this.namedConfigs.has(configId)) {
-      console.warn(`Cannot update: named config "${configId}" not found`);
-      return null;
-    }
+  prepareSceneVariant(
+    id: string,
+    sceneConfig: Partial<StarfieldSceneConfig> | undefined,
+    gameObjects: GameObjectBaseConfig[],
+    gameObjectManager: {
+      generateGameObjectConfig: (
+        config: GameObjectBaseConfig
+      ) => GameObjectConfig;
+    } | null
+  ): StarfieldSceneConfig {
+    if (this.hasNamedConfig(id)) {
+      const stored = this.getNamedConfig(id) as StarfieldSceneConfig;
 
-    const existingConfig = this.namedConfigs.get(configId)!;
-    const updatedConfig: StoredConfig = customDeepmerge(
-      existingConfig,
-      updates
-    ) as StoredConfig;
+      const merged = {
+        ...stored,
+        ...(sceneConfig || {}),
+      };
 
-    // Add updated timestamp
-    updatedConfig.updatedAt = Date.now();
+      if (gameObjects.length > 0 && gameObjectManager) {
+        merged.gameObjects = gameObjects.map((baseConfig) =>
+          gameObjectManager.generateGameObjectConfig(baseConfig)
+        );
+      }
 
-    // Store a deep copy to preserve all values exactly
-    this.namedConfigs.set(configId, JSON.parse(JSON.stringify(updatedConfig)));
-    console.debug(`Named config "${configId}" updated successfully`);
-
-    return updatedConfig;
-  }
-
-  /**
-   * Delete a named config
-   */
-  deleteNamedConfig(configId: string): boolean {
-    const deleted = this.namedConfigs.delete(configId);
-    if (deleted) {
-      console.debug(`Named config "${configId}" deleted successfully`);
+      return merged;
     } else {
-      console.warn(`Cannot delete: named config "${configId}" not found`);
+      const variant = this.createVariant(sceneConfig || {});
+
+      if (gameObjects.length > 0 && gameObjectManager) {
+        variant.gameObjects = gameObjects.map((baseConfig) =>
+          gameObjectManager.generateGameObjectConfig(baseConfig)
+        );
+      }
+
+      this.storeSceneVariant(id, variant);
+
+      return variant;
     }
-    return deleted;
   }
 
   /**
-   * Create a scene from a stored named config
+   * Create a scene variant config (lightweight, only scene-varying properties)
+   * Accepts partial config - missing properties are randomized
+   * @param options - Partial scene config (any missing properties get random values)
    */
-  createFromNamedConfig(
-    configId: string,
-    additionalOverrides: Partial<GalaxyStarfieldConfig> = {}
-  ): StoredConfig | null {
-    const storedConfig = this.getNamedConfig(configId);
-    if (!storedConfig) {
-      return null;
-    }
+  createVariant(
+    options: Partial<StarfieldSceneConfig> = {}
+  ): StarfieldSceneConfig {
+    const randomNebula = this._getRandomNebula();
+    const randomPlanet = this._getRandomPlanetVariant();
 
-    // Create a new scene based on the stored config
-    const sceneConfig: StoredConfig = customDeepmerge(
-      storedConfig,
-      additionalOverrides
-    ) as StoredConfig;
+    const randomDefaults: StarfieldSceneConfig = {
+      nebulaColor1: randomNebula.c1,
+      nebulaColor2: randomNebula.c2,
+      nebulaColorMid: randomNebula.mid,
+      nebulaIntensity: Math.random() * 2 + 0.15,
+      nebulaDarkLaneStrength: Math.random() * 0.65 + 0.35,
+      nebulaDomainWarpStrength: Math.random() * 0.3 + 0.05,
+      nebulaIdleNoiseSpeed: Math.random() * 0.15 + 0.02,
+      nebulaAnisotropy: Math.random() * 2.5 + 1.0,
+      nebulaFilamentContrast: Math.random() * 0.8 + 0.2,
 
-    // Generate unique scene ID
-    this.currentSceneId++;
-    sceneConfig.sceneId = this.currentSceneId;
+      cloudsIntensity: Math.random() * 0.65 + 0.22,
+      cloudsColorPrimary: randomNebula.c1,
+      cloudsColorSecondary: randomNebula.c2,
+      cloudsIterPrimary: Math.floor(Math.random() * 20) + 10,
+      cloudsIterSecondary: Math.floor(Math.random() * 10) + 1,
+      cloudsDomainScale: Math.random() * 0.99 + 0.5,
+      cloudsSpeed: Math.random() * 0.005 + 0.001,
 
-    // Store in history - store a deep copy to preserve all values
-    this.sceneHistory.push({
-      id: this.currentSceneId,
-      timestamp: Date.now(),
-      config: JSON.parse(JSON.stringify(sceneConfig)),
-      sourceConfigId: configId,
-    });
+      planetImageUrl: randomPlanet.url,
+      planetScale: randomPlanet.scale,
+      planetPositionX: randomPlanet.positionX,
+      planetPositionY: randomPlanet.positionY,
 
-    // Keep only last 10 scenes in history
-    if (this.sceneHistory.length > 10) {
-      this.sceneHistory.shift();
-    }
+      starSize: Math.random() * 0.5 + 0.75,
 
-    console.debug(
-      `Scene ${this.currentSceneId} created from named config: ${configId}`
-    );
-    return sceneConfig;
+      gameObjects: [],
+    };
+
+    return { ...randomDefaults, ...options };
   }
 
   /**
    * Create a completely new scene configuration
    */
   create(options: Partial<GalaxyStarfieldConfig> = {}): StoredConfig {
-    // Generate fresh random values for properties that should vary
     const randomNebula = this._getRandomNebula();
     const randomPlanet = this._getRandomPlanet();
 
-    // Create fresh config by cycling through the default config
     const freshConfig = this._cycleDefaultConfig(randomNebula, randomPlanet);
 
-    // Apply any custom overrides using custom deepmerge
     const finalConfig: StoredConfig = customDeepmerge(
       freshConfig,
       options
     ) as StoredConfig;
 
-    // Game object logic:
-    // 1. If options provided game objects, use them (stored config scenario)
-    // 2. If no game objects provided but we're in debug mode, generate new ones
-    // 3. Otherwise, use empty array
     if (options.gameObjects && options.gameObjects.length > 0) {
-      // Use provided game objects (from stored config)
       finalConfig.gameObjects = options.gameObjects;
-      console.debug("Using provided game objects from stored config");
     } else if (finalConfig.debugMode) {
-      // Generate new game objects for debug mode
       finalConfig.gameObjects = this._generateGameObjects(finalConfig);
-      console.debug("Generated fresh game objects for debug mode");
     } else {
-      // No game objects for non-debug mode
       finalConfig.gameObjects = [];
-      console.debug("No game objects generated (not in debug mode)");
     }
 
-    // Generate unique scene ID
     this.currentSceneId++;
     finalConfig.sceneId = this.currentSceneId;
 
-    // Store in history - store a deep copy to preserve all values
     this.sceneHistory.push({
       id: this.currentSceneId,
       timestamp: Date.now(),
       config: JSON.parse(JSON.stringify(finalConfig)),
     });
 
-    // Keep only last 10 scenes in history
     if (this.sceneHistory.length > 10) {
       this.sceneHistory.shift();
     }
@@ -269,6 +265,24 @@ export class SceneManager {
   }
 
   /**
+   * Get random planet properties for scene variants
+   * @private
+   */
+  private _getRandomPlanetVariant(): {
+    url: string;
+    scale: number;
+    positionX: number;
+    positionY: number;
+  } {
+    return {
+      url: PLANET_IMAGES[Math.floor(Math.random() * PLANET_IMAGES.length)],
+      scale: Math.random() * 4 + 2,
+      positionX: (Math.random() - 0.5) * 400,
+      positionY: (Math.random() - 0.5) * 400,
+    };
+  }
+
+  /**
    * Cycle through the default config to generate fresh random values
    * @private
    */
@@ -276,46 +290,37 @@ export class SceneManager {
     randomNebula: NebulaPalette,
     randomPlanet: string
   ): GalaxyStarfieldConfig {
-    // Start with the default config but override ALL random properties with fresh values
     const config: GalaxyStarfieldConfig = { ...DEFAULT_GALAXY_CONFIG };
 
-    // Override ALL properties that were computed at import time with fresh random values
+    config.nebulaDomainWarpStrength = Math.random() * 0.3 + 0.05;
+    config.nebulaIdleNoiseSpeed = Math.random() * 0.15 + 0.02;
+    config.nebulaAnisotropy = Math.random() * 2.5 + 1.0;
+    config.nebulaFilamentContrast = Math.random() * 0.8 + 0.2;
+    config.nebulaDarkLaneStrength = Math.random() * 0.65 + 0.35;
 
-    // Nebula properties - completely fresh random values
-    config.nebulaDomainWarpStrength = Math.random() * 0.3 + 0.05; // 0.05 to 0.35
-    config.nebulaIdleNoiseSpeed = Math.random() * 0.15 + 0.02; // 0.02 to 0.17
-    config.nebulaAnisotropy = Math.random() * 2.5 + 1.0; // 1.0 to 3.5
-    config.nebulaFilamentContrast = Math.random() * 0.8 + 0.2; // 0.2 to 1.0
-    config.nebulaDarkLaneStrength = Math.random() * 0.65 + 0.35; // 0.35 to 1.0
-
-    // Cloud properties - completely fresh random values
-    config.cloudsIntensity = Math.random() * 0.65 + 0.22; // 0.22 to 0.87
+    config.cloudsIntensity = Math.random() * 0.65 + 0.22;
     config.cloudsColorPrimary = randomNebula.c1;
     config.cloudsColorSecondary = randomNebula.c2;
-    config.cloudsIterPrimary = Math.floor(Math.random() * 20) + 10; // 10 to 30
-    config.cloudsIterSecondary = Math.floor(Math.random() * 10) + 1; // 1 to 11
-    config.cloudsDomainScale = Math.random() * 0.99 + 0.5; // 0.5 to 1.49
-    config.cloudsShakeWarpIntensity = Math.random() * 0.08 + 0.01; // 0.01 to 0.09
-    config.cloudsShakeWarpRampTime = Math.random() * 8 + 2; // 2 to 10
-    config.cloudsSpeed = Math.random() * 0.005 + 0.001; // 0.001 to 0.006
+    config.cloudsIterPrimary = Math.floor(Math.random() * 20) + 10;
+    config.cloudsIterSecondary = Math.floor(Math.random() * 10) + 1;
+    config.cloudsDomainScale = Math.random() * 0.99 + 0.5;
+    config.cloudsShakeWarpIntensity = Math.random() * 0.08 + 0.01;
+    config.cloudsShakeWarpRampTime = Math.random() * 8 + 2;
+    config.cloudsSpeed = Math.random() * 0.005 + 0.001;
 
-    // Nebula colors - use the same palette for consistency
     config.nebulaColor1 = randomNebula.c1;
     config.nebulaColor2 = randomNebula.c2;
     config.nebulaColorMid = randomNebula.mid;
 
-    // Planet properties - completely fresh random values
     config.planetImageUrl = randomPlanet;
-    config.planetScale = Math.random() * 3 + 1.5; // 2 to 6
-    config.planetSpawnRangeX = Math.random() * 200 + 300; // 300 to 500
-    config.planetSpawnRangeY = Math.random() * 200 + 300; // 300 to 500
+    config.planetScale = Math.random() * 3 + 1.5;
+    config.planetSpawnRangeX = Math.random() * 200 + 300;
+    config.planetSpawnRangeY = Math.random() * 200 + 300;
 
-    // Set deterministic planet positions for this sector
     config.planetPositionX = (Math.random() - 0.5) * config.planetSpawnRangeX;
     config.planetPositionY = (Math.random() - 0.5) * config.planetSpawnRangeY;
 
-    // Star properties - completely fresh random values
-    config.starSize = Math.random() * 0.5 + 0.75; // 0.75 to 1.25
+    config.starSize = Math.random() * 0.5 + 0.75;
 
     return config;
   }
@@ -330,7 +335,6 @@ export class SceneManager {
     const gameObjects: GameObjectConfig[] = [];
     let objectId = 1;
 
-    // If debug mode is enabled, generate random game objects
     if (config.debugMode && config.debugGameObjectCounts) {
       Object.entries(config.debugGameObjectCounts).forEach(([type, count]) => {
         for (let i = 0; i < count; i++) {
@@ -355,7 +359,6 @@ export class SceneManager {
       });
     }
 
-    console.debug(`Generated ${gameObjects.length} game objects for new scene`);
     return gameObjects;
   }
 
@@ -371,7 +374,6 @@ export class SceneManager {
     const position: Vector3 = { x, y, z };
     const distance = Math.sqrt(x * x + y * y + z * z);
 
-    // Ensure minimum distance from player
     if (distance < spawnRules.minDistance) {
       const scale =
         spawnRules.minDistance +
@@ -382,7 +384,6 @@ export class SceneManager {
       position.z *= normalized;
     }
 
-    // Ensure maximum distance from player
     if (distance > spawnRules.maxDistance) {
       const scale = spawnRules.maxDistance / distance;
       position.x *= scale;
@@ -391,46 +392,6 @@ export class SceneManager {
     }
 
     return position;
-  }
-
-  /**
-   * Cycle a value through a random range, ensuring it's different from the original
-   * @private
-   */
-  private _cycleRandomValue(
-    originalValue: number,
-    min: number,
-    max: number
-  ): number {
-    let newValue: number;
-    let attempts = 0;
-    const maxAttempts = 10;
-
-    // Try to get a value that's different from the original
-    do {
-      newValue = Math.random() * (max - min) + min;
-      attempts++;
-    } while (
-      Math.abs(newValue - originalValue) < (max - min) * 0.1 &&
-      attempts < maxAttempts
-    );
-
-    return newValue;
-  }
-
-  /**
-   * Get current scene information
-   */
-  getCurrentScene(): SceneHistoryEntry | null {
-    if (this.sceneHistory.length === 0) return null;
-    return this.sceneHistory[this.sceneHistory.length - 1];
-  }
-
-  /**
-   * Get scene history
-   */
-  getSceneHistory(): SceneHistoryEntry[] {
-    return [...this.sceneHistory];
   }
 
   /**

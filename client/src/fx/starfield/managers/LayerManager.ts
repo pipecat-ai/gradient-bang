@@ -3,7 +3,7 @@
  * Manages the dimming of different layers when a game object is selected
  */
 
-import type { GalaxyStarfield } from "../Starfield";
+import type { GalaxyStarfield } from "../main";
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -107,6 +107,9 @@ export class LayerManager {
    * Start dimming animation using config values
    */
   public startDimming(): void {
+    if (!this.starfield.config.layerDimmingEnabled) {
+      return;
+    }
     this.startDimAnimation(1.0, this.dimConfig.dimIntensity);
   }
 
@@ -114,6 +117,9 @@ export class LayerManager {
    * Start restoration animation using config values
    */
   public startRestoration(): void {
+    if (!this.starfield.config.layerDimmingEnabled) {
+      return;
+    }
     this.startDimAnimation(this.dimConfig.dimIntensity, 1.0);
   }
 

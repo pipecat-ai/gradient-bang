@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo } from "react";
 
 import type { GlobalProvider, Meta } from "@ladle/react";
 import {
@@ -43,56 +43,75 @@ const StoryWrapper = ({
   return (
     <>
       {!storyMeta?.disconnectedStory && (
-        <div className="story-connect-bar">
-          <div>
-            {!isConnected ? (
-              <Button
-                onClick={handleConnect}
-                disabled={connecting}
-                isLoading={connecting}
-                variant="active"
-              >
-                {connecting ? "Connecting..." : "Connect [SPACE]"}
-              </Button>
-            ) : (
-              <Button onClick={handleDisconnect} variant="inactive">
-                Disconnected
-              </Button>
-            )}
+        <>
+          <div className="story-connect-bar">
+            <div>
+              {!isConnected ? (
+                <Button
+                  onClick={handleConnect}
+                  disabled={connecting}
+                  isLoading={connecting}
+                  variant="active"
+                >
+                  {connecting ? "Connecting..." : "Connect [SPACE]"}
+                </Button>
+              ) : (
+                <Button onClick={handleDisconnect} variant="inactive">
+                  Disconnected
+                </Button>
+              )}
+            </div>
+            <div className="flex flex-row gap-2">
+              {storyMeta?.enableMic ? (
+                <UserAudioControl />
+              ) : (
+                <Badge buttonSizing={true} variant="elbow" color="secondary">
+                  Audio Disabled
+                </Badge>
+              )}
+              {storyMeta?.messages && (
+                <MessageSelect messages={storyMeta?.messages ?? []} />
+              )}
+            </div>
           </div>
-          <div className="flex flex-row gap-2">
-            {storyMeta?.enableMic ? (
-              <UserAudioControl />
-            ) : (
-              <Badge buttonSizing={true} variant="elbow" color="secondary">
-                Audio Disabled
-              </Badge>
-            )}
-            {storyMeta?.messages && (
-              <MessageSelect messages={storyMeta?.messages ?? []} />
-            )}
-          </div>
-        </div>
+          <Divider decoration="plus" size="md" />
+        </>
       )}
 
-      <Divider decoration="plus" size="md" />
       {children}
     </>
   );
 };
 
 export const Provider: GlobalProvider = ({ children, storyMeta }) => {
+  const connectParams = useMemo(
+    () => ({
+      webrtcRequestParams: { endpoint: "api/offer" },
+    }),
+    []
+  );
+
+  const clientOptions = useMemo(
+    () => ({
+      enableMic: storyMeta?.enableMic,
+    }),
+    [storyMeta?.enableMic]
+  );
+
+  const themeProps = useMemo(
+    () => ({
+      defaultTheme: "dark" as const,
+    }),
+    []
+  );
+
   return (
     <PipecatAppBase
-      connectParams={{
-        webrtcRequestParams: { endpoint: "api/offer" },
-      }}
-      clientOptions={{
-        enableMic: storyMeta?.enableMic,
-      }}
+      connectParams={connectParams}
+      clientOptions={clientOptions}
       transportType="smallwebrtc"
       noThemeProvider={false}
-      themeProps={{ defaultTheme: "dark" }}
+      themeProps={themeProps}
       connectOnMount={storyMeta?.connectOnMount}
       noAudioOutput={storyMeta?.disableAudioOutput}
     >

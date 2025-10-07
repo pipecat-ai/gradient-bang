@@ -303,7 +303,28 @@ export class WarpOverlay {
       this.trails = [];
     }
 
+    this.clearCache();
+    this.clearTrigCaches();
+
     console.debug("WarpOverlay: Deactivated");
+  }
+
+  /**
+   * Begin fade-out without immediately clearing trails
+   * This allows trails to fade out naturally during update loop
+   */
+  public beginFadeOut(): void {
+    this.active = false;
+    if (this.canvas) {
+      this.canvas.classList.remove("active");
+    }
+
+    // Clear caches to free memory during fade-out (won't generate new gradients)
+    this.clearCache();
+    this.clearTrigCaches();
+
+    // Keep trails intact - they will fade and shrink as intensity decreases
+    console.debug("WarpOverlay: Beginning fade-out");
   }
 
   /**
@@ -469,10 +490,21 @@ export class WarpOverlay {
 
       const speedMultiplier =
         phase === "CLIMAX" ? 3 : phase === "BUILDUP" ? 2 : 1;
-      trail.length = Math.min(
-        trail.maxLength,
-        trail.length + trail.speed * this.intensity * speedMultiplier * dtFrames
-      );
+
+      // Grow trails when active, shrink when fading out
+      if (this.active) {
+        trail.length = Math.min(
+          trail.maxLength,
+          trail.length +
+            trail.speed * this.intensity * speedMultiplier * dtFrames
+        );
+      } else {
+        // Shrink trails during fade-out for smooth exit
+        trail.length = Math.max(
+          0,
+          trail.length - trail.speed * 2.0 * speedMultiplier * dtFrames
+        );
+      }
 
       const startRadius = Math.max(0, 20 * (1 - this.intensity));
       const endRadius = startRadius + trail.length;
@@ -558,7 +590,11 @@ export class WarpOverlay {
           }
 
           this.ctx!.strokeStyle = gradient;
-          this.ctx!.lineWidth = trail.thickness * (1 + this.intensity * 0.5);
+          // Shrink thickness during fade-out for smooth disappearance
+          const thicknessMultiplier = this.active
+            ? 1 + this.intensity * 0.5
+            : this.intensity; // Shrinks as intensity fades
+          this.ctx!.lineWidth = trail.thickness * thicknessMultiplier;
           this.ctx!.beginPath();
           this.ctx!.moveTo(x1, y1);
           this.ctx!.lineTo(x2Bent, y2Bent);
