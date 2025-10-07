@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo } from "react";
 
 import type { GlobalProvider, Meta } from "@ladle/react";
 import {
@@ -82,17 +82,35 @@ const StoryWrapper = ({
 };
 
 export const Provider: GlobalProvider = ({ children, storyMeta }) => {
+  // Memoize object props to prevent unnecessary re-renders
+  const connectParams = useMemo(
+    () => ({
+      webrtcRequestParams: { endpoint: "api/offer" },
+    }),
+    []
+  );
+
+  const clientOptions = useMemo(
+    () => ({
+      enableMic: storyMeta?.enableMic,
+    }),
+    [storyMeta?.enableMic]
+  );
+
+  const themeProps = useMemo(
+    () => ({
+      defaultTheme: "dark" as const,
+    }),
+    []
+  );
+
   return (
     <PipecatAppBase
-      connectParams={{
-        webrtcRequestParams: { endpoint: "api/offer" },
-      }}
-      clientOptions={{
-        enableMic: storyMeta?.enableMic,
-      }}
+      connectParams={connectParams}
+      clientOptions={clientOptions}
       transportType="smallwebrtc"
       noThemeProvider={false}
-      themeProps={{ defaultTheme: "dark" }}
+      themeProps={themeProps}
       connectOnMount={storyMeta?.connectOnMount}
       noAudioOutput={storyMeta?.disableAudioOutput}
     >
