@@ -18,10 +18,11 @@ export const StarField = memo(() => {
           onSceneIsLoading: () => {
             console.log("[STARFIELD] 🔄 Scene is loading...");
           },
-          onSceneReady: (isInitialRender) => {
+          onSceneReady: (isInitialRender, sceneId) => {
             console.log(
               "[STARFIELD] ✅ Scene ready!",
-              isInitialRender ? "(initial)" : "(warp)"
+              isInitialRender ? "(initial)" : "(warp)",
+              `scene: ${sceneId || "unknown"}`
             );
             if (isInitialRender) {
               playSound("start", { volume: 0.5 });
@@ -31,6 +32,9 @@ export const StarField = memo(() => {
           onWarpStart: () => {
             console.log("[STARFIELD] 🚀 Warp started");
             playSound("warp", { volume: 0.1 });
+          },
+          onWarpComplete() {
+            console.log("[STARFIELD] 🎉 Warp complete");
           },
           onGameObjectInView: (gameObject) => {
             console.log("[STARFIELD] Game object in view:", gameObject.name);

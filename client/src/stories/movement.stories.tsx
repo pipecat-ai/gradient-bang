@@ -95,9 +95,23 @@ Sequencing.meta = {
 
 export const MovementWithStarfield: Story = () => {
   const { isConnected } = usePipecatConnectionState();
-
+  const sector = useGameStore((state) => state.sector);
+  const localMapData = useGameStore((state) => state.local_map_data);
   return (
     <div className="relative w-full h-full bg-card">
+      <div className="absolute z-99 top-0 left-0">
+        {sector && localMapData && (
+          <MiniMap
+            current_sector_id={sector?.id}
+            config={{ debug: true }}
+            map_data={localMapData as MapData}
+            showLegend={false}
+            width={440}
+            height={440}
+            maxDistance={3}
+          />
+        )}
+      </div>
       {isConnected && <StarField />}
     </div>
   );
@@ -109,8 +123,16 @@ MovementWithStarfield.meta = {
   disableAudioOutput: true,
   messages: [
     [
+      "Hop to sector 0",
+      "Navigate and move to sector 0 immediately, traveling along the shortest path.",
+    ],
+    [
       "Hop to a random adjacent sector",
       "Pick one random adjacent sector and move to it immediately.",
+    ],
+    [
+      "Hop 3 adjacent sectors",
+      "Plot a course to a randomsector 2-3 hops away from our current position and move to it immediately. Do not hop more than 3 times.",
     ],
   ],
 };

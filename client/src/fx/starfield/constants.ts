@@ -126,6 +126,7 @@ export interface GalaxyStarfieldConfig {
   // === WARP EFFECT ===
   warpDurationSec: number;
   warpFOVMax: number;
+  warpCooldownSec: number;
 
   // === NEBULA SETTINGS ===
   nebulaEnabled: boolean;
@@ -368,6 +369,7 @@ export const DEFAULT_GALAXY_CONFIG: GalaxyStarfieldConfig = {
   // === WARP EFFECT ===
   warpDurationSec: 5, // Warp sequence duration in seconds
   warpFOVMax: 140, // Maximum FOV during warp effect
+  warpCooldownSec: 6, // Cooldown period after warp completion before next warp can be initiated
 
   // === NEBULA SETTINGS ===
   nebulaEnabled: true, // Enable/disable nebula rendering

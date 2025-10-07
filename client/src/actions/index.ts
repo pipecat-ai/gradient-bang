@@ -69,27 +69,11 @@ export const startMoveToSector = (
   }
 
   console.debug("[GAME ACTION] Updating Starfield to", newSector);
+
   starfield.warpToSector(
     {
       id: newSector.id.toString(),
     },
     options.bypassAnimation
   );
-
-  // @TODO: are we moving as part of a task? If so, we bypass animation
-  // in favor of the screen 'shake' effect. The Starfield still needs
-  // starfield.warpToSector(newSector, true);
-
-  // We could also add some logic here that checks if the starfield is
-  // animating, and if so, something is unusual and we can trigger the
-  // shake effect vs. stacking animations.
-  // if(starfield.state === "warping") {
-  //   starfield.startShake();
-  //   starfield.warpToSector(newSector, true);
-  // } else {
-  //   starfield.warpToSector(newSector, false);
-  // }
-
-  // Start the Starfield warp animation and update the scene / game objects
-  //starfield.warpToSector(newSector, false);
 };
