@@ -55,6 +55,23 @@ interface GameProviderProps {
   children: ReactNode;
 }
 
+const transformMessage = (e: ServerMessage): ServerMessage | undefined => {
+  if (
+    ["tool_result", "tool_call", "task_output", "task_complete"].includes(
+      e.event
+    )
+  ) {
+    console.debug(
+      "[GAME EVENT] Transforming server message",
+      e.event,
+      e.payload
+    );
+    console.warn("[GAME EVENT] Removing server message as legacy", e);
+    return undefined;
+  }
+  return e;
+};
+
 export function GameProvider({ children }: GameProviderProps) {
   const gameStore = useGameStore();
   const client = usePipecatClient();
@@ -84,12 +101,19 @@ export function GameProvider({ children }: GameProviderProps) {
         if ("event" in e) {
           console.debug("[GAME EVENT] Server message received", e.event, e);
 
-          switch (e.event) {
+          // Transform server message tool call responses to normalized event messages
+          // @TODO: remove this once game server changes
+          const gameEvent = transformMessage(e);
+          if (!gameEvent) {
+            return;
+          }
+
+          switch (gameEvent.event) {
             // ----- STATUS
             case "status.update": {
-              console.debug("[GAME EVENT] Status update", e.payload);
+              console.debug("[GAME EVENT] Status update", gameEvent.payload);
 
-              const status = e.payload as StatusMessage;
+              const status = gameEvent.payload as StatusMessage;
               const initalizing = gameStore.sector === undefined;
 
               // Update store
@@ -107,15 +131,17 @@ export function GameProvider({ children }: GameProviderProps) {
 
             // ----- MOVEMENT
             case "movement.start": {
-              console.debug("[GAME EVENT] Move started", e.payload);
+              console.debug("[GAME EVENT] Move started", gameEvent.payload);
 
-              startMoveToSector((e.payload as MovementStartMessage).sector);
+              startMoveToSector(
+                (gameEvent.payload as MovementStartMessage).sector
+              );
               break;
             }
 
             case "movement.complete": {
-              console.debug("[GAME EVENT] Move completed", e.payload);
-              const data = e.payload as MovementCompleteMessage;
+              console.debug("[GAME EVENT] Move completed", gameEvent.payload);
+              const data = gameEvent.payload as MovementCompleteMessage;
 
               // Update ship and player
               // This hydrates things like warp power, player last active, etc.
@@ -135,10 +161,12 @@ export function GameProvider({ children }: GameProviderProps) {
             }
 
             case "map.local": {
-              console.debug("[GAME EVENT] Local map data", e.payload);
+              console.debug("[GAME EVENT] Local map data", gameEvent.payload);
               // For now, we only store the map data
               // @TODO: implement proper slice
-              gameStore.setLocalMapData((e.payload as MapLocalMessage).sectors);
+              gameStore.setLocalMapData(
+                (gameEvent.payload as MapLocalMessage).sectors
+              );
               break;
             }
 
@@ -146,8 +174,8 @@ export function GameProvider({ children }: GameProviderProps) {
             default:
               console.warn(
                 "[GAME EVENT] Unhandled server action:",
-                e.event,
-                e.payload
+                gameEvent.event,
+                gameEvent.payload
               );
           }
 
