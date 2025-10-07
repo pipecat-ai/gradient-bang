@@ -38,16 +38,44 @@ export const Starfield: Story = () => {
           Change Scene
         </button>
 
-        <button onClick={() => starfieldInstance?.setAnimationState("shake")}>
-          Shake
+        <button onClick={() => starfieldInstance?.startShake()}>Shake</button>
+        <button
+          onClick={async () => {
+            const gameObjects = starfieldInstance?.getAllGameObjects();
+            console.log("All game objects:", gameObjects);
+
+            if (gameObjects && gameObjects.length > 0) {
+              // Select the first game object (this triggers dimming and starts look-at animation)
+              const firstObject = gameObjects[0];
+              console.log(
+                "Selecting game object:",
+                firstObject.name,
+                firstObject.id
+              );
+              const success = starfieldInstance?.selectGameObject(
+                firstObject.id,
+                {
+                  zoom: true,
+                  zoomFactor: 0.5,
+                }
+              );
+              console.log("Selection and look-at animation started:", success);
+            } else {
+              console.log("No game objects found");
+            }
+          }}
+        >
+          Select First GO
         </button>
-      </div>
-      <div id="starfield-container" className="relative">
-        <div id="whiteFlash"></div>
-        <canvas id="warpOverlay"></canvas>
-        <div id="vignette"></div>
-        <div id="transition"></div>
-        <div id="starfield"></div>
+
+        <button
+          onClick={() => {
+            const cleared = starfieldInstance?.clearGameObjectSelection();
+            console.log("Clear selection result:", cleared);
+          }}
+        >
+          Clear Selection
+        </button>
       </div>
       {start && <StarField />}
     </>

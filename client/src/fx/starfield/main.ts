@@ -18,7 +18,6 @@ import {
 import { ConfigUniformMapper } from "./ConfigUniformMapper";
 import { CameraLookAtAnimator } from "./animations/CameraLookAt";
 import { WarpOverlay } from "./animations/WarpOverlay";
-import { ControlsManager } from "./managers/ControlsManager";
 import { GameObjectManager } from "./managers/GameObjectManager";
 import { LayerManager } from "./managers/LayerManager";
 import { SceneManager } from "./managers/SceneManager";
@@ -198,7 +197,10 @@ export class GalaxyStarfield {
   public perfStats: PerformanceStats;
 
   // Manager instances
-  public controlsManager: ControlsManager | null;
+  public controlsManager?: {
+    destroy: () => void;
+    refresh: () => void;
+  } | null;
   public uniformManager: UniformManager;
   public configMapper: ConfigUniformMapper;
   public warpOverlay: WarpOverlay;
@@ -392,11 +394,28 @@ export class GalaxyStarfield {
     this.initWindowResize();
 
     if (this.debugMode) {
-      this.controlsManager = new ControlsManager(this);
+      this._lazyLoadControlsManager();
       this._lazyLoadPerformanceMonitor();
     }
 
     this._initialLoadComplete = true;
+  }
+
+  /**
+   * Lazy load controls manager (async, non-blocking)
+   * @private
+   */
+  private async _lazyLoadControlsManager(): Promise<void> {
+    if (this.controlsManager) return;
+
+    try {
+      const { ControlsManager } = await import("./managers/ControlsManager");
+      this.controlsManager = new ControlsManager(
+        this
+      ) as unknown as typeof this.controlsManager;
+    } catch (err) {
+      console.error("[STARFIELD] Failed to load ControlsManager:", err);
+    }
   }
 
   /**
@@ -429,10 +448,7 @@ export class GalaxyStarfield {
 
     this.debugMode = true;
 
-    if (!this.controlsManager) {
-      this.controlsManager = new ControlsManager(this);
-    }
-
+    await this._lazyLoadControlsManager();
     await this._lazyLoadPerformanceMonitor();
   }
 
@@ -1804,41 +1820,44 @@ export class GalaxyStarfield {
   // ============================================================================
 
   /**
-   * Select a game object by ID
+   * Select a game object by ID with async look-at animation
    */
-  public selectGameObject(
+  public async selectGameObject(
     objectId: string,
     options: SelectionOptions = {}
-  ): boolean {
-    if (this.gameObjectManager) {
-      const success = this.gameObjectManager.selectObject(objectId);
+  ): Promise<boolean> {
+    if (!this.gameObjectManager) {
+      console.warn("GameObjectManager not available");
+      return false;
+    }
 
-      if (success && objectId) {
-        if (this.layerManager) {
-          this.layerManager.startDimming();
-        }
+    const success = this.gameObjectManager.selectObject(objectId);
 
-        if (
-          this.callbacks.onGameObjectSelected &&
-          typeof this.callbacks.onGameObjectSelected === "function"
-        ) {
-          const gameObject = this.gameObjectManager.getObject(objectId);
-          if (gameObject) {
-            this.callbacks.onGameObjectSelected(gameObject);
-          }
-        }
-
-        const defaultOptions = {
-          zoomFactor: this.config.cameraZoomFactor,
-          ...options,
-        };
-
-        this.lookAtGameObject(objectId, defaultOptions);
+    if (success && objectId) {
+      if (this.layerManager && this.config.layerDimmingEnabled) {
+        this.layerManager.startDimming();
       }
 
-      return success;
+      if (
+        this.callbacks.onGameObjectSelected &&
+        typeof this.callbacks.onGameObjectSelected === "function"
+      ) {
+        const gameObject = this.gameObjectManager.getObject(objectId);
+        if (gameObject) {
+          this.callbacks.onGameObjectSelected(gameObject);
+        }
+      }
+
+      const defaultOptions = {
+        zoomFactor: this.config.cameraZoomFactor,
+        ...options,
+      };
+
+      // Perform the look-at animation and wait for completion
+      return await this.lookAtGameObject(objectId, defaultOptions);
     }
-    return false;
+
+    return success;
   }
 
   /**
@@ -1850,7 +1869,7 @@ export class GalaxyStarfield {
       if (selectedObject) {
         this.gameObjectManager.deselectObject(selectedObject.id);
 
-        if (this.layerManager) {
+        if (this.layerManager && this.config.layerDimmingEnabled) {
           this.layerManager.startRestoration();
         }
 
@@ -1892,12 +1911,12 @@ export class GalaxyStarfield {
   }
 
   /**
-   * Look at a specific game object with smooth animation
+   * Look at a specific game object with smooth animation (private method)
    */
-  public lookAtGameObject(
+  private async lookAtGameObject(
     objectId: string,
     options: LookAtOptions = {}
-  ): boolean {
+  ): Promise<boolean> {
     if (!this.gameObjectManager) {
       console.warn("GameObjectManager not available");
       return false;
@@ -1910,21 +1929,25 @@ export class GalaxyStarfield {
     }
 
     if (this.cameraLookAtAnimator) {
-      this.cameraLookAtAnimator.lookAtGameObject(gameObject.mesh, {
-        ...options,
-        onComplete: () => {
-          this.cameraLookAtLock = null;
+      return new Promise<boolean>((resolve) => {
+        this.cameraLookAtAnimator!.lookAtGameObject(gameObject.mesh, {
+          ...options,
+          onComplete: () => {
+            this.cameraLookAtLock = null;
 
-          if (
-            this.callbacks.onGameObjectInView &&
-            typeof this.callbacks.onGameObjectInView === "function"
-          ) {
-            this.callbacks.onGameObjectInView(gameObject);
-          }
-        },
+            if (
+              this.callbacks.onGameObjectInView &&
+              typeof this.callbacks.onGameObjectInView === "function"
+            ) {
+              this.callbacks.onGameObjectInView(gameObject);
+            }
+
+            resolve(true);
+          },
+        });
+
+        this.cameraLookAtLock = { mesh: gameObject.mesh };
       });
-
-      this.cameraLookAtLock = { mesh: gameObject.mesh };
     }
 
     return true;

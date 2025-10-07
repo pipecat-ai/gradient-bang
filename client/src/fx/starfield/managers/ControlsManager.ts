@@ -2,7 +2,7 @@
  * ControlsManager - Dynamically generates and manages debug controls
  */
 
-import type { GalaxyStarfield } from "../Starfield";
+import type { GalaxyStarfield } from "../main";
 
 // ============================================================================
 // TYPE DEFINITIONS

@@ -93,8 +93,8 @@ export class UniformManager {
   private debugMode: boolean;
 
   // Reusable objects for vector updates to prevent garbage collection
-  private _tempVector2: THREE.Vector2 | null;
-  private _tempVector3: THREE.Vector3 | null;
+  // private _tempVector2: THREE.Vector2 | null;
+  // private _tempVector3: THREE.Vector3 | null;
 
   constructor() {
     this.materials = new Map();
@@ -105,8 +105,8 @@ export class UniformManager {
     this.debugMode = false;
 
     // Reusable objects for vector updates to prevent garbage collection
-    this._tempVector2 = null;
-    this._tempVector3 = null;
+    // this._tempVector2 = null;
+    // this._tempVector3 = null;
   }
 
   /**
@@ -355,11 +355,11 @@ export class UniformManager {
         }
       } else {
         // For scalars and other types
-        (uniform as any).value = processedValue;
+        (uniform as { value: unknown }).value = processedValue;
       }
     } else {
       // For scalars and other types
-      (uniform as any).value = processedValue;
+      (uniform as { value: unknown }).value = processedValue;
     }
   }
 
@@ -400,7 +400,7 @@ export class UniformManager {
     forceUpdate: boolean = false
   ): void {
     let updatedCount = 0;
-    this.materials.forEach((materialData, materialId) => {
+    this.materials.forEach((_materialData, materialId) => {
       if (this.updateUniform(materialId, uniformName, value, forceUpdate)) {
         updatedCount++;
       }
@@ -628,7 +628,7 @@ export class UniformManager {
 
     const obj = value as Record<string, unknown>;
     if (obj.isVector3 || obj.isVector2 || obj.isColor) {
-      return (value as any).clone();
+      return (value as { clone: () => unknown }).clone();
     }
 
     if (Array.isArray(value)) {

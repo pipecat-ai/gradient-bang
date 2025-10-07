@@ -27,6 +27,9 @@ export const StarField = memo(() => {
             console.log("[STARFIELD] 🚀 Warp started");
             playSound("warp", { volume: 0.1 });
           },
+          onGameObjectInView: (gameObject) => {
+            console.log("[STARFIELD] Game object in view:", gameObject.name);
+          },
         },
         targetElement
       );
@@ -43,7 +46,15 @@ export const StarField = memo(() => {
     };
   }, [playSound]);
 
-  return null;
+  return (
+    <div id="starfield-container" className="relative">
+      <div id="whiteFlash"></div>
+      <canvas id="warpOverlay"></canvas>
+      <div id="vignette"></div>
+      <div id="transition"></div>
+      <div id="starfield"></div>
+    </div>
+  );
 });
 
 StarField.displayName = "StarField";
