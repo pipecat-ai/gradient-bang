@@ -1,5 +1,6 @@
 from fastapi import HTTPException
-from .utils import log_trade, ensure_not_in_combat
+from .utils import log_trade, ensure_not_in_combat, player_self, ship_self, port_snapshot
+from rpc.events import event_dispatcher
 
 
 async def handle(request: dict, world, port_locks=None) -> dict:
@@ -133,6 +134,41 @@ async def _execute_trade(
             credits_after=new_credits,
         )
 
+        # Emit trade.executed event to the trader
+        await event_dispatcher.emit(
+            "trade.executed",
+            {
+                "player": player_self(world, character_id),
+                "ship": ship_self(world, character_id),
+            },
+            character_filter=[character_id],
+        )
+
+        # Emit port.update to all characters in the sector
+        port_update_payload = port_snapshot(world, character.sector)
+        if port_update_payload:
+            # Find all characters in this sector
+            characters_in_sector = [
+                cid
+                for cid, char in world.characters.items()
+                if char.sector == character.sector and not char.in_hyperspace
+            ]
+            if characters_in_sector:
+                await event_dispatcher.emit(
+                    "port.update",
+                    {
+                        "sector_id": character.sector,
+                        "updated_at": port_update_payload["observed_at"],
+                        "port": {
+                            "code": port_update_payload["code"],
+                            "prices": port_update_payload["prices"],
+                            "stock": port_update_payload["stock"],
+                            "observed_at": None,  # Set to null for current observers
+                        },
+                    },
+                    character_filter=characters_in_sector,
+                )
+
         return {
             "success": True,
             "trade_type": "buy",
@@ -174,6 +210,41 @@ async def _execute_trade(
             total_price=total_price,
             credits_after=new_credits,
         )
+
+        # Emit trade.executed event to the trader
+        await event_dispatcher.emit(
+            "trade.executed",
+            {
+                "player": player_self(world, character_id),
+                "ship": ship_self(world, character_id),
+            },
+            character_filter=[character_id],
+        )
+
+        # Emit port.update to all characters in the sector
+        port_update_payload = port_snapshot(world, character.sector)
+        if port_update_payload:
+            # Find all characters in this sector
+            characters_in_sector = [
+                cid
+                for cid, char in world.characters.items()
+                if char.sector == character.sector and not char.in_hyperspace
+            ]
+            if characters_in_sector:
+                await event_dispatcher.emit(
+                    "port.update",
+                    {
+                        "sector_id": character.sector,
+                        "updated_at": port_update_payload["observed_at"],
+                        "port": {
+                            "code": port_update_payload["code"],
+                            "prices": port_update_payload["prices"],
+                            "stock": port_update_payload["stock"],
+                            "observed_at": None,  # Set to null for current observers
+                        },
+                    },
+                    character_filter=characters_in_sector,
+                )
 
         return {
             "success": True,

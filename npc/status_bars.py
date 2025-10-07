@@ -62,8 +62,11 @@ class StatusBarState:
     """Complete state for rendering all status bars"""
     # Bar 1: Sector and combat state
     sector_id: int = 0
-    combat_state: str = "quiet"  # "quiet", "in_combat", "waiting_round_1", etc.
+    combat_state: str = "quiet"  # "quiet", "in_combat", "waiting_round_1", "hyperspace", etc.
     adjacent_sectors: List[int] = field(default_factory=list)
+    in_hyperspace: bool = False
+    hyperspace_eta: Optional[float] = None
+    hyperspace_destination: Optional[int] = None
 
     # Bar 2: Ship status
     credits: int = 0
@@ -110,39 +113,63 @@ class StatusBarUpdater:
 
     def update_from_status(self, status_payload: dict) -> None:
         """Update from status.update event"""
-        # Bar 1: Sector
-        self.state.sector_id = status_payload.get("sector", 0)
+        # Status can come in two formats:
+        # 1. Full status: {"player": {...}, "ship": {...}, "sector": {...}}
+        # 2. Legacy format: {"sector": int, "ship": {...}, "sector_contents": {...}}
 
-        # Get adjacent sectors from sector_contents
-        sector_contents = status_payload.get("sector_contents", {})
-        self.state.adjacent_sectors = sector_contents.get("adjacent_sectors", [])
+        # Determine format and normalize
+        if "player" in status_payload:
+            # New format from build_status_payload
+            sector_data = status_payload.get("sector", {})
+            ship_data = status_payload.get("ship", {})
+            player_data = status_payload.get("player", {})
+
+            # Extract sector_id
+            self.state.sector_id = sector_data.get("id", self.state.sector_id)
+
+            # Update from player data
+            if "credits_on_hand" in player_data:
+                self.state.credits = player_data["credits_on_hand"]
+        else:
+            # Legacy format - sector_contents style
+            sector_data = status_payload.get("sector_contents", {})
+            ship_data = status_payload.get("ship", {})
+
+            # Extract sector_id
+            self.state.sector_id = status_payload.get("sector", self.state.sector_id)
+
+        # Update adjacent sectors
+        self.state.adjacent_sectors = sector_data.get("adjacent_sectors", [])
 
         # Bar 2: Ship stats
-        ship = status_payload.get("ship", {})
-        self.state.credits = ship.get("credits", 0)
-        self.state.fighters = ship.get("fighters", 0)
-        self.state.shields = ship.get("shields", 0)
-        self.state.max_fighters = ship.get("max_fighters", 0)
-        self.state.max_shields = ship.get("max_shields", 0)
-        self.state.warp_power = ship.get("warp_power", 0)
-        self.state.max_warp_power = ship.get("max_warp_power", 0)
+        if "credits" in ship_data:
+            self.state.credits = ship_data["credits"]
+        self.state.fighters = ship_data.get("fighters", 0)
+        self.state.shields = ship_data.get("shields", 0)
+        self.state.max_fighters = ship_data.get("max_fighters", 0)
+        self.state.max_shields = ship_data.get("max_shields", 0)
+        self.state.warp_power = ship_data.get("warp_power", 0)
+        self.state.max_warp_power = ship_data.get("warp_power_capacity", 0)
 
-        cargo = ship.get("cargo", {})
+        cargo = ship_data.get("cargo", {})
         self.state.cargo = CargoInfo(
             fuel_ore=cargo.get("fuel_ore", 0),
             organics=cargo.get("organics", 0),
             equipment=cargo.get("equipment", 0)
         )
 
-        # Bar 3: Ships in sector
-        sector_contents = status_payload.get("sector_contents", {})
+        # Bar 3: Ships in sector - handle both "players" and "other_players"
+        players_list = sector_data.get("players", sector_data.get("other_players", []))
         self.state.ships = [
-            ShipInfo(name=c["name"], ship_type=c.get("ship_type", "unknown"))
-            for c in sector_contents.get("other_players", [])
+            ShipInfo(
+                name=c["name"],
+                ship_type=c.get("ship", {}).get("ship_type", c.get("ship_type", "unknown"))
+            )
+            for c in players_list
         ]
 
         # Bar 4: Garrison
-        garrison_data = sector_contents.get("garrison")
+        garrison_data = sector_data.get("garrison")
         if garrison_data:
             self.state.garrison = GarrisonInfo(
                 owner_name=garrison_data["owner_id"],
@@ -153,13 +180,13 @@ class StatusBarUpdater:
         else:
             self.state.garrison = None
 
-        # Bar 5: Port
-        port_data = sector_contents.get("port")
+        # Bar 5: Port - handle both formats
+        port_data = sector_data.get("port")
         if port_data:
             self.state.port = PortInfo(
                 port_type=port_data.get("code", "unknown"),
-                stock=port_data.get("last_seen_stock", {}),
-                prices=port_data.get("last_seen_prices", {})
+                stock=port_data.get("stock", port_data.get("last_seen_stock", {})),
+                prices=port_data.get("prices", port_data.get("last_seen_prices", {}))
             )
         else:
             self.state.port = None
@@ -209,12 +236,176 @@ class StatusBarUpdater:
         self.state.deadline = None
         self.state.combat_participants.clear()
 
+    def update_from_movement_start(self, payload: dict) -> None:
+        """Update from movement.start event"""
+        sector_data = payload.get("sector", {})
+        self.state.in_hyperspace = True
+        self.state.hyperspace_destination = sector_data.get("id")
+        self.state.hyperspace_eta = payload.get("hyperspace_time")
+
+        if self.state.hyperspace_destination:
+            self.state.combat_state = f"hyperspace→{self.state.hyperspace_destination}"
+        else:
+            self.state.combat_state = "hyperspace"
+
+    def update_from_movement_complete(self, payload: dict) -> None:
+        """Update from movement.complete event"""
+        # Clear hyperspace state
+        self.state.in_hyperspace = False
+        self.state.hyperspace_eta = None
+        self.state.hyperspace_destination = None
+
+        # movement.complete includes player, ship, and sector - update everything
+        self._update_from_player_ship(payload)
+
+        # Update sector info
+        sector_data = payload.get("sector", {})
+        self.state.sector_id = sector_data.get("id", self.state.sector_id)
+        self.state.adjacent_sectors = sector_data.get("adjacent_sectors", [])
+
+        # Update sector occupants - note: field is "players" not "other_players"
+        self.state.ships = [
+            ShipInfo(
+                name=c["name"],
+                ship_type=c.get("ship", {}).get("ship_type", "unknown")
+            )
+            for c in sector_data.get("players", [])
+        ]
+
+        # Update garrison
+        garrison_data = sector_data.get("garrison")
+        if garrison_data:
+            self.state.garrison = GarrisonInfo(
+                owner_name=garrison_data["owner_id"],
+                fighters=garrison_data["fighters"],
+                mode=garrison_data["mode"],
+                toll_amount=garrison_data.get("toll_amount")
+            )
+        else:
+            self.state.garrison = None
+
+        # Update port
+        port_data = sector_data.get("port")
+        if port_data:
+            self.state.port = PortInfo(
+                port_type=port_data.get("code", "unknown"),
+                stock=port_data.get("stock", {}),
+                prices=port_data.get("prices", {})
+            )
+        else:
+            self.state.port = None
+
+        # Return to quiet state if not in combat
+        if not self.state.in_combat:
+            self.state.combat_state = "quiet"
+
+    def update_from_trade_executed(self, payload: dict) -> None:
+        """Update from trade.executed event"""
+        # trade.executed includes player and ship data
+        self._update_from_player_ship(payload)
+
+    def update_from_port_update(self, payload: dict) -> None:
+        """Update from port.update event"""
+        port_data = payload.get("port", {})
+        if port_data:
+            # Update port info if we're still in the same sector
+            sector_id = payload.get("sector_id")
+            if sector_id is None or sector_id == self.state.sector_id:
+                if self.state.port:
+                    # Update existing port
+                    self.state.port.stock = port_data.get("stock", {})
+                    self.state.port.prices = port_data.get("prices", {})
+                else:
+                    # Create new port entry
+                    self.state.port = PortInfo(
+                        port_type=port_data.get("code", "unknown"),
+                        stock=port_data.get("stock", {}),
+                        prices=port_data.get("prices", {})
+                    )
+
+    def update_from_status_update(self, payload: dict) -> None:
+        """Update from status.update event (direct handler, same as update_from_status)"""
+        # This is just an alias for update_from_status for consistency
+        self.update_from_status(payload)
+
+    def update_from_character_moved(self, payload: dict) -> None:
+        """Update from character.moved event.
+
+        Payload structure:
+        {
+            "name": character_id,
+            "ship_type": "scout",
+            "timestamp": "...",
+            "move_type": "normal",
+            "movement": "arrive" or "depart"
+        }
+        """
+        movement = payload.get("movement")
+        char_name = payload.get("name")
+        ship_type = payload.get("ship_type")
+
+        if not char_name:
+            return
+
+        if movement == "arrive":
+            # Add ship to list if not already present
+            if not any(s.name == char_name for s in self.state.ships):
+                self.state.ships.append(ShipInfo(name=char_name, ship_type=ship_type or "unknown"))
+        elif movement == "depart":
+            # Remove ship from list
+            self.state.ships = [s for s in self.state.ships if s.name != char_name]
+
+    def _update_from_player_ship(self, payload: dict) -> None:
+        """Helper to update state from player and ship data in event payload"""
+        player_data = payload.get("player", {})
+        ship_data = payload.get("ship", {})
+
+        # Update credits from player
+        if "credits_on_hand" in player_data:
+            self.state.credits = player_data["credits_on_hand"]
+
+        # Update ship stats
+        if "fighters" in ship_data:
+            self.state.fighters = ship_data["fighters"]
+        if "shields" in ship_data:
+            self.state.shields = ship_data["shields"]
+        if "max_fighters" in ship_data:
+            self.state.max_fighters = ship_data["max_fighters"]
+        if "max_shields" in ship_data:
+            self.state.max_shields = ship_data["max_shields"]
+        if "warp_power" in ship_data:
+            self.state.warp_power = ship_data["warp_power"]
+        if "warp_power_capacity" in ship_data:
+            self.state.max_warp_power = ship_data["warp_power_capacity"]
+
+        # Update cargo
+        cargo = ship_data.get("cargo", {})
+        if cargo:
+            self.state.cargo = CargoInfo(
+                fuel_ore=cargo.get("fuel_ore", self.state.cargo.fuel_ore),
+                organics=cargo.get("organics", self.state.cargo.organics),
+                equipment=cargo.get("equipment", self.state.cargo.equipment)
+            )
+
     def _update_combat_participants(
         self,
-        participants: dict,
+        participants,  # Can be dict or list
         actions: dict
     ) -> None:
-        """Helper to update combat participant details"""
+        """Helper to update combat participant details.
+
+        Handles both formats:
+        - Dict: {"player_id": {"combatant_id": "...", ...}} (combat.started)
+        - Array: [{"name": "...", ...}] (combat.round_waiting, combat.round_resolved)
+        """
+        # Normalize to dict format for processing
+        if isinstance(participants, list):
+            # Array format from combat.round_waiting/resolved - skip processing
+            # We can't update combat participants from this format because it lacks
+            # fighter/shield counts and other essential data
+            # Just preserve existing state (don't clear, don't update)
+            return
+
         # Preserve existing deltas when updating (for round_waiting events)
         old_deltas = {}
         for pid, old_combatant in self.state.combat_participants.items():
@@ -222,6 +413,7 @@ class StatusBarUpdater:
 
         self.state.combat_participants.clear()
 
+        # Dict format - process normally
         for pid, p in participants.items():
             # Skip escape pods
             if p.get("is_escape_pod", False):
@@ -276,7 +468,13 @@ class StatusBarUpdater:
 
         # Bar 1: Sector and combat state
         adjacent_str = f" | [{', '.join(map(str, sorted(self.state.adjacent_sectors)))}]" if self.state.adjacent_sectors else ""
-        lines.append(f"sector {self.state.sector_id} | {self.state.combat_state}{adjacent_str}")
+
+        # Show hyperspace ETA if in hyperspace
+        eta_str = ""
+        if self.state.in_hyperspace and self.state.hyperspace_eta:
+            eta_str = f" | ETA: {self.state.hyperspace_eta:.1f}s"
+
+        lines.append(f"sector {self.state.sector_id} | {self.state.combat_state}{eta_str}{adjacent_str}")
 
         # Bar 2: Ship status
         lines.append(

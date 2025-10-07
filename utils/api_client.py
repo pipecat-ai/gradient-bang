@@ -1074,6 +1074,33 @@ class AsyncGameClient:
         """Deprecated: Server auto-subscribes to status updates."""
         logger.debug("subscribe_my_status is deprecated; skipping explicit subscribe")
 
+    async def test_reset(
+        self,
+        *,
+        clear_files: bool = True,
+        file_prefixes: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Reset server state for test isolation.
+
+        WARNING: This clears all game state and should only be used in test environments.
+
+        Args:
+            clear_files: If True, delete test character files from disk
+            file_prefixes: List of prefixes to match for file deletion (default: common test prefixes)
+
+        Returns:
+            dict: Statistics about what was cleared
+
+        Raises:
+            RPCError: If the request fails
+        """
+        payload = {"clear_files": clear_files}
+        if file_prefixes is not None:
+            payload["file_prefixes"] = file_prefixes
+
+        result = await self._request("test.reset", payload)
+        return self._apply_summary("test.reset", result)
+
     async def identify(
         self, *, name: Optional[str] = None, character_id: Optional[str] = None
     ):

@@ -515,14 +515,66 @@ class CombatSession:
     # ------------------------------------------------------------------
 
     def _apply_status(self, status: Dict[str, Any]) -> bool:
+        """Apply status update, handling both format styles.
+
+        Format 1 (new): {"player": {...}, "ship": {...}, "sector": {"id": int, "players": [...]}}
+        Format 2 (legacy): {"sector": int, "ship": {...}, "sector_contents": {"other_players": [...]}}
+        """
         previous_players = set(self._other_players.keys())
 
         self._last_status = deepcopy(status)
-        self._current_sector = status.get("sector")
         self._ship_status = deepcopy(status.get("ship"))
 
-        contents = status.get("sector_contents") or {}
-        other_players = contents.get("other_players") or []
+        # Detect format and normalize
+        if "player" in status:
+            # New format from build_status_payload
+            sector_data = status.get("sector", {})
+            if isinstance(sector_data, dict):
+                self._current_sector = sector_data.get("id")
+                # Field is "players" in new format
+                other_players = sector_data.get("players", [])
+
+                # Build sector_state from new format
+                self._sector_state = {
+                    "sector": self._current_sector,
+                    "other_players": [deepcopy(entry) for entry in other_players],
+                    "garrisons": [deepcopy(sector_data.get("garrison"))] if sector_data.get("garrison") else [],
+                    "salvage": deepcopy(sector_data.get("salvage") or []),
+                    "port": deepcopy(sector_data.get("port")),
+                    "planets": deepcopy(sector_data.get("planets") or []),
+                    "adjacent_sectors": list(sector_data.get("adjacent_sectors") or []),
+                }
+            else:
+                # Fallback if sector is somehow still an int
+                self._current_sector = sector_data
+                other_players = []
+                self._sector_state = {
+                    "sector": self._current_sector,
+                    "other_players": [],
+                    "garrisons": [],
+                    "salvage": [],
+                    "port": None,
+                    "planets": [],
+                    "adjacent_sectors": [],
+                }
+        else:
+            # Legacy format - sector_contents style
+            self._current_sector = status.get("sector")
+            contents = status.get("sector_contents") or {}
+            # Field is "other_players" in legacy format
+            other_players = contents.get("other_players") or []
+
+            self._sector_state = {
+                "sector": self._current_sector,
+                "other_players": [deepcopy(entry) for entry in other_players],
+                "garrisons": deepcopy(contents.get("garrisons") or []),
+                "salvage": deepcopy(contents.get("salvage") or []),
+                "port": deepcopy(contents.get("port")),
+                "planets": deepcopy(contents.get("planets") or []),
+                "adjacent_sectors": list(contents.get("adjacent_sectors") or []),
+            }
+
+        # Build other_players dict
         new_players: Dict[str, Dict[str, Any]] = {}
         for entry in other_players:
             name = entry.get("name")
@@ -532,20 +584,11 @@ class CombatSession:
         self._other_players = new_players
 
         self.logger.debug(
-            "Status applied; sector=%s other_players=%s",
+            "Status applied; sector=%s other_players=%s format=%s",
             self._current_sector,
             list(self._other_players.keys()),
+            "new" if "player" in status else "legacy",
         )
-
-        self._sector_state = {
-            "sector": self._current_sector,
-            "other_players": [deepcopy(entry) for entry in other_players],
-            "garrisons": deepcopy(contents.get("garrisons") or []),
-            "salvage": deepcopy(contents.get("salvage") or []),
-            "port": deepcopy(contents.get("port")),
-            "planets": deepcopy(contents.get("planets") or []),
-            "adjacent_sectors": list(contents.get("adjacent_sectors") or []),
-        }
 
         updated_players = set(self._other_players.keys())
         return updated_players != previous_players
@@ -571,15 +614,33 @@ class CombatSession:
                 self._occupant_condition.notify_all()
 
     def _event_involves_me(self, payload: Dict[str, Any]) -> bool:
-        participants = payload.get("participants") or {}
-        for info in participants.values():
-            combatant_id = info.get("combatant_id")
-            owner = info.get("owner")
-            if combatant_id == self.character_id or owner == self.character_id:
-                return True
+        """Check if this combat event involves our character.
+
+        Handles both participant formats:
+        - Dict: {"participant_id": {"combatant_id": "...", "owner": "..."}}
+        - Array: [{"name": "...", ...}]
+        """
+        participants = payload.get("participants")
+
+        if isinstance(participants, dict):
+            # Dict format (combat.started, combat.round_resolved)
+            for info in participants.values():
+                combatant_id = info.get("combatant_id")
+                owner = info.get("owner")
+                if combatant_id == self.character_id or owner == self.character_id:
+                    return True
+        elif isinstance(participants, list):
+            # Array format (combat.round_waiting)
+            for info in participants:
+                name = info.get("name")
+                if name == self.character_id:
+                    return True
+
+        # Also check if we're already in this combat
         combat_id = payload.get("combat_id")
         if self._combat_state and combat_id == self._combat_state.combat_id:
             return True
+
         return False
 
     def _build_participants(
@@ -634,25 +695,40 @@ class CombatSession:
         await self._enqueue_combat_event("combat.started", payload)
 
     async def _on_combat_round_waiting(self, payload: Dict[str, Any]) -> None:
+        """Handle combat.round_waiting event.
+
+        Note: Server sends participants as array format in this event (inconsistent with
+        combat.started which uses dict). We only update round/deadline, not participants.
+        """
         combat_id = payload.get("combat_id")
-        participants = self._build_participants(payload.get("participants") or {})
+
+        # Only parse participants if they're in dict format (for defensive/fallback case)
+        participants_data = payload.get("participants")
+        participants = {}
+        if isinstance(participants_data, dict):
+            participants = self._build_participants(participants_data)
 
         if not self._combat_state:
+            # Defensive: shouldn't happen, but create minimal state
+            # Participants will be populated from combat.started or combat.round_resolved
             state = CombatState(
                 combat_id=str(combat_id),
                 sector=payload.get("sector"),
                 round=int(payload.get("round", 1)),
-                participants=participants,
+                participants=participants,  # Will be empty if array format
                 deadline=payload.get("deadline"),
                 last_event="combat.round_waiting",
             )
             self._combat_state = state
-            self._player_combatant_id = self._resolve_player_combatant_id(participants)
+            if participants:
+                self._player_combatant_id = self._resolve_player_combatant_id(participants)
             self._combat_active = True
         elif combat_id != self._combat_state.combat_id:
             return
         else:
-            if participants:
+            # Update existing state - only round number and deadline
+            # Participants come from combat.started/resolved events (dict format)
+            if participants:  # Only if dict format was provided
                 self._combat_state.participants.update(participants)
             self._combat_state.round = int(payload.get("round", self._combat_state.round))
             self._combat_state.deadline = payload.get("deadline")
@@ -664,23 +740,36 @@ class CombatSession:
             self._combat_condition.notify_all()
 
     async def _on_combat_round_resolved(self, payload: Dict[str, Any]) -> None:
+        """Handle combat.round_resolved event.
+
+        Note: Server sends participants as array format (same as round_waiting).
+        Legacy format had fighters_remaining/shields_remaining dicts - new format doesn't.
+        """
         if not self._combat_state or payload.get("combat_id") != self._combat_state.combat_id:
             return
 
+        # Legacy format had these fields, new format doesn't
         fighters_remaining = payload.get("fighters_remaining") or {}
         shields_remaining = payload.get("shields_remaining") or {}
+
+        # Update participant states if legacy format data is present
         for pid, remaining in fighters_remaining.items():
             participant = self._combat_state.participants.get(pid)
             if participant is not None:
                 participant.fighters = int(remaining)
+
         for gid in list(self._toll_paid):
             participant = self._combat_state.participants.get(gid)
             if participant is None or participant.fighters <= 0:
                 self._toll_paid.discard(gid)
+
         for pid, remaining in shields_remaining.items():
             participant = self._combat_state.participants.get(pid)
             if participant is not None:
                 participant.shields = int(remaining)
+
+        # Note: With new format (array participants), we don't update state here
+        # UI must rely on StatusBarUpdater which processes the array format
 
         self._combat_state.round = int(payload.get("round", self._combat_state.round))
         round_payload = deepcopy(payload)

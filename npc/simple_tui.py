@@ -372,6 +372,14 @@ class SimpleTUI(App):
             websocket_frame_callback=log_frame,
         )
 
+        # Register event handlers for real-time events
+        self.client.on("status.update")(self._on_status_update)
+        self.client.on("movement.start")(self._on_movement_start)
+        self.client.on("movement.complete")(self._on_movement_complete)
+        self.client.on("trade.executed")(self._on_trade_executed)
+        self.client.on("port.update")(self._on_port_update)
+        self.client.on("character.moved")(self._on_character_moved)
+
         llm_config = LLMConfig(api_key=None, model=self.task_model)
         self.task_agent = TaskAgent(
             config=llm_config,
@@ -384,11 +392,20 @@ class SimpleTUI(App):
         await self._append_log("AsyncGameClient created; calling join...")
 
         try:
+            # Call join RPC - we use the response ONLY for initial setup
+            # All subsequent updates will come from events
             status = await self.client.join(self.character)
-            await self._append_log(
-                f"Joined as {self.character}; sector {status.get('sector')}"
-            )
 
+            # Extract sector for logging (using format-agnostic access)
+            sector_info = status.get('sector')
+            if isinstance(sector_info, dict):
+                sector_id = sector_info.get('id', '?')
+            else:
+                sector_id = sector_info
+
+            await self._append_log(f"Joined as {self.character}; sector {sector_id}")
+
+            # Initialize CombatSession with initial status
             self.session = CombatSession(
                 self.client,
                 character_id=self.character,
@@ -396,23 +413,27 @@ class SimpleTUI(App):
                 initial_status=status,
             )
             self.session.start()
+
+            # Sync status bars from initial join response
             self._sync_status_bar_from_status(status)
+
             await self._append_log("CombatSession started; spawning monitor task")
             self.monitor_task = asyncio.create_task(self._monitor_events())
 
+            # Move to target sector if specified
             if self.target_sector is not None:
                 await self._append_log(
-                    "Ensuring position at target sector via ensure_position..."
+                    f"Moving to target sector {self.target_sector}..."
                 )
-                status = await ensure_position(
+                # ensure_position makes RPC calls but we ignore the responses
+                # All updates will come from movement.start and movement.complete events
+                await ensure_position(
                     self.client,
                     status,
                     target_sector=self.target_sector,
                     logger=self._ensure_logger,
                 )
-                await self._append_log(f"ensure_position returned: {status!r}")
-                await self._append_log(f"Positioned in sector {status.get('sector')}")
-                self._sync_status_bar_from_status(status)
+                await self._append_log(f"Movement commands issued")
             else:
                 await self._append_log(
                     "No target sector specified; remaining in current sector."
@@ -523,6 +544,103 @@ class SimpleTUI(App):
                 "Opponents present. Press Ctrl+X to initiate combat."
             )
 
+    # ========================================================================
+    # Event Handlers - All game state updates come through these handlers
+    # ========================================================================
+
+    async def _on_status_update(self, payload: Dict[str, Any]) -> None:
+        """Handle status.update event."""
+        # Update status bars
+        self.status_updater.update_from_status_update(payload)
+        self._refresh_status_display()
+
+    # --- Movement Events ---
+
+    async def _on_movement_start(self, payload: Dict[str, Any]) -> None:
+        """Handle movement.start event."""
+        sector_data = payload.get("sector", {})
+        destination = sector_data.get("id", "?")
+        eta = payload.get("hyperspace_time", 0)
+
+        await self._append_log(f"Entering hyperspace to sector {destination} (ETA: {eta:.1f}s)")
+
+        # Update status bars
+        self.status_updater.update_from_movement_start(payload)
+        self._refresh_status_display()
+
+    async def _on_movement_complete(self, payload: Dict[str, Any]) -> None:
+        """Handle movement.complete event."""
+        sector_data = payload.get("sector", {})
+        sector_id = sector_data.get("id", "?")
+
+        await self._append_log(f"Arrived at sector {sector_id}")
+
+        # Update status bars
+        self.status_updater.update_from_movement_complete(payload)
+        self._refresh_status_display()
+
+        # Update session with properly structured status payload
+        # movement.complete has: {player, ship, sector}
+        # update_from_status expects: {sector: int, ship: {...}, sector_contents: {...}}
+        if self.session:
+            status_for_session = {
+                "sector": sector_id,
+                "ship": payload.get("ship", {}),
+                "sector_contents": sector_data,
+            }
+            await self.session.update_from_status(status_for_session)
+
+    # --- Trading and Economy Events ---
+
+    async def _on_trade_executed(self, payload: Dict[str, Any]) -> None:
+        """Handle trade.executed event."""
+        # Log the trade
+        player_data = payload.get("player", {})
+        ship_data = payload.get("ship", {})
+
+        player_name = player_data.get("name", "?")
+        credits = player_data.get("credits_on_hand")
+
+        # Try to extract trade details from ship cargo changes
+        await self._append_log(f"Trade executed by {player_name} (credits: {credits})")
+
+        # Update status bars
+        self.status_updater.update_from_trade_executed(payload)
+        self._refresh_status_display()
+
+    async def _on_port_update(self, payload: Dict[str, Any]) -> None:
+        """Handle port.update event."""
+        sector_id = payload.get("sector_id", "?")
+        port_data = payload.get("port", {})
+
+        # Format port update message
+        code = port_data.get("code", "?")
+        await self._append_log(f"Port prices updated at sector {sector_id} ({code})")
+
+        # Update status bars
+        self.status_updater.update_from_port_update(payload)
+        self._refresh_status_display()
+
+    # --- Sector Occupant Events ---
+
+    async def _on_character_moved(self, payload: Dict[str, Any]) -> None:
+        """Handle character.moved event."""
+        movement = payload.get("movement")
+        char_name = payload.get("name")
+        ship_type = payload.get("ship_type", "unknown")
+
+        # Log the movement
+        if movement == "arrive":
+            await self._append_log(f"{char_name} ({ship_type}) arrived")
+        elif movement == "depart":
+            await self._append_log(f"{char_name} ({ship_type}) departed")
+
+        # Update status bars
+        self.status_updater.update_from_character_moved(payload)
+        self._refresh_status_display()
+
+    # --- Combat Events ---
+
     async def _handle_combat_event(
         self,
         state,
@@ -597,7 +715,7 @@ class SimpleTUI(App):
             if self.session:
                 await self._handle_occupants(self.session.other_players())
             await self._return_to_task_mode()
-            await self._refresh_status(reason="combat ended")
+            # NOTE: No manual refresh needed - all updates come from events
             return
 
     async def _cancel_round_prompt(self) -> None:
@@ -949,6 +1067,11 @@ class SimpleTUI(App):
         if self.client is None or self.task_agent is None:
             await self._append_log("Client or TaskAgent unavailable; aborting task.")
             return
+
+        # NOTE: TaskAgent internally calls my_status() - it needs the RPC response
+        # to build its initial state. This is acceptable because the agent
+        # needs a snapshot to start working. All updates during task execution
+        # will come from events.
         try:
             status = await self.client.my_status(self.character)
         except Exception as exc:  # noqa: BLE001
@@ -1005,7 +1128,7 @@ class SimpleTUI(App):
                     else "Task idle. Enter a goal and press Enter to run the TaskAgent."
                 )
                 self._update_task_banner(banner)
-        asyncio.create_task(self._refresh_status(reason="task completion"))
+        # NOTE: No manual refresh needed - all updates come from events
 
     async def _cancel_active_task(self, reason: str) -> bool:
         if not self._is_task_running():
@@ -1078,19 +1201,8 @@ class SimpleTUI(App):
             warp=warp_meta,
         )
 
-    async def _refresh_status(self, *, reason: str = "") -> None:
-        if self.client is None:
-            return
-        try:
-            status = await self.client.my_status(self.character)
-        except Exception as exc:  # noqa: BLE001
-            await self._append_log(
-                f"Failed to refresh status{': ' + reason if reason else ''}: {exc!r}"
-            )
-            return
-        if self.session is not None:
-            await self.session.update_from_status(status)
-        self._sync_status_bar_from_status(status)
+    # REMOVED: _refresh_status() - We now rely entirely on events for status updates
+    # All status changes are broadcast via status.update, movement.complete, trade.executed, etc.
 
     async def _prompt_for_round_action(self, state, payload: Dict[str, Any]) -> None:
         session = self.session
@@ -1187,7 +1299,11 @@ class SimpleTUI(App):
                     to_sector = destination
 
         try:
+            # NOTE: combat_action returns immediate feedback (pay_processed, etc.)
+            # This is acceptable - we use it for instant confirmation, not state updates
+            # State updates come from combat.round_resolved events
             result = await self.client.combat_action(
+                character_id=self.character,
                 combat_id=state.combat_id,
                 action=action,
                 commit=commit,

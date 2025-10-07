@@ -178,12 +178,12 @@ async def sector_contents(
         players.append(player)
 
     # Garrisons
-    garrisons = []
+    garrison = None
     if getattr(world, "garrisons", None):
         for garrison in await world.garrisons.list_sector(sector_id):
             entry = garrison.to_dict()
             entry["is_friendly"] = garrison.owner_id == current_character_id
-            garrisons.append(entry)
+            garrison = entry
 
     # Salvage containers
     salvage = []
@@ -196,7 +196,7 @@ async def sector_contents(
         "adjacent_sectors": adjacent_sectors,
         "port": port,
         "players": players,
-        "garrisons": garrisons,
+        "garrison": garrison,
         "salvage": salvage,
     }
 

@@ -1,3 +1,19 @@
+
+    - movement.start
+    - movement.complete
+    - character.moved
+    - combat.round_waiting
+    - combat.round_resolved
+    - combat.ended
+    - trade.executed
+    - port.update
+
+
+Is there ...
+Shield regeneration?
+
+
+
 # suggestions
 
 ## ship

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from fastapi import HTTPException
+from rpc.events import event_dispatcher
+from api.utils import sector_contents
 
 
 async def handle(request: dict, world) -> dict:
@@ -47,6 +49,23 @@ async def handle(request: dict, world) -> dict:
         world.knowledge_manager.update_credits(character_id, existing + container.credits)
 
     world.salvage_manager.remove(salvage_id)
+
+    # Emit sector.update to all characters in the sector (salvage removed)
+    sector_id = character.sector
+    sector_update_payload = await sector_contents(world, sector_id, current_character_id=None)
+
+    characters_in_sector = [
+        cid
+        for cid, char in world.characters.items()
+        if char.sector == sector_id and not char.in_hyperspace
+    ]
+
+    if characters_in_sector:
+        await event_dispatcher.emit(
+            "sector.update",
+            sector_update_payload,
+            character_filter=characters_in_sector,
+        )
 
     return {
         "salvage": container.to_dict(),
