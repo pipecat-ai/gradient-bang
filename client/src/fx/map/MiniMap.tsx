@@ -24,6 +24,8 @@ export interface MiniMapRenderConfig {
   sector_label_offset: number;
   frame_padding: number;
   current_sector_outer_border: number;
+  animation_duration_pan: number;
+  animation_duration_zoom: number;
   debug: boolean;
   show_grid: boolean;
   show_warps: boolean;
@@ -60,6 +62,8 @@ export const DEFAULT_MINIMAP_CONFIG: Omit<
   sector_label_offset: 5,
   frame_padding: 40,
   current_sector_outer_border: 5,
+  animation_duration_pan: 500,
+  animation_duration_zoom: 800,
   debug: false,
   show_grid: true,
   show_warps: true,
@@ -89,7 +93,9 @@ export interface CameraState {
 interface AnimationState {
   isAnimating: boolean;
   startTime: number;
-  duration: number;
+  panDuration: number;
+  zoomDuration: number;
+  fadeDuration: number;
   startCamera: CameraState;
   targetCamera: CameraState;
   animationFrameId?: number;
@@ -110,17 +116,20 @@ function findSector(
 function interpolateCameraState(
   start: CameraState,
   target: CameraState,
-  progress: number
+  panProgress: number,
+  zoomProgress: number,
+  fadeProgress: number
 ): CameraState {
-  const easedProgress = easeInOutCubic(progress);
+  const easedPan = easeInOutCubic(panProgress);
+  const easedZoom = easeInOutCubic(zoomProgress);
   return {
-    offsetX: start.offsetX + (target.offsetX - start.offsetX) * easedProgress,
-    offsetY: start.offsetY + (target.offsetY - start.offsetY) * easedProgress,
-    zoom: start.zoom + (target.zoom - start.zoom) * easedProgress,
+    offsetX: start.offsetX + (target.offsetX - start.offsetX) * easedPan,
+    offsetY: start.offsetY + (target.offsetY - start.offsetY) * easedPan,
+    zoom: start.zoom + (target.zoom - start.zoom) * easedZoom,
     filteredData: start.filteredData,
     fadingOutData: start.fadingOutData,
     fadingInData: start.fadingInData,
-    fadeProgress: progress,
+    fadeProgress,
   };
 }
 
@@ -924,6 +933,96 @@ function renderWithCameraState(
   }
 }
 
+export interface MiniMapController {
+  render: () => void;
+  moveToSector: (newSectorId: number, newMapData?: MapData) => void;
+  getCurrentState: () => CameraState | null;
+}
+
+/** Create minimap controller with imperative API */
+export function createMiniMapController(
+  canvas: HTMLCanvasElement,
+  props: MiniMapProps
+): MiniMapController {
+  let currentCameraState: CameraState | null = null;
+  let currentProps = { ...props };
+  let animationCleanup: (() => void) | null = null;
+
+  const render = () => {
+    const { width, height, data, config, maxDistance = 3 } = currentProps;
+    const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
+    const hexSize = config.hex_size ?? gridSpacing * 0.85;
+    const scale = gridSpacing;
+
+    const cameraState = calculateCameraState(
+      data,
+      config,
+      width,
+      height,
+      scale,
+      hexSize,
+      maxDistance
+    );
+
+    if (!cameraState) {
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+        ctx.scale(dpr, dpr);
+        ctx.fillStyle = config.colors.background;
+        ctx.fillRect(0, 0, width, height);
+      }
+      return;
+    }
+
+    renderWithCameraState(canvas, currentProps, cameraState);
+    currentCameraState = cameraState;
+  };
+
+  const moveToSector = (newSectorId: number, newMapData?: MapData) => {
+    if (animationCleanup) {
+      animationCleanup();
+      animationCleanup = null;
+    }
+
+    const updatedProps = {
+      ...currentProps,
+      data: newMapData ?? currentProps.data,
+      config: { ...currentProps.config, current_sector_id: newSectorId },
+    };
+    currentProps = updatedProps;
+
+    if (currentCameraState) {
+      animationCleanup = updateCurrentSector(
+        canvas,
+        updatedProps,
+        newSectorId,
+        currentCameraState
+      );
+
+      const animDuration = Math.max(
+        updatedProps.config.animation_duration_pan,
+        updatedProps.config.animation_duration_zoom
+      );
+
+      setTimeout(() => {
+        currentCameraState = getCurrentCameraState(updatedProps);
+        animationCleanup = null;
+      }, animDuration);
+    } else {
+      render();
+    }
+  };
+
+  const getCurrentState = () => currentCameraState;
+
+  render();
+
+  return { render, moveToSector, getCurrentState };
+}
+
 /** Render minimap canvas (stateless) */
 export function renderMiniMapCanvas(
   canvas: HTMLCanvasElement,
@@ -983,8 +1082,7 @@ export function updateCurrentSector(
   canvas: HTMLCanvasElement,
   props: MiniMapProps,
   newSectorId: number,
-  currentCameraState: CameraState | null,
-  duration = 500
+  currentCameraState: CameraState | null
 ): () => void {
   const { width, height, data, config, maxDistance = 3 } = props;
 
@@ -1026,7 +1124,6 @@ export function updateCurrentSector(
     return () => {};
   }
 
-  const newDataIds = new Set(data.map((s) => s.id));
   const currentDataIds = new Set(
     currentCameraState.filteredData.map((s) => s.id)
   );
@@ -1034,18 +1131,11 @@ export function updateCurrentSector(
     targetCameraState.filteredData.map((s) => s.id)
   );
 
-  const disconnectedNodes = currentCameraState.filteredData.filter(
-    (sector) => newDataIds.has(sector.id) && !targetDataIds.has(sector.id)
+  const fadingOutData = currentCameraState.filteredData.filter(
+    (s) => !targetDataIds.has(s.id)
   );
-
-  const staleNodes = currentCameraState.filteredData.filter(
-    (sector) => !newDataIds.has(sector.id)
-  );
-
-  const fadingOutData = [...disconnectedNodes, ...staleNodes];
-
-  const newNodes = targetCameraState.filteredData.filter(
-    (sector) => !currentDataIds.has(sector.id)
+  const fadingInData = targetCameraState.filteredData.filter(
+    (s) => !currentDataIds.has(s.id)
   );
 
   const startCameraWithFade: CameraState = {
@@ -1054,14 +1144,20 @@ export function updateCurrentSector(
     zoom: currentCameraState.zoom,
     filteredData: targetCameraState.filteredData,
     fadingOutData,
-    fadingInData: newNodes,
+    fadingInData,
     fadeProgress: 0,
   };
+
+  const panDuration = config.animation_duration_pan;
+  const zoomDuration = config.animation_duration_zoom;
+  const fadeDuration = Math.max(panDuration, zoomDuration);
 
   const animationState: AnimationState = {
     isAnimating: true,
     startTime: performance.now(),
-    duration,
+    panDuration,
+    zoomDuration,
+    fadeDuration,
     startCamera: startCameraWithFade,
     targetCamera: targetCameraState,
   };
@@ -1070,12 +1166,16 @@ export function updateCurrentSector(
     if (!animationState.isAnimating) return;
 
     const elapsed = currentTime - animationState.startTime;
-    const progress = Math.min(elapsed / animationState.duration, 1);
+    const panProgress = Math.min(elapsed / animationState.panDuration, 1);
+    const zoomProgress = Math.min(elapsed / animationState.zoomDuration, 1);
+    const fadeProgress = Math.min(elapsed / animationState.fadeDuration, 1);
 
     const interpolatedCamera = interpolateCameraState(
       animationState.startCamera,
       animationState.targetCamera,
-      progress
+      panProgress,
+      zoomProgress,
+      fadeProgress
     );
 
     renderWithCameraState(
@@ -1084,7 +1184,7 @@ export function updateCurrentSector(
       interpolatedCamera
     );
 
-    if (progress < 1) {
+    if (fadeProgress < 1) {
       animationState.animationFrameId = requestAnimationFrame(animate);
     } else {
       animationState.isAnimating = false;

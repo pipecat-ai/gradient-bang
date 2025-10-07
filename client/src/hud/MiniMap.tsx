@@ -1,9 +1,7 @@
-import type { CameraState, MiniMapRenderConfig } from "@fx/map/MiniMap";
+import type { MiniMapController, MiniMapRenderConfig } from "@fx/map/MiniMap";
 import {
+  createMiniMapController,
   DEFAULT_MINIMAP_CONFIG,
-  getCurrentCameraState,
-  renderMiniMapCanvas,
-  updateCurrentSector,
 } from "@fx/map/MiniMap";
 import { useEffect, useMemo, useRef } from "react";
 
@@ -20,7 +18,6 @@ export const MiniMap = ({
   width = 440,
   height = 440,
   maxDistance = 3,
-  animationDuration = 500,
   showLegend = true,
 }: {
   current_sector_id: number;
@@ -29,11 +26,12 @@ export const MiniMap = ({
   width?: number;
   height?: number;
   maxDistance?: number;
-  animationDuration?: number;
   showLegend?: boolean;
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const cameraStateRef = useRef<CameraState | null>(null);
+  const controllerRef = useRef<MiniMapController | null>(null);
+  const prevSectorIdRef = useRef<number>(current_sector_id);
+  const prevMapDataRef = useRef<MapData>(map_data);
 
   const mergedConfig = useMemo<MiniMapRenderConfig>(
     () => ({
@@ -48,51 +46,35 @@ export const MiniMap = ({
     [current_sector_id, config]
   );
 
-  const prevSectorIdRef = useRef<number>(current_sector_id);
-  const latestPropsRef = useRef({
-    width,
-    height,
-    data: map_data,
-    config: mergedConfig,
-    maxDistance,
-  });
-
-  latestPropsRef.current = {
-    width,
-    height,
-    data: map_data,
-    config: mergedConfig,
-    maxDistance,
-  };
-
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const prevSectorId = prevSectorIdRef.current;
-    const props = latestPropsRef.current;
-
-    if (current_sector_id !== prevSectorId && cameraStateRef.current) {
-      const cleanup = updateCurrentSector(
-        canvas,
-        props,
-        current_sector_id,
-        cameraStateRef.current,
-        animationDuration
-      );
-
-      setTimeout(() => {
-        cameraStateRef.current = getCurrentCameraState(latestPropsRef.current);
-      }, animationDuration);
-
+    if (!controllerRef.current) {
+      console.log("[MiniMap] Initial render");
+      controllerRef.current = createMiniMapController(canvas, {
+        width,
+        height,
+        data: map_data,
+        config: mergedConfig,
+        maxDistance,
+      });
       prevSectorIdRef.current = current_sector_id;
-      return cleanup;
-    } else {
-      renderMiniMapCanvas(canvas, props);
-      cameraStateRef.current = getCurrentCameraState(props);
-      prevSectorIdRef.current = current_sector_id;
+      prevMapDataRef.current = map_data;
+      return;
     }
-  }, [current_sector_id, animationDuration]);
+
+    const sectorChanged = current_sector_id !== prevSectorIdRef.current;
+
+    if (sectorChanged) {
+      console.log(
+        `[MiniMap] moveToSector called: ${prevSectorIdRef.current} → ${current_sector_id}`
+      );
+      controllerRef.current.moveToSector(current_sector_id, map_data);
+      prevSectorIdRef.current = current_sector_id;
+      prevMapDataRef.current = map_data;
+    }
+  }, [current_sector_id, map_data, width, height, maxDistance, mergedConfig]);
 
   return (
     <div style={{ display: "grid", gap: 8, overflow: "hidden" }}>
