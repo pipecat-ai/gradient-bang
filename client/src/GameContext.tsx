@@ -115,7 +115,10 @@ export function GameProvider({ children }: GameProviderProps) {
 
               // Initialize the StarField
               if (initalizing) {
-                startMoveToSector(status.sector, { bypassAnimation: true });
+                startMoveToSector(status.sector, {
+                  bypassAnimation: true,
+                  bypassFlash: true,
+                });
               }
 
               break;

@@ -47,7 +47,10 @@ import useGameStore from "@/stores/game";
 
 export const startMoveToSector = (
   newSector: Sector,
-  options: { bypassAnimation: boolean } = { bypassAnimation: false }
+  options: { bypassAnimation: boolean; bypassFlash: boolean } = {
+    bypassAnimation: false,
+    bypassFlash: false,
+  }
 ) => {
   const gameStore = useGameStore.getState();
   const starfield = gameStore.starfieldInstance;
@@ -70,10 +73,9 @@ export const startMoveToSector = (
 
   console.debug("[GAME ACTION] Updating Starfield to", newSector);
 
-  starfield.warpToSector(
-    {
-      id: newSector.id.toString(),
-    },
-    options.bypassAnimation
-  );
+  starfield.warpToSector({
+    id: newSector.id.toString(),
+    bypassAnimation: options.bypassAnimation,
+    bypassFlash: options.bypassFlash,
+  });
 };

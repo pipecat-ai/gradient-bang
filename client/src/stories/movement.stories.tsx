@@ -99,7 +99,7 @@ export const MovementWithStarfield: Story = () => {
   const localMapData = useGameStore((state) => state.local_map_data);
   return (
     <div className="relative w-full h-full bg-card">
-      <div className="absolute z-99 top-0 left-0">
+      <div className="absolute z-[999] top-0 left-0">
         {sector && localMapData && (
           <MiniMap
             current_sector_id={sector?.id}

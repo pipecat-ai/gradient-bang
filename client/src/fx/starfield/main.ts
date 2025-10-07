@@ -21,6 +21,7 @@ import { WarpOverlay } from "./animations/WarpOverlay";
 import { GameObjectManager } from "./managers/GameObjectManager";
 import { LayerManager } from "./managers/LayerManager";
 import { SceneManager } from "./managers/SceneManager";
+import { ShadowManager } from "./managers/ShadowManager";
 import { StarLayerManager } from "./managers/StarLayerManager";
 import { UniformManager } from "./managers/UniformManager";
 
@@ -40,7 +41,6 @@ import {
 import customDeepmerge from "./utils/merge";
 
 import { Background, Clouds, Nebula } from "./fx";
-import { ShadowManager } from "./managers/ShadowManager";
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -135,6 +135,9 @@ export interface WarpOptions {
   name?: string;
   sceneConfig?: Partial<StarfieldSceneConfig>; // Scene variant config (partial or full)
   gameObjects?: GameObjectBaseConfig[];
+  bypassAnimation?: boolean; // Skip warp animation and load scene directly
+  bypassFlash?: boolean; // Skip flash transition effect (default: true)
+  bypassCooldown?: boolean; // Skip warp cooldown timer (default: false)
 }
 
 // ============================================================================
@@ -281,21 +284,18 @@ export class GalaxyStarfield {
   private _cloudsShakeStartTime?: number;
   private _isRendering: boolean = false;
 
-  // Warp cooldown state
-  private _warpCooldownActive: boolean = false;
-  private _warpCooldownStartTime?: number;
-  private _warpCooldownTimeoutId?: number;
-
   // Scene loading state management
   private _sceneLoadPromise: Promise<void> | null = null;
   private _sceneReady: boolean = false;
-  private _sceneSettling: boolean = false;
   private _sceneSettleStartTime: number | undefined;
   private _flashHoldStartTime: number | undefined;
   private _isFirstRender: boolean = true;
   private readonly SCENE_SETTLE_DURATION = 150;
   private readonly MIN_FLASH_HOLD_TIME = 300;
   private readonly MAX_FLASH_HOLD_TIME = 5000;
+
+  // Warp cooldown management
+  private _warpCooldownTimer: number | null = null;
 
   constructor(
     config: Partial<GalaxyStarfieldConfig> = {},
@@ -1176,7 +1176,6 @@ export class GalaxyStarfield {
       console.debug("[STARFIELD] WARP: Transitioning to FLASH phase");
       this._flashHoldStartTime = performance.now();
       this._sceneReady = false;
-      this._sceneSettling = false;
 
       if (
         this.callbacks.onSceneIsLoading &&
@@ -1193,9 +1192,19 @@ export class GalaxyStarfield {
 
         this._sceneLoadPromise = this._createNewScene()
           .then(() => {
-            console.debug("[STARFIELD] WARP: Scene loaded");
-            this._sceneSettling = true;
-            this._sceneSettleStartTime = performance.now();
+            console.debug("[STARFIELD] WARP: Scene loaded and ready");
+
+            // Trigger onSceneReady callback since scene is now ready
+            if (
+              this.callbacks.onSceneReady &&
+              typeof this.callbacks.onSceneReady === "function"
+            ) {
+              this.callbacks.onSceneReady(
+                this._isFirstRender,
+                this._currentSceneId
+              );
+              this._isFirstRender = false;
+            }
 
             if (wasRendering) {
               this._isRendering = true;
@@ -1204,8 +1213,8 @@ export class GalaxyStarfield {
           })
           .catch((err) => {
             console.error("[STARFIELD] WARP: Scene loading failed:", err);
-            this._sceneSettling = true;
-            this._sceneSettleStartTime = performance.now();
+            // Even on failure, mark as ready to prevent infinite waiting
+            this._sceneReady = true;
 
             if (wasRendering) {
               this._isRendering = true;
@@ -1250,29 +1259,7 @@ export class GalaxyStarfield {
 
       case "FLASH":
         if (this.whiteFlash) {
-          if (this._sceneSettling && this._sceneSettleStartTime) {
-            const settleElapsed =
-              performance.now() - this._sceneSettleStartTime;
-
-            if (
-              settleElapsed >= this.SCENE_SETTLE_DURATION &&
-              !this._sceneReady
-            ) {
-              this._sceneReady = true;
-
-              if (
-                this.callbacks.onSceneReady &&
-                typeof this.callbacks.onSceneReady === "function"
-              ) {
-                this.callbacks.onSceneReady(
-                  this._isFirstRender,
-                  this._currentSceneId
-                );
-                this._isFirstRender = false;
-              }
-            }
-          }
-
+          // Check for timeout fallback
           const flashElapsed =
             performance.now() - (this._flashHoldStartTime || 0);
           const hasTimedOut = flashElapsed >= this.MAX_FLASH_HOLD_TIME;
@@ -1293,6 +1280,7 @@ export class GalaxyStarfield {
             }
           }
 
+          // Keep flash visible until scene is ready and minimum time elapsed
           const flashElapsedTime =
             performance.now() - (this._flashHoldStartTime || 0);
           const minTimeElapsed = flashElapsedTime >= this.MIN_FLASH_HOLD_TIME;
@@ -1684,16 +1672,21 @@ export class GalaxyStarfield {
   /**
    * Warp to a specific sector with optional configuration
    */
-  public async warpToSector(
-    options: WarpOptions,
-    bypassAnimation: boolean = false
-  ): Promise<boolean> {
+  public async warpToSector(options: WarpOptions): Promise<boolean> {
     if (!this.sceneManager) {
       console.warn("[STARFIELD] SceneManager not available");
       return false;
     }
 
-    const { id, gameObjects = [], sceneConfig } = options;
+    const {
+      id,
+      gameObjects = [],
+      sceneConfig,
+      bypassAnimation = false,
+      bypassFlash = true,
+      bypassCooldown = false,
+    } = options;
+
     if (!id) {
       console.warn("[STARFIELD] Sector ID is required");
       return false;
@@ -1702,6 +1695,12 @@ export class GalaxyStarfield {
     if (this._currentSceneId === id) {
       return true;
     }
+
+    // Handle warp cooldown
+    const isInCooldown = this._handleWarpCooldown(
+      bypassAnimation,
+      bypassCooldown
+    );
 
     this._pendingSectorConfig = this.sceneManager.prepareSceneVariant(
       id,
@@ -1729,22 +1728,12 @@ export class GalaxyStarfield {
       this._warpPromiseResolver = resolve;
     });
 
-    if (!this._currentSceneId || bypassAnimation) {
+    if (!this._currentSceneId || bypassAnimation || isInCooldown) {
       const configToLoad = this._pendingSectorConfig;
       this._pendingSectorConfig = null;
 
-      this.reloadConfig(configToLoad)
+      this._loadSceneWithReadyState(configToLoad, true, !bypassFlash)
         .then(() => {
-          if (
-            this.callbacks.onSceneReady &&
-            typeof this.callbacks.onSceneReady === "function"
-          ) {
-            this.callbacks.onSceneReady(
-              this._isFirstRender,
-              this._currentSceneId
-            );
-            this._isFirstRender = false;
-          }
           if (this._warpPromiseResolver) {
             this._warpPromiseResolver(true);
             this._warpPromiseResolver = null;
@@ -1833,6 +1822,17 @@ export class GalaxyStarfield {
    */
   public resumeAnimation(): void {
     this.resume();
+  }
+
+  /**
+   * Clear the warp cooldown timer manually
+   */
+  public clearWarpCooldown(): void {
+    if (this._warpCooldownTimer !== null) {
+      console.debug("[WARP COOLDOWN] Manually clearing cooldown timer");
+      clearTimeout(this._warpCooldownTimer);
+      this._warpCooldownTimer = null;
+    }
   }
 
   // ============================================================================
@@ -2211,6 +2211,164 @@ export class GalaxyStarfield {
   }
 
   /**
+   * Unified scene loading method that handles both async loading and ready state detection
+   * @private
+   */
+  private async _loadSceneWithReadyState(
+    newConfig: Partial<GalaxyStarfieldConfig> | null = null,
+    triggerCallbacks: boolean = true,
+    transition: boolean = false
+  ): Promise<void> {
+    if (
+      triggerCallbacks &&
+      this.callbacks.onSceneIsLoading &&
+      typeof this.callbacks.onSceneIsLoading === "function"
+    ) {
+      this.callbacks.onSceneIsLoading();
+    }
+
+    if (transition && this.whiteFlash) {
+      this.whiteFlash.style.opacity = "1.0";
+      const flashStartTime = performance.now();
+
+      await this.reloadConfig(newConfig);
+
+      await this._waitForSceneReadyState();
+
+      const flashElapsed = performance.now() - flashStartTime;
+      const minTimeElapsed = flashElapsed >= this.MIN_FLASH_HOLD_TIME;
+      const hasTimedOut = flashElapsed >= this.MAX_FLASH_HOLD_TIME;
+
+      if (!minTimeElapsed && !hasTimedOut) {
+        const remainingTime = this.MIN_FLASH_HOLD_TIME - flashElapsed;
+        await new Promise((resolve) => setTimeout(resolve, remainingTime));
+      }
+
+      if (hasTimedOut) {
+        console.warn("[TRANSITION] Flash hold timeout, forcing progression");
+      }
+
+      await this._fadeOutWhiteFlash(200);
+    } else {
+      await this.reloadConfig(newConfig);
+      await this._waitForSceneReadyState();
+    }
+
+    if (
+      triggerCallbacks &&
+      this.callbacks.onSceneReady &&
+      typeof this.callbacks.onSceneReady === "function"
+    ) {
+      this.callbacks.onSceneReady(this._isFirstRender, this._currentSceneId);
+      this._isFirstRender = false;
+    }
+  }
+
+  /**
+   * Wait for scene to be fully ready (includes settling period and minimum wait time)
+   * This ensures consistent behavior between warp animation and direct reload paths
+   * @private
+   */
+  private async _waitForSceneReadyState(): Promise<void> {
+    // Start the settling period
+    this._sceneSettleStartTime = performance.now();
+
+    // Wait for the settling duration
+    await new Promise<void>((resolve) => {
+      const checkSettling = () => {
+        const settleElapsed =
+          performance.now() - (this._sceneSettleStartTime || 0);
+        if (settleElapsed >= this.SCENE_SETTLE_DURATION) {
+          resolve();
+        } else {
+          requestAnimationFrame(checkSettling);
+        }
+      };
+      checkSettling();
+    });
+
+    // Mark scene as ready
+    this._sceneReady = true;
+  }
+
+  /**
+   * Fade out the white flash element with easing
+   * @private
+   */
+  private async _fadeOutWhiteFlash(duration: number = 200): Promise<void> {
+    if (!this.whiteFlash) return;
+
+    const fadeStartTime = performance.now();
+
+    await new Promise<void>((resolve) => {
+      const fadeOut = () => {
+        const fadeElapsed = performance.now() - fadeStartTime;
+        const fadeProgress = Math.min(fadeElapsed / duration, 1);
+        const easedProgress =
+          fadeProgress < 0.5
+            ? 2 * fadeProgress * fadeProgress
+            : 1 - Math.pow(-2 * fadeProgress + 2, 2) / 2;
+        const opacity = Math.max(0, 1 - easedProgress);
+
+        if (this.whiteFlash) {
+          this.whiteFlash.style.opacity = opacity.toString();
+        }
+
+        if (fadeProgress < 1) {
+          requestAnimationFrame(fadeOut);
+        } else {
+          resolve();
+        }
+      };
+      fadeOut();
+    });
+  }
+
+  /**
+   * Handle warp cooldown logic with debouncing
+   * @private
+   */
+  private _handleWarpCooldown(
+    bypassAnimation: boolean,
+    bypassCooldown: boolean
+  ): boolean {
+    const warpCooldownSec = this.config.warpCooldownSec || 0;
+    const isInCooldown = this._warpCooldownTimer !== null;
+
+    if (bypassCooldown) {
+      console.debug("[STARFIELD] Bypassing cooldown timer");
+      if (this._warpCooldownTimer !== null) {
+        clearTimeout(this._warpCooldownTimer);
+        this._warpCooldownTimer = null;
+      }
+      return false;
+    }
+
+    if (this._warpCooldownTimer !== null) {
+      console.debug("[STARFIELD] Resetting cooldown timer (debounce)");
+      clearTimeout(this._warpCooldownTimer);
+    }
+
+    if (!bypassAnimation && warpCooldownSec > 0) {
+      console.debug(
+        `[STARFIELD] Starting cooldown timer for ${warpCooldownSec}s`
+      );
+      this._warpCooldownTimer = window.setTimeout(() => {
+        console.debug("[STARFIELD] Cooldown timer expired");
+        this._warpCooldownTimer = null;
+      }, warpCooldownSec * 1000);
+    }
+
+    if (isInCooldown) {
+      console.debug(
+        "[STARFIELD] Currently in cooldown - forcing bypass animation"
+      );
+    }
+
+    return isInCooldown;
+  }
+
+  /**
    * Create a new scene using the SceneManager
    * @private
    */
@@ -2233,7 +2391,7 @@ export class GalaxyStarfield {
       newConfig = this.sceneManager.create(this.config);
     }
 
-    await this.reloadConfig(newConfig);
+    await this._loadSceneWithReadyState(newConfig, false, false);
   }
 
   // ============================================================================
