@@ -91,6 +91,7 @@ Starfield.meta = {
 export const StarFieldSequence: Story = () => {
   const [start, setStart] = useState(false);
   const [status, setStatus] = useState("");
+  const [bypassFlash, setBypassFlash] = useState(false);
   const starfieldInstance = useGameStore((state) => state.starfieldInstance);
   const autopilot = useGameStore((state) => state.ui.autopilot);
 
@@ -143,15 +144,27 @@ export const StarFieldSequence: Story = () => {
       console.log("\n[STORY] 🧪 TEST: Rapid Fire During Animation");
       starfieldInstance?.warpToSector({ id: generateRandomSectorId() });
       setTimeout(
-        () => starfieldInstance?.warpToSector({ id: generateRandomSectorId() }),
+        () =>
+          starfieldInstance?.warpToSector({
+            id: generateRandomSectorId(),
+            bypassFlash,
+          }),
         500
       );
       setTimeout(
-        () => starfieldInstance?.warpToSector({ id: generateRandomSectorId() }),
+        () =>
+          starfieldInstance?.warpToSector({
+            id: generateRandomSectorId(),
+            bypassFlash,
+          }),
         1000
       );
       setTimeout(
-        () => starfieldInstance?.warpToSector({ id: generateRandomSectorId() }),
+        () =>
+          starfieldInstance?.warpToSector({
+            id: generateRandomSectorId(),
+            bypassFlash,
+          }),
         1500
       );
     },
@@ -196,7 +209,10 @@ export const StarFieldSequence: Story = () => {
       // Queue 5 more during animation
       setTimeout(() => {
         for (let i = 0; i < 5; i++) {
-          starfieldInstance?.warpToSector({ id: generateRandomSectorId() });
+          starfieldInstance?.warpToSector({
+            id: generateRandomSectorId(),
+            bypassFlash,
+          });
         }
       }, 1000);
     },
@@ -224,7 +240,10 @@ export const StarFieldSequence: Story = () => {
       starfieldInstance?.warpToSector({ id: generateRandomSectorId() });
       setTimeout(() => {
         for (let i = 0; i < 3; i++) {
-          starfieldInstance?.warpToSector({ id: generateRandomSectorId() });
+          starfieldInstance?.warpToSector({
+            id: generateRandomSectorId(),
+            bypassFlash,
+          });
         }
         console.log("[STORY] Queue built, clearing in 2s...");
         setTimeout(() => {
@@ -242,8 +261,14 @@ export const StarFieldSequence: Story = () => {
       starfieldInstance?.warpToSector({ id: generateRandomSectorId() });
       // Queue 2 items during animation
       setTimeout(() => {
-        starfieldInstance?.warpToSector({ id: generateRandomSectorId() });
-        starfieldInstance?.warpToSector({ id: generateRandomSectorId() });
+        starfieldInstance?.warpToSector({
+          id: generateRandomSectorId(),
+          bypassFlash,
+        });
+        starfieldInstance?.warpToSector({
+          id: generateRandomSectorId(),
+          bypassFlash,
+        });
       }, 1000);
       // After cooldown expires (animation 5s + cooldown 15s = 20s), warp again
       setTimeout(() => {
@@ -286,7 +311,18 @@ export const StarFieldSequence: Story = () => {
         </div>
 
         <div className="space-y-2 pt-2">
-          <div className="text-xs font-bold text-gray-400">QUEUE TESTS</div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs font-bold text-gray-400">QUEUE TESTS</div>
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={bypassFlash}
+                onChange={(e) => setBypassFlash(e.target.checked)}
+                className="cursor-pointer"
+              />
+              <span>Bypass Flash</span>
+            </label>
+          </div>
           <button
             className="w-full px-3 py-2 bg-purple-600 hover:bg-purple-700 rounded text-sm"
             onClick={testScenarios.rapidFireDuringAnimation}

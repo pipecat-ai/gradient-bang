@@ -62,6 +62,15 @@ export const MiniMap = ({
       return;
     }
 
+    // Update controller props (including config changes like bypass_animation)
+    controllerRef.current.updateProps({
+      width,
+      height,
+      data: map_data,
+      config: mergedConfig,
+      maxDistance,
+    });
+
     const sectorChanged = current_sector_id !== prevSectorIdRef.current;
 
     if (sectorChanged) {

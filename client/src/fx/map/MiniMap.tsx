@@ -26,6 +26,7 @@ export interface MiniMapRenderConfig {
   current_sector_outer_border: number;
   animation_duration_pan: number;
   animation_duration_zoom: number;
+  bypass_animation: boolean;
   debug: boolean;
   show_grid: boolean;
   show_warps: boolean;
@@ -64,6 +65,7 @@ export const DEFAULT_MINIMAP_CONFIG: Omit<
   current_sector_outer_border: 5,
   animation_duration_pan: 500,
   animation_duration_zoom: 800,
+  bypass_animation: false,
   debug: false,
   show_grid: true,
   show_warps: true,
@@ -937,6 +939,7 @@ export interface MiniMapController {
   render: () => void;
   moveToSector: (newSectorId: number, newMapData?: MapData) => void;
   getCurrentState: () => CameraState | null;
+  updateProps: (newProps: Partial<MiniMapProps>) => void;
 }
 
 /** Create minimap controller with imperative API */
@@ -1018,9 +1021,16 @@ export function createMiniMapController(
 
   const getCurrentState = () => currentCameraState;
 
+  const updateProps = (newProps: Partial<MiniMapProps>) => {
+    currentProps = { ...currentProps, ...newProps };
+    if (newProps.config) {
+      currentProps.config = { ...currentProps.config, ...newProps.config };
+    }
+  };
+
   render();
 
-  return { render, moveToSector, getCurrentState };
+  return { render, moveToSector, getCurrentState, updateProps };
 }
 
 /** Render minimap canvas (stateless) */
@@ -1115,7 +1125,7 @@ export function updateCurrentSector(
     return () => {};
   }
 
-  if (!currentCameraState) {
+  if (!currentCameraState || config.bypass_animation) {
     renderWithCameraState(
       canvas,
       { ...props, config: newConfig },
