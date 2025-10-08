@@ -11,6 +11,8 @@ from combat.models import GarrisonState
 from ships import ShipType, get_ship_stats
 from trading import get_port_prices, get_port_stock
 
+from sector import generate_scene_variant
+
 
 COMBAT_ACTION_REQUIRED = (
     "Cannot perform this action during combat. Submit attack/brace/flee instead."
@@ -191,6 +193,8 @@ async def sector_contents(
         for container in world.salvage_manager.list_sector(sector_id):
             salvage.append(container.to_dict())
 
+    # Scene config
+    # @TODO: we should be storing / retrieving this from the game world 
     return {
         "id": sector_id,
         "adjacent_sectors": adjacent_sectors,
@@ -199,6 +203,7 @@ async def sector_contents(
         "garrison": garrison,
         "garrisons": garrisons_list,
         "salvage": salvage,
+        "scene_config": generate_scene_variant(sector_id),
     }
 
 
