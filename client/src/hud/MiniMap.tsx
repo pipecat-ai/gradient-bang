@@ -1,14 +1,14 @@
-import type { MiniMapController, MiniMapRenderConfig } from "@fx/map/MiniMap";
+import type { MiniMapConfigBase, MiniMapController } from "@fx/map/MiniMap";
 import {
   createMiniMapController,
   DEFAULT_MINIMAP_CONFIG,
 } from "@fx/map/MiniMap";
 import { useEffect, useMemo, useRef } from "react";
 
-export type MiniMapConfigOverrides = Partial<
-  Omit<MiniMapRenderConfig, "current_sector_id" | "colors">
+export type MiniMapConfig = Partial<
+  Omit<MiniMapConfigBase, "current_sector_id" | "colors">
 > & {
-  colors?: Partial<MiniMapRenderConfig["colors"]>;
+  colors?: Partial<MiniMapConfigBase["colors"]>;
 };
 
 export const MiniMap = ({
@@ -21,7 +21,7 @@ export const MiniMap = ({
   showLegend = true,
 }: {
   current_sector_id: number;
-  config?: MiniMapConfigOverrides;
+  config?: MiniMapConfig;
   map_data: MapData;
   width?: number;
   height?: number;
@@ -32,7 +32,7 @@ export const MiniMap = ({
   const controllerRef = useRef<MiniMapController | null>(null);
   const prevSectorIdRef = useRef<number>(current_sector_id);
 
-  const mergedConfig = useMemo<MiniMapRenderConfig>(
+  const mergedConfig = useMemo<MiniMapConfigBase>(
     () => ({
       ...DEFAULT_MINIMAP_CONFIG,
       ...config,

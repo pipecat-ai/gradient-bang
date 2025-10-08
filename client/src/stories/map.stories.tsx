@@ -1,10 +1,7 @@
 import type { Story } from "@ladle/react";
 import { useCallback, useState } from "react";
 
-import {
-  MiniMap as MiniMapComponent,
-  type MiniMapConfigOverrides,
-} from "@hud/MiniMap";
+import { MiniMap as MiniMapComponent, type MiniMapConfig } from "@hud/MiniMap";
 import { Button } from "@pipecat-ai/voice-ui-kit";
 
 const storyData: MapData = [
@@ -141,7 +138,7 @@ export const MiniMapMock: Story = () => {
     []
   );
 
-  const configOverrides: MiniMapConfigOverrides = {
+  const config: MiniMapConfig = {
     bypass_animation: bypassAnimation,
   };
 
@@ -150,7 +147,7 @@ export const MiniMapMock: Story = () => {
       <div className="story-card space-y-3 bg-card">
         <MiniMapComponent
           current_sector_id={currentSectorId}
-          config={configOverrides}
+          config={config}
           map_data={storyData}
           width={440}
           height={440}
