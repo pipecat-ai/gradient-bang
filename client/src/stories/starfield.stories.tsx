@@ -132,7 +132,6 @@ export const StarFieldSequence: Story = () => {
   const testScenarios = {
     // Scenario 1: Single warp (should play animation)
     singleWarp: () => {
-      resetState();
       console.log("\n[STORY] 🧪 TEST: Single Warp");
       starfieldInstance?.warpToSector({ id: generateRandomSectorId() });
     },
@@ -170,7 +169,6 @@ export const StarFieldSequence: Story = () => {
 
     // Scenario 4: Bypass animation (should load directly)
     bypassAnimation: () => {
-      resetState();
       console.log("\n[STORY] 🧪 TEST: Bypass Animation");
       starfieldInstance?.warpToSector({
         id: generateRandomSectorId(),
@@ -180,7 +178,6 @@ export const StarFieldSequence: Story = () => {
 
     // Scenario 5: Bypass flash (no visual transition)
     bypassFlash: () => {
-      resetState();
       console.log("\n[STORY] 🧪 TEST: Bypass Flash");
       starfieldInstance?.warpToSector({
         id: generateRandomSectorId(),

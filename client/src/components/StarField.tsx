@@ -38,6 +38,10 @@ export const StarField = memo(() => {
               `[STARFIELD] 🎉 Warp complete - ${queueLength} remaining`
             );
           },
+          onWarpQueue: () => {
+            const state = useGameStore.getState();
+            state.setUIState("autopilot");
+          },
           onGameObjectInView: (gameObject) => {
             console.log("[STARFIELD] Game object in view:", gameObject.name);
           },

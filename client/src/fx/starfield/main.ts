@@ -57,6 +57,7 @@ export interface StarfieldCallbacks {
   onWarpStart?: (() => void) | null;
   onWarpComplete?: ((queueRemainingCount: number) => void) | null;
   onWarpCancel?: (() => void) | null;
+  onWarpQueue?: ((queueLength: number) => void) | null;
   onSceneIsLoading?: (() => void) | null;
   onSceneReady?:
     | ((isInitialRender: boolean, sceneId: string | null) => void)
@@ -297,6 +298,7 @@ export class GalaxyStarfield {
   private _warpQueue: WarpOptions[] = [];
   private _isProcessingQueue: boolean = false;
   private _queueDelayTimer: number | null = null;
+  private _shouldShakeDuringQueue: boolean = false;
 
   // Warp cooldown management (controls animation rate-limiting)
   private _warpCooldownTimer: number | null = null;
@@ -318,6 +320,7 @@ export class GalaxyStarfield {
       onWarpStart: null,
       onWarpComplete: null,
       onWarpCancel: null,
+      onWarpQueue: null,
       onSceneIsLoading: null,
       onSceneReady: null,
       ...callbacks,
@@ -1172,7 +1175,21 @@ export class GalaxyStarfield {
         this.whiteFlash.style.opacity = "0";
       }
 
-      this.setState("idle");
+      // Check if we should shake during queue processing
+      if (this._warpQueue.length > 0) {
+        this._shouldShakeDuringQueue = true;
+        this.setState("shake");
+
+        // Trigger queue callback
+        if (
+          this.callbacks.onWarpQueue &&
+          typeof this.callbacks.onWarpQueue === "function"
+        ) {
+          this.callbacks.onWarpQueue(this._warpQueue.length);
+        }
+      } else {
+        this.setState("idle");
+      }
 
       // Start cooldown timer to prevent animation spam
       const warpCooldownSec = this.config.warpCooldownSec || 0;
@@ -1730,6 +1747,17 @@ export class GalaxyStarfield {
 
       // Start queue processing if not already processing
       if (!this._isProcessingQueue) {
+        // Set shake flag since we're starting queue processing
+        this._shouldShakeDuringQueue = true;
+
+        // Trigger queue callback
+        if (
+          this.callbacks.onWarpQueue &&
+          typeof this.callbacks.onWarpQueue === "function"
+        ) {
+          this.callbacks.onWarpQueue(this._warpQueue.length);
+        }
+
         this._processWarpQueue();
       }
       return;
@@ -1798,10 +1826,24 @@ export class GalaxyStarfield {
       console.debug("[STARFIELD] Warp queue empty, processing complete");
       this._isProcessingQueue = false;
       this._queueDelayTimer = null;
+
+      // Clear shake flag and return to idle after queue finishes
+      if (this._shouldShakeDuringQueue) {
+        this._shouldShakeDuringQueue = false;
+        console.debug("[STARFIELD] Queue complete, returning to idle");
+        this.setState("idle");
+      }
       return;
     }
 
     this._isProcessingQueue = true;
+
+    // Start shake if flag is set and we're not already shaking
+    if (this._shouldShakeDuringQueue && this.state !== "shake") {
+      console.debug("[STARFIELD] Starting shake for queue processing");
+      this.setState("shake");
+    }
+
     const queueDelaySec = this.config.queueProcessingDelaySec || 1.0;
     console.debug(
       `[STARFIELD] Processing warp queue (${this._warpQueue.length} remaining), delay: ${queueDelaySec}s`
@@ -1817,6 +1859,13 @@ export class GalaxyStarfield {
         this._processWarpRequest(nextRequest);
       } else {
         this._isProcessingQueue = false;
+
+        // Clear shake flag when queue is done processing
+        if (this._shouldShakeDuringQueue) {
+          this._shouldShakeDuringQueue = false;
+          console.debug("[STARFIELD] Queue timer elapsed, returning to idle");
+          this.setState("idle");
+        }
       }
     }, queueDelaySec * 1000);
   }
@@ -1862,9 +1911,22 @@ export class GalaxyStarfield {
 
   /**
    * Start shake animation
+   * If warp animation is active, queues shake for after animation completes
    */
   public startShake(): void {
+    if (this.state === "warping") {
+      this._shouldShakeDuringQueue = true;
+      return;
+    }
     this.setAnimationState("shake");
+  }
+
+  /**
+   * Stop shake animation and return to idle
+   */
+  public stopShake(): void {
+    this._shouldShakeDuringQueue = false;
+    this.setAnimationState("idle");
   }
 
   /**
@@ -1932,6 +1994,13 @@ export class GalaxyStarfield {
       `[STARFIELD] Clearing ${this._warpQueue.length} queued warp requests`
     );
     this._warpQueue = [];
+
+    // Clear shake flag and return to idle if we were shaking during queue
+    if (this._shouldShakeDuringQueue) {
+      this._shouldShakeDuringQueue = false;
+      console.debug("[STARFIELD] Queue cleared, returning to idle");
+      this.setState("idle");
+    }
   }
 
   // ============================================================================

@@ -6,9 +6,11 @@ export interface UISlice {
   ui: {
     active_modal?: "trade" | "ship" | "self" | "player" | "map" | "combat";
     highlight_element_id?: string;
-    state: "idle" | "moving" | "plotting" | "trading";
+    state: "idle" | "moving" | "autopilot" | "plotting" | "trading";
   };
-  setUIState: (newState: "idle" | "moving" | "plotting" | "trading") => void;
+  setUIState: (
+    newState: "idle" | "moving" | "autopilot" | "plotting" | "trading"
+  ) => void;
 }
 
 export const createUISlice: StateCreator<UISlice> = (set) => ({
@@ -17,7 +19,9 @@ export const createUISlice: StateCreator<UISlice> = (set) => ({
     highlight_element_id: undefined,
     state: "idle",
   },
-  setUIState: (newState: "idle" | "moving" | "plotting" | "trading") => {
+  setUIState: (
+    newState: "idle" | "moving" | "autopilot" | "plotting" | "trading"
+  ) => {
     set(
       produce((state) => {
         state.ui.state = newState;
