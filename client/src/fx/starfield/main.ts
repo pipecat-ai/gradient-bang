@@ -1735,6 +1735,15 @@ export class GalaxyStarfield {
         this.state === "warping" ? "(warping)" : "(processing queue)"
       );
       this._warpQueue.push(options);
+
+      // Trigger queue callback when item is added
+      if (
+        this.callbacks.onWarpQueue &&
+        typeof this.callbacks.onWarpQueue === "function"
+      ) {
+        this.callbacks.onWarpQueue(this._warpQueue.length);
+      }
+
       return;
     }
 
@@ -1745,19 +1754,18 @@ export class GalaxyStarfield {
       );
       this._warpQueue.push(options);
 
+      // Trigger queue callback when item is added
+      if (
+        this.callbacks.onWarpQueue &&
+        typeof this.callbacks.onWarpQueue === "function"
+      ) {
+        this.callbacks.onWarpQueue(this._warpQueue.length);
+      }
+
       // Start queue processing if not already processing
       if (!this._isProcessingQueue) {
         // Set shake flag since we're starting queue processing
         this._shouldShakeDuringQueue = true;
-
-        // Trigger queue callback
-        if (
-          this.callbacks.onWarpQueue &&
-          typeof this.callbacks.onWarpQueue === "function"
-        ) {
-          this.callbacks.onWarpQueue(this._warpQueue.length);
-        }
-
         this._processWarpQueue();
       }
       return;
