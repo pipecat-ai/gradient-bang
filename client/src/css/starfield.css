@@ -1,8 +1,9 @@
 #starfield-container {
-  position: fixed;
+  position: absolute;
   inset: 0;
   overflow: hidden;
-  height: calc(100vh - 100px);
+  height: 100%;
+  //height: calc(100vh - 100px);
   z-index: 1;
 }
 

@@ -18,7 +18,7 @@ export type UniformMapping = string | UniformMappingConfig;
 export interface UniformMappingConfig {
   uniform: string;
   type: "vec3" | "vec2" | "color" | "texture" | "float" | "int" | "bool";
-  transform?: (value: any) => any;
+  transform?: (value: unknown) => unknown;
 }
 
 /** Material-specific uniform mappings */
@@ -66,7 +66,7 @@ export interface ShadowCenter {
 /** Frame-based uniform updates */
 export interface FrameUpdates {
   [materialId: string]: {
-    [uniformName: string]: any;
+    [uniformName: string]: unknown;
   };
 }
 
@@ -324,7 +324,7 @@ export class ConfigUniformMapper {
         domainScale: config.cloudsDomainScale,
         shakeWarpIntensity: config.cloudsShakeWarpIntensity,
         shakeWarpRampTime: config.cloudsShakeWarpRampTime,
-        noiseUse: this.calculateNoiseUse(state, config),
+        noiseUse: this.calculateNoiseUse(state),
         shakePhase:
           state.currentState === "shake" || state.currentState === "warping"
             ? (state.shakePhase || 0) * 0.1 // Scale down and use smooth transition
@@ -438,10 +438,7 @@ export class ConfigUniformMapper {
   /**
    * Calculate noise usage for performance optimization
    */
-  private calculateNoiseUse(
-    state: FrameState,
-    _config: GalaxyStarfieldConfig
-  ): number {
+  private calculateNoiseUse(state: FrameState): number {
     if (state.currentState === "warping") {
       // Reduce noise complexity during warp for performance
       return Math.max(0.3, 1 - state.warpProgress * 0.7);

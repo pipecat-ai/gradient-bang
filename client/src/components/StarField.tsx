@@ -10,7 +10,7 @@ export const StarField = memo(() => {
   useEffect(() => {
     const state = useGameStore.getState();
     if (!state.starfieldInstance) {
-      console.log("[STARFIELD] Initializing Starfield instance");
+      console.log("[STARFIELD RENDER] Initializing Starfield instance");
       const targetElement = document.getElementById("starfield") ?? undefined;
       const s = new GalaxyStarfield(
         {},
@@ -18,14 +18,31 @@ export const StarField = memo(() => {
           onSceneIsLoading: () => {
             console.log("[STARFIELD] 🔄 Scene is loading...");
           },
-          onSceneReady: () => {
-            console.log("[STARFIELD] ✅ Scene ready!");
-            targetElement?.parentElement?.classList.add("starfield-active");
-            playSound("start", { volume: 0.5 });
+          onSceneReady: (isInitialRender, sceneId) => {
+            console.log(
+              "[STARFIELD] ✅ Scene ready!",
+              isInitialRender ? "(initial)" : "(warp)",
+              `scene: ${sceneId || "unknown"}`
+            );
+            if (isInitialRender) {
+              playSound("start", { volume: 0.5 });
+              targetElement?.parentElement?.classList.add("starfield-active");
+            }
           },
           onWarpStart: () => {
             console.log("[STARFIELD] 🚀 Warp started");
             playSound("warp", { volume: 0.1 });
+          },
+          onWarpComplete(queueLength) {
+            console.log(
+              `[STARFIELD] 🎉 Warp complete - ${queueLength} remaining`
+            );
+            if (queueLength === 0) {
+              state.setAutopilot(false);
+            }
+          },
+          onWarpQueue: () => {
+            state.setAutopilot(true);
           },
           onGameObjectInView: (gameObject) => {
             console.log("[STARFIELD] Game object in view:", gameObject.name);
@@ -38,11 +55,14 @@ export const StarField = memo(() => {
     }
 
     return () => {
-      if (state.starfieldInstance) {
-        console.log("[STARFIELD] Unmounting Starfield instance");
-        state.starfieldInstance.destroy();
-        state.setStarfieldInstance(undefined);
-      }
+      // Note: we don't unmount the Starfield instance as it's always
+      // rendered in the DOM and is not destroyed. We may want to revisit
+      // this later if the views change during gameplay.
+      //if (state.starfieldInstance) {
+      //  console.log("[STARFIELD RENDER] Unmounting Starfield instance");
+      //  state.starfieldInstance.destroy();
+      //  state.setStarfieldInstance(undefined);
+      //}
     };
   }, [playSound]);
 

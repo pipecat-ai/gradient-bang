@@ -3,7 +3,7 @@ import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react";
 import useGameStore from "@stores/game";
 import { useCallback, type ReactNode } from "react";
 
-import { moveToSector, startMoveToSector } from "@/actions";
+import { startMoveToSector } from "@/actions";
 import { GameContext } from "@/hooks/useGameContext";
 
 /**
@@ -113,8 +113,13 @@ export function GameProvider({ children }: GameProviderProps) {
                 sector: status.sector,
               });
 
-              // Update starfield by triggering a warp
-              moveToSector(status.sector, !!initalizing);
+              // Initialize the StarField
+              if (initalizing) {
+                startMoveToSector(status.sector, {
+                  bypassAnimation: true,
+                  bypassFlash: true,
+                });
+              }
 
               break;
             }

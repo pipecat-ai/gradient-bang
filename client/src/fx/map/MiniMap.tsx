@@ -1,4 +1,4 @@
-export interface MiniMapRenderConfig {
+export interface MiniMapConfigBase {
   current_sector_id: number;
   colors: {
     empty: string;
@@ -26,6 +26,7 @@ export interface MiniMapRenderConfig {
   current_sector_outer_border: number;
   animation_duration_pan: number;
   animation_duration_zoom: number;
+  bypass_animation: boolean;
   debug: boolean;
   show_grid: boolean;
   show_warps: boolean;
@@ -35,7 +36,7 @@ export interface MiniMapRenderConfig {
 }
 
 export const DEFAULT_MINIMAP_CONFIG: Omit<
-  MiniMapRenderConfig,
+  MiniMapConfigBase,
   "current_sector_id"
 > = {
   colors: {
@@ -64,6 +65,7 @@ export const DEFAULT_MINIMAP_CONFIG: Omit<
   current_sector_outer_border: 5,
   animation_duration_pan: 500,
   animation_duration_zoom: 800,
+  bypass_animation: false,
   debug: false,
   show_grid: true,
   show_warps: true,
@@ -76,7 +78,7 @@ export interface MiniMapProps {
   width: number;
   height: number;
   data: MapData;
-  config: MiniMapRenderConfig;
+  config: MiniMapConfigBase;
   maxDistance?: number;
 }
 
@@ -321,7 +323,7 @@ function renderLane(
   toNode: MapSectorNode,
   scale: number,
   hexSize: number,
-  config: MiniMapRenderConfig
+  config: MiniMapConfigBase
 ) {
   const fromCenter = hexToWorld(
     fromNode.position[0],
@@ -403,7 +405,7 @@ function renderHyperlaneStub(
   direction: number,
   scale: number,
   hexSize: number,
-  config: MiniMapRenderConfig
+  config: MiniMapConfigBase
 ): { x: number; y: number; text: string } | null {
   const fromWorld = hexToWorld(
     fromNode.position[0],
@@ -467,7 +469,7 @@ function renderAllLanes(
   data: MapData,
   scale: number,
   hexSize: number,
-  config: MiniMapRenderConfig
+  config: MiniMapConfigBase
 ): Array<{ x: number; y: number; text: string }> {
   const renderedLanes = new Set<string>();
   const hyperlaneLabels: Array<{ x: number; y: number; text: string }> = [];
@@ -543,7 +545,7 @@ function renderSector(
   node: MapSectorNode,
   scale: number,
   hexSize: number,
-  config: MiniMapRenderConfig,
+  config: MiniMapConfigBase,
   currentRegion?: string,
   opacity = 1
 ) {
@@ -639,7 +641,7 @@ function renderHexGrid(
 /** Calculate complete camera state for given props */
 function calculateCameraState(
   data: MapData,
-  config: MiniMapRenderConfig,
+  config: MiniMapConfigBase,
   width: number,
   height: number,
   scale: number,
@@ -698,7 +700,7 @@ function renderSectorLabels(
   width: number,
   height: number,
   cameraState: CameraState,
-  config: MiniMapRenderConfig
+  config: MiniMapConfigBase
 ) {
   if (!config.show_sector_ids) return;
 
@@ -756,7 +758,7 @@ function renderPortLabels(
   width: number,
   height: number,
   cameraState: CameraState,
-  config: MiniMapRenderConfig
+  config: MiniMapConfigBase
 ) {
   if (!config.show_ports) return;
 
@@ -937,6 +939,7 @@ export interface MiniMapController {
   render: () => void;
   moveToSector: (newSectorId: number, newMapData?: MapData) => void;
   getCurrentState: () => CameraState | null;
+  updateProps: (newProps: Partial<MiniMapProps>) => void;
 }
 
 /** Create minimap controller with imperative API */
@@ -1018,9 +1021,16 @@ export function createMiniMapController(
 
   const getCurrentState = () => currentCameraState;
 
+  const updateProps = (newProps: Partial<MiniMapProps>) => {
+    currentProps = { ...currentProps, ...newProps };
+    if (newProps.config) {
+      currentProps.config = { ...currentProps.config, ...newProps.config };
+    }
+  };
+
   render();
 
-  return { render, moveToSector, getCurrentState };
+  return { render, moveToSector, getCurrentState, updateProps };
 }
 
 /** Render minimap canvas (stateless) */
@@ -1115,7 +1125,7 @@ export function updateCurrentSector(
     return () => {};
   }
 
-  if (!currentCameraState) {
+  if (!currentCameraState || config.bypass_animation) {
     renderWithCameraState(
       canvas,
       { ...props, config: newConfig },

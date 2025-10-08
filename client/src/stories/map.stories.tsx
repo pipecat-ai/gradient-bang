@@ -1,10 +1,7 @@
 import type { Story } from "@ladle/react";
 import { useCallback, useState } from "react";
 
-import {
-  MiniMap as MiniMapComponent,
-  type MiniMapConfigOverrides,
-} from "@hud/MiniMap";
+import { MiniMap as MiniMapComponent, type MiniMapConfig } from "@hud/MiniMap";
 import { Button } from "@pipecat-ai/voice-ui-kit";
 
 const storyData: MapData = [
@@ -131,23 +128,26 @@ const storyData: MapData = [
   },
 ];
 
-const configOverrides: MiniMapConfigOverrides = {};
-
 export const MiniMapMock: Story = () => {
   const [currentSectorId, setCurrentSectorId] = useState<number>(0);
   const [maxDistance, setMaxDistance] = useState<number>(3);
+  const [bypassAnimation, setBypassAnimation] = useState<boolean>(false);
 
   const handleSetSector = useCallback(
     (id: number) => setCurrentSectorId(id),
     []
   );
 
+  const config: MiniMapConfig = {
+    bypass_animation: bypassAnimation,
+  };
+
   return (
     <>
       <div className="story-card space-y-3 bg-card">
         <MiniMapComponent
           current_sector_id={currentSectorId}
-          config={configOverrides}
+          config={config}
           map_data={storyData}
           width={440}
           height={440}
@@ -167,6 +167,18 @@ export const MiniMapMock: Story = () => {
               onChange={(e) => setMaxDistance(Number(e.target.value))}
               className="flex-1"
             />
+          </div>
+          <div className="flex items-center gap-3">
+            <label htmlFor="animation-toggle" className="text-sm font-medium">
+              <input
+                id="animation-toggle"
+                type="checkbox"
+                checked={bypassAnimation}
+                onChange={(e) => setBypassAnimation(e.target.checked)}
+                className="mr-2"
+              />
+              Bypass Animation
+            </label>
           </div>
           <div className="flex gap-2 flex-wrap">
             {[0, 581, 389, 566, 849, 1284].map((id) => (

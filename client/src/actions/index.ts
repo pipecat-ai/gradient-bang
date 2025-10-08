@@ -1,6 +1,6 @@
 import useGameStore from "@/stores/game";
 
-export const moveToSector = async (
+/*export const moveToSector = async (
   newSector: Sector,
   bypassAnimation: boolean = false
 ) => {
@@ -43,9 +43,15 @@ export const moveToSector = async (
   }
 
   gameStore.setSector(newSector);
-};
+};*/
 
-export const startMoveToSector = (newSector: Sector) => {
+export const startMoveToSector = (
+  newSector: Sector,
+  options: { bypassAnimation: boolean; bypassFlash: boolean } = {
+    bypassAnimation: false,
+    bypassFlash: false,
+  }
+) => {
   const gameStore = useGameStore.getState();
   const starfield = gameStore.starfieldInstance;
 
@@ -65,20 +71,11 @@ export const startMoveToSector = (newSector: Sector) => {
     return;
   }
 
-  // @TODO: are we moving as part of a task? If so, we bypass animation
-  // in favor of the screen 'shake' effect. The Starfield still needs
-  // starfield.warpToSector(newSector, true);
+  console.debug("[GAME ACTION] Updating Starfield to", newSector);
 
-  // We could also add some logic here that checks if the starfield is
-  // animating, and if so, something is unusual and we can trigger the
-  // shake effect vs. stacking animations.
-  // if(starfield.state === "warping") {
-  //   starfield.startShake();
-  //   starfield.warpToSector(newSector, true);
-  // } else {
-  //   starfield.warpToSector(newSector, false);
-  // }
-
-  // Start the Starfield warp animation and update the scene / game objects
-  //starfield.warpToSector(newSector, false);
+  starfield.warpToSector({
+    id: newSector.id.toString(),
+    bypassAnimation: options.bypassAnimation,
+    bypassFlash: options.bypassFlash,
+  });
 };
