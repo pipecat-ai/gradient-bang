@@ -49,6 +49,7 @@ declare global {
 
   interface ShipSelf extends Ship {
     cargo: Record<Resource, number>;
+    cargo_used: number;
     cargo_capacity: number;
     holds: number;
     warp_power: number;

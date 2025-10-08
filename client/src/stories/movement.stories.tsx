@@ -97,8 +97,15 @@ export const MovementWithStarfield: Story = () => {
   const { isConnected } = usePipecatConnectionState();
   const sector = useGameStore((state) => state.sector);
   const localMapData = useGameStore((state) => state.local_map_data);
+  const autopilot = useGameStore((state) => state.ui.autopilot);
+
   return (
     <div className="relative w-full h-full bg-card">
+      {autopilot && (
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-red-500/80 p-4 shadow-xlong text-white z-[9999] animate-pulse">
+          Autopilot Engaged
+        </div>
+      )}
       <div className="absolute z-[999] top-0 left-0">
         {sector && localMapData && (
           <MiniMap

@@ -8,9 +8,11 @@ export interface UISlice {
     highlight_element_id?: string;
     state: "idle" | "moving" | "plotting" | "trading";
     autopilot: boolean;
+    modal: "settings" | undefined;
   };
   setUIState: (newState: "idle" | "moving" | "plotting" | "trading") => void;
   setAutopilot: (autopilot: boolean) => void;
+  setModal: (modal: "settings" | undefined) => void;
 }
 
 export const createUISlice: StateCreator<UISlice> = (set) => ({
@@ -19,6 +21,7 @@ export const createUISlice: StateCreator<UISlice> = (set) => ({
     highlight_element_id: undefined,
     state: "idle",
     autopilot: false,
+    modal: undefined,
   },
   setUIState: (newState: "idle" | "moving" | "plotting" | "trading") => {
     set(
@@ -31,6 +34,13 @@ export const createUISlice: StateCreator<UISlice> = (set) => ({
     set(
       produce((state) => {
         state.ui.autopilot = autopilot;
+      })
+    );
+  },
+  setModal: (modal: "settings" | undefined) => {
+    set(
+      produce((state) => {
+        state.ui.modal = modal;
       })
     );
   },
