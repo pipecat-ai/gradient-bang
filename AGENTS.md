@@ -40,9 +40,10 @@
 - Frameworks: `pytest`, `pytest-asyncio`, `httpx` (ASGI transport for server tests).
 - Naming: files `tests/test_*.py`, async tests use `@pytest.mark.asyncio`.
 - Examples:
-  - Unit tests: `tests/test_utils.py`
-  - Integration tests (FastAPI app): `tests/test_character_endpoints.py`
+- Unit tests: `tests/test_utils.py`
+- Integration tests (FastAPI app): `tests/test_character_endpoints.py`
 - Run: `uv run pytest -q`; target specific tests with `-k` / `::TestName`. For integration tests, ensure `world-data/` exists.
+- Combat end-to-end suite: start the server with `PORT=8002 uv run game-server/server.py > game-server-debug.log 2>&1` (allow ~5s for startup) and in another shell run `uv run pytest tests/test_combat_scenarios_comprehensive.py -v`. Expect roughly 3.5 minutes because tests wait for real combat round deadlines.
 
 ## Commit & Pull Request Guidelines
 - Commits: imperative mood, concise scope (e.g., "add TUI task panel"). Group related changes; keep noise low.

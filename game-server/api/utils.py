@@ -1,11 +1,13 @@
 import json
-from collections import deque, defaultdict
+from copy import deepcopy
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional
 
 from fastapi import HTTPException
 
+from combat.models import GarrisonState
 from ships import ShipType, get_ship_stats
 from trading import get_port_prices, get_port_stock
 
@@ -178,12 +180,10 @@ async def sector_contents(
         players.append(player)
 
     # Garrisons
-    garrison = None
-    if getattr(world, "garrisons", None):
-        for garrison in await world.garrisons.list_sector(sector_id):
-            entry = garrison.to_dict()
-            entry["is_friendly"] = garrison.owner_id == current_character_id
-            garrison = entry
+    garrison = await serialize_sector_garrison(
+        world, sector_id, current_character_id=current_character_id
+    )
+    garrisons_list = [deepcopy(garrison)] if garrison else []
 
     # Salvage containers
     salvage = []
@@ -197,6 +197,7 @@ async def sector_contents(
         "port": port,
         "players": players,
         "garrison": garrison,
+        "garrisons": garrisons_list,
         "salvage": salvage,
     }
 
@@ -213,6 +214,58 @@ async def build_status_payload(
         "ship": ship_self(world, character_id),
         "sector": await sector_contents(world, character.sector, character_id),
     }
+
+
+def resolve_character_name(world, character_id: str) -> str:
+    character = world.characters.get(character_id)
+    if character:
+        display_name = getattr(character, "display_name", None)
+        if isinstance(display_name, str) and display_name.strip():
+            return display_name
+    return character_id
+
+
+def serialize_garrison_for_client(
+    world,
+    garrison_state: Optional[GarrisonState],
+    sector_id: int,
+    *,
+    current_character_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    if garrison_state is None:
+        return None
+
+    owner_name = resolve_character_name(world, garrison_state.owner_id)
+    payload: Dict[str, Any] = {
+        "owner_name": owner_name,
+        "fighters": garrison_state.fighters,
+        "mode": garrison_state.mode,
+        "toll_amount": garrison_state.toll_amount,
+        "deployed_at": garrison_state.deployed_at,
+    }
+    if current_character_id is not None:
+        payload["is_friendly"] = garrison_state.owner_id == current_character_id
+    return payload
+
+
+async def serialize_sector_garrison(
+    world,
+    sector_id: int,
+    current_character_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    if not getattr(world, "garrisons", None):
+        return None
+
+    garrisons = await world.garrisons.list_sector(sector_id)
+    if not garrisons:
+        return None
+
+    return serialize_garrison_for_client(
+        world,
+        garrisons[0],
+        sector_id,
+        current_character_id=current_character_id,
+    )
 
 
 async def build_local_map_region(
@@ -306,11 +359,13 @@ async def build_local_map_region(
             lanes = []
             if world.universe_graph and sector_id in world.universe_graph.warps:
                 for warp in world.universe_graph.warps[sector_id]:
-                    lanes.append({
-                        "to": warp["to"],
-                        "two_way": warp["two_way"],
-                        "hyperlane": warp["hyperlane"],
-                    })
+                    lanes.append(
+                        {
+                            "to": warp["to"],
+                            "two_way": warp["two_way"],
+                            "hyperlane": warp["hyperlane"],
+                        }
+                    )
 
             sector_dict = {
                 "id": sector_id,
@@ -346,11 +401,13 @@ async def build_local_map_region(
                     for warp in world.universe_graph.warps[source_sector]:
                         if warp["to"] == sector_id:
                             # This is an incoming lane from the visited sector
-                            lanes.append({
-                                "to": source_sector,
-                                "two_way": warp["two_way"],
-                                "hyperlane": warp["hyperlane"],
-                            })
+                            lanes.append(
+                                {
+                                    "to": source_sector,
+                                    "two_way": warp["two_way"],
+                                    "hyperlane": warp["hyperlane"],
+                                }
+                            )
                             break
 
             result_sectors.append(

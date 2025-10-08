@@ -38,6 +38,12 @@ from npc.combat_utils import ensure_position
 from npc.status_bars import StatusBarUpdater
 from utils.api_client import AsyncGameClient, RPCError
 from utils.base_llm_agent import LLMConfig
+
+
+def _extract_sector_id(value: Any) -> Optional[int]:
+    if isinstance(value, dict):
+        return value.get("id")
+    return value
 from utils.task_agent import TaskAgent
 
 
@@ -312,6 +318,7 @@ class SimpleTUI(App):
         self._last_participants: Dict[str, Dict[str, Any]] = {}
         self._latest_defeated: List[Dict[str, Any]] = []
         self._last_opponent_labels: Tuple[str, ...] = ()
+        self._combat_started_announced: bool = False
         self.mode: InteractionMode = InteractionMode.TASK
         self.task_banner: Optional[Static] = None
         self.task_agent: Optional[TaskAgent] = None
@@ -581,12 +588,12 @@ class SimpleTUI(App):
 
         # Update session with properly structured status payload
         # movement.complete has: {player, ship, sector}
-        # update_from_status expects: {sector: int, ship: {...}, sector_contents: {...}}
+        # update_from_status expects new format: {player: {...}, ship: {...}, sector: {...}}
         if self.session:
             status_for_session = {
-                "sector": sector_id,
+                "player": payload.get("player", {}),
                 "ship": payload.get("ship", {}),
-                "sector_contents": sector_data,
+                "sector": sector_data,
             }
             await self.session.update_from_status(status_for_session)
 
@@ -610,7 +617,10 @@ class SimpleTUI(App):
 
     async def _on_port_update(self, payload: Dict[str, Any]) -> None:
         """Handle port.update event."""
-        sector_id = payload.get("sector_id", "?")
+        sector_ref = payload.get("sector")
+        sector_id = _extract_sector_id(sector_ref)
+        if sector_id is None:
+            sector_id = "?"
         port_data = payload.get("port", {})
 
         # Format port update message
@@ -650,23 +660,6 @@ class SimpleTUI(App):
         if event_name != "combat.ended":
             await self._enter_combat_mode()
 
-        if event_name == "combat.started":
-            # Update StatusBarUpdater
-            self.status_updater.update_from_combat_started(payload)
-            self._refresh_status_display()
-
-            # Keep legacy tracking for defeat detection
-            self._update_combatant_stats(state)
-            await self._announce_defeats()
-            opponents = [
-                p.name for pid, p in state.participants.items() if pid != self.character
-            ]
-            await self._append_log(
-                f"Combat {state.combat_id} started vs: {', '.join(opponents) or '(none)'}"
-            )
-            await self._update_prompt("Awaiting next round", "")
-            return
-
         if event_name == "combat.round_waiting":
             # Update StatusBarUpdater
             self.status_updater.update_from_combat_round_waiting(payload)
@@ -675,6 +668,16 @@ class SimpleTUI(App):
             # Keep legacy tracking for defeat detection
             self._update_combatant_stats(state)
             await self._announce_defeats()
+
+            if not getattr(self, "_combat_started_announced", False):
+                opponents = [
+                    p.name for pid, p in state.participants.items() if pid != self.character
+                ]
+                await self._append_log(
+                    f"Combat {state.combat_id} started vs: {', '.join(opponents) or '(none)'}"
+                )
+                self._combat_started_announced = True
+
             await self._cancel_round_prompt()
             task = asyncio.create_task(self._prompt_for_round_action(state, payload))
             self.round_prompt_task = task
@@ -716,6 +719,7 @@ class SimpleTUI(App):
                 await self._handle_occupants(self.session.other_players())
             await self._return_to_task_mode()
             # NOTE: No manual refresh needed - all updates come from events
+            self._combat_started_announced = False
             return
 
     async def _cancel_round_prompt(self) -> None:
@@ -973,14 +977,14 @@ class SimpleTUI(App):
         for garrison in garrisons:
             if not isinstance(garrison, Mapping):
                 continue
-            owner_id = garrison.get("owner_id")
+            owner_name = garrison.get("owner_name") or garrison.get("owner_id")
             fighters = garrison.get("fighters")
             max_fighters = garrison.get("max_fighters")
             mode = garrison.get("mode")
             friendly = garrison.get("is_friendly")
             if fighters is None:
                 continue
-            owner_label = "you" if owner_id == self.character else str(owner_id or "?")
+            owner_label = "you" if owner_name == self.character else str(owner_name or "?")
             tag = f"{owner_label}:{fighters}"
             if isinstance(max_fighters, (int, float)) and max_fighters:
                 tag += f"/{int(max_fighters)}"
@@ -1756,7 +1760,8 @@ class SimpleTUI(App):
             combatant_id = participant.combatant_id or pid
             if combatant_id == exclude:
                 continue
-            if participant.fighters <= 0:
+            # Only exclude escape pods from attack targets
+            if participant.type == "escape_pod":
                 continue
             results.append(
                 (
@@ -1791,13 +1796,11 @@ class SimpleTUI(App):
         labels: List[str] = sorted(players.keys())
         label_set = set(labels)
         for garrison in garrisons:
-            owner_id = (
-                str(garrison.get("owner_id")) if garrison.get("owner_id") else None
-            )
+            owner_name = garrison.get("owner_name") or garrison.get("owner_id")
             fighters = int(garrison.get("fighters", 0))
-            if not owner_id or owner_id == self.character or fighters <= 0:
+            if not owner_name or owner_name == self.character or fighters <= 0:
                 continue
-            label = f"Garrison({owner_id}, fighters={fighters})"
+            label = f"Garrison({owner_name}, fighters={fighters})"
             if label not in label_set:
                 labels.append(label)
                 label_set.add(label)
@@ -1848,10 +1851,18 @@ def summarize_round(payload: Mapping[str, Any]) -> str:
             scoreboard = ", ".join(f"{name}:{data[name]}" for name in sorted(data))
             fields.append(f"{label}({scoreboard})")
 
-    fighters = payload.get("fighters_remaining")
-    if isinstance(fighters, Mapping) and fighters:
-        scoreboard = ", ".join(f"{name}:{fighters[name]}" for name in sorted(fighters))
-        fields.append(f"fighters({scoreboard})")
+    ship_details = payload.get("ship")
+    if isinstance(ship_details, Mapping):
+        fighters = ship_details.get("fighters")
+        shields = ship_details.get("shields")
+        if fighters is not None or shields is not None:
+            parts = []
+            if fighters is not None:
+                parts.append(f"fighters:{fighters}")
+            if shields is not None:
+                parts.append(f"shields:{shields}")
+            if parts:
+                fields.append("self(" + ", ".join(parts) + ")")
 
     if flee_text:
         fields.append(flee_text)

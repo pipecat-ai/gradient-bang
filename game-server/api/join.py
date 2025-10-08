@@ -78,7 +78,7 @@ async def handle(request: dict, world) -> dict:
             "character.joined",
             {
                 "character_id": character_id,
-                "sector": start_sector,
+                "sector": {"id": start_sector},
                 "timestamp": character.last_active.isoformat(),
             },
         )

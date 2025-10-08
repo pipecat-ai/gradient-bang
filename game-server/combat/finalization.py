@@ -60,7 +60,9 @@ async def finalize_combat(
     """
     salvages = []
 
-    fighters_remaining = outcome.fighters_remaining if outcome.fighters_remaining else {}
+    fighters_remaining = (
+        outcome.fighters_remaining if outcome.fighters_remaining else {}
+    )
     flee_results = outcome.flee_results if outcome.flee_results else {}
 
     # Determine losers and winners
@@ -144,7 +146,9 @@ async def _update_garrisons_after_combat(
                 garrison_sources = [dict(single)]
 
     garrison_lookup = {
-        entry.get("owner_id"): entry for entry in garrison_sources if entry.get("owner_id")
+        entry.get("owner_id"): entry
+        for entry in garrison_sources
+        if entry.get("owner_id")
     }
     notified_owners: set[str] = set()
     toll_winnings: Dict[str, int] = {}
@@ -201,7 +205,9 @@ async def _update_garrisons_after_combat(
     surviving_garrison_owners = {
         state.owner_character_id
         for state in encounter.participants.values()
-        if state.combatant_type == "garrison" and state.owner_character_id and state.fighters > 0
+        if state.combatant_type == "garrison"
+        and state.owner_character_id
+        and state.fighters > 0
     }
 
     for source in garrison_sources:
@@ -215,17 +221,6 @@ async def _update_garrisons_after_combat(
 
     # Emit garrison update events
     if garrison_sources and world.garrisons:
-        await event_dispatcher.emit(
-            "sector.garrison_updated",
-            {
-                "sector": encounter.sector_id,
-                "garrisons": await world.garrisons.to_payload(encounter.sector_id),
-            },
-            character_filter=[
-                source.get("owner_id") for source in garrison_sources if source.get("owner_id")
-            ],
-        )
-        # Emit status updates for garrison owners not yet notified
         for source in garrison_sources:
             owner = source.get("owner_id")
             if owner and owner not in notified_owners:
@@ -281,10 +276,15 @@ async def _process_defeated_characters(
         credits = world.knowledge_manager.get_credits(owner_id)
         scrap = max(5, stats.price // 1000)
 
+        # Get ship name for metadata
+        ship_name = knowledge.ship_config.ship_name or stats.name
+
         # Transfer credits to winner
         if winner_owner and credits > 0:
             winner_credits = world.knowledge_manager.get_credits(winner_owner)
-            world.knowledge_manager.update_credits(winner_owner, winner_credits + credits)
+            world.knowledge_manager.update_credits(
+                winner_owner, winner_credits + credits
+            )
         world.knowledge_manager.update_credits(owner_id, 0)
 
         # Create salvage container
@@ -292,13 +292,12 @@ async def _process_defeated_characters(
             salvages.append(
                 world.salvage_manager.create(
                     sector=encounter.sector_id,
-                    victor_id=winner_owner,
                     cargo=cargo,
                     scrap=scrap,
                     credits=0,
                     metadata={
-                        "loser": owner_id,
                         "ship_type": ship_type.value,
+                        "ship_name": ship_name,
                         "combat_id": encounter.combat_id,
                     },
                 )

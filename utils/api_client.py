@@ -284,6 +284,14 @@ class AsyncGameClient:
                     event_name = msg.get("event")
                     payload = msg.get("payload", {})
                     if event_name:
+                        if (
+                            event_name == "character.moved"
+                            and self._character_id is not None
+                        ):
+                            mover_id = payload.get("character_id")
+                            mover_name = payload.get("name")
+                            if mover_id == self._character_id or mover_name == self._character_id:
+                                continue
                         asyncio.create_task(self._dispatch_event(event_name, payload))
                     continue
                 if frame_type == "rpc":

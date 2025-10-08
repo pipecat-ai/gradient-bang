@@ -14,7 +14,6 @@ from combat.utils import (
     new_combat_id,
     serialize_encounter,
 )
-from rpc.events import event_dispatcher
 
 logger = logging.getLogger("gradient-bang.api.combat_initiate")
 
@@ -147,20 +146,6 @@ async def start_sector_combat(
     payload["initiator"] = initiator_id
     payload["target"] = None
     payload["target_type"] = None
-
-    character_filter = []
-    for state in encounter.participants.values():
-        if state.owner_character_id:
-            character_filter.append(state.owner_character_id)
-        elif state.combatant_type == "character":
-            character_filter.append(state.combatant_id)
-    character_filter = sorted(set(character_filter))
-
-    await event_dispatcher.emit(
-        "combat.started",
-        payload,
-        character_filter=character_filter,
-    )
 
     logger.info(
         "Combat initiated in sector %s (reason=%s): participants=%s",

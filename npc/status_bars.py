@@ -6,8 +6,14 @@ updating from server events, and formatting for display.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime
+
+
+def _extract_sector_id(value: Any) -> Optional[int]:
+    if isinstance(value, dict):
+        return value.get("id")
+    return value
 
 
 @dataclass
@@ -40,10 +46,10 @@ class CombatantStatus:
     combatant_id: str
     name: str
     ship_type: Optional[str]  # None for garrisons
-    fighters: int
-    shields: int
-    max_fighters: int
-    max_shields: int
+    fighters: Optional[int]
+    shields: Optional[int]
+    max_fighters: Optional[int]
+    max_shields: Optional[int]
     is_escape_pod: bool
     fighters_delta: int = 0
     shields_delta: int = 0
@@ -136,7 +142,9 @@ class StatusBarUpdater:
             ship_data = status_payload.get("ship", {})
 
             # Extract sector_id
-            self.state.sector_id = status_payload.get("sector", self.state.sector_id)
+            legacy_sector = status_payload.get("sector")
+            if legacy_sector is not None:
+                self.state.sector_id = legacy_sector
 
         # Update adjacent sectors
         self.state.adjacent_sectors = sector_data.get("adjacent_sectors", [])
@@ -172,7 +180,7 @@ class StatusBarUpdater:
         garrison_data = sector_data.get("garrison")
         if garrison_data:
             self.state.garrison = GarrisonInfo(
-                owner_name=garrison_data["owner_id"],
+                owner_name=garrison_data.get("owner_name", garrison_data.get("owner_id")),
                 fighters=garrison_data["fighters"],
                 mode=garrison_data["mode"],
                 toll_amount=garrison_data.get("toll_amount")
@@ -192,21 +200,13 @@ class StatusBarUpdater:
             self.state.port = None
 
     def update_from_combat_started(self, payload: dict) -> None:
-        """Update from combat.started event"""
-        self.state.in_combat = True
-        self.state.combat_id = payload["combat_id"]
-        self.state.current_round = payload["round"]
-        self.state.combat_state = f"combat_round_{payload['round']}"
-        deadline_str = payload["deadline"]
-        if deadline_str:
-            self.state.deadline = datetime.fromisoformat(deadline_str.replace("Z", "+00:00"))
-
-        # Initialize combat participants (no deltas yet, no actions yet)
-        participants = payload.get("participants", {})
-        self._update_combat_participants(participants, {})
+        """Deprecated: combat.started no longer emitted; treat as combat.round_waiting."""
+        self.update_from_combat_round_waiting(payload)
 
     def update_from_combat_round_waiting(self, payload: dict) -> None:
         """Update from combat.round_waiting event"""
+        self.state.in_combat = True
+        self.state.combat_id = payload.get("combat_id", self.state.combat_id)
         self.state.current_round = payload["round"]
         self.state.combat_state = f"waiting_round_{payload['round']}"
         deadline_str = payload["deadline"]
@@ -216,6 +216,7 @@ class StatusBarUpdater:
         # Update participants (may have changed due to flee/defeat)
         participants = payload.get("participants", {})
         self._update_combat_participants(participants, {})
+        self._apply_ship(payload)
 
     def update_from_combat_round_resolved(self, payload: dict) -> None:
         """Update from combat.round_resolved event"""
@@ -226,6 +227,7 @@ class StatusBarUpdater:
         actions = payload.get("actions", {})
 
         self._update_combat_participants(participants, actions)
+        self._apply_ship(payload)
 
     def update_from_combat_ended(self, payload: dict) -> None:
         """Update from combat.ended event"""
@@ -276,7 +278,7 @@ class StatusBarUpdater:
         garrison_data = sector_data.get("garrison")
         if garrison_data:
             self.state.garrison = GarrisonInfo(
-                owner_name=garrison_data["owner_id"],
+                owner_name=garrison_data.get("owner_name", garrison_data.get("owner_id", "?")),
                 fighters=garrison_data["fighters"],
                 mode=garrison_data["mode"],
                 toll_amount=garrison_data.get("toll_amount")
@@ -309,7 +311,8 @@ class StatusBarUpdater:
         port_data = payload.get("port", {})
         if port_data:
             # Update port info if we're still in the same sector
-            sector_id = payload.get("sector_id")
+            sector_ref = payload.get("sector")
+            sector_id = _extract_sector_id(sector_ref)
             if sector_id is None or sector_id == self.state.sector_id:
                 if self.state.port:
                     # Update existing port
@@ -389,75 +392,87 @@ class StatusBarUpdater:
 
     def _update_combat_participants(
         self,
-        participants,  # Can be dict or list
-        actions: dict
+        participants,
+        actions: dict,
     ) -> None:
-        """Helper to update combat participant details.
-
-        Handles both formats:
-        - Dict: {"player_id": {"combatant_id": "...", ...}} (combat.started)
-        - Array: [{"name": "...", ...}] (combat.round_waiting, combat.round_resolved)
-        """
-        # Normalize to dict format for processing
-        if isinstance(participants, list):
-            # Array format from combat.round_waiting/resolved - skip processing
-            # We can't update combat participants from this format because it lacks
-            # fighter/shield counts and other essential data
-            # Just preserve existing state (don't clear, don't update)
-            return
-
-        # Preserve existing deltas when updating (for round_waiting events)
-        old_deltas = {}
-        for pid, old_combatant in self.state.combat_participants.items():
-            old_deltas[pid] = (old_combatant.fighters_delta, old_combatant.shields_delta)
-
+        """Helper to update combat participant details."""
+        entries = participants or []
+        previous = self.state.combat_participants.copy()
         self.state.combat_participants.clear()
 
-        # Dict format - process normally
-        for pid, p in participants.items():
-            # Skip escape pods
-            if p.get("is_escape_pod", False):
+        for entry in entries:
+            name = entry.get("name")
+            if not name:
                 continue
 
-            # Format action string
-            action_str = None
-            if pid in actions:
-                action = actions[pid]
+            ship = entry.get("ship", {})
+            prev = previous.get(name)
+
+            combatant = CombatantStatus(
+                combatant_id=name,
+                name=name,
+                ship_type=ship.get("ship_type") or (prev.ship_type if prev else None),
+                fighters=prev.fighters if prev else None,
+                shields=prev.shields if prev else None,
+                max_fighters=prev.max_fighters if prev else None,
+                max_shields=prev.max_shields if prev else None,
+                is_escape_pod=False,
+                fighters_delta=0,
+                shields_delta=0,
+                last_action=prev.last_action if prev else None,
+            )
+
+            shield_damage = ship.get("shield_damage")
+            if isinstance(shield_damage, (int, float)):
+                combatant.shields_delta = int(shield_damage)
+
+            fighter_loss = ship.get("fighter_loss")
+            if isinstance(fighter_loss, (int, float)):
+                combatant.fighters_delta = -int(fighter_loss)
+
+            action = actions.get(name)
+            if action:
                 action_type = action.get("action", "timeout")
                 if action_type == "attack":
                     target = action.get("target_id", "?")
                     commit = action.get("commit", 0)
-                    action_str = f"attack→{target}({commit})"
+                    combatant.last_action = f"attack→{target}({commit})"
                 elif action_type == "flee":
                     dest = action.get("destination_sector", "?")
-                    action_str = f"flee→{dest}"
+                    combatant.last_action = f"flee→{dest}"
                 elif action_type == "pay":
                     target = action.get("target", "?")
-                    action_str = f"pay→{target}"
+                    combatant.last_action = f"pay→{target}"
                 else:
-                    action_str = action_type  # "brace" or other
+                    combatant.last_action = action_type
 
-            # Get deltas: use from payload if present, otherwise preserve old deltas
-            if "fighters_delta" in p or "shields_delta" in p:
-                fighters_delta = p.get("fighters_delta", 0)
-                shields_delta = p.get("shields_delta", 0)
-            else:
-                # Preserve deltas from previous state
-                fighters_delta, shields_delta = old_deltas.get(pid, (0, 0))
+            self.state.combat_participants[name] = combatant
 
-            self.state.combat_participants[pid] = CombatantStatus(
-                combatant_id=pid,
-                name=p["name"],
-                ship_type=p.get("ship_type"),
-                fighters=p["fighters"],
-                shields=p["shields"],
-                max_fighters=p["max_fighters"],
-                max_shields=p["max_shields"],
-                is_escape_pod=p.get("is_escape_pod", False),
-                fighters_delta=fighters_delta,
-                shields_delta=shields_delta,
-                last_action=action_str
+    def _apply_ship(self, payload: dict) -> None:
+        """Update our own combatant entry with personal ship data."""
+        ship_data = payload.get("ship")
+        if not ship_data:
+            return
+
+        combatant = self.state.combat_participants.get(self.character_id)
+        if combatant is None:
+            combatant = CombatantStatus(
+                combatant_id=self.character_id,
+                name=self.character_id,
+                ship_type=None,
+                fighters=None,
+                shields=None,
+                max_fighters=None,
+                max_shields=None,
+                is_escape_pod=False,
             )
+            self.state.combat_participants[self.character_id] = combatant
+
+        combatant.ship_type = ship_data.get("ship_type", combatant.ship_type)
+        combatant.fighters = ship_data.get("fighters", combatant.fighters)
+        combatant.max_fighters = ship_data.get("max_fighters", combatant.max_fighters)
+        combatant.shields = ship_data.get("shields", combatant.shields)
+        combatant.max_shields = ship_data.get("max_shields", combatant.max_shields)
 
     def format_status_bars(self) -> List[str]:
         """
@@ -542,10 +557,21 @@ class StatusBarUpdater:
                 ship_type_str = f" ({c.ship_type})" if c.ship_type else ""
                 action_str = f" | {c.last_action}" if c.last_action else ""
 
+                fighters_str = (
+                    f"{c.fighters}/{c.max_fighters}"
+                    if c.fighters is not None and c.max_fighters is not None
+                    else "?/?"
+                )
+                shields_str = (
+                    f"{c.shields}/{c.max_shields}"
+                    if c.shields is not None and c.max_shields is not None
+                    else "?/?"
+                )
+
                 lines.append(
                     f"{c.name}{ship_type_str} | "
-                    f"F:{c.fighters}/{c.max_fighters} "
-                    f"S:{c.shields}/{c.max_shields}"
+                    f"F:{fighters_str} "
+                    f"S:{shields_str}"
                     f"{action_str}"
                     f"{delta_str}"
                 )

@@ -72,7 +72,7 @@ async def handle(request: dict, world) -> dict:
         {
             "from_character_id": from_character_id,
             "to_character_id": to_character_id,
-            "sector": from_character.sector,
+            "sector": {"id": from_character.sector},
             "units": units_to_transfer,
             "timestamp": timestamp,
         },

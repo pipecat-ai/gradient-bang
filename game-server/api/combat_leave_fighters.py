@@ -5,11 +5,14 @@ import logging
 from fastapi import HTTPException
 
 from rpc.events import event_dispatcher
+from .utils import (
+    serialize_garrison_for_client,
+    sector_contents,
+)
 from .combat_initiate import start_sector_combat
 
 
 logger = logging.getLogger("gradient-bang.api.combat_leave_fighters")
-
 
 
 async def handle(request: dict, world) -> dict:
@@ -34,7 +37,9 @@ async def handle(request: dict, world) -> dict:
         toll_amount = 0
 
     if character_id not in world.characters:
-        raise HTTPException(status_code=404, detail=f"Character '{character_id}' not found")
+        raise HTTPException(
+            status_code=404, detail=f"Character '{character_id}' not found"
+        )
 
     character = world.characters[character_id]
     if character.in_hyperspace:
@@ -81,26 +86,34 @@ async def handle(request: dict, world) -> dict:
     remaining = updated_knowledge.ship_config.current_fighters
     character.update_ship_state(fighters=remaining, max_fighters=character.max_fighters)
 
-    await event_dispatcher.emit(
-        "sector.garrison_updated",
-        {
-            "sector": sector,
-            "garrisons": await world.garrisons.to_payload(sector),
-        },
-        character_filter=[character_id],
-    )
+    characters_in_sector = [
+        cid
+        for cid, char in world.characters.items()
+        if char.sector == sector and not char.in_hyperspace
+    ]
+    for cid in characters_in_sector:
+        sector_payload = await sector_contents(world, sector, current_character_id=cid)
+        await event_dispatcher.emit(
+            "sector.update",
+            sector_payload,
+            character_filter=[cid],
+        )
 
     if mode == "offensive":
         await _auto_attack_on_deploy(world, sector, character_id, updated)
 
     return {
         "sector": sector,
-        "garrison": updated.to_dict(),
+        "garrison": serialize_garrison_for_client(
+            world, updated, sector, current_character_id=character_id
+        ),
         "fighters_remaining": remaining,
     }
 
 
-async def _auto_attack_on_deploy(world, sector: int, owner_id: str, garrison_state) -> None:
+async def _auto_attack_on_deploy(
+    world, sector: int, owner_id: str, garrison_state
+) -> None:
     manager = world.combat_manager
     if manager is None:
         return

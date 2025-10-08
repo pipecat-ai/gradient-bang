@@ -8,12 +8,22 @@ import pytest
 import pytest_asyncio
 from pathlib import Path
 import sys
+import os
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "game-server"))
 
 from utils.api_client import AsyncGameClient
+
+
+def _extract_sector_id(value):
+    if isinstance(value, dict):
+        return value.get("id")
+    return value
+
+
+SERVER_URL = os.getenv("TEST_SERVER_URL", os.getenv("GAME_SERVER_URL", "http://localhost:8000"))
 from server import app
 from core.world import world as game_world
 
@@ -81,7 +91,7 @@ async def game_client_with_events():
     collector = EventCollector()
 
     client = AsyncGameClient(
-        base_url="http://localhost:8000",
+        base_url=SERVER_URL,
         character_id="test_char_events",
         transport="websocket",
     )
@@ -164,7 +174,7 @@ class TestTradeEvents:
         event = await collector.wait_for_event("port.update", timeout=2.0)
 
         # Verify event structure
-        assert "sector_id" in event
+        assert _extract_sector_id(event.get("sector")) is not None
         assert "updated_at" in event
         assert "port" in event
 
@@ -206,7 +216,7 @@ class TestTradeEvents:
             event1 = await collector1.wait_for_event("port.update", timeout=2.0)
             event2 = await collector2.wait_for_event("port.update", timeout=2.0)
 
-            assert event1["sector_id"] == event2["sector_id"]
+            assert _extract_sector_id(event1.get("sector")) == _extract_sector_id(event2.get("sector"))
             assert event1["port"]["prices"] == event2["port"]["prices"]
 
         finally:
@@ -225,7 +235,7 @@ class TestCombatEvents:
         # Create second client to fight against
         collector2 = EventCollector()
         client2 = AsyncGameClient(
-            base_url="http://localhost:8000",
+            base_url=SERVER_URL,
             character_id="test_opponent",
             transport="websocket",
         )
@@ -240,11 +250,11 @@ class TestCombatEvents:
 
             # Move to sector 1 if not there
             status1 = await client.my_status(character_id="test_char_events")
-            if status1["sector"] != 1:
+            if _extract_sector_id(status1.get("sector")) != 1:
                 await client.move(to_sector=1, character_id="test_char_events")
 
             status2 = await client2.my_status(character_id="test_opponent")
-            if status2["sector"] != 1:
+            if _extract_sector_id(status2.get("sector")) != 1:
                 await client2.move(to_sector=1, character_id="test_opponent")
 
             # Initiate combat
@@ -262,6 +272,13 @@ class TestCombatEvents:
             assert "deadline" in event1
             assert "participants" in event1
             assert isinstance(event1["participants"], list)
+            assert "ship" in event1
+            assert isinstance(event1["ship"], dict)
+            assert "fighters" in event1["ship"]
+            assert "max_fighters" in event1["ship"]
+
+            assert "ship" in event2
+            assert isinstance(event2["ship"], dict)
 
             # Both should get same combat
             assert event1["combat_id"] == event2["combat_id"]
@@ -276,7 +293,7 @@ class TestCombatEvents:
         # Create second client
         collector2 = EventCollector()
         client2 = AsyncGameClient(
-            base_url="http://localhost:8000",
+            base_url=SERVER_URL,
             character_id="test_opponent2",
             transport="websocket",
         )
@@ -290,11 +307,11 @@ class TestCombatEvents:
 
             # Move to same sector
             status1 = await client.my_status(character_id="test_char_events")
-            if status1["sector"] != 1:
+            if _extract_sector_id(status1.get("sector")) != 1:
                 await client.move(to_sector=1, character_id="test_char_events")
 
             status2 = await client2.my_status(character_id="test_opponent2")
-            if status2["sector"] != 1:
+            if _extract_sector_id(status2.get("sector")) != 1:
                 await client2.move(to_sector=1, character_id="test_opponent2")
 
             # Initiate combat
@@ -331,6 +348,11 @@ class TestCombatEvents:
                 assert "owner_name" in garrison
                 # owner_name should be the display name, not ID
 
+            ship_payload = event.get("ship")
+            assert isinstance(ship_payload, dict)
+            assert ship_payload.get("fighters") is not None
+            assert ship_payload.get("max_fighters") is not None
+
         finally:
             await client2.close()
 
@@ -341,7 +363,7 @@ class TestCombatEvents:
         # Create second client
         collector2 = EventCollector()
         client2 = AsyncGameClient(
-            base_url="http://localhost:8000",
+            base_url=SERVER_URL,
             character_id="test_opponent3",
             transport="websocket",
         )
@@ -358,11 +380,11 @@ class TestCombatEvents:
 
             # Move to same sector
             status1 = await client.my_status(character_id="test_char_events")
-            if status1["sector"] != 1:
+            if _extract_sector_id(status1.get("sector")) != 1:
                 await client.move(to_sector=1, character_id="test_char_events")
 
             status2 = await client2.my_status(character_id="test_opponent3")
-            if status2["sector"] != 1:
+            if _extract_sector_id(status2.get("sector")) != 1:
                 await client2.move(to_sector=1, character_id="test_opponent3")
 
             # Initiate combat
@@ -402,6 +424,11 @@ class TestCombatEvents:
                     assert "shield_damage" in participant["ship"] or participant["ship"].get("shield_damage") is None
                     assert "fighter_loss" in participant["ship"] or participant["ship"].get("fighter_loss") is None
 
+            ship_payload = resolved_event.get("ship")
+            assert isinstance(ship_payload, dict)
+            assert "fighters" in ship_payload
+            assert "max_fighters" in ship_payload
+
         finally:
             await client2.close()
 
@@ -412,7 +439,7 @@ class TestCombatEvents:
         # Create second client with fewer fighters (will lose)
         collector2 = EventCollector()
         client2 = AsyncGameClient(
-            base_url="http://localhost:8000",
+            base_url=SERVER_URL,
             character_id="test_weak_opponent",
             transport="websocket",
         )
@@ -429,11 +456,11 @@ class TestCombatEvents:
 
             # Move to same sector
             status1 = await client.my_status(character_id="test_char_events")
-            if status1["sector"] != 1:
+            if _extract_sector_id(status1.get("sector")) != 1:
                 await client.move(to_sector=1, character_id="test_char_events")
 
             status2 = await client2.my_status(character_id="test_weak_opponent")
-            if status2["sector"] != 1:
+            if _extract_sector_id(status2.get("sector")) != 1:
                 await client2.move(to_sector=1, character_id="test_weak_opponent")
 
             # Note: This test would need to run many rounds to complete combat
@@ -461,7 +488,7 @@ class TestCombatEvents:
 
             # Move to sector 1
             status = await client.my_status(character_id="test_char_events")
-            if status["sector"] != 1:
+            if _extract_sector_id(status.get("sector")) != 1:
                 await client.move(to_sector=1, character_id="test_char_events")
 
             # Deploy a garrison in offensive mode
@@ -475,7 +502,7 @@ class TestCombatEvents:
             # Create second client
             collector2 = EventCollector()
             client2 = AsyncGameClient(
-                base_url="http://localhost:8000",
+                base_url=SERVER_URL,
                 character_id="test_garrison_target",
                 transport="websocket",
             )
@@ -499,6 +526,11 @@ class TestCombatEvents:
                 assert "owner_name" in garrison
                 assert "fighters" in garrison
                 assert "mode" in garrison
+
+                ship_payload = event.get("ship")
+                assert isinstance(ship_payload, dict)
+                assert "fighters" in ship_payload
+                assert "max_fighters" in ship_payload
 
                 # Verify participants is array
                 assert "participants" in event

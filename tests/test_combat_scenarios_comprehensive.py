@@ -349,6 +349,12 @@ class TestPlayerDestruction:
         client_attacker.on("sector.update")(
             lambda p: collector_attacker.add_event("sector.update", p)
         )
+        client_attacker.on("combat.round_waiting")(
+            lambda p: collector_attacker.add_event("combat.round_waiting", p)
+        )
+        client_attacker.on("combat.round_resolved")(
+            lambda p: collector_attacker.add_event("combat.round_resolved", p)
+        )
 
         client_victim.on("combat.ended")(
             lambda p: collector_victim.add_event("combat.ended", p)
@@ -368,17 +374,37 @@ class TestPlayerDestruction:
             # Initiate combat
             await client_attacker.combat_initiate(character_id="test_dest_attacker")
 
-            # Wait for combat to naturally resolve
-            # With 500 fighters vs 5, victim should be destroyed in 1-2 rounds
-            # Combat manager will auto-brace after timeout, no manual action submission needed
-            await asyncio.sleep(10.0)  # Wait for combat to complete via timeouts
+            # Wait for first round to start then submit decisive attack
+            waiting = await collector_attacker.wait_for_event("combat.round_waiting", timeout=5.0)
+            combat_id = waiting["combat_id"]
 
-            # Wait for combat.ended
+            await client_attacker.combat_action(
+                character_id="test_dest_attacker",
+                combat_id=combat_id,
+                action="attack",
+                target_id="test_dest_victim",
+                commit=200,
+            )
+            await client_victim.combat_action(
+                character_id="test_dest_victim",
+                combat_id=combat_id,
+                action="brace",
+                commit=0,
+            )
+
+            resolved = await collector_attacker.wait_for_event("combat.round_resolved", timeout=5.0)
+            participants = resolved.get("participants", [])
+            victim_entry = next((p for p in participants if p.get("name") == "test_dest_victim"), {})
+            victim_ship = victim_entry.get("ship", {})
+            assert victim_ship.get("fighter_loss") is not None, "Victim should have recorded fighter losses"
+
+            # Await combat.ended event directly (should resolve quickly once victim destroyed)
             ended_event = await collector_attacker.wait_for_event("combat.ended", timeout=10.0)
 
             # Verify salvage was created
             assert "salvage" in ended_event
             salvage_list = ended_event["salvage"]
+            assert len(salvage_list) > 0, "Expected salvage to be created from destroyed victim"
 
             if len(salvage_list) > 0:
                 salvage = salvage_list[0]

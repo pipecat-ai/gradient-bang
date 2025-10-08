@@ -11,7 +11,11 @@ from fastapi import HTTPException
 
 from api import move as api_move
 from api.utils import build_status_payload
-from combat.utils import serialize_encounter, serialize_round
+from combat.utils import (
+    serialize_round_waiting_event,
+    serialize_round_resolved_event,
+    serialize_combat_ended_event,
+)
 from combat.garrison_ai import auto_submit_garrison_actions
 from combat.finalization import finalize_combat
 from core.locks import CreditLockManager
@@ -46,7 +50,9 @@ async def emit_status_update(character_id: str, world, event_dispatcher) -> None
         event_dispatcher: Event dispatcher instance
     """
     if character_id not in world.characters:
-        logger.debug("emit_status_update skipped; character %s not connected", character_id)
+        logger.debug(
+            "emit_status_update skipped; character %s not connected", character_id
+        )
         return
 
     logger.debug("emit_status_update building status for %s", character_id)
@@ -70,23 +76,28 @@ async def on_round_waiting(encounter, world, event_dispatcher) -> None:
         world: Game world instance
         event_dispatcher: Event dispatcher instance
     """
-    payload = serialize_encounter(encounter)
-    payload["sector"] = encounter.sector_id
     character_filter = extract_character_filter(encounter)
+    unique_recipients = sorted(set(character_filter))
 
     logger.info(
         "Emitting combat.round_waiting: combat_id=%s round=%s participants=%s filter=%s",
         encounter.combat_id,
         encounter.round_number,
         list(encounter.participants.keys()),
-        character_filter,
+        unique_recipients,
     )
 
-    await event_dispatcher.emit(
-        "combat.round_waiting",
-        payload,
-        character_filter=character_filter,
-    )
+    for recipient in unique_recipients:
+        payload = await serialize_round_waiting_event(
+            world,
+            encounter,
+            viewer_id=recipient,
+        )
+        await event_dispatcher.emit(
+            "combat.round_waiting",
+            payload,
+            character_filter=[recipient],
+        )
 
     # Auto-submit garrison actions
     await auto_submit_garrison_actions(encounter, world.combat_manager)
@@ -133,7 +144,9 @@ async def on_round_resolved(encounter, outcome, world, event_dispatcher) -> None
                 getattr(action, "destination_sector", None) if action else None,
             )
 
-            destination = getattr(action, "destination_sector", None) if action else None
+            destination = (
+                getattr(action, "destination_sector", None) if action else None
+            )
             if destination is None:
                 logger.warning(
                     "Flee successful for %s but no destination recorded; skipping move.",
@@ -166,17 +179,12 @@ async def on_round_resolved(encounter, outcome, world, event_dispatcher) -> None
         else:
             encounter.context["recent_flee_character_ids"] = recent_flee_ids.copy()
 
-    # Emit combat.round_resolved event
-    payload = serialize_round(encounter, outcome, include_logs=True)
-    payload["combat_id"] = encounter.combat_id
-    payload["sector"] = encounter.sector_id
-
+    # Emit combat.round_resolved event using new serializer
+    # TODO: Pass previous_encounter for accurate deltas
     logger.info(
-        "round_resolved payload combat_id=%s round=%s result=%s end=%s",
+        "round_resolved event combat_id=%s round=%s",
         encounter.combat_id,
-        payload.get("round"),
-        payload.get("result"),
-        payload.get("end"),
+        outcome.round_number,
     )
     logger.debug(
         "Emitting combat.round_resolved: combat_id=%s round=%s end_state=%s",
@@ -189,11 +197,20 @@ async def on_round_resolved(encounter, outcome, world, event_dispatcher) -> None
     notify_ids = set(base_filter)
     notify_ids.update(recent_flee_ids)
 
-    await event_dispatcher.emit(
-        "combat.round_resolved",
-        payload,
-        character_filter=sorted(notify_ids),
-    )
+    recipients = sorted(notify_ids)
+    for recipient in recipients:
+        payload = await serialize_round_resolved_event(
+            world,
+            encounter,
+            outcome,
+            viewer_id=recipient,
+            previous_encounter=None,
+        )
+        await event_dispatcher.emit(
+            "combat.round_resolved",
+            payload,
+            character_filter=[recipient],
+        )
 
     logger.debug("combat.round_resolved emitted, syncing participants")
 
@@ -274,7 +291,7 @@ async def on_round_resolved(encounter, outcome, world, event_dispatcher) -> None
             # Send immediate combat.ended event to fled character
             fled_payload = {
                 "combat_id": encounter.combat_id,
-                "sector": encounter.sector_id,  # Where they fled FROM
+                "sector": {"id": encounter.sector_id},  # Where they fled FROM
                 "result": "fled",
                 "round": outcome.round_number,
                 "fled_to_sector": destination,
@@ -332,14 +349,8 @@ async def on_combat_ended(encounter, outcome, world, event_dispatcher) -> None:
         event_dispatcher,
     )
 
-    # Build and emit combat.ended event
-    payload = serialize_round(encounter, outcome, include_logs=True)
-    payload["combat_id"] = encounter.combat_id
-    payload["sector"] = encounter.sector_id
-    payload["result"] = outcome.end_state
-
-    if salvage:
-        payload["salvage"] = [container.to_dict() for container in salvage]
+    # Build combat logs (placeholder)
+    logs = []
 
     logger.debug(
         "Emitting combat.ended: combat_id=%s round=%s result=%s",
@@ -347,19 +358,55 @@ async def on_combat_ended(encounter, outcome, world, event_dispatcher) -> None:
         outcome.round_number,
         outcome.end_state,
     )
-    logger.info("combat.ended payload %s", payload)
 
     # Notify only current participants (fled characters already received their own combat.ended)
     character_filter = extract_character_filter(encounter)
+    unique_recipients = sorted(set(character_filter))
 
     # Clean up fled character tracking from context
     encounter.context.pop("recent_flee_character_ids", None)
 
-    await event_dispatcher.emit(
-        "combat.ended",
-        payload,
-        character_filter=character_filter,
-    )
+    for recipient in unique_recipients:
+        payload = await serialize_combat_ended_event(
+            world,
+            encounter,
+            salvage or [],
+            logs,
+            outcome,
+            viewer_id=recipient,
+        )
+        await event_dispatcher.emit(
+            "combat.ended",
+            payload,
+            character_filter=[recipient],
+        )
+
+    # Emit sector.update to all characters in the sector
+    # (combat ended changes sector state: salvage, escape pods, etc.)
+    from api.utils import sector_contents
+
+    # Find all characters in this sector (including those who just fled)
+    characters_in_sector = [
+        cid
+        for cid, char in world.characters.items()
+        if char.sector == encounter.sector_id and not char.in_hyperspace
+    ]
+
+    for cid in characters_in_sector:
+        sector_payload = await sector_contents(
+            world, encounter.sector_id, current_character_id=cid
+        )
+        await event_dispatcher.emit(
+            "sector.update",
+            sector_payload,
+            character_filter=[cid],
+        )
+    if characters_in_sector:
+        logger.debug(
+            "Emitted sector.update to %d characters in sector %s after combat ended",
+            len(characters_in_sector),
+            encounter.sector_id,
+        )
 
     logger.debug("on_combat_ended complete: combat_id=%s", encounter.combat_id)
 

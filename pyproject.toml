@@ -30,3 +30,8 @@ override-dependencies = [
     "numba==0.61.2",  # Pin to version that supports Python 3.12
     "openai==1.99.5",  
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks integration tests that require the live game server",
+]

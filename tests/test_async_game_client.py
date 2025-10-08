@@ -50,17 +50,18 @@ class TestJoinAPI:
         result = await client.join("test_client_char")
 
         assert isinstance(result, dict)
-        assert result["character_id"] == "test_client_char"
-        assert result["name"] == "test_client_char"
+        assert result["player"]["id"] == "test_client_char"
+        assert result["player"]["name"] == "test_client_char"
         assert "sector" in result
         assert "ship" in result
-        assert "sector_contents" in result
+        assert result["sector"]["id"] == 0
+        assert "adjacent_sectors" in result["sector"]
 
     async def test_join_with_ship_type(self, client):
         """Test join with specified ship type."""
         result = await client.join("test_client_char", ship_type="kestrel_courier")
 
-        assert result["character_id"] == "test_client_char"
+        assert result["player"]["id"] == "test_client_char"
         assert result["ship"]["ship_type"] == "kestrel_courier"
 
     async def test_join_wrong_character_id(self, client):
@@ -77,15 +78,17 @@ class TestMoveAPI:
         join_result = await client.join("test_client_char")
 
         # Get actual adjacent sectors from join response
-        adjacent = join_result["sector_contents"]["adjacent_sectors"]
+        adjacent = join_result["sector"]["adjacent_sectors"]
         assert len(adjacent) > 0, "No adjacent sectors found"
 
         # Move to first adjacent sector
         target = adjacent[0]
         result = await client.move(to_sector=target, character_id="test_client_char")
 
-        assert result["sector"] == target
-        assert result["name"] == "test_client_char"
+        assert isinstance(result, dict)
+        assert result["summary"] == f"Moved to sector {target}"
+        status = await client.my_status(character_id="test_client_char")
+        assert status["sector"]["id"] == target
 
     async def test_move_non_adjacent_fails(self, client):
         """Test move to non-adjacent sector fails."""
@@ -113,24 +116,23 @@ class TestMyStatusAPI:
 
         result = await client.my_status(character_id="test_client_char")
 
-        assert result["name"] == "test_client_char"
+        assert result["player"]["name"] == "test_client_char"
         assert "sector" in result
         assert "ship" in result
-        assert "sector_contents" in result
 
     async def test_my_status_after_move(self, client):
         """Test status reflects movement."""
         join_result = await client.join("test_client_char")
 
         # Get an adjacent sector
-        adjacent = join_result["sector_contents"]["adjacent_sectors"]
+        adjacent = join_result["sector"]["adjacent_sectors"]
         target = adjacent[0]
 
         await client.move(to_sector=target, character_id="test_client_char")
 
         result = await client.my_status(character_id="test_client_char")
 
-        assert result["sector"] == target
+        assert result["sector"]["id"] == target
 
     async def test_my_status_wrong_character_id(self, client):
         """Test my_status with mismatched character_id raises error."""
@@ -146,7 +148,7 @@ class TestPlotCourseAPI:
     async def test_plot_course_success(self, client):
         """Test successful course plotting."""
         join_result = await client.join("test_client_char")
-        start_sector = join_result["sector"]
+        start_sector = join_result["sector"]["id"]
 
         # Plot to a different sector
         target = 100
@@ -192,9 +194,8 @@ class TestMyMapAPI:
         result = await client.my_map(character_id="test_client_char")
 
         assert isinstance(result, dict)
-        assert "sectors_visited" in result
-        assert "character_id" in result
         assert result["character_id"] == "test_client_char"
+        assert "sectors_visited" in result
 
     async def test_my_map_wrong_character_id(self, client):
         """Test my_map with mismatched character_id raises error."""

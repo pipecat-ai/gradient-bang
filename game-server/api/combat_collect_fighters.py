@@ -3,7 +3,10 @@ from __future__ import annotations
 from fastapi import HTTPException
 
 from rpc.events import event_dispatcher
-
+from .utils import (
+    serialize_garrison_for_client,
+    sector_contents,
+)
 
 
 async def handle(request: dict, world) -> dict:
@@ -33,19 +36,26 @@ async def handle(request: dict, world) -> dict:
     garrisons = await world.garrisons.list_sector(sector)
     garrison = next((g for g in garrisons if g.owner_id == character_id), None)
     if not garrison:
-        raise HTTPException(status_code=404, detail="No garrison found for character in this sector")
+        raise HTTPException(
+            status_code=404, detail="No garrison found for character in this sector"
+        )
 
     if quantity > garrison.fighters:
-        raise HTTPException(status_code=400, detail="Cannot collect more fighters than stationed")
+        raise HTTPException(
+            status_code=400, detail="Cannot collect more fighters than stationed"
+        )
 
     remaining_fighters = garrison.fighters - quantity
     toll_payout = garrison.toll_balance if garrison.mode == "toll" else 0
     if toll_payout > 0:
         current_credits = world.knowledge_manager.get_credits(character_id)
-        world.knowledge_manager.update_credits(character_id, current_credits + toll_payout)
+        world.knowledge_manager.update_credits(
+            character_id, current_credits + toll_payout
+        )
 
+    updated_garrison = None
     if remaining_fighters > 0:
-        await world.garrisons.deploy(
+        updated_garrison = await world.garrisons.deploy(
             sector_id=sector,
             owner_id=character_id,
             fighters=remaining_fighters,
@@ -65,25 +75,32 @@ async def handle(request: dict, world) -> dict:
             max_fighters=character.max_fighters,
         )
 
-    await event_dispatcher.emit(
-        "sector.garrison_updated",
-        {
-            "sector": sector,
-            "garrisons": await world.garrisons.to_payload(sector) if world.garrisons else [],
-        },
-        character_filter=[character_id],
-    )
+    characters_in_sector = [
+        cid
+        for cid, char in world.characters.items()
+        if char.sector == sector and not char.in_hyperspace
+    ]
+
+    for cid in characters_in_sector:
+        sector_payload = await sector_contents(world, sector, current_character_id=cid)
+        await event_dispatcher.emit(
+            "sector.update",
+            sector_payload,
+            character_filter=[cid],
+        )
 
     return {
         "sector": sector,
         "credits_collected": toll_payout,
-        "garrison": None if remaining_fighters <= 0 else {
-            "owner_id": character_id,
-            "fighters": remaining_fighters,
-            "mode": garrison.mode,
-            "toll_amount": garrison.toll_amount,
-            "toll_balance": 0,
-            "deployed_at": garrison.deployed_at,
-        },
+        "garrison": (
+            serialize_garrison_for_client(
+                world,
+                updated_garrison,
+                sector,
+                current_character_id=character_id,
+            )
+            if remaining_fighters > 0
+            else None
+        ),
         "fighters_on_ship": updated_knowledge.ship_config.current_fighters,
     }
