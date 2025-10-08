@@ -1731,7 +1731,6 @@ export class GalaxyStarfield {
     if (!this._currentSceneId || bypassAnimation || isInCooldown) {
       const configToLoad = this._pendingSectorConfig;
       this._pendingSectorConfig = null;
-
       this._loadSceneWithReadyState(configToLoad, true, !bypassFlash)
         .then(() => {
           if (this._warpPromiseResolver) {
@@ -1829,10 +1828,18 @@ export class GalaxyStarfield {
    */
   public clearWarpCooldown(): void {
     if (this._warpCooldownTimer !== null) {
-      console.debug("[WARP COOLDOWN] Manually clearing cooldown timer");
+      console.debug("[STARFIELD] Manually clearing cooldown timer");
       clearTimeout(this._warpCooldownTimer);
       this._warpCooldownTimer = null;
     }
+  }
+
+  /**
+   * Check if the warp system is currently in cooldown
+   * @returns {boolean} True if in cooldown, false otherwise
+   */
+  public get isWarpCooldownActive(): boolean {
+    return this._warpCooldownTimer !== null;
   }
 
   // ============================================================================

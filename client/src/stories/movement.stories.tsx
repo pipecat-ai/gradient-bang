@@ -124,7 +124,7 @@ MovementWithStarfield.meta = {
   messages: [
     [
       "Hop to sector 0",
-      "Navigate and move to sector 0 immediately, traveling along the shortest path.",
+      "Navigate and move to sector 0 immediately. If it's not adjacent to our current sector, plot the shortest path and start moving without asking me.",
     ],
     [
       "Hop to a random adjacent sector",
