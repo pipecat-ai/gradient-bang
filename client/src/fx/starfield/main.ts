@@ -1798,11 +1798,26 @@ export class GalaxyStarfield {
       console.debug(`[STARFIELD] Loading scene without animation: ${id}`);
       this._loadSceneWithReadyState(preparedConfig, true, !bypassFlash)
         .then(() => {
+          if (
+            this.callbacks.onWarpComplete &&
+            typeof this.callbacks.onWarpComplete === "function"
+          ) {
+            this.callbacks.onWarpComplete(this._warpQueue.length);
+          }
+
           // Process next item in queue if any
           this._processWarpQueue();
         })
         .catch((err) => {
           console.error("[STARFIELD] Scene loading failed:", err);
+
+          if (
+            this.callbacks.onWarpComplete &&
+            typeof this.callbacks.onWarpComplete === "function"
+          ) {
+            this.callbacks.onWarpComplete(this._warpQueue.length);
+          }
+
           // Still try to process queue on error
           this._processWarpQueue();
         });

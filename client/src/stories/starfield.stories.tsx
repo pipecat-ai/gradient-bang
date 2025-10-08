@@ -92,6 +92,7 @@ export const StarFieldSequence: Story = () => {
   const [start, setStart] = useState(false);
   const [status, setStatus] = useState("");
   const starfieldInstance = useGameStore((state) => state.starfieldInstance);
+  const autopilot = useGameStore((state) => state.ui.autopilot);
 
   useEffect(() => {
     if (!starfieldInstance) {
@@ -254,6 +255,11 @@ export const StarFieldSequence: Story = () => {
 
   return (
     <div className="relative w-full h-full bg-card">
+      {autopilot && (
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-red-500/80 p-4 shadow-xlong text-white z-[9999] animate-pulse">
+          Autopilot Engaged
+        </div>
+      )}
       <div className="fixed top-4 left-4 z-[999] bg-black/80 p-4 rounded-lg text-white space-y-2 max-w-md">
         <div className="text-sm font-mono mb-4">Status: {status}</div>
 
