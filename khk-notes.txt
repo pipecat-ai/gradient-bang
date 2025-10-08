@@ -1,3 +1,68 @@
+
+    - movement.start
+    - movement.complete
+    - character.moved
+    - combat.round_waiting
+    - combat.round_resolved
+    - combat.ended
+    - trade.executed
+    - port.update
+
+
+---
+
+Is there ...
+Shield regeneration?
+
+---
+
+From codex
+
+
+• A few ideas to keep the momentum:
+
+  - The garrison and combat privacy tests still rely heavily on event presence rather than on the actual combat
+    outcomes. Extending them to check participant deltas or credit/knowledge updates would make regressions easier
+    to catch.
+  - We’re still tolerating the cascading @pytest.mark.integration warnings. With the marker now registered in
+    pyproject.toml, consider tagging the suites deliberately (or silencing/parametrising runs) so CI output stays
+    clean.
+  - tests/test_combat_trade_events_integration.py and tests/test_async_game_client.py currently expect the legacy
+    payload shapes. If we plan to keep them, adjusting their assertions would help us reintroduce those suites later
+    without churn.
+  - The runtime of test_salvage_collection_triggers_sector_update is still dominated by auto-brace sleeps. Replacing
+    the 16‑second wait with explicit brace submissions (similar to the salvage fix) would shave off nearly half a
+    minute and reduce flake potential.
+
+---
+
+# for codex next
+
+We have end-to-end tests for combat events. These require a server to run.
+
+The server can be started with this command.
+
+```
+PORT=8002 uv run game-server/server.py > game-server-debug.log 2>&1 
+```
+
+Then all the tests can be run like this:
+
+```
+uv run pytest tests/test_combat_scenarios_comprehensive.py -v
+```
+
+The full tests take about 215 seconds to run, because they need to wait on combat turn resolutions.
+
+Add a note to your agents.md file about how to run these tests.
+
+Go step-by-step and run each test individually. Examine the logs for the test, and the combat test code. We want to make sure that we are testing real-world scenarios and that the tests operate as expected without any false passes, unexpected results, or skipped logic.
+
+When you are finished, write your analysis out to a file on disk.
+
+
+
+
 # suggestions
 
 ## ship

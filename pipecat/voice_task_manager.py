@@ -59,6 +59,15 @@ class VoiceTaskManager:
         self.game_client.on("movement.complete")(self._handle_movement_complete)
         self.game_client.on("map.local")(self._handle_map_local)
 
+        # Combat events
+        self.game_client.on("combat.round_waiting")(self._handle_combat_round_waiting)
+        self.game_client.on("combat.round_resolved")(self._handle_combat_round_resolved)
+        self.game_client.on("combat.ended")(self._handle_combat_ended)
+
+        # Trade events
+        self.game_client.on("trade.executed")(self._handle_trade_executed)
+        self.game_client.on("port.update")(self._handle_port_update)
+
         self.task_config = LLMConfig(model="gpt-5")
 
         self.task_complete_callback = task_complete_callback
@@ -218,6 +227,26 @@ class VoiceTaskManager:
     async def _handle_map_local(self, payload: Dict[str, Any]) -> None:
         """Relay map.local events to RTVI clients."""
         await self._handle_event("map.local", payload)
+
+    async def _handle_combat_round_waiting(self, payload: Dict[str, Any]) -> None:
+        """Relay combat.round_waiting events to RTVI clients."""
+        await self._handle_event("combat.round_waiting", payload)
+
+    async def _handle_combat_round_resolved(self, payload: Dict[str, Any]) -> None:
+        """Relay combat.round_resolved events to RTVI clients."""
+        await self._handle_event("combat.round_resolved", payload)
+
+    async def _handle_combat_ended(self, payload: Dict[str, Any]) -> None:
+        """Relay combat.ended events to RTVI clients."""
+        await self._handle_event("combat.ended", payload)
+
+    async def _handle_trade_executed(self, payload: Dict[str, Any]) -> None:
+        """Relay trade.executed events to RTVI clients."""
+        await self._handle_event("trade.executed", payload)
+
+    async def _handle_port_update(self, payload: Dict[str, Any]) -> None:
+        """Relay port.update events to RTVI clients."""
+        await self._handle_event("port.update", payload)
 
     #
     # Task management

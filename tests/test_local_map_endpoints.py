@@ -129,12 +129,13 @@ def test_local_map_region_basic(ws_client):
         assert "total_unvisited" in result
 
         # Should have visited sector 9 at minimum
-        sector_9 = next((s for s in result["sectors"] if s["sector_id"] == 9), None)
+        sector_9 = next((s for s in result["sectors"] if s["id"] == 9), None)
         assert sector_9 is not None
         assert sector_9["visited"] is True
         assert sector_9["hops_from_center"] == 0
         assert "port" in sector_9
-        assert sector_9["port"]["code"] == "BBB"
+        assert sector_9["port"] == "BBB"
+        assert "lanes" in sector_9
 
 
 def test_local_map_region_with_center(ws_client):
@@ -160,11 +161,11 @@ def test_local_map_region_with_center(ws_client):
         assert result["center_sector"] == 1
 
         # Sector 1 should be in results
-        sector_1 = next((s for s in result["sectors"] if s["sector_id"] == 1), None)
+        sector_1 = next((s for s in result["sectors"] if s["id"] == 1), None)
         assert sector_1 is not None
         assert sector_1["visited"] is True
         assert sector_1["hops_from_center"] == 0
-        assert sector_1["port"]["code"] == "BBS"
+        assert sector_1["port"] == "BBS"
 
 
 def test_local_map_region_max_hops(ws_client):

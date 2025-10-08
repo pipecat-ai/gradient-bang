@@ -381,12 +381,11 @@ def test_toll_payment_via_combat_action(ws_client):
             and msg.get("endpoint") == "move"
             and msg.get("ok") is True,
         )
-
-        combat_start = _recv_until_event(mover, "combat.started")
-        combat_id = combat_start.get("combat_id")
-        assert combat_id
+        assert _drain_pending_event(mover, "character.moved") is None
 
         round_waiting = _recv_until_event(mover, "combat.round_waiting")
+        combat_id = round_waiting.get("combat_id")
+        assert combat_id
         round_number = round_waiting.get("round") or 1
 
         # Pay the toll during the demand round

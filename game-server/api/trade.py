@@ -1,5 +1,12 @@
 from fastapi import HTTPException
-from .utils import log_trade, ensure_not_in_combat
+from .utils import (
+    log_trade,
+    ensure_not_in_combat,
+    player_self,
+    ship_self,
+    port_snapshot,
+)
+from rpc.events import event_dispatcher
 
 
 async def handle(request: dict, world, port_locks=None) -> dict:
@@ -23,6 +30,7 @@ async def handle(request: dict, world, port_locks=None) -> dict:
     await ensure_not_in_combat(world, character_id)
     knowledge = world.knowledge_manager.load_knowledge(character_id)
     from ships import ShipType, get_ship_stats
+
     ship_stats = get_ship_stats(ShipType(knowledge.ship_config.ship_type))
 
     # Pre-validation before acquiring lock
@@ -35,29 +43,34 @@ async def handle(request: dict, world, port_locks=None) -> dict:
 
     commodity_key = {"fuel_ore": "FO", "organics": "OG", "equipment": "EQ"}[commodity]
 
-    from trading import (
-        calculate_price_sell_to_player,
-        calculate_price_buy_from_player,
-        validate_buy_transaction,
-        validate_sell_transaction,
-        TradingError,
-        get_port_prices,
-    )
-
     # Acquire port lock for atomic trade operation
     # If port_locks not provided (for backwards compatibility), skip locking
     if port_locks is not None:
         async with port_locks.lock(character.sector, character_id):
             return await _execute_trade(
-                trade_type, commodity, commodity_key, quantity,
-                character, character_id, knowledge, ship_stats,
-                world, port_state
+                trade_type,
+                commodity,
+                commodity_key,
+                quantity,
+                character,
+                character_id,
+                knowledge,
+                ship_stats,
+                world,
+                port_state,
             )
     else:
         return await _execute_trade(
-            trade_type, commodity, commodity_key, quantity,
-            character, character_id, knowledge, ship_stats,
-            world, port_state
+            trade_type,
+            commodity,
+            commodity_key,
+            quantity,
+            character,
+            character_id,
+            knowledge,
+            ship_stats,
+            world,
+            port_state,
         )
 
 
@@ -85,9 +98,13 @@ async def _execute_trade(
     if trade_type == "buy":
         idx = {"FO": 0, "OG": 1, "EQ": 2}[commodity_key]
         if port_state.code[idx] != "S":
-            raise HTTPException(status_code=400, detail=f"Port does not sell {commodity}")
+            raise HTTPException(
+                status_code=400, detail=f"Port does not sell {commodity}"
+            )
         price_per_unit = calculate_price_sell_to_player(
-            commodity, port_state.stock[commodity_key], port_state.max_capacity[commodity_key]
+            commodity,
+            port_state.stock[commodity_key],
+            port_state.max_capacity[commodity_key],
         )
         validate_buy_transaction(
             knowledge.credits,
@@ -102,7 +119,9 @@ async def _execute_trade(
         new_credits = knowledge.credits - total_price
         world.knowledge_manager.update_credits(character_id, new_credits)
         world.knowledge_manager.update_cargo(character_id, commodity, quantity)
-        world.port_manager.update_port_inventory(character.sector, commodity_key, quantity, "buy")
+        world.port_manager.update_port_inventory(
+            character.sector, commodity_key, quantity, "buy"
+        )
         updated_port_state = world.port_manager.load_port_state(character.sector)
         updated_cargo = world.knowledge_manager.get_cargo(character_id)
 
@@ -133,6 +152,41 @@ async def _execute_trade(
             credits_after=new_credits,
         )
 
+        # Emit trade.executed event to the trader
+        await event_dispatcher.emit(
+            "trade.executed",
+            {
+                "player": player_self(world, character_id),
+                "ship": ship_self(world, character_id),
+            },
+            character_filter=[character_id],
+        )
+
+        # Emit port.update to all characters in the sector
+        port_update_payload = port_snapshot(world, character.sector)
+        if port_update_payload:
+            # Find all characters in this sector
+            characters_in_sector = [
+                cid
+                for cid, char in world.characters.items()
+                if char.sector == character.sector and not char.in_hyperspace
+            ]
+            if characters_in_sector:
+                await event_dispatcher.emit(
+                    "port.update",
+                    {
+                        "sector": {"id": character.sector},
+                        "updated_at": port_update_payload["observed_at"],
+                        "port": {
+                            "code": port_update_payload["code"],
+                            "prices": port_update_payload["prices"],
+                            "stock": port_update_payload["stock"],
+                            "observed_at": None,  # Set to null for current observers
+                        },
+                    },
+                    character_filter=characters_in_sector,
+                )
+
         return {
             "success": True,
             "trade_type": "buy",
@@ -147,9 +201,13 @@ async def _execute_trade(
     else:
         idx = {"FO": 0, "OG": 1, "EQ": 2}[commodity_key]
         if port_state.code[idx] != "B":
-            raise HTTPException(status_code=400, detail=f"Port does not buy {commodity}")
+            raise HTTPException(
+                status_code=400, detail=f"Port does not buy {commodity}"
+            )
         price_per_unit = calculate_price_buy_from_player(
-            commodity, port_state.stock[commodity_key], port_state.max_capacity[commodity_key]
+            commodity,
+            port_state.stock[commodity_key],
+            port_state.max_capacity[commodity_key],
         )
         validate_sell_transaction(
             knowledge.ship_config.cargo,
@@ -162,7 +220,9 @@ async def _execute_trade(
         new_credits = knowledge.credits + total_price
         world.knowledge_manager.update_credits(character_id, new_credits)
         world.knowledge_manager.update_cargo(character_id, commodity, -quantity)
-        world.port_manager.update_port_inventory(character.sector, commodity_key, quantity, "sell")
+        world.port_manager.update_port_inventory(
+            character.sector, commodity_key, quantity, "sell"
+        )
 
         log_trade(
             character_id=character_id,
@@ -174,6 +234,41 @@ async def _execute_trade(
             total_price=total_price,
             credits_after=new_credits,
         )
+
+        # Emit trade.executed event to the trader
+        await event_dispatcher.emit(
+            "trade.executed",
+            {
+                "player": player_self(world, character_id),
+                "ship": ship_self(world, character_id),
+            },
+            character_filter=[character_id],
+        )
+
+        # Emit port.update to all characters in the sector
+        port_update_payload = port_snapshot(world, character.sector)
+        if port_update_payload:
+            # Find all characters in this sector
+            characters_in_sector = [
+                cid
+                for cid, char in world.characters.items()
+                if char.sector == character.sector and not char.in_hyperspace
+            ]
+            if characters_in_sector:
+                await event_dispatcher.emit(
+                    "port.update",
+                    {
+                        "sector": {"id": character.sector},
+                        "updated_at": port_update_payload["observed_at"],
+                        "port": {
+                            "code": port_update_payload["code"],
+                            "prices": port_update_payload["prices"],
+                            "stock": port_update_payload["stock"],
+                            "observed_at": None,  # Set to null for current observers
+                        },
+                    },
+                    character_filter=characters_in_sector,
+                )
 
         return {
             "success": True,

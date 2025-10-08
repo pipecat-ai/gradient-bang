@@ -79,7 +79,7 @@ async def handle(request: dict, world) -> dict:
         "warp.purchase",
         {
             "character_id": character_id,
-            "sector": character.sector,
+            "sector": {"id": character.sector},
             "units": units_to_buy,
             "price_per_unit": price_per_unit,
             "total_cost": total_cost,

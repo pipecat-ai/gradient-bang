@@ -7,6 +7,12 @@ from combat.callbacks import on_round_resolved, on_combat_ended
 from combat.models import CombatantAction, RoundAction
 
 
+def _sector_id(value):
+    if isinstance(value, dict):
+        return value.get("id")
+    return value
+
+
 @pytest.mark.asyncio
 class TestFleeHandling:
     """Tests for flee handling improvements."""
@@ -87,7 +93,7 @@ class TestFleeHandling:
         # Verify payload
         payload = call_args[0][1]
         assert payload["combat_id"] == "combat1"
-        assert payload["sector"] == 100  # Where they fled FROM
+        assert _sector_id(payload.get("sector")) == 100  # Where they fled FROM
         assert payload["result"] == "fled"
         assert payload["round"] == 3
         assert payload["fled_to_sector"] == 150
@@ -125,6 +131,8 @@ class TestFleeHandling:
         # Mock world and event_dispatcher
         world = MagicMock()
         world.garrisons = None
+        world.port_manager = MagicMock()
+        world.port_manager.load_port_state.return_value = None
         world.salvage_manager = MagicMock()
         world.salvage_manager.create.return_value = None
         event_dispatcher = AsyncMock()
@@ -134,11 +142,9 @@ class TestFleeHandling:
         await on_combat_ended(encounter, outcome, world, event_dispatcher)
 
         # Verify combat.ended was emitted
-        event_dispatcher.emit.assert_called_once()
-        call_args = event_dispatcher.emit.call_args
-
-        # Verify event name
-        assert call_args[0][0] == "combat.ended"
+        combat_calls = [args for args in event_dispatcher.emit.call_args_list if args[0][0] == "combat.ended"]
+        assert len(combat_calls) == 1
+        call_args = combat_calls[0]
 
         # Verify character_filter does NOT include fled character
         character_filter = call_args[1]["character_filter"]

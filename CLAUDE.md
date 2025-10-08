@@ -2,6 +2,8 @@
 
 NEVER ADD OR COMMIT ANY FILES TO GIT. USER WILL ADD AND COMMIT TO GIT MANUALLY.
 
+**📋 Note:** For comprehensive analysis of the combat test suite, including detailed test breakdowns, event specifications, and prioritized improvement recommendations, see **[docs/combat_tests_analysis.md](docs/combat_tests_analysis.md)** (1,885 lines covering all 12 combat tests, 16 event types, and 20 strategic improvements).
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
@@ -34,10 +36,64 @@ cd game-server && uv run python -m .
 
 ### Running Tests
 ```bash
-uv run pytest                           # Run all tests
-uv run pytest tests/test_utils.py      # Run specific test file
-uv run pytest -k test_map_caching      # Run tests matching pattern
+# Run all tests
+uv run pytest
+
+# Run specific test file
+uv run pytest tests/test_utils.py
+
+# Run tests matching pattern
+uv run pytest -k test_map_caching
+
+# Run with verbose output
+uv run pytest -v
+
+# Run with extra verbose output (shows test names and output)
+uv run pytest -vv
+
+# Stop on first failure
+uv run pytest -x
 ```
+
+#### Combat Tests (Integration Tests)
+The comprehensive combat test suite requires a test server running on port 8002:
+
+```bash
+# Terminal 1: Start test server
+export PORT=8002
+uv run python -m game-server
+
+# Terminal 2: Run combat tests
+uv run pytest tests/test_combat_scenarios_comprehensive.py -v
+
+# Run specific combat test
+uv run pytest tests/test_combat_scenarios_comprehensive.py::TestBasicCombatScenarios::test_two_players_combat_attack_actions -xvs
+
+# Run all tests in a specific test class
+uv run pytest tests/test_combat_scenarios_comprehensive.py::TestGarrisonModes -v
+```
+
+**Test Suite Details:**
+- **12 comprehensive tests** covering all combat scenarios
+- **Total runtime:** ~3 minutes (189 seconds)
+- **Test server:** Must run on port 8002 (separate from dev server on 8000)
+- **Test categories:**
+  - `TestBasicCombatScenarios` (3 tests) - 2-player, 3-player, action combinations
+  - `TestPlayerDestruction` (2 tests) - Salvage and escape pods
+  - `TestSalvageCollection` (1 test) - Auto-brace mechanics and sector updates
+  - `TestGarrisonScenarios` (2 tests) - Garrison with/without owner
+  - `TestGarrisonModes` (3 tests) - Toll, offensive, defensive modes
+  - `TestCombatEndedEvents` (1 test) - Event propagation
+
+**Test Logs:**
+All test execution logs are saved to `docs/test_logs/` for debugging and analysis.
+
+**Detailed Analysis:**
+See `docs/combat_tests_analysis.md` for comprehensive documentation including:
+- Step-by-step test flow analysis
+- Event specifications with complete payloads
+- Identified issues and improvement recommendations
+- Performance optimization opportunities
 
 ### Running NPCs
 ```bash

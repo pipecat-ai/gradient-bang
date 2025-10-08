@@ -225,6 +225,9 @@ async def handle(request: dict, world) -> dict:
                         encounter.combat_id, combatant_state
                     )
 
+            # Clear hyperspace flag before auto-garrison combat (so character is counted as present)
+            character.in_hyperspace = False
+
             # Execute auto-garrison combat logic
             auto_garrisons = []
             if world.garrisons is not None:

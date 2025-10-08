@@ -17,7 +17,7 @@ async def ensure_position(
 ) -> Dict[str, Any]:
     """Move the controlled character to the target sector if needed."""
 
-    current_sector = int(status.get("sector", -1))
+    current_sector = _sector_id_from_status(status)
     if current_sector == target_sector:
         return status
 
@@ -33,7 +33,7 @@ async def ensure_position(
         logger.info("Warp jump to sector %s", step)
         await client.move(step)
         status = await client.my_status(force_refresh=True)
-        logger.info("Arrived in sector %s", status.get("sector"))
+        logger.info("Arrived in sector %s", _sector_id_from_status(status))
 
     return status
 
@@ -56,3 +56,16 @@ def compute_timeout(deadline: Optional[str], override: Optional[float]) -> Optio
 
 
 __all__ = ["ensure_position", "compute_timeout"]
+
+
+def _sector_id_from_status(status: Dict[str, Any]) -> int:
+    sector = status.get("sector")
+    if isinstance(sector, dict):
+        value = sector.get("id")
+        return int(value) if value is not None else -1
+    if sector is None:
+        return -1
+    try:
+        return int(sector)
+    except (TypeError, ValueError):
+        return -1

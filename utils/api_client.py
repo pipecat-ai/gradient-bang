@@ -284,6 +284,14 @@ class AsyncGameClient:
                     event_name = msg.get("event")
                     payload = msg.get("payload", {})
                     if event_name:
+                        if (
+                            event_name == "character.moved"
+                            and self._character_id is not None
+                        ):
+                            mover_id = payload.get("character_id")
+                            mover_name = payload.get("name")
+                            if mover_id == self._character_id or mover_name == self._character_id:
+                                continue
                         asyncio.create_task(self._dispatch_event(event_name, payload))
                     continue
                 if frame_type == "rpc":
@@ -1073,6 +1081,33 @@ class AsyncGameClient:
     async def subscribe_my_status(self, character_id: str):
         """Deprecated: Server auto-subscribes to status updates."""
         logger.debug("subscribe_my_status is deprecated; skipping explicit subscribe")
+
+    async def test_reset(
+        self,
+        *,
+        clear_files: bool = True,
+        file_prefixes: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Reset server state for test isolation.
+
+        WARNING: This clears all game state and should only be used in test environments.
+
+        Args:
+            clear_files: If True, delete test character files from disk
+            file_prefixes: List of prefixes to match for file deletion (default: common test prefixes)
+
+        Returns:
+            dict: Statistics about what was cleared
+
+        Raises:
+            RPCError: If the request fails
+        """
+        payload = {"clear_files": clear_files}
+        if file_prefixes is not None:
+            payload["file_prefixes"] = file_prefixes
+
+        result = await self._request("test.reset", payload)
+        return self._apply_summary("test.reset", result)
 
     async def identify(
         self, *, name: Optional[str] = None, character_id: Optional[str] = None

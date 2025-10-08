@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from combat.finalization import resolve_participant_owner, finalize_combat
+from combat.models import GarrisonState
 from ships import ShipType
 
 
@@ -240,7 +241,14 @@ class TestFinalizeCombat:
 
         world = MagicMock()
         world.garrisons = AsyncMock()
-        world.garrisons.to_payload = AsyncMock(return_value=[])
+        garrison_state = GarrisonState(
+            owner_id="owner1",
+            fighters=50,
+            mode="offensive",
+            toll_amount=0,
+        )
+        world.garrisons.deploy.return_value = garrison_state
+        world.garrisons.list_sector = AsyncMock(return_value=[garrison_state])
 
         emit_status_update = AsyncMock()
         event_dispatcher = AsyncMock()
@@ -259,8 +267,8 @@ class TestFinalizeCombat:
             toll_balance=0,
         )
 
-        # Verify garrison update event emitted
-        event_dispatcher.emit.assert_called()
+        # Finalization relies on callbacks to emit sector.update events
+        event_dispatcher.emit.assert_not_called()
 
     async def test_destroyed_garrison_removed(self):
         """Test destroyed garrison is removed from store."""
@@ -287,7 +295,7 @@ class TestFinalizeCombat:
 
         world = MagicMock()
         world.garrisons = AsyncMock()
-        world.garrisons.to_payload = AsyncMock(return_value=[])
+        world.garrisons.list_sector = AsyncMock(return_value=[])
 
         emit_status_update = AsyncMock()
         event_dispatcher = AsyncMock()
@@ -335,7 +343,7 @@ class TestFinalizeCombat:
 
         world = MagicMock()
         world.garrisons = AsyncMock()
-        world.garrisons.to_payload = AsyncMock(return_value=[])
+        world.garrisons.list_sector = AsyncMock(return_value=[])
         world.knowledge_manager.get_credits.return_value = 1000
 
         emit_status_update = AsyncMock()

@@ -235,31 +235,34 @@ async def handle_combat(
 ) -> None:
     player_id = session.player_combatant_id() or character_id
 
+    announced_start = False
     active = True
     while active:
         event_name, state, payload = await session.next_combat_event()
-        if event_name == "combat.started":
-            summary = format_participant_summary(
-                participant.__dict__
-                for pid, participant in state.participants.items()
-                if pid != player_id
-            )
-            agent.add_message(
-                {
-                    "role": "user",
-                    "content": json.dumps(
-                        {
-                            "event": "combat_started",
-                            "combat_id": state.combat_id,
-                            "opponents": summary,
-                        }
-                    ),
-                }
-            )
-            logger.info("Combat %s engaged. Opponents: %s", state.combat_id, summary or "(none)")
-            continue
-
         if event_name == "combat.round_waiting":
+            if not announced_start:
+                summary = format_participant_summary(
+                    participant.__dict__
+                    for pid, participant in state.participants.items()
+                    if pid != player_id
+                )
+                agent.add_message(
+                    {
+                        "role": "user",
+                        "content": json.dumps(
+                            {
+                                "event": "combat_started",
+                                "combat_id": state.combat_id,
+                                "opponents": summary,
+                            }
+                        ),
+                    }
+                )
+                logger.info(
+                    "Combat %s engaged. Opponents: %s", state.combat_id, summary or "(none)"
+                )
+                announced_start = True
+
             runtime.reset_for_round(state, payload, player_id=player_id)
             deadline_seconds = compute_timeout(payload.get("deadline"), action_timeout)
             observation = compose_observation(
@@ -305,7 +308,7 @@ async def handle_combat(
                         {
                             "event": "round_resolved",
                             "round": state.round,
-                            "fighters_remaining": payload.get("fighters_remaining"),
+                            "ship": payload.get("ship"),
                             "result": payload.get("result") or payload.get("end"),
                         }
                     ),
@@ -314,7 +317,7 @@ async def handle_combat(
             logger.info(
                 "Round %s resolved. Fighters remaining: %s",
                 state.round,
-                payload.get("fighters_remaining"),
+                payload.get("ship"),
             )
             continue
 

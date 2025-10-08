@@ -3,7 +3,10 @@ from __future__ import annotations
 from fastapi import HTTPException
 
 from rpc.events import event_dispatcher
-
+from .utils import (
+    serialize_garrison_for_client,
+    sector_contents,
+)
 
 
 async def handle(request: dict, world) -> dict:
@@ -34,7 +37,9 @@ async def handle(request: dict, world) -> dict:
     garrisons = await world.garrisons.list_sector(sector)
     garrison = next((g for g in garrisons if g.owner_id == character_id), None)
     if not garrison:
-        raise HTTPException(status_code=404, detail="No garrison found for character in this sector")
+        raise HTTPException(
+            status_code=404, detail="No garrison found for character in this sector"
+        )
 
     updated = await world.garrisons.set_mode(
         sector_id=sector,
@@ -45,16 +50,24 @@ async def handle(request: dict, world) -> dict:
     if not updated:
         raise HTTPException(status_code=404, detail="Failed to update garrison mode")
 
-    await event_dispatcher.emit(
-        "sector.garrison_updated",
-        {
-            "sector": sector,
-            "garrisons": await world.garrisons.to_payload(sector) if world.garrisons else [],
-        },
-        character_filter=[character_id],
-    )
+    characters_in_sector = [
+        cid
+        for cid, char in world.characters.items()
+        if char.sector == sector and not char.in_hyperspace
+    ]
+    for cid in characters_in_sector:
+        sector_payload = await sector_contents(world, sector, current_character_id=cid)
+        await event_dispatcher.emit(
+            "sector.update",
+            sector_payload,
+            character_filter=[cid],
+        )
 
     return {
         "sector": sector,
-        "garrison": updated.to_dict(),
+        "garrison": serialize_garrison_for_client(
+            world, updated, sector, current_character_id=character_id
+        )
+        if updated
+        else None,
     }

@@ -37,6 +37,7 @@ from api import (
     combat_collect_fighters as api_combat_collect_fighters,
     combat_set_garrison_mode as api_combat_set_garrison_mode,
     salvage_collect as api_salvage_collect,
+    test_reset as api_test_reset,
 )
 from core.config import get_world_data_path
 from messaging.store import MessageStore
@@ -218,6 +219,8 @@ RPC_HANDLERS: Dict[str, RPCHandler] = {
         "salvage.collect", lambda payload: api_salvage_collect.handle(payload, world)
     ),
     "server_status": _with_rate_limit("server_status", _rpc_server_status),
+    # Test utilities - no rate limiting for test endpoints
+    "test.reset": lambda payload: api_test_reset.handle(payload, world),
 }
 
 
@@ -408,5 +411,7 @@ if __name__ == "__main__":
     # For direct execution: cd game-server && uv run python server.py
     # Recommended: uv run python -m game-server (from project root)
     import uvicorn
+    import os
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", "8000"))
+    uvicorn.run(app, host="0.0.0.0", port=port)
