@@ -73,12 +73,6 @@ export const startMoveToSector = (
 
   console.debug("[GAME ACTION] Updating Starfield to", newSector);
 
-  if (!options.bypassAnimation && starfield.isWarpCooldownActive) {
-    // Enter auto pilot mode
-    // Shaking will stop when any active task completes
-    // if starfield.shaking && task.complete, starfield.stopShake();
-    starfield.startShake();
-  }
   starfield.warpToSector({
     id: newSector.id.toString(),
     bypassAnimation: options.bypassAnimation,

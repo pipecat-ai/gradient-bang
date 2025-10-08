@@ -55,7 +55,7 @@ export interface StarfieldCallbacks {
   onGameObjectSelected?: ((gameObject: GameObjectInstance) => void) | null;
   onGameObjectCleared?: (() => void) | null;
   onWarpStart?: (() => void) | null;
-  onWarpComplete?: (() => void) | null;
+  onWarpComplete?: ((queueRemainingCount: number) => void) | null;
   onWarpCancel?: (() => void) | null;
   onSceneIsLoading?: (() => void) | null;
   onSceneReady?:
@@ -136,8 +136,7 @@ export interface WarpOptions {
   sceneConfig?: Partial<StarfieldSceneConfig>; // Scene variant config (partial or full)
   gameObjects?: GameObjectBaseConfig[];
   bypassAnimation?: boolean; // Skip warp animation and load scene directly
-  bypassFlash?: boolean; // Skip flash transition effect (default: true)
-  bypassCooldown?: boolean; // Skip warp cooldown timer (default: false)
+  bypassFlash?: boolean; // Skip flash transition effect (default: false)
 }
 
 // ============================================================================
@@ -180,8 +179,8 @@ export class GalaxyStarfield {
   public isManuallyPaused: boolean;
   public animationId: number | null;
 
-  // Pending sector config for warping (now using lightweight scene variants)
-  private _pendingSectorConfig: StarfieldSceneConfig | null;
+  // Locked config for current warp animation
+  private _lockedWarpConfig: StarfieldSceneConfig | null;
 
   // Current active scene ID
   private _currentSceneId: string | null;
@@ -294,7 +293,12 @@ export class GalaxyStarfield {
   private readonly MIN_FLASH_HOLD_TIME = 300;
   private readonly MAX_FLASH_HOLD_TIME = 5000;
 
-  // Warp cooldown management
+  // Warp queue management
+  private _warpQueue: WarpOptions[] = [];
+  private _isProcessingQueue: boolean = false;
+  private _queueDelayTimer: number | null = null;
+
+  // Warp cooldown management (controls animation rate-limiting)
   private _warpCooldownTimer: number | null = null;
 
   constructor(
@@ -341,7 +345,7 @@ export class GalaxyStarfield {
     this.isManuallyPaused = false;
     this.animationId = null;
 
-    this._pendingSectorConfig = null;
+    this._lockedWarpConfig = null;
     this._currentSceneId = null;
     this._warpPromiseResolver = null;
 
@@ -1147,7 +1151,7 @@ export class GalaxyStarfield {
         this.callbacks.onWarpComplete &&
         typeof this.callbacks.onWarpComplete === "function"
       ) {
-        this.callbacks.onWarpComplete();
+        this.callbacks.onWarpComplete(this._warpQueue.length);
       }
 
       if (this._warpPromiseResolver) {
@@ -1169,6 +1173,22 @@ export class GalaxyStarfield {
       }
 
       this.setState("idle");
+
+      // Start cooldown timer to prevent animation spam
+      const warpCooldownSec = this.config.warpCooldownSec || 0;
+      if (warpCooldownSec > 0) {
+        console.debug(
+          `[STARFIELD] Starting warp animation cooldown for ${warpCooldownSec}s`
+        );
+        this._warpCooldownTimer = window.setTimeout(() => {
+          console.debug("[STARFIELD] Warp animation cooldown expired");
+          this._warpCooldownTimer = null;
+        }, warpCooldownSec * 1000);
+      }
+
+      // Process any queued warp requests
+      this._processWarpQueue();
+
       return;
     }
 
@@ -1672,88 +1692,133 @@ export class GalaxyStarfield {
   /**
    * Warp to a specific sector with optional configuration
    */
-  public async warpToSector(options: WarpOptions): Promise<boolean> {
+  public warpToSector(options: WarpOptions): void {
     if (!this.sceneManager) {
       console.warn("[STARFIELD] SceneManager not available");
-      return false;
+      return;
     }
 
+    const { id } = options;
+
+    if (!id) {
+      console.warn("[STARFIELD] Sector ID is required");
+      return;
+    }
+
+    if (this._currentSceneId === id) {
+      console.debug("[STARFIELD] Already at sector:", id);
+      return;
+    }
+
+    // If currently warping OR processing queue, queue the request
+    if (this.state === "warping" || this._isProcessingQueue) {
+      console.debug(
+        "[STARFIELD] Queuing warp request:",
+        id,
+        this.state === "warping" ? "(warping)" : "(processing queue)"
+      );
+      this._warpQueue.push(options);
+      return;
+    }
+
+    // If cooldown is active (animation played recently), queue the request
+    if (this._warpCooldownTimer !== null) {
+      console.debug(
+        `[STARFIELD] Queuing warp request: ${id} (cooldown active)`
+      );
+      this._warpQueue.push(options);
+
+      // Start queue processing if not already processing
+      if (!this._isProcessingQueue) {
+        this._processWarpQueue();
+      }
+      return;
+    }
+
+    // Otherwise, process the warp request immediately (will play animation)
+    this._processWarpRequest(options);
+  }
+
+  /**
+   * Process a warp request immediately
+   * @private
+   */
+  private _processWarpRequest(options: WarpOptions): void {
     const {
       id,
       gameObjects = [],
       sceneConfig,
       bypassAnimation = false,
-      bypassFlash = true,
-      bypassCooldown = false,
+      bypassFlash = false,
     } = options;
 
-    if (!id) {
-      console.warn("[STARFIELD] Sector ID is required");
-      return false;
-    }
-
-    if (this._currentSceneId === id) {
-      return true;
-    }
-
-    // Handle warp cooldown
-    const isInCooldown = this._handleWarpCooldown(
-      bypassAnimation,
-      bypassCooldown
-    );
-
-    this._pendingSectorConfig = this.sceneManager.prepareSceneVariant(
-      id,
+    const preparedConfig = this.sceneManager!.prepareSceneVariant(
+      id!,
       sceneConfig,
       gameObjects,
       this.gameObjectManager || null
     );
 
-    if (
-      this.state === "warping" &&
-      this.warpPhase !== "FLASH" &&
-      this.warpPhase !== "COOLDOWN" &&
-      this.warpPhase !== "IDLE"
-    ) {
-      this._currentSceneId = id;
-
-      return new Promise<boolean>((resolve) => {
-        this._warpPromiseResolver = resolve;
-      });
-    }
-
     this.clearGameObjectSelection();
 
-    const warpPromise = new Promise<boolean>((resolve) => {
-      this._warpPromiseResolver = resolve;
-    });
+    // Determine if we should bypass animation
+    const shouldBypass =
+      !this._currentSceneId || bypassAnimation || this._isProcessingQueue;
 
-    if (!this._currentSceneId || bypassAnimation || isInCooldown) {
-      const configToLoad = this._pendingSectorConfig;
-      this._pendingSectorConfig = null;
-      this._loadSceneWithReadyState(configToLoad, true, !bypassFlash)
+    if (shouldBypass) {
+      // Direct loading without animation (used for queue processing)
+      console.debug(`[STARFIELD] Loading scene without animation: ${id}`);
+      this._loadSceneWithReadyState(preparedConfig, true, !bypassFlash)
         .then(() => {
-          if (this._warpPromiseResolver) {
-            this._warpPromiseResolver(true);
-            this._warpPromiseResolver = null;
-          }
+          // Process next item in queue if any
+          this._processWarpQueue();
         })
         .catch((err) => {
           console.error("[STARFIELD] Scene loading failed:", err);
-          if (this._warpPromiseResolver) {
-            this._warpPromiseResolver(false);
-            this._warpPromiseResolver = null;
-          }
+          // Still try to process queue on error
+          this._processWarpQueue();
         });
     } else {
+      // Start full warp animation - lock config for this animation
+      console.debug(`[STARFIELD] Starting warp animation: ${id}`);
+      this._lockedWarpConfig = preparedConfig;
       this.startWarp();
     }
 
-    this._currentSceneId = id;
-
+    this._currentSceneId = id!;
     this.startRendering();
+  }
 
-    return warpPromise;
+  /**
+   * Process queued warp requests sequentially
+   * @private
+   */
+  private _processWarpQueue(): void {
+    if (this._warpQueue.length === 0) {
+      console.debug("[STARFIELD] Warp queue empty, processing complete");
+      this._isProcessingQueue = false;
+      this._queueDelayTimer = null;
+      return;
+    }
+
+    this._isProcessingQueue = true;
+    const queueDelaySec = this.config.queueProcessingDelaySec || 1.0;
+    console.debug(
+      `[STARFIELD] Processing warp queue (${this._warpQueue.length} remaining), delay: ${queueDelaySec}s`
+    );
+
+    this._queueDelayTimer = window.setTimeout(() => {
+      this._queueDelayTimer = null;
+      const nextRequest = this._warpQueue.shift();
+      if (nextRequest) {
+        console.debug(
+          `[STARFIELD] Processing queued warp to: ${nextRequest.id}`
+        );
+        this._processWarpRequest(nextRequest);
+      } else {
+        this._isProcessingQueue = false;
+      }
+    }, queueDelaySec * 1000);
   }
 
   /**
@@ -1824,22 +1889,49 @@ export class GalaxyStarfield {
   }
 
   /**
-   * Clear the warp cooldown timer manually
+   * Check if currently in queue processing cycle
+   * Returns true if actively processing queue items OR waiting between items
+   * @returns {boolean} True if in queue cycle, false otherwise
+   */
+  public get isProcessingWarpQueue(): boolean {
+    return this._isProcessingQueue || this._queueDelayTimer !== null;
+  }
+
+  /**
+   * Check if warp animation cooldown is active
+   * @returns {boolean} True if cooldown active, false otherwise
+   */
+  public get isWarpCooldownActive(): boolean {
+    return this._warpCooldownTimer !== null;
+  }
+
+  /**
+   * Clear the warp animation cooldown timer
    */
   public clearWarpCooldown(): void {
     if (this._warpCooldownTimer !== null) {
-      console.debug("[STARFIELD] Manually clearing cooldown timer");
+      console.debug("[STARFIELD] Manually clearing warp cooldown timer");
       clearTimeout(this._warpCooldownTimer);
       this._warpCooldownTimer = null;
     }
   }
 
   /**
-   * Check if the warp system is currently in cooldown
-   * @returns {boolean} True if in cooldown, false otherwise
+   * Get the current warp queue length
+   * @returns {number} Number of queued warp requests
    */
-  public get isWarpCooldownActive(): boolean {
-    return this._warpCooldownTimer !== null;
+  public getWarpQueueLength(): number {
+    return this._warpQueue.length;
+  }
+
+  /**
+   * Clear all queued warp requests
+   */
+  public clearWarpQueue(): void {
+    console.debug(
+      `[STARFIELD] Clearing ${this._warpQueue.length} queued warp requests`
+    );
+    this._warpQueue = [];
   }
 
   // ============================================================================
@@ -2332,50 +2424,6 @@ export class GalaxyStarfield {
   }
 
   /**
-   * Handle warp cooldown logic with debouncing
-   * @private
-   */
-  private _handleWarpCooldown(
-    bypassAnimation: boolean,
-    bypassCooldown: boolean
-  ): boolean {
-    const warpCooldownSec = this.config.warpCooldownSec || 0;
-    const isInCooldown = this._warpCooldownTimer !== null;
-
-    if (bypassCooldown) {
-      console.debug("[STARFIELD] Bypassing cooldown timer");
-      if (this._warpCooldownTimer !== null) {
-        clearTimeout(this._warpCooldownTimer);
-        this._warpCooldownTimer = null;
-      }
-      return false;
-    }
-
-    if (this._warpCooldownTimer !== null) {
-      console.debug("[STARFIELD] Resetting cooldown timer (debounce)");
-      clearTimeout(this._warpCooldownTimer);
-    }
-
-    if (!bypassAnimation && warpCooldownSec > 0) {
-      console.debug(
-        `[STARFIELD] Starting cooldown timer for ${warpCooldownSec}s`
-      );
-      this._warpCooldownTimer = window.setTimeout(() => {
-        console.debug("[STARFIELD] Cooldown timer expired");
-        this._warpCooldownTimer = null;
-      }, warpCooldownSec * 1000);
-    }
-
-    if (isInCooldown) {
-      console.debug(
-        "[STARFIELD] Currently in cooldown - forcing bypass animation"
-      );
-    }
-
-    return isInCooldown;
-  }
-
-  /**
    * Create a new scene using the SceneManager
    * @private
    */
@@ -2389,12 +2437,14 @@ export class GalaxyStarfield {
       requestAnimationFrame(() => resolve(undefined))
     );
 
+    // Use locked config from when animation started
     let newConfig;
 
-    if (this._pendingSectorConfig) {
-      newConfig = this._pendingSectorConfig;
-      this._pendingSectorConfig = null;
+    if (this._lockedWarpConfig) {
+      newConfig = this._lockedWarpConfig;
+      this._lockedWarpConfig = null; // Clear after use
     } else {
+      // Fallback: generate random scene
       newConfig = this.sceneManager.create(this.config);
     }
 

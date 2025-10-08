@@ -33,8 +33,10 @@ export const StarField = memo(() => {
             console.log("[STARFIELD] 🚀 Warp started");
             playSound("warp", { volume: 0.1 });
           },
-          onWarpComplete() {
-            console.log("[STARFIELD] 🎉 Warp complete");
+          onWarpComplete(queueLength) {
+            console.log(
+              `[STARFIELD] 🎉 Warp complete - ${queueLength} remaining`
+            );
           },
           onGameObjectInView: (gameObject) => {
             console.log("[STARFIELD] Game object in view:", gameObject.name);
