@@ -9,9 +9,10 @@ export function getLocalSettings() {
   if (localSettings) {
     console.debug("[GAME SETTINGS] Found local settings", localSettings);
     // Merge with default settings
+    // json file overrides take priority
     return {
-      ...Settings,
       ...JSON.parse(localSettings),
+      ...Settings,
     };
   }
 

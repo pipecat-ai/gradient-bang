@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
 @import "@pipecat-ai/voice-ui-kit/styles";
 
@@ -11,9 +12,11 @@
 @theme {
   --spacing-panel: calc(var(--spacing) * 2);
   --height-ui: 460px;
-
-  --width-image: 330px;
+  --hud-center: 330px;
   --width-ui: 400px;
+
+  --color-active: var(--color-active);
+  --color-subtle: var(--color-subtle);
 }
 
 :root {
@@ -36,12 +39,26 @@ body {
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100svh;
   overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+  position: fixed;
 }
 
 #root {
   position: relative;
   height: 100vh;
+}
+
+/** @TODO REPLACE WITH COMPONENTS **/
+
+button {
+  text-transform: uppercase;
+  font-weight: 800;
 }
 
 /** UI **/
@@ -467,3 +484,41 @@ body {
 }
 
 @import "./starfield.css";
+
+.DialogOverlay {
+  background-color: rgba(0, 0, 0, 0.5);
+  position: fixed;
+  inset: 0;
+  backdrop-filter: blur(5px);
+  z-index: 1000;
+}
+
+.DialogContent {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  transform-origin: center center;
+  z-index: 1001;
+
+  > * {
+    --color-elbow: white;
+  }
+}
+.DialogContent:focus {
+  outline: none;
+}
+
+.DialogTitle {
+  margin: 0;
+  font-weight: 500;
+  color: var(--mauve-12);
+  font-size: 17px;
+}
+
+.DialogDescription {
+  margin: 10px 0 20px;
+  color: var(--mauve-11);
+  font-size: 15px;
+  line-height: 1.5;
+}

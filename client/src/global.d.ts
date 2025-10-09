@@ -15,9 +15,8 @@ declare global {
   }
 
   interface PlayerSelf extends PlayerBase {
-    credits: number;
     credits_in_bank: number;
-    credits_in_hand: number;
+    credits_on_hand: number;
   }
 
   interface Player extends PlayerBase {
@@ -49,6 +48,7 @@ declare global {
 
   interface ShipSelf extends Ship {
     cargo: Record<Resource, number>;
+    cargo_used: number;
     cargo_capacity: number;
     holds: number;
     warp_power: number;
@@ -122,6 +122,15 @@ declare global {
     to: number;
     two_way: boolean;
     hyperlane?: boolean;
+  }
+
+  // --- HISTORY
+
+  interface MovementHistory {
+    timestamp: string;
+    from: number;
+    to: number;
+    port: boolean;
   }
 }
 

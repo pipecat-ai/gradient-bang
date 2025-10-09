@@ -23,9 +23,9 @@ export const NumericalBadge = ({
 
   return (
     <Badge
-      size="lg"
       variant="elbow"
       color={flashColor}
+      buttonSizing
       className={`gap-1 transition-colors duration-200 ${
         isFlashing
           ? flashColor === "active"

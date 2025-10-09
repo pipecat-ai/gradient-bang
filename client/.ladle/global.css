@@ -1,5 +1,7 @@
+@import "tailwindcss";
+
 @import "../src/css/index.css";
-@source "../src/stories/";
+@source "../src";
 
 :root {
   --story-spacing: calc(var(--spacing) * 4);

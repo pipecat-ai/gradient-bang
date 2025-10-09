@@ -9,6 +9,11 @@ export const StarField = memo(() => {
 
   useEffect(() => {
     const state = useGameStore.getState();
+
+    if (!state.settings.renderStarfield) {
+      return;
+    }
+
     if (!state.starfieldInstance) {
       console.log("[STARFIELD RENDER] Initializing Starfield instance");
       const targetElement = document.getElementById("starfield") ?? undefined;

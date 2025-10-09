@@ -2,5 +2,6 @@
     "startMuted": false,
     "enableMic": true,
     "disableRemoteAudio": false,
-    "saveSettings": false
+    "saveSettings": true,
+    "bypassTitleScreen": false
 }

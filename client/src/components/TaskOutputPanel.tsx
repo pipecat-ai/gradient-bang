@@ -1,3 +1,4 @@
+import useGameStore from "@/stores/game";
 import {
   Card,
   CardContent,
@@ -5,8 +6,6 @@ import {
   PanelTitle,
 } from "@pipecat-ai/voice-ui-kit";
 import { useEffect, useRef } from "react";
-import { usePanelRef } from "../hooks/usePanelRef";
-import useTaskStore from "../stores/tasks";
 
 const formatTimestamp = (isoString: string) => {
   return new Date(isoString).toLocaleString("en-GB", {
@@ -36,10 +35,9 @@ const TaskRow = ({
 };
 
 export const TaskOutputPanel = () => {
-  const panelRef = usePanelRef("task_output");
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const { getTasks } = useTaskStore();
+  const getTasks = useGameStore.use.getTasks();
 
   const tasks = getTasks();
 
@@ -49,7 +47,6 @@ export const TaskOutputPanel = () => {
 
   return (
     <Card
-      ref={panelRef}
       withElbows={true}
       background="scanlines"
       className="flex w-full h-full"

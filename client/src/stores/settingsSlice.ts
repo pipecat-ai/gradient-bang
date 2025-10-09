@@ -1,6 +1,6 @@
+import { getLocalSettings, setLocalSettings } from "@/utils/settings";
+import { produce } from "immer";
 import { type StateCreator } from "zustand";
-
-import { getLocalSettings } from "@/utils/settings";
 
 export interface SettingsSlice {
   settings: {
@@ -15,9 +15,12 @@ export interface SettingsSlice {
     renderStarfield: boolean;
     soundFXVolume: number;
     startMuted: boolean;
+    fxBypassFlash: boolean;
     qualityPreset: "text" | "low" | "high";
     saveSettings: boolean;
+    bypassTitleScreen: boolean;
   };
+  setSettings: (settings: SettingsSlice["settings"]) => void;
 }
 
 const defaultSettings = {
@@ -32,13 +35,23 @@ const defaultSettings = {
   renderStarfield: true,
   soundFXVolume: 0.5,
   startMuted: false,
+  fxBypassFlash: false,
   qualityPreset: "high" as const,
   saveSettings: true,
+  bypassTitleScreen: false,
 };
 
-export const createSettingsSlice: StateCreator<SettingsSlice> = () => ({
+export const createSettingsSlice: StateCreator<SettingsSlice> = (set) => ({
   settings: {
     ...defaultSettings,
     ...getLocalSettings(),
+  },
+  setSettings: (settings: SettingsSlice["settings"]) => {
+    setLocalSettings(settings);
+    set(
+      produce((state) => {
+        state.settings = settings;
+      })
+    );
   },
 });
