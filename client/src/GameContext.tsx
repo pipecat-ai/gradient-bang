@@ -84,6 +84,24 @@ export function GameProvider({ children }: GameProviderProps) {
     [client]
   );
 
+  const dispatchEvent = useCallback(
+    (e: { type: string; payload?: unknown }) => {
+      if (!client) {
+        console.error("[GAME CONTEXT] Client not available");
+        return;
+      }
+      if (client.state !== "ready") {
+        console.error(
+          `[GAME CONTEXT] Client not ready. Current state: ${client.state}`
+        );
+        return;
+      }
+      console.debug(`[GAME CONTEXT] Dispatching event: "${e.type}"`, e.payload);
+      client.sendClientMessage(e.type, e.payload ?? {});
+    },
+    [client]
+  );
+
   useRTVIClientEvent(
     RTVIEvent.ServerMessage,
     useCallback(
@@ -197,7 +215,7 @@ export function GameProvider({ children }: GameProviderProps) {
   );
 
   return (
-    <GameContext.Provider value={{ sendUserTextInput }}>
+    <GameContext.Provider value={{ sendUserTextInput, dispatchEvent }}>
       {children}
     </GameContext.Provider>
   );

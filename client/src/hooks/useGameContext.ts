@@ -5,10 +5,12 @@ import { createContext, useContext } from "react";
  */
 interface GameContextProps {
   sendUserTextInput: (text: string) => void;
+  dispatchEvent: (e: { type: string; payload: unknown }) => void;
 }
 
 export const GameContext = createContext<GameContextProps>({
   sendUserTextInput: () => {},
+  dispatchEvent: () => {},
 });
 
 export const useGameContext = () => {
