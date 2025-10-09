@@ -1,6 +1,6 @@
+import { DiscoveredPortsPanel } from "@/components/DiscoveredPortsPanel";
 import { MovementHistoryPanel } from "@/components/MovementHistoryPanel";
 import { PanelMenu } from "@/components/PanelMenu";
-import { PortHistoryPanel } from "@/components/PortHistoryPanel";
 import { TaskOutputPanel } from "@/components/TaskOutputPanel";
 import { TradeHistoryPanel } from "@/components/TradeHistoryPanel";
 import { Debug } from "@/debug/Debug";
@@ -36,7 +36,7 @@ export const LHS = () => {
               }
             />
             <ResizablePanel minSize={30} defaultSize={40}>
-              <PortHistoryPanel />
+              <DiscoveredPortsPanel />
             </ResizablePanel>
           </ResizablePanelGroup>
         ) : panel === "trade_history" ? (

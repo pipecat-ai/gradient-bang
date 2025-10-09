@@ -12,9 +12,11 @@
 @theme {
   --spacing-panel: calc(var(--spacing) * 2);
   --height-ui: 460px;
-
   --hud-center: 330px;
   --width-ui: 400px;
+
+  --color-active: var(--color-active);
+  --color-subtle: var(--color-subtle);
 }
 
 :root {

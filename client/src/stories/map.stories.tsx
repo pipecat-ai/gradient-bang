@@ -1,6 +1,7 @@
 import type { Story } from "@ladle/react";
 import { useCallback, useState } from "react";
 
+import { DiscoveredPortsPanel } from "@/components/DiscoveredPortsPanel";
 import { MiniMap as MiniMapComponent, type MiniMapConfig } from "@hud/MiniMap";
 import { Button } from "@pipecat-ai/voice-ui-kit";
 
@@ -198,4 +199,17 @@ MiniMapMock.meta = {
   disableAudioOutput: true,
   enableMic: false,
   disconnectedStory: true,
+};
+
+export const DiscoveredPorts: Story = () => {
+  return (
+    <div className="flex flex-col gap-3">
+      <DiscoveredPortsPanel />
+    </div>
+  );
+};
+
+DiscoveredPorts.meta = {
+  enableMic: false,
+  disableAudioOutput: true,
 };

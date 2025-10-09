@@ -1,9 +1,9 @@
 import { AutoPilot } from "@/components/AutoPilot";
 import { StarField } from "@/components/StarField";
+import { Settings } from "@/dialogs/Settings";
 import { usePlaySound } from "@/hooks/usePlaySound";
 import { ShipHUD } from "@hud/ShipHUD";
 import { TopBar } from "@hud/TopBar";
-import { Settings } from "@views/dialogs/Settings";
 import { useEffect } from "react";
 
 export const Game = () => {

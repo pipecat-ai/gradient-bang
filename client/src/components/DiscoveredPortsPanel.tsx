@@ -32,7 +32,7 @@ const DiscoveredPortHistoryRow = ({
 };
 */
 
-export const PortHistoryPanel = () => {
+export const DiscoveredPortsPanel = () => {
   return (
     <Card withElbows={true} className="flex w-full h-full bg-black">
       <CardHeader>

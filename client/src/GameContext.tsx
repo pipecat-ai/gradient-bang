@@ -145,6 +145,13 @@ export function GameProvider({ children }: GameProviderProps) {
                 player: data.player,
               });
 
+              // Add entry to movement history
+              gameStore.addMovementHistory({
+                from: gameStore.sector?.id ?? 0,
+                to: gameStore.sectorBuffer?.id ?? 0,
+                port: !!gameStore.sectorBuffer?.port,
+              });
+
               // Swap in the buffered sector
               // Note: Starfield instance should already be in sync
               if (gameStore.sectorBuffer) {

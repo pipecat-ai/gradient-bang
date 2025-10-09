@@ -5,8 +5,8 @@ export interface MapSlice {
   sectors: Record<string, Omit<Sector, "id">>;
   addMappedSector: (sector: Sector) => void;
   getMappedSectors: () => Record<string, Omit<Sector, "id">>;
-  getDiscoveredPortSectors: () => Record<string, Omit<Sector, "id">>;
-  setMappedSectors: (sectorsData: Record<string, SectorMap>) => void;
+  //getDiscoveredPortSectors: () => Record<string, Omit<Sector, "id">>;
+  //setMappedSectors: (sectorsData: Record<string, SectorMap>) => void;
 }
 
 export const createMapSlice: StateCreator<MapSlice> = (set, get) => ({
@@ -32,7 +32,7 @@ export const createMapSlice: StateCreator<MapSlice> = (set, get) => ({
   },
 
   getMappedSectors: () => get().sectors,
-  getDiscoveredPortSectors: () => {
+  /*getDiscoveredPortSectors: () => {
     const sectors = get().sectors;
     return Object.fromEntries(
       Object.entries(sectors).filter(([, sector]) => sector.port)
@@ -63,5 +63,5 @@ export const createMapSlice: StateCreator<MapSlice> = (set, get) => ({
     set({
       sectors: sectorsMap,
     });
-  },
+  },*/
 });

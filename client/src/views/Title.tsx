@@ -1,3 +1,4 @@
+import { Settings } from "@/dialogs/Settings";
 import useGameStore from "@/stores/game";
 import {
   Button,
@@ -5,7 +6,6 @@ import {
   CardContent,
   CardHeader,
 } from "@pipecat-ai/voice-ui-kit";
-import { Settings } from "@views/dialogs/Settings";
 
 export const Title = ({ onStart }: { onStart: () => void }) => {
   const setModal = useGameStore.use.setModal();

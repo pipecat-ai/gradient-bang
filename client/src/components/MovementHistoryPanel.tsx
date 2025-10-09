@@ -1,3 +1,5 @@
+import useGameStore from "@/stores/game";
+import { CheckIcon } from "@phosphor-icons/react";
 import {
   Card,
   CardContent,
@@ -5,7 +7,6 @@ import {
   PanelTitle,
 } from "@pipecat-ai/voice-ui-kit";
 
-/*
 const MovementHistoryRow = ({ item }: { item: MovementHistory }) => {
   return (
     <tr>
@@ -18,9 +19,9 @@ const MovementHistoryRow = ({ item }: { item: MovementHistory }) => {
     </tr>
   );
 };
-*/
 
 export const MovementHistoryPanel = () => {
+  const movementHistory = useGameStore((state) => state.movement_history);
   return (
     <Card withElbows={true} className="flex w-full h-full bg-black">
       <CardHeader>
@@ -37,9 +38,9 @@ export const MovementHistoryPanel = () => {
             </tr>
           </thead>
           <tbody>
-            {/* history.map((movement: MovementHistory) => (
+            {movementHistory.map((movement: MovementHistory) => (
               <MovementHistoryRow key={movement.timestamp} item={movement} />
-            ))} */}
+            ))}
           </tbody>
         </table>
       </CardContent>

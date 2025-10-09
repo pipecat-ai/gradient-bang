@@ -1,3 +1,4 @@
+import { MovementHistoryPanel } from "@/components/MovementHistoryPanel";
 import { StarField } from "@/components/StarField";
 import { WarpBadge } from "@/components/WarpBadge";
 import { useGameContext } from "@/hooks/useGameContext";
@@ -6,6 +7,7 @@ import useGameStore from "@/stores/game";
 import type { Story } from "@ladle/react";
 import {
   Badge,
+  Button,
   TextInputComponent,
   usePipecatConnectionState,
 } from "@pipecat-ai/voice-ui-kit";
@@ -125,6 +127,47 @@ export const MovementWithStarfield: Story = () => {
 };
 
 MovementWithStarfield.meta = {
+  connectOnMount: false,
+  enableMic: false,
+  disableAudioOutput: true,
+  messages: [
+    [
+      "Hop to sector 0",
+      "Navigate and move to sector 0 immediately. If it's not adjacent to our current sector, plot the shortest path and start moving without asking me.",
+    ],
+    [
+      "Hop to a random adjacent sector",
+      "Pick one random adjacent sector and move to it immediately.",
+    ],
+    [
+      "Hop 3 adjacent sectors",
+      "Plot a course to a randomsector 2-3 hops away from our current position and move to it immediately. Do not hop more than 3 times.",
+    ],
+  ],
+};
+
+export const MovementHistory: Story = () => {
+  const addMovementHistory = useGameStore((state) => state.addMovementHistory);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <Button
+        onClick={() =>
+          addMovementHistory({
+            from: 0,
+            to: 1,
+            port: true,
+          })
+        }
+      >
+        Add fake entry
+      </Button>
+      <MovementHistoryPanel />
+    </div>
+  );
+};
+
+MovementHistory.meta = {
   connectOnMount: false,
   enableMic: false,
   disableAudioOutput: true,

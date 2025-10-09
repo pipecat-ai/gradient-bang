@@ -123,6 +123,15 @@ declare global {
     two_way: boolean;
     hyperlane?: boolean;
   }
+
+  // --- HISTORY
+
+  interface MovementHistory {
+    timestamp: string;
+    from: number;
+    to: number;
+    port: boolean;
+  }
 }
 
 export {};
