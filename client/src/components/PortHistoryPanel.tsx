@@ -4,10 +4,8 @@ import {
   CardHeader,
   PanelTitle,
 } from "@pipecat-ai/voice-ui-kit";
-import { usePanelRef } from "../hooks/usePanelRef";
-import useMapStore, { type MapSector } from "../stores/map";
-import type { Port } from "../stores/port";
 
+/*
 const DiscoveredPortHistoryRow = ({
   port,
   sector_id,
@@ -26,48 +24,40 @@ const DiscoveredPortHistoryRow = ({
   });
   return (
     <tr>
-      <td className="py-1 text-agent w-16 whitespace-nowrap">{sector_id}</td>
+      <td className="py-1 text-agent w-16 whitespace-nowrap ">{sector_id}</td>
       <td className="py-1 whitespace-nowrap">{port.code}</td>
       <td className="py-1 text-right w-24 whitespace-nowrap">{visited}</td>
     </tr>
   );
 };
+*/
 
 export const PortHistoryPanel = () => {
-  const panelRef = usePanelRef("ports_discovered");
-  const { getDiscoveredPortSectors } = useMapStore();
-
-  const sectorsWithPorts = getDiscoveredPortSectors();
-
   return (
-    <Card
-      ref={panelRef}
-      withElbows={true}
-      className="flex w-full h-full bg-black"
-    >
+    <Card withElbows={true} className="flex w-full h-full bg-black">
       <CardHeader>
         <PanelTitle>Discovered Ports</PanelTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-2 overflow-y-auto">
         <table className="w-full text-xs">
-          <thead className="text-left bg-background border-b">
+          <thead className="text-left bg-background border-b border-border">
             <tr>
-              <th className="py-1 w-18 whitespace-nowrap">Sector</th>
-              <th className="py-1 whitespace-nowrap">Name</th>
-              <th className="py-1 text-right w-24 whitespace-nowrap">
+              <th className="py-1 w-18 whitespace-nowrap uppercase">Sector</th>
+              <th className="py-1 whitespace-nowrap uppercase">Name</th>
+              <th className="py-1 text-right w-24 whitespace-nowrap uppercase">
                 Last Visited
               </th>
             </tr>
           </thead>
           <tbody>
-            {sectorsWithPorts.map((sectorWithPort: MapSector) => (
+            {/* sectorsWithPorts.map((sectorWithPort: MapSector) => (
               <DiscoveredPortHistoryRow
                 key={sectorWithPort.port?.code}
                 sector_id={sectorWithPort.sector_id}
                 last_visited={sectorWithPort.last_visited as string}
                 port={sectorWithPort.port as Port}
               />
-            ))}
+            ))} */}
           </tbody>
         </table>
       </CardContent>

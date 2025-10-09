@@ -1,4 +1,7 @@
-import { CurrencyCircleDollarIcon } from "@phosphor-icons/react";
+import {
+  CurrencyCircleDollarIcon,
+  SlidersHorizontalIcon,
+} from "@phosphor-icons/react";
 import { Button } from "@pipecat-ai/voice-ui-kit";
 import { CargoCapacityBadge } from "../components/CargoCapacityBadge";
 import { NumericalBadge } from "../components/NumericalBadge";
@@ -8,11 +11,11 @@ import useGameStore from "../stores/game";
 
 export const TopBar = () => {
   const ship = useGameStore.use.ship();
-  const credits = useGameStore.use.player().credits;
+  const player = useGameStore.use.player();
   const setModal = useGameStore.use.setModal();
 
   return (
-    <footer className="flex flex-row p-panel justify-between items-center">
+    <header className="flex flex-row p-4 justify-between items-center ">
       <div className="flex flex-row gap-4 flex-1">
         <WarpBadge />
       </div>
@@ -24,15 +27,15 @@ export const TopBar = () => {
         <CargoCapacityBadge />
       </div>
       <div className="flex flex-row gap-4 flex-1 justify-end">
-        <NumericalBadge value={credits} formatAsCurrency={true}>
+        <NumericalBadge value={player.credits_on_hand} formatAsCurrency={true}>
           <CurrencyCircleDollarIcon weight="duotone" className="size-5 mr-1" />{" "}
           Credits:
         </NumericalBadge>
 
-        <Button variant="secondary" onClick={() => setModal("settings")}>
-          Pew
+        <Button isIcon variant="outline" onClick={() => setModal("settings")}>
+          <SlidersHorizontalIcon className="size-5" />
         </Button>
       </div>
-    </footer>
+    </header>
   );
 };

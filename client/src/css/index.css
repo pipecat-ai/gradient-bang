@@ -13,7 +13,7 @@
   --spacing-panel: calc(var(--spacing) * 2);
   --height-ui: 460px;
 
-  --width-image: 330px;
+  --hud-center: 330px;
   --width-ui: 400px;
 }
 

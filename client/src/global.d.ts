@@ -15,9 +15,8 @@ declare global {
   }
 
   interface PlayerSelf extends PlayerBase {
-    credits: number;
     credits_in_bank: number;
-    credits_in_hand: number;
+    credits_on_hand: number;
   }
 
   interface Player extends PlayerBase {

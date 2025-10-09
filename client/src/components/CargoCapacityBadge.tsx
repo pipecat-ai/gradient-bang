@@ -26,7 +26,7 @@ export const CargoCapacityBadge = () => {
   }, [ship]);
 
   return (
-    <Badge size="lg" variant="elbow" color={progressProps.variant}>
+    <Badge buttonSizing variant="elbow" color={progressProps.variant}>
       Cargo:
       <Progress {...progressProps} size="xl" className="h-[8px]" />
       <div>

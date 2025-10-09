@@ -4,12 +4,8 @@ import {
   CardHeader,
   PanelTitle,
 } from "@pipecat-ai/voice-ui-kit";
-import { CheckIcon } from "lucide-react";
-import { usePanelRef } from "../hooks/usePanelRef";
-import useMovementHistoryStore, {
-  type MovementHistory,
-} from "../stores/history";
 
+/*
 const MovementHistoryRow = ({ item }: { item: MovementHistory }) => {
   return (
     <tr>
@@ -22,34 +18,28 @@ const MovementHistoryRow = ({ item }: { item: MovementHistory }) => {
     </tr>
   );
 };
+*/
 
 export const MovementHistoryPanel = () => {
-  const panelRef = usePanelRef("movement_history");
-  const { history } = useMovementHistoryStore();
-
   return (
-    <Card
-      ref={panelRef}
-      withElbows={true}
-      className="flex w-full h-full bg-black"
-    >
+    <Card withElbows={true} className="flex w-full h-full bg-black">
       <CardHeader>
         <PanelTitle>Movement History</PanelTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-2 overflow-y-auto">
         <table className="w-full text-xs">
-          <thead className="text-left bg-background border-b">
+          <thead className="text-left bg-background border-b border-border">
             <tr>
-              <th className="py-1">Timestamp</th>
-              <th>From</th>
-              <th>To</th>
-              <th>Port</th>
+              <th className="py-1 uppercase">Timestamp</th>
+              <th className="py-1 uppercase">From</th>
+              <th className="py-1 uppercase">To</th>
+              <th className="py-1 uppercase">Port</th>
             </tr>
           </thead>
           <tbody>
-            {history.map((movement: MovementHistory) => (
+            {/* history.map((movement: MovementHistory) => (
               <MovementHistoryRow key={movement.timestamp} item={movement} />
-            ))}
+            ))} */}
           </tbody>
         </table>
       </CardContent>

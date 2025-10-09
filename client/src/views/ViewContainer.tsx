@@ -1,5 +1,5 @@
+import { usePipecatConnectionState } from "@/hooks/usePipecatState";
 import useGameStore from "@/stores/game";
-import { usePipecatConnectionState } from "@pipecat-ai/voice-ui-kit";
 import Connect from "@views/Connect";
 import Error from "@views/Error";
 import Game from "@views/Game";

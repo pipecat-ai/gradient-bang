@@ -1,3 +1,4 @@
+import { AutoPilot } from "@/components/AutoPilot";
 import { StarField } from "@/components/StarField";
 import { usePlaySound } from "@/hooks/usePlaySound";
 import { ShipHUD } from "@hud/ShipHUD";
@@ -14,18 +15,17 @@ export const Game = () => {
 
   return (
     <>
-      <div className="min-h-screen grid grid-rows-[auto_1fr_auto] w-full z-10 relative">
+      <div className="h-full grid grid-rows-[auto_1fr_auto] w-full z-10 relative">
         {/* Top Bar */}
         <TopBar />
 
         <div className="flex flex-col items-center justify-center">
-          {/* HUD Panels */}
+          {/* The Whole Wide Universe */}
+          <AutoPilot />
         </div>
 
-        {/* Main Game UI */}
-        <main className="flex flex-row p-2 pt-0 h-ui mt-auto ">
-          <ShipHUD />
-        </main>
+        {/* HUD */}
+        <ShipHUD />
       </div>
 
       {/* Other Renderables */}

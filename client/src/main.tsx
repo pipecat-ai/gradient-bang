@@ -8,6 +8,9 @@ import { getLocalSettings } from "@/utils/settings";
 import ViewContainer from "@views/ViewContainer";
 import "./css/index.css";
 
+// @TODO: Rather than apply during constructor, we should
+// modify relevant properties on client later.
+// Currently, the noAudioOutput setting is irreversible!
 const Settings = getLocalSettings();
 
 createRoot(document.getElementById("root")!).render(

@@ -1,13 +1,10 @@
-import { LightningIcon, NutIcon, PlantIcon } from "@phosphor-icons/react";
 import {
   Card,
   CardContent,
   CardHeader,
   PanelTitle,
 } from "@pipecat-ai/voice-ui-kit";
-import { usePanelRef } from "../hooks/usePanelRef";
-import useTradeHistoryStore, { type TradeHistoryItem } from "../stores/trades";
-
+/*
 const IconMap = {
   organics: <PlantIcon size={18} weight="duotone" />,
   fuel_ore: <NutIcon size={18} weight="duotone" />,
@@ -41,39 +38,30 @@ const TradeHistoryRow = ({ item }: { item: TradeHistoryItem }) => {
       </td>
     </tr>
   );
-};
+};*/
 
 export const TradeHistoryPanel = () => {
-  const panelRef = usePanelRef("trade_history");
-  const { getTrades } = useTradeHistoryStore();
-
-  const trades = getTrades();
-
   return (
-    <Card
-      ref={panelRef}
-      withElbows={false}
-      className="flex w-full h-full bg-black"
-    >
+    <Card withElbows={false} className="flex w-full h-full bg-black">
       <CardHeader>
         <PanelTitle>Trade History</PanelTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-2 overflow-y-auto">
         <table className="w-full text-xs">
-          <thead className="text-left bg-background border-b">
+          <thead className="text-left bg-background border-b border-border">
             <tr>
-              <th className="py-2">Timestamp</th>
-              <th>Commodity</th>
-              <th>Type</th>
-              <th>Units</th>
-              <th>Price per unit</th>
-              <th>Total price</th>
+              <th className="py-2 uppercase">Timestamp</th>
+              <th className="py-2 uppercase">Commodity</th>
+              <th className="py-2 uppercase">Type</th>
+              <th className="py-2 uppercase">Units</th>
+              <th className="py-2 uppercase">Price per unit</th>
+              <th className="py-2 uppercase">Total price</th>
             </tr>
           </thead>
           <tbody>
-            {trades.map((movement: TradeHistoryItem) => (
+            {/* trades.map((movement: TradeHistoryItem) => (
               <TradeHistoryRow key={movement.timestamp} item={movement} />
-            ))}
+            ))} */}
           </tbody>
         </table>
       </CardContent>
