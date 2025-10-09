@@ -8,7 +8,7 @@ import {
 } from "@pipecat-ai/voice-ui-kit";
 
 export const Title = ({ onStart }: { onStart: () => void }) => {
-  const setModal = useGameStore.use.setModal();
+  const setActiveModal = useGameStore.use.setActiveModal();
   return (
     <div className="relative h-screen w-screen overflow-hidden">
       <div className="absolute inset-0">
@@ -37,7 +37,7 @@ export const Title = ({ onStart }: { onStart: () => void }) => {
               </Button>
               <Button
                 isFullWidth
-                onClick={() => setModal("settings")}
+                onClick={() => setActiveModal("settings")}
                 variant="secondary"
               >
                 Settings

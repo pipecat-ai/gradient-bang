@@ -16,8 +16,8 @@ export const PanelMenu = ({
   currentPanel,
   setCurrentPanel,
 }: {
-  currentPanel: PanelMenuItem;
-  setCurrentPanel: (panel: PanelMenuItem) => void;
+  currentPanel?: string;
+  setCurrentPanel: (panel: string) => void;
 }) => {
   return (
     <div className="flex flex-col h-full gap-2">

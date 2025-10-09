@@ -22,6 +22,7 @@
       "@fx/*": ["./src/fx/*"],
       "@hud/*": ["./src/hud/*"],
       "@views/*": ["./src/views/*"],
+      "@screens/*": ["./src/screens/*"],
       "@stores/*": ["./src/stores/*"],
     },
 

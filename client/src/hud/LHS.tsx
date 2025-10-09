@@ -13,13 +13,13 @@ import {
 } from "@pipecat-ai/voice-ui-kit";
 
 export const LHS = () => {
-  const { panel } = useGameStore.use.ui();
-  const setPanel = useGameStore.use.setPanel();
+  const panel = useGameStore.use.activePanel?.() || "task_output";
+  const setActivePanel = useGameStore.use.setActivePanel();
 
   return (
     <div className="w-full lhs-perspective">
       <div className="flex flex-row gap-2 max-w-[800px] h-full">
-        <PanelMenu currentPanel={panel} setCurrentPanel={setPanel} />
+        <PanelMenu currentPanel={panel} setCurrentPanel={setActivePanel} />
         {panel === "task_output" ? (
           <TaskOutputPanel />
         ) : panel === "movement_history" ? (

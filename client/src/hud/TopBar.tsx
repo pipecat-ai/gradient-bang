@@ -12,7 +12,7 @@ import useGameStore from "../stores/game";
 export const TopBar = () => {
   const ship = useGameStore.use.ship();
   const player = useGameStore.use.player();
-  const setModal = useGameStore.use.setModal();
+  const setActiveModal = useGameStore.use.setActiveModal();
 
   return (
     <header className="flex flex-row p-4 justify-between items-center ">
@@ -32,7 +32,11 @@ export const TopBar = () => {
           Credits:
         </NumericalBadge>
 
-        <Button isIcon variant="outline" onClick={() => setModal("settings")}>
+        <Button
+          isIcon
+          variant="outline"
+          onClick={() => setActiveModal("settings")}
+        >
           <SlidersHorizontalIcon className="size-5" />
         </Button>
       </div>
