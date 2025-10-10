@@ -286,12 +286,26 @@ async def run_bot(transport, runner_args: RunnerArguments):
         # Client requested my status
         if msg_type == "get-my-status":
             # Get current status from the task manager
-            status = await task_manager.game_client.my_status()
+            status = await task_manager.game_client.my_status(task_manager.character_id)
             await rtvi.push_frame(
                 RTVIServerMessageFrame(
                     {
                         "frame_type": "event",
                         "event": "status.update",
+                        "payload": status,
+                    }
+                )
+            )
+            return
+
+        # Client requested known ports
+        if msg_type == "get-known-ports":
+            status = await task_manager.game_client.list_known_ports(task_manager.character_id)
+            await rtvi.push_frame(
+                RTVIServerMessageFrame(
+                    {
+                        "frame_type": "event",
+                        "event": "map.known-ports",
                         "payload": status,
                     }
                 )
@@ -323,6 +337,7 @@ async def run_bot(transport, runner_args: RunnerArguments):
 
                 # Use local_map_region endpoint
                 map_data = await task_manager.game_client.local_map_region(
+                    character_id=task_manager.character_id,
                     center_sector=sector,
                     max_hops=max_hops,
                     max_sectors=max_sectors,
