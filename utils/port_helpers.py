@@ -6,8 +6,8 @@ structure returned by the server (code, last_seen_prices, last_seen_stock).
 
 from typing import Dict, List, Optional
 
-# Commodity order in code string: index 0=FO, 1=OG, 2=EQ
-RESOURCES: List[str] = ["fuel_ore", "organics", "equipment"]
+# Commodity order in code string: index 0=QF, 1=RO, 2=NS
+RESOURCES: List[str] = ["quantum_foam", "retro_organics", "neuro_symbolics"]
 
 
 def _code_str(port_info: Dict) -> str:

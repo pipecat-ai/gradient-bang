@@ -25,7 +25,7 @@ declare global {
   }
 
   // --- RESOURCE
-  type Resource = "EQ" | "FO" | "OG";
+  type Resource = "NS" | "QF" | "RO";
   type ResourceList = Resource[];
 
   // --- SHIP

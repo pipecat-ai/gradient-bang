@@ -16,7 +16,7 @@
   - `plot_course`: `from_sector`, `to_sector`
   - `move`: `to_sector`
   - `trade`/`check_trade`: `commodity`, `quantity`, `trade_type`
-- Commodity names are strict: `fuel_ore`, `organics`, `equipment`.
+- Commodity names are strict: `quantum_foam`, `retro_organics`, `neuro_symbolics`.
 
 ## Build, Test, and Development Commands
 - Python uses `uv` (Python 3.12+). `uv sync` to install; no manual venv.
@@ -56,6 +56,6 @@
 ## Common Issues
 - Port 8000 in use: `lsof -ti:8000 | xargs kill -9`
 - Dict attribute errors: API returns dicts; use `resp['field']`, not `resp.field`.
-- Wrong commodity names: use exactly `fuel_ore`, `organics`, `equipment`.
+- Wrong commodity names: use exactly `quantum_foam`, `retro_organics`, `neuro_symbolics`.
 - Map not updating: call `my_map(force_refresh=True)` after move/status if cache is stale.
 - Missing `character_id`: pass explicitly when the client is not tracking a character.

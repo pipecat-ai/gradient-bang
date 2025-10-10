@@ -27,10 +27,8 @@ class TestAsyncGameClient:
     pytestmark = pytest.mark.asyncio
     """Tests for AsyncGameClient class."""
     
-    @patch.object(AsyncGameClient, "_update_map_cache_from_status", new_callable=AsyncMock)
-    @patch.object(AsyncGameClient, "_fetch_and_cache_map", new_callable=AsyncMock)
     @patch.object(AsyncGameClient, "_request", new_callable=AsyncMock)
-    async def test_join(self, mock_request, mock_fetch_map, mock_update_cache):
+    async def test_join(self, mock_request):
         """Test join method."""
         mock_request.return_value = {
             "name": "test_char",
@@ -51,14 +49,10 @@ class TestAsyncGameClient:
         assert isinstance(result, dict)
         assert result["name"] == "test_char"
         assert result["sector"] == 0
-        mock_request.assert_awaited_once()
-        mock_fetch_map.assert_not_awaited()
-        mock_update_cache.assert_not_awaited()
+        mock_request.assert_awaited_once_with("join", {"character_id": "test_char"})
 
-    @patch.object(AsyncGameClient, "_update_map_cache_from_status", new_callable=AsyncMock)
-    @patch.object(AsyncGameClient, "_ensure_map_cached", new_callable=AsyncMock)
     @patch.object(AsyncGameClient, "_request", new_callable=AsyncMock)
-    async def test_move(self, mock_request, mock_ensure_map, mock_update_cache):
+    async def test_move(self, mock_request):
         """Test move method."""
         mock_request.return_value = {
             "name": "test_char",
@@ -74,14 +68,13 @@ class TestAsyncGameClient:
         }
 
         async with AsyncGameClient(character_id="test_char") as client:
-            client._current_character = "test_char"
-            result = await client.move(5)
+            result = await client.move(5, "test_char")
 
         assert isinstance(result, dict)
         assert result["sector"] == 5
-        mock_ensure_map.assert_awaited_once_with("test_char")
-        mock_request.assert_awaited_with("move", {"character_id": "test_char", "to_sector": 5})
-        mock_update_cache.assert_awaited()
+        mock_request.assert_awaited_with(
+            "move", {"character_id": "test_char", "to_sector": 5}
+        )
 
     @patch.object(AsyncGameClient, "_request", new_callable=AsyncMock)
     async def test_plot_course(self, mock_request):
@@ -94,12 +87,14 @@ class TestAsyncGameClient:
         }
 
         async with AsyncGameClient(character_id="test_char") as client:
-            result = await client.plot_course(0, 10)
+            result = await client.plot_course(10, "test_char")
 
         assert isinstance(result, dict)
         assert result["distance"] == 3
         assert result["path"] == [0, 1, 5, 10]
-        mock_request.assert_awaited_with("plot_course", {"from_sector": 0, "to_sector": 10})
+        mock_request.assert_awaited_with(
+            "plot_course", {"character_id": "test_char", "to_sector": 10}
+        )
 
     @patch.object(AsyncGameClient, "_request", new_callable=AsyncMock)
     async def test_my_status(self, mock_request):
@@ -240,7 +235,7 @@ class TestAsyncToolExecutor:
             ("my_map", {}),
             (
                 "find_port",
-                {"commodity": "fuel_ore", "buy_or_sell": "buy", "from_sector": 3},
+                {"commodity": "quantum_foam", "buy_or_sell": "buy", "from_sector": 3},
             ),
             ("wait_for_time", {"seconds": 1}),
             ("finished", {"message": "Done"}),

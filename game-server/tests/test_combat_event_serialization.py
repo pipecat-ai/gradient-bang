@@ -489,7 +489,7 @@ class TestSerializeCombatEndedEvent:
             sector=1203,
             created_at=now,
             expires_at=now + timedelta(minutes=15),
-            cargo={"fuel_ore": 10, "organics": 5},
+            cargo={"quantum_foam": 10, "retro_organics": 5},
             scrap=15,
             credits=0,
             metadata={
@@ -502,7 +502,7 @@ class TestSerializeCombatEndedEvent:
             sector=1203,
             created_at=now,
             expires_at=now + timedelta(minutes=15),
-            cargo={"equipment": 3},
+            cargo={"neuro_symbolics": 3},
             scrap=20,
             credits=0,
             metadata={
@@ -525,7 +525,7 @@ class TestSerializeCombatEndedEvent:
         # Check first salvage
         salv1 = result["salvage"][0]
         assert salv1["salvage_id"] == "salv_001"
-        assert salv1["cargo"] == {"fuel_ore": 10, "organics": 5}
+        assert salv1["cargo"] == {"quantum_foam": 10, "retro_organics": 5}
         assert salv1["scrap"] == 15
         assert salv1["source"] == {
             "ship_name": "Star Runner",
@@ -536,7 +536,7 @@ class TestSerializeCombatEndedEvent:
 
         salv2 = result["salvage"][1]
         assert salv2["salvage_id"] == "salv_002"
-        assert salv2["cargo"] == {"equipment": 3}
+        assert salv2["cargo"] == {"neuro_symbolics": 3}
         assert salv2["scrap"] == 20
         assert salv2["source"] == {
             "ship_name": "Unknown Ship",

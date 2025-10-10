@@ -327,7 +327,7 @@ class TestPlayerDestruction:
         create_strong_character("test_dest_attacker", sector=0, fighters=500)
 
         # Give weak character some cargo for salvage
-        set_character_cargo("test_dest_victim", fuel_ore=10, organics=5, equipment=2)
+        set_character_cargo("test_dest_victim", quantum_foam=10, retro_organics=5, neuro_symbolics=2)
 
         collector_attacker = EventCollector()
         collector_victim = EventCollector()
@@ -425,7 +425,7 @@ class TestPlayerDestruction:
                 assert "claimed_by" not in salvage
 
                 # Should have cargo from weak player
-                assert salvage["cargo"].get("fuel_ore", 0) > 0
+                assert salvage["cargo"].get("quantum_foam", 0) > 0
 
             # Wait for sector.update after combat ended
             sector_update = await collector_attacker.wait_for_event("sector.update", timeout=5.0)
@@ -544,7 +544,7 @@ class TestSalvageCollection:
         create_balanced_character("test_salv_observer", sector=0)
 
         # Give victim cargo for salvage
-        set_character_cargo("test_salv_victim", fuel_ore=20, organics=10, equipment=5)
+        set_character_cargo("test_salv_victim", quantum_foam=20, retro_organics=10, neuro_symbolics=5)
 
         collector_attacker = EventCollector()
         collector_victim = EventCollector()
@@ -654,9 +654,9 @@ class TestSalvageCollection:
             salvage_id = salvage_list[0]["salvage_id"]
             salvage_item = salvage_list[0]
             cargo = salvage_item.get("cargo", {})
-            assert cargo.get("fuel_ore", 0) == 20
-            assert cargo.get("organics", 0) == 10
-            assert cargo.get("equipment", 0) == 5
+            assert cargo.get("quantum_foam", 0) == 20
+            assert cargo.get("retro_organics", 0) == 10
+            assert cargo.get("neuro_symbolics", 0) == 5
 
             # Wait for sector.update after combat ended
             sector_update_1 = await collector_attacker.wait_for_event("sector.update", timeout=5.0)

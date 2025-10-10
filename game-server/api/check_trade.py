@@ -37,7 +37,7 @@ async def handle(request: dict, world) -> dict:
             "cargo_used": sum(knowledge.ship_config.cargo.values()),
         }
 
-    if commodity not in ["fuel_ore", "organics", "equipment"]:
+    if commodity not in ["quantum_foam", "retro_organics", "neuro_symbolics"]:
         return {
             "can_trade": False,
             "error": f"Invalid commodity: {commodity}",
@@ -47,7 +47,7 @@ async def handle(request: dict, world) -> dict:
             "cargo_used": sum(knowledge.ship_config.cargo.values()),
         }
 
-    commodity_key = {"fuel_ore": "FO", "organics": "OG", "equipment": "EQ"}[commodity]
+    commodity_key = {"quantum_foam": "QF", "retro_organics": "RO", "neuro_symbolics": "NS"}[commodity]
 
     from trading import (
         calculate_price_sell_to_player,
@@ -59,7 +59,7 @@ async def handle(request: dict, world) -> dict:
 
     try:
         if trade_type == "buy":
-            idx = {"FO": 0, "OG": 1, "EQ": 2}[commodity_key]
+            idx = {"QF": 0, "RO": 1, "NS": 2}[commodity_key]
             if port_state.code[idx] != "S":
                 return {
                     "can_trade": False,
@@ -84,7 +84,7 @@ async def handle(request: dict, world) -> dict:
                 price_per_unit,
             )
         else:
-            idx = {"FO": 0, "OG": 1, "EQ": 2}[commodity_key]
+            idx = {"QF": 0, "RO": 1, "NS": 2}[commodity_key]
             if port_state.code[idx] != "B":
                 return {
                     "can_trade": False,

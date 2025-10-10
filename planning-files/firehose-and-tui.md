@@ -30,7 +30,7 @@ Add this endpoint to the tools that are available to the LLM utilities. I want t
 
 For example:
   - "How many sectors have I visited?"
-  - "Find a port close to me that sells organics."
+  - "Find a port close to me that sells retro_organics."
   - "List all the port pairs that are in adjacent sectors, that I know about."
 
 Add information about this endpoint to the TASK_EXECUTION_INSTRUCTIONS.

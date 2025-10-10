@@ -13,15 +13,21 @@ import useImageStore from "../stores/image";
 import usePortStore from "../stores/port";
 
 const IconMap = {
-  og: <PlantIcon size={28} weight="duotone" />,
-  fo: <NutIcon size={28} weight="duotone" />,
-  eq: <LightningIcon size={28} weight="duotone" />,
+  ro: <PlantIcon size={28} weight="duotone" />,
+  qf: <NutIcon size={28} weight="duotone" />,
+  ns: <LightningIcon size={28} weight="duotone" />,
 };
 
 const codeToLabel = {
-  og: "Organics",
-  fo: "Fuel Ore",
-  eq: "Equipment",
+  ro: "Retro-organics",
+  qf: "Quantum Foam",
+  ns: "Neuro-symbolics",
+};
+
+const codeToAbbrev = {
+  ro: "RO",
+  qf: "QF",
+  ns: "NS",
 };
 
 const baseClx = "flex flex-col gap-4";
@@ -34,7 +40,7 @@ const CommodityItem = ({
   price = 0,
   units = 0,
 }: {
-  commodity: "og" | "fo" | "eq";
+  commodity: "ro" | "qf" | "ns";
   sells?: boolean;
   buys?: boolean;
   price?: number;
@@ -49,7 +55,9 @@ const CommodityItem = ({
 
         <PanelTitle>
           {codeToLabel[commodity as keyof typeof codeToLabel]}{" "}
-          <span className="opacity-40">({commodity})</span>
+          <span className="opacity-40">
+            ({codeToAbbrev[commodity as keyof typeof codeToAbbrev]})
+          </span>
         </PanelTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
@@ -101,12 +109,12 @@ export const PortPanel = () => {
 
   if (!active) return null;
 
-  const buysFO = port?.code?.split("")[0] === "B";
-  const buysOG = port?.code?.split("")[1] === "B";
-  const buysEQ = port?.code?.split("")[2] === "B";
-  const sellsFO = port?.code?.split("")[0] === "S";
-  const sellsOG = port?.code?.split("")[1] === "S";
-  const sellsEQ = port?.code?.split("")[2] === "S";
+  const buysQF = port?.code?.split("")[0] === "B";
+  const buysRO = port?.code?.split("")[1] === "B";
+  const buysNS = port?.code?.split("")[2] === "B";
+  const sellsQF = port?.code?.split("")[0] === "S";
+  const sellsRO = port?.code?.split("")[1] === "S";
+  const sellsNS = port?.code?.split("")[2] === "S";
 
   return (
     <div className="absolute -left-5 bg-background">
@@ -119,25 +127,25 @@ export const PortPanel = () => {
           <Divider decoration="plus" size="md" />
           <div className="flex flex-row gap-2">
             <CommodityItem
-              commodity="fo"
-              buys={buysFO}
-              sells={sellsFO}
-              price={port?.last_seen_prices.fuel_ore || 0}
-              units={port?.last_seen_stock.fuel_ore || 0}
+              commodity="qf"
+              buys={buysQF}
+              sells={sellsQF}
+              price={port?.last_seen_prices.quantum_foam || 0}
+              units={port?.last_seen_stock.quantum_foam || 0}
             />
             <CommodityItem
-              commodity="og"
-              buys={buysOG}
-              sells={sellsOG}
-              price={port?.last_seen_prices.organics || 0}
-              units={port?.last_seen_stock.organics || 0}
+              commodity="ro"
+              buys={buysRO}
+              sells={sellsRO}
+              price={port?.last_seen_prices.retro_organics || 0}
+              units={port?.last_seen_stock.retro_organics || 0}
             />
             <CommodityItem
-              commodity="eq"
-              sells={sellsEQ}
-              buys={buysEQ}
-              price={port?.last_seen_prices.equipment || 0}
-              units={port?.last_seen_stock.equipment || 0}
+              commodity="ns"
+              sells={sellsNS}
+              buys={buysNS}
+              price={port?.last_seen_prices.neuro_symbolics || 0}
+              units={port?.last_seen_stock.neuro_symbolics || 0}
             />
           </div>
         </CardContent>

@@ -58,9 +58,9 @@ class CombatantStatus:
 
 @dataclass
 class CargoInfo:
-    fuel_ore: int = 0
-    organics: int = 0
-    equipment: int = 0
+    quantum_foam: int = 0
+    retro_organics: int = 0
+    neuro_symbolics: int = 0
 
 
 @dataclass
@@ -161,9 +161,9 @@ class StatusBarUpdater:
 
         cargo = ship_data.get("cargo", {})
         self.state.cargo = CargoInfo(
-            fuel_ore=cargo.get("fuel_ore", 0),
-            organics=cargo.get("organics", 0),
-            equipment=cargo.get("equipment", 0)
+            quantum_foam=cargo.get("quantum_foam", 0),
+            retro_organics=cargo.get("retro_organics", 0),
+            neuro_symbolics=cargo.get("neuro_symbolics", 0)
         )
 
         # Bar 3: Ships in sector - handle both "players" and "other_players"
@@ -385,9 +385,9 @@ class StatusBarUpdater:
         cargo = ship_data.get("cargo", {})
         if cargo:
             self.state.cargo = CargoInfo(
-                fuel_ore=cargo.get("fuel_ore", self.state.cargo.fuel_ore),
-                organics=cargo.get("organics", self.state.cargo.organics),
-                equipment=cargo.get("equipment", self.state.cargo.equipment)
+                quantum_foam=cargo.get("quantum_foam", self.state.cargo.quantum_foam),
+                retro_organics=cargo.get("retro_organics", self.state.cargo.retro_organics),
+                neuro_symbolics=cargo.get("neuro_symbolics", self.state.cargo.neuro_symbolics)
             )
 
     def _update_combat_participants(
@@ -496,9 +496,9 @@ class StatusBarUpdater:
             f"credits: {self.state.credits} | "
             f"fighters: {self.state.fighters}/{self.state.max_fighters} "
             f"shields: {self.state.shields}/{self.state.max_shields} | "
-            f"cargo FO:{self.state.cargo.fuel_ore} "
-            f"OG:{self.state.cargo.organics} "
-            f"EQ:{self.state.cargo.equipment} | "
+            f"cargo QF:{self.state.cargo.quantum_foam} "
+            f"RO:{self.state.cargo.retro_organics} "
+            f"NS:{self.state.cargo.neuro_symbolics} | "
             f"warp {self.state.warp_power}/{self.state.max_warp_power}"
         )
 
@@ -522,9 +522,9 @@ class StatusBarUpdater:
         # Bar 5: Port
         if self.state.port:
             p = self.state.port
-            # Format: FO:700@24 OG:300@12 EQ:300@49
+            # Format: QF:700@24 RO:300@12 NS:300@49
             goods = []
-            for commodity, short in [("fuel_ore", "FO"), ("organics", "OG"), ("equipment", "EQ")]:
+            for commodity, short in [("quantum_foam", "QF"), ("retro_organics", "RO"), ("neuro_symbolics", "NS")]:
                 stock = p.stock.get(commodity)
                 price = p.prices.get(commodity)
                 if stock is not None and price is not None:

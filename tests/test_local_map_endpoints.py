@@ -333,14 +333,14 @@ def test_list_known_ports_commodity_filter(ws_client):
         char_id = _unique_character_id("ports")
         _setup_explored_character(ws, char_id)
 
-        # Find ports that sell equipment (player wants to buy equipment)
+        # Find ports that sell neuro_symbolics (player wants to buy neuro_symbolics)
         ws.send_text(json.dumps({
             "id": "ports4",
             "type": "rpc",
             "endpoint": "list_known_ports",
             "payload": {
                 "character_id": char_id,
-                "commodity": "equipment",
+                "commodity": "neuro_symbolics",
                 "trade_type": "buy"
             }
         }))
@@ -349,10 +349,10 @@ def test_list_known_ports_commodity_filter(ws_client):
         assert resp["ok"] is True
         result = resp["result"]
 
-        # All returned ports should sell equipment (S in position 2)
+        # All returned ports should sell neuro_symbolics (S in position 2)
         for port in result["ports"]:
             port_code = port["port"]["code"]
-            assert port_code[2] == "S"  # Equipment is position 2
+            assert port_code[2] == "S"  # Neuro-symbolics is position 2
 
 
 def test_list_known_ports_max_hops(ws_client):
@@ -416,7 +416,7 @@ def test_list_known_ports_missing_trade_type_with_commodity(ws_client):
             "endpoint": "list_known_ports",
             "payload": {
                 "character_id": char_id,
-                "commodity": "equipment"
+                "commodity": "neuro_symbolics"
             }
         }))
         resp = _recv_until(ws, lambda m: m.get("endpoint") == "list_known_ports" and m.get("frame_type") == "rpc")

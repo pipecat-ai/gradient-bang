@@ -8,7 +8,7 @@ from typing import Dict, Optional, Tuple
 from enum import Enum
 
 # Commodity base prices
-BASE_PRICES = {"fuel_ore": 25, "organics": 10, "equipment": 40}
+BASE_PRICES = {"quantum_foam": 25, "retro_organics": 10, "neuro_symbolics": 40}
 
 # Price bands for port trading
 SELL_MIN = 0.75  # Port sells to player at 75% when full stock
@@ -46,7 +46,7 @@ def calculate_price_sell_to_player(
     Uses sqrt curve: price rises slowly when stock is high, spikes when low.
 
     Args:
-        commodity: Commodity type (fuel_ore, organics, equipment)
+        commodity: Commodity type (quantum_foam, retro_organics, neuro_symbolics)
         stock: Current stock level
         max_capacity: Maximum stock capacity
 
@@ -80,7 +80,7 @@ def calculate_price_buy_from_player(
     Uses sqrt curve: price is high when stock is low (need more), low when stock is high (saturated).
 
     Args:
-        commodity: Commodity type (fuel_ore, organics, equipment)
+        commodity: Commodity type (quantum_foam, retro_organics, neuro_symbolics)
         stock: Current stock level
         max_capacity: Maximum stock capacity
 
@@ -117,7 +117,7 @@ def get_port_prices(port_data: Dict) -> Dict[str, Optional[int]]:
         The price is for selling TO player if port sells it, or buying FROM player if port buys it.
     """
     # Map commodity names to their keys in port data
-    commodity_keys = {"fuel_ore": "FO", "organics": "OG", "equipment": "EQ"}
+    commodity_keys = {"quantum_foam": "QF", "retro_organics": "RO", "neuro_symbolics": "NS"}
 
     prices = {}
 
@@ -145,7 +145,7 @@ def get_port_prices(port_data: Dict) -> Dict[str, Optional[int]]:
 
 def get_port_stock(port_data: Dict) -> Dict[str, int]:
     # Map commodity names to their keys in port data
-    commodity_keys = {"fuel_ore": "FO", "organics": "OG", "equipment": "EQ"}
+    commodity_keys = {"quantum_foam": "QF", "retro_organics": "RO", "neuro_symbolics": "NS"}
 
     stock = {}
 

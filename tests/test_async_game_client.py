@@ -231,7 +231,7 @@ class TestTradeAPIs:
         # This will likely fail if no port, but tests the API call structure
         try:
             result = await client.check_trade(
-                commodity="fuel_ore",
+                commodity="quantum_foam",
                 quantity=10,
                 trade_type="buy",
                 character_id="test_client_char"
@@ -247,7 +247,7 @@ class TestTradeAPIs:
 
         with pytest.raises(ValueError, match="bound to character_id"):
             await client.check_trade(
-                commodity="fuel_ore",
+                commodity="quantum_foam",
                 quantity=10,
                 trade_type="buy",
                 character_id="wrong_char"
@@ -259,7 +259,7 @@ class TestTradeAPIs:
 
         with pytest.raises(ValueError, match="bound to character_id"):
             await client.trade(
-                commodity="fuel_ore",
+                commodity="quantum_foam",
                 quantity=10,
                 trade_type="buy",
                 character_id="wrong_char"
@@ -429,7 +429,7 @@ class TestLocalMapQueryAPIs:
 
         result = await client.list_known_ports(
             character_id="test_client_char",
-            commodity="equipment",
+            commodity="neuro_symbolics",
             trade_type="buy"
         )
 

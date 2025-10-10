@@ -65,11 +65,11 @@
     "port": {
       "class": 1,
       "code": "BSS",
-      "buys": ["fuel_ore"],
-      "sells": ["organics", "equipment"],
-      "stock": {"FO": 200, "OG": 800, "EQ": 500},
-      "max_capacity": {"FO": 1000, "OG": 1000, "EQ": 1000},
-      "prices": {"fuel_ore": 45, "organics": 32, "equipment": 120}
+      "buys": ["quantum_foam"],
+      "sells": ["retro_organics", "neuro_symbolics"],
+      "stock": {"QF": 200, "RO": 800, "NS": 500},
+      "max_capacity": {"QF": 1000, "RO": 1000, "NS": 1000},
+      "prices": {"quantum_foam": 45, "retro_organics": 32, "neuro_symbolics": 120}
     },
     "planets": [
       {
@@ -90,7 +90,7 @@
   "ship": {
     "ship_type": "merchant",
     "ship_name": "Merchant Freighter",
-    "cargo": {"fuel_ore": 10, "organics": 20, "equipment": 5},
+    "cargo": {"quantum_foam": 10, "retro_organics": 20, "neuro_symbolics": 5},
     "cargo_capacity": 65,
     "cargo_used": 35,
     "warp_power": 85,
@@ -128,8 +128,8 @@
       "port": {
         "class": 1,
         "code": "BSS",
-        "buys": ["fuel_ore"],
-        "sells": ["organics", "equipment"]
+        "buys": ["quantum_foam"],
+        "sells": ["retro_organics", "neuro_symbolics"]
       },
       "planets": [],
       "adjacent_sectors": [1, 2, 3, 4, 5]
@@ -143,7 +143,7 @@
   },
   "ship_config": {
     "ship_type": "merchant",
-    "cargo": {"fuel_ore": 10, "organics": 20, "equipment": 5},
+    "cargo": {"quantum_foam": 10, "retro_organics": 20, "neuro_symbolics": 5},
     "current_warp_power": 85,
     "current_shields": 400,
     "current_fighters": 20
@@ -159,7 +159,7 @@
 **Purpose:** Preview trade transaction without executing  
 **Arguments:**
 - `character_id`: string
-- `commodity`: string ("fuel_ore", "organics", or "equipment")
+- `commodity`: string ("quantum_foam", "retro_organics", or "neuro_symbolics")
 - `quantity`: int (>0)
 - `trade_type`: string ("buy" or "sell")
 
@@ -171,7 +171,7 @@
   "total_price": 450,
   "error": null,
   "current_credits": 5000,
-  "current_cargo": {"fuel_ore": 10, "organics": 20, "equipment": 5},
+  "current_cargo": {"quantum_foam": 10, "retro_organics": 20, "neuro_symbolics": 5},
   "cargo_capacity": 65,
   "cargo_used": 35
 }
@@ -182,7 +182,7 @@
 **Purpose:** Execute trade transaction (buy or sell commodities)  
 **Arguments:**
 - `character_id`: string
-- `commodity`: string ("fuel_ore", "organics", or "equipment")
+- `commodity`: string ("quantum_foam", "retro_organics", or "neuro_symbolics")
 - `quantity`: int (>0)
 - `trade_type`: string ("buy" or "sell")
 
@@ -191,15 +191,15 @@
 {
   "success": true,
   "trade_type": "buy",
-  "commodity": "fuel_ore",
+  "commodity": "quantum_foam",
   "quantity": 10,
   "price_per_unit": 45,
   "total_price": 450,
   "new_credits": 4550,
-  "new_cargo": {"fuel_ore": 20, "organics": 20, "equipment": 5},
-  "port_stock": {"FO": 190, "OG": 800, "EQ": 500},
-  "port_max_capacity": {"FO": 1000, "OG": 1000, "EQ": 1000},
-  "new_prices": {"fuel_ore": 46, "organics": 32, "equipment": 120}
+  "new_cargo": {"quantum_foam": 20, "retro_organics": 20, "neuro_symbolics": 5},
+  "port_stock": {"QF": 190, "RO": 800, "NS": 500},
+  "port_max_capacity": {"QF": 1000, "RO": 1000, "NS": 1000},
+  "new_prices": {"quantum_foam": 46, "retro_organics": 32, "neuro_symbolics": 120}
 }
 ```
 
@@ -335,7 +335,7 @@
   "character_id": "trader",
   "sector": 45,
   "trade_type": "buy",
-  "commodity": "fuel_ore",
+  "commodity": "quantum_foam",
   "quantity": 10,
   "price_per_unit": 45,
   "total_price": 450,

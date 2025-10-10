@@ -75,7 +75,7 @@ def create_test_character_knowledge(
         )
     """
     if cargo is None:
-        cargo = {"fuel_ore": 0, "organics": 0, "equipment": 0}
+        cargo = {"quantum_foam": 0, "retro_organics": 0, "neuro_symbolics": 0}
 
     now = datetime.now(timezone.utc).isoformat()
 
@@ -274,17 +274,17 @@ def create_balanced_character(
 
 def set_character_cargo(
     character_id: str,
-    fuel_ore: int = 0,
-    organics: int = 0,
-    equipment: int = 0,
+    quantum_foam: int = 0,
+    retro_organics: int = 0,
+    neuro_symbolics: int = 0,
 ) -> None:
     """Set a character's cargo for salvage testing.
 
     Args:
         character_id: Character ID to modify
-        fuel_ore: Fuel ore quantity
-        organics: Organics quantity
-        equipment: Equipment quantity
+        quantum_foam: Quantum Foam quantity
+        retro_organics: Retro-organics quantity
+        neuro_symbolics: Neuro-symbolics quantity
     """
     filepath = KNOWLEDGE_DIR / f"{character_id}.json"
 
@@ -295,9 +295,9 @@ def set_character_cargo(
         knowledge = json.load(f)
 
     knowledge["ship_config"]["cargo"] = {
-        "fuel_ore": fuel_ore,
-        "organics": organics,
-        "equipment": equipment,
+        "quantum_foam": quantum_foam,
+        "retro_organics": retro_organics,
+        "neuro_symbolics": neuro_symbolics,
     }
 
     knowledge["last_update"] = datetime.now(timezone.utc).isoformat()

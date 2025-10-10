@@ -60,12 +60,12 @@ COURSE_LENGTH_HINT = 45  # classic feel
 
 # --- Commodities & classes ---
 COM_LONG = {
-    "FO": "fuel_ore",
-    "OG": "organics",
-    "EQ": "equipment",
+    "QF": "quantum_foam",
+    "RO": "retro_organics",
+    "NS": "neuro_symbolics",
 }  # labels for readability
 
-# Port class (1..8) -> code ("B"/"S") for FO, OG, EQ
+# Port class (1..8) -> code ("B"/"S") for QF, RO, NS
 CLASS_DEFS = {
     1: "BBS",
     2: "BSB",
@@ -147,13 +147,13 @@ def build_port_object(
     code = CLASS_DEFS[port_class]
 
     # Initialize dictionaries for all commodities
-    stock = {"FO": 0, "OG": 0, "EQ": 0}
-    stock_max = {"FO": 0, "OG": 0, "EQ": 0}
-    demand = {"FO": 0, "OG": 0, "EQ": 0}
-    demand_max = {"FO": 0, "OG": 0, "EQ": 0}
+    stock = {"QF": 0, "RO": 0, "NS": 0}
+    stock_max = {"QF": 0, "RO": 0, "NS": 0}
+    demand = {"QF": 0, "RO": 0, "NS": 0}
+    demand_max = {"QF": 0, "RO": 0, "NS": 0}
 
     buys, sells = [], []
-    for com, idx in (("FO", 0), ("OG", 1), ("EQ", 2)):
+    for com, idx in (("QF", 0), ("RO", 1), ("NS", 2)):
         if code[idx] == "S":
             stock_max[com] = default_cap
             stock[com] = int(round(default_cap * start_fill))
@@ -580,7 +580,7 @@ def main():
             "regen_fraction_stock": REGEN_FRACTION_STOCK,
             "regen_fraction_demand": REGEN_FRACTION_DEMAND,
         },
-        "commodities": COM_LONG,  # FO/OG/EQ labels for readability
+        "commodities": COM_LONG,  # QF/RO/NS labels for readability
     }
 
     sector_contents_list = []
