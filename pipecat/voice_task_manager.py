@@ -54,6 +54,7 @@ class VoiceTaskManager:
         )
         # Register event handlers for server events
         self.game_client.on("chat.message")(self._handle_chat_message)
+        self.game_client.on("course.plot")(self._handle_course_plot)
         self.game_client.on("character.moved")(self._handle_character_moved)
         self.game_client.on("movement.start")(self._handle_movement_start)
         self.game_client.on("movement.complete")(self._handle_movement_complete)
@@ -211,6 +212,10 @@ class VoiceTaskManager:
     async def _handle_chat_message(self, payload: Dict[str, Any]) -> None:
         """Relay chat.message events to RTVI clients."""
         await self._handle_event("chat.message", payload)
+
+    async def _handle_course_plot(self, payload: Dict[str, Any]) -> None:
+        """Relay course.plot events to RTVI clients."""
+        await self._handle_event("course.plot", payload)
 
     async def _handle_character_moved(self, payload: Dict[str, Any]) -> None:
         """Relay character.moved events to RTVI clients."""

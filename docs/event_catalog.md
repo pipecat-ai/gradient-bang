@@ -237,36 +237,23 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 
 ## Movement Events
 
-### movement.start
-**When emitted:** When a character enters hyperspace to begin movement
-**Who receives it:** The moving character only (character_filter)
-**Source:** `/game-server/api/move.py:156`
+### course.plot
+***When emitted:*** When plot_course is called
+***Who receives it:*** The moving character only (character_filter)
+***Source:*** `/game-server/api/plot_course.py:156`
 
 **Payload example:**
 ```json
 {
-  "sector": {
-    "id": 43,
-    "adjacent_sectors": [42, 44, 50, 51],
-    "port": {
-      "code": "BSB",
-      "prices": {
-        "fuel_ore": {"buy_price": null, "sell_price": 12},
-        "organics": {"buy_price": 18, "sell_price": null},
-        "equipment": {"buy_price": null, "sell_price": 25}
-      },
-      "stock": {
-        "fuel_ore": 500,
-        "organics": 300,
-        "equipment": 200
-      },
-      "observed_at": null
-    },
-    "players": [],
-    "garrison": null,
-    "salvage": []
-  },
-  "hyperspace_time": 2.0
+    "from_sector": 1000,
+    "to_sector": 1307,
+    "path": [
+        1000,
+        1203,
+        962,
+        1307
+    ],
+    "distance": 3
 }
 ```
 
