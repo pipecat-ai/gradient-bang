@@ -138,17 +138,7 @@ class VoiceTaskManager:
         return result
 
     async def _on_tool_call_event(self, tool_name: str, arguments: Any):
-        await self.rtvi_processor.push_frame(
-            RTVIServerMessageFrame(
-                {
-                    "frame_type": "event",
-                    "event": "tool_call",
-                    "gg-action": "tool_call",
-                    "tool_name": tool_name,
-                    "payload": {"arguments": arguments},
-                }
-            )
-        )
+        pass
 
     def _normalize_tool_event_payload(self, payload: Any) -> Dict[str, Any]:
         if not isinstance(payload, dict):
@@ -178,18 +168,7 @@ class VoiceTaskManager:
         return normalized
 
     async def _on_tool_result_event(self, tool_name: str, payload: Any):
-        normalized_payload = self._normalize_tool_event_payload(payload)
-        await self.rtvi_processor.push_frame(
-            RTVIServerMessageFrame(
-                {
-                    "frame_type": "event",
-                    "event": "tool_result",
-                    "gg-action": "tool_result",
-                    "tool_name": tool_name,
-                    "payload": normalized_payload,
-                }
-            )
-        )
+        pass
 
     async def _handle_event(self, event_name: str, payload: Dict[str, Any]) -> None:
         """General handler to relay any event to RTVI clients.
@@ -316,6 +295,9 @@ class VoiceTaskManager:
             mt = str(message_type)
 
         logger.info(f"!!! task output: {text} | {mt}")
+
+        return
+        # todo: summaries, etc?
 
         display_text = text
         if mt == "TOOL_RESULT":
