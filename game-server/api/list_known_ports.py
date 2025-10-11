@@ -108,11 +108,11 @@ async def handle(request: Dict[str, Any], world) -> Dict[str, Any]:
                 # Commodity + trade type filter
                 elif commodity and trade_type:
                     # Check if port buys/sells the commodity
-                    # Port code: B=buy, S=sell for each position (FO, OG, EQ)
+                    # Port code: B=buy, S=sell for each position (QF, RO, NS)
                     commodity_map = {
-                        "fuel_ore": 0,
-                        "organics": 1,
-                        "equipment": 2
+                        "quantum_foam": 0,
+                        "retro_organics": 1,
+                        "neuro_symbolics": 2
                     }
                     if commodity not in commodity_map:
                         raise HTTPException(status_code=422, detail=f"Unknown commodity: {commodity}")

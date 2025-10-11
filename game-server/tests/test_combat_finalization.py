@@ -143,7 +143,7 @@ class TestFinalizeCombat:
         # Mock knowledge for loser
         loser_knowledge = MagicMock()
         loser_knowledge.ship_config.ship_type = ShipType.SPARROW_SCOUT.value
-        loser_knowledge.ship_config.cargo = {"organics": 10, "equipment": 5}
+        loser_knowledge.ship_config.cargo = {"retro_organics": 10, "neuro_symbolics": 5}
 
         world.knowledge_manager.load_knowledge.return_value = loser_knowledge
         world.knowledge_manager.get_credits.side_effect = lambda char_id: (

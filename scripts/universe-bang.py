@@ -98,9 +98,9 @@ REGEN_FRACTION_DEMAND = 0.25
 
 # --- Commodities & classes ---
 COM_LONG = {
-    "FO": "fuel_ore",
-    "OG": "organics",
-    "EQ": "equipment",
+    "QF": "quantum_foam",
+    "RO": "retro_organics",
+    "NS": "neuro_symbolics",
 }
 
 CLASS_DEFS = {
@@ -628,13 +628,13 @@ def build_port_object(
     capacity = default_cap * (MEGA_PORT_STOCK_MULTIPLIER if is_mega else 1)
     
     # Initialize inventories
-    stock = {"FO": 0, "OG": 0, "EQ": 0}
-    stock_max = {"FO": 0, "OG": 0, "EQ": 0}
-    demand = {"FO": 0, "OG": 0, "EQ": 0}
-    demand_max = {"FO": 0, "OG": 0, "EQ": 0}
+    stock = {"QF": 0, "RO": 0, "NS": 0}
+    stock_max = {"QF": 0, "RO": 0, "NS": 0}
+    demand = {"QF": 0, "RO": 0, "NS": 0}
+    demand_max = {"QF": 0, "RO": 0, "NS": 0}
     
     buys, sells = [], []
-    for com, idx in (("FO", 0), ("OG", 1), ("EQ", 2)):
+    for com, idx in (("QF", 0), ("RO", 1), ("NS", 2)):
         if code[idx] == "S":
             stock_max[com] = capacity
             stock[com] = int(round(capacity * start_fill))

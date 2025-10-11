@@ -38,10 +38,10 @@ async def handle(request: dict, world, port_locks=None) -> dict:
     if not port_state:
         raise HTTPException(status_code=400, detail="No port at current location")
 
-    if commodity not in ["fuel_ore", "organics", "equipment"]:
+    if commodity not in ["quantum_foam", "retro_organics", "neuro_symbolics"]:
         raise HTTPException(status_code=400, detail=f"Invalid commodity: {commodity}")
 
-    commodity_key = {"fuel_ore": "FO", "organics": "OG", "equipment": "EQ"}[commodity]
+    commodity_key = {"quantum_foam": "QF", "retro_organics": "RO", "neuro_symbolics": "NS"}[commodity]
 
     # Acquire port lock for atomic trade operation
     # If port_locks not provided (for backwards compatibility), skip locking
@@ -96,7 +96,7 @@ async def _execute_trade(
     )
 
     if trade_type == "buy":
-        idx = {"FO": 0, "OG": 1, "EQ": 2}[commodity_key]
+        idx = {"QF": 0, "RO": 1, "NS": 2}[commodity_key]
         if port_state.code[idx] != "S":
             raise HTTPException(
                 status_code=400, detail=f"Port does not sell {commodity}"
@@ -133,7 +133,7 @@ async def _execute_trade(
             "buys": [],
             "sells": [],
         }
-        commodities = [("FO", "fuel_ore"), ("OG", "organics"), ("EQ", "equipment")]
+        commodities = [("QF", "quantum_foam"), ("RO", "retro_organics"), ("NS", "neuro_symbolics")]
         for i, (key, name) in enumerate(commodities):
             if updated_port_state.code[i] == "B":
                 port_data["buys"].append(name)
@@ -199,7 +199,7 @@ async def _execute_trade(
             "new_prices": new_prices,
         }
     else:
-        idx = {"FO": 0, "OG": 1, "EQ": 2}[commodity_key]
+        idx = {"QF": 0, "RO": 1, "NS": 2}[commodity_key]
         if port_state.code[idx] != "B":
             raise HTTPException(
                 status_code=400, detail=f"Port does not buy {commodity}"

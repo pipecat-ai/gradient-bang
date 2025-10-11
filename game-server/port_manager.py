@@ -18,8 +18,8 @@ class PortState:
     sector_id: int
     port_class: int
     code: str
-    stock: Dict[str, int]  # FO, OG, EQ -> current inventory
-    max_capacity: Dict[str, int]  # FO, OG, EQ -> maximum capacity
+    stock: Dict[str, int]  # QF, RO, NS -> current inventory
+    max_capacity: Dict[str, int]  # QF, RO, NS -> maximum capacity
     last_updated: str  # ISO timestamp
     
     def to_dict(self) -> Dict[str, Any]:
@@ -28,7 +28,7 @@ class PortState:
 
     @staticmethod
     def _idx_map() -> Dict[str, int]:
-        return {"FO": 0, "OG": 1, "EQ": 2}
+        return {"QF": 0, "RO": 1, "NS": 2}
 
     def buys(self, commodity_key: str) -> bool:
         idx = self._idx_map().get(commodity_key, -1)
@@ -68,7 +68,7 @@ class PortState:
         stock = {}
         max_capacity = {}
         
-        commodities = [("FO", 0), ("OG", 1), ("EQ", 2)]
+        commodities = [("QF", 0), ("RO", 1), ("NS", 2)]
         for key, idx in commodities:
             if port_data["code"][idx] == "S":  # Port sells this
                 stock[key] = port_data["stock"].get(key, 0)
@@ -186,7 +186,7 @@ class PortManager:
     def update_port_inventory(
         self,
         sector_id: int,
-        commodity_key: str,  # "FO", "OG", or "EQ"
+        commodity_key: str,  # "QF", "RO", or "NS"
         quantity: int,
         transaction_type: str  # "buy" or "sell" from player perspective
     ) -> Optional[PortState]:
@@ -194,7 +194,7 @@ class PortManager:
         
         Args:
             sector_id: Sector ID of port
-            commodity_key: Commodity key ("FO", "OG", "EQ")
+            commodity_key: Commodity key ("QF", "RO", "NS")
             quantity: Amount being traded (positive)
             transaction_type: "buy" (player buys from port) or "sell" (player sells to port)
             
@@ -273,8 +273,8 @@ class PortManager:
                     # - Sells: increase on-hand stock toward max_capacity
                     # - Buys: increase buying capacity, which in our representation
                     #         means decreasing on-hand stock toward 0
-                    for com_key in ["FO", "OG", "EQ"]:
-                        idx = {"FO": 0, "OG": 1, "EQ": 2}[com_key]
+                    for com_key in ["QF", "RO", "NS"]:
+                        idx = {"QF": 0, "RO": 1, "NS": 2}[com_key]
                         max_cap = state.max_capacity.get(com_key, 0)
                         regen_amount = int(max_cap * fraction)
                         if regen_amount <= 0:

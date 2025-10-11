@@ -6,9 +6,9 @@ import {
 } from "@pipecat-ai/voice-ui-kit";
 /*
 const IconMap = {
-  organics: <PlantIcon size={18} weight="duotone" />,
-  fuel_ore: <NutIcon size={18} weight="duotone" />,
-  equipment: <LightningIcon size={18} weight="duotone" />,
+  retro_organics: <PlantIcon size={18} weight="duotone" />,
+  quantum_foam: <NutIcon size={18} weight="duotone" />,
+  neuro_symbolics: <LightningIcon size={18} weight="duotone" />,
 };
 
 const TradeHistoryRow = ({ item }: { item: TradeHistoryItem }) => {

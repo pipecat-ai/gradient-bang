@@ -29,16 +29,16 @@ export const PortInfoPanel = () => {
         <PanelTitle>Stock</PanelTitle>
         <div className="flex flex-col gap-2">
           <div className="flex flex-row gap-4 justify-between">
-            <span className="font-extrabold">Fuel Ore:</span>
-            <span>{port?.stock.FO || 0}</span>
+            <span className="font-extrabold">Quantum Foam:</span>
+            <span>{port?.stock.QF || 0}</span>
           </div>
           <div className="flex flex-row gap-4 justify-between">
-            <span className="font-extrabold">Organics:</span>
-            <span>{port?.stock.OG || 0}</span>
+            <span className="font-extrabold">Retro-organics:</span>
+            <span>{port?.stock.RO || 0}</span>
           </div>
           <div className="flex flex-row gap-4 justify-between">
-            <span className="font-extrabold">Equipment:</span>
-            <span>{port?.stock.EQ || 0}</span>
+            <span className="font-extrabold">Neuro-symbolics:</span>
+            <span>{port?.stock.NS || 0}</span>
           </div>
         </div>
 

@@ -26,9 +26,9 @@
       "regen_fraction_demand": 0.25
     },
     "commodities": {
-      "FO": "fuel_ore",
-      "OG": "organics",
-      "EQ": "equipment"
+      "QF": "quantum_foam",
+      "RO": "retro_organics",
+      "NS": "neuro_symbolics"
     }
   },
   "sectors": [
@@ -42,12 +42,12 @@
       "port": {
         "class": 1,
         "code": "BBS",
-        "buys": ["fuel_ore", "organics"],
-        "sells": ["equipment"],
-        "stock": {"FO": 0, "OG": 0, "EQ": 700},
-        "stock_max": {"FO": 0, "OG": 0, "EQ": 1000},
-        "demand": {"FO": 700, "OG": 700, "EQ": 0},
-        "demand_max": {"FO": 1000, "OG": 1000, "EQ": 0}
+        "buys": ["quantum_foam", "retro_organics"],
+        "sells": ["neuro_symbolics"],
+        "stock": {"QF": 0, "RO": 0, "NS": 700},
+        "stock_max": {"QF": 0, "RO": 0, "NS": 1000},
+        "demand": {"QF": 700, "RO": 700, "NS": 0},
+        "demand_max": {"QF": 1000, "RO": 1000, "NS": 0}
       },
       "planets": []
     },
@@ -61,12 +61,12 @@
       "port": {
         "class": 6,
         "code": "BSS",
-        "buys": ["fuel_ore"],
-        "sells": ["organics", "equipment"],
-        "stock": {"FO": 0, "OG": 700, "EQ": 700},
-        "stock_max": {"FO": 0, "OG": 1000, "EQ": 1000},
-        "demand": {"FO": 700, "OG": 0, "EQ": 0},
-        "demand_max": {"FO": 1000, "OG": 0, "EQ": 0}
+        "buys": ["quantum_foam"],
+        "sells": ["retro_organics", "neuro_symbolics"],
+        "stock": {"QF": 0, "RO": 700, "NS": 700},
+        "stock_max": {"QF": 0, "RO": 1000, "NS": 1000},
+        "demand": {"QF": 700, "RO": 0, "NS": 0},
+        "demand_max": {"QF": 1000, "RO": 0, "NS": 0}
       },
       "planets": []
     },
@@ -80,12 +80,12 @@
       "port": {
         "class": 2,
         "code": "BSB",
-        "buys": ["fuel_ore", "equipment"],
-        "sells": ["organics"],
-        "stock": {"FO": 0, "OG": 700, "EQ": 0},
-        "stock_max": {"FO": 0, "OG": 1000, "EQ": 0},
-        "demand": {"FO": 700, "OG": 0, "EQ": 700},
-        "demand_max": {"FO": 1000, "OG": 0, "EQ": 1000}
+        "buys": ["quantum_foam", "neuro_symbolics"],
+        "sells": ["retro_organics"],
+        "stock": {"QF": 0, "RO": 700, "NS": 0},
+        "stock_max": {"QF": 0, "RO": 1000, "NS": 0},
+        "demand": {"QF": 700, "RO": 0, "NS": 700},
+        "demand_max": {"QF": 1000, "RO": 0, "NS": 1000}
       },
       "planets": []
     },
@@ -109,12 +109,12 @@
       "port": {
         "class": 8,
         "code": "BBB",
-        "buys": ["fuel_ore", "organics", "equipment"],
+        "buys": ["quantum_foam", "retro_organics", "neuro_symbolics"],
         "sells": [],
-        "stock": {"FO": 0, "OG": 0, "EQ": 0},
-        "stock_max": {"FO": 0, "OG": 0, "EQ": 0},
-        "demand": {"FO": 700, "OG": 700, "EQ": 700},
-        "demand_max": {"FO": 1000, "OG": 1000, "EQ": 1000}
+        "stock": {"QF": 0, "RO": 0, "NS": 0},
+        "stock_max": {"QF": 0, "RO": 0, "NS": 0},
+        "demand": {"QF": 700, "RO": 700, "NS": 700},
+        "demand_max": {"QF": 1000, "RO": 1000, "NS": 1000}
       },
       "planets": []
     }

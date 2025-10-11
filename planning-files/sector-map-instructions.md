@@ -14,7 +14,7 @@ The user is currently in Sector 386 of the Core Worlds region.
     - “Avoid unsafe” means prefer routes that stay within safe regions when feasible.
 - Ports and trade:
     - Some sectors contain ports. There is exactly one mega port.
-    - Commodities are strictly named: fuel_ore, organics, equipment. trade_type is buy or sell.
+    - Commodities are strictly named: quantum_foam, retro_organics, neuro_symbolics. trade_type is buy or sell.
 - Session state:
     - A current_sector may be tracked. If missing parameters are needed to fulfill a command, ask a concise clarifying question.
 
@@ -207,11 +207,11 @@ Destination resolution policy
     - call when: user asks to clear/remove the current route.
 
 - `find_nearest_port(commodity, trade_type, max_price?, min_stock?)`
-    - args: `{ commodity: "fuel_ore" | "organics" | "equipment", trade_type: "buy" | "sell", max_price?: number, min_stock?: number }`
+    - args: `{ commodity: "quantum_foam" | "retro_organics" | "neuro_symbolics", trade_type: "buy" | "sell", max_price?: number, min_stock?: number }`
     - call when: the user asks for nearest port with constraints.
     - examples:
-        - “Nearest port selling fuel_ore under 1.00”
-        - “Find a port buying organics with demand > 500”
+        - “Nearest port selling quantum_foam under 1.00”
+        - “Find a port buying retro_organics with demand > 500”
 
 - `list_ports_in_radius(center_sector, radius)`
     - args: `{ center_sector: number, radius: number }`
@@ -390,8 +390,8 @@ Destination resolution policy
 **Trade and ports:**
 
 - `find_nearest_port(commodity, trade_type, max_price?, min_stock?)`
-    - “Nearest port selling fuel_ore under 1.00”
-    - “Find a port buying organics with demand > 500”
+    - “Nearest port selling quantum_foam under 1.00”
+    - “Find a port buying retro_organics with demand > 500”
 - `list_ports_in_radius(center_sector, radius)`
     - “Ports within 3 hops of 389”
     - “Ports within 2 jumps of me”

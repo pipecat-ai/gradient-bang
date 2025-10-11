@@ -187,6 +187,16 @@ async def handle(request: dict, world) -> dict:
             character_filter=[character_id],
         )
 
+        # Update sector visit in knowledge manager before sending map data so the
+        # newly discovered sector is included in the BFS expansion.
+        world.knowledge_manager.update_sector_visit(
+            character_id=character_id,
+            sector_id=character.sector,
+            port=new_sector_contents.get("port"),
+            planets=new_sector_contents.get("planets", []),
+            adjacent_sectors=new_sector_contents.get("adjacent_sectors", []),
+        )
+
         map_data = await build_local_map_region(
             world,
             character_id=character_id,
@@ -198,16 +208,6 @@ async def handle(request: dict, world) -> dict:
             "map.local",
             map_data,
             character_filter=[character_id],
-        )
-
-        # Update sector visit in knowledge manager
-        contents = await sector_contents(world, character.sector, character_id)
-        world.knowledge_manager.update_sector_visit(
-            character_id=character_id,
-            sector_id=character.sector,
-            port=contents.get("port"),
-            planets=contents.get("planets", []),
-            adjacent_sectors=contents.get("adjacent_sectors", []),
         )
 
         # Check/join combat encounters (if any exist in destination)

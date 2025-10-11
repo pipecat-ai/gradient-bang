@@ -8,18 +8,18 @@ The trading system enables players to buy and sell commodities at ports througho
 
 ### Commodities
 Three tradeable commodities exist in the game:
-- **fuel_ore**: Base price 25 credits
-- **organics**: Base price 10 credits  
-- **equipment**: Base price 40 credits
+- **quantum_foam**: Base price 25 credits
+- **retro_organics**: Base price 10 credits  
+- **neuro_symbolics**: Base price 40 credits
 
 ### Port Classes
 Ports are classified 1-8, determining what they buy (B) and sell (S):
-1. BBS - Buys fuel_ore, Buys organics, Sells equipment
-2. BSB - Buys fuel_ore, Sells organics, Buys equipment
-3. SBB - Sells fuel_ore, Buys organics, Buys equipment
-4. SSB - Sells fuel_ore, Sells organics, Buys equipment
-5. SBS - Sells fuel_ore, Buys organics, Sells equipment
-6. BSS - Buys fuel_ore, Sells organics, Sells equipment
+1. BBS - Buys quantum_foam, Buys retro_organics, Sells neuro_symbolics
+2. BSB - Buys quantum_foam, Sells retro_organics, Buys neuro_symbolics
+3. SBB - Sells quantum_foam, Buys retro_organics, Buys neuro_symbolics
+4. SSB - Sells quantum_foam, Sells retro_organics, Buys neuro_symbolics
+5. SBS - Sells quantum_foam, Buys retro_organics, Sells neuro_symbolics
+6. BSS - Buys quantum_foam, Sells retro_organics, Sells neuro_symbolics
 7. SSS - Sells all three commodities
 8. BBB - Buys all three commodities
 

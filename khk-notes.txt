@@ -1,4 +1,12 @@
 
+We want to rename the commodities in the game.
+
+Let's rename them to:
+  - Quantum Foam (QF)
+  - Retro-organics (RO)
+  - Neuro-symbolics (NS)
+
+
     - movement.start
     - movement.complete
     - character.moved
@@ -77,14 +85,14 @@ Can we do this for port?
         "port": {
           "code": "SSS",
           "last_seen_prices": {
-            "equipment": 38,
-            "fuel_ore": 24,
-            "organics": 9
+            "neuro_symbolics": 38,
+            "quantum_foam": 24,
+            "retro_organics": 9
           },
           "last_seen_stock": {
-            "equipment": 700,
-            "fuel_ore": 700,
-            "organics": 700
+            "neuro_symbolics": 700,
+            "quantum_foam": 700,
+            "retro_organics": 700
           },
           "observed_at": "2025-10-05T23:31:15.362890+00:00"
         },
