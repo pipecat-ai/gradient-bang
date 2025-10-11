@@ -33,7 +33,7 @@ class ShipConfiguration(BaseModel):
 
     ship_type: str = ShipType.KESTREL_COURIER.value
     ship_name: Optional[str] = None  # User-configurable custom ship name
-    cargo: Dict[str, int] = {"fuel_ore": 0, "organics": 0, "equipment": 0}
+    cargo: Dict[str, int] = {"quantum_foam": 0, "retro_organics": 0, "neuro_symbolics": 0}
     current_warp_power: int = 300  # Start with full warp power for Kestrel
     current_shields: int = 150  # Start with full shields
     current_fighters: int = 300  # Start with full fighters
@@ -94,7 +94,7 @@ class CharacterKnowledgeManager:
         # Update ship configuration
         knowledge.ship_config = ShipConfiguration(
             ship_type=ship_type.value,
-            cargo={"fuel_ore": 0, "organics": 0, "equipment": 0},
+            cargo={"quantum_foam": 0, "retro_organics": 0, "neuro_symbolics": 0},
             current_warp_power=stats.warp_power_capacity,  # Start with full warp power
             current_shields=stats.shields,  # Start with full shields
             current_fighters=stats.fighters,  # Start with full fighters
@@ -449,7 +449,7 @@ class CharacterKnowledgeManager:
 
         Args:
             character_id: Character ID
-            commodity: Commodity type (fuel_ore, organics, equipment)
+            commodity: Commodity type (quantum_foam, retro_organics, neuro_symbolics)
             quantity_delta: Change in quantity (positive for add, negative for remove)
         """
         lock = self._locks.setdefault(character_id, threading.Lock())

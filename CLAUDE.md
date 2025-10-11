@@ -182,7 +182,7 @@ All endpoints accept and return JSON dictionaries:
 ## Important Conventions
 
 ### Commodity Names
-Commodities must be exact strings: `"fuel_ore"`, `"organics"`, `"equipment"` (not "ore" or "fuel").
+Commodities must be exact strings: `"quantum_foam"`, `"retro_organics"`, `"neuro_symbolics"` (not "ore" or "fuel").
 
 ### Async Everything
 The entire codebase uses async/await. Never use synchronous GameClient - it has been removed. Always use AsyncGameClient with proper async context managers.

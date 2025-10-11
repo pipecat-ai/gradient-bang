@@ -627,7 +627,7 @@ class AsyncGameClient:
         """Preview a trade transaction without executing it.
 
         Args:
-            commodity: Commodity to trade (fuel_ore, organics, equipment)
+            commodity: Commodity to trade (quantum_foam, retro_organics, neuro_symbolics)
             quantity: Amount to trade
             trade_type: "buy" or "sell"
             character_id: Character making the trade (must match bound ID)
@@ -666,7 +666,7 @@ class AsyncGameClient:
         """Execute a trade transaction.
 
         Args:
-            commodity: Commodity to trade (fuel_ore, organics, equipment)
+            commodity: Commodity to trade (quantum_foam, retro_organics, neuro_symbolics)
             quantity: Amount to trade
             trade_type: "buy" or "sell"
             character_id: Character making the trade (must match bound ID)

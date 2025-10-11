@@ -37,13 +37,13 @@ class TestRPCSuccess:
         """Test success with nested result data."""
         complex_data = {
             "character_id": "trader",
-            "ship": {"warp_power": 100, "cargo": {"fuel_ore": 50}},
+            "ship": {"warp_power": 100, "cargo": {"quantum_foam": 50}},
             "sector_contents": {"port": {"code": "BBB"}},
         }
         result = rpc_success("id-789", "my_status", complex_data)
 
         assert result["result"] == complex_data
-        assert result["result"]["ship"]["cargo"]["fuel_ore"] == 50
+        assert result["result"]["ship"]["cargo"]["quantum_foam"] == 50
 
 
 class TestRPCError:

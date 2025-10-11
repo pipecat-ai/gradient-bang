@@ -59,9 +59,9 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "ship_type": "kestrel_courier",
     "ship_name": "Kestrel Courier",
     "cargo": {
-      "fuel_ore": 45,
-      "organics": 10,
-      "equipment": 5
+      "quantum_foam": 45,
+      "retro_organics": 10,
+      "neuro_symbolics": 5
     },
     "cargo_capacity": 120,
     "warp_power": 37,
@@ -127,9 +127,9 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "ship_type": "kestrel_courier",
     "ship_name": "Kestrel Courier",
     "cargo": {
-      "fuel_ore": 40,
-      "organics": 10,
-      "equipment": 5
+      "quantum_foam": 40,
+      "retro_organics": 10,
+      "neuro_symbolics": 5
     },
     "cargo_capacity": 120,
     "warp_power": 35,
@@ -188,9 +188,9 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
       "salvage_id": "salv_abc123",
       "sector_id": 42,
       "cargo": {
-        "fuel_ore": 20,
-        "organics": 15,
-        "equipment": 10
+        "quantum_foam": 20,
+        "retro_organics": 15,
+        "neuro_symbolics": 10
       },
       "scrap": 50,
       "source": {
@@ -204,9 +204,9 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "ship_type": "kestrel_courier",
     "ship_name": "Kestrel Courier",
     "cargo": {
-      "fuel_ore": 38,
-      "organics": 10,
-      "equipment": 5
+      "quantum_foam": 38,
+      "retro_organics": 10,
+      "neuro_symbolics": 5
     },
     "cargo_capacity": 120,
     "warp_power": 33,
@@ -251,14 +251,14 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "port": {
       "code": "BSB",
       "prices": {
-        "fuel_ore": {"buy_price": null, "sell_price": 12},
-        "organics": {"buy_price": 18, "sell_price": null},
-        "equipment": {"buy_price": null, "sell_price": 25}
+        "quantum_foam": {"buy_price": null, "sell_price": 12},
+        "retro_organics": {"buy_price": 18, "sell_price": null},
+        "neuro_symbolics": {"buy_price": null, "sell_price": 25}
       },
       "stock": {
-        "fuel_ore": 500,
-        "organics": 300,
-        "equipment": 200
+        "quantum_foam": 500,
+        "retro_organics": 300,
+        "neuro_symbolics": 200
       },
       "observed_at": null
     },
@@ -290,9 +290,9 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "ship_type": "kestrel_courier",
     "ship_name": "Kestrel Courier",
     "cargo": {
-      "fuel_ore": 50,
-      "organics": 30,
-      "equipment": 20
+      "quantum_foam": 50,
+      "retro_organics": 30,
+      "neuro_symbolics": 20
     },
     "cargo_capacity": 100,
     "warp_power": 47,
@@ -308,14 +308,14 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "port": {
       "code": "BSB",
       "prices": {
-        "fuel_ore": {"buy_price": null, "sell_price": 12},
-        "organics": {"buy_price": 18, "sell_price": null},
-        "equipment": {"buy_price": null, "sell_price": 25}
+        "quantum_foam": {"buy_price": null, "sell_price": 12},
+        "retro_organics": {"buy_price": 18, "sell_price": null},
+        "neuro_symbolics": {"buy_price": null, "sell_price": 25}
       },
       "stock": {
-        "fuel_ore": 500,
-        "organics": 300,
-        "equipment": 200
+        "quantum_foam": 500,
+        "retro_organics": 300,
+        "neuro_symbolics": 200
       },
       "observed_at": null
     },
@@ -455,9 +455,9 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "ship_type": "kestrel_courier",
     "ship_name": "Kestrel Courier",
     "cargo": {
-      "fuel_ore": 70,
-      "organics": 30,
-      "equipment": 20
+      "quantum_foam": 70,
+      "retro_organics": 30,
+      "neuro_symbolics": 20
     },
     "cargo_capacity": 100,
     "warp_power": 47,
@@ -483,14 +483,14 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
   "port": {
     "code": "BSB",
     "prices": {
-      "fuel_ore": {"buy_price": null, "sell_price": 13},
-      "organics": {"buy_price": 18, "sell_price": null},
-      "equipment": {"buy_price": null, "sell_price": 25}
+      "quantum_foam": {"buy_price": null, "sell_price": 13},
+      "retro_organics": {"buy_price": 18, "sell_price": null},
+      "neuro_symbolics": {"buy_price": null, "sell_price": 25}
     },
     "stock": {
-      "fuel_ore": 480,
-      "organics": 300,
-      "equipment": 200
+      "quantum_foam": 480,
+      "retro_organics": 300,
+      "neuro_symbolics": 200
     },
     "observed_at": null
   }
@@ -558,9 +558,9 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "ship_type": "kestrel_courier",
     "ship_name": "Kestrel Courier",
     "cargo": {
-      "fuel_ore": 70,
-      "organics": 30,
-      "equipment": 20
+      "quantum_foam": 70,
+      "retro_organics": 30,
+      "neuro_symbolics": 20
     },
     "cargo_capacity": 100,
     "warp_power": 37,
@@ -576,14 +576,14 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "port": {
       "code": "BSB",
       "prices": {
-        "fuel_ore": {"buy_price": null, "sell_price": 13},
-        "organics": {"buy_price": 18, "sell_price": null},
-        "equipment": {"buy_price": null, "sell_price": 25}
+        "quantum_foam": {"buy_price": null, "sell_price": 13},
+        "retro_organics": {"buy_price": 18, "sell_price": null},
+        "neuro_symbolics": {"buy_price": null, "sell_price": 25}
       },
       "stock": {
-        "fuel_ore": 480,
-        "organics": 300,
-        "equipment": 200
+        "quantum_foam": 480,
+        "retro_organics": 300,
+        "neuro_symbolics": 200
       },
       "observed_at": null
     },
@@ -637,7 +637,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
       "created_at": "2025-10-07T14:24:00.000Z",
       "expires_at": "2025-10-07T14:39:00.000Z",
       "cargo": {
-        "organics": 25
+        "retro_organics": 25
       },
       "scrap": 20,
       "credits": 0,

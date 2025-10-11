@@ -130,12 +130,12 @@ class TestTradeEvents:
 
         # Join and move to a sector with a port
         await client.join("test_char_events")
-        # Assuming sector 1 has a port that sells fuel_ore
+        # Assuming sector 1 has a port that sells quantum_foam
 
         # Execute a trade
         await client.trade(
             character_id="test_char_events",
-            commodity="fuel_ore",
+            commodity="quantum_foam",
             quantity=5,
             trade_type="buy",
         )
@@ -165,7 +165,7 @@ class TestTradeEvents:
         # Execute a trade
         await client.trade(
             character_id="test_char_events",
-            commodity="fuel_ore",
+            commodity="quantum_foam",
             quantity=3,
             trade_type="buy",
         )
@@ -207,7 +207,7 @@ class TestTradeEvents:
             # Client 1 trades
             await client1.trade(
                 character_id="test_char_events",
-                commodity="fuel_ore",
+                commodity="quantum_foam",
                 quantity=2,
                 trade_type="buy",
             )

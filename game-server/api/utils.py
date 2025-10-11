@@ -115,7 +115,7 @@ def port_snapshot(world, sector_id: int) -> Dict[str, Any]:
             "buys": [],
             "sells": [],
         }
-        commodities = [("FO", "fuel_ore"), ("OG", "organics"), ("EQ", "equipment")]
+        commodities = [("QF", "quantum_foam"), ("RO", "retro_organics"), ("NS", "neuro_symbolics")]
         for i, (key, name) in enumerate(commodities):
             if port_state.code[i] == "B":
                 full_port_for_pricing["buys"].append(name)

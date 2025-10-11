@@ -160,7 +160,7 @@ class ListKnownPorts(GameClientTool):
                 },
                 "commodity": {
                     "type": "string",
-                    "enum": ["fuel_ore", "organics", "equipment"],
+                    "enum": ["quantum_foam", "retro_organics", "neuro_symbolics"],
                     "description": "Optional filter ports that trade this commodity",
                 },
                 "trade_type": {
@@ -290,7 +290,7 @@ class CheckTrade(GameClientTool):
             properties={
                 "commodity": {
                     "type": "string",
-                    "enum": ["fuel_ore", "organics", "equipment"],
+                    "enum": ["quantum_foam", "retro_organics", "neuro_symbolics"],
                     "description": "The commodity to trade",
                 },
                 "quantity": {
@@ -325,7 +325,7 @@ class Trade(GameClientTool):
             properties={
                 "commodity": {
                     "type": "string",
-                    "enum": ["fuel_ore", "organics", "equipment"],
+                    "enum": ["quantum_foam", "retro_organics", "neuro_symbolics"],
                     "description": "The commodity to trade",
                 },
                 "quantity": {

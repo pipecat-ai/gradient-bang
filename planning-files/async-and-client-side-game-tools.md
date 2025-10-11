@@ -19,5 +19,5 @@ The server should deliver the client the most recent map knowledge for each char
 4. Test that the following command works as expected: 
 
 ```
-uv run npc/run_npc.py tradery "Based on my world knowledge right now, what is the closes port to me that sells fuel ore?" 
+uv run npc/run_npc.py tradery "Based on my world knowledge right now, what is the closes port to me that sells quantum foam?" 
 ```

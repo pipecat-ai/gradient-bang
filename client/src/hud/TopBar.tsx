@@ -20,9 +20,9 @@ export const TopBar = () => {
         <WarpBadge />
       </div>
       <div className="flex flex-row gap-2 items-center">
-        <NumericalBadge value={ship?.cargo?.FO || 0}>FO:</NumericalBadge>
-        <NumericalBadge value={ship?.cargo?.OG || 0}>OG:</NumericalBadge>
-        <NumericalBadge value={ship?.cargo?.EQ || 0}>EQ:</NumericalBadge>
+        <NumericalBadge value={ship?.cargo?.QF || 0}>QF:</NumericalBadge>
+        <NumericalBadge value={ship?.cargo?.RO || 0}>RO:</NumericalBadge>
+        <NumericalBadge value={ship?.cargo?.NS || 0}>NS:</NumericalBadge>
         <DotDivider />
         <CargoCapacityBadge />
       </div>

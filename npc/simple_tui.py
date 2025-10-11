@@ -866,7 +866,7 @@ class SimpleTUI(App):
                 self._last_ship_meta["credits"] = credits
         if isinstance(cargo, Mapping):
             normalized: Dict[str, int] = {}
-            for key in ("fuel_ore", "organics", "equipment"):
+            for key in ("quantum_foam", "retro_organics", "neuro_symbolics"):
                 value = cargo.get(key) if key in cargo else cargo.get(key.upper())
                 try:
                     normalized[key] = int(value)
@@ -886,9 +886,9 @@ class SimpleTUI(App):
 
         credits_val = self._last_ship_meta.get("credits")
         cargo_map = self._last_ship_meta.get("cargo") or {}
-        fo = cargo_map.get("fuel_ore", 0)
-        og = cargo_map.get("organics", 0)
-        eq = cargo_map.get("equipment", 0)
+        qf = cargo_map.get("quantum_foam", 0)
+        ro = cargo_map.get("retro_organics", 0)
+        ns = cargo_map.get("neuro_symbolics", 0)
         warp_meta = self._last_ship_meta.get("warp") or {}
         warp_now = warp_meta.get("current")
         warp_cap = warp_meta.get("capacity")
@@ -901,7 +901,7 @@ class SimpleTUI(App):
         text = f"sector {sector} | {mode} | fighters: {fighters} shields: {shields}"
         if credits_val is not None:
             text += f" | credits: {credits_val}"
-        text += f" | cargo FO:{fo} OG:{og} EQ:{eq}"
+        text += f" | cargo QF:{qf} RO:{ro} NS:{ns}"
         if warp_now is not None and warp_cap is not None:
             text += f" | warp {warp_now}/{warp_cap}"
         if self.status_display is not None:
@@ -1015,9 +1015,9 @@ class SimpleTUI(App):
         stocks = port.get("last_seen_stock")
         segments: List[str] = []
         for commodity, short in (
-            ("fuel_ore", "FO"),
-            ("organics", "OG"),
-            ("equipment", "EQ"),
+            ("quantum_foam", "QF"),
+            ("retro_organics", "RO"),
+            ("neuro_symbolics", "NS"),
         ):
             price_val = None
             stock_val = None

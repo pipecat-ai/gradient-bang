@@ -38,11 +38,11 @@ async def handle(request: dict, world) -> dict:
         if commodity in cargo:
             world.knowledge_manager.update_cargo(character_id, commodity, amount)
         else:
-            # Treat unknown salvage as equipment scrap
-            world.knowledge_manager.update_cargo(character_id, "equipment", amount)
+            # Treat unknown salvage as neuro_symbolics scrap
+            world.knowledge_manager.update_cargo(character_id, "neuro_symbolics", amount)
 
     if container.scrap:
-        world.knowledge_manager.update_cargo(character_id, "equipment", container.scrap)
+        world.knowledge_manager.update_cargo(character_id, "neuro_symbolics", container.scrap)
 
     if container.credits:
         existing = world.knowledge_manager.get_credits(character_id)
