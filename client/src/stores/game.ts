@@ -6,6 +6,7 @@ import {
   type UseBoundStore,
 } from "zustand";
 
+import type { DiamondFXController } from "../fx/frame";
 import { GalaxyStarfield } from "../fx/starfield";
 import { createHistorySlice, type HistorySlice } from "./historySlice";
 import { createMapSlice, type MapSlice } from "./mapSlice";
@@ -38,6 +39,7 @@ export interface GameState {
 
   /* Singleton Instances */
   starfieldInstance?: GalaxyStarfield;
+  diamondFXInstance?: DiamondFXController;
 
   /* Buffers & Caches */
   sectorBuffer?: Sector;
@@ -52,6 +54,9 @@ export interface GameSlice extends GameState {
   setStarfieldInstance: (
     starfieldInstance: GalaxyStarfield | undefined
   ) => void;
+  setDiamondFXInstance: (
+    diamondFXInstance: DiamondFXController | undefined
+  ) => void;
 }
 
 const createGameSlice: StateCreator<
@@ -65,6 +70,7 @@ const createGameSlice: StateCreator<
   sector: undefined,
   local_map_data: undefined, // TODO: Move to slice
   starfieldInstance: undefined,
+  diamondFXInstance: undefined,
 
   setState: (newState: Partial<GameState>) =>
     set({ ...get(), ...newState }, true),
@@ -103,6 +109,9 @@ const createGameSlice: StateCreator<
 
   setStarfieldInstance: (starfieldInstance: GalaxyStarfield | undefined) =>
     set({ starfieldInstance }),
+
+  setDiamondFXInstance: (diamondFXInstance: DiamondFXController | undefined) =>
+    set({ diamondFXInstance }),
 });
 
 const useGameStoreBase = create<

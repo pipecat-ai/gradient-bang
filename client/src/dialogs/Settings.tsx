@@ -9,17 +9,17 @@ import {
 import { Dialog } from "radix-ui";
 
 export const Settings = () => {
-  const setModal = useGameStore.use.setModal();
-  const modal = useGameStore.use.ui().modal;
+  const setActiveModal = useGameStore.use.setActiveModal();
+  const activeModal = useGameStore.use.activeModal?.();
 
   const handleSave = () => {
-    setModal(undefined);
+    setActiveModal(undefined);
   };
 
   return (
     <Dialog.Root
-      open={modal === "settings"}
-      onOpenChange={() => setModal(undefined)}
+      open={activeModal === "settings"}
+      onOpenChange={() => setActiveModal(undefined)}
     >
       <Dialog.Portal>
         <Dialog.Title>Settings</Dialog.Title>

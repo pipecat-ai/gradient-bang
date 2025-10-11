@@ -2,7 +2,7 @@ import useGameStore from "@/stores/game";
 import { Card, CardContent } from "@pipecat-ai/voice-ui-kit";
 
 export const AutoPilot = () => {
-  const autopilot = useGameStore((state) => state.ui.autopilot);
+  const autopilot = useGameStore.use.uiState() === "autopilot";
   if (!autopilot) return null;
 
   return (

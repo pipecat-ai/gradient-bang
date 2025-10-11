@@ -132,6 +132,11 @@ declare global {
     to: number;
     port: boolean;
   }
+
+  // --- UI
+  type UIState = "idle" | "moving" | "autopilot" | "combat" | "paused";
+  type UIScreen = "self" | "messaging" | "trading" | "map" | "tasks" | "combat";
+  type UIModal = "settings" | undefined;
 }
 
 export {};

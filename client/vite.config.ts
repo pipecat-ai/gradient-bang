@@ -12,6 +12,7 @@ export default defineConfig({
       "@fx": path.resolve(__dirname, "./src/fx"),
       "@hud": path.resolve(__dirname, "./src/hud"),
       "@views": path.resolve(__dirname, "./src/views"),
+      "@screens": path.resolve(__dirname, "./src/screens"),
       "@stores": path.resolve(__dirname, "./src/stores"),
     },
   },
