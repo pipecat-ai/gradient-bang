@@ -189,11 +189,6 @@ As you explore the universe, you automatically build up map knowledge:
 - Port information (what they buy/sell) is recorded when discovered
 - Sector connections are mapped as you travel
 
-You can query your map knowledge to answer questions like:
-- "How many sectors have I visited?" - Use my_map() and check total_sectors_visited
-- "Find a port close to me that sells retro_organics" - Use find_port(commodity="retro_organics", buy_or_sell="sell")
-- "List all port pairs in adjacent sectors that I know about" - This information is in your map data
-
 Remember:
 - You can only see and interact with your current sector
 - Each move reveals new information about the sector you move to.
@@ -217,10 +212,6 @@ To move one sector:
 - Use: move(to_sector=5)
 - Returns: Your new position after moving and sector contents of new sector
 - Note: Sector 5 must be adjacent to your current sector!
-
-To view your map knowledge:
-- Use: my_map()
-- Returns: All sectors you've visited, ports you've discovered, and connections you know
 
 To query local map area:
 - Use: local_map_region()

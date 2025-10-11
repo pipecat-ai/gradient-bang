@@ -1,5 +1,7 @@
 from fastapi import HTTPException
 
+from rpc.events import event_dispatcher
+
 
 async def handle(request: dict, world) -> dict:
     if not world.universe_graph:
@@ -16,7 +18,9 @@ async def handle(request: dict, world) -> dict:
     # Get character's current sector
     character = world.characters.get(character_id)
     if not character:
-        raise HTTPException(status_code=404, detail=f"Character not found: {character_id}")
+        raise HTTPException(
+            status_code=404, detail=f"Character not found: {character_id}"
+        )
 
     from_sector = character.sector
 
@@ -28,7 +32,25 @@ async def handle(request: dict, world) -> dict:
 
     path = world.universe_graph.find_path(from_sector, to_sector)
     if path is None:
-        raise HTTPException(status_code=404, detail=f"No path found from sector {from_sector} to sector {to_sector}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"No path found from sector {from_sector} to sector {to_sector}",
+        )
 
-    return {"from_sector": from_sector, "to_sector": to_sector, "path": path, "distance": len(path) - 1}
+    await event_dispatcher.emit(
+        "course.plot",
+        {
+            "from_sector": from_sector,
+            "to_sector": to_sector,
+            "path": path,
+            "distance": len(path) - 1,
+        },
+        character_filter=[character_id],
+    )
 
+    return {
+        "from_sector": from_sector,
+        "to_sector": to_sector,
+        "path": path,
+        "distance": len(path) - 1,
+    }

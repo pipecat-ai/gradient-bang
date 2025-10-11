@@ -123,7 +123,6 @@ class TaskAgent(BaseLLMAgent):
         # for now let's define all tools for the task agent
         self.set_tools(
             [
-                MyMap,
                 MyStatus,
                 PlotCourse,
                 LocalMapRegion,
