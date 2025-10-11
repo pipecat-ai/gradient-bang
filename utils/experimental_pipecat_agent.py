@@ -13,7 +13,6 @@ import copy
 import inspect
 import json
 import os
-from contextlib import suppress
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
@@ -299,32 +298,6 @@ class ExperimentalTaskAgent:
     def reset_cancellation(self) -> None:
         self.cancelled = False
 
-    async def get_assistant_response(self) -> Dict[str, Any]:
-        context = self._create_context()
-        (
-            aggregator_pair,
-            coordinator,
-            pipeline_task,
-            runner_task,
-            llm_service,
-        ) = self._setup_pipeline(context, verbose=self.verbose_prompts)
-
-        try:
-            await coordinator.wait_pipeline_started()
-            self._refresh_watchdog()
-            assistant_message = await self._perform_turn(
-                context, aggregator_pair, coordinator
-            )
-            self._refresh_watchdog()
-            return assistant_message
-        finally:
-            if self._active_pipeline_task:
-                await self._active_pipeline_task.cancel()
-            await runner_task
-            await llm_service.cleanup()
-            self._active_pipeline_task = None
-            self._stop_watchdog()
-
     async def run_task(
         self,
         task: str,
@@ -336,6 +309,7 @@ class ExperimentalTaskAgent:
         self.finished_message = None
         self.clear_messages()
         self._step_counter = 0
+        _ = max_iterations  # retained for API compatibility; pipeline controls turns
 
         self.add_message({"role": "system", "content": create_task_system_message()})
         self.add_message(
@@ -358,33 +332,62 @@ class ExperimentalTaskAgent:
             await coordinator.wait_pipeline_started()
             self._refresh_watchdog()
 
-            for iteration in range(max_iterations):
+            turn_index = 0
+            success = False
+            while not pipeline_task.has_finished():
                 if self.cancelled:
                     self._output("Task cancelled", TaskOutputType.FINISHED)
                     return False
 
-                self._emit_step(f"loop iteration={iteration}")
+                self._emit_step(f"turn index={turn_index}")
+                turn_index += 1
 
+                coordinator.begin_turn()
+                self._active_coordinator = coordinator
+                await aggregator_pair.user().push_context_frame(
+                    FrameDirection.DOWNSTREAM
+                )
+
+                turn_future = asyncio.create_task(coordinator.wait_for_turn())
+                self._set_watchdog_target(turn_future)
                 try:
-                    assistant_message = await self._perform_turn(
-                        context, aggregator_pair, coordinator
-                    )
-                    self._output("TURN_COMPLETE", TaskOutputType.MESSAGE)
-                    self._refresh_watchdog()
-                except RuntimeError as error:
+                    await turn_future
+                except asyncio.CancelledError:
+                    if self._watchdog_triggered:
+                        self._output(
+                            "Pipeline error: Turn timed out", TaskOutputType.ERROR
+                        )
+                        return False
+                    raise
+                except Exception as error:
                     self._output(f"Pipeline error: {error}", TaskOutputType.ERROR)
                     return False
+                finally:
+                    self._clear_watchdog_target()
+                    self._active_coordinator = None
+
+                self.messages = [
+                    self._normalize_message(msg) for msg in context.get_messages()
+                ]
+                assistant_message = self._extract_assistant_message(context)
+
+                if self.verbose_prompts:
+                    self._log_message(assistant_message)
+
+                self._output("TURN_COMPLETE", TaskOutputType.MESSAGE)
+                self._refresh_watchdog()
 
                 if self.finished:
-                    return True
+                    success = True
+                    break
 
-                if not assistant_message.get("tool_calls"):
+                tool_calls = assistant_message.get("tool_calls")
+                if not tool_calls:
                     content = assistant_message.get("content", "")
                     if content.strip():
                         self._output(content, TaskOutputType.MESSAGE)
-
-            self._output("Max iterations reached", TaskOutputType.FINISHED)
-            return False
+                    continue
+            return success
         finally:
             if self._active_pipeline_task:
                 await self._active_pipeline_task.cancel()
@@ -442,35 +445,6 @@ class ExperimentalTaskAgent:
 
         self._active_pipeline_task = pipeline_task
         return aggregator_pair, coordinator, pipeline_task, runner_task, llm_service
-
-    async def _perform_turn(
-        self,
-        context: LLMContext,
-        aggregator_pair: LLMContextAggregatorPair,
-        coordinator: TurnCoordinator,
-    ) -> Dict[str, Any]:
-        coordinator.begin_turn()
-        self._active_coordinator = coordinator
-        await aggregator_pair.user().push_context_frame(FrameDirection.DOWNSTREAM)
-        turn_future = asyncio.create_task(coordinator.wait_for_turn())
-        self._set_watchdog_target(turn_future)
-        try:
-            await turn_future
-        except asyncio.CancelledError:
-            if self._watchdog_triggered:
-                raise RuntimeError("Turn timed out") from None
-            raise
-        finally:
-            self._clear_watchdog_target()
-            self._active_coordinator = None
-
-        self.messages = [self._normalize_message(msg) for msg in context.get_messages()]
-        assistant_message = self._extract_assistant_message(context)
-
-        if self.verbose_prompts:
-            self._log_message(assistant_message)
-
-        return assistant_message
 
     def _emit_step(self, label: str) -> None:
         self._step_counter += 1
@@ -546,81 +520,6 @@ class ExperimentalTaskAgent:
             assistant_message["content"] = "".join(text_parts)
         elif content is None:
             assistant_message["content"] = ""
-
-        return assistant_message
-
-    async def _run_pipeline_turn(self, context: LLMContext) -> Dict[str, Any]:
-        llm_service = self._llm_service_factory()
-        llm_service.register_function(None, self._handle_function_call)
-
-        context_pair = LLMContextAggregatorPair(context)
-        pipeline = Pipeline(
-            [
-                context_pair.user(),
-                llm_service,
-                context_pair.assistant(),
-            ]
-        )
-        pipeline_task = PipelineTask(
-            pipeline,
-            params=PipelineParams(
-                allow_interruptions=True,
-                enable_metrics=False,
-                enable_usage_metrics=False,
-            ),
-        )
-
-        runner = SingleTurnRunner(
-            pipeline_task,
-            context_pair,
-            text_logger=(
-                lambda text: self._output(
-                    f"ASSISTANT_PART: {text}", TaskOutputType.MESSAGE
-                )
-                if self.verbose_prompts
-                else None
-            ),
-        )
-
-        await runner.execute()
-
-        updated_messages = [
-            self._normalize_message(msg) for msg in context.get_messages()
-        ]
-        assistant_message = next(
-            (
-                msg
-                for msg in reversed(updated_messages)
-                if msg.get("role") == "assistant"
-            ),
-            None,
-        )
-
-        if assistant_message is None:
-            raise RuntimeError("Assistant did not respond")
-
-        if assistant_message.get("tool_calls"):
-            for call in assistant_message["tool_calls"]:
-                fn = call.get("function", {})
-                args = fn.get("arguments")
-                if args is None:
-                    fn["arguments"] = json.dumps({})
-                elif not isinstance(args, str):
-                    fn["arguments"] = json.dumps(args)
-
-        content = assistant_message.get("content")
-        if isinstance(content, list):
-            text_parts = [
-                part.get("text", "")
-                for part in content
-                if isinstance(part, dict) and part.get("type") == "text"
-            ]
-            assistant_message["content"] = "".join(text_parts)
-        elif content is None:
-            assistant_message["content"] = ""
-
-        if self.verbose_prompts:
-            self._log_message(assistant_message)
 
         return assistant_message
 

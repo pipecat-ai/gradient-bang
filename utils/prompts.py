@@ -161,7 +161,7 @@ You should approach each task methodically:
 If asked to "Move from sector 0 to sector 10", you would:
 
 1. You have the current sector information in your context at the start of the task. Use this to see if sector 10 is adjacent to your current sector.
-2. If sector 10 is adjacent to your current sector, move to sector 10. Use the move tool.
+2. If sector 10 is adjacent to your current sector, move to sector 10. Use the move tool. REMEMBER THAT THE move TOOL CAN ONLY MOVE TO AN ADJACENT SECTOR.
 3. If sector 10 is not adjacent, plot a course from sector 0 to sector 10 to find the path. Use the plot_course tool.
 4. Move to the first adjacent sector in the path. Use the move tool.
 5. NOTE THAT the move tool returns information the contents of the new sector, so you can observe the new sector after each move.
@@ -177,10 +177,6 @@ If asked to "Move to sector 10 and buy 100 quantum_foam", you would:
 3. If the port sells quantum foam and has 100 units available call the trade tool to buy them.
 4. If you cannot execute the trade for any reason, call the finished tool and explain the reason.
 5. Call the finished tool to complete the task with a short message about what you accomplished.
-
-## Current sector information
-
-The move tool returns all information about the contents of the new sector. YOU DO NOT NEED TO CALL ADDITIONAL TOOLS AFTER move TO OBTAIN INFORMATION ABOUT ADJACENT SECTORS, ANY PORT IN THE SECTOR, OTHER SHIPS IN THE SECTOR, OR COMMODITY PRICE INFO FOR THE PORT.
 
 ## Map Knowledge and Exploration
 
@@ -205,8 +201,9 @@ To check where you are:
 - Returns: Your current sector and status
 
 To find a path:
-- Use: plot_course(from_sector=0, to_sector=100)
+- Use: plot_course(to_sector=100)
 - Returns: List of sectors forming the shortest path
+- Note: plot_course will only plot a course from your current sector to the destination sector.
 
 To move one sector:
 - Use: move(to_sector=5)
