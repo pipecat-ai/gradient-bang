@@ -35,7 +35,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
 )
 from pipecat.processors.frame_processor import FrameDirection
-from pipecat.services.google.llm import GoogleLLMService
+from pipecat.services.google.llm import GoogleLLMService as PipecatGoogleLLMService
 from pipecat.services.llm_service import FunctionCallParams, LLMService
 
 from utils.api_client import AsyncGameClient
@@ -253,6 +253,21 @@ class ExperimentalTaskAgent:
         self.set_tools(default_tools)
 
     def _default_llm_service_factory(self) -> LLMService:
+        class GoogleLLMService(PipecatGoogleLLMService):
+            async def stop(self, frame):
+                await super().stop(frame)
+                try:
+                    await self._client.aio.aclose()
+                except Exception:  # noqa: BLE001
+                    pass
+
+            async def cancel(self, frame):
+                await super().cancel(frame)
+                try:
+                    await self._client.aio.aclose()
+                except Exception:  # noqa: BLE001
+                    pass
+
         return GoogleLLMService(
             api_key=self.config.api_key or "",
             model=self.config.model or DEFAULT_GOOGLE_MODEL,
@@ -392,7 +407,6 @@ class ExperimentalTaskAgent:
             if self._active_pipeline_task:
                 await self._active_pipeline_task.cancel()
             await runner_task
-            await llm_service.cleanup()
             self._active_pipeline_task = None
             self._stop_watchdog()
 
