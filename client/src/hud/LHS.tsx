@@ -1,12 +1,14 @@
+import Cassette from "@/components/Cassette";
 import { DiscoveredPortsPanel } from "@/components/DiscoveredPortsPanel";
 import { MovementHistoryPanel } from "@/components/MovementHistoryPanel";
 import { PanelMenu } from "@/components/PanelMenu";
 import { TaskOutputPanel } from "@/components/TaskOutputPanel";
 import { TradeHistoryPanel } from "@/components/TradeHistoryPanel";
-import { Debug } from "@/debug/Debug";
 import useGameStore from "@/stores/game";
 import { DotsSixVerticalIcon } from "@phosphor-icons/react";
 import {
+  Card,
+  CardContent,
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
@@ -42,22 +44,16 @@ export const LHS = () => {
         ) : panel === "trade_history" ? (
           <TradeHistoryPanel />
         ) : panel === "debug" ? (
-          <Debug
-            messages={[
-              [
-                "Hop to sector 0",
-                "Navigate and move to sector 0 immediately. If it's not adjacent to our current sector, plot the shortest path and start moving without asking me.",
-              ],
-              [
-                "Hop to a random adjacent sector",
-                "Pick one random adjacent sector and move to it immediately.",
-              ],
-              [
-                "Hop 3 adjacent sectors",
-                "Plot a course to a randomsector 2-3 hops away from our current position and move to it immediately. Do not hop more than 3 times.",
-              ],
-            ]}
-          />
+          <Card
+            background="scanlines"
+            shadow="long"
+            withElbows={true}
+            className="flex flex-col items-center justify-center [--color-elbow:white] w-full h-full"
+          >
+            <CardContent>
+              <Cassette playing={true} />
+            </CardContent>
+          </Card>
         ) : (
           <></>
         )}
