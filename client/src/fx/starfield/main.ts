@@ -140,6 +140,13 @@ export interface WarpOptions {
   bypassFlash?: boolean; // Skip flash transition effect (default: false)
 }
 
+/** Options for initializeScene (no animation, direct load) */
+export interface InitializeSceneOptions {
+  id?: string;
+  sceneConfig?: Partial<StarfieldSceneConfig>;
+  gameObjects?: GameObjectBaseConfig[];
+}
+
 // ============================================================================
 // MAIN STARFIELD CLASS
 // ============================================================================
@@ -303,12 +310,22 @@ export class GalaxyStarfield {
   // Warp cooldown management (controls animation rate-limiting)
   private _warpCooldownTimer: number | null = null;
 
+  // Event handlers and observers for cleanup
+  private _visibilityChangeHandler?: () => void;
+  private _blurHandler?: () => void;
+  private _focusHandler?: () => void;
+  private _resizeHandler?: () => void;
+  private _resizeObserver?: ResizeObserver;
+  private _webglContextLostHandler?: (event: Event) => void;
+  private _webglContextRestoredHandler?: () => void;
+
   constructor(
     config: Partial<GalaxyStarfieldConfig> = {},
     callbacks: StarfieldCallbacks = {},
     targetElement?: HTMLElement
   ) {
-    this._targetElement = targetElement || document.body;
+    this._targetElement =
+      targetElement ?? document.getElementById("starfield") ?? document.body;
 
     this.config = { ...DEFAULT_GALAXY_CONFIG, ...config };
 
@@ -395,7 +412,7 @@ export class GalaxyStarfield {
     this.uniformManager = new UniformManager();
     this.configMapper = new ConfigUniformMapper(this.uniformManager);
     this.warpOverlay = new WarpOverlay();
-    this.shadowManager = new ShadowManager(this.uniformManager, this.config);
+    this.shadowManager = new ShadowManager(this.uniformManager);
 
     this.whiteFlash = document.getElementById("whiteFlash");
 
@@ -502,7 +519,7 @@ export class GalaxyStarfield {
   // ============================================================================
 
   private initVisibilityHandling(): void {
-    document.addEventListener("visibilitychange", () => {
+    this._visibilityChangeHandler = () => {
       if (document.hidden) {
         this.pauseForVisibility();
         if (this.debugMode && this.performanceMonitor) {
@@ -513,27 +530,33 @@ export class GalaxyStarfield {
           this.forceResume();
         }
       }
-    });
+    };
+    document.addEventListener(
+      "visibilitychange",
+      this._visibilityChangeHandler
+    );
 
-    window.addEventListener("blur", () => {
+    this._blurHandler = () => {
       if (!this.isPaused) {
         this.pauseForVisibility();
         if (this.debugMode && this.performanceMonitor) {
           this.performanceMonitor.updateStatus("Paused");
         }
       }
-    });
+    };
+    window.addEventListener("blur", this._blurHandler);
 
-    window.addEventListener("focus", () => {
+    this._focusHandler = () => {
       if (!document.hidden && !this.isManuallyPaused) {
         this.forceResume();
       }
-    });
+    };
+    window.addEventListener("focus", this._focusHandler);
   }
 
   private initWindowResize(): void {
     let resizeTimeout: number;
-    const debouncedResize = () => {
+    this._resizeHandler = () => {
       clearTimeout(resizeTimeout);
       resizeTimeout = window.setTimeout(() => {
         requestAnimationFrame(() => this.onContainerResize());
@@ -542,19 +565,19 @@ export class GalaxyStarfield {
 
     if (window.ResizeObserver && this._targetElement) {
       try {
-        const resizeObserver = new ResizeObserver((entries) => {
+        this._resizeObserver = new ResizeObserver((entries) => {
           requestAnimationFrame(() => {
             if (entries.length > 0) {
               this.onContainerResize();
             }
           });
         });
-        resizeObserver.observe(this._targetElement);
+        this._resizeObserver.observe(this._targetElement);
       } catch {
-        window.addEventListener("resize", debouncedResize);
+        window.addEventListener("resize", this._resizeHandler);
       }
     } else {
-      window.addEventListener("resize", debouncedResize);
+      window.addEventListener("resize", this._resizeHandler);
     }
   }
 
@@ -679,23 +702,25 @@ export class GalaxyStarfield {
 
     this.renderer.info.autoReset = false;
 
+    this._webglContextLostHandler = (event: Event) => {
+      event.preventDefault();
+      this.pause();
+    };
     this.renderer.domElement.addEventListener(
       "webglcontextlost",
-      (event) => {
-        event.preventDefault();
-        this.pause();
-      },
+      this._webglContextLostHandler,
       false
     );
 
+    this._webglContextRestoredHandler = () => {
+      this.handleContextRestoration();
+      if (!this.isManuallyPaused) {
+        this.forceResume();
+      }
+    };
     this.renderer.domElement.addEventListener(
       "webglcontextrestored",
-      () => {
-        this.handleContextRestoration();
-        if (!this.isManuallyPaused) {
-          this.forceResume();
-        }
-      },
+      this._webglContextRestoredHandler,
       false
     );
 
@@ -707,12 +732,7 @@ export class GalaxyStarfield {
 
     this.sceneManager = new SceneManager();
 
-    if (
-      this.config.debugMode &&
-      (!this.config.gameObjects || this.config.gameObjects.length === 0)
-    ) {
-      this.config = this.sceneManager.create(this.config);
-    }
+    // Removed debug-mode auto scene creation; scenes are loaded explicitly
 
     this.gameObjectManager = new GameObjectManager(this.scene, this.config);
 
@@ -748,22 +768,13 @@ export class GalaxyStarfield {
 
     if (this.config.planetEnabled) {
       this._background = new Background(this.uniformManager, this.scene);
-      this._background.create(this.config);
     }
     if (this.config.cloudsEnabled) {
       this._clouds = new Clouds(this.uniformManager, this.scene);
-      this._clouds.create(this.config);
     }
     if (this.config.nebulaEnabled) {
       this._nebula = new Nebula(this.uniformManager, this.scene);
-      this._nebula?.create(this.config);
     }
-
-    this.starLayerManager.createStarfield();
-
-    this.gameObjectManager.initialize();
-
-    this.layerManager.initializeLayers();
 
     const firstLayer = this.starLayerManager.getFirstLayer();
     if (firstLayer) {
@@ -1609,10 +1620,6 @@ export class GalaxyStarfield {
       }
     }
 
-    if (this.gameObjectManager) {
-      this.gameObjectManager.updateConfig(newConfig);
-    }
-
     this.updateCachedConfig();
   }
 
@@ -1790,9 +1797,7 @@ export class GalaxyStarfield {
 
     const preparedConfig = this.sceneManager!.prepareSceneVariant(
       id!,
-      sceneConfig,
-      gameObjects,
-      this.gameObjectManager || null
+      sceneConfig
     );
 
     this.clearGameObjectSelection();
@@ -1806,6 +1811,17 @@ export class GalaxyStarfield {
       console.debug(`[STARFIELD] Loading scene without animation: ${id}`);
       this._loadSceneWithReadyState(preparedConfig, true, !bypassFlash)
         .then(() => {
+          // Apply game objects after scene load
+          if (this.gameObjectManager) {
+            if (gameObjects.length > 0) {
+              const expanded = gameObjects.map((base) =>
+                this.gameObjectManager!.generateGameObjectConfig(base)
+              );
+              this.gameObjectManager.setGameObjects(expanded);
+            } else {
+              this.gameObjectManager.destroyAllObjects();
+            }
+          }
           if (
             this.callbacks.onWarpComplete &&
             typeof this.callbacks.onWarpComplete === "function"
@@ -2079,12 +2095,7 @@ export class GalaxyStarfield {
       const selectedObject = this.gameObjectManager.getSelectedObject();
       if (selectedObject) {
         this.gameObjectManager.deselectObject(selectedObject.id);
-
-        if (this.layerManager && this.config.layerDimmingEnabled) {
-          this.layerManager.startRestoration();
-        }
-
-        this.clearLookAtTarget();
+        this._clearFocus();
 
         if (
           this.callbacks.onGameObjectCleared &&
@@ -2107,6 +2118,29 @@ export class GalaxyStarfield {
       return this.gameObjectManager.getAllObjects();
     }
     return [];
+  }
+
+  /**
+   * Add a game object at runtime
+   */
+  public addGameObject(baseConfig: GameObjectBaseConfig): void {
+    if (!this.gameObjectManager) return;
+    const expanded =
+      this.gameObjectManager.generateGameObjectConfig(baseConfig);
+    this.gameObjectManager.addGameObject(expanded);
+  }
+
+  /**
+   * Remove a game object at runtime. If it is currently selected/looked-at, reset look-at.
+   */
+  public removeGameObject(objectId: string): boolean {
+    if (!this.gameObjectManager) return false;
+    const selected = this.gameObjectManager.getSelectedObject();
+    const wasSelected = selected && selected.id === objectId;
+    if (wasSelected) {
+      this.clearGameObjectSelection();
+    }
+    return this.gameObjectManager.removeGameObject(objectId);
   }
 
   /**
@@ -2168,10 +2202,24 @@ export class GalaxyStarfield {
    * Clear the look-at target, returning to origin
    */
   private clearLookAtTarget(): void {
+    // Backward-compatible method name; delegate to unified focus clear
+    this._clearFocus();
+  }
+
+  /**
+   * Unified focus clear: return camera to origin and restore dimming state
+   */
+  private _clearFocus(): void {
     if (this.cameraLookAtAnimator && this.originTarget) {
       this.cameraLookAtAnimator.returnToOrigin(this.originTarget);
     }
-
+    if (
+      this.layerManager &&
+      this.config.layerDimmingEnabled &&
+      this.layerManager.isLayersDimmed()
+    ) {
+      this.layerManager.startRestoration();
+    }
     this.cameraLookAtLock = null;
   }
 
@@ -2360,12 +2408,12 @@ export class GalaxyStarfield {
 
     // Recreate game objects if needed
     if (this.gameObjectManager) {
-      this.gameObjectManager.updateConfig(this.config);
+      //this.gameObjectManager.updateConfig(this.config);
     }
 
     // Update star layers with new config
-    if (this.starLayerManager) {
-      this.starLayerManager.updateConfig(this.config);
+    if (this.starLayerManager && !this.starLayerManager.hasLayers()) {
+      this.starLayerManager.createStarfield();
     }
 
     // Update visual elements that need recreation
@@ -2386,15 +2434,6 @@ export class GalaxyStarfield {
 
     // Wait for all async operations (primarily Background texture loading)
     await Promise.all(promises);
-
-    // Update star layers with new properties
-    /*if (this.starLayerManager) {
-      console.debug("Updating star layers with new properties");
-
-      // Recreate star layers with new config
-      this.starLayerManager.destroyAllLayers();
-      this.starLayerManager.createStarfield();
-    }*/
 
     if (this.controlsManager) {
       this.controlsManager.refresh();
@@ -2548,6 +2587,65 @@ export class GalaxyStarfield {
   // ============================================================================
 
   public destroy(): void {
+    // Stop rendering first
+    this._isRendering = false;
+
+    // Cancel animation frame
+    if (this.animationId) {
+      cancelAnimationFrame(this.animationId);
+      this.animationId = null;
+    }
+
+    // Clear all timers
+    if (this._queueDelayTimer !== null) {
+      clearTimeout(this._queueDelayTimer);
+      this._queueDelayTimer = null;
+    }
+    if (this._warpCooldownTimer !== null) {
+      clearTimeout(this._warpCooldownTimer);
+      this._warpCooldownTimer = null;
+    }
+
+    // Remove event listeners
+    if (this._visibilityChangeHandler) {
+      document.removeEventListener(
+        "visibilitychange",
+        this._visibilityChangeHandler
+      );
+      this._visibilityChangeHandler = undefined;
+    }
+    if (this._blurHandler) {
+      window.removeEventListener("blur", this._blurHandler);
+      this._blurHandler = undefined;
+    }
+    if (this._focusHandler) {
+      window.removeEventListener("focus", this._focusHandler);
+      this._focusHandler = undefined;
+    }
+    if (this._resizeHandler) {
+      window.removeEventListener("resize", this._resizeHandler);
+      this._resizeHandler = undefined;
+    }
+    if (this._resizeObserver) {
+      this._resizeObserver.disconnect();
+      this._resizeObserver = undefined;
+    }
+    if (this._webglContextLostHandler && this.renderer?.domElement) {
+      this.renderer.domElement.removeEventListener(
+        "webglcontextlost",
+        this._webglContextLostHandler
+      );
+      this._webglContextLostHandler = undefined;
+    }
+    if (this._webglContextRestoredHandler && this.renderer?.domElement) {
+      this.renderer.domElement.removeEventListener(
+        "webglcontextrestored",
+        this._webglContextRestoredHandler
+      );
+      this._webglContextRestoredHandler = undefined;
+    }
+
+    // Clean up managers
     if (this.uniformManager) {
       this.uniformManager.resetCache();
     }
@@ -2561,8 +2659,80 @@ export class GalaxyStarfield {
       this.cameraLookAtAnimator.dispose();
     }
 
-    this.renderer.dispose();
-    document.body.removeChild(this.renderer.domElement);
+    // Dispose of effect objects
+    if (this._background) {
+      this._background.destroy();
+    }
+    if (this._clouds) {
+      this._clouds.destroy();
+    }
+    if (this._nebula) {
+      this._nebula.destroy();
+    }
+    if (this.warpOverlay) {
+      this.warpOverlay.dispose();
+    }
+
+    // Dispose of composer and passes
+    if (this.composer) {
+      this.composer.dispose();
+    }
+
+    // Dispose of stars
+    if (this.starsGeometry) {
+      this.starsGeometry.dispose();
+    }
+    if (this.starsMaterial) {
+      this.starsMaterial.dispose();
+    }
+
+    // Dispose of scene contents
+    if (this.scene) {
+      this.scene.traverse((object) => {
+        if (object instanceof THREE.Mesh) {
+          if (object.geometry) object.geometry.dispose();
+          if (object.material) {
+            if (Array.isArray(object.material)) {
+              object.material.forEach((material) => material.dispose());
+            } else {
+              object.material.dispose();
+            }
+          }
+        }
+      });
+      this.scene.clear();
+    }
+
+    // Dispose renderer and remove from DOM
+    if (this.renderer) {
+      this.renderer.dispose();
+      this.renderer.forceContextLoss();
+
+      // Remove canvas from the correct parent element
+      if (this.renderer.domElement && this.renderer.domElement.parentNode) {
+        this.renderer.domElement.parentNode.removeChild(
+          this.renderer.domElement
+        );
+      }
+    }
+
+    // Clear all callbacks to prevent memory leaks
+    this.callbacks = {
+      onGameObjectInView: null,
+      onGameObjectSelected: null,
+      onGameObjectCleared: null,
+      onWarpStart: null,
+      onWarpComplete: null,
+      onWarpCancel: null,
+      onWarpQueue: null,
+      onSceneIsLoading: null,
+      onSceneReady: null,
+    };
+
+    // Clear warp queue and promises
+    this._warpQueue = [];
+    this._warpPromiseResolver = null;
+    this._sceneLoadPromise = null;
   }
 
   // ============================================================================
@@ -2597,17 +2767,53 @@ export class GalaxyStarfield {
   /**
    * Initialize scene and start rendering
    */
-  public async initializeScene(): Promise<void> {
-    if (!this.config.gameObjects || this.config.gameObjects.length === 0) {
-      this.config = this.sceneManager!.create(this.config);
+  public async initializeScene(
+    options: InitializeSceneOptions = {}
+  ): Promise<void> {
+    if (!this.sceneManager) {
+      console.warn("[STARFIELD] SceneManager not available");
+      return;
     }
 
-    this._currentSceneId = "initial";
+    const { id, sceneConfig, gameObjects = [] } = options;
 
-    await this._waitForSceneReady();
+    // Build a config to load: prefer provided id/sceneConfig; fallback to create()
+    let configToLoad: Partial<StarfieldSceneConfig>;
 
+    if (id) {
+      console.log("[STARFIELD] Preparing scene variant", id, sceneConfig);
+      configToLoad = this.sceneManager.prepareSceneVariant(id, sceneConfig);
+      this._currentSceneId = id;
+    } else {
+      console.log("[STARFIELD] Creating scene variant", sceneConfig);
+      const variant = this.sceneManager.createVariant(sceneConfig || {});
+      configToLoad = variant;
+      this._currentSceneId = "initial";
+    }
+
+    // Load assets and wait for readiness without firing callbacks yet
+    await this._loadSceneWithReadyState(configToLoad, false, false);
+
+    // Expand and set game objects, if provided
+    if (this.gameObjectManager && gameObjects.length > 0) {
+      const expanded = gameObjects.map((base) =>
+        this.gameObjectManager!.generateGameObjectConfig(base)
+      );
+      this.gameObjectManager.setGameObjects(expanded);
+    } else if (this.gameObjectManager && gameObjects.length === 0) {
+      // Ensure no stale objects remain when none are passed
+      this.gameObjectManager.destroyAllObjects();
+    }
+
+    // Start rendering, ensuring the first frame is drawn
     this.startRendering();
 
+    // Wait one frame to ensure rendering has actually begun
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => resolve())
+    );
+
+    // Now signal that the scene is ready and rendering has started
     if (
       this.callbacks.onSceneReady &&
       typeof this.callbacks.onSceneReady === "function"
@@ -2615,30 +2821,5 @@ export class GalaxyStarfield {
       this.callbacks.onSceneReady(this._isFirstRender, this._currentSceneId);
       this._isFirstRender = false;
     }
-  }
-
-  /**
-   * Wait for heavy scene initialization to complete
-   * @private
-   */
-  private async _waitForSceneReady(): Promise<void> {
-    if (this.config.planetEnabled && this._background) {
-      await new Promise<void>((resolve) => {
-        const checkPlanetReady = () => {
-          if (this._background?.getPlanetGroup()) {
-            resolve();
-          } else {
-            requestAnimationFrame(checkPlanetReady);
-          }
-        };
-        checkPlanetReady();
-      });
-    }
-
-    await new Promise((resolve) => {
-      requestAnimationFrame(() => {
-        resolve(undefined);
-      });
-    });
   }
 }

@@ -13,7 +13,6 @@ import {
   type GameObjectStats,
   type ObjectTypeData,
 } from "../types/GameObject";
-import customDeepmerge from "../utils/merge";
 
 // ============================================================================
 // GAME OBJECT MANAGER CLASS
@@ -106,29 +105,18 @@ export class GameObjectManager {
   }
 
   /**
-   * Initialize game objects based on configuration
-   */
-  public initialize(): void {
-    if (!this.config.gameObjectsEnabled) {
-      return;
-    }
-
-    this.createGameObjects();
-  }
-
-  /**
    * Create all game objects based on configuration
    */
-  private createGameObjects(): void {
+  private createGameObjects(gameObjects: GameObjectConfig[]): void {
     // Clear existing objects
     this.destroyAllObjects();
 
-    if (!this.config.gameObjects || !Array.isArray(this.config.gameObjects)) {
+    if (!gameObjects || !Array.isArray(gameObjects)) {
       return;
     }
 
-    // Create each game object from the config array
-    this.config.gameObjects.forEach((gameObjectConfig) => {
+    // Create each game object from the provided list
+    gameObjects.forEach((gameObjectConfig) => {
       this.createGameObject(gameObjectConfig);
     });
   }
@@ -172,6 +160,37 @@ export class GameObjectManager {
 
     this.gameObjects.set(id, gameObject);
     this.scene.add(mesh);
+  }
+
+  /**
+   * Add a single game object (already expanded GameObjectConfig)
+   */
+  public addGameObject(gameObjectConfig: GameObjectConfig): void {
+    if (!this.config.gameObjectsEnabled) return;
+    this.createGameObject(gameObjectConfig);
+  }
+
+  /**
+   * Remove a game object by id
+   * Returns true if removed, false if not found
+   */
+  public removeGameObject(objectId: string): boolean {
+    const gameObject = this.gameObjects.get(objectId);
+    if (!gameObject) return false;
+
+    this.scene.remove(gameObject.mesh);
+    gameObject.mesh.geometry.dispose();
+    if (Array.isArray(gameObject.mesh.material)) {
+      gameObject.mesh.material.forEach((m) => m.dispose());
+    } else {
+      gameObject.mesh.material.dispose();
+    }
+    this.gameObjects.delete(objectId);
+
+    if (this.selectedObjectId === objectId) {
+      this.selectedObjectId = null;
+    }
+    return true;
   }
 
   /**
@@ -276,7 +295,7 @@ export class GameObjectManager {
   /**
    * Update configuration and recreate objects if needed
    */
-  public updateConfig(newConfig: Partial<GalaxyStarfieldConfig>): void {
+  /*public updateConfig(newConfig: Partial<GalaxyStarfieldConfig>): void {
     console.debug(
       "[STARFIELD] GameObjectManager: updateConfig called with:",
       newConfig
@@ -304,18 +323,8 @@ export class GameObjectManager {
       this._initializeObjectTypes();
     }
 
-    // Recreate objects if game objects are enabled
-    if (this.config.gameObjectsEnabled) {
-      console.debug(
-        "[STARFIELD] GameObjectManager: Recreating objects due to config update"
-      );
-      this.createGameObjects();
-    } else {
-      console.debug(
-        "[STARFIELD] GameObjectManager: Game objects disabled, not recreating"
-      );
-    }
-  }
+    // Do not recreate objects from config; objects are set explicitly via setGameObjects
+  }*/
 
   /**
    * Destroy all game objects
@@ -387,10 +396,10 @@ export class GameObjectManager {
   public generateGameObjectConfig(
     baseConfig: GameObjectBaseConfig
   ): GameObjectConfig {
-    // Generate random position using the same logic as debug mode
-    const position = this._generateRandomPosition(
-      this.config.gameObjectSpawnRules
-    );
+    // Use provided position or generate a random one
+    const position =
+      baseConfig.position ||
+      this._generateRandomPosition(this.config.gameObjectSpawnRules);
 
     // Get scale from object type config
     const objectType = this.objectTypes[baseConfig.type];
@@ -402,6 +411,17 @@ export class GameObjectManager {
       rotation: { x: 0, y: 0, z: 0 },
       scale,
     };
+  }
+
+  /**
+   * Replace existing objects with a provided list (already- or to-be-expanded)
+   */
+  public setGameObjects(gameObjects: GameObjectConfig[]): void {
+    if (!this.config.gameObjectsEnabled) {
+      this.destroyAllObjects();
+      return;
+    }
+    this.createGameObjects(gameObjects);
   }
 
   /**

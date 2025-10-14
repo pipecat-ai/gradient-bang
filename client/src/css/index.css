@@ -17,6 +17,12 @@
 
   --color-active: var(--color-active);
   --color-subtle: var(--color-subtle);
+  --color-screen-background: rgba(0, 0, 0, 0.5);
+  --color-screen-foreground: rgba(255, 255, 255, 1);
+
+  --z-starfield: 1;
+  --z-visor: 2;
+  --z-hud: 3;
 }
 
 :root {
@@ -30,6 +36,8 @@
   --radius-base: 0;
 
   --grid-opacity: 0.25;
+
+  --screen-bg-feather: 18px;
 }
 
 html,
@@ -51,7 +59,6 @@ body {
 
 #root {
   position: relative;
-  height: 100vh;
 }
 
 /** @TODO REPLACE WITH COMPONENTS **/
@@ -521,4 +528,93 @@ button {
   color: var(--mauve-11);
   font-size: 15px;
   line-height: 1.5;
+}
+
+.screen {
+  position: relative;
+  --feather-size: var(--screen-bg-feather);
+  --border-radius: calc(var(--feather-size) / 2);
+
+  &:before {
+    content: "";
+    position: absolute;
+    inset: calc(-1 * var(--feather-size));
+    pointer-events: none;
+    border-radius: var(--border-radius);
+    background: var(--color-screen-background);
+
+    -webkit-mask-image: linear-gradient(
+        180deg,
+        transparent 0,
+        #000 var(--feather-size),
+        #000 calc(100% - var(--feather-size)),
+        transparent 100%
+      ),
+      linear-gradient(
+        90deg,
+        transparent 0,
+        #000 var(--feather-size),
+        #000 calc(100% - var(--feather-size)),
+        transparent 100%
+      );
+    -webkit-mask-composite: source-in;
+
+    mask-image: linear-gradient(
+        180deg,
+        transparent 0,
+        #000 var(--feather-size),
+        #000 calc(100% - var(--feather-size)),
+        transparent 100%
+      ),
+      linear-gradient(
+        90deg,
+        transparent 0,
+        #000 var(--feather-size),
+        #000 calc(100% - var(--feather-size)),
+        transparent 100%
+      );
+    mask-composite: intersect;
+  }
+}
+
+#visor.open {
+  &::before {
+    transform: translateY(-100%);
+    background-color: black;
+  }
+
+  &::after {
+    transform: translateY(100%);
+    background-color: black;
+  }
+}
+
+#visor {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  z-index: var(--z-visor);
+
+  &::before,
+  &::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    background: var(--color-muted);
+    transition: all 2.5s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 10;
+  }
+
+  &::before {
+    top: 0;
+    height: 50%;
+    transform: translateY(0);
+  }
+
+  &::after {
+    bottom: 0;
+    height: 50%;
+    transform: translateY(0);
+  }
 }

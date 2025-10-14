@@ -6,8 +6,8 @@ import {
   type UseBoundStore,
 } from "zustand";
 
-import type { DiamondFXController } from "../fx/frame";
-import { GalaxyStarfield } from "../fx/starfield";
+import type { DiamondFXController } from "@fx/frame";
+import { GalaxyStarfield } from "@fx/starfield";
 import { createHistorySlice, type HistorySlice } from "./historySlice";
 import { createMapSlice, type MapSlice } from "./mapSlice";
 import { createSettingsSlice, type SettingsSlice } from "./settingsSlice";
@@ -43,6 +43,9 @@ export interface GameState {
 
   /* Buffers & Caches */
   sectorBuffer?: Sector;
+
+  /* Game State */
+  gameState: "not_ready" | "initializing" | "ready";
 }
 
 export interface GameSlice extends GameState {
@@ -57,6 +60,7 @@ export interface GameSlice extends GameState {
   setDiamondFXInstance: (
     diamondFXInstance: DiamondFXController | undefined
   ) => void;
+  setGameState: (gameState: "not_ready" | "initializing" | "ready") => void;
 }
 
 const createGameSlice: StateCreator<
@@ -71,6 +75,7 @@ const createGameSlice: StateCreator<
   local_map_data: undefined, // TODO: Move to slice
   starfieldInstance: undefined,
   diamondFXInstance: undefined,
+  gameState: "not_ready",
 
   setState: (newState: Partial<GameState>) =>
     set({ ...get(), ...newState }, true),
@@ -112,6 +117,9 @@ const createGameSlice: StateCreator<
 
   setDiamondFXInstance: (diamondFXInstance: DiamondFXController | undefined) =>
     set({ diamondFXInstance }),
+
+  setGameState: (gameState: "not_ready" | "initializing" | "ready") =>
+    set({ gameState }),
 });
 
 const useGameStoreBase = create<

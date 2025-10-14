@@ -9,7 +9,7 @@ export const ShipHUD = () => {
   const localMapData = useGameStore((state) => state.local_map_data);
 
   return (
-    <div className="flex flex-row p-2 h-ui mt-auto gap-2">
+    <div className="flex flex-row p-2 h-ui mt-auto gap-2 z-(--z-hud)">
       <LHS />
       <div className="min-w-[var(--hud-center)]">
         <div className="relative h-[var(--hud-center)]">

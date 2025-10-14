@@ -4,8 +4,8 @@ import { PipecatAppBase } from "@pipecat-ai/voice-ui-kit";
 
 import { GameProvider } from "@/GameContext";
 import { getLocalSettings } from "@/utils/settings";
+import ViewContainer from "@/views/ViewContainer";
 
-import ViewContainer from "@views/ViewContainer";
 import "./css/index.css";
 
 // @TODO: Rather than apply during constructor, we should

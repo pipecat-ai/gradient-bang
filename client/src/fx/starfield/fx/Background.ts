@@ -14,6 +14,7 @@ export class Background extends FX {
   private _config: GalaxyStarfieldConfig | null;
   private _planetGroup: THREE.Group | null;
   private _planetRandomOffset: { x: number; y: number } | null;
+
   constructor(uniformManager: UniformManager, scene: THREE.Scene) {
     super(uniformManager, scene);
     this._background = null;

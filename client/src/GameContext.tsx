@@ -5,6 +5,7 @@ import { useCallback, type ReactNode } from "react";
 
 import { startMoveToSector } from "@/actions";
 import { GameContext } from "@/hooks/useGameContext";
+import { type StarfieldSceneConfig } from "@fx/starfield";
 
 /**
  * Server message interfaces
@@ -66,6 +67,9 @@ export function GameProvider({ children }: GameProviderProps) {
   const gameStore = useGameStore();
   const client = usePipecatClient();
 
+  /**
+   * Send user text input to server
+   */
   const sendUserTextInput = useCallback(
     (text: string) => {
       if (!client) {
@@ -84,6 +88,9 @@ export function GameProvider({ children }: GameProviderProps) {
     [client]
   );
 
+  /**
+   * Dispatch game event to server
+   */
   const dispatchEvent = useCallback(
     (e: { type: string; payload?: unknown }) => {
       if (!client) {
@@ -102,6 +109,46 @@ export function GameProvider({ children }: GameProviderProps) {
     [client]
   );
 
+  /**
+   * Initialization method
+   */
+  const initialize = useCallback(async () => {
+    const state = useGameStore.getState();
+
+    state.setGameState("initializing");
+
+    console.debug("[GAME CONTEXT] Initializing");
+
+    // Initialize starfield and await readiness
+    if (gameStore.settings.renderStarfield) {
+      try {
+        await gameStore.starfieldInstance?.initializeScene({
+          id: state.sector?.id.toString() ?? undefined,
+          sceneConfig: state.sector?.scene_config as StarfieldSceneConfig,
+        });
+      } catch (e) {
+        console.error("[GAME CONTEXT] Error initializing starfield", e);
+      }
+    }
+
+    // Initialize minimap and await readiness
+    // @TODO: implement
+
+    // Give a little bit of air
+    await setTimeout(() => {}, 1000);
+
+    // Set ready to true
+    gameStore.setGameState("ready");
+
+    // Dispatch start event
+    dispatchEvent({ type: "start" });
+  }, [gameStore, dispatchEvent]);
+
+  /**
+   */
+  /**
+   * Handle server message
+   */
   useRTVIClientEvent(
     RTVIEvent.ServerMessage,
     useCallback(
@@ -122,7 +169,6 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug("[GAME EVENT] Status update", gameEvent.payload);
 
               const status = gameEvent.payload as StatusMessage;
-              const initalizing = gameStore.sector === undefined;
 
               // Update store
               gameStore.setState({
@@ -131,12 +177,9 @@ export function GameProvider({ children }: GameProviderProps) {
                 sector: status.sector,
               });
 
-              // Initialize the StarField
-              if (initalizing) {
-                startMoveToSector(status.sector, {
-                  bypassAnimation: true,
-                  bypassFlash: true,
-                });
+              // Initialize game client if this is the first status update
+              if (gameStore.gameState === "not_ready") {
+                initialize();
               }
 
               break;

@@ -1,6 +1,5 @@
 import * as THREE from "three";
 import {
-  type GameObjectConfig,
   type GameObjectSpawnRules,
   type GameObjectTypes,
 } from "./types/GameObject";
@@ -90,9 +89,6 @@ export interface StarfieldSceneConfig {
 
   // Star size variant (slight variation per sector)
   starSize?: number;
-
-  // Game objects (completely per-scene)
-  gameObjects?: GameObjectConfig[];
 }
 
 /** Main galaxy starfield configuration interface */
@@ -214,7 +210,6 @@ export interface GalaxyStarfieldConfig {
   gameObjectsEnabled: boolean;
   gameObjectSpawnRules: GameObjectSpawnRules;
   gameObjectTypes: GameObjectTypes;
-  gameObjects: GameObjectConfig[];
 
   // === LAYER DIMMING SETTINGS ===
   layerDimmingEnabled: boolean;
@@ -357,7 +352,7 @@ export const DEFAULT_GALAXY_CONFIG: GalaxyStarfieldConfig = {
   nearFadeEndMultiplier: 2, // Multiplier for star near-fade distance
 
   // === CAMERA SWAY ===
-  cameraSwayIntensity: 10, // Spaceship sway intensity (0-2)
+  cameraSwayIntensity: 2, // Spaceship sway intensity (0-2)
   cameraSwaySpeed: 0.15, // Sway animation speed multiplier (slower = smoother)
   cameraSwayEnabled: true, // Enable/disable camera sway
   cameraZoomFactor: 0.5, // How much to zoom toward selected objects (0.1-0.5)
@@ -491,9 +486,6 @@ export const DEFAULT_GALAXY_CONFIG: GalaxyStarfieldConfig = {
   layerDimmingEnabled: true,
   layerDimOpacity: 0.4,
   layerDimDuration: 3,
-
-  // === GAME OBJECTS ===
-  gameObjects: [],
 
   // === DEBUG ===
   debugMode: false,

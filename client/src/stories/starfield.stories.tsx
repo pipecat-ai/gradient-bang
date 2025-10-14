@@ -10,20 +10,23 @@ export const Starfield: Story = () => {
   const [start, setStart] = useState(false);
   const starfieldInstance = useGameStore((state) => state.starfieldInstance);
 
-  useEffect(() => {
-    if (!starfieldInstance) {
-      return;
-    }
-
-    console.log("[STARFIELD] Starfield instance", starfieldInstance);
-
-    starfieldInstance.initializeScene();
-  }, [starfieldInstance]);
-
   return (
     <>
       <div className="fixed z-99 w-full flex flex-row gap-2">
         <button onClick={() => setStart(true)}>Start</button>
+
+        <button
+          disabled={!starfieldInstance}
+          onClick={async () => {
+            if (!starfieldInstance) {
+              return;
+            }
+            await starfieldInstance.initializeScene();
+            console.log("[STARFIELD] Initialized scene");
+          }}
+        >
+          Init
+        </button>
 
         <button
           onClick={async () => {
@@ -75,6 +78,32 @@ export const Starfield: Story = () => {
         >
           Clear Selection
         </button>
+
+        <button
+          onClick={() => {
+            // Add a random NPC (random position auto-generated)
+            const id = `npc_${Math.floor(Math.random() * 10000)}`;
+            starfieldInstance?.addGameObject({ id, type: "npc", name: "NPC" });
+            console.log("Added game object:", id);
+          }}
+        >
+          Add NPC
+        </button>
+
+        <button
+          onClick={() => {
+            const objects = starfieldInstance?.getAllGameObjects() || [];
+            if (objects.length === 0) {
+              console.log("No objects to remove");
+              return;
+            }
+            const target = objects[0];
+            const removed = starfieldInstance?.removeGameObject(target.id);
+            console.log("Removed object:", target.id, "=>", removed);
+          }}
+        >
+          Remove First GO
+        </button>
       </div>
       {start && <StarField />}
     </>
@@ -93,7 +122,7 @@ export const StarFieldSequence: Story = () => {
   const [status, setStatus] = useState("");
   const [bypassFlash, setBypassFlash] = useState(false);
   const starfieldInstance = useGameStore((state) => state.starfieldInstance);
-  const autopilot = useGameStore((state) => state.ui.autopilot);
+  const autopilot = useGameStore.use.uiState() === "autopilot";
 
   useEffect(() => {
     if (!starfieldInstance) {

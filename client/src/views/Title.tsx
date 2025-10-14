@@ -6,9 +6,16 @@ import {
   CardContent,
   CardHeader,
 } from "@pipecat-ai/voice-ui-kit";
+import { useEffect } from "react";
 
-export const Title = ({ onStart }: { onStart: () => void }) => {
+export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
   const setActiveModal = useGameStore.use.setActiveModal();
+
+  useEffect(() => {
+    const fx = useGameStore.getState().diamondFXInstance;
+    fx?.start("title-screen");
+  }, []);
+
   return (
     <div className="relative h-screen w-screen overflow-hidden">
       <div className="absolute inset-0">
@@ -24,7 +31,7 @@ export const Title = ({ onStart }: { onStart: () => void }) => {
         />
       </div>
       <div className="relative z-2 flex flex-col items-center justify-center h-full w-full">
-        <div className="bg-black">
+        <div className="bg-black" id="title-screen">
           <Card size="xl" background="stripes">
             <CardHeader>
               <h1 className="text-white text-4xl font-bold">
@@ -32,7 +39,7 @@ export const Title = ({ onStart }: { onStart: () => void }) => {
               </h1>
             </CardHeader>
             <CardContent className="flex flex-col items-center justify-center gap-2">
-              <Button isFullWidth onClick={onStart}>
+              <Button isFullWidth onClick={onViewNext}>
                 Start
               </Button>
               <Button

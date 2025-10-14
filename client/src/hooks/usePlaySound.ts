@@ -1,5 +1,5 @@
 import useGameStore from "@stores/game";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 export type Sound = {
   src: string;
@@ -41,6 +41,36 @@ export const usePlaySound = () => {
     disabledSoundFX,
     disableMusic,
   } = settings;
+
+  // Store latest settings in a ref so playSound callback can access them
+  // without needing to be recreated
+  const settingsRef = useRef({
+    ambienceVolume,
+    soundFXVolume,
+    musicVolume,
+    disabledAmbience,
+    disabledSoundFX,
+    disableMusic,
+  });
+
+  // Keep ref up to date
+  useEffect(() => {
+    settingsRef.current = {
+      ambienceVolume,
+      soundFXVolume,
+      musicVolume,
+      disabledAmbience,
+      disabledSoundFX,
+      disableMusic,
+    };
+  }, [
+    ambienceVolume,
+    soundFXVolume,
+    musicVolume,
+    disabledAmbience,
+    disabledSoundFX,
+    disableMusic,
+  ]);
 
   useEffect(() => {
     activeOnceSounds.forEach((entry) => {
@@ -88,6 +118,7 @@ export const usePlaySound = () => {
     disableMusic,
   ]);
 
+  // Create a stable callback that always accesses the latest settings via ref
   return useCallback(
     (
       soundName: string,
@@ -100,10 +131,19 @@ export const usePlaySound = () => {
       const sound = SoundMap[soundName as keyof typeof SoundMap];
       if (!sound) return;
 
+      const {
+        ambienceVolume: currentAmbienceVolume,
+        soundFXVolume: currentSoundFXVolume,
+        musicVolume: currentMusicVolume,
+        disabledAmbience: currentDisabledAmbience,
+        disabledSoundFX: currentDisabledSoundFX,
+        disableMusic: currentDisableMusic,
+      } = settingsRef.current;
+
       const isDisabled =
-        (sound.type === "ambience" && disabledAmbience) ||
-        (sound.type === "fx" && disabledSoundFX) ||
-        (sound.type === "music" && disableMusic);
+        (sound.type === "ambience" && currentDisabledAmbience) ||
+        (sound.type === "fx" && currentDisabledSoundFX) ||
+        (sound.type === "music" && currentDisableMusic);
 
       if (!options?.once && isDisabled) {
         return;
@@ -115,11 +155,11 @@ export const usePlaySound = () => {
       const baseVolume = options?.volume ?? 1;
       let finalVolume = baseVolume;
       if (sound.type === "ambience") {
-        finalVolume = baseVolume * ambienceVolume;
+        finalVolume = baseVolume * currentAmbienceVolume;
       } else if (sound.type === "fx") {
-        finalVolume = baseVolume * soundFXVolume;
+        finalVolume = baseVolume * currentSoundFXVolume;
       } else if (sound.type === "music") {
-        finalVolume = baseVolume * musicVolume;
+        finalVolume = baseVolume * currentMusicVolume;
       }
       audio.volume = finalVolume;
 
@@ -145,13 +185,6 @@ export const usePlaySound = () => {
         }
       }
     },
-    [
-      ambienceVolume,
-      soundFXVolume,
-      musicVolume,
-      disabledAmbience,
-      disabledSoundFX,
-      disableMusic,
-    ]
+    [] // Empty dependency array - callback is now stable
   );
 };

@@ -250,7 +250,7 @@ async def run_bot(transport, runner_args: RunnerArguments):
         await rtvi.set_bot_ready()
 
         # Kick off the conversation
-        await task.queue_frames([context_aggregator.user().get_context_frame()])
+        # await task.queue_frames([context_aggregator.user().get_context_frame()])
 
     @rtvi.event_handler("on_client_message")
     async def on_client_message(rtvi, message):
@@ -260,6 +260,14 @@ async def run_bot(transport, runner_args: RunnerArguments):
         # Extract message type and data from RTVIClientMessage object
         msg_type = message.type
         msg_data = message.data if hasattr(message, "data") else {}
+
+        # Start 
+        if msg_type == "start":
+            try: 
+                await task.queue_frames([context_aggregator.user().get_context_frame()])
+            except Exception as exc:
+                logger.exception("Failed to start conversation")
+            return
 
         # Mute / unmute control
         if msg_type == "mute-unmute":
