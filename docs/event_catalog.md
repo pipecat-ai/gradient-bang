@@ -2,6 +2,31 @@
 
 This document catalogs all WebSocket events emitted by the Gradient Bang game server during gameplay, with typical payloads showing all fields.
 
+## System Events
+
+### error
+**When emitted:** When an RPC request fails and the handler emits an error notification for the requesting player
+**Who receives it:** Only the character whose request failed (character_filter)
+**Source:** Helper `emit_error_event` (`game-server/api/utils.py`)
+
+**Payload example:**
+```json
+{
+  "endpoint": "move",
+  "error": "Invalid move",
+  "source": {
+    "type": "rpc",
+    "method": "move",
+    "request_id": "req-error",
+    "timestamp": "2025-10-15T18:42:03.000Z"
+  }
+}
+```
+
+**Notes:**
+- Error events are optional; handlers typically return `rpc_failure` alongside the event.
+- The `source.timestamp` field is generated when the event is emitted and uses UTC ISO-8601 format.
+
 ## Combat Events
 
 ### combat.started *(removed October 7, 2025)*

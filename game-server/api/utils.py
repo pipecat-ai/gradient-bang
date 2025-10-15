@@ -52,6 +52,26 @@ def build_event_source(
     }
 
 
+async def emit_error_event(
+    event_dispatcher,
+    character_id: str,
+    endpoint: str,
+    request_id: str,
+    error: str,
+) -> None:
+    """Emit a correlated error event to the requesting character."""
+
+    await event_dispatcher.emit(
+        "error",
+        {
+            "source": build_event_source(endpoint, request_id),
+            "endpoint": endpoint,
+            "error": error,
+        },
+        character_filter=[character_id],
+    )
+
+
 async def ensure_not_in_combat(world, character_id: str) -> None:
     """Raise if the character is currently participating in active combat."""
 
