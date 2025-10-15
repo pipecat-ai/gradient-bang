@@ -88,6 +88,7 @@ class AsyncGameClient:
             formatter: Function that takes server response and returns summary string
         """
         self._summary_formatters[endpoint] = formatter
+        logger.info(f"Registered summary formatter for endpoint: {endpoint}")
 
     def _apply_summary(self, endpoint: str, result: Dict[str, Any]) -> Dict[str, Any]:
         """Apply summary formatter if one is registered for this endpoint.
@@ -99,14 +100,21 @@ class AsyncGameClient:
         Returns:
             Result dict, optionally with "summary" key added
         """
+        logger.info(f"_apply_summary called for endpoint: {endpoint}, has formatter: {endpoint in self._summary_formatters}")
         formatter = self._summary_formatters.get(endpoint)
         if formatter:
             try:
+                logger.info(f"Calling formatter for {endpoint}")
                 summary = formatter(result)
                 if summary:
                     result["summary"] = summary
+                    logger.info(f"Applied summary formatter for {endpoint}: {summary}")
+                else:
+                    logger.warning(f"Formatter for {endpoint} returned empty summary")
             except Exception:
                 logger.exception(f"Summary formatter for {endpoint} failed")
+        else:
+            logger.debug(f"No formatter registered for {endpoint}")
         return result
 
     async def __aenter__(self):

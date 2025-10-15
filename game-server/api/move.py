@@ -279,7 +279,9 @@ async def handle(request: dict, world) -> dict:
                 character_filter=arriving_observers,
             )
 
-        return {"summary": f"Moved to sector {to_sector}"}
+        # Return full status payload (same as movement.complete event)
+        from .utils import build_status_payload
+        return await build_status_payload(world, character_id)
     finally:
         # Always clear hyperspace flag, even if move fails
         if character_id in world.characters:

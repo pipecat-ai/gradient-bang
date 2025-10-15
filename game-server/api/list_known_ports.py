@@ -134,11 +134,19 @@ async def handle(request: Dict[str, Any], world) -> Dict[str, Any]:
                     # Get full sector contents for position
                     contents = await sector_contents(world, current, character_id)
 
+                    # Get last visited time from sector knowledge
+                    last_visited = (
+                        sector_knowledge.last_visited
+                        if hasattr(sector_knowledge, "last_visited")
+                        else None
+                    )
+
                     ports.append({
                         "sector_id": current,
                         "hops_from_start": hops,
                         "port": port,
-                        "position": contents.get("position")
+                        "position": contents.get("position"),
+                        "last_visited": last_visited
                     })
 
             # Continue BFS if we haven't exceeded max hops

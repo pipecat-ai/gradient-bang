@@ -16,15 +16,19 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.api_client import AsyncGameClient
 from utils.base_llm_agent import LLMConfig
 from utils.experimental_pipecat_agent import ExperimentalTaskAgent
+from utils.summary_formatters import (
+    move_summary,
+    join_summary,
+    plot_course_summary,
+    list_known_ports_summary,
+)
 
 DEFAULT_MODEL = "gemini-2.5-flash-preview-09-2025"
 
-_explicit_level = os.getenv("EXPERIMENTAL_AGENT_LOG_LEVEL")
-LOG_LEVEL = (_explicit_level or os.getenv("LOGURU_LEVEL") or "INFO").upper()
-
-logger.remove()
-logger.add(sys.stderr, level=LOG_LEVEL, format="{time:HH:mm:ss} {message}")
 logger.enable("pipecat")
+
+_log_level = os.getenv("LOGURU_LEVEL", "INFO").upper()
+logger.configure(handlers=[{"sink": sys.stderr, "level": _log_level}])
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,7 +43,6 @@ Examples:
 Environment Variables:
   GOOGLE_API_KEY             Required. Google Generative AI key.
   GAME_SERVER_URL            Optional. Defaults to http://localhost:8000.
-  EXPERIMENTAL_AGENT_LOG_LEVEL  Optional. Log level for this script (INFO by default).
 """,
     )
 
@@ -89,15 +92,21 @@ async def run_task(args: argparse.Namespace) -> int:
     async with AsyncGameClient(
         base_url=args.server, character_id=args.character_id
     ) as game_client:
+        # Register summary formatters to reduce LLM token usage
+        game_client.set_summary_formatter("join", join_summary)
+        game_client.set_summary_formatter("move", move_summary)
+        game_client.set_summary_formatter("my_status", join_summary)
+        game_client.set_summary_formatter("plot_course", plot_course_summary)
+        game_client.set_summary_formatter("list_known_ports", list_known_ports_summary)
+
         logger.info(f"CONNECT server={args.server}")
         status = await game_client.join(args.character_id)
-        logger.info(f"JOINED sector={status.get('sector')}")
+        logger.info(f"JOINED {status.get('summary')}")
 
         agent = ExperimentalTaskAgent(
             config=LLMConfig(api_key=api_key, model=args.model),
             game_client=game_client,
             character_id=args.character_id,
-            verbose_prompts=args.verbose_prompts,
         )
 
         initial_state = {
@@ -115,10 +124,10 @@ async def run_task(args: argparse.Namespace) -> int:
         if success:
             logger.info("TASK_COMPLETE status=success")
         else:
-            logger.warning(f"TASK_INCOMPLETE iterations={args.max_iterations}")
+            logger.warning(f"TASK_INCOMPLETE")
 
         final_status = await game_client.my_status(args.character_id)
-        logger.info(f"FINAL_STATUS sector={final_status.get('sector')}")
+        logger.info(f"FINAL_STATUS {final_status.get('summary')}")
 
     return 0 if success else 1
 

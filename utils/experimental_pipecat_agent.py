@@ -1,9 +1,13 @@
 """
 Experimental task agent that routes task execution through a Pipecat pipeline.
 
-This implementation constructs a fresh Pipecat pipeline for each inference turn,
-allowing us to share the same tools and context mechanics that the voice
-systems use.
+This implementation constructs a fresh Pipecat pipeline for each task.
+
+For verbose logging set the Pipecat log level either in code or using an environment variable. For example:
+
+```
+LOGURU_LEVEL=DEBUG uv run npc/run_experimental_task.py khk-1 "Where am I?"
+```
 """
 
 from __future__ import annotations
@@ -69,6 +73,7 @@ from utils.tools_schema import (
 load_dotenv()
 
 DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash-preview-09-2025"
+DEFAULT_THINKING_BUDGET = 2048
 TURN_TIMEOUT_SECONDS = 30
 
 
@@ -79,20 +84,22 @@ ToolEventCallback = Callable[[str, Any], Awaitable[None]]
 
 
 class TurnCoordinator:
-    """Coordinates turn-level signaling for a long-lived Pipecat pipeline."""
+    """Coordinates turn-level signaling for a long-lived Pipecat pipeline.
+
+    Pass a text_frame_logger to log the pipeline's streaming text output.
+    """
 
     def __init__(
         self,
         pipeline_task: PipelineTask,
         *,
-        text_logger: Optional[Callable[[str], None]] = None,
+        text_frame_logger: Optional[Callable[[LLMTextFrame], None]] = None,
     ):
         self._task = pipeline_task
-        self._text_logger = text_logger
+        self._text_frame_logger = text_frame_logger
 
         self._pipeline_started = asyncio.Event()
         self._turn_future: Optional[asyncio.Future[str]] = None
-        self._assistant_chunks: List[str] = []
         self._last_activity: float = asyncio.get_running_loop().time()
 
         self._task.set_reached_downstream_filter(
@@ -113,17 +120,18 @@ class TurnCoordinator:
         @self._task.event_handler("on_frame_reached_downstream")
         async def _on_downstream(task, frame):  # pragma: no cover - wiring
             if isinstance(frame, LLMTextFrame):
+                logger.info(f"!!! LLMTextFrame: {frame.text}")
+
                 if self._turn_future and not self._turn_future.done():
-                    self._assistant_chunks.append(frame.text)
-                    if self._text_logger:
-                        self._text_logger(frame.text)
+                    if self._text_frame_logger:
+                        self._text_frame_logger(frame)
                     else:
                         logger.debug(f"TurnCoordinator: assistant chunk '{frame.text}'")
                     self._mark_activity()
             elif isinstance(frame, LLMFullResponseEndFrame):
                 if self._turn_future and not self._turn_future.done():
-                    text = "".join(self._assistant_chunks)
-                    self._turn_future.set_result(text)
+                    logger.info(f"!!! TurnCoordinator: LLMFullResponseEndFrame")
+                    self._turn_future.set_result()
                 self._mark_activity()
             elif isinstance(frame, ErrorFrame):
                 if self._turn_future and not self._turn_future.done():
@@ -140,8 +148,7 @@ class TurnCoordinator:
                     f"TurnCoordinator: FunctionCallResultFrame name={frame.function_name} run_llm={run_llm}"
                 )
                 if not run_llm and self._turn_future and not self._turn_future.done():
-                    text = "".join(self._assistant_chunks)
-                    self._turn_future.set_result(text)
+                    self._turn_future.set_result()
                 self._mark_activity()
 
     async def wait_pipeline_started(self) -> None:
@@ -150,7 +157,6 @@ class TurnCoordinator:
     def begin_turn(self) -> None:
         if self._turn_future and not self._turn_future.done():
             raise RuntimeError("Previous turn still in progress")
-        self._assistant_chunks = []
         loop = asyncio.get_running_loop()
         self._turn_future = loop.create_future()
         self._mark_activity()
@@ -188,13 +194,12 @@ class ExperimentalTaskAgent:
         game_client: AsyncGameClient,
         character_id: str,
         *,
-        verbose_prompts: bool = False,
         output_callback: Optional[Callable[[str, Optional[str]], None]] = None,
         tool_call_event_callback: Optional[ToolEventCallback] = None,
-        tool_result_event_callback: Optional[ToolEventCallback] = None,
         tools_list: Optional[List[Any]] = None,
         tool_executor: Optional[PipelineToolExecutor] = None,
         llm_service_factory: Optional[Callable[[], LLMService]] = None,
+        thinking_budget: Optional[int] = None,
     ):
         api_key = config.api_key or os.getenv("GOOGLE_API_KEY")
         if not api_key:
@@ -209,14 +214,13 @@ class ExperimentalTaskAgent:
         self.game_client = game_client
         self.character_id = character_id
 
-        self.verbose_prompts = verbose_prompts
         self.output_callback = output_callback
         self._tool_call_event_callback = tool_call_event_callback
-        self._tool_result_event_callback = tool_result_event_callback
         self._tool_executor = tool_executor
         self._llm_service_factory = (
             llm_service_factory or self._default_llm_service_factory
         )
+        self._thinking_budget = thinking_budget or DEFAULT_THINKING_BUDGET
 
         self.messages: List[Dict[str, Any]] = []
         self.tools: Dict[str, Callable[..., Awaitable[Any]]] = {}
@@ -233,7 +237,7 @@ class ExperimentalTaskAgent:
         self._watchdog_target: Optional[asyncio.Future] = None
         self._watchdog_triggered: bool = False
 
-        default_tools = tools_list or [
+        tools = tools_list or [
             MyStatus,
             PlotCourse,
             LocalMapRegion,
@@ -250,9 +254,10 @@ class ExperimentalTaskAgent:
             CollectFighters,
             TaskFinished,
         ]
-        self.set_tools(default_tools)
+        self.set_tools(tools)
 
     def _default_llm_service_factory(self) -> LLMService:
+        # todo: PR for Pipecat GoogleLLMService to add stop() and cancel() overrides
         class GoogleLLMService(PipecatGoogleLLMService):
             async def stop(self, frame):
                 await super().stop(frame)
@@ -273,7 +278,7 @@ class ExperimentalTaskAgent:
             model=self.config.model or DEFAULT_GOOGLE_MODEL,
             run_in_parallel=False,
             params=GoogleLLMService.InputParams(
-                extra={"thinking_config": {"thinking_budget": 2048}}
+                extra={"thinking_config": {"thinking_budget": self._thinking_budget}}
             ),
         )
 
@@ -300,8 +305,6 @@ class ExperimentalTaskAgent:
     def add_message(self, message: Dict[str, Any]) -> None:
         msg = {k: v for k, v in message.items() if k != "token_usage"}
         self.messages.append(msg)
-        if self.verbose_prompts:
-            self._log_message(msg)
 
     def clear_messages(self) -> None:
         self.messages = []
@@ -317,7 +320,7 @@ class ExperimentalTaskAgent:
         self,
         task: str,
         initial_state: Optional[Dict[str, Any]] = None,
-        max_iterations: int = 50,
+        max_iterations: int = 100,
     ) -> bool:
         self.reset_cancellation()
         self.finished = False
@@ -331,6 +334,7 @@ class ExperimentalTaskAgent:
             {"role": "user", "content": create_task_instruction_user_message(task)}
         )
         if initial_state:
+            # todo: format initial state as summary
             for message in create_initial_status_messages(initial_state):
                 self.add_message(message)
 
@@ -341,27 +345,25 @@ class ExperimentalTaskAgent:
             pipeline_task,
             runner_task,
             llm_service,
-        ) = self._setup_pipeline(context, verbose=self.verbose_prompts)
+        ) = self._setup_pipeline(context)
 
         try:
             await coordinator.wait_pipeline_started()
             self._refresh_watchdog()
 
-            turn_index = 0
+            turn_index = 1
             success = False
             while not pipeline_task.has_finished():
                 if self.cancelled:
                     self._output("Task cancelled", TaskOutputType.FINISHED)
                     return False
 
-                self._emit_step(f"turn index={turn_index}")
+                self._emit_step()
                 turn_index += 1
 
                 coordinator.begin_turn()
                 self._active_coordinator = coordinator
-                await aggregator_pair.user().push_context_frame(
-                    FrameDirection.DOWNSTREAM
-                )
+                await aggregator_pair.user().push_context_frame()
 
                 turn_future = asyncio.create_task(coordinator.wait_for_turn())
                 self._set_watchdog_target(turn_future)
@@ -385,9 +387,6 @@ class ExperimentalTaskAgent:
                     self._normalize_message(msg) for msg in context.get_messages()
                 ]
                 assistant_message = self._extract_assistant_message(context)
-
-                if self.verbose_prompts:
-                    self._log_message(assistant_message)
 
                 self._output("TURN_COMPLETE", TaskOutputType.MESSAGE)
                 self._refresh_watchdog()
@@ -416,10 +415,7 @@ class ExperimentalTaskAgent:
         return LLMContext(messages=context_messages, tools=tools)
 
     def _setup_pipeline(
-        self,
-        context: LLMContext,
-        *,
-        verbose: bool,
+        self, context: LLMContext
     ) -> Tuple[
         LLMContextAggregatorPair,
         TurnCoordinator,
@@ -437,22 +433,14 @@ class ExperimentalTaskAgent:
         pipeline_task = PipelineTask(
             pipeline,
             params=PipelineParams(
-                allow_interruptions=True,
+                allow_interruptions=False,
+                # todo: add metrics
                 enable_metrics=False,
                 enable_usage_metrics=False,
             ),
         )
 
-        coordinator = TurnCoordinator(
-            pipeline_task,
-            text_logger=(
-                lambda text: self._output(
-                    f"ASSISTANT_PART: {text}", TaskOutputType.MESSAGE
-                )
-                if verbose
-                else None
-            ),
-        )
+        coordinator = TurnCoordinator(pipeline_task)
 
         pipeline_runner = PipelineRunner(handle_sigint=False, handle_sigterm=False)
         runner_task = asyncio.create_task(pipeline_runner.run(pipeline_task))
@@ -460,9 +448,11 @@ class ExperimentalTaskAgent:
         self._active_pipeline_task = pipeline_task
         return aggregator_pair, coordinator, pipeline_task, runner_task, llm_service
 
-    def _emit_step(self, label: str) -> None:
+    def _emit_step(self, label: Optional[str] = "") -> None:
         self._step_counter += 1
-        self._output(f"STEP {self._step_counter}: {label}", TaskOutputType.STEP)
+        self._output(
+            f"{self._step_counter}{': ' if label else ''}{label}", TaskOutputType.STEP
+        )
         self._refresh_watchdog()
 
     def _set_watchdog_target(self, future: asyncio.Future) -> None:
@@ -542,10 +532,6 @@ class ExperimentalTaskAgent:
         tool_call_id = params.tool_call_id
         arguments = params.arguments or {}
 
-        logger.debug(
-            f"ExperimentalTaskAgent: handling function call name={tool_name} id={tool_call_id} args={arguments}"
-        )
-
         self._refresh_watchdog()
 
         tool_call_dict = {
@@ -554,33 +540,29 @@ class ExperimentalTaskAgent:
             "function": {"name": tool_name, "arguments": json.dumps(arguments)},
         }
 
-        self._output(
-            f"Executing {tool_name}({json.dumps(arguments)})", TaskOutputType.TOOL_CALL
-        )
+        if tool_name != "finished":
+            self._emit_step()
+            self._output(
+                f"{tool_name}({json.dumps(arguments)})", TaskOutputType.TOOL_CALL
+            )
 
         if self._tool_call_event_callback:
             await self._tool_call_event_callback(tool_name, arguments)
 
         executor = self._tool_executor or self._default_tool_executor
-        tool_message, should_continue, raw_result = await executor(tool_call_dict)
+        llm_tool_message, should_continue, raw_result = await executor(tool_call_dict)
         should_continue = True if should_continue is None else bool(should_continue)
-        logger.debug(
-            f"ExperimentalTaskAgent: tool={tool_name} should_continue={should_continue}"
-        )
-        self._emit_step(f"tool name={tool_name} continue={should_continue}")
+
         if self._active_coordinator:
             self._active_coordinator.note_activity()
 
         payload: Dict[str, Any]
         if isinstance(raw_result, dict):
             payload = {"result": raw_result}
-        elif tool_message is not None:
-            payload = self._payload_from_tool_message(tool_message)
+        elif llm_tool_message is not None:
+            payload = self._payload_from_tool_message(llm_tool_message)
         else:
             payload = {"result": raw_result}
-
-        if self._tool_result_event_callback:
-            await self._tool_result_event_callback(tool_name, payload)
 
         properties = FunctionCallResultProperties(run_llm=should_continue)
         await params.result_callback(payload, properties=properties)
@@ -591,19 +573,12 @@ class ExperimentalTaskAgent:
         tool_name = tool_call["function"]["name"]
         tool_args = json.loads(tool_call["function"]["arguments"])
 
-        logger.debug(
-            f"ExperimentalTaskAgent: default tool executor running name={tool_name} args={tool_args}"
-        )
-
         if tool_name == "finished":
             self.finished = True
             self.finished_message = tool_args.get("message", "Done")
             self._output(self.finished_message, TaskOutputType.FINISHED)
-            logger.debug(
-                f"ExperimentalTaskAgent: received finished tool message={self.finished_message}"
-            )
             if self._active_coordinator:
-                self._active_coordinator.finish_turn("")
+                self._active_coordinator.finish_turn(self.finished_message)
             return (None, False, {"message": self.finished_message})
 
         tool = self.tools.get(tool_name)
@@ -611,26 +586,18 @@ class ExperimentalTaskAgent:
             message = self._format_tool_message(
                 tool_call["id"], {"error": f"Unknown tool: {tool_name}"}
             )
-            logger.debug(
-                f"ExperimentalTaskAgent: tool {tool_name} missing; returning error payload"
-            )
             return (message, False, {"error": f"Unknown tool: {tool_name}"})
 
         try:
             result = tool(**tool_args)
             if inspect.isawaitable(result):
                 result = await result
-            logger.debug(
-                f"ExperimentalTaskAgent: tool {tool_name} succeeded result={result}"
-            )
             message = self._format_tool_message(tool_call["id"], result)
-            self._output(json.dumps(result), TaskOutputType.TOOL_RESULT)
             return (message, True, result)
         except Exception as exc:
             error_payload = {"error": str(exc)}
             logger.error(f"Tool {tool_name} failed: {exc}")
             message = self._format_tool_message(tool_call["id"], error_payload)
-            self._output(json.dumps(error_payload), TaskOutputType.TOOL_RESULT)
             return (message, True, error_payload)
 
     def _format_tool_message(self, tool_call_id: str, result: Any) -> Dict[str, Any]:
@@ -639,11 +606,14 @@ class ExperimentalTaskAgent:
         elif isinstance(result, dict):
             summary = result.get("summary")
             if summary and isinstance(summary, str) and summary.strip():
+                self._output(summary.strip(), TaskOutputType.TOOL_RESULT)
                 payload = {"summary": summary.strip()}
             else:
+                self._output(result, TaskOutputType.TOOL_RESULT)
                 payload = {"result": result}
             content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         else:
+            self._output(result, TaskOutputType.TOOL_RESULT)
             payload = {"result": result}
             content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         return {"role": "tool", "tool_call_id": tool_call_id, "content": content}
@@ -662,13 +632,13 @@ class ExperimentalTaskAgent:
         return {"result": content}
 
     def _output(self, text: str, message_type: Optional[TaskOutputType] = None) -> None:
+        if message_type:
+            logger.info(f"[{message_type.value}] {text}")
+        else:
+            logger.info(text)
+
         if self.output_callback:
             self.output_callback(text, message_type.value if message_type else None)
-        else:
-            if message_type:
-                logger.info(f"[{message_type.value}] {text}")
-            else:
-                logger.info(text)
 
     def _log_message(self, message: Dict[str, Any]) -> None:
         try:
