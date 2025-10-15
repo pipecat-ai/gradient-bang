@@ -363,7 +363,24 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 continue
 
             endpoint = frame.get("endpoint")
-            payload = frame.get("payload", {})
+            raw_payload = frame.get("payload")
+            if raw_payload is None:
+                payload: Dict[str, Any] = {}
+            elif isinstance(raw_payload, dict):
+                payload = dict(raw_payload)
+            else:
+                await websocket.send_json(
+                    rpc_error(
+                        frame_id,
+                        endpoint or "unknown",
+                        HTTPException(
+                            status_code=400, detail="Invalid payload type; expected object"
+                        ),
+                    )
+                )
+                continue
+
+            payload["request_id"] = frame_id
             handler = RPC_HANDLERS.get(endpoint)
             if not handler:
                 await websocket.send_json(
