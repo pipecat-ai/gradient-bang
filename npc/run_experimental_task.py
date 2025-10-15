@@ -16,12 +16,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.api_client import AsyncGameClient
 from utils.base_llm_agent import LLMConfig
 from utils.experimental_pipecat_agent import ExperimentalTaskAgent
-from utils.summary_formatters import (
-    move_summary,
-    join_summary,
-    plot_course_summary,
-    list_known_ports_summary,
-)
 
 DEFAULT_MODEL = "gemini-2.5-flash-preview-09-2025"
 
@@ -92,13 +86,6 @@ async def run_task(args: argparse.Namespace) -> int:
     async with AsyncGameClient(
         base_url=args.server, character_id=args.character_id
     ) as game_client:
-        # Register summary formatters to reduce LLM token usage
-        game_client.set_summary_formatter("join", join_summary)
-        game_client.set_summary_formatter("move", move_summary)
-        game_client.set_summary_formatter("my_status", join_summary)
-        game_client.set_summary_formatter("plot_course", plot_course_summary)
-        game_client.set_summary_formatter("list_known_ports", list_known_ports_summary)
-
         logger.info(f"CONNECT server={args.server}")
         status = await game_client.join(args.character_id)
         logger.info(f"JOINED {status.get('summary')}")

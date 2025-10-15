@@ -1,10 +1,78 @@
+Answering Open Questions
+
+1. **Event Ordering:** Should we guarantee order of events within a single operation? (Recommendation: Yes, using await on each emit)
+
+Yes to recommendation.
+
+2. **Event Acknowledgment:** Should clients acknowledge events? (Recommendation: No, keep it simple)
+
+Agree. No ack.
+
+3. **Event Replay:** Should clients be able to request missed events after reconnection? (Recommendation: Not in initial implementation, but design for future addition)
+
+No replay.
+
+4. **Rate Limiting:** Should events count towards rate limits? (Recommendation: No, only RPC requests)
+
+No event rate limit. We only rate limit RPC requests.
+
+5. **Batching:** Should multiple events from one operation be batched? (Recommendation: No, send individually for simplicity)
+
+No. Send individually for simplicity.
+
+
+----
+
+- verbose_prompts in new task agent?
+  - it doesn't look like the _setup_pipeline verbose logic is actually working, trace through
+  - actually I think we can get rid of verbose_prompts because we have Pipecat log levels. 
+- tool_call_event_callback and tool_result_event_callback? Needed?
+- need to override tool executor or not?
+- need self.messages?
+- how do we implement max_iterations?
+- format initial_state as summary
+
+1. check finished logic
+2. check canceled logic
+3. check active task logic
+4. check watchdog logic
+5. check step counter logic
+6. Events refactor
+  - never send returned tool call data into context
+  - send new events with payload and summary
+    - task started
+    - task finished
+    - task step
+    - task canceled
+    
+
+--
+
+Can we better type these tool calls types?
+
+PipelineToolExecutor = Callable[
+    [Dict[str, Any]], Awaitable[Tuple[Optional[Dict[str, Any]], bool, Any]]
+]
+ToolEventCallback = Callable[[str, Any], Awaitable[None]]
+
+
+
+
+---
+
+
+
 
 We want to rename the commodities in the game.
 
 Let's rename them to:
-  - Quantum Foam (QF)
-  - Retro-organics (RO)
-  - Neuro-symbolics (NS)
+  - Fuel Ore (FO) -> Quantum Foam (QF)
+  - Organics (OG) -> Retro-organics (RO)
+  - Equipment (EQ) -> Neuro-symbolics (NS)
+
+We need to change all instances of these names in the codebase. Change the full strings ("fuel ore", "organics", and "equipment") everywhere they appear. Change the abbreviations (FO, OG, EQ) wherever you are sure that those strings in context are used to refer to the commodities.
+
+
 
 
     - movement.start
@@ -85,14 +153,14 @@ Can we do this for port?
         "port": {
           "code": "SSS",
           "last_seen_prices": {
-            "neuro_symbolics": 38,
-            "quantum_foam": 24,
-            "retro_organics": 9
+            "equipment": 38,
+            "fuel_ore": 24,
+            "organics": 9
           },
           "last_seen_stock": {
-            "neuro_symbolics": 700,
-            "quantum_foam": 700,
-            "retro_organics": 700
+            "equipment": 700,
+            "fuel_ore": 700,
+            "organics": 700
           },
           "observed_at": "2025-10-05T23:31:15.362890+00:00"
         },

@@ -23,7 +23,10 @@ class FakeGameClient:
 
     async def emit(self, event_name, payload):
         for handler in list(self.handlers.get(event_name, [])):
-            await handler(payload)
+            await handler({
+                "event_name": event_name,
+                "payload": payload,
+            })
 
 
 @pytest.mark.asyncio

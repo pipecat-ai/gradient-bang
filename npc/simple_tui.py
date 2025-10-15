@@ -555,32 +555,56 @@ class SimpleTUI(App):
     # Event Handlers - All game state updates come through these handlers
     # ========================================================================
 
-    async def _on_status_update(self, payload: Dict[str, Any]) -> None:
+    @staticmethod
+    def _event_payload(event: Mapping[str, Any]) -> Dict[str, Any]:
+        payload = event.get("payload", {}) if isinstance(event, Mapping) else {}
+        if isinstance(payload, dict):
+            return payload
+        if isinstance(payload, Mapping):
+            return dict(payload)
+        return {}
+
+    @staticmethod
+    def _event_summary(event: Mapping[str, Any]) -> Optional[str]:
+        summary = event.get("summary") if isinstance(event, Mapping) else None
+        if isinstance(summary, str):
+            summary = summary.strip()
+            if summary:
+                return summary
+        return None
+
+    async def _on_status_update(self, event: Dict[str, Any]) -> None:
         """Handle status.update event."""
+        payload = self._event_payload(event)
         # Update status bars
         self.status_updater.update_from_status_update(payload)
         self._refresh_status_display()
 
     # --- Movement Events ---
 
-    async def _on_movement_start(self, payload: Dict[str, Any]) -> None:
+    async def _on_movement_start(self, event: Dict[str, Any]) -> None:
         """Handle movement.start event."""
+        payload = self._event_payload(event)
+        summary = self._event_summary(event)
         sector_data = payload.get("sector", {})
         destination = sector_data.get("id", "?")
         eta = payload.get("hyperspace_time", 0)
 
-        await self._append_log(f"Entering hyperspace to sector {destination} (ETA: {eta:.1f}s)")
+        log_message = summary or f"Entering hyperspace to sector {destination} (ETA: {eta:.1f}s)"
+        await self._append_log(log_message)
 
         # Update status bars
         self.status_updater.update_from_movement_start(payload)
         self._refresh_status_display()
 
-    async def _on_movement_complete(self, payload: Dict[str, Any]) -> None:
+    async def _on_movement_complete(self, event: Dict[str, Any]) -> None:
         """Handle movement.complete event."""
+        payload = self._event_payload(event)
+        summary = self._event_summary(event)
         sector_data = payload.get("sector", {})
         sector_id = sector_data.get("id", "?")
 
-        await self._append_log(f"Arrived at sector {sector_id}")
+        await self._append_log(summary or f"Arrived at sector {sector_id}")
 
         # Update status bars
         self.status_updater.update_from_movement_complete(payload)
@@ -599,24 +623,27 @@ class SimpleTUI(App):
 
     # --- Trading and Economy Events ---
 
-    async def _on_trade_executed(self, payload: Dict[str, Any]) -> None:
+    async def _on_trade_executed(self, event: Dict[str, Any]) -> None:
         """Handle trade.executed event."""
+        payload = self._event_payload(event)
+        summary = self._event_summary(event)
         # Log the trade
         player_data = payload.get("player", {})
-        ship_data = payload.get("ship", {})
 
         player_name = player_data.get("name", "?")
         credits = player_data.get("credits_on_hand")
 
         # Try to extract trade details from ship cargo changes
-        await self._append_log(f"Trade executed by {player_name} (credits: {credits})")
+        await self._append_log(summary or f"Trade executed by {player_name} (credits: {credits})")
 
         # Update status bars
         self.status_updater.update_from_trade_executed(payload)
         self._refresh_status_display()
 
-    async def _on_port_update(self, payload: Dict[str, Any]) -> None:
+    async def _on_port_update(self, event: Dict[str, Any]) -> None:
         """Handle port.update event."""
+        payload = self._event_payload(event)
+        summary = self._event_summary(event)
         sector_ref = payload.get("sector")
         sector_id = _extract_sector_id(sector_ref)
         if sector_id is None:
@@ -625,7 +652,7 @@ class SimpleTUI(App):
 
         # Format port update message
         code = port_data.get("code", "?")
-        await self._append_log(f"Port prices updated at sector {sector_id} ({code})")
+        await self._append_log(summary or f"Port prices updated at sector {sector_id} ({code})")
 
         # Update status bars
         self.status_updater.update_from_port_update(payload)
@@ -633,14 +660,18 @@ class SimpleTUI(App):
 
     # --- Sector Occupant Events ---
 
-    async def _on_character_moved(self, payload: Dict[str, Any]) -> None:
+    async def _on_character_moved(self, event: Dict[str, Any]) -> None:
         """Handle character.moved event."""
+        payload = self._event_payload(event)
+        summary = self._event_summary(event)
         movement = payload.get("movement")
         char_name = payload.get("name")
         ship_type = payload.get("ship_type", "unknown")
 
         # Log the movement
-        if movement == "arrive":
+        if summary:
+            await self._append_log(summary)
+        elif movement == "arrive":
             await self._append_log(f"{char_name} ({ship_type}) arrived")
         elif movement == "depart":
             await self._append_log(f"{char_name} ({ship_type}) departed")

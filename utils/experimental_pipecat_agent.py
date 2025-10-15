@@ -256,6 +256,13 @@ class ExperimentalTaskAgent:
         ]
         self.set_tools(tools)
 
+        self.game_client.on("course.plot")(self._handle_event)
+        self.game_client.on("character.moved")(self._handle_event)
+        self.game_client.on("movement.complete")(self._handle_event)
+        self.game_client.on("map.local")(self._handle_event)
+        self.game_client.on("trade.executed")(self._handle_event)
+        self.game_client.on("port.update")(self._handle_event)
+
     def _default_llm_service_factory(self) -> LLMService:
         # todo: PR for Pipecat GoogleLLMService to add stop() and cancel() overrides
         class GoogleLLMService(PipecatGoogleLLMService):
@@ -315,6 +322,14 @@ class ExperimentalTaskAgent:
 
     def reset_cancellation(self) -> None:
         self.cancelled = False
+
+    def _handle_event(self, event: Dict[str, Any]) -> None:
+        event_name = event.get("event_name")
+        summary = event.get("summary")
+        if summary:
+            logger.info(f"Event {event_name}: {summary}")
+        else:
+            logger.info(f"Event {event_name}: {event.get('payload')}")
 
     async def run_task(
         self,

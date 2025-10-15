@@ -86,7 +86,7 @@ class TestMoveAPI:
         result = await client.move(to_sector=target, character_id="test_client_char")
 
         assert isinstance(result, dict)
-        assert result["summary"] == f"Moved to sector {target}"
+        assert result.get("summary", "").startswith(f"Moved to sector {target}.")
         status = await client.my_status(character_id="test_client_char")
         assert status["sector"]["id"] == target
 

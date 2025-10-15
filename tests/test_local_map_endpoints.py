@@ -17,6 +17,12 @@ def _unique_character_id(prefix="test"):
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
 
 
+def _extract_sector_id(value):
+    if isinstance(value, dict):
+        return value.get("id")
+    return value
+
+
 @pytest.fixture(scope="module")
 def ws_client():
     """Load test data into shared world."""
@@ -56,7 +62,7 @@ def _setup_explored_character(ws, character_id="explorer"):
     }))
     join_resp = _recv_until(ws, lambda m: m.get("endpoint") == "join" and m.get("frame_type") == "rpc")
     assert join_resp["ok"] is True
-    assert join_resp["result"]["sector"] == 0
+    assert _extract_sector_id(join_resp["result"].get("sector")) == 0
 
     # Move to sector 1 (has port BBS)
     ws.send_text(json.dumps({

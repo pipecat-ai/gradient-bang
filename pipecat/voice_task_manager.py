@@ -171,66 +171,66 @@ class VoiceTaskManager:
     async def _on_tool_result_event(self, tool_name: str, payload: Any):
         pass
 
-    async def _handle_event(self, event_name: str, payload: Dict[str, Any]) -> None:
-        """General handler to relay any event to RTVI clients.
+    async def _handle_event(self, event: Dict[str, Any]) -> None:
+        """General handler to relay any event to RTVI clients."""
+        event_name = event.get("event_name")
+        payload: Any = event.get("payload")
+        summary = event.get("summary")
 
-        Args:
-            event_name: Name of the event (e.g., "chat.message", "character.moved")
-            payload: Event payload data
-        """
         await self.rtvi_processor.push_frame(
             RTVIServerMessageFrame(
                 {
                     "frame_type": "event",
                     "event": event_name,
                     "payload": payload,
+                    **({"summary": summary} if summary else {}),
                 }
             )
         )
 
-    async def _handle_chat_message(self, payload: Dict[str, Any]) -> None:
+    async def _handle_chat_message(self, event: Dict[str, Any]) -> None:
         """Relay chat.message events to RTVI clients."""
-        await self._handle_event("chat.message", payload)
+        await self._handle_event(event)
 
-    async def _handle_course_plot(self, payload: Dict[str, Any]) -> None:
+    async def _handle_course_plot(self, event: Dict[str, Any]) -> None:
         """Relay course.plot events to RTVI clients."""
-        await self._handle_event("course.plot", payload)
+        await self._handle_event(event)
 
-    async def _handle_character_moved(self, payload: Dict[str, Any]) -> None:
+    async def _handle_character_moved(self, event: Dict[str, Any]) -> None:
         """Relay character.moved events to RTVI clients."""
-        await self._handle_event("character.moved", payload)
+        await self._handle_event(event)
 
-    async def _handle_movement_start(self, payload: Dict[str, Any]) -> None:
+    async def _handle_movement_start(self, event: Dict[str, Any]) -> None:
         """Relay movement.start events to RTVI clients."""
-        await self._handle_event("movement.start", payload)
+        await self._handle_event(event)
 
-    async def _handle_movement_complete(self, payload: Dict[str, Any]) -> None:
+    async def _handle_movement_complete(self, event: Dict[str, Any]) -> None:
         """Relay movement.complete events to RTVI clients."""
-        await self._handle_event("movement.complete", payload)
+        await self._handle_event(event)
 
-    async def _handle_map_local(self, payload: Dict[str, Any]) -> None:
+    async def _handle_map_local(self, event: Dict[str, Any]) -> None:
         """Relay map.local events to RTVI clients."""
-        await self._handle_event("map.local", payload)
+        await self._handle_event(event)
 
-    async def _handle_combat_round_waiting(self, payload: Dict[str, Any]) -> None:
+    async def _handle_combat_round_waiting(self, event: Dict[str, Any]) -> None:
         """Relay combat.round_waiting events to RTVI clients."""
-        await self._handle_event("combat.round_waiting", payload)
+        await self._handle_event(event)
 
-    async def _handle_combat_round_resolved(self, payload: Dict[str, Any]) -> None:
+    async def _handle_combat_round_resolved(self, event: Dict[str, Any]) -> None:
         """Relay combat.round_resolved events to RTVI clients."""
-        await self._handle_event("combat.round_resolved", payload)
+        await self._handle_event(event)
 
-    async def _handle_combat_ended(self, payload: Dict[str, Any]) -> None:
+    async def _handle_combat_ended(self, event: Dict[str, Any]) -> None:
         """Relay combat.ended events to RTVI clients."""
-        await self._handle_event("combat.ended", payload)
+        await self._handle_event(event)
 
-    async def _handle_trade_executed(self, payload: Dict[str, Any]) -> None:
+    async def _handle_trade_executed(self, event: Dict[str, Any]) -> None:
         """Relay trade.executed events to RTVI clients."""
-        await self._handle_event("trade.executed", payload)
+        await self._handle_event(event)
 
-    async def _handle_port_update(self, payload: Dict[str, Any]) -> None:
+    async def _handle_port_update(self, event: Dict[str, Any]) -> None:
         """Relay port.update events to RTVI clients."""
-        await self._handle_event("port.update", payload)
+        await self._handle_event(event)
 
     #
     # Task management

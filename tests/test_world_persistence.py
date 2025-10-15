@@ -1,4 +1,5 @@
 import shutil
+from functools import partial
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -19,6 +20,11 @@ from character_knowledge import (
 )
 from fastapi import HTTPException
 from combat.manager import CombatManager
+from combat.callbacks import (
+    on_round_waiting as combat_on_round_waiting,
+    on_round_resolved as combat_on_round_resolved,
+    on_combat_ended as combat_on_combat_ended,
+)
 from combat.models import (
     CombatEncounter,
     CombatRoundOutcome,
@@ -77,7 +83,8 @@ def hydrated_world(monkeypatch, tmp_path):
     yield test_world, temp_world_data
 
 
-def test_preloaded_characters_visible_after_restart(hydrated_world):
+@pytest.mark.asyncio
+async def test_preloaded_characters_visible_after_restart(hydrated_world):
     world, _ = hydrated_world
 
     assert "khk_aggressive" in world.characters
@@ -91,8 +98,8 @@ def test_preloaded_characters_visible_after_restart(hydrated_world):
     assert aggressive.fighters == 123
     assert passive.fighters == 150
 
-    contents = sector_contents(world, 5, current_character_id="khk_aggressive")
-    other_names = {entry["name"] for entry in contents.get("other_players", [])}
+    contents = await sector_contents(world, 5, current_character_id="khk_aggressive")
+    other_names = {entry["name"] for entry in contents.get("players", [])}
     assert "khk_passive" in other_names
 
 
@@ -149,15 +156,31 @@ async def test_combat_round_updates_persisted_ship_state(hydrated_world):
         },
     )
 
+    round_waiting_cb = partial(
+        combat_on_round_waiting,
+        world=world,
+        event_dispatcher=server.event_dispatcher,
+    )
+    round_resolved_cb = partial(
+        combat_on_round_resolved,
+        world=world,
+        event_dispatcher=server.event_dispatcher,
+    )
+    combat_ended_cb = partial(
+        combat_on_combat_ended,
+        world=world,
+        event_dispatcher=server.event_dispatcher,
+    )
+
     manager = CombatManager(
-        on_round_waiting=server._combat_round_waiting,
-        on_round_resolved=server._combat_round_resolved,
-        on_combat_ended=server._combat_ended,
+        on_round_waiting=round_waiting_cb,
+        on_round_resolved=round_resolved_cb,
+        on_combat_ended=combat_ended_cb,
     )
     manager.configure_callbacks(
-        on_round_waiting=server._combat_round_waiting,
-        on_round_resolved=server._combat_round_resolved,
-        on_combat_ended=server._combat_ended,
+        on_round_waiting=round_waiting_cb,
+        on_round_resolved=round_resolved_cb,
+        on_combat_ended=combat_ended_cb,
     )
     world.combat_manager = manager
     await manager.start_encounter(encounter, emit_waiting=False)
@@ -205,7 +228,7 @@ async def test_place_fighters_rejects_existing_garrison(hydrated_world):
     if world.garrisons is None:
         pytest.skip("Garrison system unavailable")
 
-    world.garrisons.deploy(
+    await world.garrisons.deploy(
         sector_id=5,
         owner_id="khk_passive",
         fighters=25,
@@ -238,7 +261,7 @@ async def test_auto_engage_on_offensive_garrison(monkeypatch, hydrated_world):
 
     monkeypatch.setattr(server.event_dispatcher, "emit", noop_event)
 
-    world.garrisons.deploy(
+    await world.garrisons.deploy(
         sector_id=5,
         owner_id="khk_passive",
         fighters=40,
@@ -279,7 +302,10 @@ async def test_collect_fighters_returns_toll_balance(monkeypatch, hydrated_world
     world.knowledge_manager.initialize_ship(owner_id, ShipType.KESTREL_COURIER)
     world.knowledge_manager.update_credits(owner_id, 100)
 
-    world.garrisons.deploy(
+    # Ensure character exists in active world state
+    await join_handle({"character_id": owner_id, "sector": sector_id}, world)
+
+    await world.garrisons.deploy(
         sector_id=sector_id,
         owner_id=owner_id,
         fighters=20,
@@ -298,7 +324,7 @@ async def test_collect_fighters_returns_toll_balance(monkeypatch, hydrated_world
     )
 
     assert result["credits_collected"] == 46
-    garrisons = world.garrisons.list_sector(sector_id)
+    garrisons = await world.garrisons.list_sector(sector_id)
     assert garrisons[0].toll_balance == 0
     updated_credits = world.knowledge_manager.get_credits(owner_id)
     assert updated_credits == 146
@@ -322,7 +348,7 @@ async def test_destroyed_toll_garrison_awards_bank(monkeypatch, hydrated_world):
 
     world.knowledge_manager.update_credits(attacker, 0)
 
-    garrison_state = world.garrisons.deploy(
+    garrison_state = await world.garrisons.deploy(
         sector_id=sector_id,
         owner_id=owner,
         fighters=15,
@@ -391,7 +417,7 @@ async def test_destroyed_toll_garrison_awards_bank(monkeypatch, hydrated_world):
         effective_actions={},
     )
 
-    await server._finalize_combat(encounter, outcome)
+    await combat_on_combat_ended(encounter, outcome, world, server.event_dispatcher)
 
     updated = world.knowledge_manager.get_credits(attacker)
     assert updated == 50
@@ -504,7 +530,7 @@ async def test_successful_flee_moves_character(monkeypatch, hydrated_world):
         },
     )
 
-    await server._combat_round_resolved(encounter, outcome)
+    await combat_on_round_resolved(encounter, outcome, world, server.event_dispatcher)
 
     updated_knowledge = world.knowledge_manager.load_knowledge("khk_aggressive")
     assert updated_knowledge.current_sector == 6

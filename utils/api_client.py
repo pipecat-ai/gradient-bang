@@ -8,6 +8,18 @@ import uuid
 import inspect
 import websockets
 
+from utils.summary_formatters import (
+    character_moved_summary,
+    join_summary,
+    list_known_ports_summary,
+    map_local_summary,
+    movement_start_summary,
+    move_summary,
+    plot_course_summary,
+    port_update_summary,
+    trade_executed_summary,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +79,10 @@ class AsyncGameClient:
         # Immutable character ID
         self._character_id: str = character_id
 
-        # Optional summary formatters: endpoint_name -> formatter_function
-        self._summary_formatters: Dict[str, Callable[[Dict[str, Any]], str]] = {}
+        # Optional summary formatters: endpoint/event name -> formatter function
+        self._summary_formatters: Dict[
+            str, Callable[[Dict[str, Any]], str]
+        ] = self._build_default_summaries()
 
         # Optional WebSocket frame callback for logging/debugging
         self._websocket_frame_callback = websocket_frame_callback
@@ -90,6 +104,58 @@ class AsyncGameClient:
         self._summary_formatters[endpoint] = formatter
         logger.info(f"Registered summary formatter for endpoint: {endpoint}")
 
+    def _build_default_summaries(self) -> Dict[str, Callable[[Dict[str, Any]], str]]:
+        return {
+            "join": join_summary,
+            "my_status": join_summary,
+            "status.update": join_summary,
+            "move": move_summary,
+            "movement.complete": move_summary,
+            "movement.start": movement_start_summary,
+            "plot_course": plot_course_summary,
+            "course.plot": plot_course_summary,
+            "list_known_ports": list_known_ports_summary,
+            "local_map_region": map_local_summary,
+            "map.local": map_local_summary,
+            "trade.executed": trade_executed_summary,
+            "port.update": port_update_summary,
+            "character.moved": character_moved_summary,
+        }
+
+    def _get_summary(self, name: str, data: Dict[str, Any]) -> Optional[str]:
+        """Run a registered summary formatter and return the summary string."""
+
+        logger.info(
+            f"_get_summary called for name: {name}, has formatter: {name in self._summary_formatters}"
+        )
+
+        formatter = self._summary_formatters.get(name)
+        if not formatter:
+            logger.debug(f"No formatter registered for {name}")
+            return None
+
+        try:
+            logger.info(f"Calling formatter for {name}")
+            summary = formatter(data)
+        except Exception:
+            logger.exception(f"Summary formatter for {name} failed")
+            return None
+
+        if summary is None:
+            logger.warning(f"Formatter for {name} returned empty summary")
+            return None
+
+        if not isinstance(summary, str):
+            summary = str(summary)
+
+        summary = summary.strip()
+        if not summary:
+            logger.warning(f"Formatter for {name} returned empty summary")
+            return None
+
+        logger.info(f"Summary formatter for {name} produced: {summary}")
+        return summary
+
     def _apply_summary(self, endpoint: str, result: Dict[str, Any]) -> Dict[str, Any]:
         """Apply summary formatter if one is registered for this endpoint.
 
@@ -100,22 +166,26 @@ class AsyncGameClient:
         Returns:
             Result dict, optionally with "summary" key added
         """
-        logger.info(f"_apply_summary called for endpoint: {endpoint}, has formatter: {endpoint in self._summary_formatters}")
-        formatter = self._summary_formatters.get(endpoint)
-        if formatter:
-            try:
-                logger.info(f"Calling formatter for {endpoint}")
-                summary = formatter(result)
-                if summary:
-                    result["summary"] = summary
-                    logger.info(f"Applied summary formatter for {endpoint}: {summary}")
-                else:
-                    logger.warning(f"Formatter for {endpoint} returned empty summary")
-            except Exception:
-                logger.exception(f"Summary formatter for {endpoint} failed")
-        else:
-            logger.debug(f"No formatter registered for {endpoint}")
+
+        summary = self._get_summary(endpoint, result)
+        if summary:
+            result["summary"] = summary
         return result
+
+    def _format_event(self, event_name: str, payload: Any) -> Dict[str, Any]:
+        """Normalize an event payload and attach summary metadata when available."""
+
+        event_message: Dict[str, Any] = {
+            "event_name": event_name,
+            "payload": payload,
+        }
+
+        if isinstance(payload, dict):
+            summary = self._get_summary(event_name, payload)
+            if summary:
+                event_message["summary"] = summary
+
+        return event_message
 
     async def __aenter__(self):
         """Enter async context manager."""
@@ -228,19 +298,19 @@ class AsyncGameClient:
         predicate: Optional[Callable[[Dict[str, Any]], bool]] = None,
         timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """Wait for an event matching an optional predicate and return its payload."""
+        """Wait for an event matching an optional predicate and return the event message."""
 
         loop = asyncio.get_running_loop()
         future: asyncio.Future = loop.create_future()
         token: Optional[Tuple[str, Callable[[Dict[str, Any]], Awaitable[None]]]] = None
 
-        async def _handler(payload: Dict[str, Any]) -> None:
+        async def _handler(event: Dict[str, Any]) -> None:
             nonlocal token
             try:
-                if predicate and not predicate(payload):
+                if predicate and not predicate(event):
                     return
                 if not future.done():
-                    future.set_result(payload)
+                    future.set_result(event)
             finally:
                 if token is not None:
                     self.remove_event_handler(token)
@@ -319,9 +389,10 @@ class AsyncGameClient:
             self._pending.clear()
 
     async def _dispatch_event(self, event_name: str, payload: Dict[str, Any]) -> None:
+        event_message = self._format_event(event_name, payload)
         handlers = self._event_handlers.get(event_name, [])
         for handler in handlers:
-            asyncio.create_task(handler(payload))
+            asyncio.create_task(handler(event_message))
 
     async def _request(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         await self._ensure_ws()
@@ -1075,14 +1146,21 @@ class AsyncGameClient:
         """Ensure chat.message events are subscribed and optionally register a handler."""
 
         if handler is not None:
-            if asyncio.iscoroutinefunction(handler):
-                self.on("chat.message")(handler)
-            else:
 
-                async def _wrapper(payload: Dict[str, Any]) -> None:
-                    handler(payload)
+            async def _dispatch(event: Dict[str, Any]) -> None:
+                payload = (
+                    event.get("payload")
+                    if isinstance(event, dict) and "payload" in event
+                    else event
+                )
+                try:
+                    result = handler(payload)
+                    if inspect.isawaitable(result):
+                        await result
+                except Exception:  # noqa: BLE001
+                    logger.exception("Unhandled error in chat.message handler")
 
-                self.on("chat.message")(_wrapper)
+            self.on("chat.message")(_dispatch)
 
         await self.subscribe_chat()
 

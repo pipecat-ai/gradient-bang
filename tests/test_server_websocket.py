@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "game-server"))
 from server import app  # type: ignore
 from core.world import world  # type: ignore
 from core.world import UniverseGraph  # type: ignore
+from port_manager import PortManager  # type: ignore
 
 
 @pytest.fixture(scope="module")
@@ -20,6 +21,7 @@ def ws_client():
     world.universe_graph = UniverseGraph(universe_data)
     with open(test_data_path / "sector_contents.json", "r") as f:
         world.sector_contents = _json.load(f)
+    world.port_manager = PortManager(universe_contents=world.sector_contents)
     yield TestClient(app)
 
 def _recv_until(ws, predicate, limit=10):
@@ -38,8 +40,8 @@ def test_ws_join_and_status(ws_client):
         assert resp["frame_type"] == "rpc"
         assert resp["ok"] is True
         data = resp["result"]
-        assert data["name"] == "ws_player"
-        assert data["sector"] == 0
+        assert data["player"]["name"] == "ws_player"
+        assert data["sector"]["id"] == 0
 
         # my_status RPC
         req2 = {"id": "2", "type": "rpc", "endpoint": "my_status", "payload": {"character_id": "ws_player"}}
@@ -47,7 +49,8 @@ def test_ws_join_and_status(ws_client):
         resp2 = _recv_until(ws, lambda m: m.get("frame_type") == "rpc" and m.get("endpoint") == "my_status")
         assert resp2["frame_type"] == "rpc"
         assert resp2["ok"] is True
-        assert resp2["result"]["name"] == "ws_player"
+        status_payload = resp2["result"]
+        assert status_payload["player"]["name"] == "ws_player"
 
 
 def test_ws_subscribe_my_status_push(ws_client):
@@ -64,4 +67,4 @@ def test_ws_subscribe_my_status_push(ws_client):
         event = _recv_until(ws, lambda m: m.get("frame_type") == "event" and m.get("event") == "status.update")
         assert event["frame_type"] == "event"
         assert event["event"] == "status.update"
-        assert event["payload"]["name"] == "push_player"
+        assert event["payload"]["player"]["name"] == "push_player"

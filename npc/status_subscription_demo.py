@@ -75,17 +75,17 @@ async def run(
 
         # Subscribe to my_status events
         @client.on("status.update")
-        async def on_status(data: dict):  # noqa: F401
+        async def on_status(event: dict):  # noqa: F401
             try:
-                await update_queue.put({"type": "status.update", "data": data})
+                await update_queue.put(event)
             except Exception:
                 # In case of shutdown
                 pass
 
         @client.on("chat.message")
-        async def on_chat(data: dict):  # noqa: F401
+        async def on_chat(event: dict):  # noqa: F401
             try:
-                await update_queue.put({"type": "chat.message", "data": data})
+                await update_queue.put(event)
             except Exception:
                 # In case of shutdown
                 pass
@@ -107,17 +107,23 @@ async def run(
                 # we will need to refactor all the logic below when we implement
                 # fetching multiple events at once
                 event = await update_queue.get()
+                event_name = event.get("event_name")
+                payload = event.get("payload", {})
+                summary = event.get("summary")
                 this_event_prompt = ""
 
                 # Set up prompt for incoming message
-                if event["type"] == "chat.message":
-                    chat = event["data"]
-                    logger.info(f"CHAT {chat}")
-                    this_event_prompt = f"Received message:\n{chat}\n\nTask:\n{prompt}"
+                if event_name == "chat.message":
+                    display = summary or payload
+                    if not isinstance(display, str):
+                        display = json.dumps(display, indent=2)
+                    logger.info(f"CHAT {display}")
+                    this_event_prompt = f"Received message:\n{display}\n\nTask:\n{prompt}"
 
-                if event["type"] == "status.update":
-                    # Normalize status
-                    sig = json.dumps(normalize_status(event["data"]), sort_keys=True)
+                if event_name == "status.update":
+                    # Normalize status for comparison
+                    normalized_status = normalize_status(payload)
+                    sig = json.dumps(normalized_status, sort_keys=True)
 
                     # First event: set baseline and continue
                     if last_sig is None:
@@ -133,10 +139,15 @@ async def run(
 
                     # Change detected
                     previous_status = last_sig
-                    current_status = sig
                     last_sig = sig
                     logger.info("STATUS changed; preparing to run task")
-                    this_event_prompt = f"Previous status:\n{previous_status}\n\nNew status:\n{current_status}\n\nTask:\n{prompt}"
+                    status_display = summary or json.dumps(payload, indent=2)
+                    if not isinstance(status_display, str):
+                        status_display = json.dumps(status_display, indent=2)
+                    this_event_prompt = (
+                        f"Previous status signature:\n{previous_status}\n\n"
+                        f"New status:\n{status_display}\n\nTask:\n{prompt}"
+                    )
 
                 # If a task is running, skip starting a new one
                 if current_task and not current_task.done():
