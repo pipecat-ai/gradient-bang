@@ -3,20 +3,53 @@ from copy import deepcopy
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, TYPE_CHECKING
 
 from fastapi import HTTPException
 
-from combat.models import GarrisonState
 from ships import ShipType, get_ship_stats
 from trading import get_port_prices, get_port_stock
 
 from sector import generate_scene_variant
 
+if TYPE_CHECKING:
+    from combat.models import GarrisonState
 
 COMBAT_ACTION_REQUIRED = (
     "Cannot perform this action during combat. Submit attack/brace/flee instead."
 )
+
+
+def rpc_success(data: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    """Return standardized success response for RPC handlers."""
+    response: Dict[str, Any] = {"success": True}
+    if data:
+        response.update(data)
+    return response
+
+
+def rpc_failure(error: str) -> Dict[str, Any]:
+    """Return standardized failure response for RPC handlers."""
+    return {
+        "success": False,
+        "error": error,
+    }
+
+
+def build_event_source(
+    endpoint: str,
+    request_id: str,
+    *,
+    source_type: str = "rpc",
+    timestamp: datetime | None = None,
+) -> Dict[str, Any]:
+    """Construct correlation metadata shared across emitted events."""
+    return {
+        "type": source_type,
+        "method": endpoint,
+        "request_id": request_id,
+        "timestamp": (timestamp or datetime.now(timezone.utc)).isoformat(),
+    }
 
 
 async def ensure_not_in_combat(world, character_id: str) -> None:
@@ -232,7 +265,7 @@ def resolve_character_name(world, character_id: str) -> str:
 
 def serialize_garrison_for_client(
     world,
-    garrison_state: Optional[GarrisonState],
+    garrison_state: Optional["GarrisonState"],
     sector_id: int,
     *,
     current_character_id: Optional[str] = None,
