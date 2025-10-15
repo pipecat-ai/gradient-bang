@@ -39,10 +39,6 @@ trade:
   limit: 1.0      # 1 trade per 2 seconds
   window: 2.0
 
-check_trade:
-  limit: 2.0      # 2 checks per second (read-only)
-  window: 1.0
-
 # Combat endpoints
 combat.action:
   limit: 2.0      # 2 combat actions per second

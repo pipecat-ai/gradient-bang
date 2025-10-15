@@ -441,13 +441,17 @@ class AsyncGameClient:
     # ------------------------------------------------------------------
 
     async def join(
-        self, character_id: str, ship_type: Optional[str] = None
+        self,
+        character_id: str,
+        ship_type: Optional[str] = None,
+        credits: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Join the game with a character.
 
         Args:
             character_id: Unique identifier for the character (must match bound ID)
             ship_type: Optional ship type to start with (defaults to Kestrel Courier)
+            credits: Optional starting credit balance to seed for tests/admin flows
 
         Returns:
             Character status after joining
@@ -465,6 +469,8 @@ class AsyncGameClient:
         payload = {"character_id": character_id}
         if ship_type:
             payload["ship_type"] = ship_type
+        if credits is not None:
+            payload["credits"] = int(credits)
 
         result = await self._request("join", payload)
         return self._apply_summary("join", result)
@@ -695,45 +701,6 @@ class AsyncGameClient:
 
         result = await self._request("path_with_region", payload)
         return self._apply_summary("path_with_region", result)
-
-    async def check_trade(
-        self,
-        commodity: str,
-        quantity: int,
-        trade_type: str,
-        character_id: str,
-    ) -> Dict[str, Any]:
-        """Preview a trade transaction without executing it.
-
-        Args:
-            commodity: Commodity to trade (quantum_foam, retro_organics, neuro_symbolics)
-            quantity: Amount to trade
-            trade_type: "buy" or "sell"
-            character_id: Character making the trade (must match bound ID)
-
-        Returns:
-            Trade preview including prices and validation
-
-        Raises:
-            RPCError: If the request fails
-            ValueError: If character_id doesn't match bound ID
-        """
-        if character_id != self._character_id:
-            raise ValueError(
-                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
-                f"received {character_id!r}"
-            )
-
-        result = await self._request(
-            "check_trade",
-            {
-                "character_id": character_id,
-                "commodity": commodity,
-                "quantity": quantity,
-                "trade_type": trade_type,
-            },
-        )
-        return self._apply_summary("check_trade", result)
 
     async def trade(
         self,

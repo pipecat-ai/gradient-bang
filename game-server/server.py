@@ -24,7 +24,6 @@ from api import (
     local_map_region as api_local_map_region,
     list_known_ports as api_list_known_ports,
     path_with_region as api_path_with_region,
-    check_trade as api_check_trade,
     trade as api_trade,
     recharge_warp_power as api_recharge,
     transfer_warp_power as api_transfer,
@@ -169,9 +168,6 @@ RPC_HANDLERS: Dict[str, RPCHandler] = {
     ),
     "path_with_region": _with_rate_limit(
         "path_with_region", lambda payload: api_path_with_region.handle(payload, world)
-    ),
-    "check_trade": _with_rate_limit(
-        "check_trade", lambda payload: api_check_trade.handle(payload, world)
     ),
     "trade": _with_rate_limit(
         "trade", lambda payload: api_trade.handle(payload, world, port_locks)

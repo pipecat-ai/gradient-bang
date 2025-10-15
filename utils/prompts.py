@@ -44,7 +44,7 @@ You have access to tools that let you:
 4. Wait for specific time periods
 5. View your map knowledge (visited sectors and discovered ports)
 6. Find nearest known ports that buy or sell specific commodities
-7. Bug and sell commodities.
+7. Buy and sell commodities directly (trades may fail if requirements are not met).
 8. Recharge your warp power at the mega-port in sector 0
 9. Transfer warp power to other ships in the same sector (for rescue operations)
 10. Signal task completion
@@ -54,6 +54,7 @@ You have access to tools that let you:
 - ALWAYS move one sector at a time
 - OBSERVE the world state after each move
 - REACT to what you discover in each sector
+- When trading, call the `trade` tool directly and inspect the response; there is no separate preview step, so handle any errors the server returns.
 
 """
 

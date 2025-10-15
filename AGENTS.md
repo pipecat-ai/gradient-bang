@@ -15,7 +15,7 @@
 - Tool/endpoint parameters must match exactly:
   - `plot_course`: `from_sector`, `to_sector`
   - `move`: `to_sector`
-  - `trade`/`check_trade`: `commodity`, `quantity`, `trade_type`
+  - `trade`: `commodity`, `quantity`, `trade_type`
 - Commodity names are strict: `quantum_foam`, `retro_organics`, `neuro_symbolics`.
 
 ## Build, Test, and Development Commands

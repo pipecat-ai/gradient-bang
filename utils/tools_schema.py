@@ -273,41 +273,6 @@ class StopTask(GameClientTool):
         )
 
 
-class CheckTrade(GameClientTool):
-    def __call__(self, commodity, quantity, trade_type):
-        return self.game_client.check_trade(
-            commodity=commodity,
-            quantity=quantity,
-            trade_type=trade_type,
-            character_id=self.game_client.character_id
-        )
-
-    @classmethod
-    def schema(cls):
-        return FunctionSchema(
-            name="check_trade",
-            description="Preview a trade transaction without executing it",
-            properties={
-                "commodity": {
-                    "type": "string",
-                    "enum": ["quantum_foam", "retro_organics", "neuro_symbolics"],
-                    "description": "The commodity to trade",
-                },
-                "quantity": {
-                    "type": "integer",
-                    "description": "Amount to trade",
-                    "minimum": 1,
-                },
-                "trade_type": {
-                    "type": "string",
-                    "enum": ["buy", "sell"],
-                    "description": "Whether to buy from or sell to the port",
-                },
-            },
-            required=["commodity", "quantity", "trade_type"],
-        )
-
-
 class Trade(GameClientTool):
     def __call__(self, commodity, quantity, trade_type):
         return self.game_client.trade(

@@ -21,7 +21,6 @@ from utils.tools_schema import (
     Move,
     StartTask,
     StopTask,
-    CheckTrade,
     Trade,
     RechargeWarpPower,
     TransferWarpPower,
@@ -113,9 +112,6 @@ class VoiceTaskManager:
             ),
             "move": lambda to_sector: self.game_client.move(
                 to_sector=to_sector, character_id=self.character_id
-            ),
-            "check_trade": lambda **kwargs: self.game_client.check_trade(
-                character_id=self.character_id, **kwargs
             ),
             "trade": lambda **kwargs: self.game_client.trade(
                 character_id=self.character_id, **kwargs
@@ -544,7 +540,6 @@ class VoiceTaskManager:
                 ListKnownPorts.schema(),
                 PathWithRegion.schema(),
                 Move.schema(),
-                CheckTrade.schema(),
                 Trade.schema(),
                 RechargeWarpPower.schema(),
                 TransferWarpPower.schema(),

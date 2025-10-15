@@ -144,7 +144,7 @@ class TestTradeEvents:
         client, collector = game_client_with_events
 
         # Join and move to a sector with a port that sells neuro_symbolics
-        await client.join("test_char_events")
+        await client.join("test_char_events", credits=500)
         await _move_to_sector(client, "test_char_events", SECTOR_SELLS_NEURO_SYMBOLICS)
 
         # Execute a trade buying neuro_symbolics (port sells this commodity)
@@ -175,7 +175,7 @@ class TestTradeEvents:
         client, collector = game_client_with_events
 
         # Join and move to a sector with a selling port
-        await client.join("test_char_events")
+        await client.join("test_char_events", credits=500)
         await _move_to_sector(client, "test_char_events", SECTOR_SELLS_NEURO_SYMBOLICS)
 
         # Execute a trade
@@ -216,8 +216,8 @@ class TestTradeEvents:
 
         try:
             # Both join same sector
-            await client1.join("test_char_events")
-            await client2.join("test_char_2")
+            await client1.join("test_char_events", credits=500)
+            await client2.join("test_char_2", credits=500)
 
             await _move_to_sector(client1, "test_char_events", SECTOR_SELLS_NEURO_SYMBOLICS)
             await _move_to_sector(client2, "test_char_2", SECTOR_SELLS_NEURO_SYMBOLICS)
@@ -264,7 +264,7 @@ class TestCombatEvents:
 
         try:
             # Both join and move to same sector
-            await client.join("test_char_events")
+            await client.join("test_char_events", credits=500)
             await client2.join("test_opponent")
 
             await _move_to_sector(client, "test_char_events", 1)
@@ -316,7 +316,7 @@ class TestCombatEvents:
         client2.on("combat.round_waiting")(collector2.add_event)
 
         try:
-            await client.join("test_char_events")
+            await client.join("test_char_events", credits=500)
             await client2.join("test_opponent2")
 
             # Move to same sector
@@ -381,7 +381,7 @@ class TestCombatEvents:
         client2.on("combat.round_resolved")(collector2.add_event)
 
         try:
-            await client.join("test_char_events")
+            await client.join("test_char_events", credits=500)
             await client2.join("test_opponent3")
 
             # Move to same sector
@@ -453,7 +453,7 @@ class TestCombatEvents:
         )
 
         try:
-            await client.join("test_char_events")
+            await client.join("test_char_events", credits=500)
             await client2.join("test_weak_opponent")
 
             # Move to same sector
@@ -486,7 +486,7 @@ class TestCombatEvents:
         client, collector = game_client_with_events
 
         try:
-            await client.join("test_char_events")
+            await client.join("test_char_events", credits=500)
 
             # Move to sector 1
             status = await client.my_status(character_id="test_char_events")
