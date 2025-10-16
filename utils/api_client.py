@@ -475,6 +475,19 @@ class AsyncGameClient:
         result = await self._request("join", payload)
         return self._apply_summary("join", result)
 
+    async def test_reset(
+        self,
+        *,
+        clear_files: bool = True,
+        file_prefixes: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Reset server state (testing utility)."""
+
+        payload: Dict[str, Any] = {"clear_files": clear_files}
+        if file_prefixes is not None:
+            payload["file_prefixes"] = list(file_prefixes)
+        return await self._request("test.reset", payload)
+
     async def move(self, to_sector: int, character_id: str) -> Dict[str, Any]:
         """Move a character to an adjacent sector.
 
@@ -885,42 +898,6 @@ class AsyncGameClient:
         if round_number is not None:
             payload["round"] = round_number
         return await self._request("combat.action", payload)
-
-    async def combat_status(
-        self,
-        *,
-        combat_id: Optional[str] = None,
-        character_id: Optional[str] = None,
-        include_logs: bool = False,
-    ) -> Dict[str, Any]:
-        """Query combat session state.
-
-        Args:
-            combat_id: Combat session ID
-            character_id: Character to query (must match bound ID if provided)
-            include_logs: Include combat logs in response
-
-        Returns:
-            Combat session state
-
-        Raises:
-            RPCError: If the request fails
-            ValueError: If character_id doesn't match bound ID
-        """
-        if character_id is not None and character_id != self._character_id:
-            raise ValueError(
-                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
-                f"received {character_id!r}"
-            )
-
-        payload: Dict[str, Any] = {}
-        if combat_id:
-            payload["combat_id"] = combat_id
-        if character_id:
-            payload["character_id"] = character_id
-        if include_logs:
-            payload["include_logs"] = True
-        return await self._request("combat.status", payload)
 
     async def combat_leave_fighters(
         self,

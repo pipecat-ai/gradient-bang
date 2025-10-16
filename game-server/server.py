@@ -31,7 +31,6 @@ from api import (
     regenerate_ports as api_regen_ports,
     combat_initiate as api_combat_initiate,
     combat_action as api_combat_action,
-    combat_status as api_combat_status,
     combat_leave_fighters as api_combat_leave_fighters,
     combat_collect_fighters as api_combat_collect_fighters,
     combat_set_garrison_mode as api_combat_set_garrison_mode,
@@ -195,9 +194,6 @@ RPC_HANDLERS: Dict[str, RPCHandler] = {
     ),
     "combat.action": _with_rate_limit(
         "combat.action", lambda payload: api_combat_action.handle(payload, world)
-    ),
-    "combat.status": _with_rate_limit(
-        "combat.status", lambda payload: api_combat_status.handle(payload, world)
     ),
     "combat.leave_fighters": _with_rate_limit(
         "combat.leave_fighters",

@@ -921,10 +921,6 @@ class TestGarrisonModes:
                 p for p in waiting["participants"]
                 if p.get("combatant_id") and "garrison" in str(p.get("combatant_id", ""))
             ]
-            # Actually, garrisons might not be in participants array - they're separate
-            # Let me check combat status for the garrison ID
-            combat_status = await client_payer.combat_status(character_id="test_toll_payer")
-
             # Submit PAY action (Round 1)
             await client_payer.combat_action(
                 character_id="test_toll_payer",

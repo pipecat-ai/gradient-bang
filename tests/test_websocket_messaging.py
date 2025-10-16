@@ -248,7 +248,7 @@ def test_sector_observers_receive_redacted_movement(ws_client):
             except AssertionError:
                 status_payload = None
         assert status_payload is None or status_payload.get("character_id") == "Mover"
-        _recv_until_event(mover, "character.moved")
+        _recv_until_event(mover, "movement.complete")
 
         arrive_payload = _recv_movement(destination, "arrive")
         depart_payload = _recv_movement(origin, "depart")
@@ -285,7 +285,8 @@ def test_sector_observers_receive_redacted_movement(ws_client):
             lambda msg: msg.get("frame_type") == "rpc" and msg.get("endpoint") == "join",
         )
         _drain_pending_event(mover, "status.update")
-        _recv_until_event(mover, "character.moved")
+        # Join teleport doesn't emit mover character.moved; drain any pending status updates
+        _drain_pending_event(mover, "character.moved")
 
         teleport_arrive = _recv_movement(origin, "arrive")
         teleport_depart = _recv_movement(destination, "depart")

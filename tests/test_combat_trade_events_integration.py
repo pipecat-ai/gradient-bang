@@ -41,8 +41,6 @@ SECTOR_SELLS_NEURO_SYMBOLICS = 1
 
 
 SERVER_URL = os.getenv("TEST_SERVER_URL", os.getenv("GAME_SERVER_URL", "http://localhost:8000"))
-from server import app
-from core.world import world as game_world
 
 
 class EventCollector:
@@ -98,16 +96,28 @@ class EventCollector:
 
 @pytest_asyncio.fixture(autouse=True)
 async def reset_world():
-    """Reset world state before each test."""
-    game_world.characters.clear()
-    if hasattr(game_world, "combat_manager") and game_world.combat_manager:
-        game_world.combat_manager._encounters.clear()
-    if hasattr(game_world, "salvage_manager") and game_world.salvage_manager:
-        game_world.salvage_manager._by_sector.clear()
-    if hasattr(game_world, "garrisons") and game_world.garrisons:
-        game_world.garrisons._garrisons.clear()
+    """Reset server state before and after each test via test.reset RPC."""
+    reset_client = AsyncGameClient(
+        base_url=SERVER_URL,
+        character_id="test_reset_runner",
+        transport="websocket",
+    )
+    try:
+        await reset_client.test_reset()
+    finally:
+        await reset_client.close()
+
     yield
-    game_world.characters.clear()
+
+    reset_client = AsyncGameClient(
+        base_url=SERVER_URL,
+        character_id="test_reset_runner",
+        transport="websocket",
+    )
+    try:
+        await reset_client.test_reset()
+    finally:
+        await reset_client.close()
 
 
 @pytest_asyncio.fixture
@@ -457,13 +467,8 @@ class TestCombatEvents:
             await client2.join("test_weak_opponent")
 
             # Move to same sector
-            status1 = await client.my_status(character_id="test_char_events")
-            if _extract_sector_id(status1.get("sector")) != 1:
-                await client.move(to_sector=1, character_id="test_char_events")
-
-            status2 = await client2.my_status(character_id="test_weak_opponent")
-            if _extract_sector_id(status2.get("sector")) != 1:
-                await client2.move(to_sector=1, character_id="test_weak_opponent")
+            await _move_to_sector(client, "test_char_events", 1)
+            await _move_to_sector(client2, "test_weak_opponent", 1)
 
             # Note: This test would need to run many rounds to complete combat
             # For now, we can just verify the combat.ended event structure
@@ -489,9 +494,7 @@ class TestCombatEvents:
             await client.join("test_char_events", credits=500)
 
             # Move to sector 1
-            status = await client.my_status(character_id="test_char_events")
-            if _extract_sector_id(status.get("sector")) != 1:
-                await client.move(to_sector=1, character_id="test_char_events")
+            await _move_to_sector(client, "test_char_events", 1)
 
             # Deploy a garrison in offensive mode
             await client.combat_leave_fighters(

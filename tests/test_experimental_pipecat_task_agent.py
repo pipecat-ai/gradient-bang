@@ -127,6 +127,13 @@ class StubGameClient:
         self.calls.append(f"my_status:{character_id}")
         return {"summary": "Status nominal"}
 
+    def on(self, event_name: str):
+        def register(callback):
+            self.calls.append(f"on:{event_name}")
+            return callback
+
+        return register
+
 
 @pytest.mark.asyncio
 async def test_experimental_task_agent_executes_scripted_loop(capsys):
@@ -144,14 +151,13 @@ async def test_experimental_task_agent_executes_scripted_loop(capsys):
     game_client = StubGameClient(character_id="npc-1")
     logger.info("Test: creating ExperimentalTaskAgent")
     agent = ExperimentalTaskAgent(
-        config=LLMConfig(api_key="local-test-key", model="test-model"),
-        game_client=game_client,  # type: ignore[arg-type]
-        character_id="npc-1",
-        verbose_prompts=False,
-        output_callback=output_callback,
-        llm_service_factory=lambda: ScriptedLLMService(script),
-        tools_list=[MyStatus, TaskFinished],
-    )
+            config=LLMConfig(api_key="local-test-key", model="test-model"),
+            game_client=game_client,  # type: ignore[arg-type]
+            character_id="npc-1",
+            output_callback=output_callback,
+            llm_service_factory=lambda: ScriptedLLMService(script),
+            tools_list=[MyStatus, TaskFinished],
+        )
     logger.info("Test: agent created")
 
     with capsys.disabled():
@@ -165,7 +171,8 @@ async def test_experimental_task_agent_executes_scripted_loop(capsys):
     assert agent.finished is True
     assert agent.finished_message == "Done"
     assert "my_status:npc-1" in game_client.calls
-    assert any("turn index=0" in line for line in outputs)
+    assert "my_status({})" in outputs
+    assert "Done" in outputs
 
 
 @pytest.mark.asyncio
