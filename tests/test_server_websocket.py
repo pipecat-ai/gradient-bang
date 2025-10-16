@@ -46,11 +46,30 @@ def test_ws_join_and_status(ws_client):
         # my_status RPC
         req2 = {"id": "2", "type": "rpc", "endpoint": "my_status", "payload": {"character_id": "ws_player"}}
         ws.send_text(json.dumps(req2))
-        resp2 = _recv_until(ws, lambda m: m.get("frame_type") == "rpc" and m.get("endpoint") == "my_status")
-        assert resp2["frame_type"] == "rpc"
-        assert resp2["ok"] is True
-        status_payload = resp2["result"]
-        assert status_payload["player"]["name"] == "ws_player"
+        status_response = None
+        snapshot_event = None
+        for _ in range(10):
+            msg = ws.receive_json()
+            if msg.get("frame_type") == "rpc" and msg.get("endpoint") == "my_status":
+                status_response = msg
+                if snapshot_event:
+                    break
+            elif msg.get("frame_type") == "event" and msg.get("event") == "status.snapshot":
+                snapshot_event = msg
+                if status_response:
+                    break
+
+        assert status_response is not None, "Did not receive my_status RPC response"
+        assert snapshot_event is not None, "Did not receive status.snapshot event"
+
+        assert status_response["frame_type"] == "rpc"
+        assert status_response["ok"] is True
+        assert status_response["result"] == {"success": True}
+
+        payload = snapshot_event["payload"]
+        assert payload["player"]["name"] == "ws_player"
+        assert payload["source"]["method"] == "my_status"
+        assert payload["source"]["request_id"] == "2"
 
 
 def test_ws_subscribe_my_status_push(ws_client):

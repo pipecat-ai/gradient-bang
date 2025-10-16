@@ -547,6 +547,59 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 
 ## Status Events
 
+### status.snapshot
+**When emitted:** When a player calls the `my_status` RPC to request their current status snapshot
+**Who receives it:** Only the requesting character (character_filter)
+**Source:** `/game-server/api/my_status.py`
+
+**Payload example:**
+```json
+{
+  "source": {
+    "type": "rpc",
+    "method": "my_status",
+    "request_id": "req-123",
+    "timestamp": "2025-10-16T15:32:18.000Z"
+  },
+  "player": {
+    "created_at": "2025-10-16T14:20:00.000Z",
+    "last_active": "2025-10-16T15:32:18.000Z",
+    "id": "explorer",
+    "name": "explorer",
+    "credits_on_hand": 1200,
+    "credits_in_bank": 0
+  },
+  "ship": {
+    "ship_type": "kestrel_courier",
+    "ship_name": "Kestrel Courier",
+    "cargo": {
+      "quantum_foam": 45,
+      "retro_organics": 12,
+      "neuro_symbolics": 4
+    },
+    "cargo_capacity": 120,
+    "warp_power": 38,
+    "warp_power_capacity": 50,
+    "shields": 120,
+    "max_shields": 150,
+    "fighters": 45,
+    "max_fighters": 50
+  },
+  "sector": {
+    "id": 17,
+    "adjacent_sectors": [12, 16, 18, 21],
+    "port": null,
+    "players": [],
+    "garrison": null,
+    "salvage": []
+  }
+}
+```
+
+**Notes:**
+- Correlation metadata in `source` mirrors the originating `my_status` RPC frame so clients can reconcile queued actions.
+- Payload structure matches `status.update`; clients can treat both events interchangeably for state hydration.
+
 ### status.update
 **When emitted:** When a character's status changes (after combat rounds, trades, warp purchases, fighter collection, etc.)
 **Who receives it:** The specific character whose status changed (character_filter)
