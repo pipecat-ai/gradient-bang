@@ -14,6 +14,7 @@ from combat.utils import (
     new_combat_id,
     serialize_encounter,
 )
+from .utils import rpc_success
 
 logger = logging.getLogger("gradient-bang.api.combat_initiate")
 
@@ -161,9 +162,6 @@ async def start_sector_combat(
 
 async def handle(request: dict, world) -> dict:
     character_id = request.get("character_id")
-    target_id = request.get("target_id")
-    target_type = (request.get("target_type") or "character").lower()
-
     if not character_id:
         raise HTTPException(status_code=400, detail="Missing character_id")
 
@@ -190,7 +188,12 @@ async def handle(request: dict, world) -> dict:
         garrisons_to_include=None,
         reason="manual",
     )
-    payload["target"] = target_id
-    if target_id:
-        payload["target_type"] = target_type
-    return payload
+    combat_id = payload.get("combat_id")
+    if not combat_id:
+        logger.warning(
+            "start_sector_combat returned payload without combat_id for %s in sector %s",
+            character_id,
+            sector_id,
+        )
+        return rpc_success()
+    return rpc_success({"combat_id": combat_id})

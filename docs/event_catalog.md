@@ -43,7 +43,8 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 {
   "combat_id": "a3f2b9c1d4e5f6",
   "sector": {"id": 42},
-  "round": 2,
+  "round": 1,
+  "initiator": "trader",
   "current_time": "2025-10-07T14:25:00.000Z",
   "deadline": "2025-10-07T14:30:00.000Z",
   "participants": [
@@ -100,6 +101,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 ```
 
 **Notes:**
+- The opening round includes an `initiator` field identifying who triggered the encounter; subsequent rounds omit the field.
 - Join-triggered and move-triggered emissions attach a `source` derived from their respective RPC request so clients can correlate the event to login or travel.
 - `ship` contains the same structure as other status-bearing events (`status.update`, `movement.complete`) but only for the receiving character. Other combatants see summary data (shield percentages, losses).
 - Garrisons now expose `owner_name` and omit `toll_balance` for privacy.
