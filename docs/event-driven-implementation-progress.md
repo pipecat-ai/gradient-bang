@@ -5,6 +5,16 @@ We are working on a code refactor and implementation of an event-driven API desi
 The event-driven API design document is here:
   - docs/event-driven-api-design.md
 
+## Work plan
+
+- 2025-10-15: Verified RPC router propagates `request_id`; recommend prioritizing event payload updates (join/move/plot_course) in upcoming Phase 2-3 tickets so correlation metadata is consistently attached.
+- 2025-10-15: After removing `check_trade`, audit prompt/tool guidance in future tickets so agents expect `trade` to raise errors instead of pre-checking.
+- 2025-10-16: Removed `combat.status` polling; confirm upcoming join/move tickets emit `combat.round_waiting` for late arrivals so UI/tests rely exclusively on events.
+- 2025-10-16: Join emits `combat.round_waiting` with request correlation when combat is active; ensure move arrival (2.5.3) mirrors this so reconnects and jumps behave the same way.
+- 2025-10-16: Move arrivals now emit `combat.round_waiting` with `move` correlation metadata; confirm AsyncGameClient updates consume events instead of polling when we reach Phase 5.
+- 2025-10-16: `my_status` now emits `status.snapshot` with request correlation; align upcoming map events (3.2-3.4) so reconnect hydration uses consistent snapshot semantics before AsyncGameClient refresh in Phase 5.
+- 2025-10-16: `my_map` now emits `map.knowledge` snapshots; coordinate plot_course cleanup (3.3) and remaining map events (3.4) to share the same correlation helper for consistent reconnect flows.
+
 Implement one ticket at a time. Implement the next ticket in the check-list. Then stop and review the code. Add comments and suggestions to the "Work plan" section of this document. Then wait for user feedback and approval.
 
 After ticket completion, we will manually commit changes to the repository. If it's useful to see changes made for previous tickets, use git history and diff commands.
@@ -57,7 +67,7 @@ If you encounter any issues or have questions, please add them to the "Progress 
 - [x] Ticket 2.5.2: Verify Combat Events on Join
 - [x] Ticket 2.5.3: Verify Combat Events on Move Arrival
 - [x] Ticket 3.1: Implement status.snapshot Event (my_status)
-- [ ] Ticket 3.2: Implement map.knowledge Event (my_map)
+- [x] Ticket 3.2: Implement map.knowledge Event (my_map)
 - [ ] Ticket 3.3: Remove Redundant Return Data (plot_course)
 - [ ] Ticket 3.4-3.6: Implement Remaining Map Events
 - [ ] Ticket 4.1: Emit status.snapshot on Join (join)
@@ -89,3 +99,4 @@ If you encounter any issues or have questions, please add them to the "Progress 
 - 2025-10-16 (Ticket 2.5.2): Join now emits `combat.round_waiting` with the `join` request's correlation metadata whenever combat is already active, and skips emission when no encounter is present. Added unit coverage in `game-server/tests/test_join_combat.py`. Tests: `uv run pytest game-server/tests/test_join_combat.py -q` (pass), `uv run pytest game-server/tests -q` (pass). Pausing before Ticket 2.5.3 to align move arrivals with the same event behavior.
 - 2025-10-16 (Ticket 2.5.3): Move arrivals emit `combat.round_waiting` with `move` request correlation after stitching the character into active encounters (including auto-garrison starts). Added coverage in `game-server/tests/test_move_combat.py`. Tests: `uv run pytest game-server/tests/test_move_combat.py -q` (pass), `uv run pytest game-server/tests -q` (pass). Pausing before Phase 3 tickets.
 - 2025-10-16 (Ticket 3.1): `my_status` now emits `status.snapshot` (correlated to the RPC request) and returns minimal success payloads. Added `game-server/tests/test_my_status.py` plus WebSocket integration coverage in `tests/test_server_websocket.py::test_ws_join_and_status`, and documented the new event in `docs/event_catalog.md`. Tests: `uv run pytest game-server/tests/test_my_status.py tests/test_server_websocket.py::test_ws_join_and_status -q` (pass). Pausing for review before Ticket 3.2.
+- 2025-10-16 (Ticket 3.2): `my_map` now emits `map.knowledge` with request correlation while RPC responses collapse to `{success: True}`. Added `game-server/tests/test_my_map.py`, extended the WebSocket integration test to wait for `map.knowledge`, and documented the event in `docs/event_catalog.md`. Tests: `uv run pytest game-server/tests/test_my_map.py tests/test_server_websocket.py::test_ws_join_and_status -q` (pass). Pausing before Ticket 3.3.

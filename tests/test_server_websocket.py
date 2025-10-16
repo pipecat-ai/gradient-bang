@@ -66,10 +66,39 @@ def test_ws_join_and_status(ws_client):
         assert status_response["ok"] is True
         assert status_response["result"] == {"success": True}
 
-        payload = snapshot_event["payload"]
-        assert payload["player"]["name"] == "ws_player"
-        assert payload["source"]["method"] == "my_status"
-        assert payload["source"]["request_id"] == "2"
+        status_payload = snapshot_event["payload"]
+        assert status_payload["player"]["name"] == "ws_player"
+        assert status_payload["source"]["method"] == "my_status"
+        assert status_payload["source"]["request_id"] == "2"
+
+        # my_map RPC
+        req3 = {"id": "3", "type": "rpc", "endpoint": "my_map", "payload": {"character_id": "ws_player"}}
+        ws.send_text(json.dumps(req3))
+        map_response = None
+        knowledge_event = None
+        for _ in range(15):
+            msg = ws.receive_json()
+            if msg.get("frame_type") == "rpc" and msg.get("endpoint") == "my_map":
+                map_response = msg
+                if knowledge_event:
+                    break
+            elif msg.get("frame_type") == "event" and msg.get("event") == "map.knowledge":
+                knowledge_event = msg
+                if map_response:
+                    break
+
+        assert map_response is not None, "Did not receive my_map RPC response"
+        assert knowledge_event is not None, "Did not receive map.knowledge event"
+
+        assert map_response["frame_type"] == "rpc"
+        assert map_response["ok"] is True
+        assert map_response["result"] == {"success": True}
+
+        map_payload = knowledge_event["payload"]
+        assert map_payload["character_id"] == "ws_player"
+        assert map_payload["source"]["method"] == "my_map"
+        assert map_payload["source"]["request_id"] == "3"
+        assert "sectors_visited" in map_payload
 
 
 def test_ws_subscribe_my_status_push(ws_client):

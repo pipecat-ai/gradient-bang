@@ -349,6 +349,40 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 }
 ```
 
+### map.knowledge
+**When emitted:** When a character invokes the `my_map` RPC to retrieve their stored map knowledge
+**Who receives it:** Only the requesting character (character_filter)
+**Source:** `/game-server/api/my_map.py`
+
+**Payload example:**
+```json
+{
+  "character_id": "explorer",
+  "sector": 12,
+  "total_sectors_visited": 7,
+  "sectors_visited": {
+    "0": {"sector_id": 0, "last_visited": "2025-10-16T15:30:00.000Z"},
+    "12": {"sector_id": 12, "last_visited": "2025-10-16T15:45:00.000Z"}
+  },
+  "ship_config": {
+    "ship_type": "kestrel_courier",
+    "ship_name": "Kestrel Courier",
+    "cargo": {"quantum_foam": 40, "retro_organics": 10, "neuro_symbolics": 5}
+  },
+  "credits": 1180,
+  "source": {
+    "type": "rpc",
+    "method": "my_map",
+    "request_id": "req-map-42",
+    "timestamp": "2025-10-16T15:45:02.000Z"
+  }
+}
+```
+
+**Notes:**
+- Designed for on-demand hydration after reconnects; movement and combat events provide incremental updates between snapshots.
+- `sector` reflects the live sector if the character is currently connected; otherwise it falls back to the persisted sector value.
+
 ### map.local
 **When emitted:** When a character needs updated local map data (after movement completion)
 **Who receives it:** The character who just moved (character_filter)
