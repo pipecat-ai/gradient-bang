@@ -1,10 +1,10 @@
 import logging
 from fastapi import HTTPException
 
-from .utils import build_status_payload, sector_contents
+from .utils import build_status_payload, sector_contents, build_event_source
 from ships import ShipType, get_ship_stats, validate_ship_type
 from rpc.events import event_dispatcher
-from combat.utils import build_character_combatant
+from combat.utils import build_character_combatant, serialize_round_waiting_event
 from api.combat_initiate import start_sector_combat
 
 logger = logging.getLogger("gradient-bang.api.join")
@@ -15,6 +15,7 @@ async def handle(request: dict, world) -> dict:
     if character_id is None or character_id == "":
         raise HTTPException(status_code=422, detail="Invalid or missing character_id")
 
+    request_id = request.get("request_id")
     ship_type = request.get("ship_type")
     credits = request.get("credits")
     sector = request.get("sector")
@@ -162,18 +163,19 @@ async def handle(request: dict, world) -> dict:
     )
     status_payload = await build_status_payload(world, character_id)
 
+    active_encounter = None
     if world.combat_manager:
-        existing_encounter = await world.combat_manager.find_encounter_for(character_id)
-        if not existing_encounter:
+        active_encounter = await world.combat_manager.find_encounter_for(character_id)
+        if not active_encounter:
             encounter = await world.combat_manager.find_encounter_in_sector(
                 character.sector
             )
             if encounter and character_id not in encounter.participants:
                 combatant_state = build_character_combatant(world, character_id)
-                await world.combat_manager.add_participant(
+                encounter = await world.combat_manager.add_participant(
                     encounter.combat_id, combatant_state
                 )
-
+            active_encounter = encounter
         auto_garrisons = []
         if world.garrisons is not None:
             for garrison in await world.garrisons.list_sector(character.sector):
@@ -201,6 +203,30 @@ async def handle(request: dict, world) -> dict:
                     character.sector,
                     exc,
                 )
+            active_encounter = await world.combat_manager.find_encounter_for(
+                character_id
+            )
+            if not active_encounter:
+                active_encounter = (
+                    await world.combat_manager.find_encounter_in_sector(
+                        character.sector
+                    )
+                )
+
+        if active_encounter and not active_encounter.ended:
+            round_waiting_payload = await serialize_round_waiting_event(
+                world,
+                active_encounter,
+                viewer_id=character_id,
+            )
+            if request_id:
+                round_waiting_payload["source"] = build_event_source("join", request_id)
+
+            await event_dispatcher.emit(
+                "combat.round_waiting",
+                round_waiting_payload,
+                character_filter=[character_id],
+            )
 
     # Note: We don't emit map.local here because the RTVI pipeline may not be
     # started yet. Clients should request the map explicitly after they're ready,

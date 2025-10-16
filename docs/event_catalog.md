@@ -34,9 +34,9 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 **Previous payload:** Legacy dictionary of participants that included `max_fighters`/`max_shields` fields.
 
 ### combat.round_waiting
-**When emitted:** When a combat round begins and is waiting for player actions
+**When emitted:** When a combat round begins and is waiting for player actions, or when a character joins a sector that already has active combat
 **Who receives it:** All character participants in the combat (character_filter)
-**Source:** `/game-server/combat/callbacks.py:91`
+**Source:** `/game-server/combat/callbacks.py:91` (round transitions) and `game-server/api/join.py:??` (join correlation)
 
 **Payload example:** *(participants_map removed October 7, 2025)*
 ```json
@@ -100,6 +100,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 ```
 
 **Notes:**
+- Join-triggered emissions attach a `source` derived from the `join` RPC request so clients can correlate the event to their login flow.
 - `ship` contains the same structure as other status-bearing events (`status.update`, `movement.complete`) but only for the receiving character. Other combatants see summary data (shield percentages, losses).
 - Garrisons now expose `owner_name` and omit `toll_balance` for privacy.
 
