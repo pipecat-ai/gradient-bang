@@ -264,24 +264,29 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 ## Movement Events
 
 ### course.plot
-***When emitted:*** When plot_course is called
-***Who receives it:*** The moving character only (character_filter)
-***Source:*** `/game-server/api/plot_course.py:156`
+**When emitted:** When the `plot_course` RPC succeeds in finding a path
+**Who receives it:** Only the requesting character (character_filter)
+**Source:** `/game-server/api/plot_course.py`
 
 **Payload example:**
 ```json
 {
-    "from_sector": 1000,
-    "to_sector": 1307,
-    "path": [
-        1000,
-        1203,
-        962,
-        1307
-    ],
-    "distance": 3
+  "source": {
+    "type": "rpc",
+    "method": "plot_course",
+    "request_id": "req-plot-42",
+    "timestamp": "2025-10-16T16:05:00.000Z"
+  },
+  "from_sector": 1000,
+  "to_sector": 1307,
+  "path": [1000, 1203, 962, 1307],
+  "distance": 3
 }
 ```
+
+**Notes:**
+- Clients should listen for this event to receive the calculated path; the RPC response now returns only `{success: true}`.
+- `request_id` allows correlating the event back to the initiating `plot_course` frame.
 
 ### movement.complete
 **When emitted:** When a character exits hyperspace and arrives at destination
