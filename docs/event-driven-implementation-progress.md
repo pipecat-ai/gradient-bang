@@ -15,6 +15,7 @@ The event-driven API design document is here:
 - 2025-10-16: `my_status` now emits `status.snapshot` with request correlation; align upcoming map events (3.2-3.4) so reconnect hydration uses consistent snapshot semantics before AsyncGameClient refresh in Phase 5.
 - 2025-10-16: `my_map` now emits `map.knowledge` snapshots; coordinate plot_course cleanup (3.3) and remaining map events (3.4) to share the same correlation helper for consistent reconnect flows.
 - 2025-10-16: `plot_course` responses trimmed to `{success: True}`; flag AsyncGameClient (Phase 5) to consume `course.plot` for UI updates once client refactor lands.
+- 2025-10-16: Map + port RPCs now emit `map.region`, `ports.list`, and `path.region`; ensure AsyncGameClient subscriptions consolidate map hydration before Phase 5 rollout.
 
 Implement one ticket at a time. Implement the next ticket in the check-list. Then stop and review the code. Add comments and suggestions to the "Work plan" section of this document. Then wait for user feedback and approval.
 
@@ -70,7 +71,7 @@ If you encounter any issues or have questions, please add them to the "Progress 
 - [x] Ticket 3.1: Implement status.snapshot Event (my_status)
 - [x] Ticket 3.2: Implement map.knowledge Event (my_map)
 - [x] Ticket 3.3: Remove Redundant Return Data (plot_course)
-- [ ] Ticket 3.4-3.6: Implement Remaining Map Events
+- [x] Ticket 3.4-3.6: Implement Remaining Map Events
 - [ ] Ticket 4.1: Emit status.snapshot on Join (join)
 - [ ] Ticket 4.2: Enhance trade.executed Event
 - [ ] Ticket 4.3-4.4: Enhance Warp Power Events
@@ -102,3 +103,4 @@ If you encounter any issues or have questions, please add them to the "Progress 
 - 2025-10-16 (Ticket 3.1): `my_status` now emits `status.snapshot` (correlated to the RPC request) and returns minimal success payloads. Added `game-server/tests/test_my_status.py` plus WebSocket integration coverage in `tests/test_server_websocket.py::test_ws_join_and_status`, and documented the new event in `docs/event_catalog.md`. Tests: `uv run pytest game-server/tests/test_my_status.py tests/test_server_websocket.py::test_ws_join_and_status -q` (pass). Pausing for review before Ticket 3.2.
 - 2025-10-16 (Ticket 3.2): `my_map` now emits `map.knowledge` with request correlation while RPC responses collapse to `{success: True}`. Added `game-server/tests/test_my_map.py`, extended the WebSocket integration test to wait for `map.knowledge`, and documented the event in `docs/event_catalog.md`. Tests: `uv run pytest game-server/tests/test_my_map.py tests/test_server_websocket.py::test_ws_join_and_status -q` (pass). Pausing before Ticket 3.3.
 - 2025-10-16 (Ticket 3.3): `plot_course` now returns minimal success and stamps `course.plot` with correlation metadata. Added `game-server/tests/test_plot_course.py`, updated `tests/test_server_websocket.py::test_ws_join_and_status` to expect the event, and refreshed `docs/event_catalog.md`. Tests: `uv run pytest game-server/tests/test_plot_course.py tests/test_server_websocket.py::test_ws_join_and_status -q` (pass). Pausing ahead of Ticket 3.4.
+- 2025-10-16 (Tickets 3.4-3.6): `local_map_region`, `list_known_ports`, and `path_with_region` now emit `map.region`, `ports.list`, and `path.region` with correlated metadata while returning minimal RPC responses. Added targeted unit coverage (`game-server/tests/test_local_map_region.py`, `game-server/tests/test_list_known_ports.py`, `game-server/tests/test_path_with_region.py`) and updated `docs/event_catalog.md`. Tests: `uv run pytest game-server/tests/test_local_map_region.py game-server/tests/test_list_known_ports.py game-server/tests/test_path_with_region.py game-server/tests/test_plot_course.py tests/test_server_websocket.py::test_ws_join_and_status -q` (pass). Pausing for review before Phase 4.

@@ -288,6 +288,37 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 - Clients should listen for this event to receive the calculated path; the RPC response now returns only `{success: true}`.
 - `request_id` allows correlating the event back to the initiating `plot_course` frame.
 
+### path.region
+**When emitted:** When the `path_with_region` RPC generates a path plus surrounding sector context
+**Who receives it:** Only the requesting character (character_filter)
+**Source:** `/game-server/api/path_with_region.py`
+
+**Payload example:**
+```json
+{
+  "path": [0, 1, 2],
+  "distance": 2,
+  "sectors": [
+    {"sector_id": 0, "visited": true, "on_path": true},
+    {"sector_id": 1, "visited": true, "on_path": true, "last_visited": "2025-10-16T16:00:00.000Z"},
+    {"sector_id": 3, "visited": true, "on_path": false, "hops_from_path": 1}
+  ],
+  "total_sectors": 3,
+  "known_sectors": 3,
+  "unknown_sectors": 0,
+  "source": {
+    "type": "rpc",
+    "method": "path_with_region",
+    "request_id": "req-path-9",
+    "timestamp": "2025-10-16T16:14:00.000Z"
+  }
+}
+```
+
+**Notes:**
+- Returned sectors include both on-path nodes and nearby visited sectors up to `region_hops`.
+- Unknown path nodes are included with minimal metadata so clients can render the full route even without prior visits.
+
 ### movement.complete
 **When emitted:** When a character exits hyperspace and arrives at destination
 **Who receives it:** The moving character only (character_filter)
@@ -388,6 +419,39 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 - Designed for on-demand hydration after reconnects; movement and combat events provide incremental updates between snapshots.
 - `sector` reflects the live sector if the character is currently connected; otherwise it falls back to the persisted sector value.
 
+### map.region
+**When emitted:** When the `local_map_region` RPC builds a neighborhood snapshot around a sector
+**Who receives it:** Only the requesting character (character_filter)
+**Source:** `/game-server/api/local_map_region.py`
+
+**Payload example:**
+```json
+{
+  "center_sector": 43,
+  "max_hops": 3,
+  "total_sectors": 12,
+  "sectors": [
+    {
+      "sector_id": 43,
+      "visited": true,
+      "position": [100.5, 200.3],
+      "port": {"code": "BSB"},
+      "adjacent_sectors": [42, 44, 50, 51]
+    }
+  ],
+  "source": {
+    "type": "rpc",
+    "method": "local_map_region",
+    "request_id": "req-region-17",
+    "timestamp": "2025-10-16T16:12:00.000Z"
+  }
+}
+```
+
+**Notes:**
+- Mirrors the historical response payload so clients can migrate without structural changes.
+- Use `max_hops` to infer the breadth of the returned region; clients may request larger windows by increasing the RPC parameter.
+
 ### map.local
 **When emitted:** When a character needs updated local map data (after movement completion)
 **Who receives it:** The character who just moved (character_filter)
@@ -443,6 +507,43 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
   ]
 }
 ```
+
+## Port Events
+
+### ports.list
+**When emitted:** When the `list_known_ports` RPC completes its search
+**Who receives it:** Only the requesting character (character_filter)
+**Source:** `/game-server/api/list_known_ports.py`
+
+**Payload example:**
+```json
+{
+  "from_sector": 0,
+  "ports": [
+    {
+      "sector_id": 0,
+      "hops_from_start": 0,
+      "port": {"code": "BSS"},
+      "position": [0, 0],
+      "last_visited": "2025-10-16T15:00:00.000Z"
+    }
+  ],
+  "total_ports_found": 1,
+  "searched_sectors": 1,
+  "source": {
+    "type": "rpc",
+    "method": "list_known_ports",
+    "request_id": "req-ports-5",
+    "timestamp": "2025-10-16T16:13:00.000Z"
+  }
+}
+```
+
+**Notes:**
+- Results are sorted by hop distance from `from_sector`.
+- Commodity/trade filters narrow the list to ports that buy or sell the requested commodity in the desired direction.
+
+## Character Events
 
 ### character.moved
 **When emitted:** When a character moves between sectors (for observers)
