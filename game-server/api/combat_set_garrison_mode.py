@@ -6,6 +6,8 @@ from rpc.events import event_dispatcher
 from .utils import (
     serialize_garrison_for_client,
     sector_contents,
+    build_event_source,
+    rpc_success,
 )
 
 
@@ -50,6 +52,25 @@ async def handle(request: dict, world) -> dict:
     if not updated:
         raise HTTPException(status_code=404, detail="Failed to update garrison mode")
 
+    request_id = request.get("request_id") or "missing-request-id"
+    garrison_payload = (
+        serialize_garrison_for_client(
+            world, updated, sector, current_character_id=character_id
+        )
+        if updated
+        else None
+    )
+
+    await event_dispatcher.emit(
+        "garrison.mode_changed",
+        {
+            "source": build_event_source("combat.set_garrison_mode", request_id),
+            "sector": {"id": sector},
+            "garrison": garrison_payload,
+        },
+        character_filter=[character_id],
+    )
+
     characters_in_sector = [
         cid
         for cid, char in world.characters.items()
@@ -63,11 +84,4 @@ async def handle(request: dict, world) -> dict:
             character_filter=[cid],
         )
 
-    return {
-        "sector": sector,
-        "garrison": serialize_garrison_for_client(
-            world, updated, sector, current_character_id=character_id
-        )
-        if updated
-        else None,
-    }
+    return rpc_success()

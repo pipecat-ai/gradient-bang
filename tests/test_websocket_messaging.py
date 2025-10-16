@@ -413,7 +413,11 @@ def test_toll_payment_via_combat_action(ws_client):
         )
 
         payload = pay_response.get("result", {})
-        assert payload.get("pay_processed") is True
+        assert payload == {"success": True, "combat_id": combat_id}
+
+        action_event = _recv_until_event(mover, "combat.action_accepted")
+        assert action_event["combat_id"] == combat_id
+        assert action_event.get("pay_processed") is True
 
         resolved = _recv_until_event(mover, "combat.round_resolved")
         ended = _recv_until_event(mover, "combat.ended")

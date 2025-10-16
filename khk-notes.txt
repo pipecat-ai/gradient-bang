@@ -303,6 +303,11 @@ Sunday
 
 Trying to write as little code as possible to perform game functions on behalf of a player. Instead, everything should be done by the LLM. This means writing more code to summarize game state and coordinate actions between the conversation and task LLMs.
 
+Example of not hard-coding things:
+  - player A tries to collect salvage
+  - player B beats them to it, but after "collect salvage" action is attempted by Player A
+  - LLM just "knows" what happened based on the event sequence. You don't hard-code it in the game logic that the game needs to "tell" the player that the other player beat them to it.
+
 How to avoid sending lots of data to the conversation LLM. my_map() tool as an example.
 
 

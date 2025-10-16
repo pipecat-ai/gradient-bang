@@ -8,6 +8,8 @@ from rpc.events import event_dispatcher
 from .utils import (
     serialize_garrison_for_client,
     sector_contents,
+    build_event_source,
+    rpc_success,
 )
 from .combat_initiate import start_sector_combat
 
@@ -86,6 +88,22 @@ async def handle(request: dict, world) -> dict:
     remaining = updated_knowledge.ship_config.current_fighters
     character.update_ship_state(fighters=remaining, max_fighters=character.max_fighters)
 
+    request_id = request.get("request_id") or "missing-request-id"
+    garrison_payload = serialize_garrison_for_client(
+        world, updated, sector, current_character_id=character_id
+    )
+
+    await event_dispatcher.emit(
+        "garrison.deployed",
+        {
+            "source": build_event_source("combat.leave_fighters", request_id),
+            "sector": {"id": sector},
+            "garrison": garrison_payload,
+            "fighters_remaining": remaining,
+        },
+        character_filter=[character_id],
+    )
+
     characters_in_sector = [
         cid
         for cid, char in world.characters.items()
@@ -102,13 +120,7 @@ async def handle(request: dict, world) -> dict:
     if mode == "offensive":
         await _auto_attack_on_deploy(world, sector, character_id, updated)
 
-    return {
-        "sector": sector,
-        "garrison": serialize_garrison_for_client(
-            world, updated, sector, current_character_id=character_id
-        ),
-        "fighters_remaining": remaining,
-    }
+    return rpc_success()
 
 
 async def _auto_attack_on_deploy(

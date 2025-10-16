@@ -263,6 +263,169 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 }
 ```
 
+### combat.action_accepted
+**When emitted:** After a combat action is accepted for processing.
+**Who receives it:** Only the character who submitted the action (character_filter).
+**Source:** `/game-server/api/combat_action.py`
+
+**Payload example:**
+```json
+{
+  "source": {
+    "type": "rpc",
+    "method": "combat.action",
+    "request_id": "req-combat-001",
+    "timestamp": "2025-10-16T18:05:42.312345+00:00"
+  },
+  "combat_id": "a3f2b9c1d4e5f6",
+  "round": 2,
+  "action": "pay",
+  "round_resolved": true,
+  "pay_processed": true
+}
+```
+
+**Notes:**
+- `round_resolved` indicates whether the submitted action immediately completed the round; follow-up `combat.round_resolved` events carry the full outcome details.
+- `pay_processed` is present only for `pay` actions and reports whether the toll payment succeeded (failed payments include a `message` field explaining the fallback).
+- `target_id`, `commit`, or `destination_sector` appear when relevant to the submitted action.
+
+## Garrison Events
+
+### garrison.deployed
+**When emitted:** When a character leaves fighters behind to form or reinforce a garrison.
+**Who receives it:** Only the deploying character (character_filter).
+**Source:** `/game-server/api/combat_leave_fighters.py`
+
+**Payload example:**
+```json
+{
+  "source": {
+    "type": "rpc",
+    "method": "combat.leave_fighters",
+    "request_id": "req-garrison-01",
+    "timestamp": "2025-10-16T18:12:03.102938+00:00"
+  },
+  "sector": {"id": 5},
+  "garrison": {
+    "owner_name": "khk_aggressive",
+    "fighters": 20,
+    "mode": "defensive",
+    "toll_amount": 0,
+    "deployed_at": "2025-10-16T18:12:03.102938+00:00",
+    "is_friendly": true
+  },
+  "fighters_remaining": 103
+}
+```
+
+**Notes:**
+- `fighters_remaining` reflects the deployer's fighters still aboard their ship after the transfer.
+- The `garrison` block uses the same structure exposed in `sector.update` for friendly players; `is_friendly` appears when the viewer owns the garrison.
+
+### garrison.collected
+**When emitted:** When a character retrieves fighters (and any toll balance) from their garrison.
+**Who receives it:** Only the collecting character (character_filter).
+**Source:** `/game-server/api/combat_collect_fighters.py`
+
+**Payload example:**
+```json
+{
+  "source": {
+    "type": "rpc",
+    "method": "combat.collect_fighters",
+    "request_id": "req-garrison-collect-07",
+    "timestamp": "2025-10-16T18:15:44.552190+00:00"
+  },
+  "sector": {"id": 5},
+  "credits_collected": 46,
+  "garrison": {
+    "owner_name": "toll_owner",
+    "fighters": 15,
+    "mode": "toll",
+    "toll_amount": 25,
+    "deployed_at": "2025-10-15T21:10:00.000000+00:00",
+    "is_friendly": true
+  },
+  "fighters_on_ship": 135
+}
+```
+
+**Notes:**
+- When all stationed fighters are collected, `garrison` is `null` because the structure no longer exists.
+- The toll balance is added to the player's credits and reported in `credits_collected`.
+
+### garrison.mode_changed
+**When emitted:** When a character updates their garrison's mode or toll amount.
+**Who receives it:** Only the character who changed the mode (character_filter).
+**Source:** `/game-server/api/combat_set_garrison_mode.py`
+
+**Payload example:**
+```json
+{
+  "source": {
+    "type": "rpc",
+    "method": "combat.set_garrison_mode",
+    "request_id": "req-garrison-mode-04",
+    "timestamp": "2025-10-16T18:18:09.223517+00:00"
+  },
+  "sector": {"id": 5},
+  "garrison": {
+    "owner_name": "khk_aggressive",
+    "fighters": 15,
+    "mode": "toll",
+    "toll_amount": 30,
+    "deployed_at": "2025-10-16T18:12:03.102938+00:00",
+    "is_friendly": true
+  }
+}
+```
+
+**Notes:**
+- Switching out of `toll` mode clears any accumulated toll balance; the payload reflects the post-update configuration.
+- Clients should update their UI based on this event rather than the RPC response.
+
+## Salvage Events
+
+### salvage.collected
+**When emitted:** When a character successfully claims salvage from a wreck.
+**Who receives it:** Only the collecting character (character_filter).
+**Source:** `/game-server/api/salvage_collect.py`
+
+**Payload example:**
+```json
+{
+  "source": {
+    "type": "rpc",
+    "method": "salvage.collect",
+    "request_id": "req-salvage-11",
+    "timestamp": "2025-10-16T18:21:55.019384+00:00"
+  },
+  "sector": {"id": 5},
+  "salvage": {
+    "salvage_id": "salv_ed5c1f",
+    "sector_id": 5,
+    "cargo": {"quantum_foam": 5},
+    "scrap": 3,
+    "credits": 12,
+    "metadata": {
+      "ship_name": "Wreck",
+      "ship_type": "sparrow_scout"
+    }
+  },
+  "cargo": {
+    "quantum_foam": 42,
+    "retro_organics": 10,
+    "neuro_symbolics": 5
+  },
+  "credits": 8612
+}
+```
+
+**Notes:**
+- The salvage payload mirrors the container that was just removed; clients can display it in loot history or notifications.
+- Updated cargo totals include the newly collected items; unknown salvage commodities are converted to `neuro_symbolics` by the server before emission.
+
 ## Movement Events
 
 ### course.plot

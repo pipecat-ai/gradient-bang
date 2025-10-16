@@ -85,9 +85,9 @@ If you encounter any issues or have questions, please add them to the "Progress 
 - [x] Ticket 4.1: Emit status.snapshot on Join (join)
 - [x] Ticket 4.2: Enhance trade.executed Event
 - [x] Ticket 4.3-4.4: Enhance Warp Power Events
-- [ ] Ticket 4.5: Simplify combat.initiate Response and Enhance combat.round_waiting
-- [ ] Ticket 4.6: Implement combat.action_accepted Event
-- [ ] Ticket 4.7-4.10: Implement Garrison and Salvage Events
+- [x] Ticket 4.5: Simplify combat.initiate Response and Enhance combat.round_waiting
+- [x] Ticket 4.6: Implement combat.action_accepted Event
+- [x] Ticket 4.7-4.10: Implement Garrison and Salvage Events
 - [ ] Ticket 5.1: Update AsyncGameClient for Event-Based Responses
 - [ ] Ticket 5.2: Update Integration Tests
 - [ ] Ticket 6.1: Update API and Event Documentation
@@ -118,3 +118,5 @@ If you encounter any issues or have questions, please add them to the "Progress 
 - 2025-10-16 (Ticket 4.2): Enhanced `trade` handler to emit correlated `trade.executed` events with trade details, trimmed RPC responses to `{"success": True}`, updated event summaries, and refreshed documentation. Tests: `uv run pytest game-server/tests/test_trade.py -q` (pass); `uv run pytest tests/test_event_summaries.py::test_trade_executed_summary_embeds_player_info -q` (pass); `TEST_SERVER_URL=http://localhost:8002 uv run pytest tests/test_combat_trade_events_integration.py::TestTradeEvents -v` (pass with live server).
 - 2025-10-16 (Tickets 4.3-4.4): `recharge_warp_power` and `transfer_warp_power` now return minimal RPC payloads while emitting enriched `warp.purchase` and `warp.transfer` events that include correlation metadata, updated balances, and post-action warp power totals. Added targeted coverage in `game-server/tests/test_warp_events.py` and refreshed the warp sections of `docs/event_catalog.md`. Tests: `uv run pytest game-server/tests/test_warp_events.py -q` (pass).
 - 2025-10-16 (Ticket 4.5): Simplified `combat.initiate` to return minimal RPC success (`{"success": True, "combat_id": ...}`) and updated `serialize_round_waiting_event` so first-round payloads carry an `initiator` field while later rounds omit it. Added `game-server/tests/test_combat_initiate.py` and refreshed `docs/event_catalog.md`. Tests: `uv run pytest game-server/tests/test_combat_initiate.py game-server/tests/test_join_combat.py game-server/tests/test_move_combat.py -q` (pass).
+- 2025-10-16 (Ticket 4.6): `combat.action` now emits a correlated `combat.action_accepted` confirmation event and returns only `{"success": True, "combat_id": ...}`. Added `game-server/tests/test_combat_action.py`, updated the WebSocket toll-payment integration to consume the new event, and documented `combat.action_accepted` in `docs/event_catalog.md`. Tests: `uv run pytest game-server/tests/test_combat_action.py tests/test_websocket_messaging.py::test_toll_payment_via_combat_action -q` (pass, 1 skipped).
+- 2025-10-16 (Tickets 4.7-4.10): `combat.leave_fighters`, `combat.collect_fighters`, `combat.set_garrison_mode`, and `salvage.collect` now emit `garrison.deployed`, `garrison.collected`, `garrison.mode_changed`, and `salvage.collected` events with correlation metadata while the RPCs return minimal acknowledgements. Added targeted persistence tests for each event, patched docs with new sections, and ensured sector updates remain unchanged. Tests: `uv run pytest tests/test_world_persistence.py::test_collect_fighters_returns_toll_balance tests/test_world_persistence.py::test_leave_fighters_emits_garrison_event tests/test_world_persistence.py::test_set_garrison_mode_emits_event tests/test_world_persistence.py::test_salvage_collect_emits_event -q` (pass).

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 from rpc.events import event_dispatcher
-from api.utils import sector_contents
+from api.utils import sector_contents, rpc_success, build_event_source
 
 
 async def handle(request: dict, world) -> dict:
@@ -50,8 +50,26 @@ async def handle(request: dict, world) -> dict:
 
     world.salvage_manager.remove(salvage_id)
 
+    knowledge_after = world.knowledge_manager.load_knowledge(character_id)
+    cargo_after = knowledge_after.ship_config.cargo
+    credits_after = world.knowledge_manager.get_credits(character_id)
+
     # Emit sector.update to all characters in the sector (salvage removed)
     sector_id = character.sector
+    request_id = request.get("request_id") or "missing-request-id"
+
+    await event_dispatcher.emit(
+        "salvage.collected",
+        {
+            "source": build_event_source("salvage.collect", request_id),
+            "sector": {"id": sector_id},
+            "salvage": container.to_dict(),
+            "cargo": cargo_after,
+            "credits": credits_after,
+        },
+        character_filter=[character_id],
+    )
+
     sector_update_payload = await sector_contents(world, sector_id, current_character_id=None)
 
     characters_in_sector = [
@@ -67,8 +85,4 @@ async def handle(request: dict, world) -> dict:
             character_filter=characters_in_sector,
         )
 
-    return {
-        "salvage": container.to_dict(),
-        "cargo": world.knowledge_manager.load_knowledge(character_id).ship_config.cargo,
-        "credits": world.knowledge_manager.get_credits(character_id),
-    }
+    return rpc_success()
