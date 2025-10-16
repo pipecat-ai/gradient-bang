@@ -591,24 +591,30 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 ### trade.executed
 **When emitted:** When a character completes a buy or sell trade at a port
 **Who receives it:** The character who executed the trade (character_filter)
-**Source:** `/game-server/api/trade.py:138` (buy) and `/game-server/api/trade.py:215` (sell)
+**Source:** `/game-server/api/trade.py:167` (buy) and `/game-server/api/trade.py:255` (sell)
 
 **Payload example:**
 ```json
 {
+  "source": {
+    "type": "rpc",
+    "method": "trade",
+    "request_id": "req-trade-42",
+    "timestamp": "2025-10-16T15:45:12.345678+00:00"
+  },
   "player": {
     "created_at": "2025-10-07T12:00:00.000Z",
     "last_active": "2025-10-07T14:26:00.000Z",
     "id": "trader",
     "name": "trader",
-    "credits_on_hand": 14400,
+    "credits_on_hand": 7500,
     "credits_in_bank": 0
   },
   "ship": {
     "ship_type": "kestrel_courier",
     "ship_name": "Kestrel Courier",
     "cargo": {
-      "quantum_foam": 70,
+      "quantum_foam": 100,
       "retro_organics": 30,
       "neuro_symbolics": 20
     },
@@ -619,6 +625,24 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "max_shields": 100,
     "fighters": 45,
     "max_fighters": 50
+  },
+  "trade": {
+    "trade_type": "buy",
+    "commodity": "quantum_foam",
+    "units": 100,
+    "price_per_unit": 25,
+    "total_price": 2500,
+    "new_credits": 7500,
+    "new_cargo": {
+      "quantum_foam": 100,
+      "retro_organics": 30,
+      "neuro_symbolics": 20
+    },
+    "new_prices": {
+      "quantum_foam": {"buy_price": null, "sell_price": 25},
+      "retro_organics": {"buy_price": 18, "sell_price": null},
+      "neuro_symbolics": {"buy_price": 32, "sell_price": null}
+    }
   }
 }
 ```

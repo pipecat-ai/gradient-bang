@@ -351,15 +351,50 @@ def trade_executed_summary(event: Dict[str, Any]) -> str:
 
     player = event.get("player", {}) if isinstance(event, dict) else {}
     ship = event.get("ship", {}) if isinstance(event, dict) else {}
+    trade = event.get("trade", {}) if isinstance(event, dict) else {}
 
     name = player.get("name", "Unknown")
-    credits = player.get("credits_on_hand")
-    cargo_str = _format_cargo(ship.get("cargo", {}))
+
+    trade_type = trade.get("trade_type")
+    commodity = trade.get("commodity")
+    units = trade.get("units")
+    price_per_unit = trade.get("price_per_unit")
+    total_price = trade.get("total_price")
+    new_credits = trade.get("new_credits")
+    new_cargo = trade.get("new_cargo")
+
+    pieces: List[str] = [f"Trade executed for {name}."]
+
+    credits_value = (
+        new_credits
+        if isinstance(new_credits, (int, float))
+        else player.get("credits_on_hand")
+    )
+    if isinstance(credits_value, (int, float)):
+        pieces.append(f"Credits: {credits_value}.")
+
+    if isinstance(units, (int, float)) and isinstance(commodity, str):
+        action = "Bought" if trade_type == "buy" else "Sold" if trade_type == "sell" else "Traded"
+        phrase = f"{action} {int(units)} {commodity.replace('_', ' ')}"
+        price_bits: List[str] = []
+        if isinstance(price_per_unit, (int, float)):
+            price_bits.append(f"@ {price_per_unit} each")
+        if isinstance(total_price, (int, float)):
+            price_bits.append(f"total {total_price}")
+        if price_bits:
+            phrase += " (" + ", ".join(price_bits) + ")"
+        pieces.append(phrase + ".")
+
+    cargo_source = new_cargo if isinstance(new_cargo, dict) else ship.get("cargo", {})
+    cargo_str = _format_cargo(cargo_source)
+    if cargo_str:
+        pieces.append(f"Cargo: {cargo_str}.")
 
     fighters = ship.get("fighters")
-    fighters_str = f" Fighters: {fighters}." if isinstance(fighters, (int, float)) else ""
+    if isinstance(fighters, (int, float)):
+        pieces.append(f"Fighters: {fighters}.")
 
-    return f"Trade executed for {name}. Credits: {credits}. Cargo: {cargo_str}.{fighters_str}"
+    return " ".join(pieces)
 
 
 def port_update_summary(event: Dict[str, Any]) -> str:

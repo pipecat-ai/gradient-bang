@@ -4,11 +4,14 @@ These tests verify that events are properly emitted and received via WebSocket.
 """
 
 import asyncio
+import json
+import os
+import sys
+from pathlib import Path
+from typing import Optional
+
 import pytest
 import pytest_asyncio
-from pathlib import Path
-import sys
-import os
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -23,21 +26,154 @@ def _extract_sector_id(value):
     return value
 
 
-async def _move_to_sector(client: AsyncGameClient, character_id: str, target_sector: int) -> None:
-    """Move a character to the target sector using plot_course for multi-hop paths."""
+async def _move_to_sector(
+    client: AsyncGameClient,
+    character_id: str,
+    target_sector: int,
+    collector: Optional["EventCollector"] = None,
+) -> None:
+    """Move a character to the target sector using course.plot guidance."""
 
-    status = await client.my_status(character_id=character_id)
-    current = _extract_sector_id(status.get("sector"))
-    if current == target_sector:
+    def _record(event: dict) -> None:
+        if collector is not None:
+            collector.add_event(event)
+
+    status_waiter = asyncio.create_task(
+        client.wait_for_event(
+            "status.snapshot",
+            predicate=lambda evt: evt.get("payload", {})
+            .get("player", {})
+            .get("id") == character_id,
+            timeout=5.0,
+        )
+    )
+    await client.my_status(character_id=character_id)
+    status_event = await status_waiter
+    _record(status_event)
+
+    status_payload = status_event.get("payload", {})
+    current_sector = _extract_sector_id(status_payload.get("sector"))
+    if current_sector == target_sector:
         return
 
-    course = await client.plot_course(to_sector=target_sector, character_id=character_id)
-    path = course.get("path", [])
+    course_waiter = asyncio.create_task(
+        client.wait_for_event(
+            "course.plot",
+            predicate=lambda evt: evt.get("payload", {}).get("to_sector") == target_sector,
+            timeout=5.0,
+        )
+    )
+    await client.plot_course(to_sector=target_sector, character_id=character_id)
+    course_event = await course_waiter
+    _record(course_event)
+
+    course_payload = course_event.get("payload", {})
+    path = course_payload.get("path") or []
+    if not path:
+        pytest.fail("course.plot event missing path data")
+
     for sector in path[1:]:
         await client.move(to_sector=sector, character_id=character_id)
 
+    final_status_waiter = asyncio.create_task(
+        client.wait_for_event(
+            "status.snapshot",
+            predicate=lambda evt: evt.get("payload", {})
+            .get("player", {})
+            .get("id") == character_id,
+            timeout=5.0,
+        )
+    )
+    await client.my_status(character_id=character_id)
+    final_status_event = await final_status_waiter
+    _record(final_status_event)
 
-SECTOR_SELLS_NEURO_SYMBOLICS = 1
+
+
+COMMODITY_INDEX = {
+    "quantum_foam": 0,
+    "retro_organics": 1,
+    "neuro_symbolics": 2,
+}
+
+_UNIVERSE_CACHE: dict | None = None
+
+
+def _world_data_path() -> Path:
+    env_path = os.getenv("WORLD_DATA_DIR")
+    if env_path:
+        return Path(env_path)
+    return Path(__file__).resolve().parents[1] / "world-data"
+
+
+def _load_universe() -> dict:
+    global _UNIVERSE_CACHE
+    if _UNIVERSE_CACHE is None:
+        universe_path = _world_data_path() / "universe_structure.json"
+        with universe_path.open("r", encoding="utf-8") as handle:
+            _UNIVERSE_CACHE = json.load(handle)
+    return _UNIVERSE_CACHE
+
+
+def _build_adjacency() -> dict[int, list[int]]:
+    universe = _load_universe()
+    adjacency: dict[int, list[int]] = {}
+    for sector in universe.get("sectors", []):
+        adjacency[sector["id"]] = [warp["to"] for warp in sector.get("warps", [])]
+    return adjacency
+
+
+def _find_sector_for_trade(commodity: str, *, code_letter: str) -> int:
+    port_dir = _world_data_path() / "port-states"
+    if not port_dir.exists():
+        raise RuntimeError(f"Port state directory not found: {port_dir}")
+
+    index = COMMODITY_INDEX[commodity]
+    matching_codes: dict[int, str] = {}
+
+    for path in sorted(port_dir.glob("sector_*.json")):
+        with path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        code = data.get("code")
+        if not isinstance(code, str) or len(code) <= index:
+            continue
+        if code[index] == code_letter:
+            matching_codes[int(data["sector_id"])] = code
+
+    if not matching_codes:
+        raise RuntimeError(
+            f"No sector found where port code has '{code_letter}' for {commodity}"
+        )
+
+    adjacency = _build_adjacency()
+    start = 0
+    from collections import deque
+
+    visited: dict[int, int] = {start: 0}
+    queue: deque[int] = deque([start])
+    while queue:
+        node = queue.popleft()
+        for neighbor in adjacency.get(node, []):
+            if neighbor not in visited:
+                visited[neighbor] = visited[node] + 1
+                queue.append(neighbor)
+
+    best_sector = min(
+        matching_codes,
+        key=lambda sector: (visited.get(sector, float("inf")), sector),
+    )
+
+    if visited.get(best_sector) is None:
+        raise RuntimeError(
+            f"Unable to reach sector {best_sector} for commodity {commodity}"
+        )
+
+    return best_sector
+
+
+SECTOR_SELLS_NEURO_SYMBOLICS = _find_sector_for_trade(
+    "neuro_symbolics", code_letter="S"
+)
 
 
 SERVER_URL = os.getenv("TEST_SERVER_URL", os.getenv("GAME_SERVER_URL", "http://localhost:8000"))
@@ -132,6 +268,8 @@ async def game_client_with_events():
     )
 
     # Register event handlers
+    client.on("status.snapshot")(collector.add_event)
+    client.on("course.plot")(collector.add_event)
     client.on("combat.round_waiting")(collector.add_event)
     client.on("combat.round_resolved")(collector.add_event)
     client.on("combat.ended")(collector.add_event)
@@ -155,24 +293,34 @@ class TestTradeEvents:
 
         # Join and move to a sector with a port that sells neuro_symbolics
         await client.join("test_char_events", credits=500)
-        await _move_to_sector(client, "test_char_events", SECTOR_SELLS_NEURO_SYMBOLICS)
+        await _move_to_sector(
+            client,
+            "test_char_events",
+            SECTOR_SELLS_NEURO_SYMBOLICS,
+            collector,
+        )
 
         # Execute a trade buying neuro_symbolics (port sells this commodity)
-        await client.trade(
+        result = await client.trade(
             character_id="test_char_events",
             commodity="neuro_symbolics",
             quantity=5,
             trade_type="buy",
         )
 
+        assert result == {"success": True}
+
         # Wait for trade.executed event
         event = await collector.wait_for_event("trade.executed", timeout=2.0)
 
         # Verify event structure
         payload = event["payload"]
+        assert payload["source"]["method"] == "trade"
+        assert "request_id" in payload["source"]
         assert payload["player"]["id"] == "test_char_events"
         assert payload["player"]["name"] == "test_char_events"
         assert "credits_on_hand" in payload["player"]
+        assert payload["player"]["credits_on_hand"] == payload["trade"]["new_credits"]
 
         ship_data = payload["ship"]
         assert "cargo" in ship_data
@@ -180,21 +328,36 @@ class TestTradeEvents:
         assert "shields" in ship_data
         assert "fighters" in ship_data
 
+        trade_data = payload["trade"]
+        assert trade_data["trade_type"] == "buy"
+        assert trade_data["commodity"] == "neuro_symbolics"
+        assert trade_data["units"] == 5
+        assert trade_data["total_price"] == trade_data["price_per_unit"] * 5
+        assert trade_data["new_cargo"]["neuro_symbolics"] >= 5
+        assert isinstance(trade_data["new_prices"], dict)
+
     async def test_port_update_event_on_trade(self, game_client_with_events):
         """Test that port.update event is emitted to all in sector after trade."""
         client, collector = game_client_with_events
 
         # Join and move to a sector with a selling port
         await client.join("test_char_events", credits=500)
-        await _move_to_sector(client, "test_char_events", SECTOR_SELLS_NEURO_SYMBOLICS)
+        await _move_to_sector(
+            client,
+            "test_char_events",
+            SECTOR_SELLS_NEURO_SYMBOLICS,
+            collector,
+        )
 
         # Execute a trade
-        await client.trade(
+        result = await client.trade(
             character_id="test_char_events",
             commodity="neuro_symbolics",
             quantity=3,
             trade_type="buy",
         )
+
+        assert result == {"success": True}
 
         # Wait for port.update event
         event = await collector.wait_for_event("port.update", timeout=2.0)
@@ -218,7 +381,7 @@ class TestTradeEvents:
         # Create second client
         collector2 = EventCollector()
         client2 = AsyncGameClient(
-            base_url="http://localhost:8000",
+            base_url=SERVER_URL,
             character_id="test_char_2",
             transport="websocket",
         )
@@ -229,16 +392,28 @@ class TestTradeEvents:
             await client1.join("test_char_events", credits=500)
             await client2.join("test_char_2", credits=500)
 
-            await _move_to_sector(client1, "test_char_events", SECTOR_SELLS_NEURO_SYMBOLICS)
-            await _move_to_sector(client2, "test_char_2", SECTOR_SELLS_NEURO_SYMBOLICS)
+            await _move_to_sector(
+                client1,
+                "test_char_events",
+                SECTOR_SELLS_NEURO_SYMBOLICS,
+                collector1,
+            )
+            await _move_to_sector(
+                client2,
+                "test_char_2",
+                SECTOR_SELLS_NEURO_SYMBOLICS,
+                collector2,
+            )
 
             # Client 1 trades
-            await client1.trade(
+            result = await client1.trade(
                 character_id="test_char_events",
                 commodity="neuro_symbolics",
                 quantity=2,
                 trade_type="buy",
             )
+
+            assert result == {"success": True}
 
             # Both should receive port.update
             event1 = await collector1.wait_for_event("port.update", timeout=2.0)
@@ -277,8 +452,8 @@ class TestCombatEvents:
             await client.join("test_char_events", credits=500)
             await client2.join("test_opponent")
 
-            await _move_to_sector(client, "test_char_events", 1)
-            await _move_to_sector(client2, "test_opponent", 1)
+            await _move_to_sector(client, "test_char_events", 1, collector)
+            await _move_to_sector(client2, "test_opponent", 1, collector2)
 
             # Initiate combat
             await client.combat_initiate(character_id="test_char_events")
@@ -330,8 +505,8 @@ class TestCombatEvents:
             await client2.join("test_opponent2")
 
             # Move to same sector
-            await _move_to_sector(client, "test_char_events", 1)
-            await _move_to_sector(client2, "test_opponent2", 1)
+            await _move_to_sector(client, "test_char_events", 1, collector)
+            await _move_to_sector(client2, "test_opponent2", 1, collector2)
 
             # Initiate combat
             await client.combat_initiate(character_id="test_char_events")
@@ -395,8 +570,8 @@ class TestCombatEvents:
             await client2.join("test_opponent3")
 
             # Move to same sector
-            await _move_to_sector(client, "test_char_events", 1)
-            await _move_to_sector(client2, "test_opponent3", 1)
+            await _move_to_sector(client, "test_char_events", 1, collector)
+            await _move_to_sector(client2, "test_opponent3", 1, collector2)
 
             # Initiate combat
             await client.combat_initiate(character_id="test_char_events")
@@ -467,8 +642,8 @@ class TestCombatEvents:
             await client2.join("test_weak_opponent")
 
             # Move to same sector
-            await _move_to_sector(client, "test_char_events", 1)
-            await _move_to_sector(client2, "test_weak_opponent", 1)
+            await _move_to_sector(client, "test_char_events", 1, collector)
+            await _move_to_sector(client2, "test_weak_opponent", 1, collector2)
 
             # Note: This test would need to run many rounds to complete combat
             # For now, we can just verify the combat.ended event structure
@@ -494,7 +669,7 @@ class TestCombatEvents:
             await client.join("test_char_events", credits=500)
 
             # Move to sector 1
-            await _move_to_sector(client, "test_char_events", 1)
+            await _move_to_sector(client, "test_char_events", 1, collector)
 
             # Deploy a garrison in offensive mode
             await client.combat_leave_fighters(
@@ -517,7 +692,7 @@ class TestCombatEvents:
                 await client2.join("test_garrison_target")
 
                 # Move to sector with garrison - should auto-trigger combat
-                await _move_to_sector(client2, "test_garrison_target", 1)
+                await _move_to_sector(client2, "test_garrison_target", 1, collector2)
 
                 # Wait for combat event
                 event = await collector2.wait_for_event("combat.round_waiting", timeout=5.0)

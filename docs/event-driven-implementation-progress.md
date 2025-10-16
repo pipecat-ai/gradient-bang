@@ -7,6 +7,13 @@ The event-driven API design document is here:
 
 ## Work plan
 
+To run tests, you can start the server like this if you've made changes to the server code. Kill the server after you're done.
+
+```
+rm game-server-codex.log
+PORT=8002 uv run game-server/server.py 2>&1 | tee game-server-codex.log
+```
+
 - 2025-10-15: Verified RPC router propagates `request_id`; recommend prioritizing event payload updates (join/move/plot_course) in upcoming Phase 2-3 tickets so correlation metadata is consistently attached.
 - 2025-10-15: After removing `check_trade`, audit prompt/tool guidance in future tickets so agents expect `trade` to raise errors instead of pre-checking.
 - 2025-10-16: Removed `combat.status` polling; confirm upcoming join/move tickets emit `combat.round_waiting` for late arrivals so UI/tests rely exclusively on events.
@@ -17,6 +24,7 @@ The event-driven API design document is here:
 - 2025-10-16: `plot_course` responses trimmed to `{success: True}`; flag AsyncGameClient (Phase 5) to consume `course.plot` for UI updates once client refactor lands.
 - 2025-10-16: Map + port RPCs now emit `map.region`, `ports.list`, and `path.region`; ensure AsyncGameClient subscriptions consolidate map hydration before Phase 5 rollout.
 - 2025-10-16: Join now emits `status.snapshot` with request correlation and no longer broadcasts `character.joined`; confirm AsyncGameClient (Phase 5.1) and any monitoring tooling watch the status event instead of the removed broadcast.
+- 2025-10-16: `trade` emits enhanced `trade.executed` payloads with correlation metadata and trade details; coordinate Phase 5 client updates so summaries parse the nested trade data instead of relying on former RPC response fields.
 
 Implement one ticket at a time. Implement the next ticket in the check-list. Then stop and review the code. Add comments and suggestions to the "Work plan" section of this document. Then wait for user feedback and approval.
 
@@ -74,7 +82,7 @@ If you encounter any issues or have questions, please add them to the "Progress 
 - [x] Ticket 3.3: Remove Redundant Return Data (plot_course)
 - [x] Ticket 3.4-3.6: Implement Remaining Map Events
 - [x] Ticket 4.1: Emit status.snapshot on Join (join)
-- [ ] Ticket 4.2: Enhance trade.executed Event
+- [x] Ticket 4.2: Enhance trade.executed Event
 - [ ] Ticket 4.3-4.4: Enhance Warp Power Events
 - [ ] Ticket 4.5: Simplify combat.initiate Response and Enhance combat.round_waiting
 - [ ] Ticket 4.6: Implement combat.action_accepted Event
@@ -106,3 +114,4 @@ If you encounter any issues or have questions, please add them to the "Progress 
 - 2025-10-16 (Ticket 3.3): `plot_course` now returns minimal success and stamps `course.plot` with correlation metadata. Added `game-server/tests/test_plot_course.py`, updated `tests/test_server_websocket.py::test_ws_join_and_status` to expect the event, and refreshed `docs/event_catalog.md`. Tests: `uv run pytest game-server/tests/test_plot_course.py tests/test_server_websocket.py::test_ws_join_and_status -q` (pass). Pausing ahead of Ticket 3.4.
 - 2025-10-16 (Tickets 3.4-3.6): `local_map_region`, `list_known_ports`, and `path_with_region` now emit `map.region`, `ports.list`, and `path.region` with correlated metadata while returning minimal RPC responses. Added targeted unit coverage (`game-server/tests/test_local_map_region.py`, `game-server/tests/test_list_known_ports.py`, `game-server/tests/test_path_with_region.py`) and updated `docs/event_catalog.md`. Tests: `uv run pytest game-server/tests/test_local_map_region.py game-server/tests/test_list_known_ports.py game-server/tests/test_path_with_region.py game-server/tests/test_plot_course.py tests/test_server_websocket.py::test_ws_join_and_status -q` (pass). Pausing for review before Phase 4.
 - 2025-10-16 (Ticket 4.1): `join` now returns minimal RPC success, emits `status.snapshot` with correlated metadata for both new and returning characters, and continues to tag `combat.round_waiting` with the join request. Removed the legacy `character.joined` broadcast, expanded unit coverage in `game-server/tests/test_join_combat.py`, and refreshed `docs/event_catalog.md` to document the new correlation. Updated `tests/test_server_websocket.py::test_ws_join_and_status` to consume the join `status.snapshot` event and expect the minimal RPC payload. Tests: `uv run pytest game-server/tests/test_join_combat.py -q` (pass), `uv run pytest tests/test_server_websocket.py::test_ws_join_and_status -q` (pass). Ready to begin Ticket 4.2.
+- 2025-10-16 (Ticket 4.2): Enhanced `trade` handler to emit correlated `trade.executed` events with trade details, trimmed RPC responses to `{"success": True}`, updated event summaries, and refreshed documentation. Tests: `uv run pytest game-server/tests/test_trade.py -q` (pass); `uv run pytest tests/test_event_summaries.py::test_trade_executed_summary_embeds_player_info -q` (pass). Attempted `uv run pytest tests/test_combat_trade_events_integration.py::TestTradeEvents -q` with server on port 8002, but trades failed (HTTP 400 “Port does not sell neuro_symbolics”) against current `world-data/`; likely needs regenerated universe data before rerun. Pausing for guidance before moving to Ticket 4.3.
