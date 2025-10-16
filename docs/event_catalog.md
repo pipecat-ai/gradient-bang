@@ -679,33 +679,50 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 ### warp.purchase
 **When emitted:** When a character purchases warp power at sector 0 depot
 **Who receives it:** The character who purchased warp power (character_filter)
-**Source:** `/game-server/api/recharge_warp_power.py:78`
+**Source:** `/game-server/api/recharge_warp_power.py:70`
 
 **Payload example:**
 ```json
 {
+  "source": {
+    "type": "rpc",
+    "method": "recharge_warp_power",
+    "request_id": "req-warp-123",
+    "timestamp": "2025-10-16T14:27:00.000Z"
+  },
   "character_id": "trader",
   "sector": {"id": 0},
   "units": 25,
   "price_per_unit": 2,
   "total_cost": 50,
-  "timestamp": "2025-10-07T14:27:00.000Z"
+  "timestamp": "2025-10-07T14:27:00.000Z",
+  "new_warp_power": 175,
+  "warp_power_capacity": 300,
+  "new_credits": 950
 }
 ```
 
 ### warp.transfer
 **When emitted:** When warp power is transferred between two characters
 **Who receives it:** Both the sender and receiver characters (character_filter)
-**Source:** `/game-server/api/transfer_warp_power.py:70`
+**Source:** `/game-server/api/transfer_warp_power.py:66`
 
 **Payload example:**
 ```json
 {
+  "source": {
+    "type": "rpc",
+    "method": "transfer_warp_power",
+    "request_id": "req-transfer-987",
+    "timestamp": "2025-10-07T14:28:00.000Z"
+  },
   "from_character_id": "trader",
   "to_character_id": "merchant",
   "sector": {"id": 43},
   "units": 10,
-  "timestamp": "2025-10-07T14:28:00.000Z"
+  "timestamp": "2025-10-07T14:28:00.000Z",
+  "from_warp_power_remaining": 90,
+  "to_warp_power_current": 110
 }
 ```
 
