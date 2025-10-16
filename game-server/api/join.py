@@ -1,7 +1,12 @@
 import logging
 from fastapi import HTTPException
 
-from .utils import build_status_payload, sector_contents, build_event_source
+from .utils import (
+    build_status_payload,
+    sector_contents,
+    build_event_source,
+    rpc_success,
+)
 from ships import ShipType, get_ship_stats, validate_ship_type
 from rpc.events import event_dispatcher
 from combat.utils import build_character_combatant, serialize_round_waiting_event
@@ -15,7 +20,7 @@ async def handle(request: dict, world) -> dict:
     if character_id is None or character_id == "":
         raise HTTPException(status_code=422, detail="Invalid or missing character_id")
 
-    request_id = request.get("request_id")
+    request_id = request.get("request_id") or "missing-request-id"
     ship_type = request.get("ship_type")
     credits = request.get("credits")
     sector = request.get("sector")
@@ -75,14 +80,6 @@ async def handle(request: dict, world) -> dict:
         if credits is not None:
             world.knowledge_manager.update_credits(character_id, credits)
 
-        await event_dispatcher.emit(
-            "character.joined",
-            {
-                "character_id": character_id,
-                "sector": {"id": start_sector},
-                "timestamp": character.last_active.isoformat(),
-            },
-        )
     else:
         character = world.characters[character_id]
         character.update_activity()
@@ -162,6 +159,7 @@ async def handle(request: dict, world) -> dict:
         adjacent_sectors=contents.get("adjacent_sectors", []),
     )
     status_payload = await build_status_payload(world, character_id)
+    status_payload["source"] = build_event_source("join", request_id)
 
     active_encounter = None
     if world.combat_manager:
@@ -219,8 +217,7 @@ async def handle(request: dict, world) -> dict:
                 active_encounter,
                 viewer_id=character_id,
             )
-            if request_id:
-                round_waiting_payload["source"] = build_event_source("join", request_id)
+            round_waiting_payload["source"] = build_event_source("join", request_id)
 
             await event_dispatcher.emit(
                 "combat.round_waiting",
@@ -228,7 +225,13 @@ async def handle(request: dict, world) -> dict:
                 character_filter=[character_id],
             )
 
+    await event_dispatcher.emit(
+        "status.snapshot",
+        status_payload,
+        character_filter=[character_id],
+    )
+
     # Note: We don't emit map.local here because the RTVI pipeline may not be
     # started yet. Clients should request the map explicitly after they're ready,
     # or rely on move events to trigger map updates.
-    return status_payload
+    return rpc_success()

@@ -44,6 +44,53 @@ def _build_world(character_id: str, sector: int, encounter):
 
 
 @pytest.mark.asyncio
+async def test_join_new_character_emits_status_snapshot(monkeypatch):
+    character_id = "rookie"
+    knowledge = _make_knowledge()
+    knowledge_manager = SimpleNamespace(
+        has_knowledge=MagicMock(return_value=False),
+        initialize_ship=MagicMock(),
+        load_knowledge=MagicMock(return_value=knowledge),
+        update_sector_visit=MagicMock(),
+        update_credits=MagicMock(),
+        get_current_sector=MagicMock(return_value=None),
+    )
+    world = SimpleNamespace(
+        characters={},
+        knowledge_manager=knowledge_manager,
+        universe_graph=SimpleNamespace(sector_count=2048),
+        garrisons=None,
+        combat_manager=None,
+    )
+
+    monkeypatch.setattr(
+        join, "sector_contents", AsyncMock(return_value={"port": None, "position": (0, 0)})
+    )
+    monkeypatch.setattr(
+        join, "build_status_payload", AsyncMock(return_value={"ok": True})
+    )
+    emit_mock = AsyncMock()
+    monkeypatch.setattr(join.event_dispatcher, "emit", emit_mock)
+
+    request = {"character_id": character_id, "request_id": "req-join"}
+
+    result = await join.handle(request, world)
+
+    assert result == {"success": True}
+    assert character_id in world.characters
+    emit_calls = emit_mock.await_args_list
+    assert len(emit_calls) == 1
+    event_call = emit_calls[0]
+    assert event_call.args[0] == "status.snapshot"
+    payload = event_call.args[1]
+    assert payload["ok"] is True
+    assert payload["source"]["method"] == "join"
+    assert payload["source"]["request_id"] == "req-join"
+    assert event_call.kwargs["character_filter"] == [character_id]
+    assert all(call.args[0] != "character.joined" for call in emit_calls)
+
+
+@pytest.mark.asyncio
 async def test_join_emits_combat_round_waiting(monkeypatch):
     character_id = "newbie"
     encounter = SimpleNamespace(
@@ -71,20 +118,30 @@ async def test_join_emits_combat_round_waiting(monkeypatch):
 
     result = await join.handle(request, world)
 
-    assert result == {"ok": True}
+    assert result == {"success": True}
 
     serialize_mock.assert_awaited_once_with(
         world, encounter, viewer_id=character_id
     )
 
-    emit_mock.assert_awaited_once()
-    event_args = emit_mock.await_args
-    assert event_args.args[0] == "combat.round_waiting"
-    payload = event_args.args[1]
-    assert payload["combat_id"] == "combat-123"
-    assert payload["source"]["method"] == "join"
-    assert payload["source"]["request_id"] == "req-join"
-    assert event_args.kwargs["character_filter"] == [character_id]
+    await_calls = emit_mock.await_args_list
+    assert len(await_calls) == 2
+
+    round_call = next(call for call in await_calls if call.args[0] == "combat.round_waiting")
+    round_payload = round_call.args[1]
+    assert round_payload["combat_id"] == "combat-123"
+    assert round_payload["source"]["method"] == "join"
+    assert round_payload["source"]["request_id"] == "req-join"
+    assert round_call.kwargs["character_filter"] == [character_id]
+
+    status_call = next(call for call in await_calls if call.args[0] == "status.snapshot")
+    status_payload = status_call.args[1]
+    assert status_payload["ok"] is True
+    assert status_payload["source"]["method"] == "join"
+    assert status_payload["source"]["request_id"] == "req-join"
+    assert status_call.kwargs["character_filter"] == [character_id]
+
+    assert all(call.args[0] != "character.joined" for call in await_calls)
 
 
 @pytest.mark.asyncio
@@ -111,5 +168,15 @@ async def test_join_no_combat_does_not_emit(monkeypatch):
 
     result = await join.handle(request, world)
 
-    assert result == {"ok": True}
-    emit_mock.assert_not_awaited()
+    assert result == {"success": True}
+
+    await_calls = emit_mock.await_args_list
+    assert len(await_calls) == 1
+
+    status_call = await_calls[0]
+    assert status_call.args[0] == "status.snapshot"
+    status_payload = status_call.args[1]
+    assert status_payload["ok"] is True
+    assert status_payload["source"]["method"] == "join"
+    assert status_payload["source"]["request_id"] == "req-join"
+    assert status_call.kwargs["character_filter"] == [character_id]

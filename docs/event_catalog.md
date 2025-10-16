@@ -688,9 +688,9 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 ## Status Events
 
 ### status.snapshot
-**When emitted:** When a player calls the `my_status` RPC to request their current status snapshot
+**When emitted:** When a player successfully calls the `my_status` or `join` RPC
 **Who receives it:** Only the requesting character (character_filter)
-**Source:** `/game-server/api/my_status.py`
+**Source:** `/game-server/api/my_status.py`, `/game-server/api/join.py`
 
 **Payload example:**
 ```json
@@ -737,7 +737,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 ```
 
 **Notes:**
-- Correlation metadata in `source` mirrors the originating `my_status` RPC frame so clients can reconcile queued actions.
+- Correlation metadata in `source` mirrors the originating RPC frame (`my_status` or `join`) so clients can reconcile queued actions.
 - Payload structure matches `status.update`; clients can treat both events interchangeably for state hydration.
 
 ### status.update
@@ -860,27 +860,11 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 }
 ```
 
-## Connection Events
-
-### character.joined
-**When emitted:** When a character joins the game for the first time in a session
-**Who receives it:** Broadcast to all connected clients (no character_filter)
-**Source:** `/game-server/api/join.py:77`
-
-**Payload example:**
-```json
-{
-  "character_id": "trader",
-  "sector": {"id": 0},
-  "timestamp": "2025-10-07T12:00:00.000Z"
-}
-```
-
 ## Event Filter Summary
 
 Most events use `character_filter` to target specific characters:
 
-- **Broadcast (no filter):** `character.joined`
+- **Broadcast (no filter):** _None (all current events target specific recipients)_
 - **Single character:** `movement.start`, `movement.complete`, `map.local`, `trade.executed`, `warp.purchase`, `status.update`
 - **Multiple specific characters:** `warp.transfer` (sender + receiver), `status.update` (after combat to all participants)
 - **Sector observers (excluding actor):** `character.moved` (observers in old/new sectors)
