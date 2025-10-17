@@ -95,7 +95,7 @@ async def test_move_emits_combat_round_waiting(monkeypatch):
     monkeypatch.setattr(
         api_utils,
         "build_status_payload",
-        AsyncMock(return_value={"status": "ok"}),
+        AsyncMock(side_effect=AssertionError("build_status_payload should not be called")),
     )
 
     request = {
@@ -106,7 +106,7 @@ async def test_move_emits_combat_round_waiting(monkeypatch):
 
     result = await move.handle(request, world)
 
-    assert result == {"status": "ok"}
+    assert result == {"success": True}
 
     serialize_mock.assert_awaited_once_with(world, encounter, viewer_id=character_id)
 
@@ -151,7 +151,7 @@ async def test_move_without_combat_does_not_emit(monkeypatch):
     monkeypatch.setattr(
         api_utils,
         "build_status_payload",
-        AsyncMock(return_value={"status": "ok"}),
+        AsyncMock(side_effect=AssertionError("build_status_payload should not be called")),
     )
 
     request = {
@@ -162,7 +162,7 @@ async def test_move_without_combat_does_not_emit(monkeypatch):
 
     result = await move.handle(request, world)
 
-    assert result == {"status": "ok"}
+    assert result == {"success": True}
     serialize_mock.assert_not_awaited()
     combat_calls = [
         call for call in emit_mock.await_args_list if call.args[0] == "combat.round_waiting"

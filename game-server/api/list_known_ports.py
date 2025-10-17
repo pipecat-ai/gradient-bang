@@ -2,27 +2,49 @@
 
 import logging
 from collections import deque
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+
+from fastapi import HTTPException
 
 from .utils import (
     sector_contents,
     rpc_success,
-    rpc_failure,
     build_event_source,
+    emit_error_event,
 )
 from rpc.events import event_dispatcher
 
 logger = logging.getLogger("gradient-bang.api.list_known_ports")
 
 
+async def _fail(
+    character_id: Optional[str],
+    request_id: str,
+    detail: str,
+    *,
+    status: int = 400,
+) -> None:
+    if character_id:
+        await emit_error_event(
+            event_dispatcher,
+            character_id,
+            "list_known_ports",
+            request_id,
+            detail,
+        )
+    raise HTTPException(status_code=status, detail=detail)
+
+
 async def handle(request: Dict[str, Any], world) -> Dict[str, Any]:
     """Find all known ports within range of a starting sector."""
-    if not world.universe_graph:
-        return rpc_failure("Game world not loaded")
-
+    request_id = request.get("request_id") or "missing-request-id"
     character_id = request.get("character_id")
+
+    if not world.universe_graph:
+        await _fail(character_id, request_id, "Game world not loaded", status=503)
+
     if not character_id:
-        return rpc_failure("Missing character_id")
+        await _fail(None, request_id, "Missing character_id")
 
     knowledge = world.knowledge_manager.load_knowledge(character_id)
 
@@ -38,11 +60,13 @@ async def handle(request: Dict[str, Any], world) -> Dict[str, Any]:
         try:
             from_sector = int(from_sector)
         except (TypeError, ValueError):
-            return rpc_failure("from_sector must be an integer")
+            await _fail(character_id, request_id, "from_sector must be an integer")
 
     if str(from_sector) not in knowledge.sectors_visited:
-        return rpc_failure(
-            f"Starting sector {from_sector} must be a visited sector"
+        await _fail(
+            character_id,
+            request_id,
+            f"Starting sector {from_sector} must be a visited sector",
         )
 
     max_hops = request.get("max_hops", 5)
@@ -55,15 +79,27 @@ async def handle(request: Dict[str, Any], world) -> Dict[str, Any]:
         if max_hops < 0 or max_hops > 10:
             raise ValueError
     except (TypeError, ValueError):
-        return rpc_failure("max_hops must be an integer between 0 and 10")
+        await _fail(
+            character_id,
+            request_id,
+            "max_hops must be an integer between 0 and 10",
+        )
 
     if trade_type and trade_type not in ("buy", "sell"):
-        return rpc_failure("trade_type must be 'buy' or 'sell'")
+        await _fail(character_id, request_id, "trade_type must be 'buy' or 'sell'")
 
     if trade_type and not commodity:
-        return rpc_failure("commodity required when trade_type is specified")
+        await _fail(
+            character_id,
+            request_id,
+            "commodity required when trade_type is specified",
+        )
     if commodity and not trade_type:
-        return rpc_failure("trade_type required when commodity is specified")
+        await _fail(
+            character_id,
+            request_id,
+            "trade_type required when commodity is specified",
+        )
 
     visited_sectors = set(int(k) for k in knowledge.sectors_visited.keys())
 
@@ -94,7 +130,11 @@ async def handle(request: Dict[str, Any], world) -> Dict[str, Any]:
                     port_matches = False
                 elif commodity and trade_type:
                     if commodity not in commodity_map:
-                        return rpc_failure(f"Unknown commodity: {commodity}")
+                        await _fail(
+                            character_id,
+                            request_id,
+                            f"Unknown commodity: {commodity}",
+                        )
                     pos = commodity_map[commodity]
                     code_char = port_code[pos] if port_code and len(port_code) > pos else None
                     if trade_type == "buy":

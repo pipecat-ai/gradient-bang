@@ -2,8 +2,8 @@
 """
 Status Subscription Demo
 
-Watches my_status push events over WebSocket and runs a TaskAgent with the
-provided prompt whenever a status update changes (ignores the first update).
+Watches status.snapshot events over WebSocket and runs a TaskAgent with the
+provided prompt whenever a status snapshot changes (ignores the first update).
 
 Usage:
   python status_subscription_demo.py <character_id> "<prompt>" \
@@ -12,9 +12,9 @@ Usage:
 Behavior:
   - Connects to the server (default WebSocket server on port 8001)
   - Joins the game as the character (if not already present)
-  - Subscribes to my_status events
-  - On the first status event: records baseline; does not run prompt
-  - On a subsequent different status: runs TaskAgent with the prompt
+  - Subscribes to status.snapshot events
+  - On the first snapshot event: records baseline; does not run prompt
+  - On a subsequent different snapshot: runs TaskAgent with the prompt
   - Continues running; if interrupted:
       - If no task running: exits
       - If a task is running: cancels it and keeps waiting for next change
@@ -68,13 +68,10 @@ async def run(
     running = True
 
     async with AsyncGameClient(base_url=server, character_id=character_id) as client:
-        # Ensure character exists and fetch initial map
-        logger.info(f"CONNECT server={server} transport=websocket")
-        status = await client.join(character_id)
-        logger.info(f"JOINED sector={status['sector']}")
+        status_queue = client.get_event_queue("status.snapshot")
 
-        # Subscribe to my_status events
-        @client.on("status.update")
+        # Subscribe to status and chat events before joining
+        @client.on("status.snapshot")
         async def on_status(event: dict):  # noqa: F401
             try:
                 await update_queue.put(event)
@@ -90,14 +87,25 @@ async def run(
                 # In case of shutdown
                 pass
 
-        # Initialize baseline from the join response so the first differing
-        # my_status event triggers a task (no need to consume an event just to
-        # establish the baseline).
+        # Ensure character exists and fetch initial state
+        logger.info(f"CONNECT server={server} transport=websocket")
+        join_ack = await client.join(character_id)
+        logger.info(f"JOIN ACK: {join_ack}")
+
+        # Initialize baseline from the first status snapshot emitted after join.
         try:
-            last_sig = json.dumps(normalize_status(status), sort_keys=True)
-            logger.info("STATUS base set from join; waiting for change...")
-        except Exception:
-            # If join status is malformed, fall back to first event handling
+            baseline_event = await asyncio.wait_for(status_queue.get(), timeout=5.0)
+            baseline_payload = baseline_event.get("payload", {})
+            last_sig = json.dumps(normalize_status(baseline_payload), sort_keys=True)
+            sector_id = None
+            if isinstance(baseline_payload, dict):
+                sector = baseline_payload.get("sector") or {}
+                if isinstance(sector, dict):
+                    sector_id = sector.get("id")
+            sector_text = f"; sector={sector_id}" if sector_id is not None else ""
+            logger.info(f"STATUS base set from first snapshot{sector_text}; waiting for change...")
+        except asyncio.TimeoutError:
+            logger.warning("No status snapshot received after join; waiting for first event...")
             last_sig = None
 
         # Event loop
@@ -120,7 +128,7 @@ async def run(
                     logger.info(f"CHAT {display}")
                     this_event_prompt = f"Received message:\n{display}\n\nTask:\n{prompt}"
 
-                if event_name == "status.update":
+                if event_name == "status.snapshot":
                     # Normalize status for comparison
                     normalized_status = normalize_status(payload)
                     sig = json.dumps(normalized_status, sort_keys=True)

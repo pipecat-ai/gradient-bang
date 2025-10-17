@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 
 from api import local_map_region
 
@@ -74,7 +75,9 @@ async def test_local_map_region_missing_character(monkeypatch):
         local_map_region, "event_dispatcher", SimpleNamespace(emit=mock_emit)
     )
 
-    result = await local_map_region.handle({}, world)
+    with pytest.raises(HTTPException) as exc:
+        await local_map_region.handle({}, world)
 
-    assert result == {"success": False, "error": "Missing character_id"}
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "Missing character_id"
     mock_emit.assert_not_awaited()

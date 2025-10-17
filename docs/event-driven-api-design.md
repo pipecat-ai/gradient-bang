@@ -52,6 +52,8 @@ This document describes a refactoring of the Gradient Bang game server API to el
 6. All endpoints become event-driven, including read-only operations
 7. **Exception:** Admin/test endpoints remain unchanged for convenience
 
+> **Implementation Note (2025-10-17):** The server now emits an `error` event and raises an `HTTPException` for validation failures instead of returning helper-based `rpc_failure` dictionaries. Any references to `rpc_failure` in the remainder of this document are historical; use the error-event + exception pattern illustrated in Ticket 1.2 instead.
+
 **Migration Approach:**
 Since all clients are internal to this repository, we can do a coordinated update without maintaining backward compatibility. The implementation follows this order:
 1. Server-side changes (Phases 1-4)
@@ -1135,21 +1137,6 @@ def rpc_success(data: dict | None = None) -> dict:
     return response
 
 
-def rpc_failure(error: str) -> dict:
-    """Return standardized failure response.
-
-    Args:
-        error: Human-readable error message
-
-    Returns:
-        Failure response dict
-    """
-    return {
-        "success": False,
-        "error": error
-    }
-
-
 def build_event_source(
     endpoint: str,
     request_id: str,
@@ -1178,29 +1165,24 @@ def test_rpc_success_minimal():
 def test_rpc_success_with_data():
     result = rpc_success({"combat_id": "test-123"})
     assert result == {"success": True, "combat_id": "test-123"}
-
-def test_rpc_failure():
-    result = rpc_failure("Invalid sector")
-    assert result == {"success": False, "error": "Invalid sector"}
 ```
 
 **Acceptance Criteria:**
 - [ ] `rpc_success()` returns `{"success": True}`
 - [ ] `rpc_success({"key": "val"})` includes additional data
-- [ ] `rpc_failure("msg")` returns `{"success": False, "error": "msg"}`
 - [ ] Unit tests pass
 
 ---
 
 ### Ticket 1.2: Add Error Event Support
 
-**Objective:** Enable optional error events for client convenience.
+**Objective:** Emit correlated error events whenever validation fails so clients can react to errors without inspecting RPC result payloads.
 
 **Architecture Notes:**
 - Error events are sent to the requesting character only
 - Include a `source` object `{type: "rpc", method, request_id, timestamp}` plus the human-readable error message
 - Keep the legacy `endpoint` string for convenience, but log correlation should primarily use the `source` block
-- This is optional—clients can rely on RPC response errors for simpler implementation
+- Handlers should emit the error event and then raise an `HTTPException` so the WebSocket transport returns an `ok: false` frame
 
 **Sample Code:**
 
@@ -1252,7 +1234,7 @@ try:
             request_id=request["request_id"],
             error=error_msg,
         )
-        return rpc_failure(error_msg)
+        raise HTTPException(status_code=400, detail=error_msg)
 except Exception as e:
     error_msg = str(e)
     await emit_error_event(
@@ -1262,7 +1244,7 @@ except Exception as e:
         request_id=request["request_id"],
         error=error_msg,
     )
-    return rpc_failure(error_msg)
+    raise HTTPException(status_code=500, detail=error_msg)
 ```
 
 **Testing:**
@@ -2561,8 +2543,8 @@ class AsyncGameClient:
         self.character_id = character_id
         self._ws = None
         self._reader_task = None
-        self._event_queues: dict[str, asyncio.Queue] = defaultdict(asyncio.Queue)
-        self._handlers: dict[str, list[Callable[[dict], Awaitable[None]]]] = defaultdict(list)
+        self._event_queues: dict[str, asyncio.Queue] = {}
+        self._handlers: dict[str, list[Callable[[dict], Awaitable[None]]]] = {}
 
     async def connect(self) -> None:
         ws_url = self.base_url.replace("http://", "ws://").replace("https://", "wss://")
@@ -2572,23 +2554,20 @@ class AsyncGameClient:
     async def _reader_loop(self) -> None:
         async for raw in self._ws:
             message = json.loads(raw)
-            if message.get("frame_type") == "event":
+            frame_type = message.get("frame_type")
+            if frame_type == "event":
                 event = message["event"]
                 payload = message.get("payload", {})
-                payload = self._apply_summary(event, payload)
-                await self._event_queues[event].put(payload)
-                await self._dispatch(event, payload)
-            elif message.get("frame_type") == "rpc_response":
+                await self._process_event(event, payload)
+            elif frame_type in {"rpc", "rpc_response"}:
                 await self._handle_rpc_response(message)
 
     async def my_status(self) -> dict[str, bool]:
-        response = await self._send_rpc("my_status", {"character_id": self.character_id})
-        if not response.get("success"):
-            raise RPCError("my_status", response.get("status", 500), response["error"])
-        return response  # callers observe subsequent status.snapshot event separately
+        # Returns {"success": True}; callers observe status.snapshot events for data.
+        return await self._send_rpc("my_status", {"character_id": self.character_id})
 
     def get_event_queue(self, event_name: str) -> asyncio.Queue:
-        return self._event_queues[event_name]
+        return self._event_queues.setdefault(event_name, asyncio.Queue())
 ```
 
 **Testing:**
@@ -2601,8 +2580,8 @@ async def test_my_status_triggers_event(test_client):
     ack = await test_client.my_status()
     assert ack == {"success": True}
 
-    payload = await asyncio.wait_for(queue.get(), timeout=1)
-    assert payload["player"]["id"] == test_client.character_id
+    event = await asyncio.wait_for(queue.get(), timeout=1)
+    assert event["payload"]["player"]["id"] == test_client.character_id
 ```
 
 **Acceptance Criteria:**

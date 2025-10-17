@@ -122,14 +122,31 @@ class StubGameClient:
     def __init__(self, character_id: str):
         self.character_id = character_id
         self.calls: List[str] = []
+        self._handlers: Dict[str, List[Any]] = {}
+        self._initial_event_emitted = False
+
+    def pause_event_delivery(self) -> None:
+        self.calls.append("pause_event_delivery")
+
+    async def resume_event_delivery(self) -> None:
+        self.calls.append("resume_event_delivery")
+        if not self._initial_event_emitted:
+            event = {"event_name": "status.snapshot", "summary": "Initial status"}
+            for handler in self._handlers.get("status.snapshot", []):
+                await handler(event)
+            self._initial_event_emitted = True
 
     async def my_status(self, *, character_id: str):
         self.calls.append(f"my_status:{character_id}")
+        event = {"event_name": "status.snapshot", "summary": "Status nominal"}
+        for handler in self._handlers.get("status.snapshot", []):
+            await handler(event)
         return {"summary": "Status nominal"}
 
     def on(self, event_name: str):
         def register(callback):
             self.calls.append(f"on:{event_name}")
+            self._handlers.setdefault(event_name, []).append(callback)
             return callback
 
         return register

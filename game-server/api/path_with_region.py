@@ -2,35 +2,56 @@
 
 import logging
 from collections import deque
-from typing import Dict, Any, Set
+from typing import Dict, Any, Optional, Set
+
+from fastapi import HTTPException
 
 from .utils import (
     sector_contents,
     rpc_success,
-    rpc_failure,
     build_event_source,
+    emit_error_event,
 )
 from rpc.events import event_dispatcher
 
 logger = logging.getLogger("gradient-bang.api.path_with_region")
 
 
+async def _fail(
+    character_id: Optional[str],
+    request_id: str,
+    detail: str,
+    *,
+    status: int = 400,
+) -> None:
+    if character_id:
+        await emit_error_event(
+            event_dispatcher,
+            character_id,
+            "path_with_region",
+            request_id,
+            detail,
+        )
+    raise HTTPException(status_code=status, detail=detail)
+
+
 async def handle(request: Dict[str, Any], world) -> Dict[str, Any]:
     """Return path to destination plus context around each path node."""
-    if not world.universe_graph:
-        return rpc_failure("Game world not loaded")
-
+    request_id = request.get("request_id") or "missing-request-id"
     character_id = request.get("character_id")
     to_sector = request.get("to_sector")
 
+    if not world.universe_graph:
+        await _fail(character_id, request_id, "Game world not loaded", status=503)
+
     if not character_id:
-        return rpc_failure("Missing character_id")
+        await _fail(None, request_id, "Missing character_id")
     if to_sector is None:
-        return rpc_failure("Missing to_sector")
+        await _fail(character_id, request_id, "Missing to_sector")
 
     character = world.characters.get(character_id)
     if not character:
-        return rpc_failure(f"Character not found: {character_id}")
+        await _fail(character_id, request_id, f"Character not found: {character_id}", status=404)
 
     from_sector = character.sector
 
@@ -39,10 +60,10 @@ async def handle(request: Dict[str, Any], world) -> Dict[str, Any]:
         if to_sector < 0:
             raise ValueError
     except (TypeError, ValueError):
-        return rpc_failure("to_sector must be a non-negative integer")
+        await _fail(character_id, request_id, "to_sector must be a non-negative integer")
 
     if to_sector >= world.universe_graph.sector_count:
-        return rpc_failure(f"Invalid to_sector: {to_sector}")
+        await _fail(character_id, request_id, f"Invalid to_sector: {to_sector}")
 
     region_hops = request.get("region_hops", 1)
     max_sectors = request.get("max_sectors", 200)
@@ -52,19 +73,21 @@ async def handle(request: Dict[str, Any], world) -> Dict[str, Any]:
         if region_hops < 0:
             raise ValueError
     except (TypeError, ValueError):
-        return rpc_failure("region_hops must be a non-negative integer")
+        await _fail(character_id, request_id, "region_hops must be a non-negative integer")
 
     try:
         max_sectors = int(max_sectors)
         if max_sectors <= 0:
             raise ValueError
     except (TypeError, ValueError):
-        return rpc_failure("max_sectors must be a positive integer")
+        await _fail(character_id, request_id, "max_sectors must be a positive integer")
 
     path = world.universe_graph.find_path(from_sector, to_sector)
     if path is None:
-        return rpc_failure(
-            f"No path found from sector {from_sector} to sector {to_sector}"
+        await _fail(
+            character_id,
+            request_id,
+            f"No path found from sector {from_sector} to sector {to_sector}",
         )
 
     knowledge = world.knowledge_manager.load_knowledge(character_id)
@@ -168,7 +191,6 @@ async def handle(request: Dict[str, Any], world) -> Dict[str, Any]:
         "unknown_sectors": unknown_sectors,
     }
 
-    request_id = request.get("request_id") or "missing-request-id"
     payload["source"] = build_event_source("path_with_region", request_id)
 
     await event_dispatcher.emit(

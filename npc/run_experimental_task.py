@@ -87,8 +87,9 @@ async def run_task(args: argparse.Namespace) -> int:
         base_url=args.server, character_id=args.character_id
     ) as game_client:
         logger.info(f"CONNECT server={args.server}")
+        game_client.pause_event_delivery()
         status = await game_client.join(args.character_id)
-        logger.info(f"JOINED {status.get('summary')}")
+        logger.info("JOINED")
 
         agent = ExperimentalTaskAgent(
             config=LLMConfig(api_key=api_key, model=args.model),
@@ -96,22 +97,16 @@ async def run_task(args: argparse.Namespace) -> int:
             character_id=args.character_id,
         )
 
-        initial_state = {
-            "status": status,
-            "time": datetime.now(timezone.utc).isoformat(),
-        }
-
         logger.info(f'TASK_START task="{args.task}"')
         success = await agent.run_task(
             task=args.task,
-            initial_state=initial_state,
             max_iterations=args.max_iterations,
         )
 
         if success:
             logger.info("TASK_COMPLETE status=success")
         else:
-            logger.warning(f"TASK_INCOMPLETE")
+            logger.warning("TASK_INCOMPLETE")
 
         final_status = await game_client.my_status(args.character_id)
         logger.info(f"FINAL_STATUS {final_status.get('summary')}")

@@ -1,19 +1,40 @@
 from datetime import datetime, timezone
+from typing import Optional
+
 from fastapi import HTTPException
 
 from .utils import (
     build_status_payload,
     rpc_success,
-    rpc_failure,
     build_event_source,
+    emit_error_event,
 )
 from rpc.events import event_dispatcher
+
+
+async def _fail(
+    character_id: Optional[str],
+    request_id: str,
+    detail: str,
+    *,
+    status: int = 400,
+) -> None:
+    if character_id:
+        await emit_error_event(
+            event_dispatcher,
+            character_id,
+            "transfer_warp_power",
+            request_id,
+            detail,
+        )
+    raise HTTPException(status_code=status, detail=detail)
 
 
 async def handle(request: dict, world) -> dict:
     from_character_id = request.get("from_character_id")
     to_character_id = request.get("to_character_id")
     units = request.get("units")
+    request_id = request.get("request_id") or "missing-request-id"
 
     if not all([from_character_id, to_character_id, units]):
         raise HTTPException(status_code=400, detail="Missing required parameters")
@@ -43,8 +64,10 @@ async def handle(request: dict, world) -> dict:
     to_knowledge = world.knowledge_manager.load_knowledge(to_character_id)
 
     if from_knowledge.ship_config.current_warp_power < units:
-        return rpc_failure(
-            f"Insufficient warp power. {from_character_id} only has {from_knowledge.ship_config.current_warp_power} units"
+        await _fail(
+            from_character_id,
+            request_id,
+            f"Insufficient warp power. {from_character_id} only has {from_knowledge.ship_config.current_warp_power} units",
         )
 
     # Capacity limit for receiver
@@ -53,7 +76,11 @@ async def handle(request: dict, world) -> dict:
     receiver_capacity = to_ship_stats.warp_power_capacity - to_knowledge.ship_config.current_warp_power
     units_to_transfer = min(units, receiver_capacity)
     if units_to_transfer <= 0:
-        return rpc_failure(f"{to_character_id}'s warp power is already at maximum")
+        await _fail(
+            from_character_id,
+            request_id,
+            f"{to_character_id}'s warp power is already at maximum",
+        )
 
     from_knowledge.ship_config.current_warp_power -= units_to_transfer
     to_knowledge.ship_config.current_warp_power += units_to_transfer
@@ -61,8 +88,6 @@ async def handle(request: dict, world) -> dict:
     world.knowledge_manager.save_knowledge(to_knowledge)
 
     timestamp = datetime.now(timezone.utc).isoformat()
-    request_id = request.get("request_id") or "missing-request-id"
-
     await event_dispatcher.emit(
         "warp.transfer",
         {

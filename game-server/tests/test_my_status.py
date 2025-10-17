@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 
 from api import my_status
 
@@ -50,10 +51,14 @@ async def test_my_status_missing_character(monkeypatch):
         my_status, "event_dispatcher", SimpleNamespace(emit=mock_emit)
     )
 
-    result = await my_status.handle({"character_id": "ghost"}, world)
+    with pytest.raises(HTTPException) as exc:
+        await my_status.handle({"character_id": "ghost", "request_id": "req-fail"}, world)
 
-    assert result == {
-        "success": False,
-        "error": "Character 'ghost' not found",
-    }
-    mock_emit.assert_not_awaited()
+    assert exc.value.status_code == 404
+    assert exc.value.detail == "Character 'ghost' not found"
+
+    mock_emit.assert_awaited_once()
+    event_name, payload = mock_emit.await_args.args[:2]
+    assert event_name == "error"
+    assert payload["endpoint"] == "my_status"
+    assert payload["error"] == "Character 'ghost' not found"

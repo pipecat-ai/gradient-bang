@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 
 from api import plot_course
 
@@ -65,13 +66,16 @@ async def test_plot_course_missing_character_returns_failure(monkeypatch):
         plot_course, "event_dispatcher", SimpleNamespace(emit=mock_emit)
     )
 
-    result = await plot_course.handle(
-        {"character_id": "ghost", "to_sector": 1},
-        world,
-    )
+    with pytest.raises(HTTPException) as exc:
+        await plot_course.handle(
+            {"character_id": "ghost", "to_sector": 1, "request_id": "req-fail"},
+            world,
+        )
 
-    assert result == {
-        "success": False,
-        "error": "Character not found: ghost",
-    }
-    mock_emit.assert_not_awaited()
+    assert exc.value.status_code == 404
+    assert exc.value.detail == "Character not found: ghost"
+    mock_emit.assert_awaited_once()
+    event_name, payload = mock_emit.await_args.args[:2]
+    assert event_name == "error"
+    assert payload["endpoint"] == "plot_course"
+    assert payload["error"] == "Character not found: ghost"

@@ -28,14 +28,6 @@ def rpc_success(data: Dict[str, Any] | None = None) -> Dict[str, Any]:
     return response
 
 
-def rpc_failure(error: str) -> Dict[str, Any]:
-    """Return standardized failure response for RPC handlers."""
-    return {
-        "success": False,
-        "error": error,
-    }
-
-
 def build_event_source(
     endpoint: str,
     request_id: str,

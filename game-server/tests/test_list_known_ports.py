@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 
 from api import list_known_ports
 
@@ -86,14 +87,22 @@ async def test_list_known_ports_unknown_commodity(monkeypatch):
         list_known_ports, "event_dispatcher", SimpleNamespace(emit=mock_emit)
     )
 
-    result = await list_known_ports.handle(
-        {
-            "character_id": "char-1",
-            "commodity": "dark_matter",
-            "trade_type": "buy",
-        },
-        world,
-    )
+    with pytest.raises(HTTPException) as exc:
+        await list_known_ports.handle(
+            {
+                "character_id": "char-1",
+                "commodity": "dark_matter",
+                "trade_type": "buy",
+                "request_id": "req-fail",
+            },
+            world,
+        )
 
-    assert result == {"success": False, "error": "Unknown commodity: dark_matter"}
-    mock_emit.assert_not_awaited()
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "Unknown commodity: dark_matter"
+
+    mock_emit.assert_awaited_once()
+    event_name, payload = mock_emit.await_args.args[:2]
+    assert event_name == "error"
+    assert payload["endpoint"] == "list_known_ports"
+    assert payload["error"] == "Unknown commodity: dark_matter"

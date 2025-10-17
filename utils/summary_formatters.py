@@ -19,13 +19,15 @@ def _format_relative_time(timestamp_str: str) -> str:
     """
     try:
         # Parse the timestamp (handle both with and without timezone)
-        if timestamp_str.endswith('Z'):
-            timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-        elif '+' in timestamp_str or timestamp_str.count('-') > 2:
+        if timestamp_str.endswith("Z"):
+            timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+        elif "+" in timestamp_str or timestamp_str.count("-") > 2:
             timestamp = datetime.fromisoformat(timestamp_str)
         else:
             # Assume UTC if no timezone
-            timestamp = datetime.fromisoformat(timestamp_str).replace(tzinfo=timezone.utc)
+            timestamp = datetime.fromisoformat(timestamp_str).replace(
+                tzinfo=timezone.utc
+            )
 
         # Get current time in UTC
         now = datetime.now(timezone.utc)
@@ -69,7 +71,7 @@ def _format_port(port: Dict[str, Any]) -> List[str]:
     if not port:
         return []
 
-    code = port.get('code', '???')
+    code = port.get("code", "???")
     lines = [f"Port: {code}"]
     prices = port.get("prices", {})
     stock = port.get("stock", {})
@@ -78,7 +80,7 @@ def _format_port(port: Dict[str, Any]) -> List[str]:
     commodities = [
         ("quantum_foam", "QF", 0),
         ("retro_organics", "RO", 1),
-        ("neuro_symbolics", "NS", 2)
+        ("neuro_symbolics", "NS", 2),
     ]
 
     for commodity, abbrev, idx in commodities:
@@ -89,7 +91,7 @@ def _format_port(port: Dict[str, Any]) -> List[str]:
         # Determine if port buys or sells based on code letter
         # B = port buys, S = port sells
         if idx < len(code):
-            trade_type = "buying" if code[idx] == 'B' else "selling"
+            trade_type = "buying" if code[idx] == "B" else "selling"
         else:
             trade_type = "unknown"
 
@@ -184,7 +186,9 @@ def _status_summary(result: Dict[str, Any], first_line: str) -> str:
     shields = ship.get("shields", 0)
     shields_max = ship.get("max_shields", 0)
     fighters = ship.get("fighters", 0)
-    lines.append(f"Warp: {warp}/{warp_max}. Shields: {shields}/{shields_max}. Fighters: {fighters}.")
+    lines.append(
+        f"Warp: {warp}/{warp_max}. Shields: {shields}/{shields_max}. Fighters: {fighters}."
+    )
 
     # Port
     port = sector.get("port")
@@ -220,7 +224,7 @@ def move_summary(result: Dict[str, Any]) -> str:
         Multi-line human-readable summary string
     """
     sector_id = result.get("sector", {}).get("id", "unknown")
-    return _status_summary(result, f"Moved to sector {sector_id}.")
+    return _status_summary(result, f"Now in sector {sector_id}.")
 
 
 def join_summary(result: Dict[str, Any]) -> str:
@@ -266,7 +270,9 @@ def list_known_ports_summary(result: Dict[str, Any]) -> str:
     if not ports:
         return f"No ports found from sector {from_sector}."
 
-    lines = [f"Found {total_found} port{'s' if total_found != 1 else ''} from sector {from_sector}:"]
+    lines = [
+        f"Found {total_found} port{'s' if total_found != 1 else ''} from sector {from_sector}:"
+    ]
 
     for port_info in ports:
         sector_id = port_info.get("sector_id", "?")
@@ -303,7 +309,7 @@ def movement_start_summary(event: Dict[str, Any]) -> str:
     return f"Entering hyperspace to sector {destination} (ETA: {eta_str})."
 
 
-def map_local_summary(result: Dict[str, Any]) -> str:
+def map_local_summary(result: Dict[str, Any], current_sector: Optional[int]) -> str:
     """Summarize map.local events and tool responses."""
 
     center = result.get("center_sector", "unknown")
@@ -343,6 +349,12 @@ def map_local_summary(result: Dict[str, Any]) -> str:
         if entries:
             lines.append("Nearest unvisited: " + ", ".join(entries) + ".")
 
+    if isinstance(current_sector, (int, float)):
+        sector_display = int(current_sector)
+    else:
+        sector_display = "unknown"
+    lines.append(f"We are currently in sector {sector_display}.")
+
     return "\n".join(lines)
 
 
@@ -353,8 +365,6 @@ def trade_executed_summary(event: Dict[str, Any]) -> str:
     ship = event.get("ship", {}) if isinstance(event, dict) else {}
     trade = event.get("trade", {}) if isinstance(event, dict) else {}
 
-    name = player.get("name", "Unknown")
-
     trade_type = trade.get("trade_type")
     commodity = trade.get("commodity")
     units = trade.get("units")
@@ -363,7 +373,7 @@ def trade_executed_summary(event: Dict[str, Any]) -> str:
     new_credits = trade.get("new_credits")
     new_cargo = trade.get("new_cargo")
 
-    pieces: List[str] = [f"Trade executed for {name}."]
+    pieces: List[str] = ["Trade executed."]
 
     credits_value = (
         new_credits
@@ -374,7 +384,13 @@ def trade_executed_summary(event: Dict[str, Any]) -> str:
         pieces.append(f"Credits: {credits_value}.")
 
     if isinstance(units, (int, float)) and isinstance(commodity, str):
-        action = "Bought" if trade_type == "buy" else "Sold" if trade_type == "sell" else "Traded"
+        action = (
+            "Bought"
+            if trade_type == "buy"
+            else "Sold"
+            if trade_type == "sell"
+            else "Traded"
+        )
         phrase = f"{action} {int(units)} {commodity.replace('_', ' ')}"
         price_bits: List[str] = []
         if isinstance(price_per_unit, (int, float)):

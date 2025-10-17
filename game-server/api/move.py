@@ -11,6 +11,7 @@ from .utils import (
     ship_self,
     build_local_map_region,
     build_event_source,
+    rpc_success,
 )
 from ships import ShipType, get_ship_stats, ShipStats
 from rpc.events import event_dispatcher
@@ -306,9 +307,8 @@ async def handle(request: dict, world) -> dict:
                 character_filter=arriving_observers,
             )
 
-        # Return full status payload (same as movement.complete event)
-        from .utils import build_status_payload
-        return await build_status_payload(world, character_id)
+        # Return minimal RPC acknowledgment; movement.complete carries status payload
+        return rpc_success()
     finally:
         # Always clear hyperspace flag, even if move fails
         if character_id in world.characters:

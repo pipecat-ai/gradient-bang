@@ -157,7 +157,41 @@ You should approach each task methodically:
   - If the completion criteria are met, call the finished tool to complete the task
   - If it appears the plan is not working as intended, call the finished tool to complete the task and explain the reason.
 
-## Example: Moving Between Sectors
+## Event-drive State Management
+
+All tool calls return immediately with a simple response: "Executed."
+
+The server will process the request and send events to the client to update the game state.
+
+The current game state is encapsulated in the event payload.
+
+Use the information in the event sequence to understand the result of the tool call and plan your next action.
+
+RELY STRICTLY ON EVENT-DRIVEN UPDATES TO DETERMINE IF AN ACTION IS COMPLETE.
+
+### Tool example: move
+
+Tool call: move(to_sector=507)
+Tool response: "Executed."
+Event 1: <event name=movement.start>\nEntering hyperspace to sector 507 (ETA: 2.0s).\n</event>'}
+Event 2: <event name=movement.complete>\nNow in sector 507.\nAdjacent sectors: [400, 975, 1182, 1390]\nCredits: 4330. Cargo: 0 QF | 0 RO | 0 NS. Empty holds: 30.\nWarp: 215685/300. Shields: 150/150. Fighters: 300.\nPort: SBS\n  - QF selling 430 units at 25\n  - RO buying 300 units at 12\n  - NS selling 700 units at 38\nGarrison: None\n</event>
+Event 3: <event name=map.local>\nLocal map around sector 507: 7/10 visited, 3 unvisited.\nNearest unvisited: 975 (1 hops), 1182 (1 hops), 1401 (4 hops).\nWe are currently in sector 507.\n</event>
+
+The move to sector 507 successfully completed. You are now in sector 507. You know this because the movement.complete event contains the information "Now in sector 507." UPDATE YOUR CURRENT SECTOR TO 507, based on the information in the movement.complete event. Proceed to the next step in the task. For example, for a multi-move task, you have completed the move to 507 so you can now move to the next sector on your path. IF YOU TRY AGAIN TO MOVE TO SECTOR 507, YOU WILL GET AN ERROR, BECAUSE YOU ARE ALREADY IN SECTOR 507.
+
+
+IMPORTANT NOTE: The move tool is for moving to an adjacent sector different from the sector you are currently in. Consider the sector you are currently in before making a move.
+
+### Tool example: trade
+
+Tool call: trade(port="927", commodity="quantum_foam", quantity=30)
+Tool response: "Executed."
+Event 1: <event name=trade.executed>\nTrade executed. Credits: 2770. Sold 30 quantum foam (@ 31 each, total 930). Cargo: 0 QF | 0 RO | 0 NS. Fighters: 300.\n</event>'
+Event 2: <event name=port.update>\nPort update at sector 927 (BBB): QF 390@30, RO 330@12, NS 300@49.\n</event>'
+
+The trade completed successfully. You know this because the trade.executed event contains the information "Trade executed." The trade.executed event gives you your new credits and cargo state. The port.update event gives you the updated port information. UPDATE YOUR CURRENT PORT AND CARGO based on the information in the port.update event. Proceed to the next step in the task.
+
+## Task example: Moving Between Sectors
 
 If asked to "Move from sector 0 to sector 10", you would:
 
@@ -169,7 +203,7 @@ If asked to "Move from sector 0 to sector 10", you would:
 6. Continue moving one sector at a time along the path. Use the move tool.
 7. When you have arrived at the destination sector, call the finished tool to complete the task.
 
-## Example: Move to a sector and buy a commodity
+## Task example: Move to a sector and buy a commodity
 
 If asked to "Move to sector 10 and buy 100 quantum_foam", you would:
 
@@ -179,7 +213,7 @@ If asked to "Move to sector 10 and buy 100 quantum_foam", you would:
 4. If you cannot execute the trade for any reason, call the finished tool and explain the reason.
 5. Call the finished tool to complete the task with a short message about what you accomplished.
 
-## Map Knowledge and Exploration
+## Task example: Map Knowledge and Exploration
 
 As you explore the universe, you automatically build up map knowledge:
 - Every sector you visit is remembered
@@ -199,43 +233,38 @@ Remember:
 
 To check where you are:
 - Use: my_status()
-- Returns: Your current sector and status
+- Events: status.snapshot
 
 To find a path:
 - Use: plot_course(to_sector=100)
-- Returns: List of sectors forming the shortest path
+- Events: course.plot
 - Note: plot_course will only plot a course from your current sector to the destination sector.
 
 To move one sector:
 - Use: move(to_sector=5)
-- Returns: Your new position after moving and sector contents of new sector
+- Events: movement.start, movement.complete, map.local
 - Note: Sector 5 must be adjacent to your current sector!
 
 To query local map area:
 - Use: local_map_region()
-- Returns: All known sectors around your current location with full details (ports, adjacents, positions)
+- Events: map.local
 - Use: local_map_region(center_sector=50, max_hops=5, max_sectors=100)
-- Returns: Known sectors within 5 hops of sector 50 (up to 100 sectors max)
+- Events: map.local
 
 To list known ports within a map area:
 - Use: list_known_ports()
-- Returns: All known ports within default range (5 hops) from current sector
-- Use: list_known_ports(max_hops=3, port_type="BBB")
-- Returns: All BBB ports within 3 hops
+- Events: ports.list
+- Use: list_known_ports(max_hops=10, port_type="BBB")
+- Events: ports.list
 - Use: list_known_ports(commodity="neuro_symbolics", trade_type="buy")
-- Returns: Ports where you can buy neuro_symbolics (ports that sell neuro_symbolics)
+- Events: ports.list
 - Use: list_known_ports(commodity="quantum_foam", trade_type="sell")
-- Returns: Ports where you can sell quantum_foam (ports that buy quantum_foam)
-
-To get path with regional context:
-- Use: path_with_region(to_sector=100)
-- Returns: Path to sector 100 plus known sectors around each path node for route visualization
-- Use: path_with_region(to_sector=100, region_hops=2, max_sectors=150)
-- Returns: Path with 2 hops around each path node (up to 150 sectors total)
+- Events: ports.list
 
 To complete a task:
 - Use: finished(message="Successfully reached sector 10")
 - This ends the current task loop
+
 """
 
 #
@@ -264,7 +293,7 @@ def format_tool_result(tool_name: str, result: dict) -> str:
         }{'...' if len(path) > 5 else ''}"
 
     elif tool_name == "move":
-        return f"🚀 Moved to sector {result.get('new_sector', 'unknown')}"
+        return f"🚀 Now in sector {result.get('new_sector', 'unknown')}"
 
     elif tool_name == "my_status":
         return f"📊 Current position: Sector {result.get('current_sector', 'unknown')}"

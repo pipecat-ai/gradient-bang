@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 
 from api import recharge_warp_power, transfer_warp_power
 
@@ -109,19 +110,25 @@ async def test_recharge_warp_power_returns_failure_when_full(monkeypatch):
         recharge_warp_power, "event_dispatcher", SimpleNamespace(emit=mock_emit)
     )
 
-    result = await recharge_warp_power.handle(
-        {
-            "character_id": character_id,
-            "units": 10,
-        },
-        world,
-    )
+    with pytest.raises(HTTPException) as exc:
+        await recharge_warp_power.handle(
+            {
+                "character_id": character_id,
+                "units": 10,
+                "request_id": "req-max",
+            },
+            world,
+        )
 
-    assert result == {
-        "success": False,
-        "error": "Warp power is already at maximum",
-    }
-    assert all(call.args[0] != "warp.purchase" for call in mock_emit.await_args_list)
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "Warp power is already at maximum"
+
+    # The helper should emit an error event before raising
+    mock_emit.assert_awaited_once()
+    event_name, payload = mock_emit.await_args.args[:2]
+    assert event_name == "error"
+    assert payload["endpoint"] == "recharge_warp_power"
+    assert payload["error"] == "Warp power is already at maximum"
 
 
 @pytest.mark.asyncio
@@ -213,17 +220,22 @@ async def test_transfer_warp_power_returns_failure_for_capacity(monkeypatch):
         transfer_warp_power, "event_dispatcher", SimpleNamespace(emit=mock_emit)
     )
 
-    result = await transfer_warp_power.handle(
-        {
-            "from_character_id": sender,
-            "to_character_id": receiver,
-            "units": 20,
-        },
-        world,
-    )
+    with pytest.raises(HTTPException) as exc:
+        await transfer_warp_power.handle(
+            {
+                "from_character_id": sender,
+                "to_character_id": receiver,
+                "units": 20,
+                "request_id": "req-cap",
+            },
+            world,
+        )
 
-    assert result == {
-        "success": False,
-        "error": "trader_b's warp power is already at maximum",
-    }
-    assert all(call.args[0] != "warp.transfer" for call in mock_emit.await_args_list)
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "trader_b's warp power is already at maximum"
+
+    mock_emit.assert_awaited_once()
+    event_name, payload = mock_emit.await_args.args[:2]
+    assert event_name == "error"
+    assert payload["endpoint"] == "transfer_warp_power"
+    assert payload["error"] == "trader_b's warp power is already at maximum"

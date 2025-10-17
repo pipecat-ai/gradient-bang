@@ -24,7 +24,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 ```
 
 **Notes:**
-- Error events are optional; handlers typically return `rpc_failure` alongside the event.
+- Handlers raise `HTTPException` and emit this event before the RPC response is returned, so clients receive both the `error` event and an `ok: false` frame.
 - The `source.timestamp` field is generated when the event is emitted and uses UTC ISO-8601 format.
 
 ## Combat Events

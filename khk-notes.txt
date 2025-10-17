@@ -1,24 +1,21 @@
-Answering Open Questions
 
-1. **Event Ordering:** Should we guarantee order of events within a single operation? (Recommendation: Yes, using await on each emit)
+Change summary lines
+  - trade.executed: Trade executed for <character name>. -> Trade executed.
+  - movement.complete: Moved to sector 1234. -> Now in sector 1234.
 
-Yes to recommendation.
+Create unique tool call IDs and add them to the event payload sent to the player who made the rpc call, and to the xml of the event summaries.
 
-2. **Event Acknowledgment:** Should clients acknowledge events? (Recommendation: No, keep it simple)
+Example:
+  <event name="movement.complete" tool_call_id="1234567890">...</event>
 
-Agree. No ack.
 
-3. **Event Replay:** Should clients be able to request missed events after reconnection? (Recommendation: Not in initial implementation, but design for future addition)
+----
 
-No replay.
+Remove fighters field from trade.executed event. Maybe change to Current cargo?
 
-4. **Rate Limiting:** Should events count towards rate limits? (Recommendation: No, only RPC requests)
+Event 1: <event name=trade.executed>\nTrade executed for John 34. Credits: 2770. Sold 30 quantum foam (@ 31 each, total 930). Cargo: 0 QF | 0 RO | 0 NS. Fighters: 300.\n</event>'
 
-No event rate limit. We only rate limit RPC requests.
 
-5. **Batching:** Should multiple events from one operation be batched? (Recommendation: No, send individually for simplicity)
-
-No. Send individually for simplicity.
 
 
 ----
@@ -309,6 +306,8 @@ Example of not hard-coding things:
   - LLM just "knows" what happened based on the event sequence. You don't hard-code it in the game logic that the game needs to "tell" the player that the other player beat them to it.
 
 How to avoid sending lots of data to the conversation LLM. my_map() tool as an example.
+
+It's a lot harder to get an LLM to handle event-driven metadata reliably than to handle information in tool responses reliably. OOD.
 
 
 == sunday ==
