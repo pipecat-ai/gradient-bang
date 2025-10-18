@@ -1,4 +1,59 @@
 
+
+• What Changed
+
+  - Instrumented utils/experimental_pipecat_agent.py so error events can be trapped during a run: when
+    STOP_ON_ERROR_EVENT=1 is set we log the offending payload to logs/error_events.jsonl, cancel the active pipeline,
+    and raise immediately.
+  - Hooked GoogleLLMService._stream_content (in the venv) to pickle the exact generate_content_stream arguments—
+    raw contents, the constructed GenerateContentConfig, the derived generation_params, and tool schema—into logs/
+    google_llm_service_request.pkl on every call.
+  - Reworked scripts/replay_gemini_invocation.py to mirror Pipecat’s requests precisely: it now shares a
+    helper for dumping the replay payload in the same shape, supports --pickle [path] (defaulting to logs/
+    google_llm_service_request.pkl), reconstructs Content objects and configs verbatim, and exposes the tool schema/
+    tool_config we feed Gemini. It also prints function calls even when Gemini omits content.parts.
+  - Added scripts/replay_gemini_service.py to route a captured invocation back through
+    GoogleLLMService._stream_content, producing the same stream output without the rest of the pipeline.
+
+  How to Reproduce the Bug Now
+
+  1. cd /home/khkramer/src/gradient-bang
+  2. . .env && export GOOGLE_API_KEY="$GOOGLE_API_KEY"
+  3. export STOP_ON_ERROR_EVENT=1
+  4. uv run npc/run_experimental_task.py khk-1 "Let's pair trade NS between 1477 and 675. Make round trips. Stop when
+     you encounter an error."
+      - When the first bad move happens you’ll see it logged in logs/error_events.jsonl.
+      - The most recent Gemini call is preserved in logs/google_llm_service_request.pkl.
+  5. Reproduce the exact LLM decision off-line:
+     uv run scripts/replay_gemini_invocation.py --pickle --show-metadata
+     (or point at a copied pickle with --pickle logs/google_llm_service_request_latest.pkl).
+     This issues the same generate_content_stream call that the agent made, letting you diff the streamed chunks
+     against the live run.
+
+  Notes
+
+  - The pickle includes a JSON snapshot for ease of diffing, but the replay uses the original Content objects/config
+    to eliminate any serialization drift.
+  - scripts/replay_gemini_service.py full-run.json still works when you want to go through Pipecat’s adapter/pipeline
+    instead of the raw client.
+  - .venv/lib/python3.12/site-packages/pipecat/services/google/llm.py now writes to logs/
+    google_llm_service_request.pkl; undo or guard that instrumentation when you’re done.
+
+  Let me know if you want to automate diffing the pickled payloads or capture every call instead of just the latest
+
+
+  ----
+
+
+Testing function call accuracy:
+  - full-run.json has a message sequence that failed in our pipecat pipeline with a duplicate move to 768.
+  - but `uv run scripts/replay_gemini_invocation.py full-run.json` does the right thing, moving to 675
+
+Why is the pipecat pipeline not doing the right thing?
+
+
+---
+
 Change summary lines
   - trade.executed: Trade executed for <character name>. -> Trade executed.
   - movement.complete: Moved to sector 1234. -> Now in sector 1234.

@@ -17,6 +17,8 @@ import copy
 import inspect
 import json
 import os
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
@@ -134,6 +136,9 @@ class ExperimentalTaskAgent:
         self._watchdog_handle: Optional[asyncio.TimerHandle] = None
         self._watchdog_target: Optional[asyncio.Future] = None
         self._watchdog_triggered: bool = False
+        self._pending_run_reasons: List[str] = []
+        self._llm_inflight: bool = False
+        self._deferred_task: Optional[asyncio.Task] = None
 
         tools = tools_list or [
             MyStatus,
@@ -154,9 +159,12 @@ class ExperimentalTaskAgent:
         self.set_tools(tools)
 
         self._event_specs = [
-            ("status.snapshot", True),
-            ("status.update", True),
-            ("sector.update", True),
+            (
+                "status.snapshot",
+                True,
+            ),  # todo: add a new event for a status.something that should always trigger an update, but is not a join event
+            ("status.update", False),
+            ("sector.update", False),
             ("course.plot", True),
             ("path.region", True),
             ("movement.start", False),  # always followed by movement.complete
@@ -166,7 +174,7 @@ class ExperimentalTaskAgent:
             ("map.local", True),
             ("ports.list", True),
             ("character.moved", True),
-            ("trade.executed", True),
+            ("trade.executed", False),
             ("port.update", True),
             ("warp.purchase", True),
             ("warp.transfer", True),
@@ -202,24 +210,52 @@ class ExperimentalTaskAgent:
             async def _stream_content(
                 self, params_from_context
             ) -> AsyncIterator[GenerateContentResponse]:
-                base_stream = await super()._stream_content(params_from_context)
+                run_reason = None
+                pending = getattr(self, "_agent_pending_run_reasons", None)
+                if pending is not None:
+                    try:
+                        run_reason = pending.pop(0)
+                    except IndexError:
+                        run_reason = "<empty>"
+                agent_owner = getattr(self, "_agent_owner", None)
+                if agent_owner is not None:
+                    agent_owner._llm_inflight = True
+                logger.debug(
+                    "GoogleLLMService._stream_content invoked reason={} pending_after={}",
+                    run_reason,
+                    len(pending) if isinstance(pending, list) else -1,
+                )
+                try:
+                    base_stream = await super()._stream_content(params_from_context)
+                except Exception:
+                    if agent_owner is not None:
+                        agent_owner._llm_inflight = False
+                        await agent_owner._queue_pending_run_now()
+                    raise
                 self._captured_candidate_contents.clear()
 
                 async def _capturing_stream() -> AsyncIterator[GenerateContentResponse]:
-                    async for chunk in base_stream:
-                        candidates = getattr(chunk, "candidates", None)
-                        candidate = candidates[0] if candidates else None
-                        content = (
-                            getattr(candidate, "content", None) if candidate else None
-                        )
-                        if content is not None:
-                            try:
-                                content_copy = content.model_copy(deep=True)  # type: ignore[attr-defined]
-                            except AttributeError:
-                                content_copy = copy.deepcopy(content)
-                            self._captured_candidate_contents[0] = content_copy
+                    try:
+                        async for chunk in base_stream:
+                            candidates = getattr(chunk, "candidates", None)
+                            candidate = candidates[0] if candidates else None
+                            content = (
+                                getattr(candidate, "content", None)
+                                if candidate
+                                else None
+                            )
+                            if content is not None:
+                                try:
+                                    content_copy = content.model_copy(deep=True)  # type: ignore[attr-defined]
+                                except AttributeError:
+                                    content_copy = copy.deepcopy(content)
+                                self._captured_candidate_contents[0] = content_copy
 
-                        yield chunk
+                            yield chunk
+                    finally:
+                        if agent_owner is not None:
+                            agent_owner._llm_inflight = False
+                            await agent_owner._queue_pending_run_now()
 
                 return _capturing_stream()
 
@@ -455,7 +491,7 @@ class ExperimentalTaskAgent:
                     self._remove_duplicate_function_call_messages(context)
                 return result
 
-        return GoogleLLMService(
+        service = GoogleLLMService(
             api_key=self.config.api_key or "",
             model=self.config.model or DEFAULT_GOOGLE_MODEL,
             run_in_parallel=False,
@@ -468,6 +504,11 @@ class ExperimentalTaskAgent:
                 }
             ),
         )
+
+        setattr(service, "_agent_pending_run_reasons", self._pending_run_reasons)
+        setattr(service, "_agent_owner", self)
+
+        return service
 
     def set_tools(self, tools_list: List[Any]) -> None:
         tool_entries: List[Tuple[Any, Dict[str, Any]]] = []
@@ -516,12 +557,47 @@ class ExperimentalTaskAgent:
             self._context.add_message(event_message)
         else:
             self.add_message(event_message)
+
+        if event_name == "error" and os.getenv("STOP_ON_ERROR_EVENT"):
+            self._log_error_event(event)
+            self.cancelled = True
+            try:
+                if self._active_pipeline_task:
+                    await self._active_pipeline_task.cancel()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    f"Failed to cancel pipeline task after error event: {exc}"
+                )
+            raise RuntimeError(f"Encountered error event: {event}")
+
         should_queue = self._event_run_llm.get(event_name, True)
         if should_queue:
-            if self._active_pipeline_task:
-                await self._active_pipeline_task.queue_frames([LLMRunFrame()])
-        else:
-            pass
+            reason = event_name or "unknown"
+            if self._llm_inflight:
+                logger.debug(
+                    "Deferring LLM run due to event=%s (inference active)", reason
+                )
+                self._pending_run_reasons = [reason]
+                self._ensure_deferred_run()
+            else:
+                self._cancel_deferred_run()
+                self._pending_run_reasons.append(reason)
+                if self._active_pipeline_task and not self._active_pipeline_task.has_finished():
+                    logger.debug("Queueing LLM run due to event=%s", reason)
+                    await self._active_pipeline_task.queue_frames([LLMRunFrame()])
+
+    def _log_error_event(self, event: Dict[str, Any]) -> None:
+        log_path = Path(os.getenv("ERROR_EVENT_LOG", "logs/error_events.jsonl"))
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "event": event,
+        }
+        try:
+            with log_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Failed to write error event log: {exc}")
 
     async def run_task(
         self,
@@ -534,6 +610,9 @@ class ExperimentalTaskAgent:
         self.finished_message = None
         self.clear_messages()
         self._step_counter = 0
+        self._pending_run_reasons.clear()
+        self._cancel_deferred_run()
+        self._llm_inflight = False
         _ = max_iterations  # retained for API compatibility; pipeline controls turns
 
         self.add_message({"role": "system", "content": create_task_system_message()})
@@ -582,6 +661,8 @@ class ExperimentalTaskAgent:
             await runner_task
             self._active_pipeline_task = None
             self._stop_watchdog()
+            self._cancel_deferred_run()
+            self._pending_run_reasons.clear()
             return success
 
     def _create_context(self) -> LLMContext:
@@ -703,6 +784,7 @@ class ExperimentalTaskAgent:
             self.finished = True
             self.finished_message = arguments.get("message", "Done")
             self._output(self.finished_message, TaskOutputType.FINISHED)
+            self._log_gemini_invocation(params, arguments)
             await params.llm.push_frame(EndFrame())
             return
 
@@ -780,6 +862,89 @@ class ExperimentalTaskAgent:
         if self.output_callback:
             self.output_callback(text, message_type.value if message_type else None)
 
+    def _log_gemini_invocation(
+        self,
+        params: FunctionCallParams,
+        arguments: Dict[str, Any],
+    ) -> None:
+        log_path = os.getenv("GEMINI_LOG_FILE")
+        if not log_path:
+            return
+
+        context = getattr(params, "context", None)
+        if not isinstance(context, LLMContext):
+            return
+
+        llm_service = getattr(params, "llm", None)
+        get_adapter = (
+            getattr(llm_service, "get_llm_adapter", None) if llm_service else None
+        )
+        if not callable(get_adapter):
+            return
+
+        try:
+            adapter = get_adapter()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Failed to obtain LLM adapter for logging: {exc}")
+            return
+
+        if adapter is None:
+            return
+
+        try:
+            invocation_params = adapter.get_llm_invocation_params(context)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Failed to capture Gemini invocation params: {exc}")
+            return
+
+        if invocation_params is None:
+            return
+
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "finished_arguments": arguments,
+            "invocation": invocation_params,
+        }
+
+        sanitized_payload = self._sanitize_for_json(payload)
+
+        try:
+            target_path = Path(log_path).expanduser()
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            with target_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(sanitized_payload, ensure_ascii=False))
+                handle.write("\n")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Failed to write Gemini log file '{log_path}': {exc}")
+
+    @staticmethod
+    def _sanitize_for_json(value: Any) -> Any:
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+        if isinstance(value, dict):
+            return {
+                str(k): ExperimentalTaskAgent._sanitize_for_json(v)
+                for k, v in value.items()
+            }
+        if isinstance(value, (list, tuple, set)):
+            return [ExperimentalTaskAgent._sanitize_for_json(item) for item in value]
+        for attr_name in ("model_dump", "to_dict"):
+            attr = getattr(value, attr_name, None)
+            if callable(attr):
+                try:
+                    return ExperimentalTaskAgent._sanitize_for_json(attr())
+                except Exception:  # noqa: BLE001
+                    pass
+        if hasattr(value, "__dict__"):
+            data = {
+                key: ExperimentalTaskAgent._sanitize_for_json(val)
+                for key, val in vars(value).items()
+                if not key.startswith("_")
+            }
+            if data:
+                return data
+        return str(value)
+
     def _log_message(self, message: Dict[str, Any]) -> None:
         try:
             if message["role"] == "system":
@@ -812,3 +977,52 @@ class ExperimentalTaskAgent:
         if hasattr(message, "model_dump"):
             return message.model_dump()
         raise TypeError(f"Unsupported message type: {type(message)}")
+
+    def _cancel_deferred_run(self) -> None:
+        if self._deferred_task and not self._deferred_task.done():
+            self._deferred_task.cancel()
+        self._deferred_task = None
+
+    def _ensure_deferred_run(self) -> None:
+        self._cancel_deferred_run()
+        loop = asyncio.get_running_loop()
+        self._deferred_task = loop.create_task(self._deferred_run())
+
+    async def _deferred_run(self) -> None:
+        try:
+            await asyncio.sleep(15)
+            if not self._pending_run_reasons:
+                return
+            if self._llm_inflight:
+                self._deferred_task = asyncio.create_task(self._deferred_run())
+                return
+            if (
+                self._active_pipeline_task
+                and not self._active_pipeline_task.has_finished()
+            ):
+                logger.debug(
+                    "Timer queueing LLM run due to event=%s",
+                    self._pending_run_reasons[0],
+                )
+                await self._active_pipeline_task.queue_frames([LLMRunFrame()])
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            logger.warning(f"Deferred LLM scheduling failed: {exc}")
+        finally:
+            if self._deferred_task is asyncio.current_task():
+                self._deferred_task = None
+
+    async def _queue_pending_run_now(self) -> None:
+        self._cancel_deferred_run()
+        if self._llm_inflight:
+            return
+        if not self._pending_run_reasons:
+            return
+        if not self._active_pipeline_task or self._active_pipeline_task.has_finished():
+            return
+        logger.debug(
+            "Queueing deferred LLM run reason=%s",
+            self._pending_run_reasons[0],
+        )
+        await self._active_pipeline_task.queue_frames([LLMRunFrame()])
