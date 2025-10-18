@@ -79,6 +79,7 @@ DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash-preview-09-2025"
 DEFAULT_THINKING_BUDGET = 2048
 DEFAULT_INCLUDE_THOUGHTS = True
 TURN_TIMEOUT_SECONDS = 30
+EVENT_BATCH_INFERENCE_DELAY = 1.0
 
 
 PipelineToolExecutor = Callable[
@@ -136,9 +137,14 @@ class ExperimentalTaskAgent:
         self._watchdog_handle: Optional[asyncio.TimerHandle] = None
         self._watchdog_target: Optional[asyncio.Future] = None
         self._watchdog_triggered: bool = False
-        self._pending_run_reasons: List[str] = []
+        self._tool_call_in_progress: bool = False
+        self._inference_reasons: List[str] = []
+        self._inference_delay = EVENT_BATCH_INFERENCE_DELAY
+        self._inference_watchdog_handle: Optional[asyncio.TimerHandle] = None
+        self._guard_log_path = Path(
+            os.getenv("INFERENCE_GUARD_LOG", "logs/inference_guard.jsonl")
+        )
         self._llm_inflight: bool = False
-        self._deferred_task: Optional[asyncio.Task] = None
 
         tools = tools_list or [
             MyStatus,
@@ -158,39 +164,35 @@ class ExperimentalTaskAgent:
         ]
         self.set_tools(tools)
 
-        self._event_specs = [
-            (
-                "status.snapshot",
-                True,
-            ),  # todo: add a new event for a status.something that should always trigger an update, but is not a join event
-            ("status.update", False),
-            ("sector.update", False),
-            ("course.plot", True),
-            ("path.region", True),
-            ("movement.start", False),  # always followed by movement.complete
-            ("movement.complete", False),  # always followed by map.knowledge
-            ("map.knowledge", True),
-            ("map.region", True),
-            ("map.local", True),
-            ("ports.list", True),
-            ("character.moved", True),
-            ("trade.executed", False),
-            ("port.update", True),
-            ("warp.purchase", True),
-            ("warp.transfer", True),
-            ("garrison.deployed", True),
-            ("garrison.collected", True),
-            ("garrison.mode_changed", True),
-            ("salvage.collected", True),
-            ("combat.round_waiting", True),
-            ("combat.round_resolved", True),
-            ("combat.ended", True),
-            ("combat.action_accepted", True),
-            ("chat.message", True),
-            ("error", True),
+        self._event_names = [
+            "status.snapshot",
+            "status.update",
+            "sector.update",
+            "course.plot",
+            "path.region",
+            "movement.start",
+            "movement.complete",
+            "map.knowledge",
+            "map.region",
+            "map.local",
+            "ports.list",
+            "character.moved",
+            "trade.executed",
+            "port.update",
+            "warp.purchase",
+            "warp.transfer",
+            "garrison.deployed",
+            "garrison.collected",
+            "garrison.mode_changed",
+            "salvage.collected",
+            "combat.round_waiting",
+            "combat.round_resolved",
+            "combat.ended",
+            "combat.action_accepted",
+            "chat.message",
+            "error",
         ]
-        self._event_run_llm = {name: run_llm for name, run_llm in self._event_specs}
-        for event_name, _ in self._event_specs:
+        for event_name in self._event_names:
             self.game_client.on(event_name)(self._handle_event)
 
     def _default_llm_service_factory(self) -> LLMService:
@@ -211,7 +213,7 @@ class ExperimentalTaskAgent:
                 self, params_from_context
             ) -> AsyncIterator[GenerateContentResponse]:
                 run_reason = None
-                pending = getattr(self, "_agent_pending_run_reasons", None)
+                pending = getattr(self, "_agent_inference_reasons", None)
                 if pending is not None:
                     try:
                         run_reason = pending.pop(0)
@@ -505,7 +507,7 @@ class ExperimentalTaskAgent:
             ),
         )
 
-        setattr(service, "_agent_pending_run_reasons", self._pending_run_reasons)
+        setattr(service, "_agent_inference_reasons", self._inference_reasons)
         setattr(service, "_agent_owner", self)
 
         return service
@@ -570,21 +572,15 @@ class ExperimentalTaskAgent:
                 )
             raise RuntimeError(f"Encountered error event: {event}")
 
-        should_queue = self._event_run_llm.get(event_name, True)
-        if should_queue:
-            reason = event_name or "unknown"
-            if self._llm_inflight:
-                logger.debug(
-                    "Deferring LLM run due to event=%s (inference active)", reason
-                )
-                self._pending_run_reasons = [reason]
-                self._ensure_deferred_run()
-            else:
-                self._cancel_deferred_run()
-                self._pending_run_reasons.append(reason)
-                if self._active_pipeline_task and not self._active_pipeline_task.has_finished():
-                    logger.debug("Queueing LLM run due to event=%s", reason)
-                    await self._active_pipeline_task.queue_frames([LLMRunFrame()])
+        reason = event_name or "unknown"
+        self._record_inference_reason(reason)
+        if self._tool_call_in_progress:
+            logger.debug(
+                "Recorded event during tool call; delaying inference reason={reason}",
+                reason=reason,
+            )
+            return
+        self._start_inference_watchdog()
 
     def _log_error_event(self, event: Dict[str, Any]) -> None:
         log_path = Path(os.getenv("ERROR_EVENT_LOG", "logs/error_events.jsonl"))
@@ -610,8 +606,9 @@ class ExperimentalTaskAgent:
         self.finished_message = None
         self.clear_messages()
         self._step_counter = 0
-        self._pending_run_reasons.clear()
-        self._cancel_deferred_run()
+        self._inference_reasons.clear()
+        self._cancel_inference_watchdog()
+        self._tool_call_in_progress = False
         self._llm_inflight = False
         _ = max_iterations  # retained for API compatibility; pipeline controls turns
 
@@ -661,8 +658,8 @@ class ExperimentalTaskAgent:
             await runner_task
             self._active_pipeline_task = None
             self._stop_watchdog()
-            self._cancel_deferred_run()
-            self._pending_run_reasons.clear()
+            self._cancel_inference_watchdog()
+            self._inference_reasons.clear()
             return success
 
     def _create_context(self) -> LLMContext:
@@ -785,6 +782,7 @@ class ExperimentalTaskAgent:
             self.finished_message = arguments.get("message", "Done")
             self._output(self.finished_message, TaskOutputType.FINISHED)
             self._log_gemini_invocation(params, arguments)
+            self._cancel_inference_watchdog()
             await params.llm.push_frame(EndFrame())
             return
 
@@ -800,27 +798,39 @@ class ExperimentalTaskAgent:
         await params.result_callback(tool_result, properties=properties)
 
         tool = self.tools.get(tool_name)
-        message = "MESSAGE PLACEHOLDER"
         if not tool:
             message = self._format_tool_message(
                 tool_call_id, {"error": f"Unknown tool: {tool_name}"}
             )
             self._output(message, TaskOutputType.TOOL_RESULT)
+            await self._on_tool_call_completed()
             return
 
+        result_payload: Any = None
+        error_message: Optional[Dict[str, Any]] = None
         try:
+            self._tool_call_in_progress = True
             result = tool(**arguments)
             if inspect.isawaitable(result):
                 result = await result
+            result_payload = result
         except Exception as exc:
-            message = self._format_tool_message(tool_call_id, {"error": f"{exc}"})
-            self._output(message, TaskOutputType.TOOL_RESULT)
+            error_message = self._format_tool_message(
+                tool_call_id, {"error": f"{exc}"}
+            )
+        finally:
+            self._tool_call_in_progress = False
+
+        if error_message is not None:
+            self._output(error_message, TaskOutputType.TOOL_RESULT)
+            await self._on_tool_call_completed()
             return
 
         self._output(
-            f"{tool_name}({json.dumps(arguments)}) -> {json.dumps(result)}",
+            f"{tool_name}({json.dumps(arguments)}) -> {json.dumps(result_payload)}",
             TaskOutputType.TOOL_RESULT,
         )
+        await self._on_tool_call_completed()
 
     def _format_tool_message(self, tool_call_id: str, result: Any) -> Dict[str, Any]:
         if isinstance(result, str):
@@ -978,51 +988,98 @@ class ExperimentalTaskAgent:
             return message.model_dump()
         raise TypeError(f"Unsupported message type: {type(message)}")
 
-    def _cancel_deferred_run(self) -> None:
-        if self._deferred_task and not self._deferred_task.done():
-            self._deferred_task.cancel()
-        self._deferred_task = None
+    def _record_inference_reason(self, reason: str) -> None:
+        self._inference_reasons.append(reason)
+        if len(self._inference_reasons) > 50:
+            self._inference_reasons = self._inference_reasons[-50:]
 
-    def _ensure_deferred_run(self) -> None:
-        self._cancel_deferred_run()
-        loop = asyncio.get_running_loop()
-        self._deferred_task = loop.create_task(self._deferred_run())
-
-    async def _deferred_run(self) -> None:
-        try:
-            await asyncio.sleep(15)
-            if not self._pending_run_reasons:
-                return
-            if self._llm_inflight:
-                self._deferred_task = asyncio.create_task(self._deferred_run())
-                return
-            if (
-                self._active_pipeline_task
-                and not self._active_pipeline_task.has_finished()
-            ):
-                logger.debug(
-                    "Timer queueing LLM run due to event=%s",
-                    self._pending_run_reasons[0],
-                )
-                await self._active_pipeline_task.queue_frames([LLMRunFrame()])
-        except asyncio.CancelledError:
-            pass
-        except Exception as exc:
-            logger.warning(f"Deferred LLM scheduling failed: {exc}")
-        finally:
-            if self._deferred_task is asyncio.current_task():
-                self._deferred_task = None
-
-    async def _queue_pending_run_now(self) -> None:
-        self._cancel_deferred_run()
-        if self._llm_inflight:
-            return
-        if not self._pending_run_reasons:
+    def _start_inference_watchdog(self) -> None:
+        if self._inference_watchdog_handle is not None:
             return
         if not self._active_pipeline_task or self._active_pipeline_task.has_finished():
             return
-        logger.debug(
-            "Queueing deferred LLM run reason=%s",
-            self._pending_run_reasons[0],
+        loop = asyncio.get_running_loop()
+        self._inference_watchdog_handle = loop.call_later(
+            self._inference_delay, self._inference_watchdog_fire
         )
+        logger.debug(
+            "Inference watchdog armed delay={delay:.2f}s pending={pending}",
+            delay=self._inference_delay,
+            pending=len(self._inference_reasons),
+        )
+
+    def _cancel_inference_watchdog(self) -> None:
+        if self._inference_watchdog_handle:
+            self._inference_watchdog_handle.cancel()
+            self._inference_watchdog_handle = None
+
+    def _inference_watchdog_fire(self) -> None:
+        self._inference_watchdog_handle = None
+
+        async def _run() -> None:
+            try:
+                await self._schedule_inference_run("watchdog", record_reason=False)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"Inference watchdog scheduling failed: {exc}")
+
+        try:
+            asyncio.get_running_loop().create_task(_run())
+        except RuntimeError as exc:
+            logger.warning(f"Failed to schedule watchdog task: {exc}")
+
+    def _log_inference_guard_state(self, reason: str) -> None:
+        logger.warning(
+            "Inference guard blocked run reason={reason} llm_inflight={llm_inflight} tool_call={tool_call} pending={pending}",
+            reason=reason,
+            llm_inflight=self._llm_inflight,
+            tool_call=self._tool_call_in_progress,
+            pending=len(self._inference_reasons),
+        )
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "reason": reason,
+            "llm_inflight": self._llm_inflight,
+            "tool_call_in_progress": self._tool_call_in_progress,
+            "pending_reasons": list(self._inference_reasons),
+        }
+        try:
+            self._guard_log_path.parent.mkdir(parents=True, exist_ok=True)
+            with self._guard_log_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False))
+                handle.write("\n")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Failed to write inference guard log: {exc}")
+
+    async def _schedule_inference_run(
+        self, reason: str, *, record_reason: bool = True
+    ) -> None:
+        if record_reason:
+            self._record_inference_reason(reason)
+        if self._llm_inflight:
+            self._log_inference_guard_state(reason)
+            return
+        if not self._active_pipeline_task or self._active_pipeline_task.has_finished():
+            logger.debug(
+                "Skipping inference run; pipeline inactive reason=%s", reason
+            )
+            return
+        logger.debug("Queueing LLM run reason={reason}", reason=reason)
         await self._active_pipeline_task.queue_frames([LLMRunFrame()])
+
+    async def _on_tool_call_completed(self) -> None:
+        self._cancel_inference_watchdog()
+        try:
+            await self._schedule_inference_run("tool_result", record_reason=False)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Failed to schedule inference after tool result: {exc}")
+
+    async def _queue_pending_run_now(self) -> None:
+        if self._llm_inflight:
+            return
+        if not self._inference_reasons:
+            return
+        if not self._active_pipeline_task or self._active_pipeline_task.has_finished():
+            return
+        next_reason = self._inference_reasons[0]
+        logger.debug("Queueing pending LLM run reason=%s", next_reason)
+        await self._schedule_inference_run(next_reason, record_reason=False)
