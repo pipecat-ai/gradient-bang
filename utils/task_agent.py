@@ -30,11 +30,11 @@ class TaskOutputType(Enum):
     """Types of output messages from the task agent."""
 
     STEP = "STEP"
-    FINISHED = "FINISHED"
+    ACTION = "ACTION"
+    EVENT = "EVENT"
     MESSAGE = "MESSAGE"
-    TOOL_CALL = "TOOL_CALL"
-    TOOL_RESULT = "TOOL_RESULT"
     ERROR = "ERROR"
+    FINISHED = "FINISHED"
     TOKEN_USAGE = "TOKEN_USAGE"
 
     def __str__(self):
@@ -156,7 +156,7 @@ class TaskAgent(BaseLLMAgent):
         tool_args = json.loads(tool_call["function"]["arguments"])
 
         self._output(
-            f"Executing {tool_name}({json.dumps(tool_args)})", TaskOutputType.TOOL_CALL
+            f"Executing {tool_name}({json.dumps(tool_args)})", TaskOutputType.ACTION
         )
 
         if self.tool_call_event_callback:
@@ -174,9 +174,9 @@ class TaskAgent(BaseLLMAgent):
             tool_call
         )
         try:
-            self._output(f"{json.dumps(tool_message)}", TaskOutputType.TOOL_RESULT)
+            self._output(f"{json.dumps(tool_message)}", TaskOutputType.EVENT)
         except Exception:
-            self._output(f"{str(tool_message)}", TaskOutputType.TOOL_RESULT)
+            self._output(f"{str(tool_message)}", TaskOutputType.EVENT)
 
         if self.tool_result_event_callback:
             structured_payload: Dict[str, Any] = {}

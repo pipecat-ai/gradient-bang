@@ -17,6 +17,7 @@ import copy
 import inspect
 import json
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional, Tuple
@@ -28,11 +29,13 @@ from google.genai.types import Content, GenerateContentResponse
 
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
+    Frame,
     FunctionCallResultProperties,
     EndFrame,
     LLMFullResponseEndFrame,
     LLMMessagesAppendFrame,
     LLMRunFrame,
+    LLMTextFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -82,7 +85,13 @@ TURN_TIMEOUT_SECONDS = 30
 EVENT_BATCH_INFERENCE_DELAY = 1.0
 
 
-class _LLMRunStateTracker(FrameProcessor):
+class _GeminiThinkingModeContentFrame(Frame):
+    def __init__(self, contents: List[Content]):
+        super().__init__()
+        self.contents = contents
+
+
+class _GeminiThinkingModeTracker(FrameProcessor):
     def __init__(self, agent: "ExperimentalTaskAgent"):
         super().__init__()
         self._agent = agent
@@ -90,9 +99,37 @@ class _LLMRunStateTracker(FrameProcessor):
     async def process_frame(self, frame: Any, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
-        if isinstance(frame, LLMFullResponseEndFrame):
+        if isinstance(frame, LLMTextFrame):
+            # We do not want the assistant aggregator to assemble the assistant messages. We're going to add
+            # output chunks from Gemini directly to the context
+            return
+
+        if isinstance(frame, _GeminiThinkingModeContentFrame):
             self._agent._llm_inflight = False
-            await self._agent._queue_pending_run_now()
+            should_queue_inference = False
+            new_context = []
+            output_message = ""
+            for content in frame.contents:
+                for part in content.parts or []:
+                    if part.text:
+                        if part.thought:
+                            logger.debug(f"[THOUGHT]: {part.text}")
+                        else:
+                            output_message += part.text
+                    elif part.function_call:
+                        should_queue_inference = True
+                new_context.append(LLMSpecificMessage(llm="google", message=content))
+            if output_message:
+                self._agent._output(output_message, TaskOutputType.MESSAGE)
+            if new_context:
+                await self.push_frame(LLMMessagesAppendFrame(messages=new_context))
+
+            if should_queue_inference:
+                await self._agent._queue_pending_run_now()
+            else:
+                logger.debug(
+                    "No tool calls in _GeminiThinkingModeContentFrame. Not queuing inference."
+                )
 
         await self.push_frame(frame, direction)
 
@@ -156,10 +193,10 @@ class ExperimentalTaskAgent:
         self._inference_reasons: List[str] = []
         self._inference_delay = EVENT_BATCH_INFERENCE_DELAY
         self._inference_watchdog_handle: Optional[asyncio.TimerHandle] = None
-        self._guard_log_path = Path(
-            os.getenv("INFERENCE_GUARD_LOG", "logs/inference_guard.jsonl")
-        )
         self._llm_inflight: bool = False
+        self._task_start_monotonic: Optional[float] = None
+        self._context: Optional[LLMContext] = None
+        self._last_logged_message_count: int = 0
 
         tools = tools_list or [
             MyStatus,
@@ -215,7 +252,7 @@ class ExperimentalTaskAgent:
         class GoogleLLMService(PipecatGoogleLLMService):
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, **kwargs)
-                self._captured_candidate_contents: Dict[int, Content] = {}
+                self._captured_candidate_contents: List[Content] = []
 
             async def cancel(self, frame):
                 await super().cancel(frame)
@@ -232,7 +269,7 @@ class ExperimentalTaskAgent:
                 if pending:
                     run_reason = pending[0]
                 logger.debug(
-                    "GoogleLLMService._stream_content invoked reason=%s pending=%s",
+                    "GoogleLLMService._stream_content invoked reason={} pending={}",
                     run_reason,
                     len(pending) if isinstance(pending, list) else -1,
                 )
@@ -247,16 +284,10 @@ class ExperimentalTaskAgent:
                         candidates = getattr(chunk, "candidates", None)
                         candidate = candidates[0] if candidates else None
                         content = (
-                            getattr(candidate, "content", None)
-                            if candidate
-                            else None
+                            getattr(candidate, "content", None) if candidate else None
                         )
                         if content is not None:
-                            try:
-                                content_copy = content.model_copy(deep=True)  # type: ignore[attr-defined]
-                            except AttributeError:
-                                content_copy = copy.deepcopy(content)
-                            self._captured_candidate_contents[0] = content_copy
+                            self._captured_candidate_contents.append(content)
 
                         yield chunk
 
@@ -267,44 +298,20 @@ class ExperimentalTaskAgent:
                 frame,
                 direction: FrameDirection = FrameDirection.DOWNSTREAM,
             ):
-                if (
-                    isinstance(frame, LLMFullResponseEndFrame)
-                    and self._captured_candidate_contents
-                ):
-                    adapter = self.get_llm_adapter()
-                    llm_id = (
-                        adapter.id_for_llm_specific_messages if adapter else "google"
-                    )
-                    messages = [
-                        LLMSpecificMessage(llm=llm_id, message=content)
-                        for idx, content in sorted(
-                            self._captured_candidate_contents.items()
+                if isinstance(frame, LLMFullResponseEndFrame):
+                    if self._captured_candidate_contents:
+                        contents_copy: List[Content] = [
+                            content.model_copy(deep=True)
+                            for content in self._captured_candidate_contents
+                        ]
+                        await super().push_frame(
+                            _GeminiThinkingModeContentFrame(contents=contents_copy)
                         )
-                    ]
-                    append_frame = LLMMessagesAppendFrame(
-                        messages=messages, run_llm=False
-                    )
-                    await super().push_frame(append_frame, direction)
-                    self._captured_candidate_contents.clear()
-
-                if isinstance(frame, LLMMessagesAppendFrame):
-                    should_skip = True
-                    for message in frame.messages:
-                        if not isinstance(message, dict):
-                            should_skip = False
-                            break
-                        parts = message.get("parts") or []
-                        if not parts or not all(
-                            isinstance(part, dict)
-                            and part.get("function_call") is not None
-                            and not part.get("thought")
-                            and not part.get("text")
-                            for part in parts
-                        ):
-                            should_skip = False
-                            break
-                    if should_skip:
-                        return
+                        self._captured_candidate_contents.clear()
+                    else:
+                        logger.warning(
+                            "LLMFullResponseEndFrame but no candidate contents"
+                        )
 
                 await super().push_frame(frame, direction)
 
@@ -490,8 +497,6 @@ class ExperimentalTaskAgent:
                 if isinstance(context, LLMContext):
                     self._remove_duplicate_function_call_messages(context)
                 result = await super()._process_context(context)
-                if isinstance(context, LLMContext):
-                    self._remove_duplicate_function_call_messages(context)
                 return result
 
         service = GoogleLLMService(
@@ -541,7 +546,9 @@ class ExperimentalTaskAgent:
 
     def cancel(self) -> None:
         self.cancelled = True
-        self._output("Execution cancelled", TaskOutputType.FINISHED)
+        self._output(
+            self._timestamped_text("Execution cancelled"), TaskOutputType.FINISHED
+        )
 
     def reset_cancellation(self) -> None:
         self.cancelled = False
@@ -550,7 +557,12 @@ class ExperimentalTaskAgent:
         event_name = event.get("event_name")
         summary = event.get("summary")
         response_data = summary or event.get("payload")
-        logger.info(f"Event {event_name}: {response_data}")
+        serialized_payload = self._serialize_output(response_data)
+        if event_name:
+            event_text = f"{event_name}: {serialized_payload}"
+        else:
+            event_text = serialized_payload
+        self._output(event_text, TaskOutputType.EVENT)
         event_message = {
             "role": "user",
             "content": f"<event name={event_name}>\n{response_data}\n</event>",
@@ -572,15 +584,22 @@ class ExperimentalTaskAgent:
                 )
             raise RuntimeError(f"Encountered error event: {event}")
 
+        if event_name == "error":
+            error_payload = summary if summary is not None else event.get("payload")
+            error_message = self._serialize_output(error_payload)
+            error_text = self._timestamped_text(error_message)
+            self._output(error_text, TaskOutputType.ERROR)
+
         reason = event_name or "unknown"
         self._record_inference_reason(reason)
         if self._tool_call_in_progress:
             logger.debug(
-                "Recorded event during tool call; delaying inference reason={reason}",
-                reason=reason,
+                "Recorded event during tool call; delaying inference reason={}",
+                reason,
             )
             return
-        self._start_inference_watchdog()
+        if not self._llm_inflight:
+            self._start_inference_watchdog()
 
     def _log_error_event(self, event: Dict[str, Any]) -> None:
         log_path = Path(os.getenv("ERROR_EVENT_LOG", "logs/error_events.jsonl"))
@@ -610,6 +629,7 @@ class ExperimentalTaskAgent:
         self._cancel_inference_watchdog()
         self._tool_call_in_progress = False
         self._llm_inflight = False
+        self._task_start_monotonic = time.perf_counter()
         _ = max_iterations  # retained for API compatibility; pipeline controls turns
 
         self.add_message({"role": "system", "content": create_task_system_message()})
@@ -624,6 +644,7 @@ class ExperimentalTaskAgent:
         context = self._create_context()
         runner_task = self._setup_pipeline(context)
         self._context = context
+        self._last_logged_message_count = len(context.get_messages())
 
         try:
             self._refresh_watchdog()
@@ -632,19 +653,25 @@ class ExperimentalTaskAgent:
             success = False
             while not self._active_pipeline_task.has_finished():
                 if self.cancelled:
-                    self._output("Task cancelled", TaskOutputType.FINISHED)
+                    self._output(
+                        self._timestamped_text("Task cancelled"),
+                        TaskOutputType.FINISHED,
+                    )
                     return False
                 try:
                     await asyncio.sleep(1)
                 except asyncio.CancelledError:
                     if self._watchdog_triggered:
-                        self._output(
-                            "Pipeline error: Turn timed out", TaskOutputType.ERROR
+                        self._emit_error_and_finish(
+                            "Pipeline error: Turn timed out",
+                            exception_detail="Turn timed out",
                         )
                         return False
                     raise
                 except Exception as error:
-                    self._output(f"Pipeline error: {error}", TaskOutputType.ERROR)
+                    self._emit_error_and_finish(
+                        f"Pipeline error: {error}", exception_detail=str(error)
+                    )
                     return False
                 finally:
                     self._clear_watchdog_target()
@@ -672,9 +699,14 @@ class ExperimentalTaskAgent:
         llm_service.register_function(None, self._handle_function_call)
 
         aggregator_pair = LLMContextAggregatorPair(context)
-        state_tracker = _LLMRunStateTracker(self)
+        state_tracker = _GeminiThinkingModeTracker(self)
         pipeline = Pipeline(
-            [aggregator_pair.user(), llm_service, state_tracker, aggregator_pair.assistant()]
+            [
+                aggregator_pair.user(),
+                llm_service,
+                state_tracker,
+                aggregator_pair.assistant(),
+            ]
         )
         pipeline_task = PipelineTask(
             pipeline,
@@ -694,10 +726,73 @@ class ExperimentalTaskAgent:
 
     def _emit_step(self, label: Optional[str] = "") -> None:
         self._step_counter += 1
-        self._output(
-            f"{self._step_counter}{': ' if label else ''}{label}", TaskOutputType.STEP
-        )
+        elapsed_ms = self._elapsed_ms()
+        label_suffix = f": {label}" if label else ""
+        step_text = f"{self._step_counter} - {elapsed_ms} ms elapsed{label_suffix}"
+        self._output(step_text, TaskOutputType.STEP)
         self._refresh_watchdog()
+
+    def _elapsed_ms(self) -> int:
+        if self._task_start_monotonic is None:
+            return 0
+        return int((time.perf_counter() - self._task_start_monotonic) * 1000)
+
+    def _timestamped_text(self, message: str) -> str:
+        elapsed_ms = self._elapsed_ms()
+        return f"{elapsed_ms} ms - {message}"
+
+    @staticmethod
+    def _serialize_output(data: Any) -> str:
+        if isinstance(data, str):
+            return data
+        try:
+            return json.dumps(data, ensure_ascii=False)
+        except (TypeError, ValueError):
+            return str(data)
+
+    @staticmethod
+    def _extract_text_from_message(message: Dict[str, Any]) -> str:
+        content = message.get("content")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            text_parts = []
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") == "text" and isinstance(part.get("text"), str):
+                    text_parts.append(part["text"])
+            if text_parts:
+                return "".join(text_parts)
+
+        parts = message.get("parts")
+        if isinstance(parts, list):
+            text_parts = []
+            for part in parts:
+                if isinstance(part, dict):
+                    text_value = part.get("text")
+                    if isinstance(text_value, str):
+                        text_parts.append(text_value)
+                else:
+                    text_value = getattr(part, "text", None)
+                    if isinstance(text_value, str):
+                        text_parts.append(text_value)
+            if text_parts:
+                return "".join(text_parts)
+
+        text = message.get("text")
+        if isinstance(text, str):
+            return text
+
+        return ""
+
+    def _emit_error_and_finish(
+        self, error_message: str, *, exception_detail: Optional[str] = None
+    ) -> None:
+        self._output(self._timestamped_text(error_message), TaskOutputType.ERROR)
+        detail = exception_detail if exception_detail is not None else error_message
+        finished_payload = f"Task stopped because of an error: {detail}"
+        self._output(self._timestamped_text(finished_payload), TaskOutputType.FINISHED)
 
     def _set_watchdog_target(self, future: asyncio.Future) -> None:
         self._current_turn_future = future
@@ -733,44 +828,6 @@ class ExperimentalTaskAgent:
             logger.warning("Turn watchdog timed out; cancelling current turn future")
             target.cancel()
 
-    def _extract_assistant_message(self, context: LLMContext) -> Dict[str, Any]:
-        updated_messages = [
-            self._normalize_message(msg) for msg in context.get_messages()
-        ]
-        assistant_message = next(
-            (
-                msg
-                for msg in reversed(updated_messages)
-                if msg.get("role") == "assistant"
-            ),
-            None,
-        )
-
-        if assistant_message is None:
-            raise RuntimeError("Assistant did not respond")
-
-        if assistant_message.get("tool_calls"):
-            for call in assistant_message["tool_calls"]:
-                fn = call.get("function", {})
-                args = fn.get("arguments")
-                if args is None:
-                    fn["arguments"] = json.dumps({})
-                elif not isinstance(args, str):
-                    fn["arguments"] = json.dumps(args)
-
-        content = assistant_message.get("content")
-        if isinstance(content, list):
-            text_parts = [
-                part.get("text", "")
-                for part in content
-                if isinstance(part, dict) and part.get("type") == "text"
-            ]
-            assistant_message["content"] = "".join(text_parts)
-        elif content is None:
-            assistant_message["content"] = ""
-
-        return assistant_message
-
     async def _handle_function_call(self, params: FunctionCallParams) -> None:
         tool_name = params.function_name
         tool_call_id = params.tool_call_id
@@ -781,14 +838,14 @@ class ExperimentalTaskAgent:
         if tool_name == "finished":
             self.finished = True
             self.finished_message = arguments.get("message", "Done")
-            self._output(self.finished_message, TaskOutputType.FINISHED)
-            self._log_gemini_invocation(params, arguments)
-            self._cancel_inference_watchdog()
+            finished_text = self._timestamped_text(self.finished_message)
+            self._output(finished_text, TaskOutputType.FINISHED)
             await params.llm.push_frame(EndFrame())
             return
 
         self._emit_step()
-        self._output(f"{tool_name}({json.dumps(arguments)})", TaskOutputType.TOOL_CALL)
+        action_text = f"{tool_name}({json.dumps(arguments)})"
+        self._output(action_text, TaskOutputType.ACTION)
 
         if self._tool_call_event_callback:
             await self._tool_call_event_callback(tool_name, arguments)
@@ -803,7 +860,11 @@ class ExperimentalTaskAgent:
             message = self._format_tool_message(
                 tool_call_id, {"error": f"Unknown tool: {tool_name}"}
             )
-            self._output(message, TaskOutputType.TOOL_RESULT)
+            error_text = self._timestamped_text(f"Unknown tool: {tool_name}")
+            self._output(error_text, TaskOutputType.ERROR)
+            logger.debug(
+                "TOOL_RESULT unknown tool={} arguments={}", tool_name, arguments
+            )
             await self._on_tool_call_completed()
             return
 
@@ -816,20 +877,25 @@ class ExperimentalTaskAgent:
                 result = await result
             result_payload = result
         except Exception as exc:
-            error_message = self._format_tool_message(
-                tool_call_id, {"error": f"{exc}"}
-            )
+            error_message = self._format_tool_message(tool_call_id, {"error": f"{exc}"})
         finally:
             self._tool_call_in_progress = False
 
         if error_message is not None:
-            self._output(error_message, TaskOutputType.TOOL_RESULT)
+            logger.debug(
+                "TOOL_RESULT error tool={} arguments={} payload={}",
+                tool_name,
+                arguments,
+                error_message,
+            )
             await self._on_tool_call_completed()
             return
 
-        self._output(
-            f"{tool_name}({json.dumps(arguments)}) -> {json.dumps(result_payload)}",
-            TaskOutputType.TOOL_RESULT,
+        logger.debug(
+            "TOOL_RESULT tool={} arguments={} result={}",
+            tool_name,
+            arguments,
+            result_payload,
         )
         await self._on_tool_call_completed()
 
@@ -839,14 +905,11 @@ class ExperimentalTaskAgent:
         elif isinstance(result, dict):
             summary = result.get("summary")
             if summary and isinstance(summary, str) and summary.strip():
-                self._output(summary.strip(), TaskOutputType.TOOL_RESULT)
                 payload = {"summary": summary.strip()}
             else:
-                self._output(result, TaskOutputType.TOOL_RESULT)
                 payload = {"result": result}
             content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         else:
-            self._output(result, TaskOutputType.TOOL_RESULT)
             payload = {"result": result}
             content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         return {"role": "tool", "tool_call_id": tool_call_id, "content": content}
@@ -865,137 +928,32 @@ class ExperimentalTaskAgent:
         return {"result": content}
 
     def _output(self, text: str, message_type: Optional[TaskOutputType] = None) -> None:
-        if message_type:
-            logger.info(f"[{message_type.value}] {text}")
+        type_value = message_type.value if message_type else None
+        if type_value:
+            logger.info("[{}] {}", type_value, text)
         else:
-            logger.info(text)
+            logger.info("{}", text)
 
         if self.output_callback:
-            self.output_callback(text, message_type.value if message_type else None)
-
-    def _log_gemini_invocation(
-        self,
-        params: FunctionCallParams,
-        arguments: Dict[str, Any],
-    ) -> None:
-        log_path = os.getenv("GEMINI_LOG_FILE")
-        if not log_path:
-            return
-
-        context = getattr(params, "context", None)
-        if not isinstance(context, LLMContext):
-            return
-
-        llm_service = getattr(params, "llm", None)
-        get_adapter = (
-            getattr(llm_service, "get_llm_adapter", None) if llm_service else None
-        )
-        if not callable(get_adapter):
-            return
-
-        try:
-            adapter = get_adapter()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(f"Failed to obtain LLM adapter for logging: {exc}")
-            return
-
-        if adapter is None:
-            return
-
-        try:
-            invocation_params = adapter.get_llm_invocation_params(context)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(f"Failed to capture Gemini invocation params: {exc}")
-            return
-
-        if invocation_params is None:
-            return
-
-        payload = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "finished_arguments": arguments,
-            "invocation": invocation_params,
-        }
-
-        sanitized_payload = self._sanitize_for_json(payload)
-
-        try:
-            target_path = Path(log_path).expanduser()
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            with target_path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(sanitized_payload, ensure_ascii=False))
-                handle.write("\n")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(f"Failed to write Gemini log file '{log_path}': {exc}")
-
-    @staticmethod
-    def _sanitize_for_json(value: Any) -> Any:
-        if isinstance(value, (str, int, float, bool)) or value is None:
-            return value
-        if isinstance(value, dict):
-            return {
-                str(k): ExperimentalTaskAgent._sanitize_for_json(v)
-                for k, v in value.items()
-            }
-        if isinstance(value, (list, tuple, set)):
-            return [ExperimentalTaskAgent._sanitize_for_json(item) for item in value]
-        for attr_name in ("model_dump", "to_dict"):
-            attr = getattr(value, attr_name, None)
-            if callable(attr):
-                try:
-                    return ExperimentalTaskAgent._sanitize_for_json(attr())
-                except Exception:  # noqa: BLE001
-                    pass
-        if hasattr(value, "__dict__"):
-            data = {
-                key: ExperimentalTaskAgent._sanitize_for_json(val)
-                for key, val in vars(value).items()
-                if not key.startswith("_")
-            }
-            if data:
-                return data
-        return str(value)
-
-    def _log_message(self, message: Dict[str, Any]) -> None:
-        try:
-            if message["role"] == "system":
-                self._output(f"SYSTEM_MSG: {message['content'][:200]}...")
-            elif message["role"] == "user":
-                self._output(f"USER_MSG: {message.get('content', '')}")
-            elif message["role"] == "assistant":
-                if message.get("content"):
-                    self._output(f"ASSISTANT_MSG: {message['content']}")
-                if "tool_calls" in message:
-                    for tool_call in message["tool_calls"]:
-                        args = tool_call["function"]["arguments"]
-                        if not isinstance(args, str):
-                            args = json.dumps(args)
-                        self._output(
-                            f"TOOL_CALL [{tool_call['id']}]: {tool_call['function']['name']}: {args}"
-                        )
-            elif message["role"] == "tool":
-                self._output(
-                    f"TOOL_RESULT [{message['tool_call_id']}]: {message['content']}"
+            logger.info("output_callback payload type={} text={}", type_value, text)
+            try:
+                self.output_callback(text, type_value)
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "output_callback failed type={} text={}", type_value, text
                 )
-        except Exception:
-            self._output(f"GENERIC_LOG: {message}")
-
-    def _normalize_message(self, message: Any) -> Dict[str, Any]:
-        if isinstance(message, dict):
-            return message
-        if hasattr(message, "to_json_dict"):
-            return message.to_json_dict()
-        if hasattr(message, "model_dump"):
-            return message.model_dump()
-        raise TypeError(f"Unsupported message type: {type(message)}")
 
     def _record_inference_reason(self, reason: str) -> None:
+        if reason in self._inference_reasons:
+            return
         self._inference_reasons.append(reason)
         if len(self._inference_reasons) > 50:
             self._inference_reasons = self._inference_reasons[-50:]
 
     def _start_inference_watchdog(self) -> None:
         if self._inference_watchdog_handle is not None:
+            return
+        if self._llm_inflight:
             return
         if not self._active_pipeline_task or self._active_pipeline_task.has_finished():
             return
@@ -1004,9 +962,9 @@ class ExperimentalTaskAgent:
             self._inference_delay, self._inference_watchdog_fire
         )
         logger.debug(
-            "Inference watchdog armed delay={delay:.2f}s pending={pending}",
-            delay=self._inference_delay,
-            pending=len(self._inference_reasons),
+            "Inference watchdog armed delay={:.2f}s pending={}",
+            self._inference_delay,
+            list(self._inference_reasons),
         )
 
     def _cancel_inference_watchdog(self) -> None:
@@ -1019,7 +977,7 @@ class ExperimentalTaskAgent:
 
         async def _run() -> None:
             try:
-                await self._schedule_inference_run("watchdog", record_reason=False)
+                await self._schedule_pending_inference()
             except Exception as exc:  # noqa: BLE001
                 logger.warning(f"Inference watchdog scheduling failed: {exc}")
 
@@ -1028,76 +986,55 @@ class ExperimentalTaskAgent:
         except RuntimeError as exc:
             logger.warning(f"Failed to schedule watchdog task: {exc}")
 
-    def _log_inference_guard_state(self, reason: str) -> None:
-        logger.warning(
-            "Inference guard blocked run reason={reason} llm_inflight={llm_inflight} tool_call={tool_call} pending={pending}",
-            reason=reason,
-            llm_inflight=self._llm_inflight,
-            tool_call=self._tool_call_in_progress,
-            pending=len(self._inference_reasons),
-        )
-        payload = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "reason": reason,
-            "llm_inflight": self._llm_inflight,
-            "tool_call_in_progress": self._tool_call_in_progress,
-            "pending_reasons": list(self._inference_reasons),
-        }
-        try:
-            self._guard_log_path.parent.mkdir(parents=True, exist_ok=True)
-            with self._guard_log_path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(payload, ensure_ascii=False))
-                handle.write("\n")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(f"Failed to write inference guard log: {exc}")
-
-    async def _schedule_inference_run(
-        self, reason: str, *, record_reason: bool = True
-    ) -> None:
-        if record_reason:
-            self._record_inference_reason(reason)
-
-        guard_reason = (
-            self._inference_reasons[0]
-            if self._inference_reasons
-            else reason
-        )
+    async def _request_inference(self, reason: str) -> None:
+        normalized_reason = reason or "unspecified"
+        self._record_inference_reason(normalized_reason)
         if self._llm_inflight:
-            self._log_inference_guard_state(guard_reason)
-            return
-
-        if not self._active_pipeline_task or self._active_pipeline_task.has_finished():
             logger.debug(
-                "Skipping inference run; pipeline inactive reason=%s", guard_reason
+                "LLM inflight; queued inference reason={} pending={}",
+                normalized_reason,
+                self._inference_reasons,
             )
             return
+        await self._schedule_pending_inference()
 
-        if self._inference_reasons:
-            guard_reason = self._inference_reasons.pop(0)
-            self._inference_reasons.clear()
-
-        logger.debug("Queueing LLM run reason={reason}", reason=guard_reason)
-        self._llm_inflight = True
-        try:
-            await self._active_pipeline_task.queue_frames([LLMRunFrame()])
-        except Exception:
-            self._llm_inflight = False
-            raise
-
-    async def _on_tool_call_completed(self) -> None:
-        self._cancel_inference_watchdog()
-        try:
-            await self._schedule_inference_run("tool_result", record_reason=False)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(f"Failed to schedule inference after tool result: {exc}")
-
-    async def _queue_pending_run_now(self) -> None:
+    async def _schedule_pending_inference(self) -> None:
         if self._llm_inflight:
             return
         if not self._inference_reasons:
             return
         if not self._active_pipeline_task or self._active_pipeline_task.has_finished():
+            logger.debug(
+                "Skipping inference run; pipeline inactive reasons={}",
+                self._inference_reasons,
+            )
             return
-        next_reason = self._inference_reasons[0]
-        logger.debug("Queueing pending LLM run reason=%s", next_reason)
-        await self._schedule_inference_run(next_reason, record_reason=False)
+
+        reasons_snapshot = list(self._inference_reasons)
+        self._inference_reasons.clear()
+
+        self._cancel_inference_watchdog()
+
+        logger.debug("Queueing LLM run reasons={}", reasons_snapshot)
+        self._llm_inflight = True
+        try:
+            await self._active_pipeline_task.queue_frames([LLMRunFrame()])
+        except Exception:
+            self._llm_inflight = False
+            # restore reasons so they can be retried after error handling
+            self._inference_reasons = reasons_snapshot + self._inference_reasons
+            raise
+
+    async def _on_tool_call_completed(self) -> None:
+        try:
+            if not self._inference_reasons:
+                self._record_inference_reason("tool_result")
+            await self._schedule_pending_inference()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Failed to continue inference after tool result: {exc}")
+
+    async def _queue_pending_run_now(self) -> None:
+        if self._llm_inflight:
+            logger.debug("LLM inflight; not queuing inference.")
+            return
+        await self._schedule_pending_inference()

@@ -1,4 +1,71 @@
 
+Simplify or remove _handle_llm_response
+  - can we output MESSAGE events with less book-keeping?
+  - function results/etc?
+
+--
+
+Issue to address.
+
+Here, run-reason should include tool result returned.
+
+2025-10-18 13:51:51.616 | DEBUG    | utils.experimental_pipecat_agent:_schedule_pending_inference:1224 - Queueing LLM run reasons=['movement.start', 'movement.complete', 'map.local']
+
+
+
+
+
+
+----
+
+utils/experimental_pipecat_agent.py is an event-driven agent loop.
+
+We need to improve our output_callback output, and make a clear separation between what we send to the output callback and what we log.
+
+The output callback should accept the following output types:
+  - STEP - counter and monotonic timestamp in ms. Timestamp should be relative to the start of the task.
+  - ACTION - tool call
+  - EVENT - event name and payload
+  - MESSAGE - "text" response output from the LLM
+  - ERROR - error message and timestamp. Triggered by either an error event or a caught exception in the agent. A caught exception should terminate the task and be followed by FINISHED. An error event should allow the task to continue.
+  - FINISHED - final message and timestamp. Triggered by either a task finished event or a caught exception in the agent.
+
+All of the above should be logged at the INFO level. We should wrap any output_callback calls in try/except blocks and always log what we're passing to the callback as INFO.
+
+Currently we log TOOL_CALL. This becomes the ACTION type above.
+
+Currently we log TOOL_RESULT. This should be changed to a DEBUG level log. This should not be sent to the output callback.
+
+Examine the code in utils/experimental_pipecat_agent.py. Consider the approach outlined
+above in detail. Write a questions, suggestions, and planning doc for implementing this change.
+
+Note that you can develop and test end to end by running this, or a similar, command:
+
+```
+uv run npc/run_experimental_task.py codex-1 "Move to an adjacent sector, then do it again."
+```
+
+Always use uv. Redirect output to log files for analysis. Run the code you produce and analyze the output to ensure it is correct.
+
+
+---
+
+
+[x] finish handling
+- output:
+  - STEP line with timestamp and counter
+  - TOOL_CALL becomes ACTION
+  - Do not output TOOL_RESULT
+  - messages appended to context from the model
+
+- add timestamp to all events
+- restart context and work through all timers: agent watchdog, inference watchdog, and pipeline timeout
+- logging cleanup:
+  - add logging of Gemini chunks
+  - remove all the complex logging
+- test with standard pipecat checkout
+
+----
 
 • What Changed
 

@@ -2,7 +2,7 @@ import os
 import sys
 import site
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import pytest
 from loguru import logger
@@ -50,6 +50,7 @@ except ModuleNotFoundError:  # pragma: no cover - namespace conflict fallback
 
 from utils.base_llm_agent import LLMConfig
 from utils.experimental_pipecat_agent import ExperimentalTaskAgent
+from utils.task_agent import TaskOutputType
 from utils.tools_schema import MyStatus, TaskFinished
 
 
@@ -159,10 +160,10 @@ async def test_experimental_task_agent_executes_scripted_loop(capsys):
         [{"type": "function_call", "name": "finished", "arguments": {"message": "Done"}}],
     ]
 
-    outputs: List[str] = []
+    outputs: List[Tuple[str, Any]] = []
 
     def output_callback(text: str, _type: Any):
-        outputs.append(text)
+        outputs.append((text, _type))
         logger.debug(f"[TestOutput] type={_type} text={text}")
 
     game_client = StubGameClient(character_id="npc-1")
@@ -188,8 +189,18 @@ async def test_experimental_task_agent_executes_scripted_loop(capsys):
     assert agent.finished is True
     assert agent.finished_message == "Done"
     assert "my_status:npc-1" in game_client.calls
-    assert "my_status({})" in outputs
-    assert "Done" in outputs
+    assert any(
+        output_type == TaskOutputType.ACTION.value and text == "my_status({})"
+        for text, output_type in outputs
+    )
+    assert any(
+        output_type == TaskOutputType.STEP.value and " ms elapsed" in text
+        for text, output_type in outputs
+    )
+    assert any(
+        output_type == TaskOutputType.FINISHED.value and text.endswith("Done")
+        for text, output_type in outputs
+    )
 
 
 @pytest.mark.asyncio
