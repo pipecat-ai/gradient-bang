@@ -177,7 +177,7 @@ Event 1: <event name=movement.start>\nEntering hyperspace to sector 507 (ETA: 2.
 Event 2: <event name=movement.complete>\nNow in sector 507.\nAdjacent sectors: [400, 975, 1182, 1390]\nCredits: 4330. Cargo: 0 QF | 0 RO | 0 NS. Empty holds: 30.\nWarp: 215685/300. Shields: 150/150. Fighters: 300.\nPort: SBS\n  - QF selling 430 units at 25\n  - RO buying 300 units at 12\n  - NS selling 700 units at 38\nGarrison: None\n</event>
 Event 3: <event name=map.local>\nLocal map around sector 507: 7/10 visited, 3 unvisited.\nNearest unvisited: 975 (1 hops), 1182 (1 hops), 1401 (4 hops).\nWe are currently in sector 507.\n</event>
 
-The move to sector 507 successfully completed. You are now in sector 507. You know this because the movement.complete event contains the information "Now in sector 507." UPDATE YOUR CURRENT SECTOR TO 507, based on the information in the movement.complete event. Proceed to the next step in the task. For example, for a multi-move task, you have completed the move to 507 so you can now move to the next sector on your path. IF YOU TRY AGAIN TO MOVE TO SECTOR 507, YOU WILL GET AN ERROR, BECAUSE YOU ARE ALREADY IN SECTOR 507.
+The move to sector 507 successfully completed. You are now in sector 507. You know this because the movement.complete event contains the information "Now in sector 507." Remember now that you are in sector 507, based on the information in the movement.complete event. Proceed to the next step in the task. For example, for a multi-move task, you have completed the move to 507 so you can now move to the next sector on your path. IF YOU TRY AGAIN TO MOVE TO SECTOR 507, YOU WILL GET AN ERROR, BECAUSE YOU ARE ALREADY IN SECTOR 507.
 
 
 IMPORTANT NOTE: The move tool is for moving to an adjacent sector different from the sector you are currently in. Consider the sector you are currently in before making a move.
@@ -244,6 +244,7 @@ To move one sector:
 - Use: move(to_sector=5)
 - Events: movement.start, movement.complete, map.local
 - Note: Sector 5 must be adjacent to your current sector!
+- Note: Always think about the most recent sector information you have before making a move tool call. Never try to move to the sector you are currently in.
 
 To query local map area:
 - Use: local_map_region()
