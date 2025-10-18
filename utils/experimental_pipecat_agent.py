@@ -865,11 +865,14 @@ class ExperimentalTaskAgent:
             logger.debug(
                 "TOOL_RESULT unknown tool={} arguments={}", tool_name, arguments
             )
-            await self._on_tool_call_completed()
+            await self._on_tool_call_completed(
+                tool_name, {"error": f"Unknown tool: {tool_name}"}
+            )
             return
 
         result_payload: Any = None
         error_message: Optional[Dict[str, Any]] = None
+        error_payload: Optional[Any] = None
         try:
             self._tool_call_in_progress = True
             result = tool(**arguments)
@@ -877,7 +880,8 @@ class ExperimentalTaskAgent:
                 result = await result
             result_payload = result
         except Exception as exc:
-            error_message = self._format_tool_message(tool_call_id, {"error": f"{exc}"})
+            error_payload = {"error": f"{exc}"}
+            error_message = self._format_tool_message(tool_call_id, error_payload)
         finally:
             self._tool_call_in_progress = False
 
@@ -888,7 +892,7 @@ class ExperimentalTaskAgent:
                 arguments,
                 error_message,
             )
-            await self._on_tool_call_completed()
+            await self._on_tool_call_completed(tool_name, error_payload)
             return
 
         logger.debug(
@@ -897,7 +901,7 @@ class ExperimentalTaskAgent:
             arguments,
             result_payload,
         )
-        await self._on_tool_call_completed()
+        await self._on_tool_call_completed(tool_name, result_payload)
 
     def _format_tool_message(self, tool_call_id: str, result: Any) -> Dict[str, Any]:
         if isinstance(result, str):
@@ -1025,9 +1029,20 @@ class ExperimentalTaskAgent:
             self._inference_reasons = reasons_snapshot + self._inference_reasons
             raise
 
-    async def _on_tool_call_completed(self) -> None:
+    async def _on_tool_call_completed(
+        self, tool_name: Optional[str] = None, result_payload: Any = None
+    ) -> None:
         try:
-            if not self._inference_reasons:
+            if tool_name:
+                reason = f"tool({tool_name})"
+                if result_payload is not None:
+                    serialized = self._serialize_output(result_payload)
+                    if serialized:
+                        if len(serialized) > 200:
+                            serialized = serialized[:200] + "..."
+                        reason = f"{reason}:{serialized}"
+                self._record_inference_reason(reason)
+            elif not self._inference_reasons:
                 self._record_inference_reason("tool_result")
             await self._schedule_pending_inference()
         except Exception as exc:  # noqa: BLE001
