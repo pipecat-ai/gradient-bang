@@ -41,7 +41,7 @@ from pipecat.processors.aggregators.llm_context import LLMContext, LLMSpecificMe
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
 )
-from pipecat.processors.frame_processor import FrameDirection
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.google.llm import GoogleLLMService as PipecatGoogleLLMService
 from pipecat.services.llm_service import FunctionCallParams, LLMService
 
@@ -80,6 +80,21 @@ DEFAULT_THINKING_BUDGET = 2048
 DEFAULT_INCLUDE_THOUGHTS = True
 TURN_TIMEOUT_SECONDS = 30
 EVENT_BATCH_INFERENCE_DELAY = 1.0
+
+
+class _LLMRunStateTracker(FrameProcessor):
+    def __init__(self, agent: "ExperimentalTaskAgent"):
+        super().__init__()
+        self._agent = agent
+
+    async def process_frame(self, frame: Any, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+
+        if isinstance(frame, LLMFullResponseEndFrame):
+            self._agent._llm_inflight = False
+            await self._agent._queue_pending_run_now()
+
+        await self.push_frame(frame, direction)
 
 
 PipelineToolExecutor = Callable[
@@ -214,50 +229,36 @@ class ExperimentalTaskAgent:
             ) -> AsyncIterator[GenerateContentResponse]:
                 run_reason = None
                 pending = getattr(self, "_agent_inference_reasons", None)
-                if pending is not None:
-                    try:
-                        run_reason = pending.pop(0)
-                    except IndexError:
-                        run_reason = "<empty>"
-                agent_owner = getattr(self, "_agent_owner", None)
-                if agent_owner is not None:
-                    agent_owner._llm_inflight = True
+                if pending:
+                    run_reason = pending[0]
                 logger.debug(
-                    "GoogleLLMService._stream_content invoked reason={} pending_after={}",
+                    "GoogleLLMService._stream_content invoked reason=%s pending=%s",
                     run_reason,
                     len(pending) if isinstance(pending, list) else -1,
                 )
                 try:
                     base_stream = await super()._stream_content(params_from_context)
                 except Exception:
-                    if agent_owner is not None:
-                        agent_owner._llm_inflight = False
-                        await agent_owner._queue_pending_run_now()
                     raise
                 self._captured_candidate_contents.clear()
 
                 async def _capturing_stream() -> AsyncIterator[GenerateContentResponse]:
-                    try:
-                        async for chunk in base_stream:
-                            candidates = getattr(chunk, "candidates", None)
-                            candidate = candidates[0] if candidates else None
-                            content = (
-                                getattr(candidate, "content", None)
-                                if candidate
-                                else None
-                            )
-                            if content is not None:
-                                try:
-                                    content_copy = content.model_copy(deep=True)  # type: ignore[attr-defined]
-                                except AttributeError:
-                                    content_copy = copy.deepcopy(content)
-                                self._captured_candidate_contents[0] = content_copy
+                    async for chunk in base_stream:
+                        candidates = getattr(chunk, "candidates", None)
+                        candidate = candidates[0] if candidates else None
+                        content = (
+                            getattr(candidate, "content", None)
+                            if candidate
+                            else None
+                        )
+                        if content is not None:
+                            try:
+                                content_copy = content.model_copy(deep=True)  # type: ignore[attr-defined]
+                            except AttributeError:
+                                content_copy = copy.deepcopy(content)
+                            self._captured_candidate_contents[0] = content_copy
 
-                            yield chunk
-                    finally:
-                        if agent_owner is not None:
-                            agent_owner._llm_inflight = False
-                            await agent_owner._queue_pending_run_now()
+                        yield chunk
 
                 return _capturing_stream()
 
@@ -508,7 +509,6 @@ class ExperimentalTaskAgent:
         )
 
         setattr(service, "_agent_inference_reasons", self._inference_reasons)
-        setattr(service, "_agent_owner", self)
 
         return service
 
@@ -672,8 +672,9 @@ class ExperimentalTaskAgent:
         llm_service.register_function(None, self._handle_function_call)
 
         aggregator_pair = LLMContextAggregatorPair(context)
+        state_tracker = _LLMRunStateTracker(self)
         pipeline = Pipeline(
-            [aggregator_pair.user(), llm_service, aggregator_pair.assistant()]
+            [aggregator_pair.user(), llm_service, state_tracker, aggregator_pair.assistant()]
         )
         pipeline_task = PipelineTask(
             pipeline,
@@ -1055,16 +1056,33 @@ class ExperimentalTaskAgent:
     ) -> None:
         if record_reason:
             self._record_inference_reason(reason)
+
+        guard_reason = (
+            self._inference_reasons[0]
+            if self._inference_reasons
+            else reason
+        )
         if self._llm_inflight:
-            self._log_inference_guard_state(reason)
+            self._log_inference_guard_state(guard_reason)
             return
+
         if not self._active_pipeline_task or self._active_pipeline_task.has_finished():
             logger.debug(
-                "Skipping inference run; pipeline inactive reason=%s", reason
+                "Skipping inference run; pipeline inactive reason=%s", guard_reason
             )
             return
-        logger.debug("Queueing LLM run reason={reason}", reason=reason)
-        await self._active_pipeline_task.queue_frames([LLMRunFrame()])
+
+        if self._inference_reasons:
+            guard_reason = self._inference_reasons.pop(0)
+            self._inference_reasons.clear()
+
+        logger.debug("Queueing LLM run reason={reason}", reason=guard_reason)
+        self._llm_inflight = True
+        try:
+            await self._active_pipeline_task.queue_frames([LLMRunFrame()])
+        except Exception:
+            self._llm_inflight = False
+            raise
 
     async def _on_tool_call_completed(self) -> None:
         self._cancel_inference_watchdog()
