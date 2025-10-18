@@ -17,21 +17,27 @@ import copy
 import inspect
 import json
 import os
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
+from datetime import datetime
+from pathlib import Path
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
 from loguru import logger
+from google.genai import types as genai_types
+from google.genai.types import Content, GenerateContentResponse
 
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
     FunctionCallResultProperties,
     EndFrame,
+    LLMFullResponseEndFrame,
+    LLMMessagesAppendFrame,
     LLMRunFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_context import LLMContext, LLMSpecificMessage
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
 )
@@ -71,6 +77,7 @@ load_dotenv()
 DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash-preview-09-2025"
 # DEFAULT_GOOGLE_MODEL = "gemini-2.5-pro-preview-06-05"
 DEFAULT_THINKING_BUDGET = 2048
+DEFAULT_INCLUDE_THOUGHTS = True
 TURN_TIMEOUT_SECONDS = 30
 
 
@@ -115,6 +122,7 @@ class ExperimentalTaskAgent:
             llm_service_factory or self._default_llm_service_factory
         )
         self._thinking_budget = thinking_budget or DEFAULT_THINKING_BUDGET
+        self._include_thoughts = DEFAULT_INCLUDE_THOUGHTS
 
         self.messages: List[Dict[str, Any]] = []
         self.tools: Dict[str, Callable[..., Awaitable[Any]]] = {}
@@ -182,26 +190,535 @@ class ExperimentalTaskAgent:
     def _default_llm_service_factory(self) -> LLMService:
         # todo: PR for Pipecat GoogleLLMService to add stop() and cancel() overrides
         class GoogleLLMService(PipecatGoogleLLMService):
-            async def stop(self, frame):
-                await super().stop(frame)
-                try:
-                    await self._client.aio.aclose()
-                except Exception:  # noqa: BLE001
-                    pass
+            def __init__(self, *args, **kwargs):
+                logger.info("GoogleLLMService.__init__ invoked")
+                super().__init__(*args, **kwargs)
+                self._captured_candidate_contents: Dict[int, Content] = {}
+                self._capture_session_id = datetime.utcnow().strftime(
+                    "%Y%m%dT%H%M%S%fZ"
+                )
+                self._stream_request_counter = 0
+                self._last_request_index: Optional[int] = None
+                self._dump_dir = Path(os.getenv("PIPECAT_CONTEXT_DUMP_DIR", "logs"))
+                self._dump_dir.mkdir(parents=True, exist_ok=True)
+
+            # todo: PR with both cancel() and stop() overrides for GoogleLLMService that do this.
+            @staticmethod
+            def _get_value(obj: Any, field: str) -> Any:
+                if hasattr(obj, field):
+                    return getattr(obj, field)
+                if isinstance(obj, dict):
+                    return obj.get(field)
+                return None
+
+            @staticmethod
+            def _set_value(obj: Any, field: str, value: Any) -> None:
+                if hasattr(obj, field):
+                    setattr(obj, field, value)
+                elif isinstance(obj, dict):
+                    obj[field] = value
 
             async def cancel(self, frame):
+                logger.info(
+                    "GoogleLLMService.cancel called with frame {}", type(frame).__name__
+                )
                 await super().cancel(frame)
                 try:
                     await self._client.aio.aclose()
                 except Exception:  # noqa: BLE001
                     pass
 
+            async def _stream_content(
+                self, params_from_context
+            ) -> AsyncIterator[GenerateContentResponse]:
+                param_keys = (
+                    list(params_from_context.keys())
+                    if isinstance(params_from_context, dict)
+                    else None
+                )
+                logger.info(
+                    "GoogleLLMService._stream_content called; keys={}", param_keys
+                )
+                self._stream_request_counter += 1
+                request_index = self._stream_request_counter
+                self._last_request_index = request_index
+
+                request_logs: List[Dict[str, Any]] = []
+                for index, content in enumerate(
+                    params_from_context.get("messages", [])
+                ):
+                    if hasattr(content, "model_dump"):
+                        try:
+                            request_logs.append(
+                                {"index": index, "content": content.model_dump()}
+                            )
+                        except Exception:  # noqa: BLE001
+                            request_logs.append(
+                                {"index": index, "content": str(content)}
+                            )
+                    else:
+                        request_logs.append({"index": index, "content": str(content)})
+                # if request_logs:
+                #     try:
+                #         logger.info(
+                #             "Gemini request messages\n{}",
+                #             json.dumps(request_logs, indent=2, default=str),
+                #         )
+                #     except Exception as error:  # noqa: BLE001
+                #         logger.warning(
+                #             "Unable to serialize Gemini request messages: {}", error
+                #         )
+
+                parts_log_path = (
+                    self._dump_dir
+                    / f"gemini_parts_{self._capture_session_id}_req{request_index}.ndjson"
+                )
+
+                base_stream = await super()._stream_content(params_from_context)
+                self._captured_candidate_contents.clear()
+
+                async def _capturing_stream() -> AsyncIterator[GenerateContentResponse]:
+                    async for chunk in base_stream:
+                        try:
+                            chunk_payload = (
+                                chunk.model_dump()  # type: ignore[attr-defined]
+                                if hasattr(chunk, "model_dump")
+                                else json.loads(json.dumps(chunk, default=str))
+                            )
+                        except Exception as error:  # noqa: BLE001
+                            chunk_payload = {
+                                "error": f"Unable to serialize chunk: {error}",
+                                "repr": repr(chunk),
+                            }
+
+                        try:
+                            logger.info(
+                                "Gemini chunk (raw)\n{}",
+                                json.dumps(chunk_payload, indent=2, default=str),
+                            )
+                        except Exception as error:  # noqa: BLE001
+                            logger.warning("Unable to log Gemini chunk: {}", error)
+
+                        candidates = getattr(chunk, "candidates", None)
+                        candidate = candidates[0] if candidates else None
+                        content = (
+                            getattr(candidate, "content", None) if candidate else None
+                        )
+                        if content is not None:
+                            try:
+                                content_copy = content.model_copy(deep=True)  # type: ignore[attr-defined]
+                            except AttributeError:
+                                content_copy = copy.deepcopy(content)
+                            self._captured_candidate_contents[0] = content_copy
+
+                        yield chunk
+
+                return _capturing_stream()
+
+            async def push_frame(
+                self,
+                frame,
+                direction: FrameDirection = FrameDirection.DOWNSTREAM,
+            ):
+                logger.info(
+                    "GoogleLLMService.push_frame called; frame_type={}, direction={}",
+                    type(frame).__name__,
+                    direction,
+                )
+                if (
+                    isinstance(frame, LLMFullResponseEndFrame)
+                    and self._captured_candidate_contents
+                ):
+                    adapter = self.get_llm_adapter()
+                    llm_id = (
+                        adapter.id_for_llm_specific_messages if adapter else "google"
+                    )
+                    messages = [
+                        LLMSpecificMessage(llm=llm_id, message=content)
+                        for idx, content in sorted(
+                            self._captured_candidate_contents.items()
+                        )
+                    ]
+                    append_frame = LLMMessagesAppendFrame(
+                        messages=messages, run_llm=False
+                    )
+                    await super().push_frame(append_frame, direction)
+                    self._captured_candidate_contents.clear()
+
+                if isinstance(frame, LLMMessagesAppendFrame):
+                    should_skip = True
+                    for message in frame.messages:
+                        if not isinstance(message, dict):
+                            should_skip = False
+                            break
+                        parts = message.get("parts") or []
+                        if not parts or not all(
+                            isinstance(part, dict)
+                            and part.get("function_call") is not None
+                            and not part.get("thought")
+                            and not part.get("text")
+                            for part in parts
+                        ):
+                            should_skip = False
+                            break
+                    if should_skip:
+                        logger.debug("Skipping sanitized function_call message append")
+                        return
+
+                await super().push_frame(frame, direction)
+
+            async def _stream_content_universal_context(
+                self, context: LLMContext
+            ) -> AsyncIterator[GenerateContentResponse]:
+                logger.info(
+                    "GoogleLLMService._stream_content_universal_context called; context_type={}",
+                    type(context).__name__,
+                )
+                return await super()._stream_content_universal_context(context)
+
+            def _is_sanitized_function_message(self, message: Any) -> bool:
+                if isinstance(message, LLMSpecificMessage):
+                    return False
+                if isinstance(message, dict):
+                    parts = message.get("parts") or []
+                    if parts and any(
+                        isinstance(part, dict)
+                        and part.get("function_response") is not None
+                        for part in parts
+                    ):
+                        return True
+                    if message.get("role") == "tool":
+                        return True
+                return False
+
+            @staticmethod
+            def _is_sanitized_function_call_only(message: Any) -> bool:
+                if not isinstance(message, dict):
+                    return False
+                parts = message.get("parts") or []
+                if not parts:
+                    tool_calls = message.get("tool_calls") or []
+                    if tool_calls and all(
+                        isinstance(call, dict)
+                        and call.get("function")
+                        and not message.get("content")
+                    for call in tool_calls):
+                        return True
+                    return False
+                return all(
+                    isinstance(part, dict)
+                    and part.get("function_call") is not None
+                    and not part.get("function_response")
+                    and not part.get("text")
+                for part in parts)
+
+            def _find_previous_function_call_name(
+                self, messages: List[Any], start_index: int
+            ) -> Optional[str]:
+                for cursor in range(start_index, -1, -1):
+                    candidate = messages[cursor]
+                    if isinstance(candidate, LLMSpecificMessage):
+                        candidate_parts = getattr(candidate.message, "parts", None) or []
+                        for part in reversed(candidate_parts):
+                            function_call = self._get_value(part, "function_call")
+                            if function_call:
+                                name = self._get_value(function_call, "name")
+                                if name:
+                                    return name
+                    elif isinstance(candidate, dict):
+                        candidate_parts = candidate.get("parts") or []
+                        for part in reversed(candidate_parts):
+                            if not isinstance(part, dict):
+                                continue
+                            function_call = part.get("function_call")
+                            if function_call:
+                                name = function_call.get("name")
+                                if name:
+                                    return name
+                        tool_calls = candidate.get("tool_calls") or []
+                        for tool_call in reversed(tool_calls):
+                            if not isinstance(tool_call, dict):
+                                continue
+                            function_payload = tool_call.get("function", {})
+                            if not isinstance(function_payload, dict):
+                                continue
+                            name = function_payload.get("name")
+                            if name:
+                                return name
+                return None
+
+            def _create_function_response_message(
+                self,
+                name: Optional[str],
+                response_payload: Any,
+                response_id: Optional[str],
+                extra_fields: Dict[str, Any],
+            ) -> LLMSpecificMessage:
+                resolved_name = name or "tool_call_result"
+                part = genai_types.Part.from_function_response(
+                    name=resolved_name,
+                    response=response_payload if response_payload is not None else {},
+                )
+                for field in ("will_continue", "scheduling", "parts"):
+                    value = extra_fields.get(field)
+                    if value is not None:
+                        try:
+                            setattr(part.function_response, field, value)
+                        except AttributeError:
+                            logger.debug(
+                                "Unable to set field {} on function_response part",
+                                field,
+                            )
+                content = Content(role="user", parts=[part])
+                adapter = self.get_llm_adapter()
+                llm_id = (
+                    adapter.id_for_llm_specific_messages if adapter else "google"
+                )
+                logger.info(
+                    "Created normalized function response message; resolved_name={}, response_payload={}, response_id={}",
+                    resolved_name,
+                    response_payload,
+                    response_id,
+                )
+                return LLMSpecificMessage(llm=llm_id, message=content)
+
+            def _remove_duplicate_function_call_messages(
+                self, context: LLMContext
+            ) -> None:
+                messages = context.get_messages()
+                normalized_messages: List[Any] = []
+                changed = False
+                idx = 0
+
+                while idx < len(messages):
+                    message = messages[idx]
+
+                    if isinstance(message, LLMSpecificMessage):
+                        content = message.message
+                        parts = getattr(content, "parts", None) or []
+                        logger.info(
+                            "LLMSpecificMessage encountered; index={}, role={}, part_attrs={}",
+                            idx,
+                            getattr(content, "role", None),
+                            [
+                                {
+                                    "has_function_call": getattr(part, "function_call", None) is not None,
+                                    "has_function_response": getattr(part, "function_response", None) is not None,
+                                    "has_text": getattr(part, "text", None) is not None,
+                                }
+                                for part in parts
+                            ],
+                        )
+
+                    if self._is_sanitized_function_call_only(message):
+                        changed = True
+                        logger.info(
+                            "Removed sanitized function_call-only message; index={}",
+                            idx,
+                        )
+                        idx += 1
+                        continue
+
+                    next_index = idx + 1
+                    if (
+                        isinstance(message, LLMSpecificMessage)
+                        and next_index < len(messages)
+                        and self._is_sanitized_function_call_only(messages[next_index])
+                    ):
+                        changed = True
+                        logger.info(
+                            "Removed duplicate sanitized function_call following LLMSpecificMessage; index={}",
+                            next_index,
+                        )
+                        normalized_messages.append(message)
+                        idx += 2
+                        continue
+
+                    if self._is_sanitized_function_message(message):
+                        logger.info(
+                            "Sanitized function response message detected; index={}, payload={}",
+                            idx,
+                            message,
+                        )
+                        response_dict: Dict[str, Any] = {}
+                        response_payload: Any = {}
+                        response_id: Optional[str] = None
+                        existing_name: Optional[str] = None
+
+                        if isinstance(message, dict):
+                            sanitized_parts = message.get("parts") or []
+                            if sanitized_parts:
+                                first_part = sanitized_parts[0]
+                                if isinstance(first_part, dict):
+                                    response_dict = first_part.get(
+                                        "function_response", {}
+                                    ) or {}
+                            if not response_dict:
+                                raw_content = message.get("content")
+                                if isinstance(raw_content, str):
+                                    try:
+                                        response_payload = json.loads(raw_content)
+                                    except json.JSONDecodeError:
+                                        response_payload = {"text": raw_content}
+                                elif raw_content is not None:
+                                    response_payload = raw_content
+                                response_id = response_id or message.get("tool_call_id")
+
+                        if response_dict:
+                            response_payload = response_dict.get("response", {})
+                            response_id = response_dict.get("id") or response_id
+                            existing_name = response_dict.get("name")
+
+                        function_name = self._find_previous_function_call_name(
+                            messages, idx - 1
+                        )
+                        normalized_name = function_name or existing_name
+                        if not normalized_name:
+                            logger.warning(
+                                "Unable to determine function name for response; defaulting placeholder; index={}, response_id={}",
+                                idx,
+                                response_id,
+                            )
+
+                        replacement = self._create_function_response_message(
+                            normalized_name,
+                            response_payload,
+                            response_id,
+                            response_dict,
+                        )
+
+                        try:
+                            context._messages[idx] = replacement
+                        except Exception as error:  # noqa: BLE001
+                            logger.error(
+                                "Failed to replace sanitized function response message at index {}: {}",
+                                idx,
+                                error,
+                            )
+                            normalized_messages.append(message)
+                            idx += 1
+                            continue
+
+                        logger.info(
+                            "Replaced sanitized function response message in place; index={}, name={}, role=user, response_payload={}",
+                            idx,
+                            normalized_name or "tool_call_result",
+                            response_payload,
+                        )
+                        normalized_messages.append(replacement)
+                        changed = True
+                        idx += 1
+                        continue
+
+                    normalized_messages.append(message)
+                    if isinstance(message, dict) and message.get("tool_calls"):
+                        logger.debug(
+                            "Context message with tool_calls retained; index={}, payload={}",
+                            idx,
+                            message,
+                        )
+                    idx += 1
+
+                if changed:
+                    context.set_messages(normalized_messages)
+
+            async def _process_context(self, context: Any):
+                logger.info(
+                    "GoogleLLMService._process_context called; context_type={}",
+                    type(context).__name__,
+                )
+                if isinstance(context, LLMContext):
+                    self._remove_duplicate_function_call_messages(context)
+                    message_logs: List[Dict[str, Any]] = []
+                    adapter = self.get_llm_adapter()
+                    for message in context.get_messages():
+                        if not isinstance(message, LLMSpecificMessage):
+                            continue
+                        content = message.message
+                        parts = getattr(content, "parts", None) or []
+                        part_payloads: List[Dict[str, Any]] = []
+                        for index, part in enumerate(parts):
+                            part_payloads.append(
+                                {
+                                    "index": index,
+                                    "thought": getattr(part, "thought", None),
+                                    "thought_signature": getattr(
+                                        part, "thought_signature", None
+                                    ),
+                                    "function_call": (
+                                        part.function_call.model_dump()
+                                        if getattr(part, "function_call", None)
+                                        and hasattr(part.function_call, "model_dump")
+                                        else getattr(part, "function_call", None)
+                                    ),
+                                    "text": getattr(part, "text", None),
+                                }
+                            )
+                        if part_payloads:
+                            message_logs.append(
+                                {
+                                    "llm": message.llm,
+                                    "parts": part_payloads,
+                                }
+                            )
+                    # if message_logs:
+                    #     try:
+                    #         logger.info(
+                    #             "Gemini context messages\n{}",
+                    #             json.dumps(message_logs, indent=2, default=str),
+                    #         )
+                    #     except Exception as error:  # noqa: BLE001
+                    #         logger.warning(
+                    #             "Unable to serialize Gemini context messages: {}", error
+                    #         )
+                    if adapter:
+                        try:
+                            converted = adapter._from_universal_context_messages(
+                                context.get_messages()
+                            )
+                            dump_payload = {
+                                "system_instruction": converted.system_instruction,
+                                "messages": [
+                                    msg.model_dump()  # type: ignore[attr-defined]
+                                    if hasattr(msg, "model_dump")
+                                    else str(msg)
+                                    for msg in converted.messages
+                                ],
+                            }
+                            session_id = getattr(
+                                self, "_capture_session_id", None
+                            ) or datetime.utcnow().strftime("%Y%m%dT%H%M%S%fZ")
+                            request_index = getattr(self, "_last_request_index", None)
+                            if request_index is not None:
+                                filename = f"gemini_context_{session_id}_req{request_index}.json"
+                            else:
+                                filename = f"gemini_context_{session_id}.json"
+                            dump_path = self._dump_dir / filename
+                            dump_path.write_text(
+                                json.dumps(dump_payload, indent=2, default=str),
+                                encoding="utf-8",
+                            )
+                            logger.info("Saved Gemini context dump to {}", dump_path)
+                        except Exception as error:  # noqa: BLE001
+                            logger.warning(
+                                "Unable to persist Gemini context dump: {}", error
+                            )
+                result = await super()._process_context(context)
+                if isinstance(context, LLMContext):
+                    self._remove_duplicate_function_call_messages(context)
+                return result
+
         return GoogleLLMService(
             api_key=self.config.api_key or "",
             model=self.config.model or DEFAULT_GOOGLE_MODEL,
             run_in_parallel=False,
             params=GoogleLLMService.InputParams(
-                extra={"thinking_config": {"thinking_budget": self._thinking_budget}}
+                extra={
+                    "thinking_config": {
+                        "thinking_budget": self._thinking_budget,
+                        "include_thoughts": self._include_thoughts,
+                    }
+                }
             ),
         )
 
