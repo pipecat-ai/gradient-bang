@@ -13,7 +13,7 @@ from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame, RTVIProce
 from pipecat.frames.frames import LLMMessagesAppendFrame
 
 from utils.api_client import AsyncGameClient
-from utils.experimental_pipecat_agent import ExperimentalTaskAgent
+from utils.task_agent import TaskAgent, TaskOutputType
 from utils.tools_schema import (
     MyStatus,
     PlotCourse,
@@ -29,7 +29,6 @@ from utils.tools_schema import (
     SendMessage,
     UI_SHOW_PANEL_SCHEMA,
 )
-from utils.task_agent import TaskOutputType
 
 
 class VoiceTaskManager:
@@ -86,12 +85,8 @@ class VoiceTaskManager:
 
         self.task_complete_callback = task_complete_callback
 
-        model = os.getenv("EXPERIMENTAL_AGENT_MODEL")
-        agent_config = SimpleNamespace(api_key=os.getenv("GOOGLE_API_KEY"), model=model)
-
         # Create task agent driven by the Pipecat pipeline
-        self.task_agent = ExperimentalTaskAgent(
-            config=agent_config,
+        self.task_agent = TaskAgent(
             game_client=self.game_client,
             character_id=self.character_id,
             output_callback=self._handle_agent_output,
