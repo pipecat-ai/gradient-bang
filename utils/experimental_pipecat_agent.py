@@ -81,7 +81,6 @@ DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash-preview-09-2025"
 # DEFAULT_GOOGLE_MODEL = "gemini-2.5-pro-preview-06-05"
 DEFAULT_THINKING_BUDGET = 2048
 DEFAULT_INCLUDE_THOUGHTS = True
-TURN_TIMEOUT_SECONDS = 30
 EVENT_BATCH_INFERENCE_DELAY = 1.0
 
 
@@ -155,6 +154,7 @@ class ExperimentalTaskAgent:
         tool_executor: Optional[PipelineToolExecutor] = None,
         llm_service_factory: Optional[Callable[[], LLMService]] = None,
         thinking_budget: Optional[int] = None,
+        idle_timeout_secs: Optional[float] = None,
     ):
         api_key = config.api_key or os.getenv("GOOGLE_API_KEY")
         if not api_key:
@@ -176,6 +176,7 @@ class ExperimentalTaskAgent:
         )
         self._thinking_budget = thinking_budget or DEFAULT_THINKING_BUDGET
         self._include_thoughts = DEFAULT_INCLUDE_THOUGHTS
+        self._pipeline_idle_timeout_secs = idle_timeout_secs
 
         self.messages: List[Dict[str, Any]] = []
         self.tools: Dict[str, Callable[..., Awaitable[Any]]] = {}
@@ -186,9 +187,6 @@ class ExperimentalTaskAgent:
         self.finished_message: Optional[str] = None
         self._active_pipeline_task: Optional[PipelineTask] = None
         self._step_counter: int = 0
-        self._watchdog_handle: Optional[asyncio.TimerHandle] = None
-        self._watchdog_target: Optional[asyncio.Future] = None
-        self._watchdog_triggered: bool = False
         self._tool_call_in_progress: bool = False
         self._inference_reasons: List[str] = []
         self._inference_delay = EVENT_BATCH_INFERENCE_DELAY
@@ -647,7 +645,6 @@ class ExperimentalTaskAgent:
         self._last_logged_message_count = len(context.get_messages())
 
         try:
-            self._refresh_watchdog()
             await self.game_client.resume_event_delivery()
 
             success = False
@@ -661,20 +658,12 @@ class ExperimentalTaskAgent:
                 try:
                     await asyncio.sleep(1)
                 except asyncio.CancelledError:
-                    if self._watchdog_triggered:
-                        self._emit_error_and_finish(
-                            "Pipeline error: Turn timed out",
-                            exception_detail="Turn timed out",
-                        )
-                        return False
                     raise
                 except Exception as error:
                     self._emit_error_and_finish(
                         f"Pipeline error: {error}", exception_detail=str(error)
                     )
                     return False
-                finally:
-                    self._clear_watchdog_target()
 
                 if self.finished:
                     success = True
@@ -684,7 +673,6 @@ class ExperimentalTaskAgent:
                 await self._active_pipeline_task.cancel()
             await runner_task
             self._active_pipeline_task = None
-            self._stop_watchdog()
             self._cancel_inference_watchdog()
             self._inference_reasons.clear()
             return success
@@ -708,6 +696,10 @@ class ExperimentalTaskAgent:
                 aggregator_pair.assistant(),
             ]
         )
+        pipeline_task_kwargs: Dict[str, Any] = {}
+        if self._pipeline_idle_timeout_secs is not None:
+            pipeline_task_kwargs["idle_timeout_secs"] = self._pipeline_idle_timeout_secs
+
         pipeline_task = PipelineTask(
             pipeline,
             params=PipelineParams(
@@ -716,6 +708,7 @@ class ExperimentalTaskAgent:
                 enable_metrics=False,
                 enable_usage_metrics=False,
             ),
+            **pipeline_task_kwargs,
         )
 
         pipeline_runner = PipelineRunner(handle_sigint=False, handle_sigterm=False)
@@ -730,7 +723,6 @@ class ExperimentalTaskAgent:
         label_suffix = f": {label}" if label else ""
         step_text = f"{self._step_counter} - {elapsed_ms} ms elapsed{label_suffix}"
         self._output(step_text, TaskOutputType.STEP)
-        self._refresh_watchdog()
 
     def _elapsed_ms(self) -> int:
         if self._task_start_monotonic is None:
@@ -794,46 +786,10 @@ class ExperimentalTaskAgent:
         finished_payload = f"Task stopped because of an error: {detail}"
         self._output(self._timestamped_text(finished_payload), TaskOutputType.FINISHED)
 
-    def _set_watchdog_target(self, future: asyncio.Future) -> None:
-        self._current_turn_future = future
-        self._watchdog_target = future
-        self._refresh_watchdog()
-
-    def _clear_watchdog_target(self) -> None:
-        self._current_turn_future = None
-        self._watchdog_target = None
-
-    def _refresh_watchdog(self) -> None:
-        loop = asyncio.get_running_loop()
-        if self._watchdog_handle:
-            self._watchdog_handle.cancel()
-        self._watchdog_triggered = False
-        self._watchdog_handle = loop.call_later(
-            TURN_TIMEOUT_SECONDS, self._watchdog_timeout
-        )
-
-    def _stop_watchdog(self) -> None:
-        if self._watchdog_handle:
-            self._watchdog_handle.cancel()
-            self._watchdog_handle = None
-        self._watchdog_triggered = False
-        self._watchdog_target = None
-        self._current_turn_future = None
-
-    def _watchdog_timeout(self) -> None:
-        self._watchdog_handle = None
-        target = self._watchdog_target
-        if target and not target.done():
-            self._watchdog_triggered = True
-            logger.warning("Turn watchdog timed out; cancelling current turn future")
-            target.cancel()
-
     async def _handle_function_call(self, params: FunctionCallParams) -> None:
         tool_name = params.function_name
         tool_call_id = params.tool_call_id
         arguments = params.arguments or {}
-
-        self._refresh_watchdog()
 
         if tool_name == "finished":
             self.finished = True
