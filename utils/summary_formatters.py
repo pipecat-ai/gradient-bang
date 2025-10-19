@@ -142,10 +142,15 @@ def _format_salvage(salvage: List[Dict[str, Any]]) -> List[str]:
 
     lines = ["Salvage:"]
     for container in salvage:
+        salvage_id = container.get("salvage_id", "unknown")
         credits = container.get("credits", 0)
+        scrap = container.get("scrap", 0)
         cargo = container.get("cargo", {})
         cargo_str = _format_cargo(cargo)
-        lines.append(f"  - Credits: {credits}, Cargo: {cargo_str}")
+        scrap_part = f", Scrap: {scrap}" if scrap else ""
+        lines.append(
+            f"  - ID: {salvage_id}, Credits: {credits}{scrap_part}, Cargo: {cargo_str}"
+        )
 
     return lines
 

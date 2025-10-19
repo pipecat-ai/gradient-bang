@@ -8,6 +8,7 @@ from .utils import (
     sector_contents,
     build_event_source,
     rpc_success,
+    build_status_payload,
 )
 
 
@@ -53,6 +54,12 @@ async def handle(request: dict, world) -> dict:
         current_credits = world.knowledge_manager.get_credits(character_id)
         world.knowledge_manager.update_credits(
             character_id, current_credits + toll_payout
+        )
+        status_payload = await build_status_payload(world, character_id)
+        await event_dispatcher.emit(
+            "status.update",
+            status_payload,
+            character_filter=[character_id],
         )
 
     updated_garrison = None

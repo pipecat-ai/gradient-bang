@@ -90,6 +90,9 @@ class StatusBarState:
     # Bar 4: Garrison
     garrison: Optional[GarrisonInfo] = None
 
+    # Salvage present in sector
+    salvage: List[Dict[str, Any]] = field(default_factory=list)
+
     # Bar 5: Port
     port: Optional[PortInfo] = None
 
@@ -117,6 +120,89 @@ class StatusBarUpdater:
         self.character_id = character_id
         self.state = StatusBarState()
 
+    def _set_garrison_info(self, garrison_data: Optional[Dict[str, Any]]) -> None:
+        """Helper to apply garrison information to the state."""
+        if isinstance(garrison_data, dict) and garrison_data.get("fighters") is not None:
+            owner = (
+                garrison_data.get("owner_name")
+                or garrison_data.get("owner_id")
+                or "unknown"
+            )
+            fighters = int(garrison_data.get("fighters", 0) or 0)
+            mode = garrison_data.get("mode", "unknown")
+            toll_amount = garrison_data.get("toll_amount")
+            self.state.garrison = GarrisonInfo(
+                owner_name=owner,
+                fighters=fighters,
+                mode=mode,
+                toll_amount=toll_amount,
+            )
+        else:
+            self.state.garrison = None
+
+    def _apply_sector_details(
+        self,
+        sector_data: Dict[str, Any],
+        *,
+        require_match: bool = False,
+    ) -> None:
+        """Normalize sector payloads (status, movement.complete, sector.update)."""
+        if not isinstance(sector_data, dict):
+            return
+
+        sector_id = sector_data.get("id")
+        if require_match and sector_id is not None and sector_id != self.state.sector_id:
+            return
+
+        if sector_id is not None:
+            self.state.sector_id = sector_id
+
+        if "adjacent_sectors" in sector_data:
+            self.state.adjacent_sectors = list(sector_data.get("adjacent_sectors", []))
+
+        players_list: Optional[List[Dict[str, Any]]] = None
+        if "players" in sector_data:
+            players_list = sector_data.get("players") or []
+        elif "other_players" in sector_data:
+            players_list = sector_data.get("other_players") or []
+
+        if players_list is not None:
+            self.state.ships = [
+                ShipInfo(
+                    name=entry.get("name", "?"),
+                    ship_type=(
+                        (entry.get("ship") or {}).get("ship_type")
+                        or entry.get("ship_type", "unknown")
+                    ),
+                )
+                for entry in players_list
+                if isinstance(entry, dict) and entry.get("name")
+            ]
+
+        garrison_data = sector_data.get("garrison")
+        if not garrison_data:
+            garrisons_list = sector_data.get("garrisons")
+            if isinstance(garrisons_list, list) and garrisons_list:
+                garrison_data = garrisons_list[0]
+
+        if "garrison" in sector_data or "garrisons" in sector_data:
+            self._set_garrison_info(garrison_data)
+
+        if "port" in sector_data:
+            port_data = sector_data.get("port")
+            if isinstance(port_data, dict):
+                self.state.port = PortInfo(
+                    port_type=port_data.get("code", "unknown"),
+                    stock=port_data.get("stock", port_data.get("last_seen_stock", {})),
+                    prices=port_data.get("prices", port_data.get("last_seen_prices", {})),
+                )
+            else:
+                self.state.port = None
+
+        if "salvage" in sector_data:
+            salvage_list = sector_data.get("salvage") or []
+            self.state.salvage = list(salvage_list)
+
     def update_from_status(self, status_payload: dict) -> None:
         """Update from status.update event"""
         # Status can come in two formats:
@@ -124,18 +210,12 @@ class StatusBarUpdater:
         # 2. Legacy format: {"sector": int, "ship": {...}, "sector_contents": {...}}
 
         # Determine format and normalize
+        player_data: Dict[str, Any] = {}
         if "player" in status_payload:
             # New format from build_status_payload
             sector_data = status_payload.get("sector", {})
             ship_data = status_payload.get("ship", {})
             player_data = status_payload.get("player", {})
-
-            # Extract sector_id
-            self.state.sector_id = sector_data.get("id", self.state.sector_id)
-
-            # Update from player data
-            if "credits_on_hand" in player_data:
-                self.state.credits = player_data["credits_on_hand"]
         else:
             # Legacy format - sector_contents style
             sector_data = status_payload.get("sector_contents", {})
@@ -146,58 +226,10 @@ class StatusBarUpdater:
             if legacy_sector is not None:
                 self.state.sector_id = legacy_sector
 
-        # Update adjacent sectors
-        self.state.adjacent_sectors = sector_data.get("adjacent_sectors", [])
+        self._apply_sector_details(sector_data)
 
-        # Bar 2: Ship stats
-        if "credits" in ship_data:
-            self.state.credits = ship_data["credits"]
-        self.state.fighters = ship_data.get("fighters", 0)
-        self.state.shields = ship_data.get("shields", 0)
-        self.state.max_fighters = ship_data.get("max_fighters", 0)
-        self.state.max_shields = ship_data.get("max_shields", 0)
-        self.state.warp_power = ship_data.get("warp_power", 0)
-        self.state.max_warp_power = ship_data.get("warp_power_capacity", 0)
-
-        cargo = ship_data.get("cargo", {})
-        self.state.cargo = CargoInfo(
-            quantum_foam=cargo.get("quantum_foam", 0),
-            retro_organics=cargo.get("retro_organics", 0),
-            neuro_symbolics=cargo.get("neuro_symbolics", 0)
-        )
-
-        # Bar 3: Ships in sector - handle both "players" and "other_players"
-        players_list = sector_data.get("players", sector_data.get("other_players", []))
-        self.state.ships = [
-            ShipInfo(
-                name=c["name"],
-                ship_type=c.get("ship", {}).get("ship_type", c.get("ship_type", "unknown"))
-            )
-            for c in players_list
-        ]
-
-        # Bar 4: Garrison
-        garrison_data = sector_data.get("garrison")
-        if garrison_data:
-            self.state.garrison = GarrisonInfo(
-                owner_name=garrison_data.get("owner_name", garrison_data.get("owner_id")),
-                fighters=garrison_data["fighters"],
-                mode=garrison_data["mode"],
-                toll_amount=garrison_data.get("toll_amount")
-            )
-        else:
-            self.state.garrison = None
-
-        # Bar 5: Port - handle both formats
-        port_data = sector_data.get("port")
-        if port_data:
-            self.state.port = PortInfo(
-                port_type=port_data.get("code", "unknown"),
-                stock=port_data.get("stock", port_data.get("last_seen_stock", {})),
-                prices=port_data.get("prices", port_data.get("last_seen_prices", {}))
-            )
-        else:
-            self.state.port = None
+        if ship_data or player_data:
+            self._update_from_player_ship({"player": player_data, "ship": ship_data})
 
     def update_from_combat_started(self, payload: dict) -> None:
         """Deprecated: combat.started no longer emitted; treat as combat.round_waiting."""
@@ -262,40 +294,7 @@ class StatusBarUpdater:
 
         # Update sector info
         sector_data = payload.get("sector", {})
-        self.state.sector_id = sector_data.get("id", self.state.sector_id)
-        self.state.adjacent_sectors = sector_data.get("adjacent_sectors", [])
-
-        # Update sector occupants - note: field is "players" not "other_players"
-        self.state.ships = [
-            ShipInfo(
-                name=c["name"],
-                ship_type=c.get("ship", {}).get("ship_type", "unknown")
-            )
-            for c in sector_data.get("players", [])
-        ]
-
-        # Update garrison
-        garrison_data = sector_data.get("garrison")
-        if garrison_data:
-            self.state.garrison = GarrisonInfo(
-                owner_name=garrison_data.get("owner_name", garrison_data.get("owner_id", "?")),
-                fighters=garrison_data["fighters"],
-                mode=garrison_data["mode"],
-                toll_amount=garrison_data.get("toll_amount")
-            )
-        else:
-            self.state.garrison = None
-
-        # Update port
-        port_data = sector_data.get("port")
-        if port_data:
-            self.state.port = PortInfo(
-                port_type=port_data.get("code", "unknown"),
-                stock=port_data.get("stock", {}),
-                prices=port_data.get("prices", {})
-            )
-        else:
-            self.state.port = None
+        self._apply_sector_details(sector_data)
 
         # Return to quiet state if not in combat
         if not self.state.in_combat:
@@ -316,6 +315,8 @@ class StatusBarUpdater:
             if sector_id is None or sector_id == self.state.sector_id:
                 if self.state.port:
                     # Update existing port
+                    if port_data.get("code"):
+                        self.state.port.port_type = port_data.get("code", self.state.port.port_type)
                     self.state.port.stock = port_data.get("stock", {})
                     self.state.port.prices = port_data.get("prices", {})
                 else:
@@ -325,6 +326,66 @@ class StatusBarUpdater:
                         stock=port_data.get("stock", {}),
                         prices=port_data.get("prices", {})
                     )
+
+    def update_from_sector_update(self, payload: dict) -> None:
+        """Update sector details from sector.update events."""
+        sector_data = payload.get("sector") if isinstance(payload.get("sector"), dict) else payload
+        self._apply_sector_details(sector_data, require_match=True)
+
+    def update_from_garrison_event(self, event_name: str, payload: dict) -> None:
+        """Update state from garrison-related events."""
+        sector_ref = payload.get("sector")
+        sector_id = _extract_sector_id(sector_ref)
+        if sector_id is not None and sector_id != self.state.sector_id:
+            return
+
+        if "garrison" in payload:
+            self._set_garrison_info(payload.get("garrison"))
+        elif event_name == "garrison.collected":
+            # Explicitly clear garrison when none returned
+            self._set_garrison_info(payload.get("garrison"))
+
+        fighters_remaining = payload.get("fighters_remaining")
+        if isinstance(fighters_remaining, int):
+            self.state.fighters = fighters_remaining
+
+        fighters_on_ship = payload.get("fighters_on_ship")
+        if isinstance(fighters_on_ship, int):
+            self.state.fighters = fighters_on_ship
+
+        credits_collected = payload.get("credits_collected")
+        if isinstance(credits_collected, int):
+            self.state.credits += credits_collected
+
+    def update_from_salvage_collected(self, payload: dict) -> None:
+        """Update cargo/credits when salvage is collected."""
+        sector_ref = payload.get("sector")
+        sector_id = _extract_sector_id(sector_ref)
+        if sector_id is not None and sector_id != self.state.sector_id:
+            return
+
+        salvage_entry = payload.get("salvage")
+        if salvage_entry:
+            salvage_id = salvage_entry.get("salvage_id")
+            if salvage_id:
+                self.state.salvage = [
+                    item for item in self.state.salvage if item.get("salvage_id") != salvage_id
+                ]
+        elif salvage_entry is not None:
+            # Explicitly provided but empty -> clear list
+            self.state.salvage = []
+
+        cargo_after = payload.get("cargo")
+        if isinstance(cargo_after, dict):
+            self.state.cargo = CargoInfo(
+                quantum_foam=cargo_after.get("quantum_foam", self.state.cargo.quantum_foam),
+                retro_organics=cargo_after.get("retro_organics", self.state.cargo.retro_organics),
+                neuro_symbolics=cargo_after.get("neuro_symbolics", self.state.cargo.neuro_symbolics),
+            )
+
+        credits_after = payload.get("credits")
+        if isinstance(credits_after, int):
+            self.state.credits = credits_after
 
     def update_from_status_update(self, payload: dict) -> None:
         """Update from status.update event (direct handler, same as update_from_status)"""
@@ -518,6 +579,24 @@ class StatusBarUpdater:
                 lines.append(f"garrison | {g.owner_name}:{g.fighters}({g.mode})")
         else:
             lines.append("garrison | none")
+
+        # Salvage information
+        if self.state.salvage:
+            entries = []
+            for item in self.state.salvage:
+                if not isinstance(item, dict):
+                    continue
+                sid = item.get("salvage_id", "?")
+                credits = item.get("credits", 0)
+                scrap = item.get("scrap")
+                parts = [f"C{credits}"]
+                if isinstance(scrap, (int, float)) and scrap:
+                    parts.append(f"S{int(scrap)}")
+                entries.append(f"{sid} ({', '.join(parts)})")
+            salvage_str = ", ".join(entries) if entries else "none"
+            lines.append(f"salvage | {salvage_str}")
+        else:
+            lines.append("salvage | none")
 
         # Bar 5: Port
         if self.state.port:
