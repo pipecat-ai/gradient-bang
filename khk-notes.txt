@@ -1,43 +1,61 @@
 
-Simplify or remove _handle_llm_response
-  - can we output MESSAGE events with less book-keeping?
-  - function results/etc?
+We only need to make VoiceTaskManager work, for now. We can come back and fix other code that depends on the current TaskAgent later.
 
---
-
-Issue to address.
-
-Here, run-reason should include tool result returned.
-
-2025-10-18 13:51:51.616 | DEBUG    | utils.experimental_pipecat_agent:_schedule_pending_inference:1224 - Queueing LLM run reasons=['movement.start', 'movement.complete', 'map.local']
+- We do not need verbose_prompts. Remove use of this in VoiceTaskManager.
+- output_callback should be an async function.
+- We do not need tool_call_event_callback and tool_result_event_callback. Remove use of these in VoiceTaskManager.
+- Fix constructor format to whatever makes the most sense from the perspective of VoiceTaskManager.
+- We can remove LLMConfig and do all of that config inside VoiceTaskManager. That helper is an unnecessary abstraction. It's okay for VoiceTaskManager to depend on the Google genai library looking for the GOOGLE_API_KEY in the environment.
+- Do not touch utils/experimental_pipecat_agent.py -- leave it as-is for now. We will remove the file when we are completely done with the migration.
+- If ExperimentalTaskAgent does not support a task cancellation API, we should add one to it. The VoiceTaskManager defines an LLM tool call to cancel the active task. 
 
 
 
 
+todo
+  - task output should go to the llm as buffered messages
+  - task output should go to the game client as an event
+
+----
+
+Work on npc/run_long_npc.py
+
+0. System instructions
+  - You are a non-player character in the space trading game. Etc.
+  - Here is your personality and initial instructions.
+0.5. google genai setup
+  - use client.chats.create / client.chats.send_message
+
+1. Create game client
+2. Create experimental task agent
+  - output callback that buffers lines
+3. While true loop
+  - send "Perform your next action" to the model
+  - reponse should be "started task ..."
+  - buffer output from the task
+  - when task is complete, put the result in the chat as the next message
 
 
 ----
 
 utils/experimental_pipecat_agent.py is an event-driven agent loop.
 
-We need to improve our output_callback output, and make a clear separation between what we send to the output callback and what we log.
+The core class is ExperimentalTaskAgent. We test it with npc/run_experimental_task.py script.
 
-The output callback should accept the following output types:
-  - STEP - counter and monotonic timestamp in ms. Timestamp should be relative to the start of the task.
-  - ACTION - tool call
-  - EVENT - event name and payload
-  - MESSAGE - "text" response output from the LLM
-  - ERROR - error message and timestamp. Triggered by either an error event or a caught exception in the agent. A caught exception should terminate the task and be followed by FINISHED. An error event should allow the task to continue.
-  - FINISHED - final message and timestamp. Triggered by either a task finished event or a caught exception in the agent.
+We want to replace the TaskAgent used in the Pipecat VoiceTaskManager with this new class. To that end, we should plan to do the following:
 
-All of the above should be logged at the INFO level. We should wrap any output_callback calls in try/except blocks and always log what we're passing to the callback as INFO.
+1. Evaluate any API differences between the TaskAgent and ExperimentalTaskAgent classes.
+2. Formulate a plan to update either the ExperimentalTaskAgent class or the VoiceTaskManager to match the other.
+3. Rename the ExperimentalTaskAgent class to TaskAgent and replace task_agent.py with a copy of experimental_pipecat_agent.py.
+4. Leave the existing experiment_pipecat_agent.py in place for reference and further experimentation.
 
-Currently we log TOOL_CALL. This becomes the ACTION type above.
+Do not change any code yet. Some API differences we will want to address is specific ways. For example, we will not want to implement a tool result callback.
 
-Currently we log TOOL_RESULT. This should be changed to a DEBUG level log. This should not be sent to the output callback.
+Write a detailed planning document, describing API differences we will need to address, suggestions, and questions. Save that document to disk so that I can review it.
 
-Examine the code in utils/experimental_pipecat_agent.py. Consider the approach outlined
-above in detail. Write a questions, suggestions, and planning doc for implementing this change.
+
+
+Explain all watchdog timers in the code. We may want to simplify the code to rely solely on the Pipecat pipeline idle timeout for top-level task "watchdog" time outs. If so, suggest how to make this property configurable in the ExperimentalTaskAgent constructor.
 
 Note that you can develop and test end to end by running this, or a similar, command:
 
@@ -51,14 +69,6 @@ Always use uv. Redirect output to log files for analysis. Run the code you produ
 ---
 
 
-[x] finish handling
-- output:
-  - STEP line with timestamp and counter
-  - TOOL_CALL becomes ACTION
-  - Do not output TOOL_RESULT
-  - messages appended to context from the model
-
-- add timestamp to all events
 - restart context and work through all timers: agent watchdog, inference watchdog, and pipeline timeout
 - logging cleanup:
   - add logging of Gemini chunks

@@ -213,39 +213,48 @@ async def run_bot(transport, runner_args: RunnerArguments):
 
     @rtvi.event_handler("on_client_ready")
     async def on_client_ready(rtvi):
-        initial_status = await task_manager.join()
-
-        # Dispatch initialization data to client
-        await rtvi.push_frame(
-            RTVIServerMessageFrame(
-                {
-                    "frame_type": "event",
-                    "event": "status.update",
-                    "payload": initial_status,
-                }
+        async def _join():
+            await asyncio.sleep(2)
+            await task_manager.game_client.pause_event_delivery()
+            await task_manager.join()
+            await task_manager.game_client.local_map_region(
+                character_id=task_manager.character_id,
             )
-        )
+            await task_manager.game_client.resume_event_delivery()
 
-        try:
-            current_sector = initial_status.get("sector", {}).get("id")
-            if current_sector is not None:
-                map_data = await task_manager.game_client.local_map_region(
-                    character_id=task_manager.character_id,
-                    center_sector=current_sector,
-                    max_hops=4,
-                    max_sectors=28,
-                )
-                await rtvi.push_frame(
-                    RTVIServerMessageFrame(
-                        {
-                            "frame_type": "event",
-                            "event": "map.local",
-                            "payload": map_data,
-                        }
-                    )
-                )
-        except Exception as exc:
-            logger.exception("Failed to send initial map")
+        asyncio.create_task(_join())
+
+        # # Dispatch initialization data to client
+        # await rtvi.push_frame(
+        #     RTVIServerMessageFrame(
+        #         {
+        #             "frame_type": "event",
+        #             "event": "status.update",
+        #             "payload": initial_status,
+        #         }
+        #     )
+        # )
+
+        # try:
+        #     current_sector = initial_status.get("sector", {}).get("id")
+        #     if current_sector is not None:
+        #         map_data = await task_manager.game_client.local_map_region(
+        #             character_id=task_manager.character_id,
+        #             center_sector=current_sector,
+        #             max_hops=4,
+        #             max_sectors=28,
+        #         )
+        #         await rtvi.push_frame(
+        #             RTVIServerMessageFrame(
+        #                 {
+        #                     "frame_type": "event",
+        #                     "event": "map.local",
+        #                     "payload": map_data,
+        #                 }
+        #             )
+        #         )
+        # except Exception as exc:
+        #     logger.exception("Failed to send initial map")
 
         await rtvi.set_bot_ready()
 
@@ -300,7 +309,9 @@ async def run_bot(transport, runner_args: RunnerArguments):
 
         # Client requested known ports
         if msg_type == "get-known-ports":
-            status = await task_manager.game_client.list_known_ports(task_manager.character_id)
+            status = await task_manager.game_client.list_known_ports(
+                task_manager.character_id
+            )
             await rtvi.push_frame(
                 RTVIServerMessageFrame(
                     {

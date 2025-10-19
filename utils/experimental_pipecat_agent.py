@@ -888,6 +888,9 @@ class ExperimentalTaskAgent:
         return {"result": content}
 
     def _output(self, text: str, message_type: Optional[TaskOutputType] = None) -> None:
+        if not self._active_pipeline_task:
+            return
+
         type_value = message_type.value if message_type else None
         if type_value:
             logger.info("[{}] {}", type_value, text)

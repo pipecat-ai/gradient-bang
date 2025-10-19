@@ -88,9 +88,9 @@ class AsyncGameClient:
         self._current_sector: Optional[int] = None
 
         # Optional summary formatters: endpoint/event name -> formatter function
-        self._summary_formatters: Dict[
-            str, Callable[[Dict[str, Any]], str]
-        ] = self._build_default_summaries()
+        self._summary_formatters: Dict[str, Callable[[Dict[str, Any]], str]] = (
+            self._build_default_summaries()
+        )
 
         # Optional WebSocket frame callback for logging/debugging
         self._websocket_frame_callback = websocket_frame_callback
@@ -402,10 +402,16 @@ class AsyncGameClient:
                     event_name = msg.get("event")
                     payload = msg.get("payload", {})
                     if event_name:
-                        if event_name == "character.moved" and self._character_id is not None:
+                        if (
+                            event_name == "character.moved"
+                            and self._character_id is not None
+                        ):
                             mover_id = payload.get("character_id")
                             mover_name = payload.get("name")
-                            if mover_id == self._character_id or mover_name == self._character_id:
+                            if (
+                                mover_id == self._character_id
+                                or mover_name == self._character_id
+                            ):
                                 continue
                         await self._process_event(event_name, payload)
                     continue
@@ -455,7 +461,7 @@ class AsyncGameClient:
 
         return self._event_queues.setdefault(event_name, asyncio.Queue())
 
-    def pause_event_delivery(self) -> None:
+    async def pause_event_delivery(self) -> None:
         """Temporarily buffer incoming events instead of delivering them."""
 
         self._event_delivery_enabled = False
@@ -745,6 +751,7 @@ class AsyncGameClient:
         """
         return await self._request("server_status", {})
 
+    # DEPRECATED
     async def my_map(self, character_id: str) -> Dict[str, Any]:
         """Request cached map knowledge for the character.
 
