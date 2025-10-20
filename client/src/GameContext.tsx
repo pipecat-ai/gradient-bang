@@ -224,6 +224,8 @@ export function GameProvider({ children }: GameProviderProps) {
               break;
             }
 
+            // ----- MAP
+            case "map.region":
             case "map.local": {
               console.debug("[GAME EVENT] Local map data", gameEvent.payload);
               // For now, we only store the map data

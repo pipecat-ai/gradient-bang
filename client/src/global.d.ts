@@ -25,7 +25,7 @@ declare global {
   }
 
   // --- RESOURCE
-  type Resource = "NS" | "QF" | "RO";
+  type Resource = "neuro_symbolics" | "quantum_foam" | "retro_organics";
   type ResourceList = Resource[];
 
   // --- SHIP
