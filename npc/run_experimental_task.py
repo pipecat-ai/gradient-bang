@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.api_client import AsyncGameClient
 from utils.base_llm_agent import LLMConfig
-from utils.experimental_pipecat_agent import ExperimentalTaskAgent
+from utils.task_agent import TaskAgent
 
 DEFAULT_MODEL = "gemini-2.5-flash-preview-09-2025"
 
@@ -51,7 +51,7 @@ Environment Variables:
 
     parser.add_argument(
         "--model",
-        default=os.getenv("EXPERIMENTAL_AGENT_MODEL", DEFAULT_MODEL),
+        default=os.getenv("AGENT_MODEL", DEFAULT_MODEL),
         help="Gemini model name (default: %(default)s)",
     )
 
@@ -87,12 +87,11 @@ async def run_task(args: argparse.Namespace) -> int:
         base_url=args.server, character_id=args.character_id
     ) as game_client:
         logger.info(f"CONNECT server={args.server}")
-        game_client.pause_event_delivery()
-        status = await game_client.join(args.character_id)
+        await game_client.pause_event_delivery()
+        await game_client.join(args.character_id)
         logger.info("JOINED")
 
-        agent = ExperimentalTaskAgent(
-            config=LLMConfig(api_key=api_key, model=args.model),
+        agent = TaskAgent(
             game_client=game_client,
             character_id=args.character_id,
         )
