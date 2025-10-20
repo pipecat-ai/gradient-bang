@@ -1,0 +1,31 @@
+@layer components {
+  .mono-upper {
+    font-family: var(--font-mono);
+    font-weight: var(--font-weight-bold);
+    font-size: var(--text-xs);
+    line-height: var(--tw-leading, var(--text-xs--line-height));
+    letter-spacing: var(--tracking-wider);
+    line-height: 1;
+    text-transform: uppercase;
+  }
+
+  .borderclip {
+    background-clip: padding-box, border-box;
+  }
+
+  .loader-stripes {
+    --loader-stripe-color: currentColor;
+    background-image: repeating-linear-gradient(
+      45deg,
+      var(--loader-stripe-color),
+      var(--loader-stripe-color) var(--loader-stripe-width),
+      var(--color-background) var(--loader-stripe-width),
+      var(--color-background) calc(var(--loader-stripe-width) * 2)
+    );
+    background-size: calc(var(--loader-stripe-width) * 2.828427125)
+      calc(var(--loader-stripe-width) * 2.828427125);
+    animation: scroll var(--loader-stripe-speed) linear infinite;
+    overflow: hidden;
+    background-clip: padding-box;
+  }
+}
