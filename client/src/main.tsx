@@ -16,7 +16,10 @@ const Settings = getLocalSettings();
 createRoot(document.getElementById("root")!).render(
   <PipecatAppBase
     connectParams={{
-      webrtcRequestParams: { endpoint: "api/offer" },
+      webrtcRequestParams: {
+        endpoint: "api/offer",
+        requestData: { start_on_join: false },
+      },
     }}
     clientOptions={{
       enableMic: Settings.enableMic,
