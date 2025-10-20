@@ -179,6 +179,7 @@ class _GeminiThinkingModeTracker(FrameProcessor):
         if isinstance(frame, _GeminiThinkingModeContentFrame):
             self._agent._llm_inflight = False
             should_queue_inference = False
+            wait_in_idle_state = False
             new_context = []
             output_message = ""
             for content in frame.contents:
@@ -189,16 +190,9 @@ class _GeminiThinkingModeTracker(FrameProcessor):
                         else:
                             output_message += part.text
                     elif part.function_call:
-                        if isinstance(part.function_call, dict):
-                            fn_name = part.function_call.get("name")
-                        else:
-                            fn_name = getattr(part.function_call, "name", None)
-                        if fn_name == "wait_in_idle_state":
-                            logger.debug(
-                                "wait_in_idle_state function call detected; deferring inference until events/timeout"
-                            )
-                        else:
-                            should_queue_inference = True
+                        should_queue_inference = True
+                        if part.function_call.name == "wait_in_idle_state":
+                            wait_in_idle_state = True
                 new_context.append(LLMSpecificMessage(llm="google", message=content))
             if output_message:
                 self._agent._output(output_message, TaskOutputType.MESSAGE)
@@ -206,7 +200,12 @@ class _GeminiThinkingModeTracker(FrameProcessor):
                 await self.push_frame(LLMMessagesAppendFrame(messages=new_context))
 
             if should_queue_inference:
-                await self._agent._queue_pending_run_now()
+                if wait_in_idle_state:
+                    logger.debug(
+                        "wait_in_idle_state function call detected; deferring inference until events/timeout"
+                    )
+                else:
+                    await self._agent._queue_pending_run_now()
             else:
                 logger.debug(
                     "No tool calls in _GeminiThinkingModeContentFrame. Not queuing inference."

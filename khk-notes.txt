@@ -1,4 +1,18 @@
 
+Make sure:
+- We update our ship status based on trade.executed payload.
+- We update garrison and other info based on sector.update payload.
+- We update relevant game state based on garrison events.
+- We update relevant game state based on salvage.collected payload.
+
+---
+
+I ran a toll garrison test using two players and simple_tui.py. Everything worked except for the toll credits. Examine the logs in logs/toll-h.log and logs/toll-i.log. Build a chronology of events on both sides. One player deposited toll fighters. The other player entered the sector and paid the toll. The first player then collected the fighters but did not receive the toll credits.
+
+Examine the game server code to find the bug.
+
+---
+
 We only need to make VoiceTaskManager work, for now. We can come back and fix other code that depends on the current TaskAgent later.
 
 - We do not need verbose_prompts. Remove use of this in VoiceTaskManager.
