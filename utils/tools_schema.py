@@ -1,7 +1,7 @@
 # tools_schema.py
 
 from abc import ABC
-from typing import List
+from typing import Any, List, Optional
 
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.adapters.schemas.function_schema import FunctionSchema
@@ -415,6 +415,144 @@ class SendMessage(GameClientTool):
         )
 
 ##
+
+
+class CombatInitiate(GameClientTool):
+    def __call__(self, target_id=None, target_type="character"):
+        payload = {
+            "character_id": self.game_client.character_id,
+        }
+        if target_id is not None:
+            payload["target_id"] = target_id
+            payload["target_type"] = target_type or "character"
+        return self.game_client.combat_initiate(**payload)
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="combat_initiate",
+            description="Start a combat encounter in the current sector. Requires fighters aboard.",
+            properties={
+                "target_id": {
+                    "type": "string",
+                    "description": "Optional explicit target combatant identifier.",
+                },
+                "target_type": {
+                    "type": "string",
+                    "description": "Type of the specified target (default 'character').",
+                    "default": "character",
+                },
+            },
+            required=[],
+        )
+
+
+class CombatAction(GameClientTool):
+    async def __call__(
+        self,
+        *,
+        combat_id,
+        action,
+        commit: int = 0,
+        target_id: Optional[str] = None,
+        to_sector: Optional[int] = None,
+        round_number: Optional[int] = None,
+    ):
+        action_value = str(action).lower()
+        return await self.game_client.combat_action(
+            combat_id=combat_id,
+            action=action_value,
+            commit=commit,
+            target_id=target_id,
+            to_sector=to_sector,
+            character_id=self.game_client.character_id,
+            round_number=round_number,
+        )
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="combat_action",
+            description=(
+                "Submit your combat round decision. Valid actions: attack, brace, flee, or pay. "
+                "Provide commit and target_id when attacking; include to_sector when fleeing."
+            ),
+            properties={
+                "combat_id": {
+                    "type": "string",
+                    "description": "Active combat encounter identifier.",
+                },
+                "action": {
+                    "type": "string",
+                    "enum": ["attack", "brace", "flee", "pay"],
+                    "description": "Action to perform this round.",
+                },
+                "commit": {
+                    "type": "integer",
+                    "description": "Number of fighters to commit when attacking.",
+                    "minimum": 0,
+                },
+                "target_id": {
+                    "type": "string",
+                    "description": "Target combatant identifier (required for attack).",
+                },
+                "to_sector": {
+                    "type": "integer",
+                    "description": "Destination sector when fleeing.",
+                },
+                "round_number": {
+                    "type": "integer",
+                    "description": "Optional round number hint for concurrency control.",
+                    "minimum": 1,
+                },
+            },
+            required=["combat_id", "action"],
+        )
+
+
+class WaitInIdleState(Tool):
+    """Tool allowing the agent to idle while still receiving events."""
+
+    def __init__(
+        self,
+        *,
+        agent: Optional[Any] = None,
+        game_client: Optional[AsyncGameClient] = None,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.agent = agent
+        self.game_client = game_client
+
+    def bind_agent(self, agent: Any) -> None:
+        self.agent = agent
+
+    async def __call__(self, seconds: Optional[int] = None) -> Any:
+        if self.agent is None:
+            raise RuntimeError("WaitInIdleState requires an agent reference")
+        if seconds is None:
+            seconds = 60
+        return await self.agent.wait_in_idle_state(seconds=seconds)
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="wait_in_idle_state",
+            description=(
+                "Pause in an idle state while still listening for live events. "
+                "If no events arrive before the timeout, an idle.complete event is emitted."
+            ),
+            properties={
+                "seconds": {
+                    "type": "integer",
+                    "description": "Seconds to remain idle (1-60). Defaults to 60.",
+                    "minimum": 1,
+                    "maximum": 60,
+                    "default": 60,
+                }
+            },
+            required=[],
+        )
 
 
 class TaskFinished(Tool):

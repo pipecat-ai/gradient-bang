@@ -10,6 +10,10 @@ import inspect
 import websockets
 
 from utils.summary_formatters import (
+    combat_action_accepted_summary,
+    combat_ended_summary,
+    combat_round_waiting_summary,
+    combat_round_resolved_summary,
     character_moved_summary,
     join_summary,
     list_known_ports_summary,
@@ -18,6 +22,8 @@ from utils.summary_formatters import (
     move_summary,
     plot_course_summary,
     port_update_summary,
+    sector_update_summary,
+    status_update_summary,
     trade_executed_summary,
 )
 
@@ -127,7 +133,7 @@ class AsyncGameClient:
             "join": join_summary,
             "my_status": join_summary,
             "status.snapshot": join_summary,
-            "status.update": join_summary,
+            "status.update": status_update_summary,
             "move": move_summary,
             "movement.complete": move_summary,
             "movement.start": movement_start_summary,
@@ -139,6 +145,11 @@ class AsyncGameClient:
             "trade.executed": trade_executed_summary,
             "port.update": port_update_summary,
             "character.moved": character_moved_summary,
+            "combat.round_waiting": combat_round_waiting_summary,
+            "combat.action_accepted": combat_action_accepted_summary,
+            "combat.round_resolved": combat_round_resolved_summary,
+            "combat.ended": combat_ended_summary,
+            "sector.update": sector_update_summary,
         }
 
     def _set_current_sector(self, candidate: Any) -> None:

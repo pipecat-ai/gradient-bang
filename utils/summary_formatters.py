@@ -6,6 +6,7 @@ reducing token usage when sending tool results to the LLM.
 
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Tuple
+from collections import defaultdict
 
 
 def _format_relative_time(timestamp_str: str) -> str:
@@ -52,6 +53,22 @@ def _format_relative_time(timestamp_str: str) -> str:
             return f"{days} {unit} ago"
     except (ValueError, AttributeError):
         # If parsing fails, return original string
+        return timestamp_str
+
+
+def _format_iso_clock(timestamp_str: Optional[str]) -> str:
+    """Format ISO timestamps as HH:MM:SS (UTC if timezone present)."""
+
+    if not isinstance(timestamp_str, str) or not timestamp_str:
+        return "unknown"
+
+    try:
+        normalized = timestamp_str.replace("Z", "+00:00")
+        moment = datetime.fromisoformat(normalized)
+        if moment.tzinfo is None:
+            return moment.strftime("%H:%M:%S")
+        return moment.astimezone(timezone.utc).strftime("%H:%M:%SZ")
+    except ValueError:
         return timestamp_str
 
 
@@ -245,6 +262,38 @@ def join_summary(result: Dict[str, Any]) -> str:
     return _status_summary(result, f"In sector {sector_id}.")
 
 
+def status_update_summary(result: Dict[str, Any]) -> str:
+    """Produce a concise summary for status.update."""
+
+    sector = result.get("sector", {}) if isinstance(result, dict) else {}
+    player = result.get("player", {}) if isinstance(result, dict) else {}
+    ship = result.get("ship", {}) if isinstance(result, dict) else {}
+
+    sector_id = sector.get("id", "unknown")
+    credits = player.get("credits_on_hand")
+    warp = ship.get("warp_power")
+    warp_max = ship.get("warp_power_capacity")
+    shields = ship.get("shields")
+    shields_max = ship.get("max_shields")
+    fighters = ship.get("fighters")
+    port = sector.get("port", {}) if isinstance(sector, dict) else {}
+    port_code = port.get("code") if isinstance(port, dict) else None
+
+    parts: List[str] = [f"Sector {sector_id}"]
+    if isinstance(credits, (int, float)):
+        parts.append(f"Credits {int(credits)}")
+    if isinstance(warp, (int, float)) and isinstance(warp_max, (int, float)):
+        parts.append(f"Warp {int(warp)}/{int(warp_max)}")
+    if isinstance(shields, (int, float)) and isinstance(shields_max, (int, float)):
+        parts.append(f"Shields {int(shields)}/{int(shields_max)}")
+    if isinstance(fighters, (int, float)):
+        parts.append(f"Fighters {int(fighters)}")
+    if port_code:
+        parts.append(f"Port {port_code}")
+
+    return "Status update: " + "; ".join(parts) + "."
+
+
 def plot_course_summary(result: Dict[str, Any]) -> str:
     """Format a concise summary for plot_course() results.
 
@@ -361,6 +410,210 @@ def map_local_summary(result: Dict[str, Any], current_sector: Optional[int]) -> 
     lines.append(f"We are currently in sector {sector_display}.")
 
     return "\n".join(lines)
+
+
+def _format_participant_names(event: Dict[str, Any]) -> str:
+    participants = event.get("participants")
+    names: List[str] = []
+    if isinstance(participants, list):
+        for entry in participants:
+            if not isinstance(entry, dict):
+                continue
+            name = entry.get("name")
+            if not name and isinstance(entry.get("ship"), dict):
+                name = entry["ship"].get("ship_name")
+            if name:
+                names.append(str(name))
+    if not names:
+        return "unknown opponents"
+    if len(names) > 4:
+        head = ", ".join(names[:3])
+        return f"{head}, +{len(names) - 3} more"
+    return ", ".join(names)
+
+
+def combat_round_waiting_summary(event: Dict[str, Any]) -> str:
+    """Summarize combat.round_waiting events."""
+
+    round_number = event.get("round")
+    sector = event.get("sector", {}) if isinstance(event, dict) else {}
+    sector_id = sector.get("id", "unknown")
+    deadline = _format_iso_clock(event.get("deadline"))
+    participants = _format_participant_names(event)
+    round_display = round_number if isinstance(round_number, int) else "?"
+    combat_id = event.get("combat_id", "unknown")
+
+    return (
+        f"Combat {combat_id} round {round_display} waiting in sector {sector_id}; "
+        f"deadline {deadline}; participants: {participants}."
+    )
+
+
+def combat_action_accepted_summary(event: Dict[str, Any]) -> str:
+    """Summarize combat.action_accepted events."""
+
+    round_number = event.get("round")
+    action = str(event.get("action", "unknown")).lower()
+    commit = event.get("commit")
+    target = event.get("target_id")
+    destination = event.get("destination_sector")
+    round_resolved = event.get("round_resolved")
+
+    detail_parts: List[str] = [action]
+    if isinstance(commit, (int, float)) and commit not in (0, 0.0):
+        detail_parts.append(f"commit={int(commit)}")
+    if target:
+        detail_parts.append(f"target={target}")
+    if destination is not None:
+        detail_parts.append(f"dest={destination}")
+
+    detail = ", ".join(detail_parts)
+    round_display = round_number if isinstance(round_number, int) else "?"
+    resolved_text = "yes" if round_resolved else "no"
+
+    return (
+        f"Combat action accepted for round {round_display}: {detail}. "
+        f"Round resolved: {resolved_text}."
+    )
+
+
+def combat_round_resolved_summary(event: Dict[str, Any]) -> str:
+    """Summarize combat.round_resolved events."""
+
+    round_number = event.get("round")
+    sector = event.get("sector", {}) if isinstance(event, dict) else {}
+    sector_id = sector.get("id", "unknown")
+    result = event.get("result") or event.get("end") or "in_progress"
+
+    losses = event.get("defensive_losses")
+    loss_entries: List[str] = []
+    if isinstance(losses, dict):
+        for name, value in losses.items():
+            if isinstance(value, (int, float)) and value > 0:
+                loss_entries.append(f"{name}:{int(value)}")
+    loss_summary = ", ".join(loss_entries) if loss_entries else "no defensive losses"
+
+    flee_results = event.get("flee_results")
+    fleers: List[str] = []
+    if isinstance(flee_results, dict):
+        for name, fled in flee_results.items():
+            if fled:
+                fleers.append(str(name))
+    flee_summary = ", ".join(fleers) if fleers else "none"
+
+    round_display = round_number if isinstance(round_number, int) else "?"
+
+    return (
+        f"Combat round {round_display} resolved in sector {sector_id}: result {result}. "
+        f"Losses: {loss_summary}. Flees: {flee_summary}."
+    )
+
+
+def combat_ended_summary(event: Dict[str, Any]) -> str:
+    """Summarize combat.ended events, highlighting losses and flees."""
+
+    sector = event.get("sector", {}) if isinstance(event, dict) else {}
+    sector_id = sector.get("id", "unknown")
+    round_number = event.get("round")
+    result = event.get("result") or event.get("end") or "unknown"
+
+    header = f"Combat ended in sector {sector_id}"
+    if isinstance(round_number, int):
+        header += f" (round {round_number})"
+    header += f": result {result}."
+
+    loss_totals: Dict[str, int] = defaultdict(int)
+    for bucket in ("defensive_losses", "offensive_losses"):
+        losses = event.get(bucket)
+        if not isinstance(losses, dict):
+            continue
+        for name, value in losses.items():
+            if isinstance(value, (int, float)) and value > 0:
+                loss_totals[str(name)] += int(value)
+
+    flee_results = event.get("flee_results")
+    fleers: Dict[str, Optional[int]] = {}
+    if isinstance(flee_results, dict):
+        for name, fled in flee_results.items():
+            if fled:
+                fleers[str(name)] = None
+
+    fled_to_sector = event.get("fled_to_sector")
+    if fleers and isinstance(fled_to_sector, int):
+        # Assume the primary fleer used this destination if no mapping provided
+        for name in list(fleers.keys()):
+            if fleers[name] is None:
+                fleers[name] = fled_to_sector
+                break
+
+    details: List[str] = []
+    for name, losses in sorted(loss_totals.items(), key=lambda item: (-item[1], item[0])):
+        entry = f"{name} lost {losses} fighters"
+        if name in fleers:
+            dest = fleers.pop(name)
+            if isinstance(dest, int):
+                entry += f" and fled to sector {dest}"
+            else:
+                entry += " and fled"
+        details.append(entry)
+
+    for name in sorted(fleers.keys()):
+        dest = fleers[name]
+        if isinstance(dest, int):
+            details.append(f"{name} fled to sector {dest}")
+        else:
+            details.append(f"{name} fled")
+
+    salvage = event.get("salvage")
+    if isinstance(salvage, list) and salvage:
+        details.append(f"Salvage available: {len(salvage)}")
+
+    if not details:
+        return header
+
+    return header + " " + "; ".join(details) + "."
+
+
+def sector_update_summary(event: Dict[str, Any]) -> str:
+    """Summarize sector.update snapshots."""
+
+    sector_id = event.get("id", "unknown")
+    adjacent = event.get("adjacent_sectors", [])
+    port = event.get("port", {}) if isinstance(event, dict) else {}
+    port_code = port.get("code") if isinstance(port, dict) else None
+
+    players = event.get("players")
+    player_names: List[str] = []
+    if isinstance(players, list):
+        for entry in players:
+            if not isinstance(entry, dict):
+                continue
+            name = entry.get("name")
+            if name:
+                player_names.append(str(name))
+    players_part = ", ".join(player_names) if player_names else "none"
+
+    garrisons = event.get("garrisons") or event.get("garrison")
+    if isinstance(garrisons, list):
+        garrison_part = f"{len(garrisons)}"
+    elif garrisons:
+        garrison_part = "1"
+    else:
+        garrison_part = "0"
+
+    salvage = event.get("salvage")
+    salvage_part = str(len(salvage)) if isinstance(salvage, list) else "0"
+
+    parts = [
+        f"Sector {sector_id}",
+        f"adjacent {list(adjacent)}",
+        f"port {port_code or 'none'}",
+        f"players {players_part}",
+        f"garrisons {garrison_part}",
+        f"salvage {salvage_part}",
+    ]
+
+    return "Sector update: " + "; ".join(parts) + "."
 
 
 def trade_executed_summary(event: Dict[str, Any]) -> str:

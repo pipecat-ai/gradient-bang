@@ -67,6 +67,9 @@ from utils.tools_schema import (
     PlaceFighters,
     CollectFighters,
     TaskFinished,
+    WaitInIdleState,
+    CombatInitiate,
+    CombatAction,
 )
 from utils.prompts import GAME_DESCRIPTION, TASK_EXECUTION_INSTRUCTIONS
 
@@ -186,7 +189,16 @@ class _GeminiThinkingModeTracker(FrameProcessor):
                         else:
                             output_message += part.text
                     elif part.function_call:
-                        should_queue_inference = True
+                        if isinstance(part.function_call, dict):
+                            fn_name = part.function_call.get("name")
+                        else:
+                            fn_name = getattr(part.function_call, "name", None)
+                        if fn_name == "wait_in_idle_state":
+                            logger.debug(
+                                "wait_in_idle_state function call detected; deferring inference until events/timeout"
+                            )
+                        else:
+                            should_queue_inference = True
                 new_context.append(LLMSpecificMessage(llm="google", message=content))
             if output_message:
                 self._agent._output(output_message, TaskOutputType.MESSAGE)
@@ -260,6 +272,10 @@ class TaskAgent:
         self._task_start_monotonic: Optional[float] = None
         self._context: Optional[LLMContext] = None
         self._last_logged_message_count: int = 0
+        self._last_event_monotonic: float = time.perf_counter()
+        self._idle_wait_event: Optional[asyncio.Event] = None
+        self._idle_wait_active: bool = False
+        self._idle_wait_interrupt_reason: Optional[str] = None
 
         tools = tools_list or [
             MyStatus,
@@ -275,6 +291,9 @@ class TaskAgent:
             TransferWarpPower,
             PlaceFighters,
             CollectFighters,
+            CombatInitiate,
+            CombatAction,
+            WaitInIdleState,
             TaskFinished,
         ]
         self.set_tools(tools)
@@ -305,6 +324,7 @@ class TaskAgent:
             "combat.ended",
             "combat.action_accepted",
             "chat.message",
+            "idle.complete",
             "error",
         ]
         for event_name in self._event_names:
@@ -595,6 +615,9 @@ class TaskAgent:
             init_args = {"game_client": self.game_client}
             init_args.update(init_kwargs)
             tool_instance = tool_class(**init_args)
+            binder = getattr(tool_instance, "bind_agent", None)
+            if callable(binder):
+                binder(self)
             self.tools[tool_class.schema().name] = tool_instance
             standard_tools.append(tool_class.schema())
 
@@ -618,6 +641,9 @@ class TaskAgent:
 
     async def _handle_event(self, event: Dict[str, Any]) -> None:
         event_name = event.get("event_name")
+        if self._idle_wait_event is not None and not self._idle_wait_event.is_set():
+            self._idle_wait_interrupt_reason = event_name or "unknown"
+            self._idle_wait_event.set()
         summary = event.get("summary")
         response_data = summary or event.get("payload")
         serialized_payload = self._serialize_output(response_data)
@@ -626,6 +652,7 @@ class TaskAgent:
         else:
             event_text = serialized_payload
         self._output(event_text, TaskOutputType.EVENT)
+        self._last_event_monotonic = time.perf_counter()
         event_message = {
             "role": "user",
             "content": f"<event name={event_name}>\n{response_data}\n</event>",
@@ -655,7 +682,7 @@ class TaskAgent:
 
         reason = event_name or "unknown"
         self._record_inference_reason(reason)
-        if self._tool_call_in_progress:
+        if self._tool_call_in_progress and not self._idle_wait_active:
             logger.debug(
                 "Recorded event during tool call; delaying inference reason={}",
                 reason,
@@ -676,6 +703,67 @@ class TaskAgent:
                 handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"Failed to write error event log: {exc}")
+
+    async def wait_in_idle_state(self, seconds: int = 60) -> Dict[str, Any]:
+        """Remain idle while still processing incoming events for up to `seconds`."""
+
+        try:
+            duration = int(seconds)
+        except (TypeError, ValueError):
+            duration = 60
+        duration = max(1, min(60, duration))
+
+        anchor = self._last_event_monotonic
+        start = time.perf_counter()
+        wait_event = asyncio.Event()
+        self._idle_wait_event = wait_event
+        self._idle_wait_active = True
+        self._idle_wait_interrupt_reason = None
+
+        interrupted = False
+        try:
+            await asyncio.wait_for(wait_event.wait(), timeout=duration)
+            interrupted = True
+        except asyncio.TimeoutError:
+            interrupted = False
+        finally:
+            self._idle_wait_event = None
+            self._idle_wait_active = False
+
+        elapsed = time.perf_counter() - start
+        events_received = interrupted or (self._last_event_monotonic != anchor)
+        interrupt_reason = self._idle_wait_interrupt_reason
+        self._idle_wait_interrupt_reason = None
+
+        result: Dict[str, Any] = {
+            "requested_seconds": duration,
+            "waited_seconds": elapsed,
+            "events_received": events_received,
+            "emitted_idle_event": False,
+        }
+        if interrupt_reason:
+            result["interrupt_reason"] = interrupt_reason
+
+        if events_received:
+            return result
+
+        summary = {
+            "message": f"No events received for {elapsed:.1f} seconds.",
+            "waited_seconds": round(elapsed, 2),
+            "requested_seconds": duration,
+            "last_event_age": round(time.perf_counter() - anchor, 2),
+        }
+        synthetic_event = {
+            "event_name": "idle.complete",
+            "summary": summary,
+        }
+        # Temporarily mark as waiting so the synthetic event schedules inference.
+        self._idle_wait_active = True
+        await self._handle_event(synthetic_event)
+        self._idle_wait_active = False
+        result["emitted_idle_event"] = True
+        result["idle_event_summary"] = summary
+        return result
 
     async def run_task(
         self,
@@ -882,9 +970,6 @@ class TaskAgent:
 
         tool = self.tools.get(tool_name)
         if not tool:
-            message = self._format_tool_message(
-                tool_call_id, {"error": f"Unknown tool: {tool_name}"}
-            )
             error_text = self._timestamped_text(f"Unknown tool: {tool_name}")
             self._output(error_text, TaskOutputType.ERROR)
             logger.debug(
