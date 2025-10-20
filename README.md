@@ -8,9 +8,7 @@
 
 ```
 mkdir world-data
-cd world-data
-uv run ../scripts/universe-bang.py 5000 1234
-cd ..
+uv run scripts/universe-bang.py 5000 1234
 ```
 
 ## Run the game server
@@ -38,7 +36,7 @@ npm run dev
 
 ## NPC Combat CLIs
 
-Two new command-line utilities support live combat monitoring and automation. Both expect `OPENAI_API_KEY` to be set and default to WebSocket transport.
+Two new command-line utilities support live combat monitoring and automation. Both expect `GOOGLE_API_KEY` to be set and default to WebSocket transport.
 
 - **Interactive controller** – prompts for each round and is safe to run without an API key:
 
@@ -136,7 +134,7 @@ Make up a unique ID for an NPC. (There are no controls on characters joining the
 Give that character something to do. GPT-5 will try to follow your instructions.
 
 ```
-export OPENAI_API_KEY=...
+export GOOGLE_API_KEY=...
 ```
 
 ```
@@ -154,6 +152,6 @@ uv run npc/run_npc.py TraderX "Move to sector 1000. Once you get there, summariz
 Once the console starts, close the debug panel (ctrl+d). Then try running a task like "Navigate on auto-pilot to sector 1000."
 
 ```
-export OPENAI_API_KEY=sk-proj-...
+export GOOGLE_API_KEY=sk-proj-...
 uv run player_tui.py JoePlayer
 ```

@@ -55,6 +55,48 @@ def build_graph(universe_data):
     return G
 
 
+def _map_edges(universe_data):
+    """Map edges to their warp dicts for quick lookup."""
+    edges = {}
+    for sector in universe_data['sectors']:
+        u = sector['id']
+        for warp in sector.get('warps', []):
+            v = warp['to']
+            edges[(u, v)] = warp
+    return edges
+
+
+def find_two_way_inconsistencies(universe_data):
+    """Find cases where two_way flags don't match mutual adjacency."""
+    edges = _map_edges(universe_data)
+    problems = []
+    checked_pairs = set()
+    for (u, v), info_uv in edges.items():
+        pair = (min(u, v), max(u, v))
+        if pair in checked_pairs:
+            continue
+        checked_pairs.add(pair)
+        uv = (u, v)
+        vu = (v, u)
+        has_uv = uv in edges
+        has_vu = vu in edges
+        flag_uv = edges[uv]['two_way'] if has_uv else None
+        flag_vu = edges[vu]['two_way'] if has_vu else None
+        # Expectations:
+        # - If both directions exist, both flags must be True
+        # - If only one direction exists, its two_way must be False
+        if has_uv and has_vu:
+            if not (flag_uv and flag_vu):
+                problems.append(("mutual_edges_not_flagged_two_way", uv, vu, flag_uv, flag_vu))
+        elif has_uv and not has_vu:
+            if flag_uv:
+                problems.append(("one_way_flagged_two_way", uv, None, flag_uv, None))
+        elif has_vu and not has_uv:
+            if flag_vu:
+                problems.append(("one_way_flagged_two_way", vu, None, flag_vu, None))
+    return problems
+
+
 def find_dead_ends(universe_data):
     """Find sectors with no outgoing warps."""
     dead_ends = []
@@ -277,6 +319,18 @@ def analyze_universe(filepath="world-data/universe_structure.json"):
     
     if hyperlane_count > 0:
         print(f"   Hyperlanes: {hyperlane_count // 2} pairs")  # Divided by 2 since they're two-way
+    
+    # Test 7: two_way flag consistency
+    print("\n7. Verifying two_way flag consistency...")
+    tw_issues = find_two_way_inconsistencies(universe_data)
+    if tw_issues:
+        print(f"   ❌ Found {len(tw_issues)} two_way inconsistencies (showing up to 10):")
+        for entry in tw_issues[:10]:
+            kind, uv, vu, fuv, fvu = entry
+            print(f"      {kind}: {uv} {vu} flags=({fuv},{fvu})")
+        all_good = False
+    else:
+        print("   ✅ two_way flags are consistent with mutual links")
     
     # Final verdict
     print(f"\n{'='*60}")
