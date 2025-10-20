@@ -14,7 +14,6 @@ from loguru import logger
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.api_client import AsyncGameClient
-from utils.base_llm_agent import LLMConfig
 from utils.task_agent import TaskAgent
 
 DEFAULT_MODEL = "gemini-2.5-flash-preview-09-2025"
@@ -55,19 +54,6 @@ Environment Variables:
         help="Gemini model name (default: %(default)s)",
     )
 
-    parser.add_argument(
-        "--max-iterations",
-        type=int,
-        default=25,
-        help="Maximum number of task iterations (default: %(default)s)",
-    )
-
-    parser.add_argument(
-        "--verbose-prompts",
-        action="store_true",
-        help="Enable verbose prompt logging",
-    )
-
     return parser.parse_args()
 
 
@@ -99,7 +85,6 @@ async def run_task(args: argparse.Namespace) -> int:
         logger.info(f'TASK_START task="{args.task}"')
         success = await agent.run_task(
             task=args.task,
-            max_iterations=args.max_iterations,
         )
 
         if success:

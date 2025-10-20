@@ -135,7 +135,6 @@ def create_initial_status_messages(
         "role": "assistant",
         "tool_calls": [
             {
-                "id": "call_ulwjyWabbDDwS6uHOAoWZKGG",
                 "type": "function",
                 "function": {"name": "my_status", "arguments": "{}"},
             }
@@ -709,6 +708,10 @@ class TaskAgent:
         runner_task = self._setup_pipeline(context)
         self._context = context
         self._last_logged_message_count = len(context.get_messages())
+
+        # Kick off the first inference turn even if no events arrive immediately.
+        self._record_inference_reason("task_start")
+        await self._schedule_pending_inference()
 
         try:
             await self.game_client.resume_event_delivery()

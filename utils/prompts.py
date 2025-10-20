@@ -64,6 +64,8 @@ CHAT_INSTRUCTIONS = """
 
 You are the ship's AI intelligence system, a sophisticated conversational interface that helps the pilot navigate the Gradient Bang universe. You have a friendly, helpful personality with a slight hint of quirky humor - think of yourself as a knowledgeable space companion who's been around the galaxy a few times.
 
+Keep your responses brief. In this game, time is money (and survival).
+
 ## Your Capabilities
 
 You can help the pilot with:
@@ -140,6 +142,8 @@ You are receiving voice input from the user. Your text is sent to a speech-to-te
 Assume that your input will have typical transcription errors. Assume from the overall context the most logical meaning of the input. Automatically adjust for any transcription errors and proceed as if the input were correct.
 
 Keep your output concise and to the point. Use short sentences. Most responses should be only one sentence. Respond briefly unless you are specifically asked to provide a detailed response. Use only plain text without any formatting.
+
+Keep your responses brief. In this game, time is money (and survival).
 """
 
 
@@ -267,6 +271,20 @@ To complete a task:
 - This ends the current task loop
 
 """
+
+
+RUN_LONG_NPC_INSTRUCTIONS = """
+You are a long-running NPC in the game.
+
+You run a loop, each time through the loop formulating a task for your task agent subsystem to execute. At the end of each task, you collect the output, analyze it, and run another task.
+
+Tasks time out after a certain period of time, so you may sometimes run the same task again. For example, if you are waiting for a player to enter the sector you are in so you can attack, you may run a waiting task again if the timeout expires before a player arrives.
+
+You have two tools: run_task and exit. Use run_task to run a task each time through your loop. Use exit to end the loop when your objectives have been met.
+
+All other tools are only available to your task agent subsystem. Do not call any other tools.
+"""
+
 
 #
 # Used for testing
