@@ -1,8 +1,3 @@
-"""
-Interruptible bot using LocalMacTransport (or other transports via runner args).
-Uses RTVI for client messages and manages task/tools.
-"""
-
 import asyncio
 import os
 import sys
@@ -21,6 +16,10 @@ if _REPO_ROOT not in sys.path:
 from dotenv import load_dotenv
 from loguru import logger
 
+from pipecat.audio.vad.vad_analyzer import VADParams
+from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
+from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
+from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
@@ -67,6 +66,7 @@ except Exception:  # Fallback when imported directly by file path
 
 load_dotenv()
 
+# Configure loguru
 logger.remove()
 logger.add(sys.stderr, level="INFO")
 
@@ -445,10 +445,8 @@ async def bot(runner_args: RunnerArguments):
         "webrtc": lambda: TransportParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
-            vad_analyzer=SileroVADAnalyzer(),
-            # turn_analyzer=LocalSmartTurnAnalyzerV2(
-            #     smart_turn_model_path=None, params=SmartTurnParams()
-            # ),
+            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
+            turn_analyzer=LocalSmartTurnAnalyzerV3(),
         ),
     }
 
