@@ -1,12 +1,39 @@
+from typing import Optional
+
 from fastapi import HTTPException
-from .utils import log_trade, build_status_payload
+from .utils import (
+    log_trade,
+    build_status_payload,
+    rpc_success,
+    build_event_source,
+    emit_error_event,
+)
 from ships import ShipType, get_ship_stats
 from rpc.events import event_dispatcher
+
+
+async def _fail(
+    character_id: Optional[str],
+    request_id: str,
+    detail: str,
+    *,
+    status: int = 400,
+) -> None:
+    if character_id:
+        await emit_error_event(
+            event_dispatcher,
+            character_id,
+            "recharge_warp_power",
+            request_id,
+            detail,
+        )
+    raise HTTPException(status_code=status, detail=detail)
 
 
 async def handle(request: dict, world) -> dict:
     character_id = request.get("character_id")
     units = request.get("units")
+    request_id = request.get("request_id") or "missing-request-id"
     if not character_id or units is None:
         raise HTTPException(status_code=400, detail="Missing character_id or units")
     if character_id not in world.characters:
@@ -28,31 +55,17 @@ async def handle(request: dict, world) -> dict:
     warp_power_capacity = ship_stats.warp_power_capacity
     max_units = warp_power_capacity - current_warp_power
     if max_units <= 0:
-        return {
-            "success": False,
-            "units_bought": 0,
-            "price_per_unit": 2,
-            "total_cost": 0,
-            "new_warp_power": current_warp_power,
-            "warp_power_capacity": warp_power_capacity,
-            "new_credits": knowledge.credits,
-            "message": "Warp power is already at maximum",
-        }
+        await _fail(character_id, request_id, "Warp power is already at maximum")
 
     units_to_buy = min(units, max_units)
     price_per_unit = 2
     total_cost = units_to_buy * price_per_unit
     if knowledge.credits < total_cost:
-        return {
-            "success": False,
-            "units_bought": 0,
-            "price_per_unit": price_per_unit,
-            "total_cost": total_cost,
-            "new_warp_power": current_warp_power,
-            "warp_power_capacity": warp_power_capacity,
-            "new_credits": knowledge.credits,
-            "message": f"Insufficient credits. Need {total_cost} but only have {knowledge.credits}",
-        }
+        await _fail(
+            character_id,
+            request_id,
+            f"Insufficient credits. Need {total_cost} but only have {knowledge.credits}",
+        )
 
     new_credits = knowledge.credits - total_cost
     new_warp_power = current_warp_power + units_to_buy
@@ -74,16 +87,19 @@ async def handle(request: dict, world) -> dict:
 
     character.update_activity()
     timestamp = character.last_active.isoformat()
-
     await event_dispatcher.emit(
         "warp.purchase",
         {
+            "source": build_event_source("recharge_warp_power", request_id),
             "character_id": character_id,
             "sector": {"id": character.sector},
             "units": units_to_buy,
             "price_per_unit": price_per_unit,
             "total_cost": total_cost,
             "timestamp": timestamp,
+            "new_warp_power": new_warp_power,
+            "warp_power_capacity": warp_power_capacity,
+            "new_credits": new_credits,
         },
         character_filter=[character_id],
     )
@@ -91,13 +107,4 @@ async def handle(request: dict, world) -> dict:
     status_payload = await build_status_payload(world, character_id)
     await event_dispatcher.emit("status.update", status_payload, character_filter=[character_id])
 
-    return {
-        "success": True,
-        "units_bought": units_to_buy,
-        "price_per_unit": price_per_unit,
-        "total_cost": total_cost,
-        "new_warp_power": new_warp_power,
-        "warp_power_capacity": warp_power_capacity,
-        "new_credits": new_credits,
-        "message": f"Successfully bought {units_to_buy} warp power units for {total_cost} credits at sector 0 depot",
-    }
+    return rpc_success()

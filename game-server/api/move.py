@@ -10,10 +10,12 @@ from .utils import (
     player_self,
     ship_self,
     build_local_map_region,
+    build_event_source,
+    rpc_success,
 )
 from ships import ShipType, get_ship_stats, ShipStats
 from rpc.events import event_dispatcher
-from combat.utils import build_character_combatant
+from combat.utils import build_character_combatant, serialize_round_waiting_event
 from api.combat_initiate import start_sector_combat
 
 if TYPE_CHECKING:
@@ -91,6 +93,7 @@ async def handle(request: dict, world) -> dict:
     if not character_id:
         raise HTTPException(status_code=400, detail="Missing character_id")
 
+    request_id = request.get("request_id")
     await ensure_not_in_combat(world, character_id)
 
     to_sector = parse_move_destination(request)
@@ -211,19 +214,21 @@ async def handle(request: dict, world) -> dict:
         )
 
         # Check/join combat encounters (if any exist in destination)
+        active_encounter = None
         if world.combat_manager:
-            existing_encounter = await world.combat_manager.find_encounter_for(
+            active_encounter = await world.combat_manager.find_encounter_for(
                 character_id
             )
-            if not existing_encounter:
+            if not active_encounter:
                 encounter = await world.combat_manager.find_encounter_in_sector(
                     character.sector
                 )
                 if encounter and character_id not in encounter.participants:
                     combatant_state = build_character_combatant(world, character_id)
-                    await world.combat_manager.add_participant(
+                    encounter = await world.combat_manager.add_participant(
                         encounter.combat_id, combatant_state
                     )
+                active_encounter = encounter
 
             # Clear hyperspace flag before auto-garrison combat (so character is counted as present)
             character.in_hyperspace = False
@@ -256,6 +261,29 @@ async def handle(request: dict, world) -> dict:
                         character.sector,
                         exc,
                     )
+                active_encounter = await world.combat_manager.find_encounter_for(
+                    character_id
+                )
+                if not active_encounter:
+                    active_encounter = await world.combat_manager.find_encounter_in_sector(
+                        character.sector
+                    )
+
+            if active_encounter and not active_encounter.ended:
+                round_waiting_payload = await serialize_round_waiting_event(
+                    world,
+                    active_encounter,
+                    viewer_id=character_id,
+                )
+                if request_id:
+                    round_waiting_payload["source"] = build_event_source(
+                        "move", request_id
+                    )
+                await event_dispatcher.emit(
+                    "combat.round_waiting",
+                    round_waiting_payload,
+                    character_filter=[character_id],
+                )
 
         # Send character.moved with movement: "arrive" to new sector observers
         observer_payload = {
@@ -279,7 +307,8 @@ async def handle(request: dict, world) -> dict:
                 character_filter=arriving_observers,
             )
 
-        return {"summary": f"Moved to sector {to_sector}"}
+        # Return minimal RPC acknowledgment; movement.complete carries status payload
+        return rpc_success()
     finally:
         # Always clear hyperspace flag, even if move fails
         if character_id in world.characters:

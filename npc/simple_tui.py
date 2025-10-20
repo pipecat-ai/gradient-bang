@@ -7,15 +7,19 @@ import asyncio
 import json
 import os
 import re
+import sys
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum, auto
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pyperclip
+from loguru import logger
+from rich.text import Text
 from typing import (
     Any,
+    Awaitable,
     Callable,
     Dict,
     Iterable,
@@ -37,14 +41,130 @@ from npc.combat_session import CombatSession
 from npc.combat_utils import ensure_position
 from npc.status_bars import StatusBarUpdater
 from utils.api_client import AsyncGameClient, RPCError
-from utils.base_llm_agent import LLMConfig
+from utils.task_agent import TaskAgent, TaskOutputType
+
+
+ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+ALT_SCREEN_ENTER = "\x1b[?1049h"
+ALT_SCREEN_EXIT = "\x1b[?1049l"
+
+
+EVENT_NAMES: Tuple[str, ...] = (
+    "status.snapshot",
+    "status.update",
+    "sector.update",
+    "course.plot",
+    "path.region",
+    "movement.start",
+    "movement.complete",
+    "map.knowledge",
+    "map.region",
+    "map.local",
+    "ports.list",
+    "character.moved",
+    "trade.executed",
+    "port.update",
+    "warp.purchase",
+    "warp.transfer",
+    "garrison.deployed",
+    "garrison.collected",
+    "garrison.mode_changed",
+    "salvage.collected",
+    "combat.round_waiting",
+    "combat.round_resolved",
+    "combat.ended",
+    "combat.action_accepted",
+    "chat.message",
+    "error",
+)
 
 
 def _extract_sector_id(value: Any) -> Optional[int]:
     if isinstance(value, dict):
         return value.get("id")
     return value
-from utils.task_agent import TaskAgent
+
+
+class _StderrInterceptor:
+    """Collect stderr writes and forward them to the SimpleTUI log."""
+
+    def __init__(self, app: "SimpleTUI", original_stream) -> None:
+        self.app = app
+        self.original = original_stream
+        self._buffer = ""
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._escape_buffer = ""
+        self._passthrough = True
+
+    def set_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        self._loop = loop
+
+    def write(self, data: str) -> int:  # pragma: no cover - simple plumbing
+        if not data:
+            return 0
+        text = str(data)
+        self._buffer += text
+        self._escape_buffer += text
+
+        should_forward = self._passthrough
+        if ALT_SCREEN_ENTER in self._escape_buffer:
+            should_forward = True
+            self._passthrough = False
+            self._escape_buffer = self._escape_buffer.replace(ALT_SCREEN_ENTER, "")
+        if ALT_SCREEN_EXIT in self._escape_buffer:
+            should_forward = True
+            self._passthrough = True
+            self._escape_buffer = self._escape_buffer.replace(ALT_SCREEN_EXIT, "")
+        if len(self._escape_buffer) > 64:
+            self._escape_buffer = self._escape_buffer[-64:]
+
+        if should_forward:
+            self.original.write(text)
+            if hasattr(self.original, "flush"):
+                self.original.flush()
+
+        while "\n" in self._buffer:
+            line, self._buffer = self._buffer.split("\n", 1)
+            self._dispatch_line(line.rstrip("\r"))
+        return len(text)
+
+    def flush(self) -> None:  # pragma: no cover - noop
+        if self._buffer:
+            self._dispatch_line(self._buffer.rstrip("\r"))
+            self._buffer = ""
+        self._escape_buffer = ""
+        if self._passthrough and hasattr(self.original, "flush"):
+            self.original.flush()
+
+    def isatty(self) -> bool:  # pragma: no cover - passthrough
+        return False
+
+    @property
+    def encoding(self) -> str:  # pragma: no cover - passthrough
+        return getattr(self.original, "encoding", "utf-8")
+
+    def fileno(self) -> int:  # pragma: no cover - passthrough
+        if hasattr(self.original, "fileno"):
+            return self.original.fileno()
+        raise AttributeError("fileno not supported")
+
+    def _dispatch_line(self, line: str) -> None:
+        raw = line.rstrip()
+        clean = ANSI_ESCAPE_RE.sub("", raw)
+        clean = clean.strip()
+        if not clean:
+            return
+        loop = self._loop
+        if loop and loop.is_running():
+            loop.call_soon_threadsafe(
+                lambda: asyncio.create_task(
+                    self.app._append_debug_line(
+                        f"[stderr] {clean}",
+                        level=self.app._log_level,
+                        _external=True,
+                    )
+                )
+            )
 
 
 class AutoScrollListView(ListView):
@@ -226,25 +346,25 @@ class SimpleTUI(App):
         layout: vertical;
     }
 
-    #ws-log {
+    #ws-log, #debug-log {
         height: 1fr;
     }
 
-    #ws-log > ListItem {
+    #ws-log > ListItem, #debug-log > ListItem {
         height: auto;
         padding: 0 1;
     }
 
-    #ws-log > ListItem > Static {
+    #ws-log > ListItem > Static, #debug-log > ListItem > Static {
         width: 100%;
         height: auto;
     }
 
-    #ws-log > ListItem.expanded > Static {
+    #ws-log > ListItem.expanded > Static, #debug-log > ListItem.expanded > Static {
         text-wrap: wrap;
     }
 
-    #ws-log > ListItem.collapsed > Static {
+    #ws-log > ListItem.collapsed > Static, #debug-log > ListItem.collapsed > Static {
         text-wrap: nowrap;
         overflow-x: hidden;
         text-overflow: ellipsis;
@@ -271,6 +391,11 @@ class SimpleTUI(App):
         padding: 0 1;
     }
 
+    #log-panel-label {
+        height: auto;
+        padding: 0 1;
+    }
+
     #prompt-input {
         width: 1fr;
     }
@@ -282,6 +407,7 @@ class SimpleTUI(App):
         ("ctrl+x", "start_combat", "Start Combat"),
         ("ctrl+g", "cancel_task", "Cancel Task"),
         ("ctrl+y", "copy_log_line", "Copy Log Line"),
+        ("ctrl+t", "toggle_log_panel", "Toggle Log Panel"),
     ]
 
     def __init__(
@@ -292,9 +418,11 @@ class SimpleTUI(App):
         sector: Optional[int] = None,
         verbose: bool = False,
         log_path: Optional[str] = None,
-        model: str = "gpt-5",
-        verbose_prompts: bool = False,
         max_iterations: int = 25,
+        log_level: str = "INFO",
+        thinking_budget: Optional[int] = None,
+        idle_timeout: Optional[float] = None,
+        scripted_tasks: Optional[Sequence[str]] = None,
     ) -> None:
         super().__init__()
         self.server = server.rstrip("/")
@@ -323,15 +451,32 @@ class SimpleTUI(App):
         self.task_banner: Optional[Static] = None
         self.task_agent: Optional[TaskAgent] = None
         self.task_runner: Optional[asyncio.Task] = None
-        self.task_model = model
-        self.task_verbose_prompts = verbose_prompts
         self._task_last_prompt: Optional[str] = None
         self.task_max_iterations = max(1, max_iterations)
+        self._thinking_budget = thinking_budget
+        self._pipeline_idle_timeout = idle_timeout
         self._last_ship_meta: Dict[str, Any] = {"credits": None, "cargo": {}}
         self.status_updater = StatusBarUpdater(character)
-        self._expanded_lines: Set[int] = set()
-        self._line_counter = 0
-        self._log_lines: Dict[int, str] = {}  # Map line_id -> original text
+        self._log_level = (log_level or "INFO").upper()
+        if self._log_level not in {"TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"}:
+            self._log_level = "INFO"
+        self._generic_event_suppressed: Set[str] = set()
+        self._scripted_tasks: List[str] = [task.strip() for task in (scripted_tasks or []) if task and task.strip()]
+        self._stderr_interceptor: Optional[_StderrInterceptor] = None
+        self._original_stderr = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loguru_sink_id: Optional[int] = None
+        self._log_state: Dict[str, Dict[str, Any]] = {
+            "events": {"counter": 0, "lines": {}, "expanded": set()},
+            "debug": {"counter": 0, "lines": {}, "expanded": set()},
+        }
+        self._active_log_panel: str = "events"
+        self._log_views: Dict[str, AutoScrollListView] = {}
+        self.events_log: Optional[AutoScrollListView] = None
+        self.debug_log: Optional[AutoScrollListView] = None
+        self.log_panel_label: Optional[Static] = None
+        self._last_status_payload: Optional[Dict[str, Any]] = None
+        self._status_snapshot_ready: Optional[asyncio.Event] = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -339,8 +484,16 @@ class SimpleTUI(App):
         yield self.task_banner
         self.status_display = Static("", id="status-bars")
         yield self.status_display
-        self.ws_log = AutoScrollListView(id="ws-log")
-        yield self.ws_log
+        self.log_panel_label = Static("Log panel: Events (Ctrl+T)", id="log-panel-label")
+        yield self.log_panel_label
+        self.events_log = AutoScrollListView(id="ws-log")
+        self._log_views["events"] = self.events_log
+        yield self.events_log
+        self.debug_log = AutoScrollListView(id="debug-log")
+        self.debug_log.display = False
+        self.debug_log.styles.display = "none"
+        self._log_views["debug"] = self.debug_log
+        yield self.debug_log
         with Horizontal(id="prompt-bar"):
             self.prompt_label = Static("Initializing", id="prompt-label")
             self.input = CommandInput(id="prompt-input", placeholder="")
@@ -348,6 +501,10 @@ class SimpleTUI(App):
             yield self.input
 
     async def on_mount(self) -> None:
+        self._loop = asyncio.get_running_loop()
+        self._start_stderr_capture()
+        self._configure_logger()
+        self._set_active_log_panel("events")
         self._update_status_bar(in_combat=False, fighters=0, shields=0)
         self._update_task_banner("Connecting to server…")
         self.set_focus(self.input)
@@ -379,50 +536,79 @@ class SimpleTUI(App):
             websocket_frame_callback=log_frame,
         )
 
-        # Register event handlers for real-time events
-        self.client.on("status.update")(self._on_status_update)
-        self.client.on("movement.start")(self._on_movement_start)
-        self.client.on("movement.complete")(self._on_movement_complete)
-        self.client.on("trade.executed")(self._on_trade_executed)
-        self.client.on("port.update")(self._on_port_update)
-        self.client.on("character.moved")(self._on_character_moved)
+        self._register_event_handlers()
 
-        llm_config = LLMConfig(api_key=None, model=self.task_model)
+        agent_kwargs: Dict[str, Any] = {
+            "output_callback": self._handle_task_output,
+        }
+        if self._thinking_budget is not None:
+            agent_kwargs["thinking_budget"] = self._thinking_budget
+        if self._pipeline_idle_timeout is not None:
+            agent_kwargs["idle_timeout_secs"] = self._pipeline_idle_timeout
+
         self.task_agent = TaskAgent(
-            config=llm_config,
             game_client=self.client,
             character_id=self.character,
-            verbose_prompts=self.task_verbose_prompts,
-            output_callback=self._handle_task_output,
+            **agent_kwargs,
         )
 
         await self._append_log("AsyncGameClient created; calling join...")
 
         try:
-            # Call join RPC - we use the response ONLY for initial setup
-            # All subsequent updates will come from events
-            status = await self.client.join(self.character)
+            # Prepare to capture the initial status snapshot emitted during join
+            self._status_snapshot_ready = asyncio.Event()
+            self._last_status_payload = None
+
+            join_ack = await self.client.join(self.character)
+
+            initial_status: Optional[Mapping[str, Any]] = None
+            if self._status_snapshot_ready is not None:
+                try:
+                    await asyncio.wait_for(self._status_snapshot_ready.wait(), timeout=2.0)
+                    initial_status = self._last_status_payload
+                except asyncio.TimeoutError:
+                    await self._append_log(
+                        "Timed out waiting for status snapshot after join; requesting refresh."
+                    )
+                    try:
+                        self._status_snapshot_ready = asyncio.Event()
+                        self._last_status_payload = None
+                        await self.client.my_status(self.character)
+                        if self._status_snapshot_ready is not None:
+                            await asyncio.wait_for(self._status_snapshot_ready.wait(), timeout=2.0)
+                            initial_status = self._last_status_payload
+                    except Exception as exc:  # noqa: BLE001
+                        await self._append_log(f"Unable to fetch initial status: {exc}")
+
+            status_payload: Optional[Dict[str, Any]] = (
+                dict(initial_status) if isinstance(initial_status, Mapping) else None
+            )
 
             # Extract sector for logging (using format-agnostic access)
-            sector_info = status.get('sector')
-            if isinstance(sector_info, dict):
-                sector_id = sector_info.get('id', '?')
-            else:
-                sector_id = sector_info
+            sector_id: Any = "?"
+            if isinstance(status_payload, Mapping):
+                sector_info = status_payload.get("sector")
+                if isinstance(sector_info, Mapping):
+                    sector_id = sector_info.get("id", sector_id)
+                elif sector_info is not None:
+                    sector_id = sector_info
 
             await self._append_log(f"Joined as {self.character}; sector {sector_id}")
+
+            await self.client.subscribe_my_messages()
 
             # Initialize CombatSession with initial status
             self.session = CombatSession(
                 self.client,
                 character_id=self.character,
                 logger=None,
-                initial_status=status,
+                initial_status=status_payload if status_payload else None,
             )
             self.session.start()
 
             # Sync status bars from initial join response
-            self._sync_status_bar_from_status(status)
+            if status_payload:
+                self._sync_status_bar_from_status(status_payload)
 
             await self._append_log("CombatSession started; spawning monitor task")
             self.monitor_task = asyncio.create_task(self._monitor_events())
@@ -434,13 +620,18 @@ class SimpleTUI(App):
                 )
                 # ensure_position makes RPC calls but we ignore the responses
                 # All updates will come from movement.start and movement.complete events
-                await ensure_position(
-                    self.client,
-                    status,
-                    target_sector=self.target_sector,
-                    logger=self._ensure_logger,
-                )
-                await self._append_log(f"Movement commands issued")
+                if status_payload:
+                    await ensure_position(
+                        self.client,
+                        status_payload,
+                        target_sector=self.target_sector,
+                        logger=self._ensure_logger,
+                    )
+                    await self._append_log("Movement commands issued")
+                else:
+                    await self._append_log(
+                        "Skipping initial repositioning; no status payload available yet."
+                    )
             else:
                 await self._append_log(
                     "No target sector specified; remaining in current sector."
@@ -450,12 +641,99 @@ class SimpleTUI(App):
                 "Task idle. Enter a goal and press Enter to run the TaskAgent."
             )
             await self._update_prompt("Task mode", "Describe the task you want to run")
+            if self._scripted_tasks:
+                asyncio.create_task(self._run_scripted_task_queue())
         except Exception as exc:  # noqa: BLE001
             await self._append_log(
                 f"Initialization failed: {exc!r} ({type(exc).__name__})"
             )
             await self._graceful_shutdown()
             self.exit(1)
+
+    def _start_stderr_capture(self) -> None:
+        if self._stderr_interceptor is not None:
+            return
+        self._original_stderr = sys.stderr
+        interceptor = _StderrInterceptor(self, sys.stderr)
+        if self._loop is not None:
+            interceptor.set_loop(self._loop)
+        sys.stderr = interceptor  # type: ignore[assignment]
+        self._stderr_interceptor = interceptor
+
+    def _configure_logger(self) -> None:
+        if self._loguru_sink_id is not None:
+            return
+
+        def sink(message) -> None:
+            record = message.record
+            text = record.get("message", "")
+            level_obj = record.get("level")
+            level_name = getattr(level_obj, "name", self._log_level)
+            clean = ANSI_ESCAPE_RE.sub("", text).strip()
+            if not clean:
+                return
+            loop = self._loop
+            if loop and loop.is_running():
+                loop.call_soon_threadsafe(
+                    lambda: asyncio.create_task(
+                        self._append_debug_line(
+                            f"[log:{level_name.lower()}] {clean}",
+                            level=level_name,
+                            _external=True,
+                        )
+                    )
+                )
+
+        try:
+            logger.remove()
+        except ValueError:
+            pass
+        self._loguru_sink_id = logger.add(sink, enqueue=True, catch=False)
+
+    def _register_event_handlers(self) -> None:
+        if self.client is None:
+            raise RuntimeError("AsyncGameClient must be initialized before registering events")
+
+        special_handlers: Dict[str, Callable[[Dict[str, Any]], Awaitable[None]]] = {
+            "status.update": self._on_status_update,
+            "status.snapshot": self._on_status_snapshot,
+            "movement.start": self._on_movement_start,
+            "movement.complete": self._on_movement_complete,
+            "sector.update": self._on_sector_update,
+            "trade.executed": self._on_trade_executed,
+            "port.update": self._on_port_update,
+            "character.moved": self._on_character_moved,
+            "garrison.deployed": self._on_garrison_event,
+            "garrison.collected": self._on_garrison_event,
+            "garrison.mode_changed": self._on_garrison_event,
+            "salvage.collected": self._on_salvage_collected,
+        }
+
+        self._generic_event_suppressed = set(special_handlers.keys())
+
+        for event_name in EVENT_NAMES:
+            self.client.on(event_name)(self._handle_generic_event)
+
+        for event_name, handler in special_handlers.items():
+            self.client.on(event_name)(handler)
+
+    async def _handle_generic_event(self, event: Dict[str, Any]) -> None:
+        event_name = event.get("event_name", "unknown")
+        if event_name in self._generic_event_suppressed:
+            return
+
+        summary = self._event_summary(event)
+        if summary:
+            message = f"[event] {event_name}: {summary}"
+        else:
+            payload = self._event_payload(event)
+            try:
+                payload_text = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+            except Exception:  # noqa: BLE001
+                payload_text = str(payload)
+            message = f"[event] {event_name}: {payload_text}"
+
+        await self._append_log(message)
 
     async def _monitor_events(self) -> None:
         assert self.session is not None
@@ -555,32 +833,67 @@ class SimpleTUI(App):
     # Event Handlers - All game state updates come through these handlers
     # ========================================================================
 
-    async def _on_status_update(self, payload: Dict[str, Any]) -> None:
+    @staticmethod
+    def _event_payload(event: Mapping[str, Any]) -> Dict[str, Any]:
+        payload = event.get("payload", {}) if isinstance(event, Mapping) else {}
+        if isinstance(payload, dict):
+            return payload
+        if isinstance(payload, Mapping):
+            return dict(payload)
+        return {}
+
+    @staticmethod
+    def _event_summary(event: Mapping[str, Any]) -> Optional[str]:
+        summary = event.get("summary") if isinstance(event, Mapping) else None
+        if isinstance(summary, str):
+            summary = summary.strip()
+            if summary:
+                return summary
+        return None
+
+    async def _on_status_update(self, event: Dict[str, Any]) -> None:
         """Handle status.update event."""
+        payload = self._event_payload(event)
         # Update status bars
         self.status_updater.update_from_status_update(payload)
         self._refresh_status_display()
 
+    async def _on_status_snapshot(self, event: Dict[str, Any]) -> None:
+        payload = self._event_payload(event)
+        self.status_updater.update_from_status(payload)
+        self._refresh_status_display()
+        self._last_status_payload = dict(payload)
+        if self._status_snapshot_ready is not None:
+            self._status_snapshot_ready.set()
+        if self.session is not None:
+            await self.session.update_from_status(payload)
+            await self._handle_occupants(self.session.other_players())
+
     # --- Movement Events ---
 
-    async def _on_movement_start(self, payload: Dict[str, Any]) -> None:
+    async def _on_movement_start(self, event: Dict[str, Any]) -> None:
         """Handle movement.start event."""
+        payload = self._event_payload(event)
+        summary = self._event_summary(event)
         sector_data = payload.get("sector", {})
         destination = sector_data.get("id", "?")
         eta = payload.get("hyperspace_time", 0)
 
-        await self._append_log(f"Entering hyperspace to sector {destination} (ETA: {eta:.1f}s)")
+        log_message = summary or f"Entering hyperspace to sector {destination} (ETA: {eta:.1f}s)"
+        await self._append_log(log_message)
 
         # Update status bars
         self.status_updater.update_from_movement_start(payload)
         self._refresh_status_display()
 
-    async def _on_movement_complete(self, payload: Dict[str, Any]) -> None:
+    async def _on_movement_complete(self, event: Dict[str, Any]) -> None:
         """Handle movement.complete event."""
+        payload = self._event_payload(event)
+        summary = self._event_summary(event)
         sector_data = payload.get("sector", {})
         sector_id = sector_data.get("id", "?")
 
-        await self._append_log(f"Arrived at sector {sector_id}")
+        await self._append_log(summary or f"Arrived at sector {sector_id}")
 
         # Update status bars
         self.status_updater.update_from_movement_complete(payload)
@@ -599,24 +912,27 @@ class SimpleTUI(App):
 
     # --- Trading and Economy Events ---
 
-    async def _on_trade_executed(self, payload: Dict[str, Any]) -> None:
+    async def _on_trade_executed(self, event: Dict[str, Any]) -> None:
         """Handle trade.executed event."""
+        payload = self._event_payload(event)
+        summary = self._event_summary(event)
         # Log the trade
         player_data = payload.get("player", {})
-        ship_data = payload.get("ship", {})
 
         player_name = player_data.get("name", "?")
         credits = player_data.get("credits_on_hand")
 
         # Try to extract trade details from ship cargo changes
-        await self._append_log(f"Trade executed by {player_name} (credits: {credits})")
+        await self._append_log(summary or f"Trade executed by {player_name} (credits: {credits})")
 
         # Update status bars
         self.status_updater.update_from_trade_executed(payload)
         self._refresh_status_display()
 
-    async def _on_port_update(self, payload: Dict[str, Any]) -> None:
+    async def _on_port_update(self, event: Dict[str, Any]) -> None:
         """Handle port.update event."""
+        payload = self._event_payload(event)
+        summary = self._event_summary(event)
         sector_ref = payload.get("sector")
         sector_id = _extract_sector_id(sector_ref)
         if sector_id is None:
@@ -625,22 +941,67 @@ class SimpleTUI(App):
 
         # Format port update message
         code = port_data.get("code", "?")
-        await self._append_log(f"Port prices updated at sector {sector_id} ({code})")
+        await self._append_log(summary or f"Port prices updated at sector {sector_id} ({code})")
 
         # Update status bars
         self.status_updater.update_from_port_update(payload)
         self._refresh_status_display()
 
+    async def _on_sector_update(self, event: Dict[str, Any]) -> None:
+        """Handle sector.update event."""
+        payload = self._event_payload(event)
+        summary = self._event_summary(event)
+
+        self.status_updater.update_from_sector_update(payload)
+        self._refresh_status_display()
+
+        if summary:
+            await self._append_log(summary)
+
+    async def _on_garrison_event(self, event: Dict[str, Any]) -> None:
+        """Handle garrison.* events."""
+        payload = self._event_payload(event)
+        event_name = event.get("event_name", "garrison")
+        summary = self._event_summary(event)
+
+        self.status_updater.update_from_garrison_event(event_name, payload)
+        self._refresh_status_display()
+
+        if summary:
+            await self._append_log(summary)
+        else:
+            sector_id = _extract_sector_id(payload.get("sector")) or "?"
+            await self._append_log(f"{event_name.replace('garrison.', 'garrison ')} in sector {sector_id}")
+
+    async def _on_salvage_collected(self, event: Dict[str, Any]) -> None:
+        """Handle salvage.collected event."""
+        payload = self._event_payload(event)
+        summary = self._event_summary(event)
+
+        self.status_updater.update_from_salvage_collected(payload)
+        self._refresh_status_display()
+
+        if summary:
+            await self._append_log(summary)
+        else:
+            salvage = payload.get("salvage") or {}
+            salvage_id = salvage.get("salvage_id", "?")
+            await self._append_log(f"Salvage collected: {salvage_id}")
+
     # --- Sector Occupant Events ---
 
-    async def _on_character_moved(self, payload: Dict[str, Any]) -> None:
+    async def _on_character_moved(self, event: Dict[str, Any]) -> None:
         """Handle character.moved event."""
+        payload = self._event_payload(event)
+        summary = self._event_summary(event)
         movement = payload.get("movement")
         char_name = payload.get("name")
         ship_type = payload.get("ship_type", "unknown")
 
         # Log the movement
-        if movement == "arrive":
+        if summary:
+            await self._append_log(summary)
+        elif movement == "arrive":
             await self._append_log(f"{char_name} ({ship_type}) arrived")
         elif movement == "depart":
             await self._append_log(f"{char_name} ({ship_type}) departed")
@@ -1036,27 +1397,36 @@ class SimpleTUI(App):
         return self.task_runner is not None and not self.task_runner.done()
 
     def _handle_task_output(self, text: str, message_type: Optional[str]) -> None:
-        prefix = f"[{message_type}] " if message_type else ""
-        asyncio.create_task(self._append_log(prefix + text))
+        label = (message_type or "MESSAGE").upper()
+        display = f"[{label}] {text}"
+        level: Optional[str] = None
+        if message_type == TaskOutputType.ERROR.value:
+            level = "ERROR"
+        elif message_type == TaskOutputType.FINISHED.value:
+            level = "SUCCESS"
 
-    async def _start_task(self, prompt: str) -> None:
+        asyncio.create_task(self._append_event_line(display, level=level))
+        if message_type == TaskOutputType.ERROR.value:
+            asyncio.create_task(self._append_debug_line(display, level="ERROR"))
+
+    async def _start_task(self, prompt: str) -> Optional[asyncio.Task]:
         prompt = prompt.strip()
         if not prompt:
             await self._append_log("Task input was empty; nothing to run.")
-            return
+            return None
         if self.task_agent is None:
             await self._append_log("TaskAgent is not initialized yet.")
-            return
+            return None
         if self._is_task_running():
             await self._append_log(
                 "A task is already running. Cancel it before starting another."
             )
-            return
+            return None
         if self.mode is InteractionMode.COMBAT:
             await self._append_log(
                 "Combat in progress. Finish the fight before starting a new task."
             )
-            return
+            return None
 
         self._task_last_prompt = prompt
         self._update_task_banner(f"Task running: {prompt}")
@@ -1066,6 +1436,32 @@ class SimpleTUI(App):
         runner = asyncio.create_task(self._run_task(prompt))
         self.task_runner = runner
         runner.add_done_callback(self._on_task_complete)
+        return runner
+
+    async def _run_scripted_task_queue(self) -> None:
+        if not self._scripted_tasks:
+            return
+        # Give the UI a moment to finish mounting widgets
+        await asyncio.sleep(0)
+
+        while self._scripted_tasks:
+            if self._is_task_running():
+                current = self.task_runner
+                if current is not None:
+                    try:
+                        await current
+                    except asyncio.CancelledError:
+                        return
+                continue
+
+            prompt = self._scripted_tasks.pop(0)
+            runner = await self._start_task(prompt)
+            if runner is None:
+                continue
+            try:
+                await runner
+            except asyncio.CancelledError:
+                return
 
     async def _run_task(self, prompt: str) -> None:
         if self.client is None or self.task_agent is None:
@@ -1076,17 +1472,30 @@ class SimpleTUI(App):
         # to build its initial state. This is acceptable because the agent
         # needs a snapshot to start working. All updates during task execution
         # will come from events.
+        paused_events = False
+        try:
+            await self.client.pause_event_delivery()
+            paused_events = True
+        except Exception as exc:  # noqa: BLE001
+            await self._append_log(
+                f"Failed to pause event delivery before task: {exc!r}",
+                level="WARNING",
+            )
+
         try:
             status = await self.client.my_status(self.character)
         except Exception as exc:  # noqa: BLE001
             await self._append_log(
                 f"Failed to retrieve status before running task: {exc!r}"
             )
+            if paused_events:
+                with suppress(Exception):
+                    await self.client.resume_event_delivery()
             return
 
         initial_state = {
             "status": status,
-            "time": datetime.utcnow().isoformat(),
+            "time": datetime.now(timezone.utc).isoformat(),
         }
 
         snapshot = (
@@ -1107,6 +1516,9 @@ class SimpleTUI(App):
         except Exception as exc:  # noqa: BLE001
             await self._append_log(f"Task execution failed: {exc!r}")
         finally:
+            if paused_events:
+                with suppress(Exception):
+                    await self.client.resume_event_delivery()
             await self._append_log(
                 "Task completed successfully."
                 if success and not self.task_agent.cancelled
@@ -1477,26 +1889,32 @@ class SimpleTUI(App):
             if self.pending_input is future:
                 self.pending_input = None
 
-    async def _append_log(self, message: str) -> None:
-        self._mirror_to_file(message)
+    async def _append_panel_line(
+        self,
+        panel: str,
+        message: str,
+        *,
+        level: Optional[str] = None,
+        _external: bool = False,
+    ) -> None:
+        _ = level  # level retained for future styling; no-op assignment to avoid lint
 
-        # Create new log line with unique ID
-        line_id = self._line_counter
-        self._line_counter += 1
-        self._log_lines[line_id] = message
+        state = self._log_state[panel]
+        line_id = state["counter"]
+        state["counter"] += 1
+        state["lines"][line_id] = message
 
-        # Format the line (collapsed by default)
+        view = self._log_views.get(panel)
+        if view is None:
+            return
+
         formatted = format_log_line(message, expanded=False)
-
-        # Create ListItem with Static content
-        item = ListItem(Static(formatted), id=f"log-{line_id}")
+        item = ListItem(Static(Text(formatted), expand=False), id=f"{panel}-log-{line_id}")
         item.add_class("collapsed")
+        item.data_line_id = line_id  # type: ignore[attr-defined]
 
-        # Store line_id as metadata on the item
-        item.data_line_id = line_id  # type: ignore
-
-        # Append to the list view with auto-scroll
-        self.ws_log.append_item(item)
+        view.append_item(item)
+        self._mirror_to_file(f"[{panel}] {message}")
 
     def _mirror_to_file(self, message: str) -> None:
         if self.log_path is None:
@@ -1504,9 +1922,50 @@ class SimpleTUI(App):
         if self._log_file is None:
             self.log_path.parent.mkdir(parents=True, exist_ok=True)
             self._log_file = self.log_path.open("a", encoding="utf-8")
-        timestamp = datetime.utcnow().isoformat(timespec="seconds")
+        timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
         self._log_file.write(f"{timestamp} {message}\n")
         self._log_file.flush()
+
+    async def _append_event_line(
+        self,
+        message: str,
+        *,
+        level: Optional[str] = None,
+        _external: bool = False,
+    ) -> None:
+        await self._append_panel_line(
+            "events",
+            message,
+            level=level,
+            _external=_external,
+        )
+
+    async def _append_debug_line(
+        self,
+        message: str,
+        *,
+        level: Optional[str] = None,
+        _external: bool = False,
+    ) -> None:
+        await self._append_panel_line(
+            "debug",
+            message,
+            level=level,
+            _external=_external,
+        )
+
+    async def _append_log(
+        self,
+        message: str,
+        *,
+        level: Optional[str] = None,
+        _external: bool = False,
+    ) -> None:
+        await self._append_event_line(
+            message,
+            level=level,
+            _external=_external,
+        )
 
     async def _update_prompt(self, label: str, placeholder: str) -> None:
         def _apply() -> None:
@@ -1518,6 +1977,8 @@ class SimpleTUI(App):
         _apply()
 
     async def _graceful_shutdown(self) -> None:
+        self._restore_stderr()
+        self._restore_logger()
         await self._cancel_active_task("application shutting down")
         if self.monitor_task:
             self.monitor_task.cancel()
@@ -1535,6 +1996,27 @@ class SimpleTUI(App):
             self._log_file.close()
             self._log_file = None
 
+    def _restore_stderr(self) -> None:
+        if self._stderr_interceptor is None:
+            return
+        self._stderr_interceptor.flush()
+        if self._original_stderr is not None:
+            sys.stderr = self._original_stderr  # type: ignore[assignment]
+        self._stderr_interceptor = None
+        self._original_stderr = None
+
+    def _restore_logger(self) -> None:
+        if self._loguru_sink_id is None:
+            return
+        try:
+            logger.remove(self._loguru_sink_id)
+        except Exception:
+            pass
+        self._loguru_sink_id = None
+        target = self._original_stderr if self._original_stderr is not None else sys.stderr
+        logger.add(target, colorize=True)
+
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         value = event.value
         event.input.value = ""
@@ -1548,35 +2030,33 @@ class SimpleTUI(App):
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Handle clicking on a log line to toggle expansion."""
-        item = event.item
+        panel = self._panel_for_view(event.list_view)
+        if panel is None:
+            return
 
-        # Get the line_id from the item's metadata
+        item = event.item
         line_id = getattr(item, "data_line_id", None)
         if line_id is None:
             return
 
-        # Get the original text
-        original_text = self._log_lines.get(line_id)
+        state = self._log_state[panel]
+        original_text = state["lines"].get(line_id)
         if original_text is None:
             return
 
-        # Toggle expansion state
-        is_expanded = line_id in self._expanded_lines
+        expanded: Set[int] = state["expanded"]
+        is_expanded = line_id in expanded
         new_state = not is_expanded
 
         if new_state:
-            self._expanded_lines.add(line_id)
+            expanded.add(line_id)
         else:
-            self._expanded_lines.discard(line_id)
+            expanded.discard(line_id)
 
-        # Format the line with new state
         formatted = format_log_line(original_text, expanded=new_state)
-
-        # Update the Static widget inside the ListItem
         static_widget = item.query_one(Static)
-        static_widget.update(formatted)
+        static_widget.update(Text(formatted))
 
-        # Update CSS classes
         if new_state:
             item.remove_class("collapsed")
             item.add_class("expanded")
@@ -1639,73 +2119,99 @@ class SimpleTUI(App):
     async def action_cancel_task(self) -> None:
         await self._cancel_active_task("user requested cancellation")
 
+    def action_toggle_log_panel(self) -> None:
+        new_panel = "debug" if self._active_log_panel == "events" else "events"
+        self._set_active_log_panel(new_panel)
+
+    def _set_active_log_panel(self, panel: str) -> None:
+        if panel not in self._log_views:
+            return
+        self._active_log_panel = panel
+        if self.events_log is not None:
+            self.events_log.display = panel == "events"
+            self.events_log.styles.display = "block" if panel == "events" else "none"
+            if panel == "events":
+                self.events_log.focus()
+        if self.debug_log is not None:
+            self.debug_log.display = panel == "debug"
+            self.debug_log.styles.display = "block" if panel == "debug" else "none"
+            if panel == "debug":
+                self.debug_log.focus()
+        if self.log_panel_label is not None:
+            self.log_panel_label.update(f"Log panel: {panel.title()} (Ctrl+T)")
+
+    def _panel_for_view(self, view: ListView) -> Optional[str]:
+        for name, candidate in self._log_views.items():
+            if candidate is view:
+                return name
+        return None
+
     async def action_copy_log_line(self) -> None:
         """Copy the currently highlighted log line to clipboard."""
-        await self._append_log("[DEBUG] action_copy_log_line called")
+        panel = self._active_log_panel
+        view = self._log_views.get(panel)
+        if view is None:
+            return
 
-        # Get the currently highlighted item in the ListView
-        await self._append_log(f"[DEBUG] ws_log.index = {self.ws_log.index}")
+        await self._append_debug_line("[DEBUG] action_copy_log_line called")
+        await self._append_debug_line(f"[DEBUG] {panel}.index = {view.index}")
 
-        if self.ws_log.index is None:
-            await self._append_log("[DEBUG] No index - line not selected")
+        if view.index is None:
+            await self._append_debug_line("[DEBUG] No index - line not selected")
             self.notify("No log line selected", severity="warning", timeout=2)
             return
 
-        # Get the ListItem at the current index
         try:
-            items = list(self.ws_log.children)
-            await self._append_log(f"[DEBUG] Found {len(items)} items in ListView")
+            items = list(view.children)
+            await self._append_debug_line(f"[DEBUG] Found {len(items)} items in ListView")
 
-            if not items or self.ws_log.index >= len(items):
-                await self._append_log("[DEBUG] Index out of range")
+            if not items or view.index >= len(items):
+                await self._append_debug_line("[DEBUG] Index out of range")
                 self.notify("No log line selected", severity="warning", timeout=2)
                 return
 
-            item = items[self.ws_log.index]
+            item = items[view.index]
             if not isinstance(item, ListItem):
-                await self._append_log(f"[DEBUG] Item is not ListItem: {type(item)}")
+                await self._append_debug_line(f"[DEBUG] Item is not ListItem: {type(item)}")
                 return
 
-            # Get the line_id from the item's metadata
             line_id = getattr(item, "data_line_id", None)
-            await self._append_log(f"[DEBUG] line_id = {line_id}")
+            await self._append_debug_line(f"[DEBUG] line_id = {line_id}")
 
             if line_id is None:
-                await self._append_log("[DEBUG] line_id is None")
+                await self._append_debug_line("[DEBUG] line_id is None")
                 return
 
-            # Get the original text
-            original_text = self._log_lines.get(line_id)
+            state = self._log_state[panel]
+            original_text = state["lines"].get(line_id)
             if original_text is None:
-                await self._append_log("[DEBUG] original_text not found in _log_lines")
+                await self._append_debug_line("[DEBUG] original_text not found in log state")
                 return
 
-            await self._append_log(
+            await self._append_debug_line(
                 f"[DEBUG] Copying text (length={len(original_text)})"
             )
 
-            # Try to extract JSON - if found, copy only the JSON
             json_content = extract_json_only(original_text)
             if json_content:
-                await self._append_log("[DEBUG] Copying JSON content")
+                await self._append_debug_line("[DEBUG] Copying JSON content")
                 success, error = copy_to_system_clipboard(json_content)
                 if success:
                     self.notify("JSON copied to clipboard", timeout=2)
                 else:
-                    await self._append_log(f"[DEBUG] xclip failed: {error}")
+                    await self._append_debug_line(f"[DEBUG] Clipboard copy failed: {error}")
                     self.notify(f"Copy failed: {error}", severity="error", timeout=3)
             else:
-                await self._append_log("[DEBUG] Copying full text (no JSON)")
-                # No JSON found, copy the full text
+                await self._append_debug_line("[DEBUG] Copying full text (no JSON)")
                 success, error = copy_to_system_clipboard(original_text)
                 if success:
                     self.notify("Log line copied to clipboard", timeout=2)
                 else:
-                    await self._append_log(f"[DEBUG] xclip failed: {error}")
+                    await self._append_debug_line(f"[DEBUG] Clipboard copy failed: {error}")
                     self.notify(f"Copy failed: {error}", severity="error", timeout=3)
 
         except Exception as exc:  # noqa: BLE001
-            await self._append_log(f"[DEBUG] Exception: {exc}")
+            await self._append_debug_line(f"[DEBUG] Exception: {exc!r}")
             self.notify(f"Copy failed: {exc}", severity="error", timeout=3)
 
     async def action_start_combat(self) -> None:
@@ -1716,26 +2222,7 @@ class SimpleTUI(App):
             await self._append_log("Already in combat.")
             return
 
-        opponents_present = False
-        players = self.session.other_players()
-        for pid in players.keys():
-            if pid != self.character:
-                opponents_present = True
-                break
-
-        snapshot = self.session.sector_snapshot()
-        if isinstance(snapshot, Mapping):
-            for garrison in snapshot.get("garrisons") or []:
-                if not isinstance(garrison, Mapping):
-                    continue
-                if (
-                    not garrison.get("is_friendly")
-                    and int(garrison.get("fighters", 0)) > 0
-                ):
-                    opponents_present = True
-                    break
-
-        if not opponents_present:
+        if not self._sector_has_hostiles():
             await self._append_log("No hostile opponents detected in this sector.")
             return
 
@@ -1806,6 +2293,26 @@ class SimpleTUI(App):
                 label_set.add(label)
         return sorted(labels)
 
+    def _sector_has_hostiles(self) -> bool:
+        snapshot = self.session.sector_snapshot() if self.session else None
+        if isinstance(snapshot, Mapping):
+            for garrison in snapshot.get("garrisons") or []:
+                if not isinstance(garrison, Mapping):
+                    continue
+                if (
+                    not garrison.get("is_friendly")
+                    and int(garrison.get("fighters", 0)) > 0
+                ):
+                    return True
+        players = self.session.other_players() if self.session else {}
+        for pid, pdata in players.items():
+            if pid == self.character:
+                continue
+            if isinstance(pdata, Mapping) and pdata.get("is_friendly") is True:
+                continue
+            return True
+        return False
+
 
 def summarize_round(payload: Mapping[str, Any]) -> str:
     result = payload.get("result") or payload.get("end")
@@ -1870,6 +2377,177 @@ def summarize_round(payload: Mapping[str, Any]) -> str:
     return " ; ".join(fields) if fields else "No round details provided"
 
 
+class ProgrammaticSimpleRunner:
+    """Headless runner that executes scripted tasks without the Textual UI."""
+
+    def __init__(
+        self,
+        *,
+        server: str,
+        character: str,
+        tasks: Sequence[str],
+        max_iterations: int,
+        log_level: str = "INFO",
+        log_path: Optional[str] = None,
+        thinking_budget: Optional[int] = None,
+        idle_timeout: Optional[float] = None,
+    ) -> None:
+        self.server = server.rstrip("/")
+        self.character = character
+        self.tasks = [task.strip() for task in tasks if task and task.strip()]
+        self.max_iterations = max(1, max_iterations)
+        self.log_level = (log_level or "INFO").upper()
+        if self.log_level not in {"TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"}:
+            self.log_level = "INFO"
+        self.thinking_budget = thinking_budget
+        self.idle_timeout = idle_timeout
+        self.log_path = Path(log_path) if log_path else None
+        self.client: Optional[AsyncGameClient] = None
+        self.task_agent: Optional[TaskAgent] = None
+        self._log_file: Optional[TextIO] = None
+        self._all_tasks_successful = True
+
+    async def run(self) -> int:
+        if not self.tasks:
+            logger.warning("Programmatic runner received no tasks; exiting")
+            return 0
+
+        if self.log_path is not None:
+            self.log_path.parent.mkdir(parents=True, exist_ok=True)
+            self._log_file = self.log_path.open("a", encoding="utf-8")
+
+        async def log_frame(direction: str, frame: Mapping[str, Any]) -> None:
+            logger.debug("WS %s: %s", direction.upper(), json.dumps(frame, sort_keys=True))
+
+        self.client = AsyncGameClient(
+            base_url=self.server,
+            character_id=self.character,
+            websocket_frame_callback=log_frame,
+        )
+        self._register_event_handlers()
+
+        agent_kwargs: Dict[str, Any] = {"output_callback": self._handle_task_output}
+        if self.thinking_budget is not None:
+            agent_kwargs["thinking_budget"] = self.thinking_budget
+        if self.idle_timeout is not None:
+            agent_kwargs["idle_timeout_secs"] = self.idle_timeout
+
+        self.task_agent = TaskAgent(
+            game_client=self.client,
+            character_id=self.character,
+            **agent_kwargs,
+        )
+
+        try:
+            status = await self.client.join(self.character)
+            await self.client.subscribe_my_messages()
+            self._log_line(
+                f"Joined server as {self.character}; sector=\n{json.dumps(status.get('sector', {}), ensure_ascii=False)}",
+                level=self.log_level,
+            )
+
+            for task in self.tasks:
+                self._log_line(f"Starting scripted task: {task}")
+                success = await self._execute_task(task)
+                if not success:
+                    self._all_tasks_successful = False
+                else:
+                    finished = getattr(self.task_agent, "finished_message", None)
+                    if finished:
+                        self._log_line(f"Task finished message: {finished}")
+
+            return 0 if self._all_tasks_successful else 1
+        finally:
+            await self._shutdown()
+
+    async def _execute_task(self, prompt: str) -> bool:
+        assert self.client is not None
+        assert self.task_agent is not None
+
+        paused_events = False
+        try:
+            await self.client.pause_event_delivery()
+            paused_events = True
+        except Exception as exc:  # noqa: BLE001
+            self._log_line(f"Failed to pause events before task: {exc!r}", level="WARNING")
+
+        try:
+            status = await self.client.my_status(self.character)
+        except Exception as exc:  # noqa: BLE001
+            self._log_line(f"Unable to fetch status for task '{prompt}': {exc!r}", level="ERROR")
+            if paused_events:
+                with suppress(Exception):
+                    await self.client.resume_event_delivery()
+            return False
+
+        initial_state = {
+            "status": status,
+            "time": datetime.now(timezone.utc).isoformat(),
+        }
+
+        success = False
+        try:
+            success = await self.task_agent.run_task(
+                task=prompt,
+                initial_state=initial_state,
+                max_iterations=self.max_iterations,
+            )
+        except asyncio.CancelledError:
+            self._log_line(f"Task '{prompt}' cancelled", level="WARNING")
+            raise
+        except Exception as exc:  # noqa: BLE001
+            self._log_line(f"Task '{prompt}' failed: {exc!r}", level="ERROR")
+        finally:
+            if paused_events:
+                with suppress(Exception):
+                    await self.client.resume_event_delivery()
+
+        result_text = "success" if success else "failure"
+        self._log_line(f"Task '{prompt}' completed with {result_text}")
+        return success
+
+    async def _shutdown(self) -> None:
+        if self.client is not None:
+            await self.client.close()
+            self.client = None
+        if self._log_file is not None:
+            self._log_file.close()
+            self._log_file = None
+
+    def _register_event_handlers(self) -> None:
+        assert self.client is not None
+        for event_name in EVENT_NAMES:
+            self.client.on(event_name)(self._handle_event)
+
+    async def _handle_event(self, event: Dict[str, Any]) -> None:
+        event_name = event.get("event_name", "unknown")
+        summary = SimpleTUI._event_summary(event)
+        payload = SimpleTUI._event_payload(event)
+        if summary:
+            message = f"[event] {event_name}: {summary}"
+        else:
+            try:
+                payload_text = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+            except Exception:  # noqa: BLE001
+                payload_text = str(payload)
+            message = f"[event] {event_name}: {payload_text}"
+        self._log_line(message)
+
+    def _handle_task_output(self, text: str, message_type: Optional[str]) -> None:
+        label = (message_type or "MESSAGE").upper()
+        level = "ERROR" if message_type == TaskOutputType.ERROR.value else self.log_level
+        self._log_line(f"[{label}] {text}", level=level)
+
+    def _log_line(self, message: str, *, level: str = "INFO") -> None:
+        log_level = (level or self.log_level).upper()
+        if log_level not in {"TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"}:
+            log_level = self.log_level
+        logger.log(log_level, message)
+        if self._log_file is not None:
+            timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            self._log_file.write(f"{timestamp} {message}\n")
+            self._log_file.flush()
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Textual UI for Gradient Bang supporting task automation and combat",
@@ -1903,20 +2581,44 @@ def parse_args() -> argparse.Namespace:
         help="Path to append textual log output",
     )
     parser.add_argument(
-        "--model",
-        default=os.getenv("NPC_MODEL", "gpt-5"),
-        help="OpenAI model for TaskAgent (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--verbose-prompts",
-        action="store_true",
-        help="Echo TaskAgent prompts/responses (or set NPC_VERBOSE_PROMPTS=true)",
+        "--log-level",
+        default=os.getenv("NPC_LOG_LEVEL", "INFO"),
+        help="Logging level for stdout/file output (e.g. INFO, DEBUG, TRACE)",
     )
     parser.add_argument(
         "--max-iterations",
         type=int,
         default=int(os.getenv("NPC_MAX_ITERATIONS", "25")),
         help="Maximum TaskAgent iterations per task (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--thinking-budget",
+        type=int,
+        default=None,
+        help="Optional thinking token budget for the TaskAgent",
+    )
+    parser.add_argument(
+        "--idle-timeout",
+        type=float,
+        default=None,
+        help="Optional idle timeout in seconds before cancelling agent inference",
+    )
+    parser.add_argument(
+        "--task",
+        dest="tasks",
+        action="append",
+        default=[],
+        help="Task instruction to run automatically (repeatable)",
+    )
+    parser.add_argument(
+        "--stdin-tasks",
+        action="store_true",
+        help="Read newline-delimited task instructions from STDIN",
+    )
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Run without the Textual UI; execute scripted tasks and exit",
     )
     args = parser.parse_args()
     if not args.character:
@@ -1925,25 +2627,60 @@ def parse_args() -> argparse.Namespace:
         args.character = getenv("NPC_CHARACTER_ID")
     if not args.character:
         parser.error("Character must be provided via --character or NPC_CHARACTER_ID")
-    env_verbose_prompts = os.getenv("NPC_VERBOSE_PROMPTS")
-    if env_verbose_prompts:
-        args.verbose_prompts = env_verbose_prompts.lower() == "true"
     if args.max_iterations <= 0:
         parser.error("--max-iterations must be greater than zero")
+    if args.thinking_budget is None:
+        env_thinking = os.getenv("NPC_THINKING_BUDGET")
+        if env_thinking:
+            try:
+                args.thinking_budget = int(env_thinking)
+            except ValueError:
+                parser.error("NPC_THINKING_BUDGET must be an integer")
+    if args.idle_timeout is None:
+        env_idle = os.getenv("NPC_IDLE_TIMEOUT")
+        if env_idle:
+            try:
+                args.idle_timeout = float(env_idle)
+            except ValueError:
+                parser.error("NPC_IDLE_TIMEOUT must be numeric")
+    if args.verbose and str(args.log_level).upper() == "INFO":
+        args.log_level = "DEBUG"
+    args.log_level = str(args.log_level or "INFO").upper()
     return args
 
 
 def main() -> None:
     args = parse_args()
+    tasks: List[str] = list(args.tasks or [])
+    if args.stdin_tasks:
+        stdin_payload = [line.strip() for line in sys.stdin if line.strip()]
+        tasks.extend(stdin_payload)
+
+    if args.headless:
+        runner = ProgrammaticSimpleRunner(
+            server=args.server,
+            character=args.character,
+            tasks=tasks,
+            max_iterations=args.max_iterations,
+            log_level=args.log_level,
+            log_path=args.log_file,
+            thinking_budget=args.thinking_budget,
+            idle_timeout=args.idle_timeout,
+        )
+        exit_code = asyncio.run(runner.run())
+        raise SystemExit(exit_code)
+
     app = SimpleTUI(
         server=args.server,
         character=args.character,
         sector=args.sector,
         verbose=args.verbose,
         log_path=args.log_file,
-        model=args.model,
-        verbose_prompts=args.verbose_prompts,
         max_iterations=args.max_iterations,
+        log_level=args.log_level,
+        thinking_budget=args.thinking_budget,
+        idle_timeout=args.idle_timeout,
+        scripted_tasks=tasks,
     )
     app.run()
 

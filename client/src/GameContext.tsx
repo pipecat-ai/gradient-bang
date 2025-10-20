@@ -118,6 +118,7 @@ export function GameProvider({ children }: GameProviderProps) {
 
           switch (gameEvent.event) {
             // ----- STATUS
+            case "status.snapshot":
             case "status.update": {
               console.debug("[GAME EVENT] Status update", gameEvent.payload);
 

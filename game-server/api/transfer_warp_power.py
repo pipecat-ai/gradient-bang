@@ -1,14 +1,40 @@
 from datetime import datetime, timezone
+from typing import Optional
+
 from fastapi import HTTPException
 
-from .utils import build_status_payload
+from .utils import (
+    build_status_payload,
+    rpc_success,
+    build_event_source,
+    emit_error_event,
+)
 from rpc.events import event_dispatcher
+
+
+async def _fail(
+    character_id: Optional[str],
+    request_id: str,
+    detail: str,
+    *,
+    status: int = 400,
+) -> None:
+    if character_id:
+        await emit_error_event(
+            event_dispatcher,
+            character_id,
+            "transfer_warp_power",
+            request_id,
+            detail,
+        )
+    raise HTTPException(status_code=status, detail=detail)
 
 
 async def handle(request: dict, world) -> dict:
     from_character_id = request.get("from_character_id")
     to_character_id = request.get("to_character_id")
     units = request.get("units")
+    request_id = request.get("request_id") or "missing-request-id"
 
     if not all([from_character_id, to_character_id, units]):
         raise HTTPException(status_code=400, detail="Missing required parameters")
@@ -38,13 +64,11 @@ async def handle(request: dict, world) -> dict:
     to_knowledge = world.knowledge_manager.load_knowledge(to_character_id)
 
     if from_knowledge.ship_config.current_warp_power < units:
-        return {
-            "success": False,
-            "units_transferred": 0,
-            "from_warp_power_remaining": from_knowledge.ship_config.current_warp_power,
-            "to_warp_power_current": to_knowledge.ship_config.current_warp_power,
-            "message": f"Insufficient warp power. {from_character_id} only has {from_knowledge.ship_config.current_warp_power} units",
-        }
+        await _fail(
+            from_character_id,
+            request_id,
+            f"Insufficient warp power. {from_character_id} only has {from_knowledge.ship_config.current_warp_power} units",
+        )
 
     # Capacity limit for receiver
     from ships import ShipType, get_ship_stats
@@ -52,13 +76,11 @@ async def handle(request: dict, world) -> dict:
     receiver_capacity = to_ship_stats.warp_power_capacity - to_knowledge.ship_config.current_warp_power
     units_to_transfer = min(units, receiver_capacity)
     if units_to_transfer <= 0:
-        return {
-            "success": False,
-            "units_transferred": 0,
-            "from_warp_power_remaining": from_knowledge.ship_config.current_warp_power,
-            "to_warp_power_current": to_knowledge.ship_config.current_warp_power,
-            "message": f"{to_character_id}'s warp power is already at maximum",
-        }
+        await _fail(
+            from_character_id,
+            request_id,
+            f"{to_character_id}'s warp power is already at maximum",
+        )
 
     from_knowledge.ship_config.current_warp_power -= units_to_transfer
     to_knowledge.ship_config.current_warp_power += units_to_transfer
@@ -66,15 +88,17 @@ async def handle(request: dict, world) -> dict:
     world.knowledge_manager.save_knowledge(to_knowledge)
 
     timestamp = datetime.now(timezone.utc).isoformat()
-
     await event_dispatcher.emit(
         "warp.transfer",
         {
+            "source": build_event_source("transfer_warp_power", request_id),
             "from_character_id": from_character_id,
             "to_character_id": to_character_id,
             "sector": {"id": from_character.sector},
             "units": units_to_transfer,
             "timestamp": timestamp,
+            "from_warp_power_remaining": from_knowledge.ship_config.current_warp_power,
+            "to_warp_power_current": to_knowledge.ship_config.current_warp_power,
         },
         character_filter=[from_character_id, to_character_id],
     )
@@ -83,10 +107,4 @@ async def handle(request: dict, world) -> dict:
         payload = await build_status_payload(world, cid)
         await event_dispatcher.emit("status.update", payload, character_filter=[cid])
 
-    return {
-        "success": True,
-        "units_transferred": units_to_transfer,
-        "from_warp_power_remaining": from_knowledge.ship_config.current_warp_power,
-        "to_warp_power_current": to_knowledge.ship_config.current_warp_power,
-        "message": f"Successfully transferred {units_to_transfer} warp power units from {from_character_id} to {to_character_id}",
-    }
+    return rpc_success()

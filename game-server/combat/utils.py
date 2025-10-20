@@ -389,6 +389,12 @@ async def serialize_round_waiting_event(
         "participants": participants,
         "garrison": garrison,
     }
+    if encounter.round_number == 1:
+        initiator_id = None
+        context = getattr(encounter, "context", None)
+        if isinstance(context, dict):
+            initiator_id = context.get("initiator")
+        payload["initiator"] = initiator_id
     if ship_payload:
         payload["ship"] = ship_payload
     return payload

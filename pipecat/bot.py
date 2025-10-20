@@ -1,8 +1,3 @@
-"""
-Interruptible bot using LocalMacTransport (or other transports via runner args).
-Uses RTVI for client messages and manages task/tools.
-"""
-
 import asyncio
 import os
 import sys
@@ -21,10 +16,19 @@ if _REPO_ROOT not in sys.path:
 from dotenv import load_dotenv
 from loguru import logger
 
+from pipecat.audio.vad.vad_analyzer import VADParams
+from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
+from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
+from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContextAggregatorPair,
+)
 from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
     Frame,
+    LLMContextFrame,
     InterruptionFrame,
     LLMMessagesAppendFrame,
     UserStartedSpeakingFrame,
@@ -32,15 +36,11 @@ from pipecat.frames.frames import (
     TranscriptionFrame,
     StartFrame,
     StopFrame,
+    LLMRunFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.services.openai.base_llm import BaseOpenAILLMService
-from pipecat.processors.aggregators.openai_llm_context import (
-    OpenAILLMContext,
-    OpenAILLMContextFrame,
-)
 from pipecat.processors.frameworks.rtvi import (
     RTVIConfig,
     RTVIObserver,
@@ -49,7 +49,7 @@ from pipecat.processors.frameworks.rtvi import (
 )
 from pipecat.processors.frame_processor import FrameProcessor, FrameDirection
 from pipecat.services.deepgram.stt import DeepgramSTTService
-from pipecat.services.openai.llm import OpenAILLMService
+from pipecat.services.google.llm import GoogleLLMService
 from pipecat.transports.base_transport import TransportParams
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
@@ -66,6 +66,7 @@ except Exception:  # Fallback when imported directly by file path
 
 load_dotenv()
 
+# Configure loguru
 logger.remove()
 logger.add(sys.stderr, level="INFO")
 
@@ -78,14 +79,14 @@ class TaskProgressInserter(FrameProcessor):
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
-        if isinstance(frame, OpenAILLMContextFrame):
+        if isinstance(frame, LLMContextFrame):
             task_buffer = self._voice_task_manager.get_task_progress()
             if task_buffer.strip():
-                frame.context.messages.insert(
-                    len(frame.context.messages) - 1,
+                frame.context._messages.insert(
+                    len(frame.context._messages) - 1,
                     {
                         "role": "user",
-                        "content": f"Task Progress:\n{task_buffer}",
+                        "content": f"<task_progress>{task_buffer}</task_progress>",
                     },
                 )
 
@@ -162,10 +163,9 @@ async def run_bot(transport, runner_args: RunnerArguments):
 
     # Initialize LLM service
     logger.info("Init LLM…")
-    llm = OpenAILLMService(
-        api_key=os.getenv("OPENAI_API_KEY"),
-        model="gpt-4.1",
-        params=BaseOpenAILLMService.InputParams(extra={"service_tier": "priority"}),
+    llm = GoogleLLMService(
+        api_key=os.getenv("GOOGLE_API_KEY"),
+        model="gemini-2.5-flash-preview-09-2025",
     )
     llm.register_function(None, task_manager.execute_tool_call)
 
@@ -176,12 +176,16 @@ async def run_bot(transport, runner_args: RunnerArguments):
         {
             "role": "system",
             "content": create_chat_system_prompt(),
-        }
+        },
+        {
+            "role": "user",
+            "content": "<start_of_session>Character Name: TraderP</start_of_session>",
+        },
     ]
 
     # Create context aggregator
-    context = OpenAILLMContext(messages, tools=task_manager.get_tools_schema())
-    context_aggregator = llm.create_context_aggregator(context)
+    context = LLMContext(messages, tools=task_manager.get_tools_schema())
+    context_aggregator = LLMContextAggregatorPair(context)
 
     # Create pipeline
     logger.info("Create pipeline…")
@@ -213,44 +217,53 @@ async def run_bot(transport, runner_args: RunnerArguments):
 
     @rtvi.event_handler("on_client_ready")
     async def on_client_ready(rtvi):
-        initial_status = await task_manager.join()
-
-        # Dispatch initialization data to client
-        await rtvi.push_frame(
-            RTVIServerMessageFrame(
-                {
-                    "frame_type": "event",
-                    "event": "status.update",
-                    "payload": initial_status,
-                }
+        async def _join():
+            await asyncio.sleep(2)
+            await task_manager.game_client.pause_event_delivery()
+            await task_manager.join()
+            await task_manager.game_client.local_map_region(
+                character_id=task_manager.character_id,
             )
-        )
+            await task_manager.game_client.resume_event_delivery()
 
-        try:
-            current_sector = initial_status.get("sector", {}).get("id")
-            if current_sector is not None:
-                map_data = await task_manager.game_client.local_map_region(
-                    character_id=task_manager.character_id,
-                    center_sector=current_sector,
-                    max_hops=4,
-                    max_sectors=28,
-                )
-                await rtvi.push_frame(
-                    RTVIServerMessageFrame(
-                        {
-                            "frame_type": "event",
-                            "event": "map.local",
-                            "payload": map_data,
-                        }
-                    )
-                )
-        except Exception as exc:
-            logger.exception("Failed to send initial map")
+        asyncio.create_task(_join())
+
+        # # Dispatch initialization data to client
+        # await rtvi.push_frame(
+        #     RTVIServerMessageFrame(
+        #         {
+        #             "frame_type": "event",
+        #             "event": "status.update",
+        #             "payload": initial_status,
+        #         }
+        #     )
+        # )
+
+        # try:
+        #     current_sector = initial_status.get("sector", {}).get("id")
+        #     if current_sector is not None:
+        #         map_data = await task_manager.game_client.local_map_region(
+        #             character_id=task_manager.character_id,
+        #             center_sector=current_sector,
+        #             max_hops=4,
+        #             max_sectors=28,
+        #         )
+        #         await rtvi.push_frame(
+        #             RTVIServerMessageFrame(
+        #                 {
+        #                     "frame_type": "event",
+        #                     "event": "map.local",
+        #                     "payload": map_data,
+        #                 }
+        #             )
+        #         )
+        # except Exception as exc:
+        #     logger.exception("Failed to send initial map")
 
         await rtvi.set_bot_ready()
 
         # Kick off the conversation
-        await task.queue_frames([context_aggregator.user().get_context_frame()])
+        await task.queue_frames([LLMRunFrame()])
 
     @rtvi.event_handler("on_client_message")
     async def on_client_message(rtvi, message):
@@ -300,7 +313,9 @@ async def run_bot(transport, runner_args: RunnerArguments):
 
         # Client requested known ports
         if msg_type == "get-known-ports":
-            status = await task_manager.game_client.list_known_ports(task_manager.character_id)
+            status = await task_manager.game_client.list_known_ports(
+                task_manager.character_id
+            )
             await rtvi.push_frame(
                 RTVIServerMessageFrame(
                     {
@@ -430,10 +445,8 @@ async def bot(runner_args: RunnerArguments):
         "webrtc": lambda: TransportParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
-            vad_analyzer=SileroVADAnalyzer(),
-            # turn_analyzer=LocalSmartTurnAnalyzerV2(
-            #     smart_turn_model_path=None, params=SmartTurnParams()
-            # ),
+            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
+            turn_analyzer=LocalSmartTurnAnalyzerV3(),
         ),
     }
 

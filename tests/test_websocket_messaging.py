@@ -248,7 +248,7 @@ def test_sector_observers_receive_redacted_movement(ws_client):
             except AssertionError:
                 status_payload = None
         assert status_payload is None or status_payload.get("character_id") == "Mover"
-        _recv_until_event(mover, "character.moved")
+        _recv_until_event(mover, "movement.complete")
 
         arrive_payload = _recv_movement(destination, "arrive")
         depart_payload = _recv_movement(origin, "depart")
@@ -285,7 +285,8 @@ def test_sector_observers_receive_redacted_movement(ws_client):
             lambda msg: msg.get("frame_type") == "rpc" and msg.get("endpoint") == "join",
         )
         _drain_pending_event(mover, "status.update")
-        _recv_until_event(mover, "character.moved")
+        # Join teleport doesn't emit mover character.moved; drain any pending status updates
+        _drain_pending_event(mover, "character.moved")
 
         teleport_arrive = _recv_movement(origin, "arrive")
         teleport_depart = _recv_movement(destination, "depart")
@@ -412,7 +413,11 @@ def test_toll_payment_via_combat_action(ws_client):
         )
 
         payload = pay_response.get("result", {})
-        assert payload.get("pay_processed") is True
+        assert payload == {"success": True, "combat_id": combat_id}
+
+        action_event = _recv_until_event(mover, "combat.action_accepted")
+        assert action_event["combat_id"] == combat_id
+        assert action_event.get("pay_processed") is True
 
         resolved = _recv_until_event(mover, "combat.round_resolved")
         ended = _recv_until_event(mover, "combat.ended")

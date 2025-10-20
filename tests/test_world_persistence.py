@@ -1,6 +1,9 @@
 import shutil
+from functools import partial
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -19,6 +22,11 @@ from character_knowledge import (
 )
 from fastapi import HTTPException
 from combat.manager import CombatManager
+from combat.callbacks import (
+    on_round_waiting as combat_on_round_waiting,
+    on_round_resolved as combat_on_round_resolved,
+    on_combat_ended as combat_on_combat_ended,
+)
 from combat.models import (
     CombatEncounter,
     CombatRoundOutcome,
@@ -35,6 +43,10 @@ from api.combat_leave_fighters import handle as leave_fighters_handle
 from api.combat_collect_fighters import handle as collect_fighters_handle
 from api.join import handle as join_handle
 from api.combat_action import handle as combat_action_handle
+import api.combat_collect_fighters as combat_collect_module
+import api.combat_leave_fighters as combat_leave_module
+import api.combat_set_garrison_mode as combat_mode_module
+import api.salvage_collect as salvage_collect_module
 
 
 @pytest.fixture()
@@ -77,7 +89,8 @@ def hydrated_world(monkeypatch, tmp_path):
     yield test_world, temp_world_data
 
 
-def test_preloaded_characters_visible_after_restart(hydrated_world):
+@pytest.mark.asyncio
+async def test_preloaded_characters_visible_after_restart(hydrated_world):
     world, _ = hydrated_world
 
     assert "khk_aggressive" in world.characters
@@ -91,8 +104,8 @@ def test_preloaded_characters_visible_after_restart(hydrated_world):
     assert aggressive.fighters == 123
     assert passive.fighters == 150
 
-    contents = sector_contents(world, 5, current_character_id="khk_aggressive")
-    other_names = {entry["name"] for entry in contents.get("other_players", [])}
+    contents = await sector_contents(world, 5, current_character_id="khk_aggressive")
+    other_names = {entry["name"] for entry in contents.get("players", [])}
     assert "khk_passive" in other_names
 
 
@@ -149,15 +162,31 @@ async def test_combat_round_updates_persisted_ship_state(hydrated_world):
         },
     )
 
+    round_waiting_cb = partial(
+        combat_on_round_waiting,
+        world=world,
+        event_dispatcher=server.event_dispatcher,
+    )
+    round_resolved_cb = partial(
+        combat_on_round_resolved,
+        world=world,
+        event_dispatcher=server.event_dispatcher,
+    )
+    combat_ended_cb = partial(
+        combat_on_combat_ended,
+        world=world,
+        event_dispatcher=server.event_dispatcher,
+    )
+
     manager = CombatManager(
-        on_round_waiting=server._combat_round_waiting,
-        on_round_resolved=server._combat_round_resolved,
-        on_combat_ended=server._combat_ended,
+        on_round_waiting=round_waiting_cb,
+        on_round_resolved=round_resolved_cb,
+        on_combat_ended=combat_ended_cb,
     )
     manager.configure_callbacks(
-        on_round_waiting=server._combat_round_waiting,
-        on_round_resolved=server._combat_round_resolved,
-        on_combat_ended=server._combat_ended,
+        on_round_waiting=round_waiting_cb,
+        on_round_resolved=round_resolved_cb,
+        on_combat_ended=combat_ended_cb,
     )
     world.combat_manager = manager
     await manager.start_encounter(encounter, emit_waiting=False)
@@ -205,7 +234,7 @@ async def test_place_fighters_rejects_existing_garrison(hydrated_world):
     if world.garrisons is None:
         pytest.skip("Garrison system unavailable")
 
-    world.garrisons.deploy(
+    await world.garrisons.deploy(
         sector_id=5,
         owner_id="khk_passive",
         fighters=25,
@@ -233,12 +262,15 @@ async def test_auto_engage_on_offensive_garrison(monkeypatch, hydrated_world):
     if world.garrisons is None or world.combat_manager is None:
         pytest.skip("Required subsystems unavailable")
 
-    async def noop_event(*args, **kwargs):  # pragma: no cover - test stub
-        return None
+    mock_emit = AsyncMock()
+    monkeypatch.setattr(server.event_dispatcher, "emit", mock_emit)
+    monkeypatch.setattr(
+        combat_collect_module,
+        "event_dispatcher",
+        SimpleNamespace(emit=mock_emit),
+    )
 
-    monkeypatch.setattr(server.event_dispatcher, "emit", noop_event)
-
-    world.garrisons.deploy(
+    await world.garrisons.deploy(
         sector_id=5,
         owner_id="khk_passive",
         fighters=40,
@@ -268,10 +300,13 @@ async def test_collect_fighters_returns_toll_balance(monkeypatch, hydrated_world
     if world.garrisons is None:
         pytest.skip("Garrison system unavailable")
 
-    async def noop_event(*args, **kwargs):  # pragma: no cover - test stub
-        return None
-
-    monkeypatch.setattr(server.event_dispatcher, "emit", noop_event)
+    mock_emit = AsyncMock()
+    monkeypatch.setattr(server.event_dispatcher, "emit", mock_emit)
+    monkeypatch.setattr(
+        combat_collect_module,
+        "event_dispatcher",
+        SimpleNamespace(emit=mock_emit),
+    )
 
     owner_id = "toll_owner"
     sector_id = 5
@@ -279,7 +314,10 @@ async def test_collect_fighters_returns_toll_balance(monkeypatch, hydrated_world
     world.knowledge_manager.initialize_ship(owner_id, ShipType.KESTREL_COURIER)
     world.knowledge_manager.update_credits(owner_id, 100)
 
-    world.garrisons.deploy(
+    # Ensure character exists in active world state
+    await join_handle({"character_id": owner_id, "sector": sector_id}, world)
+
+    await world.garrisons.deploy(
         sector_id=sector_id,
         owner_id=owner_id,
         fighters=20,
@@ -297,11 +335,167 @@ async def test_collect_fighters_returns_toll_balance(monkeypatch, hydrated_world
         world,
     )
 
-    assert result["credits_collected"] == 46
-    garrisons = world.garrisons.list_sector(sector_id)
+    assert result == {"success": True}
+
+    garrison_calls = [
+        entry for entry in mock_emit.await_args_list if entry.args and entry.args[0] == "garrison.collected"
+    ]
+    assert len(garrison_calls) == 1
+    _, payload = garrison_calls[0].args[:2]
+    assert garrison_calls[0].kwargs.get("character_filter") == [owner_id]
+    assert payload["credits_collected"] == 46
+    assert payload["fighters_on_ship"] == world.knowledge_manager.load_knowledge(owner_id).ship_config.current_fighters
+    assert payload["garrison"] is not None
+
+    garrisons = await world.garrisons.list_sector(sector_id)
     assert garrisons[0].toll_balance == 0
     updated_credits = world.knowledge_manager.get_credits(owner_id)
     assert updated_credits == 146
+
+
+@pytest.mark.asyncio
+async def test_leave_fighters_emits_garrison_event(monkeypatch, hydrated_world):
+    world, _ = hydrated_world
+
+    if world.garrisons is None:
+        pytest.skip("Garrison system unavailable")
+
+    owner_id = "khk_aggressive"
+    sector = world.characters[owner_id].sector
+
+    for existing in await world.garrisons.list_sector(sector):
+        await world.garrisons.remove(sector, existing.owner_id)
+
+    mock_emit = AsyncMock()
+    monkeypatch.setattr(server.event_dispatcher, "emit", mock_emit)
+    monkeypatch.setattr(
+        combat_leave_module,
+        "event_dispatcher",
+        SimpleNamespace(emit=mock_emit),
+    )
+
+    result = await leave_fighters_handle(
+        {
+            "character_id": owner_id,
+            "sector": sector,
+            "quantity": 20,
+            "mode": "defensive",
+        },
+        world,
+    )
+
+    assert result == {"success": True}
+
+    deployed_calls = [
+        entry for entry in mock_emit.await_args_list if entry.args and entry.args[0] == "garrison.deployed"
+    ]
+    assert len(deployed_calls) == 1
+    _, payload = deployed_calls[0].args[:2]
+    assert deployed_calls[0].kwargs.get("character_filter") == [owner_id]
+    assert payload["sector"]["id"] == sector
+    assert payload["garrison"]["fighters"] == 20
+    knowledge = world.knowledge_manager.load_knowledge(owner_id)
+    assert payload["fighters_remaining"] == knowledge.ship_config.current_fighters
+
+
+@pytest.mark.asyncio
+async def test_set_garrison_mode_emits_event(monkeypatch, hydrated_world):
+    world, _ = hydrated_world
+
+    if world.garrisons is None:
+        pytest.skip("Garrison system unavailable")
+
+    owner_id = "khk_aggressive"
+    sector = world.characters[owner_id].sector
+
+    for existing in await world.garrisons.list_sector(sector):
+        await world.garrisons.remove(sector, existing.owner_id)
+    await world.garrisons.deploy(
+        sector_id=sector,
+        owner_id=owner_id,
+        fighters=15,
+        mode="defensive",
+        toll_amount=0,
+    )
+
+    mock_emit = AsyncMock()
+    monkeypatch.setattr(server.event_dispatcher, "emit", mock_emit)
+    monkeypatch.setattr(
+        combat_mode_module,
+        "event_dispatcher",
+        SimpleNamespace(emit=mock_emit),
+    )
+
+    result = await combat_mode_module.handle(
+        {
+            "character_id": owner_id,
+            "sector": sector,
+            "mode": "toll",
+            "toll_amount": 30,
+        },
+        world,
+    )
+
+    assert result == {"success": True}
+
+    mode_calls = [
+        entry for entry in mock_emit.await_args_list if entry.args and entry.args[0] == "garrison.mode_changed"
+    ]
+    assert len(mode_calls) == 1
+    _, payload = mode_calls[0].args[:2]
+    assert mode_calls[0].kwargs.get("character_filter") == [owner_id]
+    assert payload["sector"]["id"] == sector
+    assert payload["garrison"]["mode"] == "toll"
+    assert payload["garrison"]["toll_amount"] == 30
+
+
+@pytest.mark.asyncio
+async def test_salvage_collect_emits_event(monkeypatch, hydrated_world):
+    world, _ = hydrated_world
+
+    if world.salvage_manager is None:
+        pytest.skip("Salvage system unavailable")
+
+    character_id = "khk_aggressive"
+    sector = world.characters[character_id].sector
+
+    container = world.salvage_manager.create(
+        sector=sector,
+        cargo={"quantum_foam": 5},
+        scrap=3,
+        credits=12,
+        metadata={"ship_name": "Wreck", "ship_type": "sparrow_scout"},
+    )
+    salvage_id = container.salvage_id
+
+    mock_emit = AsyncMock()
+    monkeypatch.setattr(server.event_dispatcher, "emit", mock_emit)
+    monkeypatch.setattr(
+        salvage_collect_module,
+        "event_dispatcher",
+        SimpleNamespace(emit=mock_emit),
+    )
+
+    result = await salvage_collect_module.handle(
+        {
+            "character_id": character_id,
+            "salvage_id": salvage_id,
+        },
+        world,
+    )
+
+    assert result == {"success": True}
+
+    salvage_calls = [
+        entry for entry in mock_emit.await_args_list if entry.args and entry.args[0] == "salvage.collected"
+    ]
+    assert len(salvage_calls) == 1
+    _, payload = salvage_calls[0].args[:2]
+    assert salvage_calls[0].kwargs.get("character_filter") == [character_id]
+    assert payload["salvage"]["salvage_id"] == salvage_id
+    assert payload["sector"]["id"] == sector
+    assert "quantum_foam" in payload["cargo"]
+    assert payload["credits"] == world.knowledge_manager.get_credits(character_id)
 
 
 @pytest.mark.asyncio
@@ -322,7 +516,7 @@ async def test_destroyed_toll_garrison_awards_bank(monkeypatch, hydrated_world):
 
     world.knowledge_manager.update_credits(attacker, 0)
 
-    garrison_state = world.garrisons.deploy(
+    garrison_state = await world.garrisons.deploy(
         sector_id=sector_id,
         owner_id=owner,
         fighters=15,
@@ -391,7 +585,7 @@ async def test_destroyed_toll_garrison_awards_bank(monkeypatch, hydrated_world):
         effective_actions={},
     )
 
-    await server._finalize_combat(encounter, outcome)
+    await combat_on_combat_ended(encounter, outcome, world, server.event_dispatcher)
 
     updated = world.knowledge_manager.get_credits(attacker)
     assert updated == 50
@@ -504,7 +698,7 @@ async def test_successful_flee_moves_character(monkeypatch, hydrated_world):
         },
     )
 
-    await server._combat_round_resolved(encounter, outcome)
+    await combat_on_round_resolved(encounter, outcome, world, server.event_dispatcher)
 
     updated_knowledge = world.knowledge_manager.load_knowledge("khk_aggressive")
     assert updated_knowledge.current_sector == 6

@@ -1,22 +1,58 @@
+from typing import Optional
+
 from fastapi import HTTPException
-from .utils import build_status_payload
+
+from .utils import (
+    build_status_payload,
+    rpc_success,
+    build_event_source,
+    emit_error_event,
+)
+from rpc.events import event_dispatcher
+
+
+async def _fail(
+    character_id: Optional[str],
+    request_id: str,
+    detail: str,
+    *,
+    status: int = 400,
+) -> None:
+    if character_id:
+        await emit_error_event(
+            event_dispatcher,
+            character_id,
+            "my_status",
+            request_id,
+            detail,
+        )
+    raise HTTPException(status_code=status, detail=detail)
 
 
 async def handle(request: dict, world) -> dict:
+    request_id = request.get("request_id") or "missing-request-id"
     character_id = request.get("character_id")
     if not character_id:
-        raise HTTPException(status_code=400, detail="Missing character_id")
+        await _fail(None, request_id, "Missing character_id")
     if character_id not in world.characters:
-        raise HTTPException(
-            status_code=404, detail=f"Character '{character_id}' not found"
-        )
+        await _fail(character_id, request_id, f"Character '{character_id}' not found", status=404)
 
     character = world.characters[character_id]
     if character.in_hyperspace:
-        raise HTTPException(
-            status_code=400,
-            detail="Character is in hyperspace, status unavailable until arrival",
+        await _fail(
+            character_id,
+            request_id,
+            "Character is in hyperspace, status unavailable until arrival",
+            status=409,
         )
 
     status_payload = await build_status_payload(world, character_id)
-    return status_payload
+    status_payload["source"] = build_event_source("my_status", request_id)
+
+    await event_dispatcher.emit(
+        "status.snapshot",
+        status_payload,
+        character_filter=[character_id],
+    )
+
+    return rpc_success()

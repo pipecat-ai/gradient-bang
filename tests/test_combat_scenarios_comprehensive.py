@@ -38,7 +38,22 @@ class EventCollector:
     def __init__(self):
         self.events = []
 
-    def add_event(self, event_name, payload):
+    def add_event(self, event_name, payload=None):
+        if payload is None and isinstance(event_name, dict):
+            event_message = event_name
+            event_name = event_message.get("event_name")
+            payload = event_message.get("payload")
+        elif isinstance(payload, dict) and {
+            "event_name",
+            "payload",
+        }.issubset(payload.keys()):
+            event_message = payload
+            event_name = event_message.get("event_name", event_name)
+            payload = event_message.get("payload")
+
+        if event_name is None:
+            return
+
         self.events.append((event_name, payload))
 
     async def wait_for_event(self, event_name, timeout=5.0, condition=None):
@@ -906,10 +921,6 @@ class TestGarrisonModes:
                 p for p in waiting["participants"]
                 if p.get("combatant_id") and "garrison" in str(p.get("combatant_id", ""))
             ]
-            # Actually, garrisons might not be in participants array - they're separate
-            # Let me check combat status for the garrison ID
-            combat_status = await client_payer.combat_status(character_id="test_toll_payer")
-
             # Submit PAY action (Round 1)
             await client_payer.combat_action(
                 character_id="test_toll_payer",

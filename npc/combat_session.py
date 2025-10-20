@@ -6,7 +6,7 @@ import asyncio
 import logging
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Set, Tuple
 
 from utils.api_client import AsyncGameClient
 
@@ -135,6 +135,25 @@ class CombatSession:
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         await self.close()
 
+    @staticmethod
+    def _event_payload(event: Any) -> Dict[str, Any]:
+        if isinstance(event, Mapping) and "payload" in event:
+            payload = event.get("payload")
+            if isinstance(payload, Mapping):
+                return dict(payload)
+            return payload or {}
+        return event if isinstance(event, Mapping) else {}
+
+    def _wrap_event_handler(
+        self,
+        handler: Callable[[Dict[str, Any]], Awaitable[None]],
+    ) -> Callable[[Dict[str, Any]], Awaitable[None]]:
+        async def _wrapped(event: Dict[str, Any]) -> None:
+            payload = self._event_payload(event)
+            await handler(payload)
+
+        return _wrapped
+
     def start(self) -> None:
         """Register event handlers if not already active."""
 
@@ -143,26 +162,29 @@ class CombatSession:
 
         self._started = True
         self._handler_tokens.append(
-            self.client.add_event_handler("status.update", self._on_status_event)
+            self.client.add_event_handler(
+                "status.update", self._wrap_event_handler(self._on_status_event)
+            )
         )
         handler = self.client.add_event_handler(
-            "sector.update", self._on_sector_update
+            "sector.update", self._wrap_event_handler(self._on_sector_update)
         )
         self._handler_tokens.append(handler)
         # Backward compatibility: handle legacy garrison update events if received
         self._handler_tokens.append(
             self.client.add_event_handler(
-                "sector.garrison_updated", self._on_sector_update
+                "sector.garrison_updated", self._wrap_event_handler(self._on_sector_update)
             )
         )
         self._handler_tokens.append(
             self.client.add_event_handler(
-                "character.moved", self._on_character_moved
+                "character.moved", self._wrap_event_handler(self._on_character_moved)
             )
         )
 
         for event_name in self.COMBAT_EVENTS:
-            async def handler(payload: Dict[str, Any], ev: str = event_name) -> None:
+            async def handler(event: Dict[str, Any], ev: str = event_name) -> None:
+                payload = self._event_payload(event)
                 await self._handle_combat_event(ev, payload)
 
             self._handler_tokens.append(

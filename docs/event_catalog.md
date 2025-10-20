@@ -2,6 +2,31 @@
 
 This document catalogs all WebSocket events emitted by the Gradient Bang game server during gameplay, with typical payloads showing all fields.
 
+## System Events
+
+### error
+**When emitted:** When an RPC request fails and the handler emits an error notification for the requesting player
+**Who receives it:** Only the character whose request failed (character_filter)
+**Source:** Helper `emit_error_event` (`game-server/api/utils.py`)
+
+**Payload example:**
+```json
+{
+  "endpoint": "move",
+  "error": "Invalid move",
+  "source": {
+    "type": "rpc",
+    "method": "move",
+    "request_id": "req-error",
+    "timestamp": "2025-10-15T18:42:03.000Z"
+  }
+}
+```
+
+**Notes:**
+- Handlers raise `HTTPException` and emit this event before the RPC response is returned, so clients receive both the `error` event and an `ok: false` frame.
+- The `source.timestamp` field is generated when the event is emitted and uses UTC ISO-8601 format.
+
 ## Combat Events
 
 ### combat.started *(removed October 7, 2025)*
@@ -9,16 +34,17 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 **Previous payload:** Legacy dictionary of participants that included `max_fighters`/`max_shields` fields.
 
 ### combat.round_waiting
-**When emitted:** When a combat round begins and is waiting for player actions
+**When emitted:** When a combat round begins and is waiting for player actions, or when a character joins a sector that already has active combat
 **Who receives it:** All character participants in the combat (character_filter)
-**Source:** `/game-server/combat/callbacks.py:91`
+**Source:** `/game-server/combat/callbacks.py:91` (round transitions), `game-server/api/join.py` (join correlation), and `game-server/api/move.py` (move arrival correlation)
 
 **Payload example:** *(participants_map removed October 7, 2025)*
 ```json
 {
   "combat_id": "a3f2b9c1d4e5f6",
   "sector": {"id": 42},
-  "round": 2,
+  "round": 1,
+  "initiator": "trader",
   "current_time": "2025-10-07T14:25:00.000Z",
   "deadline": "2025-10-07T14:30:00.000Z",
   "participants": [
@@ -75,6 +101,8 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 ```
 
 **Notes:**
+- The opening round includes an `initiator` field identifying who triggered the encounter; subsequent rounds omit the field.
+- Join-triggered and move-triggered emissions attach a `source` derived from their respective RPC request so clients can correlate the event to login or travel.
 - `ship` contains the same structure as other status-bearing events (`status.update`, `movement.complete`) but only for the receiving character. Other combatants see summary data (shield percentages, losses).
 - Garrisons now expose `owner_name` and omit `toll_balance` for privacy.
 
@@ -235,27 +263,226 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 }
 ```
 
-## Movement Events
-
-### course.plot
-***When emitted:*** When plot_course is called
-***Who receives it:*** The moving character only (character_filter)
-***Source:*** `/game-server/api/plot_course.py:156`
+### combat.action_accepted
+**When emitted:** After a combat action is accepted for processing.
+**Who receives it:** Only the character who submitted the action (character_filter).
+**Source:** `/game-server/api/combat_action.py`
 
 **Payload example:**
 ```json
 {
-    "from_sector": 1000,
-    "to_sector": 1307,
-    "path": [
-        1000,
-        1203,
-        962,
-        1307
-    ],
-    "distance": 3
+  "source": {
+    "type": "rpc",
+    "method": "combat.action",
+    "request_id": "req-combat-001",
+    "timestamp": "2025-10-16T18:05:42.312345+00:00"
+  },
+  "combat_id": "a3f2b9c1d4e5f6",
+  "round": 2,
+  "action": "pay",
+  "round_resolved": true,
+  "pay_processed": true
 }
 ```
+
+**Notes:**
+- `round_resolved` indicates whether the submitted action immediately completed the round; follow-up `combat.round_resolved` events carry the full outcome details.
+- `pay_processed` is present only for `pay` actions and reports whether the toll payment succeeded (failed payments include a `message` field explaining the fallback).
+- `target_id`, `commit`, or `destination_sector` appear when relevant to the submitted action.
+
+## Garrison Events
+
+### garrison.deployed
+**When emitted:** When a character leaves fighters behind to form or reinforce a garrison.
+**Who receives it:** Only the deploying character (character_filter).
+**Source:** `/game-server/api/combat_leave_fighters.py`
+
+**Payload example:**
+```json
+{
+  "source": {
+    "type": "rpc",
+    "method": "combat.leave_fighters",
+    "request_id": "req-garrison-01",
+    "timestamp": "2025-10-16T18:12:03.102938+00:00"
+  },
+  "sector": {"id": 5},
+  "garrison": {
+    "owner_name": "khk_aggressive",
+    "fighters": 20,
+    "mode": "defensive",
+    "toll_amount": 0,
+    "deployed_at": "2025-10-16T18:12:03.102938+00:00",
+    "is_friendly": true
+  },
+  "fighters_remaining": 103
+}
+```
+
+**Notes:**
+- `fighters_remaining` reflects the deployer's fighters still aboard their ship after the transfer.
+- The `garrison` block uses the same structure exposed in `sector.update` for friendly players; `is_friendly` appears when the viewer owns the garrison.
+
+### garrison.collected
+**When emitted:** When a character retrieves fighters (and any toll balance) from their garrison.
+**Who receives it:** Only the collecting character (character_filter).
+**Source:** `/game-server/api/combat_collect_fighters.py`
+
+**Payload example:**
+```json
+{
+  "source": {
+    "type": "rpc",
+    "method": "combat.collect_fighters",
+    "request_id": "req-garrison-collect-07",
+    "timestamp": "2025-10-16T18:15:44.552190+00:00"
+  },
+  "sector": {"id": 5},
+  "credits_collected": 46,
+  "garrison": {
+    "owner_name": "toll_owner",
+    "fighters": 15,
+    "mode": "toll",
+    "toll_amount": 25,
+    "deployed_at": "2025-10-15T21:10:00.000000+00:00",
+    "is_friendly": true
+  },
+  "fighters_on_ship": 135
+}
+```
+
+**Notes:**
+- When all stationed fighters are collected, `garrison` is `null` because the structure no longer exists.
+- The toll balance is added to the player's credits and reported in `credits_collected`.
+
+### garrison.mode_changed
+**When emitted:** When a character updates their garrison's mode or toll amount.
+**Who receives it:** Only the character who changed the mode (character_filter).
+**Source:** `/game-server/api/combat_set_garrison_mode.py`
+
+**Payload example:**
+```json
+{
+  "source": {
+    "type": "rpc",
+    "method": "combat.set_garrison_mode",
+    "request_id": "req-garrison-mode-04",
+    "timestamp": "2025-10-16T18:18:09.223517+00:00"
+  },
+  "sector": {"id": 5},
+  "garrison": {
+    "owner_name": "khk_aggressive",
+    "fighters": 15,
+    "mode": "toll",
+    "toll_amount": 30,
+    "deployed_at": "2025-10-16T18:12:03.102938+00:00",
+    "is_friendly": true
+  }
+}
+```
+
+**Notes:**
+- Switching out of `toll` mode clears any accumulated toll balance; the payload reflects the post-update configuration.
+- Clients should update their UI based on this event rather than the RPC response.
+
+## Salvage Events
+
+### salvage.collected
+**When emitted:** When a character successfully claims salvage from a wreck.
+**Who receives it:** Only the collecting character (character_filter).
+**Source:** `/game-server/api/salvage_collect.py`
+
+**Payload example:**
+```json
+{
+  "source": {
+    "type": "rpc",
+    "method": "salvage.collect",
+    "request_id": "req-salvage-11",
+    "timestamp": "2025-10-16T18:21:55.019384+00:00"
+  },
+  "sector": {"id": 5},
+  "salvage": {
+    "salvage_id": "salv_ed5c1f",
+    "sector_id": 5,
+    "cargo": {"quantum_foam": 5},
+    "scrap": 3,
+    "credits": 12,
+    "metadata": {
+      "ship_name": "Wreck",
+      "ship_type": "sparrow_scout"
+    }
+  },
+  "cargo": {
+    "quantum_foam": 42,
+    "retro_organics": 10,
+    "neuro_symbolics": 5
+  },
+  "credits": 8612
+}
+```
+
+**Notes:**
+- The salvage payload mirrors the container that was just removed; clients can display it in loot history or notifications.
+- Updated cargo totals include the newly collected items; unknown salvage commodities are converted to `neuro_symbolics` by the server before emission.
+
+## Movement Events
+
+### course.plot
+**When emitted:** When the `plot_course` RPC succeeds in finding a path
+**Who receives it:** Only the requesting character (character_filter)
+**Source:** `/game-server/api/plot_course.py`
+
+**Payload example:**
+```json
+{
+  "source": {
+    "type": "rpc",
+    "method": "plot_course",
+    "request_id": "req-plot-42",
+    "timestamp": "2025-10-16T16:05:00.000Z"
+  },
+  "from_sector": 1000,
+  "to_sector": 1307,
+  "path": [1000, 1203, 962, 1307],
+  "distance": 3
+}
+```
+
+**Notes:**
+- Clients should listen for this event to receive the calculated path; the RPC response now returns only `{success: true}`.
+- `request_id` allows correlating the event back to the initiating `plot_course` frame.
+
+### path.region
+**When emitted:** When the `path_with_region` RPC generates a path plus surrounding sector context
+**Who receives it:** Only the requesting character (character_filter)
+**Source:** `/game-server/api/path_with_region.py`
+
+**Payload example:**
+```json
+{
+  "path": [0, 1, 2],
+  "distance": 2,
+  "sectors": [
+    {"sector_id": 0, "visited": true, "on_path": true},
+    {"sector_id": 1, "visited": true, "on_path": true, "last_visited": "2025-10-16T16:00:00.000Z"},
+    {"sector_id": 3, "visited": true, "on_path": false, "hops_from_path": 1}
+  ],
+  "total_sectors": 3,
+  "known_sectors": 3,
+  "unknown_sectors": 0,
+  "source": {
+    "type": "rpc",
+    "method": "path_with_region",
+    "request_id": "req-path-9",
+    "timestamp": "2025-10-16T16:14:00.000Z"
+  }
+}
+```
+
+**Notes:**
+- Returned sectors include both on-path nodes and nearby visited sectors up to `region_hops`.
+- Unknown path nodes are included with minimal metadata so clients can render the full route even without prior visits.
 
 ### movement.complete
 **When emitted:** When a character exits hyperspace and arrives at destination
@@ -323,6 +550,73 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 }
 ```
 
+### map.knowledge
+**When emitted:** When a character invokes the `my_map` RPC to retrieve their stored map knowledge
+**Who receives it:** Only the requesting character (character_filter)
+**Source:** `/game-server/api/my_map.py`
+
+**Payload example:**
+```json
+{
+  "character_id": "explorer",
+  "sector": 12,
+  "total_sectors_visited": 7,
+  "sectors_visited": {
+    "0": {"sector_id": 0, "last_visited": "2025-10-16T15:30:00.000Z"},
+    "12": {"sector_id": 12, "last_visited": "2025-10-16T15:45:00.000Z"}
+  },
+  "ship_config": {
+    "ship_type": "kestrel_courier",
+    "ship_name": "Kestrel Courier",
+    "cargo": {"quantum_foam": 40, "retro_organics": 10, "neuro_symbolics": 5}
+  },
+  "credits": 1180,
+  "source": {
+    "type": "rpc",
+    "method": "my_map",
+    "request_id": "req-map-42",
+    "timestamp": "2025-10-16T15:45:02.000Z"
+  }
+}
+```
+
+**Notes:**
+- Designed for on-demand hydration after reconnects; movement and combat events provide incremental updates between snapshots.
+- `sector` reflects the live sector if the character is currently connected; otherwise it falls back to the persisted sector value.
+
+### map.region
+**When emitted:** When the `local_map_region` RPC builds a neighborhood snapshot around a sector
+**Who receives it:** Only the requesting character (character_filter)
+**Source:** `/game-server/api/local_map_region.py`
+
+**Payload example:**
+```json
+{
+  "center_sector": 43,
+  "max_hops": 3,
+  "total_sectors": 12,
+  "sectors": [
+    {
+      "sector_id": 43,
+      "visited": true,
+      "position": [100.5, 200.3],
+      "port": {"code": "BSB"},
+      "adjacent_sectors": [42, 44, 50, 51]
+    }
+  ],
+  "source": {
+    "type": "rpc",
+    "method": "local_map_region",
+    "request_id": "req-region-17",
+    "timestamp": "2025-10-16T16:12:00.000Z"
+  }
+}
+```
+
+**Notes:**
+- Mirrors the historical response payload so clients can migrate without structural changes.
+- Use `max_hops` to infer the breadth of the returned region; clients may request larger windows by increasing the RPC parameter.
+
 ### map.local
 **When emitted:** When a character needs updated local map data (after movement completion)
 **Who receives it:** The character who just moved (character_filter)
@@ -379,6 +673,43 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 }
 ```
 
+## Port Events
+
+### ports.list
+**When emitted:** When the `list_known_ports` RPC completes its search
+**Who receives it:** Only the requesting character (character_filter)
+**Source:** `/game-server/api/list_known_ports.py`
+
+**Payload example:**
+```json
+{
+  "from_sector": 0,
+  "ports": [
+    {
+      "sector_id": 0,
+      "hops_from_start": 0,
+      "port": {"code": "BSS"},
+      "position": [0, 0],
+      "last_visited": "2025-10-16T15:00:00.000Z"
+    }
+  ],
+  "total_ports_found": 1,
+  "searched_sectors": 1,
+  "source": {
+    "type": "rpc",
+    "method": "list_known_ports",
+    "request_id": "req-ports-5",
+    "timestamp": "2025-10-16T16:13:00.000Z"
+  }
+}
+```
+
+**Notes:**
+- Results are sorted by hop distance from `from_sector`.
+- Commodity/trade filters narrow the list to ports that buy or sell the requested commodity in the desired direction.
+
+## Character Events
+
 ### character.moved
 **When emitted:** When a character moves between sectors (for observers)
 **Who receives it:**
@@ -425,24 +756,30 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 ### trade.executed
 **When emitted:** When a character completes a buy or sell trade at a port
 **Who receives it:** The character who executed the trade (character_filter)
-**Source:** `/game-server/api/trade.py:138` (buy) and `/game-server/api/trade.py:215` (sell)
+**Source:** `/game-server/api/trade.py:167` (buy) and `/game-server/api/trade.py:255` (sell)
 
 **Payload example:**
 ```json
 {
+  "source": {
+    "type": "rpc",
+    "method": "trade",
+    "request_id": "req-trade-42",
+    "timestamp": "2025-10-16T15:45:12.345678+00:00"
+  },
   "player": {
     "created_at": "2025-10-07T12:00:00.000Z",
     "last_active": "2025-10-07T14:26:00.000Z",
     "id": "trader",
     "name": "trader",
-    "credits_on_hand": 14400,
+    "credits_on_hand": 7500,
     "credits_in_bank": 0
   },
   "ship": {
     "ship_type": "kestrel_courier",
     "ship_name": "Kestrel Courier",
     "cargo": {
-      "quantum_foam": 70,
+      "quantum_foam": 100,
       "retro_organics": 30,
       "neuro_symbolics": 20
     },
@@ -453,6 +790,24 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "max_shields": 100,
     "fighters": 45,
     "max_fighters": 50
+  },
+  "trade": {
+    "trade_type": "buy",
+    "commodity": "quantum_foam",
+    "units": 100,
+    "price_per_unit": 25,
+    "total_price": 2500,
+    "new_credits": 7500,
+    "new_cargo": {
+      "quantum_foam": 100,
+      "retro_organics": 30,
+      "neuro_symbolics": 20
+    },
+    "new_prices": {
+      "quantum_foam": {"buy_price": null, "sell_price": 25},
+      "retro_organics": {"buy_price": 18, "sell_price": null},
+      "neuro_symbolics": {"buy_price": 32, "sell_price": null}
+    }
   }
 }
 ```
@@ -489,37 +844,107 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 ### warp.purchase
 **When emitted:** When a character purchases warp power at sector 0 depot
 **Who receives it:** The character who purchased warp power (character_filter)
-**Source:** `/game-server/api/recharge_warp_power.py:78`
+**Source:** `/game-server/api/recharge_warp_power.py:70`
 
 **Payload example:**
 ```json
 {
+  "source": {
+    "type": "rpc",
+    "method": "recharge_warp_power",
+    "request_id": "req-warp-123",
+    "timestamp": "2025-10-16T14:27:00.000Z"
+  },
   "character_id": "trader",
   "sector": {"id": 0},
   "units": 25,
   "price_per_unit": 2,
   "total_cost": 50,
-  "timestamp": "2025-10-07T14:27:00.000Z"
+  "timestamp": "2025-10-07T14:27:00.000Z",
+  "new_warp_power": 175,
+  "warp_power_capacity": 300,
+  "new_credits": 950
 }
 ```
 
 ### warp.transfer
 **When emitted:** When warp power is transferred between two characters
 **Who receives it:** Both the sender and receiver characters (character_filter)
-**Source:** `/game-server/api/transfer_warp_power.py:70`
+**Source:** `/game-server/api/transfer_warp_power.py:66`
 
 **Payload example:**
 ```json
 {
+  "source": {
+    "type": "rpc",
+    "method": "transfer_warp_power",
+    "request_id": "req-transfer-987",
+    "timestamp": "2025-10-07T14:28:00.000Z"
+  },
   "from_character_id": "trader",
   "to_character_id": "merchant",
   "sector": {"id": 43},
   "units": 10,
-  "timestamp": "2025-10-07T14:28:00.000Z"
+  "timestamp": "2025-10-07T14:28:00.000Z",
+  "from_warp_power_remaining": 90,
+  "to_warp_power_current": 110
 }
 ```
 
 ## Status Events
+
+### status.snapshot
+**When emitted:** When a player successfully calls the `my_status` or `join` RPC
+**Who receives it:** Only the requesting character (character_filter)
+**Source:** `/game-server/api/my_status.py`, `/game-server/api/join.py`
+
+**Payload example:**
+```json
+{
+  "source": {
+    "type": "rpc",
+    "method": "my_status",
+    "request_id": "req-123",
+    "timestamp": "2025-10-16T15:32:18.000Z"
+  },
+  "player": {
+    "created_at": "2025-10-16T14:20:00.000Z",
+    "last_active": "2025-10-16T15:32:18.000Z",
+    "id": "explorer",
+    "name": "explorer",
+    "credits_on_hand": 1200,
+    "credits_in_bank": 0
+  },
+  "ship": {
+    "ship_type": "kestrel_courier",
+    "ship_name": "Kestrel Courier",
+    "cargo": {
+      "quantum_foam": 45,
+      "retro_organics": 12,
+      "neuro_symbolics": 4
+    },
+    "cargo_capacity": 120,
+    "warp_power": 38,
+    "warp_power_capacity": 50,
+    "shields": 120,
+    "max_shields": 150,
+    "fighters": 45,
+    "max_fighters": 50
+  },
+  "sector": {
+    "id": 17,
+    "adjacent_sectors": [12, 16, 18, 21],
+    "port": null,
+    "players": [],
+    "garrison": null,
+    "salvage": []
+  }
+}
+```
+
+**Notes:**
+- Correlation metadata in `source` mirrors the originating RPC frame (`my_status` or `join`) so clients can reconcile queued actions.
+- Payload structure matches `status.update`; clients can treat both events interchangeably for state hydration.
 
 ### status.update
 **When emitted:** When a character's status changes (after combat rounds, trades, warp purchases, fighter collection, etc.)
@@ -641,27 +1066,11 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 }
 ```
 
-## Connection Events
-
-### character.joined
-**When emitted:** When a character joins the game for the first time in a session
-**Who receives it:** Broadcast to all connected clients (no character_filter)
-**Source:** `/game-server/api/join.py:77`
-
-**Payload example:**
-```json
-{
-  "character_id": "trader",
-  "sector": {"id": 0},
-  "timestamp": "2025-10-07T12:00:00.000Z"
-}
-```
-
 ## Event Filter Summary
 
 Most events use `character_filter` to target specific characters:
 
-- **Broadcast (no filter):** `character.joined`
+- **Broadcast (no filter):** _None (all current events target specific recipients)_
 - **Single character:** `movement.start`, `movement.complete`, `map.local`, `trade.executed`, `warp.purchase`, `status.update`
 - **Multiple specific characters:** `warp.transfer` (sender + receiver), `status.update` (after combat to all participants)
 - **Sector observers (excluding actor):** `character.moved` (observers in old/new sectors)

@@ -4,11 +4,14 @@ These tests verify that events are properly emitted and received via WebSocket.
 """
 
 import asyncio
+import json
+import os
+import sys
+from pathlib import Path
+from typing import Optional
+
 import pytest
 import pytest_asyncio
-from pathlib import Path
-import sys
-import os
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -23,9 +26,157 @@ def _extract_sector_id(value):
     return value
 
 
+async def _move_to_sector(
+    client: AsyncGameClient,
+    character_id: str,
+    target_sector: int,
+    collector: Optional["EventCollector"] = None,
+) -> None:
+    """Move a character to the target sector using course.plot guidance."""
+
+    def _record(event: dict) -> None:
+        if collector is not None:
+            collector.add_event(event)
+
+    status_waiter = asyncio.create_task(
+        client.wait_for_event(
+            "status.snapshot",
+            predicate=lambda evt: evt.get("payload", {})
+            .get("player", {})
+            .get("id") == character_id,
+            timeout=5.0,
+        )
+    )
+    await client.my_status(character_id=character_id)
+    status_event = await status_waiter
+    _record(status_event)
+
+    status_payload = status_event.get("payload", {})
+    current_sector = _extract_sector_id(status_payload.get("sector"))
+    if current_sector == target_sector:
+        return
+
+    course_waiter = asyncio.create_task(
+        client.wait_for_event(
+            "course.plot",
+            predicate=lambda evt: evt.get("payload", {}).get("to_sector") == target_sector,
+            timeout=5.0,
+        )
+    )
+    await client.plot_course(to_sector=target_sector, character_id=character_id)
+    course_event = await course_waiter
+    _record(course_event)
+
+    course_payload = course_event.get("payload", {})
+    path = course_payload.get("path") or []
+    if not path:
+        pytest.fail("course.plot event missing path data")
+
+    for sector in path[1:]:
+        await client.move(to_sector=sector, character_id=character_id)
+
+    final_status_waiter = asyncio.create_task(
+        client.wait_for_event(
+            "status.snapshot",
+            predicate=lambda evt: evt.get("payload", {})
+            .get("player", {})
+            .get("id") == character_id,
+            timeout=5.0,
+        )
+    )
+    await client.my_status(character_id=character_id)
+    final_status_event = await final_status_waiter
+    _record(final_status_event)
+
+
+
+COMMODITY_INDEX = {
+    "quantum_foam": 0,
+    "retro_organics": 1,
+    "neuro_symbolics": 2,
+}
+
+_UNIVERSE_CACHE: dict | None = None
+
+
+def _world_data_path() -> Path:
+    env_path = os.getenv("WORLD_DATA_DIR")
+    if env_path:
+        return Path(env_path)
+    return Path(__file__).resolve().parents[1] / "world-data"
+
+
+def _load_universe() -> dict:
+    global _UNIVERSE_CACHE
+    if _UNIVERSE_CACHE is None:
+        universe_path = _world_data_path() / "universe_structure.json"
+        with universe_path.open("r", encoding="utf-8") as handle:
+            _UNIVERSE_CACHE = json.load(handle)
+    return _UNIVERSE_CACHE
+
+
+def _build_adjacency() -> dict[int, list[int]]:
+    universe = _load_universe()
+    adjacency: dict[int, list[int]] = {}
+    for sector in universe.get("sectors", []):
+        adjacency[sector["id"]] = [warp["to"] for warp in sector.get("warps", [])]
+    return adjacency
+
+
+def _find_sector_for_trade(commodity: str, *, code_letter: str) -> int:
+    port_dir = _world_data_path() / "port-states"
+    if not port_dir.exists():
+        raise RuntimeError(f"Port state directory not found: {port_dir}")
+
+    index = COMMODITY_INDEX[commodity]
+    matching_codes: dict[int, str] = {}
+
+    for path in sorted(port_dir.glob("sector_*.json")):
+        with path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        code = data.get("code")
+        if not isinstance(code, str) or len(code) <= index:
+            continue
+        if code[index] == code_letter:
+            matching_codes[int(data["sector_id"])] = code
+
+    if not matching_codes:
+        raise RuntimeError(
+            f"No sector found where port code has '{code_letter}' for {commodity}"
+        )
+
+    adjacency = _build_adjacency()
+    start = 0
+    from collections import deque
+
+    visited: dict[int, int] = {start: 0}
+    queue: deque[int] = deque([start])
+    while queue:
+        node = queue.popleft()
+        for neighbor in adjacency.get(node, []):
+            if neighbor not in visited:
+                visited[neighbor] = visited[node] + 1
+                queue.append(neighbor)
+
+    best_sector = min(
+        matching_codes,
+        key=lambda sector: (visited.get(sector, float("inf")), sector),
+    )
+
+    if visited.get(best_sector) is None:
+        raise RuntimeError(
+            f"Unable to reach sector {best_sector} for commodity {commodity}"
+        )
+
+    return best_sector
+
+
+SECTOR_SELLS_NEURO_SYMBOLICS = _find_sector_for_trade(
+    "neuro_symbolics", code_letter="S"
+)
+
+
 SERVER_URL = os.getenv("TEST_SERVER_URL", os.getenv("GAME_SERVER_URL", "http://localhost:8000"))
-from server import app
-from core.world import world as game_world
 
 
 class EventCollector:
@@ -35,20 +186,28 @@ class EventCollector:
         self.events = []
         self.event_futures = {}
 
-    def add_event(self, event_name, payload):
+    def add_event(self, event):
         """Record an event and resolve any waiting futures."""
-        self.events.append((event_name, payload))
+
+        if not isinstance(event, dict):
+            return
+
+        event_name = event.get("event_name") or event.get("event")
+        if event_name is None:
+            return
+
+        self.events.append((event_name, event))
         if event_name in self.event_futures:
             for future in self.event_futures[event_name]:
                 if not future.done():
-                    future.set_result(payload)
+                    future.set_result(event)
 
     async def wait_for_event(self, event_name, timeout=5.0):
         """Wait for a specific event to be received."""
         # Check if we already have the event
-        for name, payload in self.events:
+        for name, event in self.events:
             if name == event_name:
-                return payload
+                return event
 
         # Create future and wait
         future = asyncio.Future()
@@ -63,7 +222,7 @@ class EventCollector:
 
     def get_events(self, event_name):
         """Get all events of a specific type."""
-        return [payload for name, payload in self.events if name == event_name]
+        return [event for name, event in self.events if name == event_name]
 
     def clear(self):
         """Clear all recorded events."""
@@ -73,16 +232,28 @@ class EventCollector:
 
 @pytest_asyncio.fixture(autouse=True)
 async def reset_world():
-    """Reset world state before each test."""
-    game_world.characters.clear()
-    if hasattr(game_world, "combat_manager") and game_world.combat_manager:
-        game_world.combat_manager._encounters.clear()
-    if hasattr(game_world, "salvage_manager") and game_world.salvage_manager:
-        game_world.salvage_manager._by_sector.clear()
-    if hasattr(game_world, "garrisons") and game_world.garrisons:
-        game_world.garrisons._garrisons.clear()
+    """Reset server state before and after each test via test.reset RPC."""
+    reset_client = AsyncGameClient(
+        base_url=SERVER_URL,
+        character_id="test_reset_runner",
+        transport="websocket",
+    )
+    try:
+        await reset_client.test_reset()
+    finally:
+        await reset_client.close()
+
     yield
-    game_world.characters.clear()
+
+    reset_client = AsyncGameClient(
+        base_url=SERVER_URL,
+        character_id="test_reset_runner",
+        transport="websocket",
+    )
+    try:
+        await reset_client.test_reset()
+    finally:
+        await reset_client.close()
 
 
 @pytest_asyncio.fixture
@@ -97,21 +268,13 @@ async def game_client_with_events():
     )
 
     # Register event handlers
-    client.on("combat.round_waiting")(
-        lambda payload: collector.add_event("combat.round_waiting", payload)
-    )
-    client.on("combat.round_resolved")(
-        lambda payload: collector.add_event("combat.round_resolved", payload)
-    )
-    client.on("combat.ended")(
-        lambda payload: collector.add_event("combat.ended", payload)
-    )
-    client.on("trade.executed")(
-        lambda payload: collector.add_event("trade.executed", payload)
-    )
-    client.on("port.update")(
-        lambda payload: collector.add_event("port.update", payload)
-    )
+    client.on("status.snapshot")(collector.add_event)
+    client.on("course.plot")(collector.add_event)
+    client.on("combat.round_waiting")(collector.add_event)
+    client.on("combat.round_resolved")(collector.add_event)
+    client.on("combat.ended")(collector.add_event)
+    client.on("trade.executed")(collector.add_event)
+    client.on("port.update")(collector.add_event)
 
     try:
         yield client, collector
@@ -128,57 +291,84 @@ class TestTradeEvents:
         """Test that trade.executed event is emitted when buying from port."""
         client, collector = game_client_with_events
 
-        # Join and move to a sector with a port
-        await client.join("test_char_events")
-        # Assuming sector 1 has a port that sells quantum_foam
+        # Join and move to a sector with a port that sells neuro_symbolics
+        await client.join("test_char_events", credits=500)
+        await _move_to_sector(
+            client,
+            "test_char_events",
+            SECTOR_SELLS_NEURO_SYMBOLICS,
+            collector,
+        )
 
-        # Execute a trade
-        await client.trade(
+        # Execute a trade buying neuro_symbolics (port sells this commodity)
+        result = await client.trade(
             character_id="test_char_events",
-            commodity="quantum_foam",
+            commodity="neuro_symbolics",
             quantity=5,
             trade_type="buy",
         )
+
+        assert result == {"success": True}
 
         # Wait for trade.executed event
         event = await collector.wait_for_event("trade.executed", timeout=2.0)
 
         # Verify event structure
-        assert "player" in event
-        assert "ship" in event
-        assert event["player"]["id"] == "test_char_events"
-        assert event["player"]["name"] == "test_char_events"
-        assert "credits_on_hand" in event["player"]
+        payload = event["payload"]
+        assert payload["source"]["method"] == "trade"
+        assert "request_id" in payload["source"]
+        assert payload["player"]["id"] == "test_char_events"
+        assert payload["player"]["name"] == "test_char_events"
+        assert "credits_on_hand" in payload["player"]
+        assert payload["player"]["credits_on_hand"] == payload["trade"]["new_credits"]
 
-        assert "cargo" in event["ship"]
-        assert "warp_power" in event["ship"]
-        assert "shields" in event["ship"]
-        assert "fighters" in event["ship"]
+        ship_data = payload["ship"]
+        assert "cargo" in ship_data
+        assert "warp_power" in ship_data
+        assert "shields" in ship_data
+        assert "fighters" in ship_data
+
+        trade_data = payload["trade"]
+        assert trade_data["trade_type"] == "buy"
+        assert trade_data["commodity"] == "neuro_symbolics"
+        assert trade_data["units"] == 5
+        assert trade_data["total_price"] == trade_data["price_per_unit"] * 5
+        assert trade_data["new_cargo"]["neuro_symbolics"] >= 5
+        assert isinstance(trade_data["new_prices"], dict)
 
     async def test_port_update_event_on_trade(self, game_client_with_events):
         """Test that port.update event is emitted to all in sector after trade."""
         client, collector = game_client_with_events
 
-        # Join and stay in sector
-        await client.join("test_char_events")
+        # Join and move to a sector with a selling port
+        await client.join("test_char_events", credits=500)
+        await _move_to_sector(
+            client,
+            "test_char_events",
+            SECTOR_SELLS_NEURO_SYMBOLICS,
+            collector,
+        )
 
         # Execute a trade
-        await client.trade(
+        result = await client.trade(
             character_id="test_char_events",
-            commodity="quantum_foam",
+            commodity="neuro_symbolics",
             quantity=3,
             trade_type="buy",
         )
+
+        assert result == {"success": True}
 
         # Wait for port.update event
         event = await collector.wait_for_event("port.update", timeout=2.0)
 
         # Verify event structure
-        assert _extract_sector_id(event.get("sector")) is not None
-        assert "updated_at" in event
-        assert "port" in event
+        payload = event["payload"]
+        assert _extract_sector_id(payload.get("sector")) is not None
+        assert "updated_at" in payload
+        assert "port" in payload
 
-        port = event["port"]
+        port = payload["port"]
         assert "code" in port
         assert "prices" in port
         assert "stock" in port
@@ -191,33 +381,49 @@ class TestTradeEvents:
         # Create second client
         collector2 = EventCollector()
         client2 = AsyncGameClient(
-            base_url="http://localhost:8000",
+            base_url=SERVER_URL,
             character_id="test_char_2",
             transport="websocket",
         )
-        client2.on("port.update")(
-            lambda payload: collector2.add_event("port.update", payload)
-        )
+        client2.on("port.update")(collector2.add_event)
 
         try:
             # Both join same sector
-            await client1.join("test_char_events")
-            await client2.join("test_char_2")
+            await client1.join("test_char_events", credits=500)
+            await client2.join("test_char_2", credits=500)
+
+            await _move_to_sector(
+                client1,
+                "test_char_events",
+                SECTOR_SELLS_NEURO_SYMBOLICS,
+                collector1,
+            )
+            await _move_to_sector(
+                client2,
+                "test_char_2",
+                SECTOR_SELLS_NEURO_SYMBOLICS,
+                collector2,
+            )
 
             # Client 1 trades
-            await client1.trade(
+            result = await client1.trade(
                 character_id="test_char_events",
-                commodity="quantum_foam",
+                commodity="neuro_symbolics",
                 quantity=2,
                 trade_type="buy",
             )
+
+            assert result == {"success": True}
 
             # Both should receive port.update
             event1 = await collector1.wait_for_event("port.update", timeout=2.0)
             event2 = await collector2.wait_for_event("port.update", timeout=2.0)
 
-            assert _extract_sector_id(event1.get("sector")) == _extract_sector_id(event2.get("sector"))
-            assert event1["port"]["prices"] == event2["port"]["prices"]
+            payload1 = event1["payload"]
+            payload2 = event2["payload"]
+
+            assert _extract_sector_id(payload1.get("sector")) == _extract_sector_id(payload2.get("sector"))
+            assert payload1["port"]["prices"] == payload2["port"]["prices"]
 
         finally:
             await client2.close()
@@ -239,23 +445,15 @@ class TestCombatEvents:
             character_id="test_opponent",
             transport="websocket",
         )
-        client2.on("combat.round_waiting")(
-            lambda payload: collector2.add_event("combat.round_waiting", payload)
-        )
+        client2.on("combat.round_waiting")(collector2.add_event)
 
         try:
             # Both join and move to same sector
-            await client.join("test_char_events")
+            await client.join("test_char_events", credits=500)
             await client2.join("test_opponent")
 
-            # Move to sector 1 if not there
-            status1 = await client.my_status(character_id="test_char_events")
-            if _extract_sector_id(status1.get("sector")) != 1:
-                await client.move(to_sector=1, character_id="test_char_events")
-
-            status2 = await client2.my_status(character_id="test_opponent")
-            if _extract_sector_id(status2.get("sector")) != 1:
-                await client2.move(to_sector=1, character_id="test_opponent")
+            await _move_to_sector(client, "test_char_events", 1, collector)
+            await _move_to_sector(client2, "test_opponent", 1, collector2)
 
             # Initiate combat
             await client.combat_initiate(character_id="test_char_events")
@@ -265,23 +463,26 @@ class TestCombatEvents:
             event2 = await collector2.wait_for_event("combat.round_waiting", timeout=5.0)
 
             # Verify event structure
-            assert "combat_id" in event1
-            assert "sector" in event1
-            assert "round" in event1
-            assert "current_time" in event1
-            assert "deadline" in event1
-            assert "participants" in event1
-            assert isinstance(event1["participants"], list)
-            assert "ship" in event1
-            assert isinstance(event1["ship"], dict)
-            assert "fighters" in event1["ship"]
-            assert "max_fighters" in event1["ship"]
+            payload1 = event1["payload"]
+            payload2 = event2["payload"]
 
-            assert "ship" in event2
-            assert isinstance(event2["ship"], dict)
+            assert "combat_id" in payload1
+            assert "sector" in payload1
+            assert "round" in payload1
+            assert "current_time" in payload1
+            assert "deadline" in payload1
+            assert "participants" in payload1
+            assert isinstance(payload1["participants"], list)
+            assert "ship" in payload1
+            assert isinstance(payload1["ship"], dict)
+            assert "fighters" in payload1["ship"]
+            assert "max_fighters" in payload1["ship"]
+
+            assert "ship" in payload2
+            assert isinstance(payload2["ship"], dict)
 
             # Both should get same combat
-            assert event1["combat_id"] == event2["combat_id"]
+            assert payload1["combat_id"] == payload2["combat_id"]
 
         finally:
             await client2.close()
@@ -297,31 +498,25 @@ class TestCombatEvents:
             character_id="test_opponent2",
             transport="websocket",
         )
-        client2.on("combat.round_waiting")(
-            lambda payload: collector2.add_event("combat.round_waiting", payload)
-        )
+        client2.on("combat.round_waiting")(collector2.add_event)
 
         try:
-            await client.join("test_char_events")
+            await client.join("test_char_events", credits=500)
             await client2.join("test_opponent2")
 
             # Move to same sector
-            status1 = await client.my_status(character_id="test_char_events")
-            if _extract_sector_id(status1.get("sector")) != 1:
-                await client.move(to_sector=1, character_id="test_char_events")
-
-            status2 = await client2.my_status(character_id="test_opponent2")
-            if _extract_sector_id(status2.get("sector")) != 1:
-                await client2.move(to_sector=1, character_id="test_opponent2")
+            await _move_to_sector(client, "test_char_events", 1, collector)
+            await _move_to_sector(client2, "test_opponent2", 1, collector2)
 
             # Initiate combat
             await client.combat_initiate(character_id="test_char_events")
 
             # Wait for event
             event = await collector.wait_for_event("combat.round_waiting", timeout=5.0)
+            payload = event["payload"]
 
             # Verify privacy constraints
-            participants = event["participants"]
+            participants = payload["participants"]
             for participant in participants:
                 # Should have name but no character ID
                 assert "name" in participant
@@ -343,12 +538,12 @@ class TestCombatEvents:
                     assert "max_fighters" not in participant["ship"]
 
             # Garrison should not expose owner character ID in owner_name
-            if event.get("garrison"):
-                garrison = event["garrison"]
+            if payload.get("garrison"):
+                garrison = payload["garrison"]
                 assert "owner_name" in garrison
                 # owner_name should be the display name, not ID
 
-            ship_payload = event.get("ship")
+            ship_payload = payload.get("ship")
             assert isinstance(ship_payload, dict)
             assert ship_payload.get("fighters") is not None
             assert ship_payload.get("max_fighters") is not None
@@ -367,32 +562,23 @@ class TestCombatEvents:
             character_id="test_opponent3",
             transport="websocket",
         )
-        client2.on("combat.round_waiting")(
-            lambda payload: collector2.add_event("combat.round_waiting", payload)
-        )
-        client2.on("combat.round_resolved")(
-            lambda payload: collector2.add_event("combat.round_resolved", payload)
-        )
+        client2.on("combat.round_waiting")(collector2.add_event)
+        client2.on("combat.round_resolved")(collector2.add_event)
 
         try:
-            await client.join("test_char_events")
+            await client.join("test_char_events", credits=500)
             await client2.join("test_opponent3")
 
             # Move to same sector
-            status1 = await client.my_status(character_id="test_char_events")
-            if _extract_sector_id(status1.get("sector")) != 1:
-                await client.move(to_sector=1, character_id="test_char_events")
-
-            status2 = await client2.my_status(character_id="test_opponent3")
-            if _extract_sector_id(status2.get("sector")) != 1:
-                await client2.move(to_sector=1, character_id="test_opponent3")
+            await _move_to_sector(client, "test_char_events", 1, collector)
+            await _move_to_sector(client2, "test_opponent3", 1, collector2)
 
             # Initiate combat
             await client.combat_initiate(character_id="test_char_events")
 
             # Wait for round waiting
             waiting_event = await collector.wait_for_event("combat.round_waiting", timeout=5.0)
-            combat_id = waiting_event["combat_id"]
+            combat_id = waiting_event["payload"]["combat_id"]
 
             # Both submit attack actions
             await client.combat_action(
@@ -413,10 +599,11 @@ class TestCombatEvents:
 
             # Wait for round resolved
             resolved_event = await collector.wait_for_event("combat.round_resolved", timeout=5.0)
+            resolved_payload = resolved_event["payload"]
 
             # Verify delta structure
-            assert "participants" in resolved_event
-            participants = resolved_event["participants"]
+            assert "participants" in resolved_payload
+            participants = resolved_payload["participants"]
 
             for participant in participants:
                 if "ship" in participant:
@@ -424,7 +611,7 @@ class TestCombatEvents:
                     assert "shield_damage" in participant["ship"] or participant["ship"].get("shield_damage") is None
                     assert "fighter_loss" in participant["ship"] or participant["ship"].get("fighter_loss") is None
 
-            ship_payload = resolved_event.get("ship")
+            ship_payload = resolved_payload.get("ship")
             assert isinstance(ship_payload, dict)
             assert "fighters" in ship_payload
             assert "max_fighters" in ship_payload
@@ -451,17 +638,12 @@ class TestCombatEvents:
         )
 
         try:
-            await client.join("test_char_events")
+            await client.join("test_char_events", credits=500)
             await client2.join("test_weak_opponent")
 
             # Move to same sector
-            status1 = await client.my_status(character_id="test_char_events")
-            if _extract_sector_id(status1.get("sector")) != 1:
-                await client.move(to_sector=1, character_id="test_char_events")
-
-            status2 = await client2.my_status(character_id="test_weak_opponent")
-            if _extract_sector_id(status2.get("sector")) != 1:
-                await client2.move(to_sector=1, character_id="test_weak_opponent")
+            await _move_to_sector(client, "test_char_events", 1, collector)
+            await _move_to_sector(client2, "test_weak_opponent", 1, collector2)
 
             # Note: This test would need to run many rounds to complete combat
             # For now, we can just verify the combat.ended event structure
@@ -484,12 +666,10 @@ class TestCombatEvents:
         client, collector = game_client_with_events
 
         try:
-            await client.join("test_char_events")
+            await client.join("test_char_events", credits=500)
 
             # Move to sector 1
-            status = await client.my_status(character_id="test_char_events")
-            if _extract_sector_id(status.get("sector")) != 1:
-                await client.move(to_sector=1, character_id="test_char_events")
+            await _move_to_sector(client, "test_char_events", 1, collector)
 
             # Deploy a garrison in offensive mode
             await client.combat_leave_fighters(
@@ -506,35 +686,34 @@ class TestCombatEvents:
                 character_id="test_garrison_target",
                 transport="websocket",
             )
-            client2.on("combat.round_waiting")(
-                lambda payload: collector2.add_event("combat.round_waiting", payload)
-            )
+            client2.on("combat.round_waiting")(collector2.add_event)
 
             try:
                 await client2.join("test_garrison_target")
 
                 # Move to sector with garrison - should auto-trigger combat
-                await client2.move(to_sector=1, character_id="test_garrison_target")
+                await _move_to_sector(client2, "test_garrison_target", 1, collector2)
 
                 # Wait for combat event
                 event = await collector2.wait_for_event("combat.round_waiting", timeout=5.0)
+                payload = event["payload"]
 
                 # Verify garrison is singular object, not array
-                assert "garrison" in event
-                garrison = event["garrison"]
+                assert "garrison" in payload
+                garrison = payload["garrison"]
                 assert isinstance(garrison, dict)
                 assert "owner_name" in garrison
                 assert "fighters" in garrison
                 assert "mode" in garrison
 
-                ship_payload = event.get("ship")
+                ship_payload = payload.get("ship")
                 assert isinstance(ship_payload, dict)
                 assert "fighters" in ship_payload
                 assert "max_fighters" in ship_payload
 
                 # Verify participants is array
-                assert "participants" in event
-                assert isinstance(event["participants"], list)
+                assert "participants" in payload
+                assert isinstance(payload["participants"], list)
 
             finally:
                 await client2.close()

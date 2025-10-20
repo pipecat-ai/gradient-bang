@@ -3,8 +3,9 @@ from __future__ import annotations
 from fastapi import HTTPException
 
 from combat.models import CombatantAction
-from combat.utils import serialize_round
 from api.move import parse_move_destination, validate_move_destination
+from .utils import rpc_success, build_event_source
+from rpc.events import event_dispatcher
 
 
 async def handle(request: dict, world) -> dict:
@@ -80,15 +81,25 @@ async def handle(request: dict, world) -> dict:
         destination_sector=destination_sector,
     )
 
-    response = {
-        "accepted": True,
+    updated = await world.combat_manager.get_encounter(combat_id)
+    round_number = updated.round_number if updated else encounter.round_number
+    round_resolved = outcome is not None
+
+    request_id = request.get("request_id") or "missing-request-id"
+    event_payload = {
+        "source": build_event_source("combat.action", request_id),
         "combat_id": combat_id,
+        "round": round_number,
+        "action": action_raw,
+        "round_resolved": round_resolved,
     }
 
-    updated = await world.combat_manager.get_encounter(combat_id)
-    if updated:
-        response["round"] = updated.round_number
-        response["ended"] = updated.ended
+    if commit:
+        event_payload["commit"] = commit
+    if target_id:
+        event_payload["target_id"] = target_id
+    if destination_sector is not None:
+        event_payload["destination_sector"] = destination_sector
 
     if action == CombatantAction.PAY:
         pay_processed = None
@@ -99,14 +110,14 @@ async def handle(request: dict, world) -> dict:
             pending = updated.pending_actions.get(character_id) if hasattr(updated, "pending_actions") else None
             pay_processed = bool(pending and pending.action == CombatantAction.PAY)
         if pay_processed is not None:
-            response["pay_processed"] = pay_processed
+            event_payload["pay_processed"] = pay_processed
             if not pay_processed:
-                response["message"] = "Payment failed; action treated as brace."
+                event_payload["message"] = "Payment failed; action treated as brace."
 
-    if outcome:
-        response["outcome"] = serialize_round(updated or encounter, outcome, include_logs=True)
-        response["round_resolved"] = True
-    else:
-        response["round_resolved"] = False
+    await event_dispatcher.emit(
+        "combat.action_accepted",
+        event_payload,
+        character_filter=[character_id],
+    )
 
-    return response
+    return rpc_success({"combat_id": combat_id})

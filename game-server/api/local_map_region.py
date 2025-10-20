@@ -1,81 +1,113 @@
 """Local map region endpoint - returns known sectors around a center point."""
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from fastapi import HTTPException
 
-from .utils import build_local_map_region
+from .utils import (
+    build_local_map_region,
+    rpc_success,
+    build_event_source,
+    emit_error_event,
+)
+from rpc.events import event_dispatcher
 
 logger = logging.getLogger("gradient-bang.api.local_map_region")
 
 
+async def _fail(
+    character_id: Optional[str],
+    request_id: str,
+    detail: str,
+    *,
+    status: int = 400,
+) -> None:
+    if character_id:
+        await emit_error_event(
+            event_dispatcher,
+            character_id,
+            "local_map_region",
+            request_id,
+            detail,
+        )
+    raise HTTPException(status_code=status, detail=detail)
+
+
 async def handle(request: Dict[str, Any], world) -> Dict[str, Any]:
-    """Return sectors known to character in region around center sector.
-
-    Request:
-        character_id: str (required)
-        center_sector: int (optional, defaults to current sector)
-        max_hops: int (optional, default 3, max 10)
-        max_sectors: int (optional, default 100)
-
-    Response:
-        center_sector: int
-        sectors: list of sector dicts
-        total_sectors: int
-        total_visited: int
-        total_unvisited: int
-    """
-    if not world.universe_graph:
-        raise HTTPException(status_code=503, detail="Game world not loaded")
-
+    """Return sectors known to character in region around center sector."""
+    request_id = request.get("request_id") or "missing-request-id"
     character_id = request.get("character_id")
-    if not character_id:
-        raise HTTPException(status_code=400, detail="Missing character_id")
 
-    # Load knowledge
+    if not world.universe_graph:
+        await _fail(character_id, request_id, "Game world not loaded", status=503)
+
+    if not character_id:
+        await _fail(None, request_id, "Missing character_id")
+
     knowledge = world.knowledge_manager.load_knowledge(character_id)
 
-    # Determine center sector
     center_sector = request.get("center_sector")
     if center_sector is None:
         if character_id in world.characters:
             center_sector = world.characters[character_id].sector
         else:
-            center_sector = knowledge.current_sector if knowledge.current_sector is not None else 0
+            center_sector = (
+                knowledge.current_sector if knowledge.current_sector is not None else 0
+            )
     else:
-        center_sector = int(center_sector)
+        try:
+            center_sector = int(center_sector)
+        except (TypeError, ValueError):
+            await _fail(character_id, request_id, "center_sector must be an integer")
 
-    # Validate center sector is visited
     if str(center_sector) not in knowledge.sectors_visited:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Center sector {center_sector} must be a visited sector"
+        await _fail(
+            character_id,
+            request_id,
+            f"Center sector {center_sector} must be a visited sector",
         )
 
-    # Parse and validate limits
     max_hops = request.get("max_hops", 3)
     max_sectors = request.get("max_sectors", 100)
 
     try:
         max_hops = int(max_hops)
         if max_hops < 0 or max_hops > 10:
-            raise ValueError("max_hops must be between 0 and 10")
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=422, detail="max_hops must be an integer between 0 and 10") from exc
+            raise ValueError
+    except (TypeError, ValueError):
+        await _fail(
+            character_id,
+            request_id,
+            "max_hops must be an integer between 0 and 10",
+        )
 
     try:
         max_sectors = int(max_sectors)
         if max_sectors <= 0:
-            raise ValueError("max_sectors must be positive")
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=422, detail="max_sectors must be a positive integer") from exc
+            raise ValueError
+    except (TypeError, ValueError):
+        await _fail(
+            character_id,
+            request_id,
+            "max_sectors must be a positive integer",
+        )
 
-    # Use utility function to build the map
-    return await build_local_map_region(
+    region_payload = await build_local_map_region(
         world,
         character_id=character_id,
         center_sector=center_sector,
         max_hops=max_hops,
         max_sectors=max_sectors,
     )
+
+    request_id = request.get("request_id") or "missing-request-id"
+    region_payload["source"] = build_event_source("local_map_region", request_id)
+
+    await event_dispatcher.emit(
+        "map.region",
+        region_payload,
+        character_filter=[character_id],
+    )
+
+    return rpc_success()

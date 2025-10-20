@@ -1,12 +1,31 @@
 """Game server API client for Gradient Bang."""
 
 from typing import List, Optional, Dict, Any, Callable, Awaitable, Tuple, Mapping
+from datetime import datetime, timezone
 import logging
 import asyncio
 import json
 import uuid
 import inspect
 import websockets
+
+from utils.summary_formatters import (
+    combat_action_accepted_summary,
+    combat_ended_summary,
+    combat_round_waiting_summary,
+    combat_round_resolved_summary,
+    character_moved_summary,
+    join_summary,
+    list_known_ports_summary,
+    map_local_summary,
+    movement_start_summary,
+    move_summary,
+    plot_course_summary,
+    port_update_summary,
+    sector_update_summary,
+    status_update_summary,
+    trade_executed_summary,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -62,13 +81,22 @@ class AsyncGameClient:
             Tuple[str, Callable[[Dict[str, Any]], Any]],
             Callable[[Dict[str, Any]], Awaitable[None]],
         ] = {}
+        self._event_delivery_enabled: bool = True
+        self._pending_events: List[Tuple[str, Dict[str, Any]]] = []
+        self._event_queues: Dict[str, asyncio.Queue] = {}
         self._subscriptions: set[str] = set()
+        self._seen_error_request_ids: set[str] = set()
 
         # Immutable character ID
         self._character_id: str = character_id
 
-        # Optional summary formatters: endpoint_name -> formatter_function
-        self._summary_formatters: Dict[str, Callable[[Dict[str, Any]], str]] = {}
+        # Track the player's latest known sector for contextual summaries
+        self._current_sector: Optional[int] = None
+
+        # Optional summary formatters: endpoint/event name -> formatter function
+        self._summary_formatters: Dict[str, Callable[[Dict[str, Any]], str]] = (
+            self._build_default_summaries()
+        )
 
         # Optional WebSocket frame callback for logging/debugging
         self._websocket_frame_callback = websocket_frame_callback
@@ -88,26 +116,127 @@ class AsyncGameClient:
             formatter: Function that takes server response and returns summary string
         """
         self._summary_formatters[endpoint] = formatter
+        logger.info(f"Registered summary formatter for endpoint: {endpoint}")
 
-    def _apply_summary(self, endpoint: str, result: Dict[str, Any]) -> Dict[str, Any]:
-        """Apply summary formatter if one is registered for this endpoint.
+    def _build_default_summaries(self) -> Dict[str, Callable[[Dict[str, Any]], str]]:
+        def map_local_wrapper(
+            data: Dict[str, Any], client: "AsyncGameClient" = self
+        ) -> str:
+            current = client._current_sector
+            if current is None and isinstance(data, Mapping):
+                current_candidate = data.get("center_sector")
+                if isinstance(current_candidate, int):
+                    current = current_candidate
+            return map_local_summary(data, current)
 
-        Args:
-            endpoint: Endpoint name
-            result: Server response dict
+        return {
+            "join": join_summary,
+            "my_status": join_summary,
+            "status.snapshot": join_summary,
+            "status.update": status_update_summary,
+            "move": move_summary,
+            "movement.complete": move_summary,
+            "movement.start": movement_start_summary,
+            "plot_course": plot_course_summary,
+            "course.plot": plot_course_summary,
+            "list_known_ports": list_known_ports_summary,
+            "local_map_region": map_local_wrapper,
+            "map.local": map_local_wrapper,
+            "trade.executed": trade_executed_summary,
+            "port.update": port_update_summary,
+            "character.moved": character_moved_summary,
+            "combat.round_waiting": combat_round_waiting_summary,
+            "combat.action_accepted": combat_action_accepted_summary,
+            "combat.round_resolved": combat_round_resolved_summary,
+            "combat.ended": combat_ended_summary,
+            "sector.update": sector_update_summary,
+        }
 
-        Returns:
-            Result dict, optionally with "summary" key added
-        """
-        formatter = self._summary_formatters.get(endpoint)
-        if formatter:
-            try:
-                summary = formatter(result)
-                if summary:
-                    result["summary"] = summary
-            except Exception:
-                logger.exception(f"Summary formatter for {endpoint} failed")
-        return result
+    def _set_current_sector(self, candidate: Any) -> None:
+        """Update cached sector ID if candidate is a valid integer."""
+
+        if candidate is None or isinstance(candidate, bool):
+            return
+
+        try:
+            value = int(candidate)
+        except (TypeError, ValueError):
+            return
+
+        self._current_sector = value
+
+    def _maybe_update_current_sector(
+        self, event_name: str, payload: Mapping[str, Any]
+    ) -> None:
+        """Extract and cache the player's current sector from incoming data."""
+
+        sector_id: Optional[Any] = None
+
+        if event_name in {"movement.complete", "status.snapshot", "status.update"}:
+            sector = payload.get("sector")
+            if isinstance(sector, Mapping):
+                sector_id = sector.get("id")
+
+        if sector_id is None and "current_sector" in payload:
+            sector_id = payload.get("current_sector")
+
+        if sector_id is None and event_name in {"map.local", "local_map_region"}:
+            sector_id = payload.get("center_sector")
+
+        if sector_id is not None:
+            self._set_current_sector(sector_id)
+
+    def _get_summary(self, name: str, data: Dict[str, Any]) -> Optional[str]:
+        """Run a registered summary formatter and return the summary string."""
+
+        logger.info(
+            f"_get_summary called for name: {name}, has formatter: {name in self._summary_formatters}"
+        )
+
+        formatter = self._summary_formatters.get(name)
+        if not formatter:
+            logger.debug(f"No formatter registered for {name}")
+            return None
+
+        try:
+            logger.info(f"Calling formatter for {name}")
+            summary = formatter(data)
+        except Exception:
+            logger.exception(f"Summary formatter for {name} failed")
+            return None
+
+        if summary is None:
+            logger.warning(f"Formatter for {name} returned empty summary")
+            return None
+
+        if not isinstance(summary, str):
+            summary = str(summary)
+
+        summary = summary.strip()
+        if not summary:
+            logger.warning(f"Formatter for {name} returned empty summary")
+            return None
+
+        logger.info(f"Summary formatter for {name} produced: {summary}")
+        return summary
+
+    def _format_event(self, event_name: str, payload: Any) -> Dict[str, Any]:
+        """Normalize an event payload and attach summary metadata when available."""
+
+        if isinstance(payload, Mapping):
+            self._maybe_update_current_sector(event_name, payload)
+
+        event_message: Dict[str, Any] = {
+            "event_name": event_name,
+            "payload": payload,
+        }
+
+        if isinstance(payload, dict):
+            summary = self._get_summary(event_name, payload)
+            if summary:
+                event_message["summary"] = summary
+
+        return event_message
 
     async def __aenter__(self):
         """Enter async context manager."""
@@ -220,19 +349,19 @@ class AsyncGameClient:
         predicate: Optional[Callable[[Dict[str, Any]], bool]] = None,
         timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """Wait for an event matching an optional predicate and return its payload."""
+        """Wait for an event matching an optional predicate and return the event message."""
 
         loop = asyncio.get_running_loop()
         future: asyncio.Future = loop.create_future()
         token: Optional[Tuple[str, Callable[[Dict[str, Any]], Awaitable[None]]]] = None
 
-        async def _handler(payload: Dict[str, Any]) -> None:
+        async def _handler(event: Dict[str, Any]) -> None:
             nonlocal token
             try:
-                if predicate and not predicate(payload):
+                if predicate and not predicate(event):
                     return
                 if not future.done():
-                    future.set_result(payload)
+                    future.set_result(event)
             finally:
                 if token is not None:
                     self.remove_event_handler(token)
@@ -290,9 +419,12 @@ class AsyncGameClient:
                         ):
                             mover_id = payload.get("character_id")
                             mover_name = payload.get("name")
-                            if mover_id == self._character_id or mover_name == self._character_id:
+                            if (
+                                mover_id == self._character_id
+                                or mover_name == self._character_id
+                            ):
                                 continue
-                        asyncio.create_task(self._dispatch_event(event_name, payload))
+                        await self._process_event(event_name, payload)
                     continue
                 if frame_type == "rpc":
                     req_id = msg.get("id")
@@ -310,10 +442,51 @@ class AsyncGameClient:
                     fut.set_exception(RuntimeError("WebSocket connection lost"))
             self._pending.clear()
 
-    async def _dispatch_event(self, event_name: str, payload: Dict[str, Any]) -> None:
+    async def _process_event(self, event_name: str, payload: Dict[str, Any]) -> None:
+        if event_name == "error" and isinstance(payload, Mapping):
+            source = payload.get("source")
+            if isinstance(source, Mapping):
+                request_id = source.get("request_id")
+                if request_id is not None:
+                    self._seen_error_request_ids.add(str(request_id))
+        event_message = self._format_event(event_name, payload)
+        if not self._event_delivery_enabled:
+            self._pending_events.append((event_name, event_message))
+            return
+        self._deliver_event(event_name, event_message)
+
+    def _deliver_event(self, event_name: str, event_message: Dict[str, Any]) -> None:
+        queue = self._event_queues.setdefault(event_name, asyncio.Queue())
+        queue.put_nowait(event_message)
         handlers = self._event_handlers.get(event_name, [])
         for handler in handlers:
-            asyncio.create_task(handler(payload))
+            asyncio.create_task(handler(event_message))
+
+    def get_event_queue(self, event_name: str) -> asyncio.Queue:
+        """Return a per-event queue for consumers that prefer awaiting messages.
+
+        The queue receives event message dictionaries matching the structure
+        delivered to registered handlers (keys: ``event_name``, ``payload``,
+        and optional ``summary``).
+        """
+
+        return self._event_queues.setdefault(event_name, asyncio.Queue())
+
+    async def pause_event_delivery(self) -> None:
+        """Temporarily buffer incoming events instead of delivering them."""
+
+        self._event_delivery_enabled = False
+
+    async def resume_event_delivery(self) -> None:
+        """Enable event delivery and flush any buffered events."""
+
+        if self._event_delivery_enabled:
+            return
+        self._event_delivery_enabled = True
+        pending = self._pending_events
+        self._pending_events = []
+        for event_name, event_message in pending:
+            self._deliver_event(event_name, event_message)
 
     async def _request(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         await self._ensure_ws()
@@ -331,13 +504,25 @@ class AsyncGameClient:
         msg = await fut
         if not msg.get("ok"):
             err = msg.get("error", {})
+            await self._synthesize_error_event(
+                endpoint=endpoint,
+                request_id=req_id,
+                error_payload=err,
+            )
             raise RPCError(
                 endpoint,
                 int(err.get("status", 500)),
                 str(err.get("detail", "Unknown error")),
                 err.get("code"),
             )
-        return msg.get("result", {})
+
+        result = msg.get("result", {})
+        await self._maybe_synthesize_error_from_result(
+            endpoint=endpoint,
+            request_id=req_id,
+            result=result,
+        )
+        return result
 
     async def _send_command(self, frame: Dict[str, Any]) -> Dict[str, Any]:
         await self._ensure_ws()
@@ -349,29 +534,114 @@ class AsyncGameClient:
         msg = await fut
         if not msg.get("ok"):
             err = msg.get("error", {})
+            endpoint = frame.get("endpoint") or frame.get("type", "command")
+            await self._synthesize_error_event(
+                endpoint=endpoint,
+                request_id=req_id,
+                error_payload=err,
+            )
             raise RPCError(
                 frame.get("type", "command"),
                 int(err.get("status", 500)),
                 str(err.get("detail", "Unknown error")),
                 err.get("code"),
             )
-        return msg.get("result", {})
+
+        result = msg.get("result", {})
+        await self._maybe_synthesize_error_from_result(
+            endpoint=frame.get("endpoint") or frame.get("type", "command"),
+            request_id=req_id,
+            result=result,
+        )
+        return result
+
+    async def _synthesize_error_event(
+        self,
+        *,
+        endpoint: Optional[str],
+        request_id: Optional[str],
+        error_payload: Mapping[str, Any],
+    ) -> None:
+        if request_id is not None and request_id in self._seen_error_request_ids:
+            return
+
+        detail = str(error_payload.get("detail", "Unknown error"))
+        source_request_id = request_id or str(uuid.uuid4())
+        source_endpoint = endpoint or "unknown"
+        payload: Dict[str, Any] = {
+            "endpoint": source_endpoint,
+            "error": detail,
+            "source": {
+                "type": "rpc",
+                "method": source_endpoint,
+                "request_id": source_request_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+            "synthesized": True,
+        }
+
+        status = error_payload.get("status")
+        if status is not None:
+            payload["status"] = status
+
+        code = error_payload.get("code")
+        if code is not None:
+            payload["code"] = code
+
+        self._seen_error_request_ids.add(source_request_id)
+        await self._process_event("error", payload)
+
+    async def _maybe_synthesize_error_from_result(
+        self,
+        *,
+        endpoint: Optional[str],
+        request_id: Optional[str],
+        result: Any,
+    ) -> None:
+        if not isinstance(result, Mapping):
+            return
+
+        success = result.get("success")
+        error_text = result.get("error")
+
+        if success is not False or not isinstance(error_text, str) or not error_text:
+            return
+
+        error_payload: Dict[str, Any] = {"detail": error_text}
+
+        status = result.get("status")
+        if status is not None:
+            error_payload["status"] = status
+
+        code = result.get("code")
+        if code is not None:
+            error_payload["code"] = code
+
+        await self._synthesize_error_event(
+            endpoint=endpoint,
+            request_id=request_id,
+            error_payload=error_payload,
+        )
 
     # ------------------------------------------------------------------
     # API Methods
     # ------------------------------------------------------------------
 
     async def join(
-        self, character_id: str, ship_type: Optional[str] = None
+        self,
+        character_id: str,
+        ship_type: Optional[str] = None,
+        credits: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Join the game with a character.
 
         Args:
             character_id: Unique identifier for the character (must match bound ID)
             ship_type: Optional ship type to start with (defaults to Kestrel Courier)
+            credits: Optional starting credit balance to seed for tests/admin flows
 
         Returns:
-            Character status after joining
+            Minimal RPC acknowledgment (e.g., ``{\"success\": True}``)
 
         Raises:
             RPCError: If the request fails
@@ -386,9 +656,28 @@ class AsyncGameClient:
         payload = {"character_id": character_id}
         if ship_type:
             payload["ship_type"] = ship_type
+        if credits is not None:
+            payload["credits"] = int(credits)
 
-        result = await self._request("join", payload)
-        return self._apply_summary("join", result)
+        ack = await self._request("join", payload)
+        return ack
+
+    async def test_reset(
+        self,
+        *,
+        clear_files: bool = True,
+        file_prefixes: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Reset server state (testing utility).
+
+        Returns:
+            Minimal RPC acknowledgment describing the reset operation
+        """
+
+        payload: Dict[str, Any] = {"clear_files": clear_files}
+        if file_prefixes is not None:
+            payload["file_prefixes"] = list(file_prefixes)
+        return await self._request("test.reset", payload)
 
     async def move(self, to_sector: int, character_id: str) -> Dict[str, Any]:
         """Move a character to an adjacent sector.
@@ -398,7 +687,7 @@ class AsyncGameClient:
             character_id: Character to move (must match bound ID)
 
         Returns:
-            Character status after move
+            Minimal RPC acknowledgment (e.g., ``{\"success\": True}``)
 
         Raises:
             RPCError: If the request fails (e.g., non-adjacent sector)
@@ -410,19 +699,19 @@ class AsyncGameClient:
                 f"received {character_id!r}"
             )
 
-        result = await self._request(
+        ack = await self._request(
             "move", {"character_id": character_id, "to_sector": to_sector}
         )
-        return self._apply_summary("move", result)
+        return ack
 
     async def my_status(self, character_id: str) -> Dict[str, Any]:
-        """Get current status of a character.
+        """Request a current status snapshot.
 
         Args:
             character_id: Character to query (must match bound ID)
 
         Returns:
-            Current character status
+            Minimal RPC acknowledgment (status data arrives via ``status.snapshot``)
 
         Raises:
             RPCError: If the request fails
@@ -434,18 +723,18 @@ class AsyncGameClient:
                 f"received {character_id!r}"
             )
 
-        result = await self._request("my_status", {"character_id": character_id})
-        return self._apply_summary("my_status", result)
+        ack = await self._request("my_status", {"character_id": character_id})
+        return ack
 
     async def plot_course(self, to_sector: int, character_id: str) -> Dict[str, Any]:
-        """Plot a course from character's current sector to destination.
+        """Plot a course from the current sector to a destination.
 
         Args:
             to_sector: Destination sector
             character_id: Character to plot course for (must match bound ID)
 
         Returns:
-            Course information including path and distance
+            Minimal RPC acknowledgment (course details arrive via ``course.plot``)
 
         Raises:
             RPCError: If the request fails
@@ -457,10 +746,10 @@ class AsyncGameClient:
                 f"received {character_id!r}"
             )
 
-        result = await self._request(
+        ack = await self._request(
             "plot_course", {"character_id": character_id, "to_sector": to_sector}
         )
-        return self._apply_summary("plot_course", result)
+        return ack
 
     async def server_status(self) -> Dict[str, Any]:
         """Get server status information.
@@ -471,17 +760,17 @@ class AsyncGameClient:
         Raises:
             RPCError: If the request fails
         """
-        result = await self._request("server_status", {})
-        return self._apply_summary("server_status", result)
+        return await self._request("server_status", {})
 
+    # DEPRECATED
     async def my_map(self, character_id: str) -> Dict[str, Any]:
-        """Get the map knowledge for a character.
+        """Request cached map knowledge for the character.
 
         Args:
             character_id: Character to query (must match bound ID)
 
         Returns:
-            Map knowledge including visited sectors and discovered ports
+            Minimal RPC acknowledgment (map data arrives via ``map.knowledge``)
 
         Raises:
             RPCError: If the request fails
@@ -493,8 +782,8 @@ class AsyncGameClient:
                 f"received {character_id!r}"
             )
 
-        result = await self._request("my_map", {"character_id": character_id})
-        return self._apply_summary("my_map", result)
+        ack = await self._request("my_map", {"character_id": character_id})
+        return ack
 
     async def local_map_region(
         self,
@@ -512,7 +801,7 @@ class AsyncGameClient:
             max_sectors: Maximum sectors to return (default 100)
 
         Returns:
-            Dict with center_sector, sectors list, totals
+            Minimal RPC acknowledgment (map data arrives via ``map.region``)
 
         Raises:
             RPCError: If the request fails
@@ -530,8 +819,8 @@ class AsyncGameClient:
         payload["max_hops"] = int(max_hops)
         payload["max_sectors"] = int(max_sectors)
 
-        result = await self._request("local_map_region", payload)
-        return self._apply_summary("local_map_region", result)
+        ack = await self._request("local_map_region", payload)
+        return ack
 
     async def list_known_ports(
         self,
@@ -553,7 +842,7 @@ class AsyncGameClient:
             trade_type: Optional "buy" or "sell" (requires commodity)
 
         Returns:
-            Dict with from_sector, ports list, totals
+            Minimal RPC acknowledgment (port data arrives via ``ports.list``)
 
         Raises:
             RPCError: If the request fails
@@ -576,8 +865,8 @@ class AsyncGameClient:
         if trade_type is not None:
             payload["trade_type"] = trade_type
 
-        result = await self._request("list_known_ports", payload)
-        return self._apply_summary("list_known_ports", result)
+        ack = await self._request("list_known_ports", payload)
+        return ack
 
     async def path_with_region(
         self,
@@ -595,7 +884,7 @@ class AsyncGameClient:
             max_sectors: Total sector limit (default 200)
 
         Returns:
-            Dict with path, distance, sectors list, totals
+            Minimal RPC acknowledgment (region data arrives via ``path.region``)
 
         Raises:
             RPCError: If the request fails
@@ -614,47 +903,8 @@ class AsyncGameClient:
             "max_sectors": int(max_sectors),
         }
 
-        result = await self._request("path_with_region", payload)
-        return self._apply_summary("path_with_region", result)
-
-    async def check_trade(
-        self,
-        commodity: str,
-        quantity: int,
-        trade_type: str,
-        character_id: str,
-    ) -> Dict[str, Any]:
-        """Preview a trade transaction without executing it.
-
-        Args:
-            commodity: Commodity to trade (quantum_foam, retro_organics, neuro_symbolics)
-            quantity: Amount to trade
-            trade_type: "buy" or "sell"
-            character_id: Character making the trade (must match bound ID)
-
-        Returns:
-            Trade preview including prices and validation
-
-        Raises:
-            RPCError: If the request fails
-            ValueError: If character_id doesn't match bound ID
-        """
-        if character_id != self._character_id:
-            raise ValueError(
-                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
-                f"received {character_id!r}"
-            )
-
-        result = await self._request(
-            "check_trade",
-            {
-                "character_id": character_id,
-                "commodity": commodity,
-                "quantity": quantity,
-                "trade_type": trade_type,
-            },
-        )
-        return self._apply_summary("check_trade", result)
+        ack = await self._request("path_with_region", payload)
+        return ack
 
     async def trade(
         self,
@@ -672,7 +922,7 @@ class AsyncGameClient:
             character_id: Character making the trade (must match bound ID)
 
         Returns:
-            Trade result including new credits and cargo
+            Minimal RPC acknowledgment (trade data arrives via ``trade.executed``)
 
         Raises:
             RPCError: If the request fails
@@ -684,7 +934,7 @@ class AsyncGameClient:
                 f"received {character_id!r}"
             )
 
-        result = await self._request(
+        ack = await self._request(
             "trade",
             {
                 "character_id": character_id,
@@ -693,7 +943,7 @@ class AsyncGameClient:
                 "trade_type": trade_type,
             },
         )
-        return self._apply_summary("trade", result)
+        return ack
 
     async def recharge_warp_power(
         self, units: int, character_id: str
@@ -705,7 +955,7 @@ class AsyncGameClient:
             character_id: Character recharging warp power (must match bound ID)
 
         Returns:
-            Transaction result
+            Minimal RPC acknowledgment (warp updates arrive via ``warp.purchase``)
 
         Raises:
             RPCError: If the request fails
@@ -717,10 +967,10 @@ class AsyncGameClient:
                 f"received {character_id!r}"
             )
 
-        result = await self._request(
+        ack = await self._request(
             "recharge_warp_power", {"character_id": character_id, "units": units}
         )
-        return self._apply_summary("recharge_warp_power", result)
+        return ack
 
     async def transfer_warp_power(
         self, to_character_id: str, units: int, character_id: str
@@ -733,7 +983,7 @@ class AsyncGameClient:
             character_id: Character transferring warp power (must match bound ID)
 
         Returns:
-            Transfer result
+            Minimal RPC acknowledgment (transfer data arrives via ``warp.transfer``)
 
         Raises:
             RPCError: If the request fails
@@ -745,7 +995,7 @@ class AsyncGameClient:
                 f"received {character_id!r}"
             )
 
-        result = await self._request(
+        ack = await self._request(
             "transfer_warp_power",
             {
                 "from_character_id": character_id,
@@ -753,7 +1003,7 @@ class AsyncGameClient:
                 "units": units,
             },
         )
-        return self._apply_summary("transfer_warp_power", result)
+        return ack
 
     async def combat_initiate(
         self,
@@ -839,42 +1089,6 @@ class AsyncGameClient:
         if round_number is not None:
             payload["round"] = round_number
         return await self._request("combat.action", payload)
-
-    async def combat_status(
-        self,
-        *,
-        combat_id: Optional[str] = None,
-        character_id: Optional[str] = None,
-        include_logs: bool = False,
-    ) -> Dict[str, Any]:
-        """Query combat session state.
-
-        Args:
-            combat_id: Combat session ID
-            character_id: Character to query (must match bound ID if provided)
-            include_logs: Include combat logs in response
-
-        Returns:
-            Combat session state
-
-        Raises:
-            RPCError: If the request fails
-            ValueError: If character_id doesn't match bound ID
-        """
-        if character_id is not None and character_id != self._character_id:
-            raise ValueError(
-                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
-                f"received {character_id!r}"
-            )
-
-        payload: Dict[str, Any] = {}
-        if combat_id:
-            payload["combat_id"] = combat_id
-        if character_id:
-            payload["character_id"] = character_id
-        if include_logs:
-            payload["include_logs"] = True
-        return await self._request("combat.status", payload)
 
     async def combat_leave_fighters(
         self,
@@ -1034,7 +1248,7 @@ class AsyncGameClient:
             character_id: Sender (must match bound ID)
 
         Returns:
-            Message confirmation
+            Minimal RPC acknowledgment (chat payloads arrive via ``chat.message``)
 
         Raises:
             RPCError: If the request fails
@@ -1053,8 +1267,8 @@ class AsyncGameClient:
             if not to_name:
                 raise ValueError("to_name is required for direct messages")
             payload["to_name"] = to_name
-        result = await self._request("send_message", payload)
-        return self._apply_summary("send_message", result)
+        ack = await self._request("send_message", payload)
+        return ack
 
     async def subscribe_chat(self):
         """Deprecated: Server auto-subscribes to chat."""
@@ -1067,47 +1281,27 @@ class AsyncGameClient:
         """Ensure chat.message events are subscribed and optionally register a handler."""
 
         if handler is not None:
-            if asyncio.iscoroutinefunction(handler):
-                self.on("chat.message")(handler)
-            else:
 
-                async def _wrapper(payload: Dict[str, Any]) -> None:
-                    handler(payload)
+            async def _dispatch(event: Dict[str, Any]) -> None:
+                payload = (
+                    event.get("payload")
+                    if isinstance(event, dict) and "payload" in event
+                    else event
+                )
+                try:
+                    result = handler(payload)
+                    if inspect.isawaitable(result):
+                        await result
+                except Exception:  # noqa: BLE001
+                    logger.exception("Unhandled error in chat.message handler")
 
-                self.on("chat.message")(_wrapper)
+            self.on("chat.message")(_dispatch)
 
         await self.subscribe_chat()
 
     async def subscribe_my_status(self, character_id: str):
         """Deprecated: Server auto-subscribes to status updates."""
         logger.debug("subscribe_my_status is deprecated; skipping explicit subscribe")
-
-    async def test_reset(
-        self,
-        *,
-        clear_files: bool = True,
-        file_prefixes: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
-        """Reset server state for test isolation.
-
-        WARNING: This clears all game state and should only be used in test environments.
-
-        Args:
-            clear_files: If True, delete test character files from disk
-            file_prefixes: List of prefixes to match for file deletion (default: common test prefixes)
-
-        Returns:
-            dict: Statistics about what was cleared
-
-        Raises:
-            RPCError: If the request fails
-        """
-        payload = {"clear_files": clear_files}
-        if file_prefixes is not None:
-            payload["file_prefixes"] = file_prefixes
-
-        result = await self._request("test.reset", payload)
-        return self._apply_summary("test.reset", result)
 
     async def identify(
         self, *, name: Optional[str] = None, character_id: Optional[str] = None

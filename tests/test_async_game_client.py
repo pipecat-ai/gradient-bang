@@ -86,7 +86,7 @@ class TestMoveAPI:
         result = await client.move(to_sector=target, character_id="test_client_char")
 
         assert isinstance(result, dict)
-        assert result["summary"] == f"Moved to sector {target}"
+        assert result.get("summary", "").startswith(f"Now in sector {target}.")
         status = await client.my_status(character_id="test_client_char")
         assert status["sector"]["id"] == target
 
@@ -222,36 +222,7 @@ class TestServerStatusAPI:
 
 
 class TestTradeAPIs:
-    """Tests for check_trade() and trade() API methods."""
-
-    async def test_check_trade_success(self, client):
-        """Test successful trade preview."""
-        await client.join("test_client_char")
-
-        # This will likely fail if no port, but tests the API call structure
-        try:
-            result = await client.check_trade(
-                commodity="quantum_foam",
-                quantity=10,
-                trade_type="buy",
-                character_id="test_client_char"
-            )
-            assert isinstance(result, dict)
-        except RPCError:
-            # Expected if no port in sector 0
-            pass
-
-    async def test_check_trade_wrong_character_id(self, client):
-        """Test check_trade with mismatched character_id raises error."""
-        await client.join("test_client_char")
-
-        with pytest.raises(ValueError, match="bound to character_id"):
-            await client.check_trade(
-                commodity="quantum_foam",
-                quantity=10,
-                trade_type="buy",
-                character_id="wrong_char"
-            )
+    """Tests for trade() API method."""
 
     async def test_trade_wrong_character_id(self, client):
         """Test trade with mismatched character_id raises error."""

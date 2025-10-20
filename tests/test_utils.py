@@ -1,9 +1,12 @@
 """Tests for utils modules."""
 
+import asyncio
+import asyncio
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
 import sys
 from pathlib import Path
+from typing import Any, Dict
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -24,54 +27,32 @@ except Exception:  # pragma: no cover
 
 
 class TestAsyncGameClient:
-    pytestmark = pytest.mark.asyncio
     """Tests for AsyncGameClient class."""
-    
+
+    pytestmark = pytest.mark.asyncio
+
     @patch.object(AsyncGameClient, "_request", new_callable=AsyncMock)
     async def test_join(self, mock_request):
         """Test join method."""
-        mock_request.return_value = {
-            "name": "test_char",
-            "sector": 0,
-            "last_active": "2024-01-01T00:00:00",
-            "sector_contents": {
-                "port": None,
-                "planets": [],
-                "other_players": [],
-                "adjacent_sectors": [1, 2]
-            },
-            "ship": {},
-        }
+        mock_request.return_value = {"success": True}
 
         async with AsyncGameClient(character_id="test_char") as client:
             result = await client.join("test_char")
 
         assert isinstance(result, dict)
-        assert result["name"] == "test_char"
-        assert result["sector"] == 0
+        assert result == {"success": True}
         mock_request.assert_awaited_once_with("join", {"character_id": "test_char"})
 
     @patch.object(AsyncGameClient, "_request", new_callable=AsyncMock)
     async def test_move(self, mock_request):
         """Test move method."""
-        mock_request.return_value = {
-            "name": "test_char",
-            "sector": 5,
-            "last_active": "2024-01-01T00:00:00",
-            "sector_contents": {
-                "port": None,
-                "planets": [],
-                "other_players": [],
-                "adjacent_sectors": [4, 6]
-            },
-            "ship": {},
-        }
+        mock_request.return_value = {"success": True}
 
         async with AsyncGameClient(character_id="test_char") as client:
             result = await client.move(5, "test_char")
 
         assert isinstance(result, dict)
-        assert result["sector"] == 5
+        assert result == {"success": True}
         mock_request.assert_awaited_with(
             "move", {"character_id": "test_char", "to_sector": 5}
         )
@@ -79,19 +60,13 @@ class TestAsyncGameClient:
     @patch.object(AsyncGameClient, "_request", new_callable=AsyncMock)
     async def test_plot_course(self, mock_request):
         """Test plot_course method."""
-        mock_request.return_value = {
-            "from_sector": 0,
-            "to_sector": 10,
-            "path": [0, 1, 5, 10],
-            "distance": 3
-        }
+        mock_request.return_value = {"success": True}
 
         async with AsyncGameClient(character_id="test_char") as client:
             result = await client.plot_course(10, "test_char")
 
         assert isinstance(result, dict)
-        assert result["distance"] == 3
-        assert result["path"] == [0, 1, 5, 10]
+        assert result == {"success": True}
         mock_request.assert_awaited_with(
             "plot_course", {"character_id": "test_char", "to_sector": 10}
         )
@@ -99,24 +74,13 @@ class TestAsyncGameClient:
     @patch.object(AsyncGameClient, "_request", new_callable=AsyncMock)
     async def test_my_status(self, mock_request):
         """Test my_status method."""
-        mock_request.return_value = {
-            "name": "test_char",
-            "sector": 42,
-            "last_active": "2024-01-01T00:00:00",
-            "sector_contents": {
-                "port": None,
-                "planets": [],
-                "other_players": [],
-                "adjacent_sectors": [40, 41, 43]
-            },
-            "ship": {},
-        }
+        mock_request.return_value = {"success": True}
 
         async with AsyncGameClient(character_id="test_char") as client:
             result = await client.my_status("test_char")
 
         assert isinstance(result, dict)
-        assert result["sector"] == 42
+        assert result == {"success": True}
         mock_request.assert_awaited_with(
             "my_status", {"character_id": "test_char"}
         )
@@ -137,6 +101,153 @@ class TestAsyncGameClient:
         assert result["name"] == "Gradient Bang"
         assert result["sectors"] == 5000
         mock_request.assert_awaited_with("server_status", {})
+
+    @pytest.mark.asyncio
+    async def test_pause_and_resume_event_delivery(self):
+        """Events buffer until delivery is resumed."""
+        client = AsyncGameClient(character_id="test_char")
+        client.pause_event_delivery()
+
+        queue = client.get_event_queue("status.snapshot")
+        calls: list[Dict[str, Any]] = []
+
+        @client.on("status.snapshot")
+        def _on_status(event: Dict[str, Any]) -> None:
+            calls.append(event)
+
+        payload = {
+            "player": {"name": "test_char"},
+            "ship": {"cargo": {}, "cargo_capacity": 0, "warp_power": 0, "warp_power_capacity": 0, "shields": 0, "max_shields": 0, "fighters": 0},
+            "sector": {"id": 1, "adjacent_sectors": [], "port": None, "players": []},
+        }
+
+        await client._process_event("status.snapshot", payload)
+        assert queue.empty()
+        assert not calls
+
+        await client.resume_event_delivery()
+        await asyncio.sleep(0)
+
+        assert not queue.empty()
+        event = queue.get_nowait()
+        assert event["payload"] is payload
+        assert calls and calls[0] == event
+
+        await client.close()
+
+    async def test_get_event_queue_receives_event(self):
+        """Event queues should receive formatted event messages."""
+        client = AsyncGameClient(character_id="test_char")
+        queue = client.get_event_queue("status.snapshot")
+
+        payload = {"player": {"id": "test_char"}}
+        await client._process_event("status.snapshot", payload)
+
+        event = await asyncio.wait_for(queue.get(), timeout=0.1)
+        assert event["event_name"] == "status.snapshot"
+        assert event["payload"] is payload
+
+        await client.close()
+
+    async def test_synthesize_error_event_emits_error_event(self):
+        """Synthesized error events should match the event-driven schema."""
+        client = AsyncGameClient(character_id="test_char")
+        queue = client.get_event_queue("error")
+
+        error_payload = {"status": 400, "detail": "Invalid move", "code": "invalid_sector"}
+        await client._synthesize_error_event(
+            endpoint="move",
+            request_id="req-123",
+            error_payload=error_payload,
+        )
+
+        event = await asyncio.wait_for(queue.get(), timeout=0.1)
+        payload = event["payload"]
+        assert event["event_name"] == "error"
+        assert payload["endpoint"] == "move"
+        assert payload["error"] == "Invalid move"
+        assert payload["status"] == 400
+        assert payload["code"] == "invalid_sector"
+        assert payload["synthesized"] is True
+        assert payload["source"]["method"] == "move"
+        assert payload["source"]["request_id"] == "req-123"
+        assert "timestamp" in payload["source"]
+
+        await client.close()
+
+    async def test_synthesize_error_event_deduplicates_request_id(self):
+        """Synthetic events should not emit twice for the same request ID."""
+        client = AsyncGameClient(character_id="test_char")
+        queue = client.get_event_queue("error")
+
+        error_payload = {"status": 404, "detail": "Character missing"}
+        await client._synthesize_error_event(
+            endpoint="my_status",
+            request_id="req-dupe",
+            error_payload=error_payload,
+        )
+        # Drain first event
+        await asyncio.wait_for(queue.get(), timeout=0.1)
+
+        await client._synthesize_error_event(
+            endpoint="my_status",
+            request_id="req-dupe",
+            error_payload=error_payload,
+        )
+
+        await asyncio.sleep(0)
+        assert queue.empty()
+
+        await client.close()
+
+    async def test_real_error_event_still_delivered_after_synthetic(self):
+        """Server-emitted error events should still flow after a synthetic one."""
+        client = AsyncGameClient(character_id="test_char")
+        queue = client.get_event_queue("error")
+
+        await client._synthesize_error_event(
+            endpoint="move",
+            request_id="req-live",
+            error_payload={"status": 400, "detail": "Invalid"},
+        )
+        await asyncio.wait_for(queue.get(), timeout=0.1)
+
+        await client._process_event(
+            "error",
+            {
+                "endpoint": "move",
+                "error": "Invalid",
+                "source": {"request_id": "req-live", "method": "move", "type": "rpc"},
+            },
+        )
+
+        event = await asyncio.wait_for(queue.get(), timeout=0.1)
+        assert event["event_name"] == "error"
+        assert event["payload"]["endpoint"] == "move"
+        assert event["payload"]["source"]["request_id"] == "req-live"
+
+        await client.close()
+
+    async def test_failure_result_synthesizes_error_event(self):
+        """Result objects with success=False should produce error events."""
+        client = AsyncGameClient(character_id="test_char")
+        queue = client.get_event_queue("error")
+
+        await client._maybe_synthesize_error_from_result(
+            endpoint="local_map_region",
+            request_id="req-result",
+            result={"success": False, "error": "Center sector must be visited"},
+        )
+
+        event = await asyncio.wait_for(queue.get(), timeout=0.1)
+        payload = event["payload"]
+        assert event["event_name"] == "error"
+        assert payload["endpoint"] == "local_map_region"
+        assert payload["error"] == "Center sector must be visited"
+        assert payload["synthesized"] is True
+        assert payload["source"]["request_id"] == "req-result"
+
+        await client.close()
 
 
 class TestAsyncToolExecutor:
@@ -310,7 +421,7 @@ class TestPrompts:
             "success": True,
             "new_sector": 10
         })
-        assert "Moved to sector 10" in result
+        assert "Now in sector 10" in result
         
         # Test error
         result = format_tool_result("move", {

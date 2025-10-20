@@ -5,6 +5,8 @@ from .utils import (
     player_self,
     ship_self,
     port_snapshot,
+    build_event_source,
+    rpc_success,
 )
 from rpc.events import event_dispatcher
 
@@ -14,6 +16,7 @@ async def handle(request: dict, world, port_locks=None) -> dict:
     commodity = request.get("commodity")
     quantity = request.get("quantity")
     trade_type = request.get("trade_type")
+    request_id = request.get("request_id") or "missing-request-id"
 
     if not all([character_id, commodity, quantity, trade_type]):
         raise HTTPException(status_code=400, detail="Missing required parameters")
@@ -58,6 +61,7 @@ async def handle(request: dict, world, port_locks=None) -> dict:
                 ship_stats,
                 world,
                 port_state,
+                request_id,
             )
     else:
         return await _execute_trade(
@@ -71,6 +75,7 @@ async def handle(request: dict, world, port_locks=None) -> dict:
             ship_stats,
             world,
             port_state,
+            request_id,
         )
 
 
@@ -85,6 +90,7 @@ async def _execute_trade(
     ship_stats,
     world,
     port_state,
+    request_id: str,
 ) -> dict:
     """Execute trade operation (must be called with port lock held)."""
     from trading import (
@@ -94,6 +100,24 @@ async def _execute_trade(
         validate_sell_transaction,
         get_port_prices,
     )
+
+    commodities = [("QF", "quantum_foam"), ("RO", "retro_organics"), ("NS", "neuro_symbolics")]
+
+    def build_port_data(state):
+        port_data = {
+            "class": state.port_class,
+            "code": state.code,
+            "stock": state.stock,
+            "max_capacity": state.max_capacity,
+            "buys": [],
+            "sells": [],
+        }
+        for i, (key, name) in enumerate(commodities):
+            if state.code[i] == "B":
+                port_data["buys"].append(name)
+            else:
+                port_data["sells"].append(name)
+        return port_data
 
     if trade_type == "buy":
         idx = {"QF": 0, "RO": 1, "NS": 2}[commodity_key]
@@ -124,21 +148,7 @@ async def _execute_trade(
         )
         updated_port_state = world.port_manager.load_port_state(character.sector)
         updated_cargo = world.knowledge_manager.get_cargo(character_id)
-
-        port_data = {
-            "class": updated_port_state.port_class,
-            "code": updated_port_state.code,
-            "stock": updated_port_state.stock,
-            "max_capacity": updated_port_state.max_capacity,
-            "buys": [],
-            "sells": [],
-        }
-        commodities = [("QF", "quantum_foam"), ("RO", "retro_organics"), ("NS", "neuro_symbolics")]
-        for i, (key, name) in enumerate(commodities):
-            if updated_port_state.code[i] == "B":
-                port_data["buys"].append(name)
-            else:
-                port_data["sells"].append(name)
+        port_data = build_port_data(updated_port_state)
         new_prices = get_port_prices(port_data)
 
         log_trade(
@@ -156,8 +166,19 @@ async def _execute_trade(
         await event_dispatcher.emit(
             "trade.executed",
             {
+                "source": build_event_source("trade", request_id),
                 "player": player_self(world, character_id),
                 "ship": ship_self(world, character_id),
+                "trade": {
+                    "trade_type": "buy",
+                    "commodity": commodity,
+                    "units": quantity,
+                    "price_per_unit": price_per_unit,
+                    "total_price": total_price,
+                    "new_credits": new_credits,
+                    "new_cargo": updated_cargo,
+                    "new_prices": new_prices,
+                },
             },
             character_filter=[character_id],
         )
@@ -187,17 +208,7 @@ async def _execute_trade(
                     character_filter=characters_in_sector,
                 )
 
-        return {
-            "success": True,
-            "trade_type": "buy",
-            "commodity": commodity,
-            "units": quantity,
-            "price_per_unit": price_per_unit,
-            "total_price": total_price,
-            "new_credits": new_credits,
-            "new_cargo": updated_cargo,
-            "new_prices": new_prices,
-        }
+        return rpc_success()
     else:
         idx = {"QF": 0, "RO": 1, "NS": 2}[commodity_key]
         if port_state.code[idx] != "B":
@@ -223,6 +234,10 @@ async def _execute_trade(
         world.port_manager.update_port_inventory(
             character.sector, commodity_key, quantity, "sell"
         )
+        updated_port_state = world.port_manager.load_port_state(character.sector)
+        updated_cargo = world.knowledge_manager.get_cargo(character_id)
+        port_data = build_port_data(updated_port_state)
+        new_prices = get_port_prices(port_data)
 
         log_trade(
             character_id=character_id,
@@ -239,8 +254,19 @@ async def _execute_trade(
         await event_dispatcher.emit(
             "trade.executed",
             {
+                "source": build_event_source("trade", request_id),
                 "player": player_self(world, character_id),
                 "ship": ship_self(world, character_id),
+                "trade": {
+                    "trade_type": "sell",
+                    "commodity": commodity,
+                    "units": quantity,
+                    "price_per_unit": price_per_unit,
+                    "total_price": total_price,
+                    "new_credits": new_credits,
+                    "new_cargo": updated_cargo,
+                    "new_prices": new_prices,
+                },
             },
             character_filter=[character_id],
         )
@@ -270,13 +296,4 @@ async def _execute_trade(
                     character_filter=characters_in_sector,
                 )
 
-        return {
-            "success": True,
-            "trade_type": "sell",
-            "commodity": commodity,
-            "units": quantity,
-            "price_per_unit": price_per_unit,
-            "total_price": total_price,
-            "new_credits": new_credits,
-            "new_cargo": world.knowledge_manager.get_cargo(character_id),
-        }
+        return rpc_success()

@@ -39,10 +39,6 @@ trade:
   limit: 1.0      # 1 trade per 2 seconds
   window: 2.0
 
-check_trade:
-  limit: 2.0      # 2 checks per second (read-only)
-  window: 1.0
-
 # Combat endpoints
 combat.action:
   limit: 2.0      # 2 combat actions per second
@@ -78,11 +74,6 @@ plot_course:
 join:
   limit: 1.0      # 1 join per 5 seconds
   window: 5.0
-
-# Combat query/management
-combat.status:
-  limit: 2.0      # 2 status checks per second
-  window: 1.0
 
 combat.leave_fighters:
   limit: 1.0      # 1 garrison operation per 2 seconds

@@ -6,6 +6,9 @@ from rpc.events import event_dispatcher
 from .utils import (
     serialize_garrison_for_client,
     sector_contents,
+    build_event_source,
+    rpc_success,
+    build_status_payload,
 )
 
 
@@ -52,6 +55,12 @@ async def handle(request: dict, world) -> dict:
         world.knowledge_manager.update_credits(
             character_id, current_credits + toll_payout
         )
+        status_payload = await build_status_payload(world, character_id)
+        await event_dispatcher.emit(
+            "status.update",
+            status_payload,
+            character_filter=[character_id],
+        )
 
     updated_garrison = None
     if remaining_fighters > 0:
@@ -75,6 +84,30 @@ async def handle(request: dict, world) -> dict:
             max_fighters=character.max_fighters,
         )
 
+    request_id = request.get("request_id") or "missing-request-id"
+    garrison_payload = (
+        serialize_garrison_for_client(
+            world,
+            updated_garrison,
+            sector,
+            current_character_id=character_id,
+        )
+        if remaining_fighters > 0
+        else None
+    )
+
+    await event_dispatcher.emit(
+        "garrison.collected",
+        {
+            "source": build_event_source("combat.collect_fighters", request_id),
+            "sector": {"id": sector},
+            "credits_collected": toll_payout,
+            "garrison": garrison_payload,
+            "fighters_on_ship": updated_knowledge.ship_config.current_fighters,
+        },
+        character_filter=[character_id],
+    )
+
     characters_in_sector = [
         cid
         for cid, char in world.characters.items()
@@ -89,18 +122,4 @@ async def handle(request: dict, world) -> dict:
             character_filter=[cid],
         )
 
-    return {
-        "sector": sector,
-        "credits_collected": toll_payout,
-        "garrison": (
-            serialize_garrison_for_client(
-                world,
-                updated_garrison,
-                sector,
-                current_character_id=character_id,
-            )
-            if remaining_fighters > 0
-            else None
-        ),
-        "fighters_on_ship": updated_knowledge.ship_config.current_fighters,
-    }
+    return rpc_success()

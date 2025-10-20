@@ -1,17 +1,19 @@
 import asyncio
 import json
+import os
 from collections import deque
 from typing import Optional, Callable, Dict, Any
+from types import SimpleNamespace
+
 from loguru import logger
-import time
 
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame, RTVIProcessor
+from pipecat.frames.frames import LLMMessagesAppendFrame
 
 from utils.api_client import AsyncGameClient
-from utils.base_llm_agent import LLMConfig
-from utils.task_agent import TaskAgent
+from utils.task_agent import TaskAgent, TaskOutputType
 from utils.tools_schema import (
     MyStatus,
     PlotCourse,
@@ -21,7 +23,6 @@ from utils.tools_schema import (
     Move,
     StartTask,
     StopTask,
-    CheckTrade,
     Trade,
     RechargeWarpPower,
     TransferWarpPower,
@@ -36,7 +37,6 @@ class VoiceTaskManager:
         character_id: str,
         rtvi_processor: RTVIProcessor,
         task_complete_callback: Optional[Callable[[bool, bool], None]] = None,
-        verbose_prompts: bool = False,
     ):
         """Initialize the task manager.
 
@@ -52,36 +52,44 @@ class VoiceTaskManager:
             base_url="http://localhost:8000",
             transport="websocket",
         )
-        # Register event handlers for server events
-        self.game_client.on("chat.message")(self._handle_chat_message)
-        self.game_client.on("course.plot")(self._handle_course_plot)
-        self.game_client.on("character.moved")(self._handle_character_moved)
-        self.game_client.on("movement.start")(self._handle_movement_start)
-        self.game_client.on("movement.complete")(self._handle_movement_complete)
-        self.game_client.on("map.local")(self._handle_map_local)
-
-        # Combat events
-        self.game_client.on("combat.round_waiting")(self._handle_combat_round_waiting)
-        self.game_client.on("combat.round_resolved")(self._handle_combat_round_resolved)
-        self.game_client.on("combat.ended")(self._handle_combat_ended)
-
-        # Trade events
-        self.game_client.on("trade.executed")(self._handle_trade_executed)
-        self.game_client.on("port.update")(self._handle_port_update)
-
-        self.task_config = LLMConfig(model="gpt-5")
+        self._event_names = [
+            "status.snapshot",
+            "status.update",
+            "sector.update",
+            "course.plot",
+            "path.region",
+            "movement.start",
+            "movement.complete",
+            "map.knowledge",
+            "map.region",
+            "map.local",
+            "ports.list",
+            "character.moved",
+            "trade.executed",
+            "port.update",
+            "warp.purchase",
+            "warp.transfer",
+            "garrison.deployed",
+            "garrison.collected",
+            "garrison.mode_changed",
+            "salvage.collected",
+            "combat.round_waiting",
+            "combat.round_resolved",
+            "combat.ended",
+            "combat.action_accepted",
+            "chat.message",
+            "error",
+        ]
+        for event_name in self._event_names:
+            self.game_client.on(event_name)(self._relay_event)
 
         self.task_complete_callback = task_complete_callback
 
-        # Create task agent with gpt-5 for complex planning
+        # Create task agent driven by the Pipecat pipeline
         self.task_agent = TaskAgent(
-            config=self.task_config,
             game_client=self.game_client,
             character_id=self.character_id,
-            verbose_prompts=verbose_prompts,
-            output_callback=self._task_output_handler,
-            tool_call_event_callback=self._on_tool_call_event,
-            tool_result_event_callback=self._on_tool_result_event,
+            output_callback=self._handle_agent_output,
         )
 
         # Task management
@@ -114,9 +122,6 @@ class VoiceTaskManager:
             "move": lambda to_sector: self.game_client.move(
                 to_sector=to_sector, character_id=self.character_id
             ),
-            "check_trade": lambda **kwargs: self.game_client.check_trade(
-                character_id=self.character_id, **kwargs
-            ),
             "trade": lambda **kwargs: self.game_client.trade(
                 character_id=self.character_id, **kwargs
             ),
@@ -138,46 +143,9 @@ class VoiceTaskManager:
         logger.info(f"Join successful: {result}")
         return result
 
-    async def _on_tool_call_event(self, tool_name: str, arguments: Any):
-        pass
-
-    def _normalize_tool_event_payload(self, payload: Any) -> Dict[str, Any]:
-        if not isinstance(payload, dict):
-            payload = {"result": payload}
-
-        if "error" in payload:
-            # Propagate errors as-is
-            return {"error": payload["error"]}
-
-        normalized: Dict[str, Any] = {}
-        result = payload.get("result")
-        summary = payload.get("summary")
-
-        if result is not None:
-            normalized["result"] = result
-
-        # Extract summary from result dict if not already provided
-        if not summary and isinstance(result, dict):
-            summary = result.get("summary")
-
-        if summary and isinstance(summary, str):
-            normalized["summary"] = summary.strip()
-
-        if "tool_message" in payload:
-            normalized["tool_message"] = payload["tool_message"]
-
-        return normalized
-
-    async def _on_tool_result_event(self, tool_name: str, payload: Any):
-        pass
-
-    async def _handle_event(self, event_name: str, payload: Dict[str, Any]) -> None:
-        """General handler to relay any event to RTVI clients.
-
-        Args:
-            event_name: Name of the event (e.g., "chat.message", "character.moved")
-            payload: Event payload data
-        """
+    async def _relay_event(self, event: Dict[str, Any]) -> None:
+        event_name = event.get("event_name")
+        payload = event.get("payload")
         await self.rtvi_processor.push_frame(
             RTVIServerMessageFrame(
                 {
@@ -188,49 +156,17 @@ class VoiceTaskManager:
             )
         )
 
-    async def _handle_chat_message(self, payload: Dict[str, Any]) -> None:
-        """Relay chat.message events to RTVI clients."""
-        await self._handle_event("chat.message", payload)
-
-    async def _handle_course_plot(self, payload: Dict[str, Any]) -> None:
-        """Relay course.plot events to RTVI clients."""
-        await self._handle_event("course.plot", payload)
-
-    async def _handle_character_moved(self, payload: Dict[str, Any]) -> None:
-        """Relay character.moved events to RTVI clients."""
-        await self._handle_event("character.moved", payload)
-
-    async def _handle_movement_start(self, payload: Dict[str, Any]) -> None:
-        """Relay movement.start events to RTVI clients."""
-        await self._handle_event("movement.start", payload)
-
-    async def _handle_movement_complete(self, payload: Dict[str, Any]) -> None:
-        """Relay movement.complete events to RTVI clients."""
-        await self._handle_event("movement.complete", payload)
-
-    async def _handle_map_local(self, payload: Dict[str, Any]) -> None:
-        """Relay map.local events to RTVI clients."""
-        await self._handle_event("map.local", payload)
-
-    async def _handle_combat_round_waiting(self, payload: Dict[str, Any]) -> None:
-        """Relay combat.round_waiting events to RTVI clients."""
-        await self._handle_event("combat.round_waiting", payload)
-
-    async def _handle_combat_round_resolved(self, payload: Dict[str, Any]) -> None:
-        """Relay combat.round_resolved events to RTVI clients."""
-        await self._handle_event("combat.round_resolved", payload)
-
-    async def _handle_combat_ended(self, payload: Dict[str, Any]) -> None:
-        """Relay combat.ended events to RTVI clients."""
-        await self._handle_event("combat.ended", payload)
-
-    async def _handle_trade_executed(self, payload: Dict[str, Any]) -> None:
-        """Relay trade.executed events to RTVI clients."""
-        await self._handle_event("trade.executed", payload)
-
-    async def _handle_port_update(self, payload: Dict[str, Any]) -> None:
-        """Relay port.update events to RTVI clients."""
-        await self._handle_event("port.update", payload)
+        summary = event.get("summary", payload)
+        await self.rtvi_processor.push_frame(
+            LLMMessagesAppendFrame(
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"<event name={event_name}>\n{summary}\n</event>",
+                    }
+                ]
+            )
+        )
 
     #
     # Task management
@@ -283,50 +219,40 @@ class VoiceTaskManager:
 
         return summary_line
 
-    def _task_output_handler(self, text: str, message_type: Optional[str] = None):
+    def _handle_agent_output(
+        self, text: str, message_type: Optional[str] = None
+    ) -> None:
+        """Schedule processing of agent output asynchronously."""
+        asyncio.create_task(self._task_output_handler(text, message_type))
+
+    async def _task_output_handler(
+        self, text: str, message_type: Optional[str] = None
+    ) -> None:
         """Handle output from the task agent.
 
         Args:
             text: Output text from task agent
             message_type: Type of message (e.g., step, finished, error)
         """
-        # Normalize enum types to JSON-safe strings
-        mt: Optional[str]
-        if hasattr(message_type, "value"):
-            mt = getattr(message_type, "value")  # Enum -> its value
-        elif message_type is None:
-            mt = None
-        else:
-            mt = str(message_type)
+        logger.info(f"!!! task output: [{message_type}]{text}")
 
-        logger.info(f"!!! task output: {text} | {mt}")
-
-        return
-        # todo: summaries, etc?
-
-        display_text = text
-        if mt == "TOOL_RESULT":
-            summary_only = self._summarize_tool_result(text)
-            if summary_only:
-                display_text = summary_only
-
-        # Add to buffer for chat context
-        self.task_buffer.append(display_text)
-        asyncio.create_task(
-            self.rtvi_processor.push_frame(
-                RTVIServerMessageFrame(
-                    data={
-                        "frame_type": "event",
-                        "event": "task_output",
-                        "gg-action": "task_output",
-                        "payload": {
-                            "text": display_text,
-                            "task_message_type": mt,
-                        },
-                    }
-                )
+        # send everything from the task agent to the client to be displayed
+        await self.rtvi_processor.push_frame(
+            RTVIServerMessageFrame(
+                data={
+                    "frame_type": "event",
+                    "event": "task_output",
+                    "payload": {
+                        "text": text,
+                        "task_message_type": message_type,
+                    },
+                }
             )
         )
+
+        # append for the LLM only the information that won't have arrived as events
+        if message_type != TaskOutputType.EVENT:
+            self.task_buffer.append(text)
 
     def _start_task_async(
         self, task_description: str, game_state: Dict[str, Any]
@@ -368,20 +294,24 @@ class VoiceTaskManager:
             logger.info(f"!!! task result: {success}")
 
             if success:
-                self._task_output_handler("Task completed successfully", "complete")
+                await self._task_output_handler(
+                    "Task completed successfully", "complete"
+                )
             else:
                 # Check if it was cancelled vs failed
                 if self.task_agent.cancelled:
                     was_cancelled = True
-                    self._task_output_handler("Task was cancelled by user", "cancelled")
+                    await self._task_output_handler(
+                        "Task was cancelled by user", "cancelled"
+                    )
                 else:
-                    self._task_output_handler("Task failed", "failed")
+                    await self._task_output_handler("Task failed", "failed")
 
         except asyncio.CancelledError:
             was_cancelled = True
-            self._task_output_handler("Task was cancelled", "cancelled")
+            await self._task_output_handler("Task was cancelled", "cancelled")
         except Exception as e:
-            self._task_output_handler(f"Task error: {str(e)}", "error")
+            await self._task_output_handler(f"Task error: {str(e)}", "error")
 
         finally:
             self.task_running = False
@@ -409,7 +339,7 @@ class VoiceTaskManager:
             self.current_task.cancel()
             self.task_running = False
             # Add immediate feedback
-            self._task_output_handler(
+            self._handle_agent_output(
                 "Cancellation requested - stopping task...", "cancelled"
             )
 
@@ -422,8 +352,6 @@ class VoiceTaskManager:
         {result: ...} on success or {error: ...} on failure. Always calls
         params.result_callback with the same payload.
         """
-        start_time = time.time()
-
         # Try to discover the tool name from params (Pipecat provides name)
         tool_name = getattr(params, "name", None) or getattr(
             params, "function_name", None
@@ -433,11 +361,8 @@ class VoiceTaskManager:
             tool_name = "unknown"
 
         try:
-            # Gather arguments for the call (for pre-call event)
+            # Gather arguments for the call
             arguments = params.arguments
-
-            # Emit a pre-call notification
-            await self._on_tool_call_event(tool_name, arguments)
 
             # Special tools managed by the voice task manager
             if tool_name == "start_task":
@@ -458,33 +383,11 @@ class VoiceTaskManager:
                 result = await func(**arguments)
                 payload = {"result": result}
 
-            # Emit tool result message for clients to consume
-            await self._on_tool_result_event(tool_name, payload)
-
-            logger.info(f"!!! TOOL RESULT: {payload}")
-
-            # Extract summary if present
-            summary = None
-            result_obj = payload.get("result")
-            if isinstance(result_obj, dict):
-                summary = result_obj.get("summary")
-                if summary and isinstance(summary, str):
-                    summary = summary.strip()
-
-            # Send summary or full payload to LLM
-            if summary and tool_name != "my_status":
-                callback_payload = {"summary": summary}
-                logger.info(f"!!! FORMATTED FOR LLM: {callback_payload}")
-            else:
-                callback_payload = payload
-
-            await params.result_callback(callback_payload)
-            # await params.result_callback(payload)
+            await params.result_callback(payload)
         except Exception as e:
             logger.error(f"tool '{tool_name}' failed: {e}")
             error_payload = {"error": str(e)}
             # Emit a standardized error as tool_result
-            await self._on_tool_result_event(tool_name, error_payload)
             await params.result_callback(error_payload)
 
     async def _handle_start_task(self, params: FunctionCallParams):
@@ -498,9 +401,14 @@ class VoiceTaskManager:
 
             task_desc = params.arguments.get("task_description", "")
             context = params.arguments.get("context", "")
-            game_state = await self.game_client.my_status(
-                character_id=self.character_id
-            )
+            await self.game_client.pause_event_delivery()
+            try:
+                game_state = await self.game_client.my_status(
+                    character_id=self.character_id
+                )
+            except Exception:
+                await self.game_client.resume_event_delivery()
+                raise
             task_content = f"{context}\n{task_desc}" if context else task_desc
             self.task_buffer.clear()
             self.task_running = True
@@ -510,6 +418,7 @@ class VoiceTaskManager:
             return {"success": True, "message": "Task started"}
         except Exception as e:
             logger.error(f"start_task failed: {e}")
+            await self.game_client.resume_event_delivery()
             return {"success": False, "error": str(e)}
 
     async def _handle_stop_task(self, params: FunctionCallParams):
@@ -544,7 +453,6 @@ class VoiceTaskManager:
                 ListKnownPorts.schema(),
                 PathWithRegion.schema(),
                 Move.schema(),
-                CheckTrade.schema(),
                 Trade.schema(),
                 RechargeWarpPower.schema(),
                 TransferWarpPower.schema(),

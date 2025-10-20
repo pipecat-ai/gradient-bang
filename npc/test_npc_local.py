@@ -74,7 +74,7 @@ async def main() -> int:
                 target = contents.adjacent_sectors[0]
                 result = await executor.move(target)
                 if result["success"]:
-                    print(f"   ✅ Moved to sector {result['new_sector']}")
+                    print(f"   ✅ Now in sector {result['new_sector']}")
 
                     # Check new sector
                     new_status = await game_client.my_status(character_id)

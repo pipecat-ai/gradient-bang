@@ -1,10 +1,221 @@
 
+Make sure:
+- We update our ship status based on trade.executed payload.
+- We update garrison and other info based on sector.update payload.
+- We update relevant game state based on garrison events.
+- We update relevant game state based on salvage.collected payload.
+
+---
+
+I ran a toll garrison test using two players and simple_tui.py. Everything worked except for the toll credits. Examine the logs in logs/toll-h.log and logs/toll-i.log. Build a chronology of events on both sides. One player deposited toll fighters. The other player entered the sector and paid the toll. The first player then collected the fighters but did not receive the toll credits.
+
+Examine the game server code to find the bug.
+
+---
+
+We only need to make VoiceTaskManager work, for now. We can come back and fix other code that depends on the current TaskAgent later.
+
+- We do not need verbose_prompts. Remove use of this in VoiceTaskManager.
+- output_callback should be an async function.
+- We do not need tool_call_event_callback and tool_result_event_callback. Remove use of these in VoiceTaskManager.
+- Fix constructor format to whatever makes the most sense from the perspective of VoiceTaskManager.
+- We can remove LLMConfig and do all of that config inside VoiceTaskManager. That helper is an unnecessary abstraction. It's okay for VoiceTaskManager to depend on the Google genai library looking for the GOOGLE_API_KEY in the environment.
+- Do not touch utils/experimental_pipecat_agent.py -- leave it as-is for now. We will remove the file when we are completely done with the migration.
+- If ExperimentalTaskAgent does not support a task cancellation API, we should add one to it. The VoiceTaskManager defines an LLM tool call to cancel the active task. 
+
+
+
+
+todo
+  - task output should go to the llm as buffered messages
+  - task output should go to the game client as an event
+
+----
+
+Work on npc/run_long_npc.py
+
+0. System instructions
+  - You are a non-player character in the space trading game. Etc.
+  - Here is your personality and initial instructions.
+0.5. google genai setup
+  - use client.chats.create / client.chats.send_message
+
+1. Create game client
+2. Create experimental task agent
+  - output callback that buffers lines
+3. While true loop
+  - send "Perform your next action" to the model
+  - reponse should be "started task ..."
+  - buffer output from the task
+  - when task is complete, put the result in the chat as the next message
+
+
+----
+
+utils/experimental_pipecat_agent.py is an event-driven agent loop.
+
+The core class is ExperimentalTaskAgent. We test it with npc/run_experimental_task.py script.
+
+We want to replace the TaskAgent used in the Pipecat VoiceTaskManager with this new class. To that end, we should plan to do the following:
+
+1. Evaluate any API differences between the TaskAgent and ExperimentalTaskAgent classes.
+2. Formulate a plan to update either the ExperimentalTaskAgent class or the VoiceTaskManager to match the other.
+3. Rename the ExperimentalTaskAgent class to TaskAgent and replace task_agent.py with a copy of experimental_pipecat_agent.py.
+4. Leave the existing experiment_pipecat_agent.py in place for reference and further experimentation.
+
+Do not change any code yet. Some API differences we will want to address is specific ways. For example, we will not want to implement a tool result callback.
+
+Write a detailed planning document, describing API differences we will need to address, suggestions, and questions. Save that document to disk so that I can review it.
+
+
+
+Explain all watchdog timers in the code. We may want to simplify the code to rely solely on the Pipecat pipeline idle timeout for top-level task "watchdog" time outs. If so, suggest how to make this property configurable in the ExperimentalTaskAgent constructor.
+
+Note that you can develop and test end to end by running this, or a similar, command:
+
+```
+uv run npc/run_experimental_task.py codex-1 "Move to an adjacent sector, then do it again."
+```
+
+Always use uv. Redirect output to log files for analysis. Run the code you produce and analyze the output to ensure it is correct.
+
+
+---
+
+
+- restart context and work through all timers: agent watchdog, inference watchdog, and pipeline timeout
+- logging cleanup:
+  - add logging of Gemini chunks
+  - remove all the complex logging
+- test with standard pipecat checkout
+
+----
+
+• What Changed
+
+  - Instrumented utils/experimental_pipecat_agent.py so error events can be trapped during a run: when
+    STOP_ON_ERROR_EVENT=1 is set we log the offending payload to logs/error_events.jsonl, cancel the active pipeline,
+    and raise immediately.
+  - Hooked GoogleLLMService._stream_content (in the venv) to pickle the exact generate_content_stream arguments—
+    raw contents, the constructed GenerateContentConfig, the derived generation_params, and tool schema—into logs/
+    google_llm_service_request.pkl on every call.
+  - Reworked scripts/replay_gemini_invocation.py to mirror Pipecat’s requests precisely: it now shares a
+    helper for dumping the replay payload in the same shape, supports --pickle [path] (defaulting to logs/
+    google_llm_service_request.pkl), reconstructs Content objects and configs verbatim, and exposes the tool schema/
+    tool_config we feed Gemini. It also prints function calls even when Gemini omits content.parts.
+  - Added scripts/replay_gemini_service.py to route a captured invocation back through
+    GoogleLLMService._stream_content, producing the same stream output without the rest of the pipeline.
+
+  How to Reproduce the Bug Now
+
+  1. cd /home/khkramer/src/gradient-bang
+  2. . .env && export GOOGLE_API_KEY="$GOOGLE_API_KEY"
+  3. export STOP_ON_ERROR_EVENT=1
+  4. uv run npc/run_experimental_task.py khk-1 "Let's pair trade NS between 1477 and 675. Make round trips. Stop when
+     you encounter an error."
+      - When the first bad move happens you’ll see it logged in logs/error_events.jsonl.
+      - The most recent Gemini call is preserved in logs/google_llm_service_request.pkl.
+  5. Reproduce the exact LLM decision off-line:
+     uv run scripts/replay_gemini_invocation.py --pickle --show-metadata
+     (or point at a copied pickle with --pickle logs/google_llm_service_request_latest.pkl).
+     This issues the same generate_content_stream call that the agent made, letting you diff the streamed chunks
+     against the live run.
+
+  Notes
+
+  - The pickle includes a JSON snapshot for ease of diffing, but the replay uses the original Content objects/config
+    to eliminate any serialization drift.
+  - scripts/replay_gemini_service.py full-run.json still works when you want to go through Pipecat’s adapter/pipeline
+    instead of the raw client.
+  - .venv/lib/python3.12/site-packages/pipecat/services/google/llm.py now writes to logs/
+    google_llm_service_request.pkl; undo or guard that instrumentation when you’re done.
+
+  Let me know if you want to automate diffing the pickled payloads or capture every call instead of just the latest
+
+
+  ----
+
+
+Testing function call accuracy:
+  - full-run.json has a message sequence that failed in our pipecat pipeline with a duplicate move to 768.
+  - but `uv run scripts/replay_gemini_invocation.py full-run.json` does the right thing, moving to 675
+
+Why is the pipecat pipeline not doing the right thing?
+
+
+---
+
+Change summary lines
+  - trade.executed: Trade executed for <character name>. -> Trade executed.
+  - movement.complete: Moved to sector 1234. -> Now in sector 1234.
+
+Create unique tool call IDs and add them to the event payload sent to the player who made the rpc call, and to the xml of the event summaries.
+
+Example:
+  <event name="movement.complete" tool_call_id="1234567890">...</event>
+
+
+----
+
+Remove fighters field from trade.executed event. Maybe change to Current cargo?
+
+Event 1: <event name=trade.executed>\nTrade executed for John 34. Credits: 2770. Sold 30 quantum foam (@ 31 each, total 930). Cargo: 0 QF | 0 RO | 0 NS. Fighters: 300.\n</event>'
+
+
+
+
+----
+
+- verbose_prompts in new task agent?
+  - it doesn't look like the _setup_pipeline verbose logic is actually working, trace through
+  - actually I think we can get rid of verbose_prompts because we have Pipecat log levels. 
+- tool_call_event_callback and tool_result_event_callback? Needed?
+- need to override tool executor or not?
+- need self.messages?
+- how do we implement max_iterations?
+- format initial_state as summary
+
+1. check finished logic
+2. check canceled logic
+3. check active task logic
+4. check watchdog logic
+5. check step counter logic
+6. Events refactor
+  - never send returned tool call data into context
+  - send new events with payload and summary
+    - task started
+    - task finished
+    - task step
+    - task canceled
+    
+
+--
+
+Can we better type these tool calls types?
+
+PipelineToolExecutor = Callable[
+    [Dict[str, Any]], Awaitable[Tuple[Optional[Dict[str, Any]], bool, Any]]
+]
+ToolEventCallback = Callable[[str, Any], Awaitable[None]]
+
+
+
+
+---
+
+
+
+
 We want to rename the commodities in the game.
 
 Let's rename them to:
-  - Quantum Foam (QF)
-  - Retro-organics (RO)
-  - Neuro-symbolics (NS)
+  - Fuel Ore (FO) -> Quantum Foam (QF)
+  - Organics (OG) -> Retro-organics (RO)
+  - Equipment (EQ) -> Neuro-symbolics (NS)
+
+We need to change all instances of these names in the codebase. Change the full strings ("fuel ore", "organics", and "equipment") everywhere they appear. Change the abbreviations (FO, OG, EQ) wherever you are sure that those strings in context are used to refer to the commodities.
+
+
 
 
     - movement.start
@@ -85,14 +296,14 @@ Can we do this for port?
         "port": {
           "code": "SSS",
           "last_seen_prices": {
-            "neuro_symbolics": 38,
-            "quantum_foam": 24,
-            "retro_organics": 9
+            "equipment": 38,
+            "fuel_ore": 24,
+            "organics": 9
           },
           "last_seen_stock": {
-            "neuro_symbolics": 700,
-            "quantum_foam": 700,
-            "retro_organics": 700
+            "equipment": 700,
+            "fuel_ore": 700,
+            "organics": 700
           },
           "observed_at": "2025-10-05T23:31:15.362890+00:00"
         },
@@ -235,7 +446,14 @@ Sunday
 
 Trying to write as little code as possible to perform game functions on behalf of a player. Instead, everything should be done by the LLM. This means writing more code to summarize game state and coordinate actions between the conversation and task LLMs.
 
+Example of not hard-coding things:
+  - player A tries to collect salvage
+  - player B beats them to it, but after "collect salvage" action is attempted by Player A
+  - LLM just "knows" what happened based on the event sequence. You don't hard-code it in the game logic that the game needs to "tell" the player that the other player beat them to it.
+
 How to avoid sending lots of data to the conversation LLM. my_map() tool as an example.
+
+It's a lot harder to get an LLM to handle event-driven metadata reliably than to handle information in tool responses reliably. OOD.
 
 
 == sunday ==

@@ -24,7 +24,6 @@ from api import (
     local_map_region as api_local_map_region,
     list_known_ports as api_list_known_ports,
     path_with_region as api_path_with_region,
-    check_trade as api_check_trade,
     trade as api_trade,
     recharge_warp_power as api_recharge,
     transfer_warp_power as api_transfer,
@@ -32,7 +31,6 @@ from api import (
     regenerate_ports as api_regen_ports,
     combat_initiate as api_combat_initiate,
     combat_action as api_combat_action,
-    combat_status as api_combat_status,
     combat_leave_fighters as api_combat_leave_fighters,
     combat_collect_fighters as api_combat_collect_fighters,
     combat_set_garrison_mode as api_combat_set_garrison_mode,
@@ -170,9 +168,6 @@ RPC_HANDLERS: Dict[str, RPCHandler] = {
     "path_with_region": _with_rate_limit(
         "path_with_region", lambda payload: api_path_with_region.handle(payload, world)
     ),
-    "check_trade": _with_rate_limit(
-        "check_trade", lambda payload: api_check_trade.handle(payload, world)
-    ),
     "trade": _with_rate_limit(
         "trade", lambda payload: api_trade.handle(payload, world, port_locks)
     ),
@@ -199,9 +194,6 @@ RPC_HANDLERS: Dict[str, RPCHandler] = {
     ),
     "combat.action": _with_rate_limit(
         "combat.action", lambda payload: api_combat_action.handle(payload, world)
-    ),
-    "combat.status": _with_rate_limit(
-        "combat.status", lambda payload: api_combat_status.handle(payload, world)
     ),
     "combat.leave_fighters": _with_rate_limit(
         "combat.leave_fighters",
@@ -363,7 +355,24 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 continue
 
             endpoint = frame.get("endpoint")
-            payload = frame.get("payload", {})
+            raw_payload = frame.get("payload")
+            if raw_payload is None:
+                payload: Dict[str, Any] = {}
+            elif isinstance(raw_payload, dict):
+                payload = dict(raw_payload)
+            else:
+                await websocket.send_json(
+                    rpc_error(
+                        frame_id,
+                        endpoint or "unknown",
+                        HTTPException(
+                            status_code=400, detail="Invalid payload type; expected object"
+                        ),
+                    )
+                )
+                continue
+
+            payload["request_id"] = frame_id
             handler = RPC_HANDLERS.get(endpoint)
             if not handler:
                 await websocket.send_json(

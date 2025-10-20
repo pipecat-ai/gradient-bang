@@ -149,7 +149,6 @@ Available tools:
 - `path_with_region`: Get path to destination plus local context around each path node
 - `move`: Move to adjacent sector
 - `trade`: Buy/sell commodities at ports
-- `check_trade`: Preview trade without executing
 - `recharge_warp_power`: Refuel at sector 0
 - `transfer_warp_power`: Give fuel to another player
 - `start_task`/`stop_task`: Manage complex multi-step tasks
@@ -175,7 +174,6 @@ All endpoints accept and return JSON dictionaries:
 - `list_known_ports` - Find ports within range (params: `character_id`, optional `from_sector`, `max_hops`, `port_type`, `commodity`, `trade_type`)
 - `path_with_region` - Get path with context (params: `character_id`, `to_sector`, optional `region_hops`, `max_sectors`)
 - `POST /api/trade` - Execute trade (params: `character_id`, `commodity`, `quantity`, `trade_type`)
-- `POST /api/check_trade` - Preview trade
 - `POST /api/recharge_warp_power` - Buy fuel at sector 0
 - `POST /api/transfer_warp_power` - Transfer fuel to another player
 
@@ -199,7 +197,7 @@ When modifying LLM tools, ensure consistency between:
 **Parameter Naming**:
 - `plot_course`: uses `from_sector`, `to_sector` (not `from`/`to`)
 - `move`: uses `to_sector` (not `to`)
-- `trade`/`check_trade`: uses `commodity`, `quantity`, `trade_type`
+- `trade`: uses `commodity`, `quantity`, `trade_type`
 
 ## Testing Considerations
 
