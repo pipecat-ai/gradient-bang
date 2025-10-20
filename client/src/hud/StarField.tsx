@@ -1,46 +1,79 @@
 import useGameStore from "@stores/game";
-import { memo, useEffect } from "react";
+import { memo, useEffect, useRef } from "react";
 
 import type { StarfieldSceneConfig } from "@/fx/starfield/constants";
-import { usePlaySound } from "@/hooks/usePlaySound";
+import { GalaxyStarfield } from "@/fx/starfield/main";
+//import { usePlaySound } from "@/hooks/usePlaySound";
 
 export const StarField = memo(() => {
-  const playSound = usePlaySound();
-  const ready = useGameStore.use.ready();
+  //const playSound = usePlaySound();
+  const gameState = useGameStore.use.gameState();
   const settings = useGameStore.use.settings();
-  const starfieldInstance = useGameStore.use.starfieldInstance?.();
+
+  const shouldRenderRef = useRef(settings.renderStarfield);
 
   /*
-   * Play start sound FX on ready
+   * Initialization
    */
   useEffect(() => {
-    if (ready) {
-      playSound("start");
+    if (!settings.renderStarfield) {
+      return;
     }
-  }, [playSound, ready]);
+
+    console.debug("[STARFIELD] Initializing starfield");
+    const state = useGameStore.getState();
+    // Create new starfield instance
+    const instance = new GalaxyStarfield();
+    state.setStarfieldInstance(instance);
+  }, [settings.renderStarfield]);
 
   /*
    * Re-initialize starfield on settings change
    */
   useEffect(() => {
     // Only run when settings change
-    if (!ready || !settings.renderStarfield || !starfieldInstance) {
+    if (
+      gameState !== "ready" ||
+      shouldRenderRef.current === settings.renderStarfield
+    ) {
       return;
     }
 
-    console.debug("[STARFIELD] Re-initializing starfield");
+    const handleStarfieldToggle = async () => {
+      shouldRenderRef.current = settings.renderStarfield;
+      const state = useGameStore.getState();
+      let instance = state.starfieldInstance;
 
-    const state = useGameStore.getState();
-    starfieldInstance.initializeScene({
-      id: state.sector?.id.toString() ?? undefined,
-      sceneConfig: state.sector?.scene_config as StarfieldSceneConfig,
-    });
-  }, [ready, settings.renderStarfield, starfieldInstance]);
+      if (settings.renderStarfield) {
+        console.debug("[STARFIELD] Re-initializing starfield");
+
+        state.setGameState("initializing");
+        if (!instance) {
+          console.debug(
+            "[STARFIELD] Starfield instance not found, creating new instance"
+          );
+          instance = new GalaxyStarfield();
+          state.setStarfieldInstance(instance);
+        }
+        await instance.initializeScene({
+          id: state.sector?.id.toString() ?? undefined,
+          sceneConfig: state.sector?.scene_config as StarfieldSceneConfig,
+        });
+        state.setGameState("ready");
+      } else {
+        console.debug("[STARFIELD] Destroying starfield instance");
+        instance?.destroy();
+        state.setStarfieldInstance(undefined);
+      }
+    };
+
+    handleStarfieldToggle();
+  }, [gameState, settings.renderStarfield]);
 
   /*
    * Create starfield instance on initial render
    */
-  useEffect(() => {
+  /*useEffect(() => {
     if (!ready) return;
 
     if (!settings.renderStarfield || !starfieldInstance) {
@@ -94,14 +127,13 @@ export const StarField = memo(() => {
       //  state.setStarfieldInstance(undefined);
       //}
     };
-  }, [playSound, ready, settings.renderStarfield, starfieldInstance]);
+  }, [playSound, ready, settings.renderStarfield, starfieldInstance]);*/
 
   return (
     <div id="starfield-container" className="relative">
       <div id="whiteFlash"></div>
       <canvas id="warpOverlay"></canvas>
       <div id="vignette"></div>
-      <div id="transition" className={ready ? "open" : ""}></div>
       <div id="starfield"></div>
     </div>
   );

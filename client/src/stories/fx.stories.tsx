@@ -8,7 +8,7 @@ export const DiamondAnimation: Story = () => {
 
   const startAnimation = (wait = false) => {
     const fx = useGameStore.getState().diamondFXInstance;
-    fx?.start("demo-panel", wait);
+    fx?.start("demo-panel", wait, true);
     setStarted(true);
   };
 
@@ -155,7 +155,31 @@ export const ColorVariations: Story = () => {
           >
             ▶ Animate
           </button>
+          <button
+            onClick={() => {
+              const fx = useGameStore.getState().diamondFXInstance;
+              fx?.start("demo-panel", false, true); // same ID, refresh pulse
+            }}
+            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg text-sm"
+          >
+            Refresh (Same ID)
+          </button>
+          <button
+            onClick={() => {
+              const fx = useGameStore.getState().diamondFXInstance;
+              fx?.start("demo-panel-alt", false, true); // different ID, refresh pulse
+            }}
+            className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm"
+          >
+            Refresh (Different ID)
+          </button>
         </div>
+      </div>
+      <div
+        id="demo-panel-alt"
+        className="absolute bottom-12 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-md border border-white/20 rounded-xl px-4 py-2"
+      >
+        <span className="text-white/80 text-xs">Alt Target</span>
       </div>
     </div>
   );
@@ -240,8 +264,8 @@ PerformancePresets.meta = {
 export const TargetSwitching: Story = () => {
   const [currentTarget, setCurrentTarget] = useState<string | null>(null);
 
-  const switchTo = (targetId: string) => {
-    useGameStore.getState().diamondFXInstance?.start(targetId);
+  const switchTo = (targetId: string, refresh = true) => {
+    useGameStore.getState().diamondFXInstance?.start(targetId, false, refresh);
     setCurrentTarget(targetId);
   };
 
@@ -317,7 +341,7 @@ export const StoreBasedUsage: Story = () => {
 
   const startAnimation = () => {
     const fx = useGameStore.getState().diamondFXInstance;
-    fx?.start("store-demo-panel");
+    fx?.start("store-demo-panel", false, true);
   };
 
   const clearAnimation = () => {
@@ -365,5 +389,199 @@ export const StoreBasedUsage: Story = () => {
 };
 
 StoreBasedUsage.meta = {
+  disconnectedStory: true,
+};
+
+export const AnimateOutDemo: Story = () => {
+  const [started, setStarted] = useState(false);
+  const [lastCallback, setLastCallback] = useState<string>("");
+
+  const startAnimation = () => {
+    const fx = useGameStore.getState().diamondFXInstance;
+    fx?.update({
+      onComplete: (exit: boolean) => {
+        setLastCallback(
+          exit ? "onComplete(exit=true)" : "onComplete(exit=false)"
+        );
+        console.log(`[AnimateOut] onComplete called with exit=${exit}`);
+      },
+    });
+    fx?.start("animate-out-panel", false, true);
+    setStarted(true);
+    setLastCallback("");
+  };
+
+  const fadeOut = () => {
+    const fx = useGameStore.getState().diamondFXInstance;
+    fx?.clear(false);
+    setStarted(false);
+  };
+
+  const animateOut = () => {
+    const fx = useGameStore.getState().diamondFXInstance;
+    fx?.clear(true);
+    setStarted(false);
+  };
+
+  const clearDuringAnimation = () => {
+    // This will immediately clear even with animateOut=true because animation is playing
+    const fx = useGameStore.getState().diamondFXInstance;
+    fx?.clear(true);
+    setStarted(false);
+  };
+
+  return (
+    <div className="relative w-full h-screen bg-black">
+      <AnimatedFrame config={{ shadowBlur: 1.0 }} />
+
+      <div
+        id="animate-out-panel"
+        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white/10 backdrop-blur-md border border-white/20 rounded-xl p-6 min-w-[400px]"
+      >
+        <h2 className="text-white text-xl font-semibold mb-2">
+          Animate Out Demo
+        </h2>
+        <p className="text-white/80 text-sm mb-4">
+          Compare exit animations. The onComplete callback receives an exit
+          parameter: false when animating in, true when animating out.
+        </p>
+        {lastCallback && (
+          <div className="mb-4 px-3 py-2 bg-green-900/30 border border-green-500/30 rounded text-green-300 text-xs font-mono">
+            {lastCallback}
+          </div>
+        )}
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={startAnimation}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm"
+          >
+            ▶ Start Animation
+          </button>
+          {started && (
+            <>
+              <button
+                onClick={clearDuringAnimation}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm"
+              >
+                Clear (During)
+              </button>
+              <button
+                onClick={fadeOut}
+                className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-sm"
+              >
+                Fade Out (Docked)
+              </button>
+              <button
+                onClick={animateOut}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm"
+              >
+                ✨ Animate Out (Docked)
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+AnimateOutDemo.meta = {
+  disconnectedStory: true,
+};
+
+export const RefreshSameId: Story = () => {
+  const [started, setStarted] = useState(false);
+
+  return (
+    <div className="relative w-full h-screen bg-black">
+      <AnimatedFrame config={{ shadowBlur: 1.0 }} />
+
+      <div
+        id="refresh-panel"
+        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white/10 backdrop-blur-md border border-white/20 rounded-xl p-6 min-w-[360px]"
+      >
+        <h2 className="text-white text-xl font-semibold mb-2">
+          Refresh (Same ID)
+        </h2>
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => {
+              const fx = useGameStore.getState().diamondFXInstance;
+              fx?.start("refresh-panel", false, true);
+              setStarted(true);
+            }}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm"
+          >
+            ▶ Start
+          </button>
+          <button
+            onClick={() => {
+              const fx = useGameStore.getState().diamondFXInstance;
+              fx?.start("refresh-panel", false, true);
+            }}
+            disabled={!started}
+            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg text-sm"
+          >
+            Refresh (Same ID)
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+RefreshSameId.meta = {
+  disconnectedStory: true,
+};
+
+export const RefreshDifferentId: Story = () => {
+  const [started, setStarted] = useState(false);
+
+  return (
+    <div className="relative w-full h-screen bg-black">
+      <AnimatedFrame config={{ shadowBlur: 1.0 }} />
+
+      <div
+        id="refresh-diff-1"
+        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white/10 backdrop-blur-md border border-white/20 rounded-xl p-6 min-w-[360px]"
+      >
+        <h2 className="text-white text-xl font-semibold mb-2">
+          Refresh (Different ID)
+        </h2>
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => {
+              const fx = useGameStore.getState().diamondFXInstance;
+              fx?.start("refresh-diff-1", false, true);
+              setStarted(true);
+            }}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm"
+          >
+            ▶ Start on A
+          </button>
+          <button
+            onClick={() => {
+              const fx = useGameStore.getState().diamondFXInstance;
+              fx?.start("refresh-diff-2", false, true);
+            }}
+            disabled={!started}
+            className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg text-sm"
+          >
+            Refresh to B (Different ID)
+          </button>
+        </div>
+      </div>
+
+      <div
+        id="refresh-diff-2"
+        className="absolute bottom-12 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-md border border-white/20 rounded-xl px-4 py-2"
+      >
+        <span className="text-white/80 text-xs">Target B</span>
+      </div>
+    </div>
+  );
+};
+
+RefreshDifferentId.meta = {
   disconnectedStory: true,
 };

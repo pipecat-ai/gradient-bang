@@ -1,14 +1,17 @@
+import { Button } from "@/components/primitives/Button";
+import { Card, CardContent, CardHeader } from "@/components/primitives/Card";
 import { Settings } from "@/dialogs/Settings";
 import useGameStore from "@/stores/game";
-import {
-  Button,
-  Card,
-  CardContent,
-  CardHeader,
-} from "@pipecat-ai/voice-ui-kit";
+import { useEffect } from "react";
 
-export const Title = ({ onStart }: { onStart: () => void }) => {
+export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
   const setActiveModal = useGameStore.use.setActiveModal();
+
+  useEffect(() => {
+    const fx = useGameStore.getState().diamondFXInstance;
+    fx?.start("title-screen");
+  }, []);
+
   return (
     <div className="relative h-screen w-screen overflow-hidden">
       <div className="absolute inset-0">
@@ -24,27 +27,26 @@ export const Title = ({ onStart }: { onStart: () => void }) => {
         />
       </div>
       <div className="relative z-2 flex flex-col items-center justify-center h-full w-full">
-        <div className="bg-black">
-          <Card size="xl" background="stripes">
-            <CardHeader>
-              <h1 className="text-white text-4xl font-bold">
-                Placeholder Title Screen
-              </h1>
-            </CardHeader>
-            <CardContent className="flex flex-col items-center justify-center gap-2">
-              <Button isFullWidth onClick={onStart}>
-                Start
-              </Button>
-              <Button
-                isFullWidth
-                onClick={() => setActiveModal("settings")}
-                variant="secondary"
-              >
-                Settings
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
+        <Card elbow={true} variant="secondary" size="xl" className="min-w-lg">
+          <CardHeader>
+            <h1 className="text-white text-3xl font-bold uppercase">
+              Placeholder Title Screen
+            </h1>
+          </CardHeader>
+          <CardContent className="flex flex-col items-center justify-center gap-5">
+            <Button onClick={onViewNext} className="w-full" size="xl">
+              Start
+            </Button>
+            <Button
+              onClick={() => setActiveModal("settings")}
+              variant="secondary"
+              size="xl"
+              className="w-full"
+            >
+              Settings
+            </Button>
+          </CardContent>
+        </Card>
       </div>
       <Settings />
     </div>
