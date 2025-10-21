@@ -1,7 +1,6 @@
 declare global {
   // --- PLAYER
   interface PlayerBase {
-    created_at: string;
     id: string;
     last_active?: string;
     name: string;
@@ -10,6 +9,7 @@ declare global {
   interface PlayerSelf extends PlayerBase {
     credits_in_bank: number;
     credits_on_hand: number;
+    created_at: string;
   }
 
   interface Player extends PlayerBase {
@@ -26,7 +26,8 @@ declare global {
     fighters?: number;
     shields?: number;
     ship_name: string;
-    ship_type: ShipType;
+    ship_type: string;
+    // ship_type: ShipType;
   }
 
   interface ShipType {

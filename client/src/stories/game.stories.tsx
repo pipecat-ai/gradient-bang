@@ -13,6 +13,7 @@ export const Init: Story = () => {
   const sector = useGameStore((state) => state.sector);
   const localMapData = useGameStore((state) => state.local_map_data);
   const { sendUserTextInput } = useGameContext();
+
   return (
     <>
       <div className="story-description flex flex-col gap-4">

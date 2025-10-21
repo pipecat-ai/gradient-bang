@@ -14,6 +14,8 @@ export const ViewContainer = ({
   error?: string | null;
 }) => {
   const settings = useGameStore.use.settings();
+  const gameState = useGameStore.use.gameState();
+
   const [viewState, setViewState] = useState<"title" | "game">(
     settings.bypassTitleScreen ? "game" : "title"
   );
@@ -23,7 +25,7 @@ export const ViewContainer = ({
   }, []);
 
   // Show errors first
-  if (error) {
+  if (error || gameState === "error") {
     return <Error>{error}</Error>;
   }
 

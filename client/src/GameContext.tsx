@@ -8,6 +8,7 @@ import { type StarfieldSceneConfig } from "@fx/starfield";
 import useGameStore from "@stores/game";
 
 import {
+  type CharacterMovedMessage,
   type CoursePlotMessage,
   type MapLocalMessage,
   type MovementCompleteMessage,
@@ -174,8 +175,38 @@ export function GameProvider({ children }: GameProviderProps) {
             // ----- CHARACTERS / NPCS
             case "character.moved": {
               console.debug("[GAME EVENT] Character moved", gameEvent.payload);
-              //const data = gameEvent.payload as CharacterMovedMessage;
+              const data = gameEvent.payload as CharacterMovedMessage;
+
               // Update sector contents with new player
+              // @TODO: update to use new event shape when available
+              const tempDataRemap: Player = {
+                id: data.name,
+                name: data.name,
+                player_type: data.player_type ?? "npc",
+                ship: {
+                  ship_name: data.ship_type,
+                  ship_type: data.ship_type,
+                } as Ship,
+              };
+
+              if (data.movement === "arrive") {
+                console.debug(
+                  "[GAME EVENT] Adding player to sector",
+                  gameEvent.payload
+                );
+                gameStore.addSectorPlayer(tempDataRemap);
+              } else if (data.movement === "depart") {
+                console.debug(
+                  "[GAME EVENT] Removing player from sector",
+                  gameEvent.payload
+                );
+                gameStore.removeSectorPlayer(tempDataRemap);
+              } else {
+                console.warn(
+                  "[GAME EVENT] Unknown movement type",
+                  data.movement
+                );
+              }
 
               break;
             }
@@ -293,6 +324,7 @@ export function GameProvider({ children }: GameProviderProps) {
             }
 
             // ----- TRADING & COMMERCE
+
             case "port.update": {
               console.debug("[GAME EVENT] Port update", gameEvent.payload);
               const data = gameEvent.payload as PortUpdateMessage;
@@ -302,6 +334,12 @@ export function GameProvider({ children }: GameProviderProps) {
                 gameStore.setSectorPort(data.sector.id, data.port);
               }
 
+              break;
+            }
+
+            case "port.list": {
+              console.debug("[GAME EVENT] Port list", gameEvent.payload);
+              // @TODO: implement
               break;
             }
 
@@ -331,6 +369,15 @@ export function GameProvider({ children }: GameProviderProps) {
               break;
             }
             // ----- COMBAT
+
+            // ----- Misc
+
+            case "error": {
+              console.debug("[GAME EVENT] Error", gameEvent.payload);
+              // @TODO: properly handle errors, for now, we just bail out of everything
+              gameStore.setGameState("error");
+              break;
+            }
 
             // ----- UNHANDLED :(
             default:

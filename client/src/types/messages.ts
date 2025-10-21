@@ -79,4 +79,5 @@ export interface CharacterMovedMessage extends ServerMessagePayload {
   timestamp: string;
   move_type: string;
   movement?: "depart" | "arrive";
+  player_type?: "npc" | "human";
 }

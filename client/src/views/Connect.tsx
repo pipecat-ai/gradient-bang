@@ -8,7 +8,6 @@ import { useEffect, useState } from "react";
 export const Connect = ({
   connectHandler,
 }: {
-  onViewNext: () => void;
   connectHandler?: () => void;
 }) => {
   const [showConnectScreen, setShowConnectScreen] = useState(true);
@@ -64,7 +63,7 @@ export const Connect = ({
         initial={{ opacity: 0 }}
         transition={{ duration: shouldFadeOut ? 1 : 2 }}
         onAnimationComplete={handleFadeComplete}
-        className="absolute inset-0 z-[999] h-full w-full flex items-center justify-center bg-white/20 backdrop-blur-sm pointer-events-none user-select-none"
+        className="absolute inset-0 z-999 h-full w-full flex items-center justify-center bg-white/20 backdrop-blur-sm pointer-events-none user-select-none"
       >
         <div id="status-panel" className="screen p-4">
           <span className="animate-pulse uppercase">{connectionString}</span>
