@@ -1,5 +1,5 @@
 import { AnimatedFrame } from "@/fx/frame";
-import { usePipecatConnectionState } from "@/hooks/usePipecatState";
+import { usePipecatConnectionState } from "@pipecat-ai/voice-ui-kit";
 
 import useGameStore from "@/stores/game";
 import { motion } from "motion/react";

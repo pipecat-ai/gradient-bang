@@ -1,4 +1,3 @@
-import { usePipecatConnectionState } from "@/hooks/usePipecatState";
 import { PlugsIcon } from "@phosphor-icons/react";
 import {
   RTVIEvent,
@@ -6,7 +5,11 @@ import {
   type TranscriptData,
 } from "@pipecat-ai/client-js";
 import { useRTVIClientEvent } from "@pipecat-ai/client-react";
-import { Card, CardContent } from "@pipecat-ai/voice-ui-kit";
+import {
+  Card,
+  CardContent,
+  usePipecatConnectionState,
+} from "@pipecat-ai/voice-ui-kit";
 import { nanoid } from "nanoid";
 import { useCallback, useState } from "react";
 import Markdown from "react-markdown";

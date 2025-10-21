@@ -9,7 +9,6 @@ import {
 import type { DiamondFXController } from "@fx/frame";
 import { GalaxyStarfield } from "@fx/starfield";
 import { createHistorySlice, type HistorySlice } from "./historySlice";
-import { createMapSlice, type MapSlice } from "./mapSlice";
 import { createSettingsSlice, type SettingsSlice } from "./settingsSlice";
 import { createTaskSlice, type TaskSlice } from "./taskSlice";
 import { createUISlice, type UISlice } from "./uiSlice";
@@ -64,7 +63,7 @@ export interface GameSlice extends GameState {
 }
 
 const createGameSlice: StateCreator<
-  GameSlice & MapSlice & HistorySlice & TaskSlice & UISlice & SettingsSlice,
+  GameSlice & HistorySlice & TaskSlice & UISlice & SettingsSlice,
   [],
   [],
   GameSlice
@@ -123,10 +122,9 @@ const createGameSlice: StateCreator<
 });
 
 const useGameStoreBase = create<
-  GameSlice & MapSlice & HistorySlice & TaskSlice & SettingsSlice & UISlice
+  GameSlice & HistorySlice & TaskSlice & SettingsSlice & UISlice
 >()((...a) => ({
   ...createGameSlice(...a),
-  ...createMapSlice(...a),
   ...createHistorySlice(...a),
   ...createTaskSlice(...a),
   ...createSettingsSlice(...a),

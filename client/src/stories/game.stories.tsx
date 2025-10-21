@@ -1,3 +1,4 @@
+import { CaptainsLogPanel } from "@/components/CaptainsLogPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { useGameContext } from "@/hooks/useGameContext";
 import MiniMap from "@/hud/MiniMap";
@@ -14,10 +15,7 @@ export const Init: Story = () => {
   return (
     <>
       <div className="story-description flex flex-col gap-4">
-        <p>
-          We expect to receive a full status hydration from the server on
-          connect, and local map data.
-        </p>
+        <p>Note: audio disabled in this story. Send text input below:</p>
 
         <Divider />
         <TextInput
@@ -70,7 +68,7 @@ export const Init: Story = () => {
           </ul>
         )}
 
-        <div className="story-card  bg-card">
+        <div className="story-card bg-card">
           <h3 className="story-heading">Local Area Map:</h3>
           {sector && localMapData && (
             <MiniMap
@@ -81,6 +79,11 @@ export const Init: Story = () => {
               maxDistance={3}
             />
           )}
+        </div>
+
+        <div className="story-card bg-card">
+          <h3 className="story-heading">Activity Log:</h3>
+          <CaptainsLogPanel />
         </div>
       </div>
     </>

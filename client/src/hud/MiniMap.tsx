@@ -46,6 +46,15 @@ export const MiniMap = ({
   );
 
   useEffect(() => {
+    const currentSectorData = map_data.find((s) => s.id === current_sector_id);
+    console.log("[MiniMap Debug] Current sector data:", {
+      id: current_sector_id,
+      visited: currentSectorData?.visited,
+      fullData: currentSectorData,
+    });
+  }, [current_sector_id, map_data]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
