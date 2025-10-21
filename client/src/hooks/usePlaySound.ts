@@ -11,6 +11,7 @@ type SoundType = "fx" | "ambience" | "music";
 const SoundMap: Record<string, Sound> = {
   warp: { src: "/sounds/warp.wav", type: "fx" },
   start: { src: "/sounds/start.wav", type: "fx" },
+  message: { src: "/sounds/message.wav", type: "fx" },
   ambience: { src: "/sounds/ambience.wav", type: "ambience" },
 };
 
@@ -118,7 +119,6 @@ export const usePlaySound = () => {
     disableMusic,
   ]);
 
-  // Create a stable callback that always accesses the latest settings via ref
   return useCallback(
     (
       soundName: string,
@@ -185,6 +185,6 @@ export const usePlaySound = () => {
         }
       }
     },
-    [] // Empty dependency array - callback is now stable
+    []
   );
 };

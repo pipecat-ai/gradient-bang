@@ -4,12 +4,18 @@ import type { StateCreator } from "zustand";
 export interface HistorySlice {
   activity_log: LogEntry[];
   addActivityLogEntry: (entry: LogEntry) => void;
+
   movement_history: MovementHistory[];
   addMovementHistory: (history: Omit<MovementHistory, "timestamp">) => void;
+
+  known_ports: Sector[] | undefined; // Note: allow undefined here to handle fetching state
+  setKnownPorts: (ports: Sector[]) => void;
 }
 
 export const createHistorySlice: StateCreator<HistorySlice> = (set) => ({
   activity_log: [],
+  known_ports: undefined,
+
   addActivityLogEntry: (entry: LogEntry) =>
     set(
       produce((state) => {
@@ -35,6 +41,13 @@ export const createHistorySlice: StateCreator<HistorySlice> = (set) => ({
           ...history,
           timestamp: new Date().toISOString(),
         });
+      })
+    ),
+
+  setKnownPorts: (ports: Sector[]) =>
+    set(
+      produce((state) => {
+        state.known_ports = ports;
       })
     ),
 });

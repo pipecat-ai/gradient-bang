@@ -1,5 +1,6 @@
 import { AutoPilot } from "@/components/AutoPilot";
 import { Settings } from "@/dialogs/Settings";
+import { useMessageNotificationSound } from "@/hooks/useMessageNotificationSound";
 import { usePlaySound } from "@/hooks/usePlaySound";
 import { ShipVisor } from "@/hud/ShipVisor";
 import useGameStore from "@/stores/game";
@@ -13,6 +14,8 @@ import { useEffect } from "react";
 export const Game = () => {
   const playSound = usePlaySound();
   const gameState = useGameStore.use.gameState();
+
+  useMessageNotificationSound();
 
   useEffect(() => {
     if (gameState === "ready") {

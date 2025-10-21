@@ -1,8 +1,9 @@
-import { GET_MY_STATUS_MESSAGE } from "@/actions/dispatch";
+import { GET_KNOWN_PORT_LIST, GET_MY_STATUS_MESSAGE } from "@/actions/dispatch";
 import { CaptainsLogPanel } from "@/components/CaptainsLogPanel";
 import { CoursePlotPanel } from "@/components/CoursePlotPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { useGameContext } from "@/hooks/useGameContext";
+import { useMessageNotificationSound } from "@/hooks/useMessageNotificationSound";
 import MiniMap from "@/hud/MiniMap";
 import useGameStore from "@/stores/game";
 import type { Story } from "@ladle/react";
@@ -15,6 +16,8 @@ export const Init: Story = () => {
   const sector = useGameStore((state) => state.sector);
   const localMapData = useGameStore((state) => state.local_map_data);
   const messages = useGameStore.use.messages();
+
+  useMessageNotificationSound();
 
   const { dispatchEvent, sendUserTextInput } = useGameContext();
 
@@ -42,6 +45,9 @@ export const Init: Story = () => {
 
         <Button onClick={() => dispatchEvent(GET_MY_STATUS_MESSAGE)}>
           Get My Status
+        </Button>
+        <Button onClick={() => dispatchEvent(GET_KNOWN_PORT_LIST)}>
+          Get Known Port List
         </Button>
       </div>
       <div className="story-card">

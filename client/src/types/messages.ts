@@ -90,3 +90,10 @@ export interface CharacterMovedMessage extends ServerMessagePayload {
   movement?: "depart" | "arrive";
   player_type?: "npc" | "human";
 }
+
+export interface KnownPortListMessage extends ServerMessagePayload {
+  from_sector: number;
+  ports: Port[];
+  total_ports_found: number;
+  searched_sectors: number;
+}

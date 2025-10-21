@@ -339,9 +339,11 @@ export function GameProvider({ children }: GameProviderProps) {
               break;
             }
 
-            case "port.list": {
+            case "ports.list": {
               console.debug("[GAME EVENT] Port list", gameEvent.payload);
-              // @TODO: implement
+              // @TODO: implement - waiting on shape of event to align to schema
+              //const data = gameEvent.payload as KnownPortListMessage;
+              //gameStore.setKnownPorts(data.ports);
               break;
             }
 
