@@ -35,6 +35,7 @@ export interface GameState {
   ship: ShipSelf;
   sector?: Sector;
   local_map_data?: MapData;
+  course_plot?: CoursePlot;
 
   /* Singleton Instances */
   starfieldInstance?: GalaxyStarfield;
@@ -53,6 +54,8 @@ export interface GameSlice extends GameState {
   setSectorBuffer: (sector: Sector) => void;
   setShip: (ship: Partial<ShipSelf>) => void;
   setLocalMapData: (localMapData: MapData) => void;
+  setCoursePlot: (coursePlot: CoursePlot) => void;
+  clearCoursePlot: () => void;
   setStarfieldInstance: (
     starfieldInstance: GalaxyStarfield | undefined
   ) => void;
@@ -71,7 +74,8 @@ const createGameSlice: StateCreator<
   player: {} as PlayerSelf,
   ship: {} as ShipSelf,
   sector: undefined,
-  local_map_data: undefined, // TODO: Move to slice
+  local_map_data: undefined, // @TODO: move to map slice
+  course_plot: undefined, // @TODO: move to map slice
   starfieldInstance: undefined,
   diamondFXInstance: undefined,
   gameState: "not_ready",
@@ -108,6 +112,20 @@ const createGameSlice: StateCreator<
         } else {
           state.ship = ship as Ship;
         }
+      })
+    ),
+
+  setCoursePlot: (coursePlot: CoursePlot) =>
+    set(
+      produce((state) => {
+        state.course_plot = coursePlot;
+      })
+    ),
+
+  clearCoursePlot: () =>
+    set(
+      produce((state) => {
+        state.course_plot = undefined;
       })
     ),
 

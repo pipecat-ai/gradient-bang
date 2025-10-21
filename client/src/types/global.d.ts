@@ -117,6 +117,13 @@ declare global {
     hyperlane?: boolean;
   }
 
+  interface CoursePlot {
+    from_sector: number;
+    to_sector: number;
+    path: number[];
+    distance: number;
+  }
+
   // --- HISTORY
 
   interface MovementHistory {

@@ -39,6 +39,13 @@ export interface MapLocalMessage extends ServerMessagePayload {
   total_visited: number;
 }
 
+export interface CoursePlotMessage extends ServerMessagePayload {
+  from_sector: number;
+  to_sector: number;
+  path: number[];
+  distance: number;
+}
+
 export interface WarpPurchaseMessage extends ServerMessagePayload {
   character_id: string;
   sector: Sector;

@@ -8,6 +8,7 @@ import { type StarfieldSceneConfig } from "@fx/starfield";
 import useGameStore from "@stores/game";
 
 import {
+  type CoursePlotMessage,
   type MapLocalMessage,
   type MovementCompleteMessage,
   type MovementStartMessage,
@@ -212,15 +213,32 @@ export function GameProvider({ children }: GameProviderProps) {
               }
 
               gameStore.setUIState("idle");
+
+              // Cleanup
+              // Remove any course plot data
+
+              // @TODO: this should not clear until we reach intended destination
+              // Problem: if we deviate or go elsewhere, or get stuck enroute, plot
+              // will not clear.  We probably need to link this to a task completion
+              gameStore.clearCoursePlot();
+              break;
+            }
+
+            case "course.plot": {
+              console.debug("[GAME EVENT] Course plot", gameEvent.payload);
+              const data = gameEvent.payload as CoursePlotMessage;
+
+              gameStore.setCoursePlot(data);
               break;
             }
 
             // ----- MAP
+
             case "map.region":
             case "map.local": {
               console.debug("[GAME EVENT] Local map data", gameEvent.payload);
 
-              // Compare with current map data to "discover" a newly visited sector
+              // Compare new and current map data to "discover" and newly visited sector
               // @TODO: better handled by game-server, so placeholder for now
               const newSectors = checkForNewSectors(
                 gameStore.local_map_data ?? null,
@@ -265,9 +283,12 @@ export function GameProvider({ children }: GameProviderProps) {
             case "warp.transfer": {
               console.debug("[GAME EVENT] Warp transfer", gameEvent.payload);
               const data = gameEvent.payload as WarpTransferMessage;
-              console.debug("[GAME EVENT] Warp transfer data", data);
-              // @noop
-              // status.update dispatched immediately after the warp transfer
+              // @TODO: implement (needs test case)
+
+              gameStore.addActivityLogEntry({
+                type: "warp.transfer",
+                message: `Transferred ${data.units} warp units to ${data.to_character_id}`,
+              });
               break;
             }
             // ----- COMBAT

@@ -1,4 +1,5 @@
 import { CaptainsLogPanel } from "@/components/CaptainsLogPanel";
+import { CoursePlotPanel } from "@/components/CoursePlotPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { useGameContext } from "@/hooks/useGameContext";
 import MiniMap from "@/hud/MiniMap";
@@ -79,6 +80,8 @@ export const Init: Story = () => {
               maxDistance={3}
             />
           )}
+          <Divider />
+          <CoursePlotPanel />
         </div>
 
         <div className="story-card bg-card">
