@@ -12,6 +12,7 @@ import {
   type MapLocalMessage,
   type MovementCompleteMessage,
   type MovementStartMessage,
+  type PortUpdateMessage,
   type ServerMessage,
   type StatusMessage,
   type WarpPurchaseMessage,
@@ -170,6 +171,15 @@ export function GameProvider({ children }: GameProviderProps) {
               break;
             }
 
+            // ----- CHARACTERS / NPCS
+            case "character.moved": {
+              console.debug("[GAME EVENT] Character moved", gameEvent.payload);
+              //const data = gameEvent.payload as CharacterMovedMessage;
+              // Update sector contents with new player
+
+              break;
+            }
+
             // ----- MOVEMENT
             case "movement.start": {
               console.debug("[GAME EVENT] Move started", gameEvent.payload);
@@ -215,12 +225,29 @@ export function GameProvider({ children }: GameProviderProps) {
               gameStore.setUIState("idle");
 
               // Cleanup
-              // Remove any course plot data
 
-              // @TODO: this should not clear until we reach intended destination
-              // Problem: if we deviate or go elsewhere, or get stuck enroute, plot
-              // will not clear.  We probably need to link this to a task completion
-              gameStore.clearCoursePlot();
+              // Remove any course plot data if we've reached out intended destination
+              // @TODO: make this logic robust (plots should become stale after a certain time)
+              if (
+                gameStore.course_plot?.to_sector === gameStore.sectorBuffer?.id
+              ) {
+                console.debug(
+                  "[GAME EVENT] Reached intended destination, clearing course plot"
+                );
+                gameStore.clearCoursePlot();
+              }
+              // Remove active course plot if we've gone to a sector outside of the plot
+              if (
+                gameStore.sectorBuffer?.id &&
+                !gameStore.course_plot?.path.includes(
+                  gameStore.sectorBuffer?.id ?? 0
+                )
+              ) {
+                console.debug(
+                  "[GAME EVENT] Went to a sector outside of the plot, clearing course plot"
+                );
+                gameStore.clearCoursePlot();
+              }
               break;
             }
 
@@ -266,6 +293,18 @@ export function GameProvider({ children }: GameProviderProps) {
             }
 
             // ----- TRADING & COMMERCE
+            case "port.update": {
+              console.debug("[GAME EVENT] Port update", gameEvent.payload);
+              const data = gameEvent.payload as PortUpdateMessage;
+
+              // If update is for current sector, update port payload
+              if (data.sector.id === gameStore.sector?.id) {
+                gameStore.setSectorPort(data.sector.id, data.port);
+              }
+
+              break;
+            }
+
             case "warp.purchase": {
               console.debug("[GAME EVENT] Warp purchase", gameEvent.payload);
               const data = gameEvent.payload as WarpPurchaseMessage;

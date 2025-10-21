@@ -67,3 +67,16 @@ export interface WarpTransferMessage extends ServerMessagePayload {
   from_warp_power_remaining: number;
   to_warp_power_current: number;
 }
+
+export interface PortUpdateMessage extends ServerMessagePayload {
+  sector: Sector;
+  port: Port;
+}
+
+export interface CharacterMovedMessage extends ServerMessagePayload {
+  name: string;
+  ship_type: string;
+  timestamp: string;
+  move_type: string;
+  movement?: "depart" | "arrive";
+}

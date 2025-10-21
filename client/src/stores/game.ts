@@ -51,6 +51,7 @@ export interface GameState {
 export interface GameSlice extends GameState {
   setState: (newState: Partial<GameState>) => void;
   setSector: (sector: Sector) => void;
+  setSectorPort: (sectorId: number, port: Port) => void;
   setSectorBuffer: (sector: Sector) => void;
   setShip: (ship: Partial<ShipSelf>) => void;
   setLocalMapData: (localMapData: MapData) => void;
@@ -87,6 +88,15 @@ const createGameSlice: StateCreator<
     set(
       produce((state) => {
         state.sector = sector;
+      })
+    ),
+
+  setSectorPort: (sectorId: number, port: Port) =>
+    set(
+      produce((state) => {
+        if (state.sector?.id === sectorId) {
+          state.sector.port = port;
+        }
       })
     ),
 
