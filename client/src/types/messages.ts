@@ -15,6 +15,11 @@ export interface ServerMessagePayload {
   [key: string]: unknown;
 }
 
+export interface ErrorMessage extends ServerMessagePayload {
+  error: string;
+  endpoint?: string;
+}
+
 export interface StatusMessage extends ServerMessagePayload {
   player: PlayerSelf;
   ship: ShipSelf;

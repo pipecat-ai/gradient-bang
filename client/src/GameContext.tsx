@@ -10,6 +10,7 @@ import useGameStore from "@stores/game";
 import {
   type CharacterMovedMessage,
   type CoursePlotMessage,
+  type ErrorMessage,
   type MapLocalMessage,
   type MovementCompleteMessage,
   type MovementStartMessage,
@@ -360,11 +361,17 @@ export function GameProvider({ children }: GameProviderProps) {
             case "warp.transfer": {
               console.debug("[GAME EVENT] Warp transfer", gameEvent.payload);
               const data = gameEvent.payload as WarpTransferMessage;
-              // @TODO: implement (needs test case)
+
+              let message = "";
+              if (data.from_character_id === gameStore.player?.id) {
+                message = `Transferred ${data.units} warp units to ${data.to_character_id}`;
+              } else {
+                message = `Received ${data.units} warp units from ${data.from_character_id}`;
+              }
 
               gameStore.addActivityLogEntry({
                 type: "warp.transfer",
-                message: `Transferred ${data.units} warp units to ${data.to_character_id}`,
+                message: message,
               });
               break;
             }
@@ -374,8 +381,16 @@ export function GameProvider({ children }: GameProviderProps) {
 
             case "error": {
               console.debug("[GAME EVENT] Error", gameEvent.payload);
-              // @TODO: properly handle errors, for now, we just bail out of everything
-              gameStore.setGameState("error");
+              const data = gameEvent.payload as ErrorMessage;
+
+              // @TODO: keep tabs on errors in separate store
+
+              gameStore.addActivityLogEntry({
+                type: "error",
+                message: `Ship Protocol Failure: ${
+                  data.endpoint ?? "Unknown"
+                } - ${data.error}`,
+              });
               break;
             }
 

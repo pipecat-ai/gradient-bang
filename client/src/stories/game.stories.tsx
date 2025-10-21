@@ -1,3 +1,4 @@
+import { GET_MY_STATUS_MESSAGE } from "@/actions/dispatch";
 import { CaptainsLogPanel } from "@/components/CaptainsLogPanel";
 import { CoursePlotPanel } from "@/components/CoursePlotPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
@@ -5,14 +6,14 @@ import { useGameContext } from "@/hooks/useGameContext";
 import MiniMap from "@/hud/MiniMap";
 import useGameStore from "@/stores/game";
 import type { Story } from "@ladle/react";
-import { Divider, TextInput } from "@pipecat-ai/voice-ui-kit";
+import { Button, Divider, TextInput } from "@pipecat-ai/voice-ui-kit";
 
 export const Init: Story = () => {
   const player = useGameStore((state) => state.player);
   const ship = useGameStore((state) => state.ship);
   const sector = useGameStore((state) => state.sector);
   const localMapData = useGameStore((state) => state.local_map_data);
-  const { sendUserTextInput } = useGameContext();
+  const { dispatchEvent, sendUserTextInput } = useGameContext();
 
   return (
     <>
@@ -25,6 +26,11 @@ export const Init: Story = () => {
             sendUserTextInput?.(text);
           }}
         />
+        <Divider />
+
+        <Button onClick={() => dispatchEvent(GET_MY_STATUS_MESSAGE)}>
+          Get My Status
+        </Button>
       </div>
       <div className="story-card">
         <h3 className="story-heading">Player:</h3>
