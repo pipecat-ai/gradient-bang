@@ -20,6 +20,10 @@ export interface ErrorMessage extends ServerMessagePayload {
   endpoint?: string;
 }
 
+export interface IncomingChatMessage
+  extends ServerMessagePayload,
+    ChatMessage {}
+
 export interface StatusMessage extends ServerMessagePayload {
   player: PlayerSelf;
   ship: ShipSelf;

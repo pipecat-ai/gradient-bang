@@ -11,6 +11,7 @@ import {
   type CharacterMovedMessage,
   type CoursePlotMessage,
   type ErrorMessage,
+  type IncomingChatMessage,
   type MapLocalMessage,
   type MovementCompleteMessage,
   type MovementStartMessage,
@@ -377,7 +378,16 @@ export function GameProvider({ children }: GameProviderProps) {
             }
             // ----- COMBAT
 
-            // ----- Misc
+            // ----- MISC
+
+            case "chat.message": {
+              console.debug("[GAME EVENT] Chat message", gameEvent.payload);
+              const data = gameEvent.payload as IncomingChatMessage;
+
+              gameStore.addMessage(data);
+              gameStore.setNotifications({ newChatMessage: true });
+              break;
+            }
 
             case "error": {
               console.debug("[GAME EVENT] Error", gameEvent.payload);

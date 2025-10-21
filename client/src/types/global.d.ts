@@ -139,7 +139,7 @@ declare global {
   type UIScreen = "self" | "messaging" | "trading" | "map" | "tasks" | "combat";
   type UIModal = "settings" | undefined;
 
-  // --- ACTIVITY
+  // --- MISC
 
   interface LogEntry {
     type: string;
@@ -147,6 +147,15 @@ declare global {
 
     timestamp?: string; // Note: set by the store
     meta?: Record<string, unknown>; // Note: set by the store
+  }
+
+  interface ChatMessage {
+    id: number;
+    type: "direct" | "broadcast";
+    from_name: string;
+    content: string;
+    to_name?: string;
+    timestamp: string;
   }
 }
 

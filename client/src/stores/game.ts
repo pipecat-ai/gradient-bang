@@ -36,6 +36,7 @@ export interface GameState {
   sector?: Sector;
   local_map_data?: MapData;
   course_plot?: CoursePlot;
+  messages: ChatMessage[];
 
   /* Singleton Instances */
   starfieldInstance?: GalaxyStarfield;
@@ -50,6 +51,7 @@ export interface GameState {
 
 export interface GameSlice extends GameState {
   setState: (newState: Partial<GameState>) => void;
+  addMessage: (message: ChatMessage) => void;
   setSector: (sector: Sector) => void;
   setSectorPort: (sectorId: number, port: Port) => void;
   addSectorPlayer: (player: Player) => void;
@@ -81,12 +83,23 @@ const createGameSlice: StateCreator<
   sector: undefined,
   local_map_data: undefined, // @TODO: move to map slice
   course_plot: undefined, // @TODO: move to map slice
+  messages: [],
+
   starfieldInstance: undefined,
   diamondFXInstance: undefined,
   gameState: "not_ready",
 
   setState: (newState: Partial<GameState>) =>
     set({ ...get(), ...newState }, true),
+
+  addMessage: (message: ChatMessage) =>
+    set(
+      produce((state) => {
+        state.messages.push({
+          ...message,
+        });
+      })
+    ),
 
   setSector: (sector: Sector) =>
     set(

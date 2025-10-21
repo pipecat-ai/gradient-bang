@@ -7,13 +7,25 @@ import MiniMap from "@/hud/MiniMap";
 import useGameStore from "@/stores/game";
 import type { Story } from "@ladle/react";
 import { Button, Divider, TextInput } from "@pipecat-ai/voice-ui-kit";
+import { useMemo } from "react";
 
 export const Init: Story = () => {
   const player = useGameStore((state) => state.player);
   const ship = useGameStore((state) => state.ship);
   const sector = useGameStore((state) => state.sector);
   const localMapData = useGameStore((state) => state.local_map_data);
+  const messages = useGameStore.use.messages();
+
   const { dispatchEvent, sendUserTextInput } = useGameContext();
+
+  // Filter in the component
+  const directMessages = useMemo(
+    () =>
+      messages
+        .filter((message) => message.type === "direct")
+        .sort((a, b) => a.timestamp.localeCompare(b.timestamp)),
+    [messages]
+  );
 
   return (
     <>
@@ -94,6 +106,13 @@ export const Init: Story = () => {
         <div className="story-card bg-card">
           <h3 className="story-heading">Activity Log:</h3>
           <CaptainsLogPanel />
+        </div>
+
+        <div className="story-card bg-card">
+          <h3 className="story-heading">Chat messages:</h3>
+          {directMessages.map((message) => (
+            <div key={message.id}>{JSON.stringify(message)}</div>
+          ))}
         </div>
       </div>
     </>
