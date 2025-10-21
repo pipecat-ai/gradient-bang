@@ -19,26 +19,14 @@ export class ShadowManager {
   private _planetTransformDirty: boolean;
   private _config: GalaxyStarfieldConfig | null;
 
-  constructor(
-    uniformManager: UniformManager,
-    initialConfig?: GalaxyStarfieldConfig
-  ) {
-    console.debug(
-      "[STARFIELD] ShadowManager] Constructor called with config:",
-      initialConfig
-    );
-
+  constructor(uniformManager: UniformManager) {
     this._uniformManager = uniformManager;
     this._shadowCenter = { x: 0.5, y: 0.5 };
     this._shadowCenterInitialized = false;
     this._planetGroup = null;
     this._planetRandomOffset = null;
     this._planetTransformDirty = false;
-    this._config = initialConfig || null;
-
-    console.debug(
-      "[STARFIELD] ShadowManager] Config stored, will apply when materials are ready"
-    );
+    this._config = null;
   }
 
   /**

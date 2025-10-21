@@ -1,17 +1,24 @@
 import { AutoPilot } from "@/components/AutoPilot";
-import { StarField } from "@/components/StarField";
 import { Settings } from "@/dialogs/Settings";
 import { usePlaySound } from "@/hooks/usePlaySound";
+import { ShipVisor } from "@/hud/ShipVisor";
+import useGameStore from "@/stores/game";
+
 import { ShipHUD } from "@hud/ShipHUD";
+import { StarField } from "@hud/StarField";
 import { TopBar } from "@hud/TopBar";
+
 import { useEffect } from "react";
 
 export const Game = () => {
   const playSound = usePlaySound();
+  const gameState = useGameStore.use.gameState();
 
   useEffect(() => {
-    playSound("ambience", { loop: true, once: true });
-  }, [playSound]);
+    if (gameState === "ready") {
+      playSound("ambience", { loop: true, once: true });
+    }
+  }, [playSound, gameState]);
 
   return (
     <>
@@ -29,6 +36,7 @@ export const Game = () => {
       </div>
 
       {/* Other Renderables */}
+      <ShipVisor />
       <StarField />
       <Settings />
     </>

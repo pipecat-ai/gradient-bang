@@ -1,3 +1,42 @@
+from pipecat.utils.time import time_now_iso8601
+from pipecat.runner.utils import create_transport
+from pipecat.runner.types import RunnerArguments
+from pipecat.transports.daily.transport import DailyParams
+from pipecat.transports.base_transport import TransportParams
+from pipecat.services.google.llm import GoogleLLMService
+from pipecat.services.deepgram.stt import DeepgramSTTService
+from pipecat.processors.frame_processor import FrameProcessor, FrameDirection
+from pipecat.processors.frameworks.rtvi import (
+    RTVIConfig,
+    RTVIObserver,
+    RTVIProcessor,
+    RTVIServerMessageFrame,
+)
+from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.runner import PipelineRunner
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.frames.frames import (
+    Frame,
+    LLMContextFrame,
+    InterruptionFrame,
+    LLMMessagesAppendFrame,
+    UserStartedSpeakingFrame,
+    UserStoppedSpeakingFrame,
+    TranscriptionFrame,
+    StartFrame,
+    StopFrame,
+    LLMRunFrame,
+)
+from pipecat.services.cartesia.tts import CartesiaTTSService
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContextAggregatorPair,
+)
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
+from pipecat.audio.vad.vad_analyzer import VADParams
+from loguru import logger
+from dotenv import load_dotenv
 import asyncio
 import os
 import sys
@@ -12,48 +51,6 @@ if _THIS_DIR not in sys.path:
     sys.path.insert(0, _THIS_DIR)
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
-
-from dotenv import load_dotenv
-from loguru import logger
-
-from pipecat.audio.vad.vad_analyzer import VADParams
-from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
-from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
-from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.processors.aggregators.llm_response_universal import (
-    LLMContextAggregatorPair,
-)
-from pipecat.services.cartesia.tts import CartesiaTTSService
-from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import (
-    Frame,
-    LLMContextFrame,
-    InterruptionFrame,
-    LLMMessagesAppendFrame,
-    UserStartedSpeakingFrame,
-    UserStoppedSpeakingFrame,
-    TranscriptionFrame,
-    StartFrame,
-    StopFrame,
-    LLMRunFrame,
-)
-from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.frameworks.rtvi import (
-    RTVIConfig,
-    RTVIObserver,
-    RTVIProcessor,
-    RTVIServerMessageFrame,
-)
-from pipecat.processors.frame_processor import FrameProcessor, FrameDirection
-from pipecat.services.deepgram.stt import DeepgramSTTService
-from pipecat.services.google.llm import GoogleLLMService
-from pipecat.transports.base_transport import TransportParams
-from pipecat.runner.types import RunnerArguments
-from pipecat.runner.utils import create_transport
-from pipecat.utils.time import time_now_iso8601
 
 from utils.prompts import GAME_DESCRIPTION, CHAT_INSTRUCTIONS, VOICE_INSTRUCTIONS
 
@@ -101,7 +98,7 @@ def create_chat_system_prompt() -> str:
 """
 
 
-async def run_bot(transport, runner_args: RunnerArguments):
+async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     """Main bot function that creates and runs the pipeline."""
     # Create RTVI processor with config
     rtvi = RTVIProcessor(config=RTVIConfig(config=[]))
@@ -263,7 +260,8 @@ async def run_bot(transport, runner_args: RunnerArguments):
         await rtvi.set_bot_ready()
 
         # Kick off the conversation
-        await task.queue_frames([LLMRunFrame()])
+        if runner_args.body.get("start_on_join", True):
+            await task.queue_frames([LLMRunFrame()])
 
     @rtvi.event_handler("on_client_message")
     async def on_client_message(rtvi, message):
@@ -273,6 +271,11 @@ async def run_bot(transport, runner_args: RunnerArguments):
         # Extract message type and data from RTVIClientMessage object
         msg_type = message.type
         msg_data = message.data if hasattr(message, "data") else {}
+
+        # Start (for web client)
+        if msg_type == "start":
+            await task.queue_frames([LLMRunFrame()])
+            return
 
         # Mute / unmute control
         if msg_type == "mute-unmute":
@@ -433,7 +436,7 @@ async def run_bot(transport, runner_args: RunnerArguments):
         logger.exception(f"Pipeline runner error: {e}")
 
 
-async def bot(runner_args: RunnerArguments):
+async def bot(runner_args):
     """Main bot entry point compatible with standard bot starters, including Pipecat Cloud."""
 
     transport_params = {

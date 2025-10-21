@@ -1,50 +1,29 @@
 import { RTVIEvent } from "@pipecat-ai/client-js";
 import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react";
-import useGameStore from "@stores/game";
 import { useCallback, type ReactNode } from "react";
 
-import { startMoveToSector } from "@/actions";
+import { checkForNewSectors, startMoveToSector } from "@/actions";
 import { GameContext } from "@/hooks/useGameContext";
+import { type StarfieldSceneConfig } from "@fx/starfield";
+import useGameStore from "@stores/game";
 
-/**
- * Server message interfaces
- */
-interface ServerMessage {
-  event: string;
-  payload: unknown;
-
-  summary?: string;
-  tool_name?: string;
-}
-
-interface StatusMessage {
-  player: PlayerSelf;
-  ship: ShipSelf;
-  sector: Sector;
-}
-
-interface MovementStartMessage {
-  sector: Sector;
-  hyperspace_time: number;
-}
-
-interface MovementCompleteMessage {
-  ship: ShipSelf;
-  player: PlayerSelf;
-}
-
-interface MapLocalMessage {
-  sectors: MapData;
-  center_sector: number;
-  total_sectors: number;
-  total_unvisited: number;
-  total_visited: number;
-}
+import {
+  type CoursePlotMessage,
+  type MapLocalMessage,
+  type MovementCompleteMessage,
+  type MovementStartMessage,
+  type PortUpdateMessage,
+  type ServerMessage,
+  type StatusMessage,
+  type WarpPurchaseMessage,
+  type WarpTransferMessage,
+} from "@/types/messages";
 
 interface GameProviderProps {
   children: ReactNode;
 }
 
+//@TODO: remove this method once game server changes
 const transformMessage = (e: ServerMessage): ServerMessage | undefined => {
   if (
     ["tool_result", "tool_call", "task_output", "task_complete"].includes(
@@ -66,6 +45,9 @@ export function GameProvider({ children }: GameProviderProps) {
   const gameStore = useGameStore();
   const client = usePipecatClient();
 
+  /**
+   * Send user text input to server
+   */
   const sendUserTextInput = useCallback(
     (text: string) => {
       if (!client) {
@@ -84,6 +66,9 @@ export function GameProvider({ children }: GameProviderProps) {
     [client]
   );
 
+  /**
+   * Dispatch game event to server
+   */
   const dispatchEvent = useCallback(
     (e: { type: string; payload?: unknown }) => {
       if (!client) {
@@ -102,6 +87,44 @@ export function GameProvider({ children }: GameProviderProps) {
     [client]
   );
 
+  /**
+   * Initialization method
+   */
+  const initialize = useCallback(async () => {
+    const state = useGameStore.getState();
+
+    state.setGameState("initializing");
+
+    console.debug("[GAME CONTEXT] Initializing");
+
+    // Initialize starfield and await readiness
+    if (gameStore.settings.renderStarfield) {
+      try {
+        await gameStore.starfieldInstance?.initializeScene({
+          id: state.sector?.id.toString() ?? undefined,
+          sceneConfig: state.sector?.scene_config as StarfieldSceneConfig,
+        });
+      } catch (e) {
+        console.error("[GAME CONTEXT] Error initializing starfield", e);
+      }
+    }
+
+    // Initialize minimap and await readiness
+    // @TODO: implement
+
+    // Give a little bit of air for FX components to settle
+    await setTimeout(() => {}, 1000);
+
+    // Set ready to true
+    gameStore.setGameState("ready");
+
+    // Dispatch start event to initialize bot conversation
+    dispatchEvent({ type: "start" });
+  }, [gameStore, dispatchEvent]);
+
+  /**
+   * Handle server message
+   */
   useRTVIClientEvent(
     RTVIEvent.ServerMessage,
     useCallback(
@@ -123,7 +146,6 @@ export function GameProvider({ children }: GameProviderProps) {
               console.debug("[GAME EVENT] Status update", gameEvent.payload);
 
               const status = gameEvent.payload as StatusMessage;
-              const initalizing = gameStore.sector === undefined;
 
               // Update store
               gameStore.setState({
@@ -132,13 +154,28 @@ export function GameProvider({ children }: GameProviderProps) {
                 sector: status.sector,
               });
 
-              // Initialize the StarField
-              if (initalizing) {
-                startMoveToSector(status.sector, {
-                  bypassAnimation: true,
-                  bypassFlash: true,
+              // Initialize game client if this is the first status update
+
+              // Note: the client determines its own readiness state. We can
+              // refer to source.method === "join" too, but better that client
+              // is source of truth for it's current game state.
+              if (gameStore.gameState === "not_ready") {
+                initialize();
+
+                gameStore.addActivityLogEntry({
+                  type: "join",
+                  message: "Joined the game",
                 });
               }
+
+              break;
+            }
+
+            // ----- CHARACTERS / NPCS
+            case "character.moved": {
+              console.debug("[GAME EVENT] Character moved", gameEvent.payload);
+              //const data = gameEvent.payload as CharacterMovedMessage;
+              // Update sector contents with new player
 
               break;
             }
@@ -171,25 +208,129 @@ export function GameProvider({ children }: GameProviderProps) {
                 port: !!gameStore.sectorBuffer?.port,
               });
 
+              // Update activity log
+              // @TODO: optimize but having movement history and activity log index same data
+              gameStore.addActivityLogEntry({
+                type: "movement",
+                message: `Moved from sector ${gameStore.sector?.id} to sector ${gameStore.sectorBuffer?.id}`,
+              });
+              // If this is our first time here, update log with discovery
+
               // Swap in the buffered sector
-              // Note: Starfield instance should already be in sync
+              // Note: Starfield instance already in sync through animation sequencing
               if (gameStore.sectorBuffer) {
                 gameStore.setSector(gameStore.sectorBuffer as Sector);
               }
 
               gameStore.setUIState("idle");
+
+              // Cleanup
+
+              // Remove any course plot data if we've reached out intended destination
+              // @TODO: make this logic robust (plots should become stale after a certain time)
+              if (
+                gameStore.course_plot?.to_sector === gameStore.sectorBuffer?.id
+              ) {
+                console.debug(
+                  "[GAME EVENT] Reached intended destination, clearing course plot"
+                );
+                gameStore.clearCoursePlot();
+              }
+              // Remove active course plot if we've gone to a sector outside of the plot
+              if (
+                gameStore.sectorBuffer?.id &&
+                !gameStore.course_plot?.path.includes(
+                  gameStore.sectorBuffer?.id ?? 0
+                )
+              ) {
+                console.debug(
+                  "[GAME EVENT] Went to a sector outside of the plot, clearing course plot"
+                );
+                gameStore.clearCoursePlot();
+              }
               break;
             }
 
+            case "course.plot": {
+              console.debug("[GAME EVENT] Course plot", gameEvent.payload);
+              const data = gameEvent.payload as CoursePlotMessage;
+
+              gameStore.setCoursePlot(data);
+              break;
+            }
+
+            // ----- MAP
+
+            case "map.region":
             case "map.local": {
               console.debug("[GAME EVENT] Local map data", gameEvent.payload);
-              // For now, we only store the map data
-              // @TODO: implement proper slice
+
+              // Compare new and current map data to "discover" and newly visited sector
+              // @TODO: better handled by game-server, so placeholder for now
+              const newSectors = checkForNewSectors(
+                gameStore.local_map_data ?? null,
+                (gameEvent.payload as MapLocalMessage).sectors
+              );
+
+              if (newSectors.length > 0) {
+                console.log(
+                  `[GAME EVENT] Discovered ${newSectors.length} new sectors!`,
+                  newSectors
+                );
+
+                newSectors.forEach((sector) => {
+                  gameStore.addActivityLogEntry({
+                    type: "map.sector.discovered",
+                    message: `Discovered sector ${sector.id}`,
+                  });
+                });
+              }
+
               gameStore.setLocalMapData(
                 (gameEvent.payload as MapLocalMessage).sectors
               );
               break;
             }
+
+            // ----- TRADING & COMMERCE
+            case "port.update": {
+              console.debug("[GAME EVENT] Port update", gameEvent.payload);
+              const data = gameEvent.payload as PortUpdateMessage;
+
+              // If update is for current sector, update port payload
+              if (data.sector.id === gameStore.sector?.id) {
+                gameStore.setSectorPort(data.sector.id, data.port);
+              }
+
+              break;
+            }
+
+            case "warp.purchase": {
+              console.debug("[GAME EVENT] Warp purchase", gameEvent.payload);
+              const data = gameEvent.payload as WarpPurchaseMessage;
+
+              // Largely a noop as status.update is dispatched immediately after
+              // warp purchase. We just update activity log here for now.
+
+              gameStore.addActivityLogEntry({
+                type: "warp.purchase",
+                message: `Purchased ${data.units} warp units for ${data.price} credits`,
+              });
+              break;
+            }
+
+            case "warp.transfer": {
+              console.debug("[GAME EVENT] Warp transfer", gameEvent.payload);
+              const data = gameEvent.payload as WarpTransferMessage;
+              // @TODO: implement (needs test case)
+
+              gameStore.addActivityLogEntry({
+                type: "warp.transfer",
+                message: `Transferred ${data.units} warp units to ${data.to_character_id}`,
+              });
+              break;
+            }
+            // ----- COMBAT
 
             // ----- UNHANDLED :(
             default:
@@ -211,7 +352,7 @@ export function GameProvider({ children }: GameProviderProps) {
           }*/
         }
       },
-      [gameStore]
+      [gameStore, initialize]
     )
   );
 

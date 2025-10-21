@@ -1,11 +1,4 @@
 declare global {
-  interface ServerMessage {
-    event: string;
-    payload: unknown;
-    summary?: string;
-    tool_name?: string;
-  }
-
   // --- PLAYER
   interface PlayerBase {
     created_at: string;
@@ -25,7 +18,7 @@ declare global {
   }
 
   // --- RESOURCE
-  type Resource = "NS" | "QF" | "RO";
+  type Resource = "neuro_symbolics" | "quantum_foam" | "retro_organics";
   type ResourceList = Resource[];
 
   // --- SHIP
@@ -124,6 +117,13 @@ declare global {
     hyperlane?: boolean;
   }
 
+  interface CoursePlot {
+    from_sector: number;
+    to_sector: number;
+    path: number[];
+    distance: number;
+  }
+
   // --- HISTORY
 
   interface MovementHistory {
@@ -137,6 +137,16 @@ declare global {
   type UIState = "idle" | "moving" | "autopilot" | "combat" | "paused";
   type UIScreen = "self" | "messaging" | "trading" | "map" | "tasks" | "combat";
   type UIModal = "settings" | undefined;
+
+  // --- ACTIVITY
+
+  interface LogEntry {
+    type: string;
+    message: string;
+
+    timestamp?: string; // Note: set by the store
+    meta?: Record<string, unknown>; // Note: set by the store
+  }
 }
 
 export {};

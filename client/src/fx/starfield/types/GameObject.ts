@@ -22,6 +22,7 @@ export interface GameObjectBaseConfig {
   id: string;
   type: string;
   name?: string;
+  position?: { x: number; y: number; z: number };
   metadata?: Record<string, unknown>;
 }
 

@@ -1,36 +1,84 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@import "@pipecat-ai/voice-ui-kit/styles";
-
 @font-face {
   font-family: "TX-02";
   src: url("/fonts/tx-02.woff2") format("woff2");
   font-display: swap;
 }
 
-@theme {
-  --spacing-panel: calc(var(--spacing) * 2);
-  --height-ui: 460px;
-  --hud-center: 330px;
-  --width-ui: 400px;
+:root {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.145 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.145 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: var(--color-neutral-800);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.396 0.141 25.723);
+  --destructive-foreground: oklch(0.637 0.237 25.331);
+  --border: var(--color-neutral-600);
+  --input: oklch(0.269 0 0);
+  --ring: oklch(0.439 0 0);
 
-  --color-active: var(--color-active);
-  --color-subtle: var(--color-subtle);
+  --grid-opacity: 0.25;
+  --screen-bg-feather: 18px;
+  --hud-center: 330px;
+
+  --elbow-size: 1rem;
+  --elbow-offset: 5px;
+  --elbow-width: 2px;
+  --elbow-opacity: 1;
+  --elbow-color: white;
+
+  --z-starfield: 1;
+  --z-visor: 2;
+  --z-hud: 3;
 }
 
-:root {
+@theme inline {
   --font-sans: "TX-02", sans-serif;
   --font-mono: "TX-02", sans-serif;
 
-  --color-border: oklch(1 0 0 / 20%);
-  --radius-element: 0px;
-  --color-agent: oklch(86.5% 0.127 207.078);
-  --color-client: oklch(87.1% 0.15 154.449);
-  --radius-base: 0;
+  /** Colors **/
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
 
-  --grid-opacity: 0.25;
+  /** UI **/
+  --spacing-panel: calc(var(--spacing) * 2);
+  --height-ui: 460px;
+  --width-ui: 400px;
+
+  --color-screen-background: rgba(0, 0, 0, 0.5);
+  --color-screen-foreground: rgba(255, 255, 255, 1);
 }
+
+@import "./components.css";
+@import "./utilities.css";
 
 html,
 body {
@@ -49,9 +97,17 @@ body {
   position: fixed;
 }
 
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
 #root {
   position: relative;
-  height: 100vh;
 }
 
 /** @TODO REPLACE WITH COMPONENTS **/
@@ -521,4 +577,93 @@ button {
   color: var(--mauve-11);
   font-size: 15px;
   line-height: 1.5;
+}
+
+.screen {
+  position: relative;
+  --feather-size: var(--screen-bg-feather);
+  --border-radius: calc(var(--feather-size) / 2);
+
+  &:before {
+    content: "";
+    position: absolute;
+    inset: calc(-1 * var(--feather-size));
+    pointer-events: none;
+    border-radius: var(--border-radius);
+    background: var(--color-screen-background);
+
+    -webkit-mask-image: linear-gradient(
+        180deg,
+        transparent 0,
+        #000 var(--feather-size),
+        #000 calc(100% - var(--feather-size)),
+        transparent 100%
+      ),
+      linear-gradient(
+        90deg,
+        transparent 0,
+        #000 var(--feather-size),
+        #000 calc(100% - var(--feather-size)),
+        transparent 100%
+      );
+    -webkit-mask-composite: source-in;
+
+    mask-image: linear-gradient(
+        180deg,
+        transparent 0,
+        #000 var(--feather-size),
+        #000 calc(100% - var(--feather-size)),
+        transparent 100%
+      ),
+      linear-gradient(
+        90deg,
+        transparent 0,
+        #000 var(--feather-size),
+        #000 calc(100% - var(--feather-size)),
+        transparent 100%
+      );
+    mask-composite: intersect;
+  }
+}
+
+#visor.open {
+  &::before {
+    transform: translateY(-100%);
+    background-color: black;
+  }
+
+  &::after {
+    transform: translateY(100%);
+    background-color: black;
+  }
+}
+
+#visor {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  z-index: var(--z-visor);
+
+  &::before,
+  &::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    background: var(--color-muted);
+    transition: all 2.5s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 10;
+  }
+
+  &::before {
+    top: 0;
+    height: 50%;
+    transform: translateY(0);
+  }
+
+  &::after {
+    bottom: 0;
+    height: 50%;
+    transform: translateY(0);
+  }
 }

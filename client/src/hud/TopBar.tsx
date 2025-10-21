@@ -1,13 +1,13 @@
+import { CargoCapacityBadge } from "@/components/CargoCapacityBadge";
+import { NumericalBadge } from "@/components/NumericalBadge";
+import { DotDivider } from "@/components/primitives/DotDivider";
+import { WarpBadge } from "@/components/WarpBadge";
 import {
   CurrencyCircleDollarIcon,
   SlidersHorizontalIcon,
 } from "@phosphor-icons/react";
 import { Button } from "@pipecat-ai/voice-ui-kit";
-import { CargoCapacityBadge } from "../components/CargoCapacityBadge";
-import { NumericalBadge } from "../components/NumericalBadge";
-import { DotDivider } from "../components/primitives/DotDivider";
-import { WarpBadge } from "../components/WarpBadge";
-import useGameStore from "../stores/game";
+import useGameStore from "@stores/game";
 
 export const TopBar = () => {
   const ship = useGameStore.use.ship();
@@ -20,9 +20,15 @@ export const TopBar = () => {
         <WarpBadge />
       </div>
       <div className="flex flex-row gap-2 items-center">
-        <NumericalBadge value={ship?.cargo?.QF || 0}>QF:</NumericalBadge>
-        <NumericalBadge value={ship?.cargo?.RO || 0}>RO:</NumericalBadge>
-        <NumericalBadge value={ship?.cargo?.NS || 0}>NS:</NumericalBadge>
+        <NumericalBadge value={ship?.cargo?.quantum_foam || 0}>
+          QF:
+        </NumericalBadge>
+        <NumericalBadge value={ship?.cargo?.retro_organics || 0}>
+          RO:
+        </NumericalBadge>
+        <NumericalBadge value={ship?.cargo?.neuro_symbolics || 0}>
+          NS:
+        </NumericalBadge>
         <DotDivider />
         <CargoCapacityBadge />
       </div>

@@ -1,6 +1,5 @@
-/* eslint-disable react-refresh/only-export-components */
+import useGameStore from "@stores/game";
 import { useEffect, useRef } from "react";
-import useGameStore from "../../stores/game";
 
 /**
  * Configuration interface for DiamondFX animation
@@ -10,6 +9,10 @@ export interface DiamondFXConfig {
   half?: boolean;
   /** Line/dash color (default: 'rgba(255,255,255,0.95)') */
   lineColor?: string;
+  /** Canvas positioning mode: 'fixed' (viewport) or 'absolute' (fill parent). Default: 'fixed' */
+  position?: "fixed" | "absolute";
+  /** z-index for the canvas overlay (string or number). Default: 10 */
+  zIndex?: number | string;
   /** Starting color at corners, fades to lineColor (default: null, same as lineColor) */
   lineStartColor?: string | null;
   /** Line width in pixels, null=auto-scale (default: null) */
@@ -18,6 +21,8 @@ export interface DiamondFXConfig {
   diamondSize?: number;
   /** Number of blink cycles (default: 3) */
   blinkCount?: number;
+  /** Duration of each blink cycle in ms, overrides timings.blink if set (default: null) */
+  blinkDuration?: number | null;
   /** Final dash length in pixels (default: 16) */
   markerLen?: number;
   /** Distance dashes sit outside target corners (default: 12) */
@@ -46,9 +51,10 @@ export interface DiamondFXConfig {
     blink: number;
     spin: number;
     split: number;
+    refresh?: number; // optional override for refresh duration (defaults to split)
   };
-  /** Callback when animation finishes */
-  onComplete?: () => void;
+  /** Callback when animation finishes. exit=false for animate-in, exit=true for animate-out */
+  onComplete?: (exit: boolean) => void;
   /** Callback after each phase */
   onPhaseComplete?: (phase: string) => void;
   /** Callback when target element removed from DOM */
@@ -56,46 +62,23 @@ export interface DiamondFXConfig {
 }
 
 /**
- * Performance presets for different device capabilities
- */
-export const PERFORMANCE_PRESETS = {
-  low: {
-    maxDPR: 1.5,
-    shadowBlur: 0,
-    timings: { in: 400, morph: 120, blink: 200, spin: 700, split: 180 },
-  },
-  mid: {
-    maxDPR: 2.0,
-    shadowBlur: 0.5,
-    timings: { in: 520, morph: 180, blink: 260, spin: 900, split: 220 },
-  },
-  high: {
-    maxDPR: 2.5,
-    shadowBlur: 1.5,
-    timings: {
-      in: 600,
-      morph: 200,
-      blink: 300,
-      spin: 1000,
-      split: 250,
-    },
-  },
-} as const;
-
-/**
  * DiamondFX controller methods
  */
 export interface DiamondFXController {
   /** Start animation targeting element by ID */
-  start: (targetId: string, wait?: boolean) => void;
+  start: (targetId: string, wait?: boolean, refresh?: boolean) => void;
   /** Continue from blink phase (when started with wait=true) */
   resume: () => void;
-  /** Stop animation if playing, or fade out docked dashes */
-  clear: () => void;
+  /** Stop animation if playing, or fade out docked dashes. If animateOut=true, animates dashes back to corners */
+  clear: (animateOut?: boolean) => void;
   /** Update configuration (applies to next animation) */
   update: (config: DiamondFXConfig) => void;
   /** Clean up all observers and event listeners */
   destroy: () => void;
+  /** True when lines are docked to the current target and idle */
+  readonly isDocked: boolean;
+  /** True while any animation is active (play, refresh, fade/animate out) */
+  readonly isAnimating: boolean;
 }
 
 interface AnimatedFrameProps {
@@ -103,29 +86,40 @@ interface AnimatedFrameProps {
 }
 
 type InternalDiamondFXConfig = Required<
-  Omit<DiamondFXConfig, "lineStartColor" | "lineWidthPx">
+  Omit<DiamondFXConfig, "lineStartColor" | "lineWidthPx" | "blinkDuration">
 > & {
   lineStartColor: string | null;
   lineWidthPx: number | null;
+  blinkDuration: number | null;
 };
 
 const DEFAULTS: InternalDiamondFXConfig = {
   half: false,
   lineColor: "rgba(255,255,255,0.95)",
+  position: "absolute",
+  zIndex: 9999,
   lineStartColor: null,
   lineWidthPx: null,
-  diamondSize: 0.07,
+  diamondSize: 0.05,
   blinkCount: 3,
+  blinkDuration: null,
   markerLen: 16,
   offsetPx: 12,
-  morphDuringInStart: 0.6,
-  retractStart: 0.4,
+  morphDuringInStart: 0.8,
+  retractStart: 0.2,
   pauseBeforeBlink: 0,
   shrinkStart: 0.65,
   shadowBlur: 1.0,
   maxDPR: 2.5,
-  spin: { angleDeg: 450 },
-  timings: { in: 520, morph: 180, blink: 260, spin: 900, split: 220 },
+  spin: { angleDeg: 360 },
+  timings: {
+    in: 420,
+    morph: 280,
+    blink: 260,
+    spin: 0,
+    split: 320,
+    refresh: 220,
+  },
   onComplete: () => {},
   onPhaseComplete: () => {},
   onTargetRemoved: () => {},
@@ -161,7 +155,6 @@ export const AnimatedFrame = ({ config = {} }: AnimatedFrameProps) => {
     const state = useGameStore.getState();
 
     if (!state.diamondFXInstance) {
-      console.log("[DIAMONDFX] Initializing DiamondFX instance");
       const fx = createDiamondFX(canvas, config);
       state.setDiamondFXInstance(fx);
     }
@@ -169,7 +162,6 @@ export const AnimatedFrame = ({ config = {} }: AnimatedFrameProps) => {
     return () => {
       const state = useGameStore.getState();
       if (state.diamondFXInstance) {
-        console.log("[DIAMONDFX] Cleaning up DiamondFX instance");
         state.diamondFXInstance.destroy();
         state.setDiamondFXInstance(undefined);
       }
@@ -222,6 +214,11 @@ function createDiamondFX(
   let rafId: number | null = null;
   let isFadingOut = false,
     fadeOutStart = 0;
+  let isAnimatingOut = false,
+    animateOutStart = 0;
+  let isRefreshing = false,
+    refreshStart = 0;
+  let refreshFromDockCenters: Point[] | null = null;
   const FADE_OUT_DURATION = 300;
 
   const fired = {
@@ -237,6 +234,11 @@ function createDiamondFX(
   let ro: ResizeObserver | null = null;
   let mo: MutationObserver | null = null;
   let parentObserver: MutationObserver | null = null;
+  let containerRO: ResizeObserver | null = null;
+
+  // In absolute mode, we translate DOM rects from viewport → canvas space
+  let containerLeft = 0;
+  let containerTop = 0;
 
   let parsedStartColor: RGBAColor | null = null;
   let parsedLineColor: RGBAColor | null = null;
@@ -319,8 +321,8 @@ function createDiamondFX(
   function style(stroke: number, color: string) {
     ctx!.lineWidth = stroke;
     ctx!.strokeStyle = color;
-    ctx!.lineCap = "round";
-    ctx!.lineJoin = "round";
+    ctx!.lineCap = "butt";
+    ctx!.lineJoin = "miter";
     ctx!.shadowColor = "rgba(255,255,255,0.35)";
     ctx!.shadowBlur = stroke * cfg.shadowBlur;
   }
@@ -329,6 +331,17 @@ function createDiamondFX(
     ctx!.beginPath();
     ctx!.moveTo(a.x, a.y);
     ctx!.lineTo(b.x, b.y);
+    ctx!.stroke();
+  }
+
+  function polygon(points: Point[]) {
+    if (points.length < 2) return;
+    ctx!.beginPath();
+    ctx!.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      ctx!.lineTo(points[i].x, points[i].y);
+    }
+    ctx!.closePath();
     ctx!.stroke();
   }
 
@@ -347,8 +360,7 @@ function createDiamondFX(
   function getTargetRect(id: string): Rect {
     const el = document.getElementById(id);
     if (!el) {
-      const W = innerWidth,
-        H = innerHeight;
+      // Fallback to canvas center; use canvas dimensions instead of viewport
       return {
         left: W / 2 - 50,
         top: H / 2 - 25,
@@ -359,6 +371,17 @@ function createDiamondFX(
       };
     }
     const r = el.getBoundingClientRect();
+    if (cfg.position === "absolute") {
+      // Convert viewport coords to canvas-local coords by subtracting container origin
+      return {
+        left: r.left - containerLeft,
+        top: r.top - containerTop,
+        right: r.right - containerLeft,
+        bottom: r.bottom - containerTop,
+        width: r.width,
+        height: r.height,
+      };
+    }
     return {
       left: r.left,
       top: r.top,
@@ -376,16 +399,20 @@ function createDiamondFX(
     if (!targetEl) return;
 
     ro = new ResizeObserver(() => {
-      if (currentTargetId && !playing && !isFadingOut) {
-        targetRect = getTargetRect(currentTargetId) as DOMRect;
+      if (!currentTargetId) return;
+      // Always refresh bounds; only draw when idle/docked
+      targetRect = getTargetRect(currentTargetId) as DOMRect;
+      if (!playing && !isFadingOut && !isAnimatingOut && !isRefreshing) {
         drawDockedTicks();
       }
     });
     ro.observe(targetEl);
 
     mo = new MutationObserver(() => {
-      if (currentTargetId && !playing && !isFadingOut) {
-        targetRect = getTargetRect(currentTargetId) as DOMRect;
+      if (!currentTargetId) return;
+      // Always refresh bounds; only draw when idle/docked
+      targetRect = getTargetRect(currentTargetId) as DOMRect;
+      if (!playing && !isFadingOut && !isAnimatingOut && !isRefreshing) {
         drawDockedTicks();
       }
     });
@@ -442,29 +469,69 @@ function createDiamondFX(
 
   function resize() {
     DPR = Math.min(window.devicePixelRatio || 1, cfg.maxDPR);
-    W = innerWidth;
-    H = innerHeight;
 
-    canvas.style.position = "fixed";
-    canvas.style.top = "0";
-    canvas.style.left = "0";
-    canvas.style.width = "100vw";
-    canvas.style.height = "100vh";
-    canvas.style.display = "block";
-    canvas.style.zIndex = "10";
-    canvas.style.pointerEvents = "none";
+    if (cfg.position === "absolute") {
+      const parent = canvas.parentElement || document.body;
+      const rect = parent.getBoundingClientRect();
+      containerLeft = rect.left;
+      containerTop = rect.top;
+      W = rect.width;
+      H = rect.height;
+
+      canvas.style.position = "absolute";
+      canvas.style.top = "0";
+      canvas.style.left = "0";
+      // inset: 0
+      canvas.style.right = "0";
+      canvas.style.bottom = "0";
+      canvas.style.width = "100%";
+      canvas.style.height = "100%";
+      canvas.style.display = "block";
+      canvas.style.zIndex = String(cfg.zIndex ?? 10);
+      canvas.style.pointerEvents = "none";
+    } else {
+      containerLeft = 0;
+      containerTop = 0;
+      W = innerWidth;
+      H = innerHeight;
+
+      canvas.style.position = "fixed";
+      canvas.style.top = "0";
+      canvas.style.left = "0";
+      canvas.style.width = "100vw";
+      canvas.style.height = "100vh";
+      canvas.style.display = "block";
+      canvas.style.zIndex = String(cfg.zIndex ?? 10);
+      canvas.style.pointerEvents = "none";
+    }
 
     canvas.width = Math.floor(W * DPR);
     canvas.height = Math.floor(H * DPR);
     ctx!.setTransform(DPR, 0, 0, DPR, 0, 0);
 
-    if (currentTargetId && !playing && !isFadingOut) {
+    if (
+      currentTargetId &&
+      !playing &&
+      !isFadingOut &&
+      !isAnimatingOut &&
+      !isRefreshing
+    ) {
       targetRect = getTargetRect(currentTargetId) as DOMRect;
       drawDockedTicks();
     }
   }
   addEventListener("resize", resize, { passive: true });
   resize();
+
+  // Observe parent container size changes in absolute mode
+  if (!containerRO && canvas.parentElement) {
+    containerRO = new ResizeObserver(() => resize());
+    try {
+      containerRO.observe(canvas.parentElement);
+    } catch {
+      // ignore
+    }
+  }
 
   function drawDockedTicks(opacity = 1) {
     if (!currentTargetId) {
@@ -511,7 +578,9 @@ function createDiamondFX(
 
     for (let i = 0; i < 4; i++) {
       const C = {
-        x: corners[i].x + outward[i].x * O,
+        // Shift horizontally by offset + half so the nearest dash edge is exactly offsetPx
+        x: corners[i].x + outward[i].x * (O + half),
+        // Vertical spacing remains at offsetPx since dash is horizontal
         y: corners[i].y + outward[i].y * O,
       };
       dashByCenterAngle(C, half, 0);
@@ -531,6 +600,328 @@ function createDiamondFX(
       ctx!.clearRect(0, 0, W, H);
       isFadingOut = false;
       rafId = null;
+      currentTargetId = null;
+      targetRect = null;
+      cleanupObservers();
+    }
+  }
+
+  // Shared geometry calculations
+  function getAnimationContext() {
+    const cx = W / 2,
+      cy = H / 2;
+    const baseAngle = Math.PI / 4;
+    const baseSide = Math.min(W, H) * cfg.diamondSize;
+    const stroke = cfg.lineWidthPx ?? Math.max(1.5, Math.min(W, H) * 0.0025);
+
+    const screenCorners = [
+      { x: 0, y: 0 },
+      { x: W, y: 0 },
+      { x: W, y: H },
+      { x: 0, y: H },
+    ];
+
+    const dist = Math.hypot(cx, cy);
+    const toCenter = [
+      { x: cx / dist, y: cy / dist },
+      { x: -cx / dist, y: cy / dist },
+      { x: -cx / dist, y: -cy / dist },
+      { x: cx / dist, y: -cy / dist },
+    ];
+
+    const dashHalf = cfg.markerLen / 2;
+    const outward = [
+      { x: -1, y: -1 },
+      { x: 1, y: -1 },
+      { x: 1, y: 1 },
+      { x: -1, y: 1 },
+    ];
+
+    const rect = targetRect || getTargetRect(currentTargetId!);
+    const elemCorners = [
+      { x: rect.left, y: rect.top },
+      { x: rect.right, y: rect.top },
+      { x: rect.right, y: rect.bottom },
+      { x: rect.left, y: rect.bottom },
+    ];
+    const dockCenters = elemCorners.map((c, i) => ({
+      // Match drawDockedTicks so the nearest dash edge is offsetPx from the element
+      x: c.x + outward[i].x * (cfg.offsetPx + dashHalf),
+      y: c.y + outward[i].y * cfg.offsetPx,
+    }));
+
+    return {
+      cx,
+      cy,
+      baseAngle,
+      baseSide,
+      stroke,
+      screenCorners,
+      dist,
+      toCenter,
+      dashHalf,
+      outward,
+      dockCenters,
+    };
+  }
+
+  // Phase renderers
+  function renderSplitPhase(
+    progress: number,
+    context: ReturnType<typeof getAnimationContext>,
+    dockCentersOverride?: Point[]
+  ) {
+    const { cx, cy, baseSide, dashHalf, dockCenters } = context;
+    const travel = easeInOutCubic(progress);
+
+    const d = squareCorners(cx, cy, baseSide * 1.2, 0);
+    const mids = [
+      { x: (d[0].x + d[1].x) / 2, y: (d[0].y + d[1].y) / 2 },
+      { x: (d[1].x + d[2].x) / 2, y: (d[1].y + d[2].y) / 2 },
+      { x: (d[2].x + d[3].x) / 2, y: (d[2].y + d[3].y) / 2 },
+      { x: (d[3].x + d[0].x) / 2, y: (d[3].y + d[0].y) / 2 },
+    ];
+
+    const useDockCenters = dockCentersOverride ?? dockCenters;
+    for (let i = 0; i < 4; i++) {
+      dashByCenterAngle(mixPt(mids[i], useDockCenters[i], travel), dashHalf, 0);
+    }
+  }
+
+  // Variant of split phase that uses a centered square (not edge midpoints)
+  // so the dashes contract to a small square rather than a diamond.
+  function renderSplitPhaseCenteredSquare(
+    progress: number,
+    context: ReturnType<typeof getAnimationContext>,
+    dockCentersOverride?: Point[]
+  ) {
+    const { cx, cy, baseSide, dashHalf, dockCenters } = context;
+    const travel = easeInOutCubic(progress);
+
+    // Choose a smaller square at the center to converge to/expand from
+    const inner = squareCorners(cx, cy, baseSide * 0.7, 0);
+
+    const useDockCenters = dockCentersOverride ?? dockCenters;
+    for (let i = 0; i < 4; i++) {
+      dashByCenterAngle(
+        mixPt(inner[i], useDockCenters[i], travel),
+        dashHalf,
+        0
+      );
+    }
+  }
+
+  function renderSpinPhase(
+    progress: number,
+    context: ReturnType<typeof getAnimationContext>
+  ) {
+    const { cx, cy, baseSide, baseAngle, dashHalf } = context;
+    const rotE = easeInOutExpo(progress);
+    const shrinkStart = clamp01(cfg.shrinkStart);
+    const shrinkRaw = (progress - shrinkStart) / (1 - shrinkStart);
+    const shrinkE = clamp01(easeInOutCubic(Math.max(0, shrinkRaw)));
+    const totalAngle = totalSpinAngle();
+    const angle = (baseAngle + rotE * totalAngle) * (1 - shrinkE);
+    const side = baseSide * (1 + 0.2 * rotE);
+    const d = squareCorners(cx, cy, side, angle);
+
+    for (let i = 0; i < 4; i++) {
+      const A = d[i];
+      const B = d[(i + 1) % 4];
+      const mid = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
+      const edgeAng = lineAngle(A, B);
+      const edgeHalfLen = Math.hypot(B.x - A.x, B.y - A.y) / 2;
+      const halfLen = lerp(edgeHalfLen, dashHalf, shrinkE);
+      const theta = edgeAng * (1 - shrinkE);
+      dashByCenterAngle(mid, halfLen, theta);
+    }
+  }
+
+  function renderMorphPhase(
+    progress: number,
+    context: ReturnType<typeof getAnimationContext>
+  ) {
+    const { cx, cy, baseSide, baseAngle } = context;
+    const m = clamp01(easeInOutCubic(progress));
+    const targetCorners = squareCorners(cx, cy, baseSide, baseAngle);
+
+    // Use a unified path: in half mode, grow from center using progress; otherwise draw full size
+    const factor = cfg.half ? m : 1;
+    const grownCorners = targetCorners.map((pt) =>
+      mixPt({ x: cx, y: cy }, pt, factor)
+    );
+    polygon(grownCorners);
+  }
+
+  function renderInPhase(
+    progress: number,
+    context: ReturnType<typeof getAnimationContext>
+  ) {
+    const {
+      cx,
+      cy,
+      baseSide,
+      baseAngle,
+      screenCorners,
+      dist,
+      toCenter,
+      stroke,
+    } = context;
+    const t = clamp01(progress);
+    const fLen = Math.min(1, easeOutBack(t));
+
+    const retractStart = clamp01(cfg.retractStart);
+    const retractProgress = clamp01((t - retractStart) / (1 - retractStart));
+    const retractAmount = easeInOutCubic(retractProgress);
+
+    const m = clamp01(
+      easeInOutCubic(
+        (t - clamp01(cfg.morphDuringInStart)) /
+          (1 - clamp01(cfg.morphDuringInStart))
+      )
+    );
+
+    const d = squareCorners(cx, cy, baseSide, baseAngle);
+    const edges: [Point, Point][] = [
+      [d[0], d[1]],
+      [d[1], d[2]],
+      [d[2], d[3]],
+      [d[3], d[0]],
+    ];
+
+    for (let i = 0; i < 4; i++) {
+      const c = screenCorners[i];
+      const dir = toCenter[i];
+      const lineEnd = {
+        x: c.x + dir.x * dist * fLen,
+        y: c.y + dir.y * fLen * dist,
+      };
+
+      const lineStart = mixPt(c, lineEnd, retractAmount);
+
+      const A = mixPt(lineStart, edges[i][0], m);
+      const B = mixPt(lineEnd, edges[i][1], m);
+
+      if (parsedStartColor && parsedLineColor) {
+        const currentColor = lerpColor(parsedStartColor, parsedLineColor, t);
+        const colorStr = colorToString(currentColor);
+        style(stroke, colorStr);
+      } else {
+        style(stroke, cfg.lineColor);
+      }
+
+      segment(A, B);
+    }
+  }
+
+  function animateOutLoop(now: number) {
+    const elapsed = now - animateOutStart;
+
+    ctx!.clearRect(0, 0, W, H);
+    const context = getAnimationContext();
+    style(context.stroke, cfg.lineColor);
+
+    // Reverse animation: split → spin → morph → out
+    const splitMs = cfg.timings.split;
+    const spinMs = cfg.timings.spin;
+    const morphMs = Math.max(0, cfg.timings.morph | 0);
+    const outMs = cfg.half ? 0 : cfg.timings.in;
+
+    const tSplit = splitMs;
+    const tSpin = tSplit + spinMs;
+    const tMorph = tSpin + morphMs;
+    const tOut = tMorph + outMs;
+
+    // Phase 1: Unsplit (dashes move from docked to diamond center)
+    if (elapsed <= tSplit) {
+      renderSplitPhase(1 - clamp01(elapsed / splitMs), context); // Reverse progress
+      rafId = requestAnimationFrame(animateOutLoop);
+      return;
+    }
+
+    // Phase 2: Unspin (reverse spin)
+    if (elapsed <= tSpin) {
+      renderSpinPhase(1 - clamp01((elapsed - tSplit) / spinMs), context); // Reverse progress
+      rafId = requestAnimationFrame(animateOutLoop);
+      return;
+    }
+
+    // Phase 3: Unmorph (diamond to lines)
+    if (morphMs > 0 && elapsed <= tMorph) {
+      renderMorphPhase(1 - clamp01((elapsed - tSpin) / morphMs), context); // Reverse progress
+      rafId = requestAnimationFrame(animateOutLoop);
+      return;
+    }
+
+    // Phase 4: Out (lines extend to screen corners)
+    if (!cfg.half && elapsed <= tOut) {
+      renderInPhase(1 - clamp01((elapsed - tMorph) / outMs), context); // Reverse progress
+      rafId = requestAnimationFrame(animateOutLoop);
+      return;
+    }
+
+    // Animation complete
+    ctx!.clearRect(0, 0, W, H);
+    isAnimatingOut = false;
+    rafId = null;
+    currentTargetId = null;
+    targetRect = null;
+    cleanupObservers();
+
+    // Fire onComplete callback with exit=true
+    if (typeof cfg.onComplete === "function") {
+      try {
+        cfg.onComplete(true);
+      } catch {
+        // Ignore callback errors
+      }
+    }
+  }
+
+  // Refresh loop: unsplit (old dock -> center square), split (center square -> new dock)
+  function refreshLoop(now: number) {
+    const refreshMs = cfg.timings.refresh ?? cfg.timings.split;
+    const elapsed = now - refreshStart;
+
+    // Continuously re-measure the current target during refresh
+    if (currentTargetId) {
+      targetRect = getTargetRect(currentTargetId) as DOMRect;
+    }
+
+    ctx!.clearRect(0, 0, W, H);
+    const context = getAnimationContext();
+    style(context.stroke, cfg.lineColor);
+
+    if (elapsed <= refreshMs) {
+      const p = clamp01(elapsed / refreshMs);
+      const rev = 1 - p;
+      renderSplitPhaseCenteredSquare(
+        rev,
+        context,
+        refreshFromDockCenters ?? undefined
+      );
+      rafId = requestAnimationFrame(refreshLoop);
+      return;
+    }
+
+    if (elapsed <= refreshMs + refreshMs) {
+      const p = (elapsed - refreshMs) / refreshMs;
+      renderSplitPhaseCenteredSquare(clamp01(p), context);
+      rafId = requestAnimationFrame(refreshLoop);
+      return;
+    }
+
+    drawDockedTicks();
+    isRefreshing = false;
+    refreshFromDockCenters = null;
+    rafId = null;
+
+    if (typeof cfg.onComplete === "function") {
+      try {
+        cfg.onComplete(false);
+      } catch {
+        // ignore
+      }
     }
   }
 
@@ -558,47 +949,21 @@ function createDiamondFX(
     }
 
     ctx!.clearRect(0, 0, W, H);
-    const stroke = cfg.lineWidthPx ?? Math.max(1.5, Math.min(W, H) * 0.0025);
-    style(stroke, cfg.lineColor);
-
-    const cx = W / 2,
-      cy = H / 2;
-    const baseAngle = Math.PI / 4;
-    const baseSide = Math.min(W, H) * cfg.diamondSize;
-
-    const screenCorners = [
-      { x: 0, y: 0 },
-      { x: W, y: 0 },
-      { x: W, y: H },
-      { x: 0, y: H },
-    ];
-
-    const dist = Math.hypot(cx, cy);
-    const toCenter = [
-      { x: cx / dist, y: cy / dist },
-      { x: -cx / dist, y: cy / dist },
-      { x: -cx / dist, y: -cy / dist },
-      { x: cx / dist, y: -cy / dist },
-    ];
-
-    const L = cfg.markerLen,
-      dashHalf = L / 2,
-      O = cfg.offsetPx;
-    const outward = [
-      { x: -1, y: -1 },
-      { x: 1, y: -1 },
-      { x: 1, y: 1 },
-      { x: -1, y: 1 },
-    ];
+    const context = getAnimationContext();
+    style(context.stroke, cfg.lineColor);
 
     const inMs = cfg.half ? 0 : cfg.timings.in;
     const morphMs = Math.max(0, cfg.timings.morph | 0);
     const pauseMs = Math.max(0, cfg.pauseBeforeBlink | 0);
+    const blinkMs =
+      cfg.blinkDuration !== null
+        ? cfg.blinkDuration * cfg.blinkCount
+        : cfg.timings.blink;
 
     const tIn = inMs;
     const tMorph = tIn + morphMs;
     const tPause = tMorph + pauseMs;
-    const tBlink = tPause + cfg.timings.blink;
+    const tBlink = tPause + blinkMs;
     const tSpin = tBlink + cfg.timings.spin;
     const tSplit = tSpin + cfg.timings.split;
 
@@ -606,92 +971,32 @@ function createDiamondFX(
       { name: "in", end: tIn, dur: inMs },
       { name: "morph", end: tMorph, dur: morphMs },
       { name: "pause", end: tPause, dur: pauseMs },
-      { name: "blink", end: tBlink, dur: cfg.timings.blink },
+      { name: "blink", end: tBlink, dur: blinkMs },
       { name: "spin", end: tSpin, dur: cfg.timings.spin },
       { name: "split", end: tSplit, dur: cfg.timings.split },
     ]);
 
     if (!cfg.half && elapsed <= tIn) {
-      const t = clamp01(elapsed / tIn);
-      const fLen = Math.min(1, easeOutBack(t));
-
-      const retractStart = clamp01(cfg.retractStart);
-      const retractProgress = clamp01((t - retractStart) / (1 - retractStart));
-      const retractAmount = easeInOutCubic(retractProgress);
-
-      const m = clamp01(
-        easeInOutCubic(
-          (t - clamp01(cfg.morphDuringInStart)) /
-            (1 - clamp01(cfg.morphDuringInStart))
-        )
-      );
-
-      const d = squareCorners(cx, cy, baseSide, baseAngle);
-      const edges: [Point, Point][] = [
-        [d[0], d[1]],
-        [d[1], d[2]],
-        [d[2], d[3]],
-        [d[3], d[0]],
-      ];
-      for (let i = 0; i < 4; i++) {
-        const c = screenCorners[i];
-        const dir = toCenter[i];
-        const lineEnd = {
-          x: c.x + dir.x * dist * fLen,
-          y: c.y + dir.y * fLen * dist,
-        };
-
-        const lineStart = mixPt(c, lineEnd, retractAmount);
-
-        const A = mixPt(lineStart, edges[i][0], m);
-        const B = mixPt(lineEnd, edges[i][1], m);
-
-        if (parsedStartColor && parsedLineColor) {
-          const currentColor = lerpColor(parsedStartColor, parsedLineColor, t);
-          const colorStr = colorToString(currentColor);
-          style(stroke, colorStr);
-        } else {
-          style(stroke, cfg.lineColor);
-        }
-
-        segment(A, B);
-      }
+      renderInPhase(clamp01(elapsed / tIn), context);
       rafId = requestAnimationFrame(draw);
       return;
     }
 
     if (morphMs > 0 && elapsed <= tMorph) {
       const p = (elapsed - (cfg.half ? 0 : tIn)) / morphMs;
-      const m = clamp01(easeInOutCubic(p));
-      const d = squareCorners(cx, cy, baseSide, baseAngle);
-      const edges: [Point, Point][] = [
-        [d[0], d[1]],
-        [d[1], d[2]],
-        [d[2], d[3]],
-        [d[3], d[0]],
-      ];
-      if (cfg.half) {
-        for (let i = 0; i < 4; i++) {
-          segment(
-            mixPt({ x: cx, y: cy }, edges[i][0], m),
-            mixPt({ x: cx, y: cy }, edges[i][1], m)
-          );
-        }
-      } else {
-        for (let i = 0; i < 4; i++) {
-          segment(edges[i][0], edges[i][1]);
-        }
-      }
+      renderMorphPhase(clamp01(p), context);
       rafId = requestAnimationFrame(draw);
       return;
     }
 
     if (pauseMs > 0 && elapsed <= tPause) {
-      const d = squareCorners(cx, cy, baseSide, baseAngle);
-      segment(d[0], d[1]);
-      segment(d[1], d[2]);
-      segment(d[2], d[3]);
-      segment(d[3], d[0]);
+      const d = squareCorners(
+        context.cx,
+        context.cy,
+        context.baseSide,
+        context.baseAngle
+      );
+      polygon(d);
       rafId = requestAnimationFrame(draw);
       return;
     }
@@ -701,29 +1006,33 @@ function createDiamondFX(
 
     if (holdBlink && elapsed >= tPause) {
       if (!blinkLoopStart) blinkLoopStart = now;
-      const loopAge = (now - blinkLoopStart) % cfg.timings.blink;
-      const blinkT = loopAge / cfg.timings.blink;
+      const loopAge = (now - blinkLoopStart) % blinkMs;
+      const blinkT = loopAge / blinkMs;
       const visible = (Math.floor(blinkT * blinkPairs) + initialFlip) % 2 === 0;
-      const d = squareCorners(cx, cy, baseSide, baseAngle);
+      const d = squareCorners(
+        context.cx,
+        context.cy,
+        context.baseSide,
+        context.baseAngle
+      );
       if (visible) {
-        segment(d[0], d[1]);
-        segment(d[1], d[2]);
-        segment(d[2], d[3]);
-        segment(d[3], d[0]);
+        polygon(d);
       }
       rafId = requestAnimationFrame(draw);
       return;
     }
 
     if (elapsed <= tBlink) {
-      const blinkT = (elapsed - tPause) / cfg.timings.blink;
+      const blinkT = (elapsed - tPause) / blinkMs;
       const visible = (Math.floor(blinkT * blinkPairs) + initialFlip) % 2 === 0;
-      const d = squareCorners(cx, cy, baseSide, baseAngle);
+      const d = squareCorners(
+        context.cx,
+        context.cy,
+        context.baseSide,
+        context.baseAngle
+      );
       if (visible) {
-        segment(d[0], d[1]);
-        segment(d[1], d[2]);
-        segment(d[2], d[3]);
-        segment(d[3], d[0]);
+        polygon(d);
       }
       rafId = requestAnimationFrame(draw);
       return;
@@ -731,55 +1040,14 @@ function createDiamondFX(
 
     if (elapsed <= tSpin) {
       const spinT = (elapsed - tBlink) / cfg.timings.spin;
-      const rotE = easeInOutExpo(spinT);
-      const shrinkStart = clamp01(cfg.shrinkStart);
-      const shrinkRaw = (spinT - shrinkStart) / (1 - shrinkStart);
-      const shrinkE = clamp01(easeInOutCubic(Math.max(0, shrinkRaw)));
-      const totalAngle = totalSpinAngle();
-      const angle = (baseAngle + rotE * totalAngle) * (1 - shrinkE);
-      const side = baseSide * (1 + 0.2 * rotE);
-      const d = squareCorners(cx, cy, side, angle);
-      for (let i = 0; i < 4; i++) {
-        const A = d[i];
-        const B = d[(i + 1) % 4];
-        const mid = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
-        const edgeAng = lineAngle(A, B);
-        const edgeHalfLen = Math.hypot(B.x - A.x, B.y - A.y) / 2;
-        const halfLen = lerp(edgeHalfLen, dashHalf, shrinkE);
-        const theta = edgeAng * (1 - shrinkE);
-        dashByCenterAngle(mid, halfLen, theta);
-      }
+      renderSpinPhase(spinT, context);
       rafId = requestAnimationFrame(draw);
       return;
     }
 
     {
       const p = clamp01((elapsed - tSpin) / cfg.timings.split);
-      const travel = easeInOutCubic(p);
-
-      const d = squareCorners(cx, cy, baseSide * 1.2, 0);
-      const mids = [
-        { x: (d[0].x + d[1].x) / 2, y: (d[0].y + d[1].y) / 2 },
-        { x: (d[1].x + d[2].x) / 2, y: (d[1].y + d[2].y) / 2 },
-        { x: (d[2].x + d[3].x) / 2, y: (d[2].y + d[3].y) / 2 },
-        { x: (d[3].x + d[0].x) / 2, y: (d[3].y + d[0].y) / 2 },
-      ];
-
-      const rect = targetRect || getTargetRect(currentTargetId!);
-      const elemCorners = [
-        { x: rect.left, y: rect.top },
-        { x: rect.right, y: rect.top },
-        { x: rect.right, y: rect.bottom },
-        { x: rect.left, y: rect.bottom },
-      ];
-      const dockCenters = elemCorners.map((c, i) => ({
-        x: c.x + outward[i].x * O,
-        y: c.y + outward[i].y * O,
-      }));
-
-      for (let i = 0; i < 4; i++) {
-        dashByCenterAngle(mixPt(mids[i], dockCenters[i], travel), dashHalf, 0);
-      }
+      renderSplitPhase(p, context);
 
       if (elapsed < tSplit) {
         rafId = requestAnimationFrame(draw);
@@ -790,7 +1058,7 @@ function createDiamondFX(
       if (!completeFired) {
         if (typeof cfg.onComplete === "function") {
           try {
-            cfg.onComplete();
+            cfg.onComplete(false);
           } catch {
             // Ignore callback errors
           }
@@ -802,7 +1070,7 @@ function createDiamondFX(
     }
   }
 
-  function start(targetId: string, wait = false) {
+  function start(targetId: string, wait = false, refresh = true) {
     if (!targetId) return;
 
     const targetEl = document.getElementById(targetId);
@@ -814,8 +1082,11 @@ function createDiamondFX(
       const inMs = cfg.half ? 0 : cfg.timings.in;
       const morphMs = Math.max(0, cfg.timings.morph | 0);
       const pauseMs = Math.max(0, cfg.pauseBeforeBlink | 0);
-      const tSpin =
-        inMs + morphMs + pauseMs + cfg.timings.blink + cfg.timings.spin;
+      const blinkMs =
+        cfg.blinkDuration !== null
+          ? cfg.blinkDuration * cfg.blinkCount
+          : cfg.timings.blink;
+      const tSpin = inMs + morphMs + pauseMs + blinkMs + cfg.timings.spin;
 
       if (elapsed >= tSpin) {
         // Restart
@@ -827,10 +1098,46 @@ function createDiamondFX(
       }
     }
 
-    if (playing || isFadingOut) {
+    // If currently docked and refresh requested, play refresh loop instead
+    const docked =
+      !playing &&
+      !isFadingOut &&
+      !isAnimatingOut &&
+      !isRefreshing &&
+      currentTargetId;
+    if (docked && refresh) {
+      // Ensure we have the latest bounds for the CURRENT target before capturing old dock centers
+      if (currentTargetId) {
+        targetRect = getTargetRect(currentTargetId) as DOMRect;
+      }
+      // Capture old dock centers based on the latest bounds
+      refreshFromDockCenters = getAnimationContext().dockCenters;
+
+      // If switching targets, update observers and bounds to the NEW target before starting refresh
+      if (currentTargetId !== targetId) {
+        cleanupObservers();
+        currentTargetId = targetId;
+        targetRect = getTargetRect(targetId) as DOMRect;
+        setupObservers(targetId);
+      } else if (currentTargetId) {
+        // Even when not switching, re-evaluate bounds to reflect any layout changes
+        targetRect = getTargetRect(currentTargetId) as DOMRect;
+      }
+
+      if (rafId) cancelAnimationFrame(rafId);
+      isRefreshing = true;
+      refreshStart = performance.now();
+      rafId = requestAnimationFrame(refreshLoop);
+      return;
+    }
+
+    if (playing || isFadingOut || isAnimatingOut || isRefreshing) {
       if (rafId) cancelAnimationFrame(rafId);
       playing = false;
       isFadingOut = false;
+      isAnimatingOut = false;
+      isRefreshing = false;
+      refreshFromDockCenters = null;
     }
 
     Object.keys(fired).forEach((k) => (fired[k as keyof typeof fired] = false));
@@ -860,7 +1167,11 @@ function createDiamondFX(
     const inMs = cfg.half ? 0 : cfg.timings.in;
     const morphMs = Math.max(0, cfg.timings.morph | 0);
     const pauseMs = Math.max(0, cfg.pauseBeforeBlink | 0);
-    const tBlink = inMs + morphMs + pauseMs + cfg.timings.blink;
+    const blinkMs =
+      cfg.blinkDuration !== null
+        ? cfg.blinkDuration * cfg.blinkCount
+        : cfg.timings.blink;
+    const tBlink = inMs + morphMs + pauseMs + blinkMs;
 
     t0 = performance.now() - tBlink;
     if (!fired.blink) {
@@ -879,10 +1190,14 @@ function createDiamondFX(
     }
   }
 
-  function clear() {
-    if (playing) {
+  function clear(animateOut = false) {
+    // If animation is still playing, always just clear immediately regardless of animateOut
+    if (playing || isFadingOut || isAnimatingOut || isRefreshing) {
       if (rafId) cancelAnimationFrame(rafId);
       playing = false;
+      isFadingOut = false;
+      isAnimatingOut = false;
+      isRefreshing = false;
       holdBlink = false;
       blinkLoopStart = 0;
       Object.keys(fired).forEach(
@@ -890,18 +1205,29 @@ function createDiamondFX(
       );
       completeFired = false;
       ctx!.clearRect(0, 0, W, H);
+      // Clean up target tracking and observers to prevent redraw
+      currentTargetId = null;
+      targetRect = null;
+      cleanupObservers();
       return;
     }
 
+    // Only animate out if we're in the docked state (not playing)
     if (rafId) cancelAnimationFrame(rafId);
     Object.keys(fired).forEach((k) => (fired[k as keyof typeof fired] = false));
     completeFired = false;
     holdBlink = false;
     blinkLoopStart = 0;
 
-    isFadingOut = true;
-    fadeOutStart = performance.now();
-    rafId = requestAnimationFrame(fadeOutLoop);
+    if (animateOut && currentTargetId) {
+      isAnimatingOut = true;
+      animateOutStart = performance.now();
+      rafId = requestAnimationFrame(animateOutLoop);
+    } else {
+      isFadingOut = true;
+      fadeOutStart = performance.now();
+      rafId = requestAnimationFrame(fadeOutLoop);
+    }
   }
 
   function update(next: DiamondFXConfig = {}) {
@@ -914,7 +1240,7 @@ function createDiamondFX(
       parsedLineColor = parseColor(cfg.lineColor);
     }
 
-    if (currentTargetId && !playing && !isFadingOut) {
+    if (currentTargetId && !playing && !isFadingOut && !isAnimatingOut) {
       targetRect = getTargetRect(currentTargetId) as DOMRect;
       drawDockedTicks();
     }
@@ -924,9 +1250,35 @@ function createDiamondFX(
     if (rafId) cancelAnimationFrame(rafId);
     cleanupObservers();
     removeEventListener("resize", resize);
+    if (containerRO) {
+      try {
+        containerRO.disconnect();
+      } catch {
+        // ignore
+      }
+      containerRO = null;
+    }
   }
 
-  return { start, resume, update, clear, destroy };
+  return {
+    start,
+    resume,
+    update,
+    clear,
+    destroy,
+    get isDocked() {
+      return !!(
+        currentTargetId &&
+        !playing &&
+        !isFadingOut &&
+        !isAnimatingOut &&
+        !isRefreshing
+      );
+    },
+    get isAnimating() {
+      return !!(playing || isRefreshing || isFadingOut || isAnimatingOut);
+    },
+  };
 }
 
 function deepMerge<T extends Record<string, unknown>>(

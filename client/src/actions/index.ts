@@ -34,3 +34,41 @@ export const startMoveToSector = (
     bypassFlash: options.bypassFlash,
   });
 };
+
+/**
+ * Compares previous and new map data to find newly discovered sectors.
+ * A sector is considered newly discovered when its `visited` flag changes from false to true.
+ *
+ * @param prevMapData - The previous map data state
+ * @param newMapData - The new map data state
+ * @returns Array of newly discovered MapSectorNode objects
+ */
+export const checkForNewSectors = (
+  prevMapData: MapData | null,
+  newMapData: MapData
+): MapSectorNode[] => {
+  // If there's no previous map data, no sectors can be "newly" discovered
+  if (!prevMapData) {
+    return [];
+  }
+
+  const newlyDiscovered: MapSectorNode[] = [];
+
+  // Check each sector in the new map data
+  for (const newSector of newMapData) {
+    // Find the corresponding sector in the previous map data
+    const prevSector = prevMapData.find((s) => s.id === newSector.id);
+
+    // If the sector exists in both maps, check if visited flag changed from false to true
+    if (prevSector) {
+      const wasUnvisited = prevSector.visited === false;
+      const isNowVisited = newSector.visited === true;
+
+      if (wasUnvisited && isNowVisited) {
+        newlyDiscovered.push(newSector);
+      }
+    }
+  }
+
+  return newlyDiscovered;
+};

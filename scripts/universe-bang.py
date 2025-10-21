@@ -42,9 +42,8 @@ Usage:
 import sys, json, random, math
 import numpy as np
 from collections import deque
-from scipy.spatial import Delaunay, Voronoi
+from scipy.spatial import Delaunay
 import networkx as nx
-from dataclasses import dataclass
 from typing import Dict, List, Set, Tuple, Optional
 
 # ===================== Tunables / Defaults =====================
@@ -74,6 +73,7 @@ PORT_PERCENTAGE = BASE_PORT_DENSITY * INITIAL_PORT_BUILD_RATE
 # --- Mega port configuration ---
 MEGA_PORT_STOCK_MULTIPLIER = 10  # 10x normal capacity
 MEGA_PORT_COUNT = 1  # One mega port per universe
+MEGA_PORT_DYNAMIC_PLACEMENT = False  # If False, mega port is always at sector 0
 
 # --- Warps / topology ---
 MIN_WARPS_PER_SECTOR = 1
@@ -310,8 +310,10 @@ def generate_regional_connections(
     # 4. Ensure accessibility (dead-ends and limited reachability clean-up)
     ensure_connectivity(warps, positions)
     
-    # 5. Cap degrees while preserving backbone edges
-    cap_degrees(warps, positions, protected_undirected_edges=backbone_edges)
+    # 5. Cap degrees while preserving backbone edges and any mutual two-way pairs
+    protected_pairs = set(backbone_edges)
+    protected_pairs.update(collect_two_way_pairs(warps))
+    cap_degrees(warps, positions, protected_undirected_edges=protected_pairs)
     
     # 6. Add hyperlanes (special long-distance warps) AFTER connectivity/capping
     hyperlanes = add_hyperlanes(warps, positions, regions)
@@ -562,6 +564,17 @@ def ensure_connectivity(
         if upgrades_made > 0:
             print(f"  Upgraded {upgrades_made} connections to two-way")
 
+def collect_two_way_pairs(warps: Dict[int, Set[int]]) -> Set[Tuple[int, int]]:
+    """Collect all undirected pairs that currently have mutual links.
+    Returns pairs as (min_id, max_id)."""
+    pairs: Set[Tuple[int, int]] = set()
+    for s, neighbors in warps.items():
+        for t in neighbors:
+            if s in warps.get(t, set()):
+                a, b = (s, t) if s < t else (t, s)
+                pairs.add((a, b))
+    return pairs
+
 def cap_degrees(
     warps: Dict[int, Set[int]],
     positions: Dict[int, Tuple[float, float]],
@@ -709,19 +722,26 @@ def place_ports(
     
     # Assign initial random classes
     port_class_by_sector = {s: random.randint(1, 8) for s in port_sectors}
-    
-    # Choose mega port location (in safe zone with high degree)
-    safe_regions = [i for i, r in enumerate(regions_info) if r.get("safe", False)]
-    safe_ports = [s for s in port_sectors 
-                  if sector_regions[s] in safe_regions]
-    
-    if safe_ports:
-        # Prefer high-degree safe port
-        mega_port_sector = int(max(safe_ports, key=lambda s: len(warps[s])))
+
+    # Choose mega port location based on configuration
+    if MEGA_PORT_DYNAMIC_PLACEMENT:
+        # Choose mega port location (in safe zone with high degree)
+        safe_regions = [i for i, r in enumerate(regions_info) if r.get("safe", False)]
+        safe_ports = [s for s in port_sectors if sector_regions[s] in safe_regions]
+
+        if safe_ports:
+            # Prefer high-degree safe port
+            mega_port_sector = int(max(safe_ports, key=lambda s: len(warps[s])))
+        else:
+            # Fallback: any high-degree port
+            mega_port_sector = int(max(port_sectors, key=lambda s: len(warps[s])))
     else:
-        # Fallback: any high-degree port
-        mega_port_sector = int(max(port_sectors, key=lambda s: len(warps[s])))
-    
+        # Fixed placement at sector 0; ensure sector 0 is a port
+        mega_port_sector = 0
+        if mega_port_sector not in port_sectors:
+            port_sectors.add(mega_port_sector)
+            port_class_by_sector[mega_port_sector] = 7  # Ensure presence and class
+
     # Make it class 7 (SSS - sells all)
     port_class_by_sector[mega_port_sector] = 7
     

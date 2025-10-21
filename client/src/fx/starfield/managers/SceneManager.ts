@@ -11,11 +11,6 @@ import {
   type NebulaPalette,
   type StarfieldSceneConfig,
 } from "../constants";
-import {
-  type GameObjectBaseConfig,
-  type GameObjectConfig,
-  type GameObjectSpawnRules,
-} from "../types/GameObject";
 import customDeepmerge from "../utils/merge";
 
 // Type definitions for SceneManager
@@ -129,40 +124,18 @@ export class SceneManager {
    */
   prepareSceneVariant(
     id: string,
-    sceneConfig: Partial<StarfieldSceneConfig> | undefined,
-    gameObjects: GameObjectBaseConfig[],
-    gameObjectManager: {
-      generateGameObjectConfig: (
-        config: GameObjectBaseConfig
-      ) => GameObjectConfig;
-    } | null
+    sceneConfig: Partial<StarfieldSceneConfig> | undefined
   ): StarfieldSceneConfig {
     if (this.hasNamedConfig(id)) {
       const stored = this.getNamedConfig(id) as StarfieldSceneConfig;
 
-      const merged = {
+      return {
         ...stored,
         ...(sceneConfig || {}),
       };
-
-      if (gameObjects.length > 0 && gameObjectManager) {
-        merged.gameObjects = gameObjects.map((baseConfig) =>
-          gameObjectManager.generateGameObjectConfig(baseConfig)
-        );
-      }
-
-      return merged;
     } else {
       const variant = this.createVariant(sceneConfig || {});
-
-      if (gameObjects.length > 0 && gameObjectManager) {
-        variant.gameObjects = gameObjects.map((baseConfig) =>
-          gameObjectManager.generateGameObjectConfig(baseConfig)
-        );
-      }
-
       this.storeSceneVariant(id, variant);
-
       return variant;
     }
   }
@@ -203,8 +176,6 @@ export class SceneManager {
       planetPositionY: randomPlanet.positionY,
 
       starSize: Math.random() * 0.5 + 0.75,
-
-      gameObjects: [],
     };
 
     return { ...randomDefaults, ...options };
@@ -223,14 +194,6 @@ export class SceneManager {
       freshConfig,
       options
     ) as StoredConfig;
-
-    if (options.gameObjects && options.gameObjects.length > 0) {
-      finalConfig.gameObjects = options.gameObjects;
-    } else if (finalConfig.debugMode) {
-      finalConfig.gameObjects = this._generateGameObjects(finalConfig);
-    } else {
-      finalConfig.gameObjects = [];
-    }
 
     this.currentSceneId++;
     finalConfig.sceneId = this.currentSceneId;
@@ -325,74 +288,9 @@ export class SceneManager {
     return config;
   }
 
-  /**
-   * Generate game objects for a new scene
-   * @private
-   */
-  private _generateGameObjects(
-    config: GalaxyStarfieldConfig
-  ): GameObjectConfig[] {
-    const gameObjects: GameObjectConfig[] = [];
-    let objectId = 1;
+  // Removed debug object generation; game objects are supplied externally
 
-    if (config.debugMode && config.debugGameObjectCounts) {
-      Object.entries(config.debugGameObjectCounts).forEach(([type, count]) => {
-        for (let i = 0; i < count; i++) {
-          const position = this._generateRandomPosition(
-            config.gameObjectSpawnRules
-          );
-          gameObjects.push({
-            id: `${type}_${objectId++}`,
-            type: type as "playerShip" | "starport" | "npc",
-            name: `${type.charAt(0).toUpperCase() + type.slice(1)} ${i + 1}`,
-            position: position,
-            rotation: { x: 0, y: 0, z: 0 },
-            scale:
-              config.gameObjectTypes[
-                type as keyof typeof config.gameObjectTypes
-              ].scale,
-            metadata: {
-              lastSeen: Date.now(),
-            },
-          });
-        }
-      });
-    }
-
-    return gameObjects;
-  }
-
-  /**
-   * Generate a random position within spawn rules
-   * @private
-   */
-  private _generateRandomPosition(spawnRules: GameObjectSpawnRules): Vector3 {
-    const x = (Math.random() - 0.5) * 2 * spawnRules.spawnRange.x;
-    const y = (Math.random() - 0.5) * 2 * spawnRules.spawnRange.y;
-    const z = (Math.random() - 0.5) * 2 * spawnRules.spawnRange.z;
-
-    const position: Vector3 = { x, y, z };
-    const distance = Math.sqrt(x * x + y * y + z * z);
-
-    if (distance < spawnRules.minDistance) {
-      const scale =
-        spawnRules.minDistance +
-        Math.random() * (spawnRules.maxDistance - spawnRules.minDistance);
-      const normalized = distance > 0 ? scale / distance : scale;
-      position.x *= normalized;
-      position.y *= normalized;
-      position.z *= normalized;
-    }
-
-    if (distance > spawnRules.maxDistance) {
-      const scale = spawnRules.maxDistance / distance;
-      position.x *= scale;
-      position.y *= scale;
-      position.z *= scale;
-    }
-
-    return position;
-  }
+  // Removed: random position helper was only used for debug object generation
 
   /**
    * Reset scene manager
