@@ -131,26 +131,8 @@ def create_task_instruction_user_message(task: str) -> str:
     return "\n".join(prompt_parts)
 
 
-def create_initial_status_messages(
-    initial_state: Dict[str, Any],
-) -> List[Dict[str, Any]]:
-    tool_call = {
-        "role": "assistant",
-        "tool_calls": [
-            {
-                "type": "function",
-                "function": {"name": "my_status", "arguments": "{}"},
-            }
-        ],
-    }
-    tool_result = {
-        "role": "tool",
-        "content": json.dumps(initial_state.get("status", {})),
-    }
-    return [tool_call, tool_result]
-
-
 DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash-preview-09-2025"
+# DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash"
 # DEFAULT_GOOGLE_MODEL = "gemini-2.5-pro-preview-06-05"
 DEFAULT_THINKING_BUDGET = 2048
 DEFAULT_INCLUDE_THOUGHTS = True
@@ -205,7 +187,10 @@ class _GeminiThinkingModeTracker(FrameProcessor):
                         "wait_in_idle_state function call detected; deferring inference until events/timeout"
                     )
                 else:
-                    await self._agent._queue_pending_run_now()
+                    # todo: should we schedule inference again here as if we got an event, with the 1s watchdog timer?
+                    logger.debug(
+                        "Tool function call detected; deferring inference until tool completion"
+                    )
             else:
                 logger.debug(
                     "No tool calls in _GeminiThinkingModeContentFrame. Not queuing inference."
@@ -369,6 +354,7 @@ class TaskAgent:
                             getattr(candidate, "content", None) if candidate else None
                         )
                         if content is not None:
+                            # logger.info(f"!!! {content}")
                             self._captured_candidate_contents.append(content)
 
                         yield chunk
@@ -767,7 +753,6 @@ class TaskAgent:
     async def run_task(
         self,
         task: str,
-        initial_state: Optional[Dict[str, Any]] = None,
         max_iterations: int = 100,
     ) -> bool:
         self.reset_cancellation()
@@ -786,10 +771,6 @@ class TaskAgent:
         self.add_message(
             {"role": "user", "content": create_task_instruction_user_message(task)}
         )
-        if initial_state:
-            # todo: format initial state as summary
-            for message in create_initial_status_messages(initial_state):
-                self.add_message(message)
 
         context = self._create_context()
         runner_task = self._setup_pipeline(context)
@@ -887,7 +868,7 @@ class TaskAgent:
 
     def _timestamped_text(self, message: str) -> str:
         elapsed_ms = self._elapsed_ms()
-        return f"{elapsed_ms} ms - {message}"
+        return f"{elapsed_ms} ms elapsed - {message}"
 
     @staticmethod
     def _serialize_output(data: Any) -> str:
