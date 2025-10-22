@@ -28,6 +28,57 @@ def rpc_success(data: Dict[str, Any] | None = None) -> Dict[str, Any]:
     return response
 
 
+def build_character_moved_payload(
+    world,
+    character_id: str,
+    *,
+    move_type: str,
+    movement: Optional[str] = None,
+    timestamp: Optional[datetime | str] = None,
+    knowledge: Any | None = None,
+    extra_fields: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Construct a standardized character.moved payload."""
+
+    if knowledge is None:
+        knowledge = world.knowledge_manager.load_knowledge(character_id)
+
+    ship_config = knowledge.ship_config
+    ship_stats = get_ship_stats(ShipType(ship_config.ship_type))
+    display_name = ship_config.ship_name or ship_stats.name
+
+    if isinstance(timestamp, datetime):
+        iso_timestamp = timestamp.isoformat()
+    elif isinstance(timestamp, str):
+        iso_timestamp = timestamp
+    else:
+        iso_timestamp = datetime.now(timezone.utc).isoformat()
+
+    payload: Dict[str, Any] = {
+        "player": {
+            "id": character_id,
+            "name": character_id,
+        },
+        "ship": {
+            "ship_name": display_name,
+            "ship_type": ship_config.ship_type,
+        },
+        "timestamp": iso_timestamp,
+        "move_type": move_type,
+        # Legacy fields retained for backward compatibility
+        "name": character_id,
+        "ship_type": ship_config.ship_type,
+    }
+
+    if movement is not None:
+        payload["movement"] = movement
+
+    if extra_fields:
+        payload.update(extra_fields)
+
+    return payload
+
+
 def build_event_source(
     endpoint: str,
     request_id: str,

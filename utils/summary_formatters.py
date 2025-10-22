@@ -711,23 +711,40 @@ def port_update_summary(event: Dict[str, Any]) -> str:
 def character_moved_summary(event: Dict[str, Any]) -> str:
     """Summarize character.moved events."""
 
-    name = event.get("name") if isinstance(event, dict) else None
-    ship_type = event.get("ship_type") if isinstance(event, dict) else None
-    movement = event.get("movement") if isinstance(event, dict) else None
+    if not isinstance(event, dict):
+        return "Character movement update."
+
+    player = event.get("player") or {}
+    ship = event.get("ship") or {}
+
+    name = player.get("name") or player.get("id") or event.get("name") or "Unknown pilot"
+
+    ship_name = ship.get("ship_name")
+    ship_type = ship.get("ship_type") or event.get("ship_type")
+
+    if ship_name and ship_type:
+        ship_descriptor = f"{ship_name} ({ship_type})"
+    else:
+        ship_descriptor = ship_name or ship_type or "unknown ship"
+
+    movement = event.get("movement")
+    move_type = event.get("move_type")
+
+    to_sector = event.get("to_sector")
+    from_sector = event.get("from_sector")
 
     if movement == "arrive":
-        return f"{name} ({ship_type}) arrived."
+        return f"{name} in {ship_descriptor} arrived."
     if movement == "depart":
-        return f"{name} ({ship_type}) departed."
-
-    to_sector = event.get("to_sector") if isinstance(event, dict) else None
-    from_sector = event.get("from_sector") if isinstance(event, dict) else None
+        return f"{name} in {ship_descriptor} departed."
 
     if to_sector is not None and from_sector is not None:
-        return f"{name} ({ship_type}) moved from {from_sector} to {to_sector}."
+        return f"{name} in {ship_descriptor} moved from {from_sector} to {to_sector}."
     if to_sector is not None:
-        return f"{name} ({ship_type}) moved to {to_sector}."
+        return f"{name} in {ship_descriptor} moved to {to_sector}."
     if from_sector is not None:
-        return f"{name} ({ship_type}) departed sector {from_sector}."
+        return f"{name} in {ship_descriptor} departed sector {from_sector}."
 
-    return f"{name} ({ship_type}) movement update."
+    if move_type:
+        return f"{name} in {ship_descriptor} movement update [{move_type}]."
+    return f"{name} in {ship_descriptor} movement update."

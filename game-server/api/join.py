@@ -6,6 +6,7 @@ from .utils import (
     sector_contents,
     build_event_source,
     rpc_success,
+    build_character_moved_payload,
 )
 from ships import ShipType, get_ship_stats, validate_ship_type
 from rpc.events import event_dispatcher
@@ -81,6 +82,8 @@ async def handle(request: dict, world) -> dict:
             world.knowledge_manager.update_credits(character_id, credits)
 
     else:
+        # special admin path to skip normal move and put a player in a new sector
+        # todo: maybe lock this down a bit?
         character = world.characters[character_id]
         character.update_activity()
         knowledge = world.knowledge_manager.load_knowledge(character_id)
@@ -102,25 +105,30 @@ async def handle(request: dict, world) -> dict:
             if old_sector != sector:
                 character.sector = sector
 
-                mover_payload = {
-                    "character_id": character_id,
-                    "from_sector": old_sector,
-                    "to_sector": sector,
-                    "timestamp": character.last_active.isoformat(),
-                    "move_type": "teleport",
-                }
+                mover_payload = build_character_moved_payload(
+                    world,
+                    character_id,
+                    move_type="teleport",
+                    timestamp=character.last_active,
+                    knowledge=knowledge,
+                    extra_fields={
+                        "from_sector": old_sector,
+                        "to_sector": sector,
+                    },
+                )
                 await event_dispatcher.emit(
                     "character.moved",
                     mover_payload,
                     character_filter=[character_id],
                 )
 
-                observer_payload = {
-                    "name": character.id,
-                    "ship_type": knowledge.ship_config.ship_type,
-                    "timestamp": character.last_active.isoformat(),
-                    "move_type": "teleport",
-                }
+                observer_payload = build_character_moved_payload(
+                    world,
+                    character_id,
+                    move_type="teleport",
+                    timestamp=character.last_active,
+                    knowledge=knowledge,
+                )
 
                 arriving_observers = [
                     cid
@@ -135,13 +143,17 @@ async def handle(request: dict, world) -> dict:
                 if arriving_observers:
                     await event_dispatcher.emit(
                         "character.moved",
-                        {**observer_payload, "movement": "arrive"},
+                        {**observer_payload, "movement": "arrive", "to_sector": sector},
                         character_filter=arriving_observers,
                     )
                 if departing_observers:
                     await event_dispatcher.emit(
                         "character.moved",
-                        {**observer_payload, "movement": "depart"},
+                        {
+                            **observer_payload,
+                            "movement": "depart",
+                            "from_sector": old_sector,
+                        },
                         character_filter=departing_observers,
                     )
             else:
@@ -205,10 +217,8 @@ async def handle(request: dict, world) -> dict:
                 character_id
             )
             if not active_encounter:
-                active_encounter = (
-                    await world.combat_manager.find_encounter_in_sector(
-                        character.sector
-                    )
+                active_encounter = await world.combat_manager.find_encounter_in_sector(
+                    character.sector
                 )
 
         if active_encounter and not active_encounter.ended:

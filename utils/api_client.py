@@ -417,8 +417,9 @@ class AsyncGameClient:
                             event_name == "character.moved"
                             and self._character_id is not None
                         ):
-                            mover_id = payload.get("character_id")
-                            mover_name = payload.get("name")
+                            player = payload.get("player") or {}
+                            mover_id = player.get("id") or payload.get("character_id")
+                            mover_name = player.get("name") or payload.get("name")
                             if (
                                 mover_id == self._character_id
                                 or mover_name == self._character_id
