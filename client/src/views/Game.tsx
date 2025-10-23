@@ -9,6 +9,7 @@ import { ShipHUD } from "@hud/ShipHUD";
 import { StarField } from "@hud/StarField";
 import { TopBar } from "@hud/TopBar";
 
+import { AnimatedFrame } from "@/fx/frame";
 import { useEffect } from "react";
 
 export const Game = () => {
@@ -19,7 +20,7 @@ export const Game = () => {
 
   useEffect(() => {
     if (gameState === "ready") {
-      playSound("ambience", { loop: true, once: true });
+      playSound("ambience", { loop: true, once: true, volume: 0.5 });
     }
   }, [playSound, gameState]);
 
@@ -42,6 +43,7 @@ export const Game = () => {
       <ShipVisor />
       <StarField />
       <Settings />
+      <AnimatedFrame />
     </>
   );
 };

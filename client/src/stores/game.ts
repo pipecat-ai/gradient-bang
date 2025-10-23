@@ -30,6 +30,15 @@ const createSelectors = <S extends UseBoundStore<StoreApi<object>>>(
   return store;
 };
 
+type GameInitState = "not_ready" | "initializing" | "ready" | "error";
+
+export const GameInitStateMessage = {
+  INIT: "Initializing game instances...",
+  CONNECTING: "Connecting to server...",
+  STARTING: "Rendering scene...",
+  READY: "Game ready!",
+} as const;
+
 export interface GameState {
   player: PlayerSelf;
   ship: ShipSelf;
@@ -46,7 +55,8 @@ export interface GameState {
   sectorBuffer?: Sector;
 
   /* Game State */
-  gameState: "not_ready" | "initializing" | "ready" | "error";
+  gameState: GameInitState;
+  gameStateMessage?: string;
 }
 
 export interface GameSlice extends GameState {
@@ -67,9 +77,8 @@ export interface GameSlice extends GameState {
   setDiamondFXInstance: (
     diamondFXInstance: DiamondFXController | undefined
   ) => void;
-  setGameState: (
-    gameState: "not_ready" | "initializing" | "ready" | "error"
-  ) => void;
+  setGameState: (gameState: GameInitState) => void;
+  setGameStateMessage: (gameStateMessage: string) => void;
 }
 
 const createGameSlice: StateCreator<
@@ -88,7 +97,9 @@ const createGameSlice: StateCreator<
   starfieldInstance: undefined,
   diamondFXInstance: undefined,
   gameState: "not_ready",
+  gameStateMessage: GameInitStateMessage.INIT,
 
+  setGameStateMessage: (gameStateMessage: string) => set({ gameStateMessage }),
   setState: (newState: Partial<GameState>) =>
     set({ ...get(), ...newState }, true),
 
@@ -189,8 +200,7 @@ const createGameSlice: StateCreator<
   setDiamondFXInstance: (diamondFXInstance: DiamondFXController | undefined) =>
     set({ diamondFXInstance }),
 
-  setGameState: (gameState: "not_ready" | "initializing" | "ready" | "error") =>
-    set({ gameState }),
+  setGameState: (gameState: GameInitState) => set({ gameState }),
 });
 
 const useGameStoreBase = create<

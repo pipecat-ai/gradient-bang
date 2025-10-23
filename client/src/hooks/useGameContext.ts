@@ -6,11 +6,13 @@ import { createContext, useContext } from "react";
 interface GameContextProps {
   sendUserTextInput: (text: string) => void;
   dispatchEvent: (e: { type: string; payload: unknown }) => void;
+  initialize: () => void;
 }
 
 export const GameContext = createContext<GameContextProps>({
   sendUserTextInput: () => {},
   dispatchEvent: () => {},
+  initialize: () => {},
 });
 
 export const useGameContext = () => {

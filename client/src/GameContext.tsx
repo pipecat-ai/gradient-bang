@@ -1,11 +1,11 @@
 import { RTVIEvent } from "@pipecat-ai/client-js";
 import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react";
-import { useCallback, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, type ReactNode } from "react";
 
 import { checkForNewSectors, startMoveToSector } from "@/actions";
 import { GameContext } from "@/hooks/useGameContext";
-import { type StarfieldSceneConfig } from "@fx/starfield";
-import useGameStore from "@stores/game";
+import { wait } from "@/utils/animation";
+import useGameStore, { GameInitStateMessage } from "@stores/game";
 
 import {
   type CharacterMovedMessage,
@@ -21,9 +21,11 @@ import {
   type WarpPurchaseMessage,
   type WarpTransferMessage,
 } from "@/types/messages";
+import GameInstanceManager from "./GameInstanceManager";
 
 interface GameProviderProps {
   children: ReactNode;
+  onConnect?: () => void;
 }
 
 //@TODO: remove this method once game server changes
@@ -44,9 +46,24 @@ const transformMessage = (e: ServerMessage): ServerMessage | undefined => {
   return e;
 };
 
-export function GameProvider({ children }: GameProviderProps) {
+export function GameProvider({ children, onConnect }: GameProviderProps) {
   const gameStore = useGameStore();
   const client = usePipecatClient();
+
+  const instanceManagerRef = useRef<GameInstanceManager | null>(null);
+
+  useEffect(() => {
+    if (!client) return;
+
+    if (!instanceManagerRef.current) {
+      instanceManagerRef.current = new GameInstanceManager();
+    }
+
+    return () => {
+      instanceManagerRef.current?.destroy();
+      instanceManagerRef.current = null;
+    };
+  }, [client]);
 
   /**
    * Send user text input to server
@@ -94,6 +111,48 @@ export function GameProvider({ children }: GameProviderProps) {
    * Initialization method
    */
   const initialize = useCallback(async () => {
+    console.debug("[GAME CONTEXT] Initializing...", onConnect);
+
+    if (!instanceManagerRef.current) {
+      console.error("[GAME CONTEXT] Game instance manager not found");
+      return;
+    }
+
+    gameStore.setGameStateMessage(GameInitStateMessage.INIT);
+    gameStore.setGameState("initializing");
+
+    // 1. Construct game instance
+    await instanceManagerRef.current?.initialize();
+
+    // 2. Connect to agent
+    gameStore.setGameStateMessage(GameInitStateMessage.CONNECTING);
+    try {
+      await onConnect?.();
+      if (!client?.connected) {
+        throw new Error("Failed to connect to game server");
+      }
+    } catch {
+      console.error("[GAME CONTEXT] Error connecting to game server");
+      gameStore.setGameState("error");
+      return;
+    }
+
+    // 3. Initialize game instances with data
+    gameStore.setGameStateMessage(GameInitStateMessage.STARTING);
+
+    await wait(1000);
+
+    console.debug("[GAME CONTEXT] Initialized, setting ready state");
+
+    // 4. Set ready state and dispatch start event to bot
+    gameStore.setGameStateMessage(GameInitStateMessage.READY);
+    gameStore.setGameState("ready");
+    dispatchEvent({ type: "start" });
+  }, [onConnect, gameStore, dispatchEvent, client]);
+
+  /**
+   * Initialization method
+  const initialize = useCallback(async () => {
     const state = useGameStore.getState();
 
     state.setGameState("initializing");
@@ -124,6 +183,7 @@ export function GameProvider({ children }: GameProviderProps) {
     // Dispatch start event to initialize bot conversation
     dispatchEvent({ type: "start" });
   }, [gameStore, dispatchEvent]);
+   */
 
   /**
    * Handle server message
@@ -163,8 +223,6 @@ export function GameProvider({ children }: GameProviderProps) {
               // refer to source.method === "join" too, but better that client
               // is source of truth for it's current game state.
               if (gameStore.gameState === "not_ready") {
-                initialize();
-
                 gameStore.addActivityLogEntry({
                   type: "join",
                   message: "Joined the game",
@@ -426,12 +484,14 @@ export function GameProvider({ children }: GameProviderProps) {
           }*/
         }
       },
-      [gameStore, initialize]
+      [gameStore]
     )
   );
 
   return (
-    <GameContext.Provider value={{ sendUserTextInput, dispatchEvent }}>
+    <GameContext.Provider
+      value={{ sendUserTextInput, dispatchEvent, initialize }}
+    >
       {children}
     </GameContext.Provider>
   );

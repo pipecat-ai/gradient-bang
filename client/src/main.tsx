@@ -29,8 +29,8 @@ createRoot(document.getElementById("root")!).render(
     noAudioOutput={Settings.disableRemoteAudio}
   >
     {({ handleConnect, error }) => (
-      <GameProvider>
-        <ViewContainer onConnect={handleConnect} error={error} />
+      <GameProvider onConnect={handleConnect}>
+        <ViewContainer error={error} />
       </GameProvider>
     )}
   </PipecatAppBase>

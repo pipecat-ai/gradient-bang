@@ -1,19 +1,28 @@
 import { usePlaySound } from "@/hooks/usePlaySound";
 import useGameStore from "@/stores/game";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+
+import { wait } from "@/utils/animation";
 
 export const ShipVisor = () => {
   const gameState = useGameStore.use.gameState();
   const playSound = usePlaySound();
+  const [isOpen, setIsOpen] = useState(false);
 
   /*
-   * Play start sound FX on ready
+   * Debounce visor opening and start sound FX
    */
   useEffect(() => {
-    if (gameState === "ready") {
-      playSound("start");
-    }
+    const openVisor = async () => {
+      if (gameState === "ready") {
+        await wait(2000);
+        setIsOpen(true);
+        playSound("start");
+      }
+    };
+
+    openVisor();
   }, [playSound, gameState]);
 
-  return <div id="visor" className={gameState === "ready" ? "open" : ""}></div>;
+  return <div id="visor" className={isOpen ? "open" : ""}></div>;
 };
