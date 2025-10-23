@@ -959,7 +959,8 @@ class SimpleTUI(App):
         sector_id = _extract_sector_id(sector_ref)
         if sector_id is None:
             sector_id = "?"
-        port_data = payload.get("port", {})
+        sector_payload = sector_ref if isinstance(sector_ref, dict) else {}
+        port_data = sector_payload.get("port", {}) if isinstance(sector_payload, dict) else {}
 
         # Format port update message
         code = port_data.get("code", "?")

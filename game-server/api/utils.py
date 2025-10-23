@@ -228,9 +228,44 @@ def port_snapshot(world, sector_id: int) -> Dict[str, Any]:
             "code": port_state.code,
             "prices": prices,
             "stock": stock,
-            "observed_at": datetime.now(timezone.utc).isoformat(),
         }
     return port
+
+
+def apply_port_observation(
+    world,
+    *,
+    observer_id: Optional[str],
+    sector_id: int,
+    port_data: Optional[Dict[str, Any]],
+    in_sector: bool,
+    observation_time: Optional[datetime | str] = None,
+) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Annotate port data for an observer and persist their observation."""
+
+    if not port_data:
+        return None, None
+
+    base_port = deepcopy(port_data)
+    base_port.pop("observed_at", None)
+
+    if observation_time is None:
+        observation_time_dt = datetime.now(timezone.utc)
+        observation_time = observation_time_dt.isoformat()
+    elif isinstance(observation_time, datetime):
+        observation_time = observation_time.isoformat()
+
+    event_port = deepcopy(base_port)
+    event_port["observed_at"] = None if in_sector else observation_time
+
+    if observer_id and hasattr(world.knowledge_manager, "update_port_observation"):
+        knowledge_port = deepcopy(base_port)
+        knowledge_port["observed_at"] = observation_time
+        world.knowledge_manager.update_port_observation(
+            observer_id, sector_id, knowledge_port
+        )
+
+    return event_port, observation_time
 
 
 async def sector_contents(
@@ -242,14 +277,22 @@ async def sector_contents(
     adjacent_sectors = sorted(world.universe_graph.adjacency[sector_id])
 
     # Port (minimal snapshot) -- todo: write tests and refactor this. there's much more logic here than there needs to be
-    port = port_snapshot(world, sector_id)
-    # if the character is currently in this sector, set observed_at to null
-    if (
-        current_character_id
-        and world.characters[current_character_id].sector == sector_id
-        and port
-    ):
-        port["observed_at"] = None
+    port_base = port_snapshot(world, sector_id)
+    port = None
+    if port_base:
+        if current_character_id and current_character_id in world.characters:
+            character = world.characters[current_character_id]
+            in_sector = character.sector == sector_id and not character.in_hyperspace
+            port, _ = apply_port_observation(
+                world,
+                observer_id=current_character_id,
+                sector_id=sector_id,
+                port_data=port_base,
+                in_sector=in_sector,
+            )
+        else:
+            port = deepcopy(port_base)
+            port["observed_at"] = None
 
     # Other players (names + ship type when known)
     players = []

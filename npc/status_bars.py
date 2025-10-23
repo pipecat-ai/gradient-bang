@@ -332,24 +332,24 @@ class StatusBarUpdater:
 
     def update_from_port_update(self, payload: dict) -> None:
         """Update from port.update event"""
-        port_data = payload.get("port", {})
+        sector_ref = payload.get("sector")
+        port_data = {}
+        if isinstance(sector_ref, dict):
+            port_data = sector_ref.get("port", {})
+
         if port_data:
-            # Update port info if we're still in the same sector
-            sector_ref = payload.get("sector")
             sector_id = _extract_sector_id(sector_ref)
             if sector_id is None or sector_id == self.state.sector_id:
                 if self.state.port:
-                    # Update existing port
                     if port_data.get("code"):
                         self.state.port.port_type = port_data.get("code", self.state.port.port_type)
                     self.state.port.stock = port_data.get("stock", {})
                     self.state.port.prices = port_data.get("prices", {})
                 else:
-                    # Create new port entry
                     self.state.port = PortInfo(
                         port_type=port_data.get("code", "unknown"),
                         stock=port_data.get("stock", {}),
-                        prices=port_data.get("prices", {})
+                        prices=port_data.get("prices", {}),
                     )
 
     def update_from_sector_update(self, payload: dict) -> None:

@@ -171,6 +171,8 @@ Assume that your input will have typical transcription errors. Assume from the o
 
 Keep your output concise and to the point. Use short sentences. Most responses should be only one sentence. Respond briefly unless you are specifically asked to provide a detailed response. Use only plain text without any formatting.
 
+When asked about time, prefer to do date-time math so that you respond in relative terms. If asked, when did I last see ... respond with rough time elapsed in minutes, hours, days, etc.
+
 Keep your responses brief. In this game, time is money (and survival).
 """
 
@@ -318,6 +320,13 @@ Follow these steps to initiate combat:
    - During combat you receive combat.round_waiting events 
    - Whenever you receive a combat.round_waiting event, you need to call combat_action to submit an action for that round. Normally, you can attack, brace, or flee. If toll fighters are attacking, you have an additional round action option: pay.
    - When combat is over, you will receive a combat.ended event.
+
+### Time
+
+When asked about time, prefer to do date-time math so that you respond in relative terms. If asked, when did I last see ... respond with rough time elapsed in minutes, hours, days, etc.
+
+Each task step states the number of milliseconds that have elapsed since the task started.
+
 
 """
 
