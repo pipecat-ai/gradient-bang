@@ -21,6 +21,8 @@ class ShipInfo:
     """Info about a ship in the sector (non-combat)"""
     name: str
     ship_type: str
+    ship_name: Optional[str] = None
+    player_id: Optional[str] = None
 
 
 @dataclass
@@ -167,17 +169,40 @@ class StatusBarUpdater:
             players_list = sector_data.get("other_players") or []
 
         if players_list is not None:
-            self.state.ships = [
-                ShipInfo(
-                    name=entry.get("name", "?"),
-                    ship_type=(
-                        (entry.get("ship") or {}).get("ship_type")
-                        or entry.get("ship_type", "unknown")
-                    ),
+            ships: List[ShipInfo] = []
+            for entry in players_list:
+                if not isinstance(entry, dict):
+                    continue
+
+                raw_player = entry.get("player")
+                player_name: Optional[str] = None
+                player_id: Optional[str] = None
+                if isinstance(raw_player, dict):
+                    player_name = raw_player.get("name") or raw_player.get("id")
+                    player_id = raw_player.get("id")
+
+                if player_name is None:
+                    player_name = entry.get("name")
+                if player_id is None:
+                    player_id = entry.get("id") or entry.get("character_id")
+
+                ship_entry = entry.get("ship") if isinstance(entry.get("ship"), dict) else {}
+                ship_type = ship_entry.get("ship_type") or entry.get("ship_type", "unknown")
+                ship_name = ship_entry.get("ship_name")
+
+                if player_name is None:
+                    player_name = player_id or "?"
+
+                ships.append(
+                    ShipInfo(
+                        name=player_name,
+                        ship_type=ship_type or "unknown",
+                        ship_name=ship_name,
+                        player_id=player_id,
+                    )
                 )
-                for entry in players_list
-                if isinstance(entry, dict) and entry.get("name")
-            ]
+
+            self.state.ships = ships
 
         garrison_data = sector_data.get("garrison")
         if not garrison_data:
@@ -307,24 +332,24 @@ class StatusBarUpdater:
 
     def update_from_port_update(self, payload: dict) -> None:
         """Update from port.update event"""
-        port_data = payload.get("port", {})
+        sector_ref = payload.get("sector")
+        port_data = {}
+        if isinstance(sector_ref, dict):
+            port_data = sector_ref.get("port", {})
+
         if port_data:
-            # Update port info if we're still in the same sector
-            sector_ref = payload.get("sector")
             sector_id = _extract_sector_id(sector_ref)
             if sector_id is None or sector_id == self.state.sector_id:
                 if self.state.port:
-                    # Update existing port
                     if port_data.get("code"):
                         self.state.port.port_type = port_data.get("code", self.state.port.port_type)
                     self.state.port.stock = port_data.get("stock", {})
                     self.state.port.prices = port_data.get("prices", {})
                 else:
-                    # Create new port entry
                     self.state.port = PortInfo(
                         port_type=port_data.get("code", "unknown"),
                         stock=port_data.get("stock", {}),
-                        prices=port_data.get("prices", {})
+                        prices=port_data.get("prices", {}),
                     )
 
     def update_from_sector_update(self, payload: dict) -> None:
@@ -397,27 +422,68 @@ class StatusBarUpdater:
 
         Payload structure:
         {
-            "name": character_id,
-            "ship_type": "scout",
+            "player": {"id": str, "name": str},
+            "ship": {"ship_name": str, "ship_type": str},
             "timestamp": "...",
             "move_type": "normal",
-            "movement": "arrive" or "depart"
+            "movement": "arrive" or "depart",
+            ...
         }
         """
         movement = payload.get("movement")
-        char_name = payload.get("name")
-        ship_type = payload.get("ship_type")
+        player = payload.get("player") or {}
+        ship = payload.get("ship") or {}
 
-        if not char_name:
+        player_id = player.get("id") or payload.get("character_id")
+        char_name = player.get("name") or payload.get("name") or player_id
+        ship_type = ship.get("ship_type") or payload.get("ship_type")
+        ship_name = ship.get("ship_name")
+
+        if not char_name and not player_id:
             return
+
+        identifier = player_id or char_name
 
         if movement == "arrive":
             # Add ship to list if not already present
-            if not any(s.name == char_name for s in self.state.ships):
-                self.state.ships.append(ShipInfo(name=char_name, ship_type=ship_type or "unknown"))
+            existing = None
+            for ship_info in self.state.ships:
+                if ship_info.player_id and ship_info.player_id == identifier:
+                    existing = ship_info
+                    break
+                if not ship_info.player_id and char_name and ship_info.name == char_name:
+                    existing = ship_info
+                    break
+
+            if existing:
+                if char_name:
+                    existing.name = char_name
+                if ship_type:
+                    existing.ship_type = ship_type
+                if ship_name:
+                    existing.ship_name = ship_name
+                if player_id:
+                    existing.player_id = player_id
+            else:
+                self.state.ships.append(
+                    ShipInfo(
+                        name=char_name or identifier,
+                        ship_type=ship_type or "unknown",
+                        ship_name=ship_name,
+                        player_id=player_id,
+                    )
+                )
         elif movement == "depart":
             # Remove ship from list
-            self.state.ships = [s for s in self.state.ships if s.name != char_name]
+            filtered: List[ShipInfo] = []
+            for ship_info in self.state.ships:
+                if ship_info.player_id and identifier:
+                    if ship_info.player_id == identifier:
+                        continue
+                elif char_name and ship_info.name == char_name:
+                    continue
+                filtered.append(ship_info)
+            self.state.ships = filtered
 
     def _update_from_player_ship(self, payload: dict) -> None:
         """Helper to update state from player and ship data in event payload"""
@@ -565,7 +631,13 @@ class StatusBarUpdater:
 
         # Bar 3: Ships in sector
         if self.state.ships:
-            ship_list = ", ".join(f"{s.name} ({s.ship_type})" for s in self.state.ships)
+            def _format_ship_entry(info: ShipInfo) -> str:
+                ship_label = info.ship_name or info.ship_type or "unknown ship"
+                if info.ship_name and info.ship_type:
+                    ship_label = f"{info.ship_name} ({info.ship_type})"
+                return f"{info.name} [{ship_label}]"
+
+            ship_list = ", ".join(_format_ship_entry(s) for s in self.state.ships)
             lines.append(f"ships | {ship_list}")
         else:
             lines.append("ships | none")

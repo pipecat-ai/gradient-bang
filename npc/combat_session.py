@@ -513,8 +513,9 @@ class CombatSession:
             return
 
         movement = payload.get("movement")
-        mover_identifier = payload.get("character_id")
-        mover_name = payload.get("name")
+        player = payload.get("player") or {}
+        mover_identifier = player.get("id") or payload.get("character_id")
+        mover_name = player.get("name") or payload.get("name")
 
         # Ignore self-movement regardless of identifier format
         if mover_identifier == self.character_id or mover_name == self.character_id:

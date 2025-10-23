@@ -12,6 +12,7 @@ from .utils import (
     build_local_map_region,
     build_event_source,
     rpc_success,
+    build_character_moved_payload,
 )
 from ships import ShipType, get_ship_stats, ShipStats
 from rpc.events import event_dispatcher
@@ -126,13 +127,14 @@ async def handle(request: dict, world) -> dict:
         character.update_activity()
 
         # Send character.moved with movement: "depart" to old sector observers
-        observer_payload = {
-            "name": character.id,
-            "ship_type": knowledge.ship_config.ship_type,
-            "timestamp": character.last_active.isoformat(),
-            "move_type": "normal",
-            "movement": "depart",
-        }
+        observer_payload = build_character_moved_payload(
+            world,
+            character_id,
+            move_type="normal",
+            movement="depart",
+            timestamp=character.last_active,
+            knowledge=knowledge,
+        )
         departing_observers = [
             cid
             for cid, info in world.characters.items()
@@ -286,13 +288,14 @@ async def handle(request: dict, world) -> dict:
                 )
 
         # Send character.moved with movement: "arrive" to new sector observers
-        observer_payload = {
-            "name": character.id,
-            "ship_type": knowledge.ship_config.ship_type,
-            "timestamp": character.last_active.isoformat(),
-            "move_type": "normal",
-            "movement": "arrive",
-        }
+        observer_payload = build_character_moved_payload(
+            world,
+            character_id,
+            move_type="normal",
+            movement="arrive",
+            timestamp=character.last_active,
+            knowledge=knowledge,
+        )
         arriving_observers = [
             cid
             for cid, info in world.characters.items()

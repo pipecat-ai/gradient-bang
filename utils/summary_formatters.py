@@ -329,17 +329,27 @@ def list_known_ports_summary(result: Dict[str, Any]) -> str:
     ]
 
     for port_info in ports:
-        sector_id = port_info.get("sector_id", "?")
+        sector = port_info.get("sector") or {}
+        if not isinstance(sector, dict):
+            sector = {}
+        sector_id = sector.get("id", "?")
         hops = port_info.get("hops_from_start", 0)
-        port_data = port_info.get("port", {})
+        port_entry = sector.get("port")
+        port_data = port_entry if isinstance(port_entry, dict) else {}
         port_code = port_data.get("code", "???")
         last_visited = port_info.get("last_visited")
+        observed_at = None
+        observed_at = port_data.get("observed_at")
+        if observed_at is None:
+            observed_at = port_info.get("updated_at")
 
         port_line = f"  - Sector {sector_id} ({hops} hop{'s' if hops != 1 else ''}): {port_code}"
 
         if last_visited:
             relative_time = _format_relative_time(last_visited)
             port_line += f" [visited {relative_time}]"
+        if observed_at and isinstance(observed_at, str):
+            port_line += f" [observed {_format_relative_time(observed_at)}]"
 
         lines.append(port_line)
 
@@ -674,9 +684,18 @@ def trade_executed_summary(event: Dict[str, Any]) -> str:
 def port_update_summary(event: Dict[str, Any]) -> str:
     """Summarize port.update events."""
 
-    sector = event.get("sector", {}) if isinstance(event, dict) else {}
+    if not isinstance(event, dict):
+        return "Port update received."
+
+    sector = event.get("sector") or {}
+    if not isinstance(sector, dict):
+        sector = {}
+
     sector_id = sector.get("id", "unknown")
-    port = event.get("port", {}) if isinstance(event, dict) else {}
+    port = sector.get("port")
+    if not isinstance(port, dict):
+        port = {}
+
     code = port.get("code", "???")
 
     pieces: List[str] = []
@@ -711,23 +730,40 @@ def port_update_summary(event: Dict[str, Any]) -> str:
 def character_moved_summary(event: Dict[str, Any]) -> str:
     """Summarize character.moved events."""
 
-    name = event.get("name") if isinstance(event, dict) else None
-    ship_type = event.get("ship_type") if isinstance(event, dict) else None
-    movement = event.get("movement") if isinstance(event, dict) else None
+    if not isinstance(event, dict):
+        return "Character movement update."
+
+    player = event.get("player") or {}
+    ship = event.get("ship") or {}
+
+    name = player.get("name") or player.get("id") or event.get("name") or "Unknown pilot"
+
+    ship_name = ship.get("ship_name")
+    ship_type = ship.get("ship_type") or event.get("ship_type")
+
+    if ship_name and ship_type:
+        ship_descriptor = f"{ship_name} ({ship_type})"
+    else:
+        ship_descriptor = ship_name or ship_type or "unknown ship"
+
+    movement = event.get("movement")
+    move_type = event.get("move_type")
+
+    to_sector = event.get("to_sector")
+    from_sector = event.get("from_sector")
 
     if movement == "arrive":
-        return f"{name} ({ship_type}) arrived."
+        return f"{name} in {ship_descriptor} arrived."
     if movement == "depart":
-        return f"{name} ({ship_type}) departed."
-
-    to_sector = event.get("to_sector") if isinstance(event, dict) else None
-    from_sector = event.get("from_sector") if isinstance(event, dict) else None
+        return f"{name} in {ship_descriptor} departed."
 
     if to_sector is not None and from_sector is not None:
-        return f"{name} ({ship_type}) moved from {from_sector} to {to_sector}."
+        return f"{name} in {ship_descriptor} moved from {from_sector} to {to_sector}."
     if to_sector is not None:
-        return f"{name} ({ship_type}) moved to {to_sector}."
+        return f"{name} in {ship_descriptor} moved to {to_sector}."
     if from_sector is not None:
-        return f"{name} ({ship_type}) departed sector {from_sector}."
+        return f"{name} in {ship_descriptor} departed sector {from_sector}."
 
-    return f"{name} ({ship_type}) movement update."
+    if move_type:
+        return f"{name} in {ship_descriptor} movement update [{move_type}]."
+    return f"{name} in {ship_descriptor} movement update."

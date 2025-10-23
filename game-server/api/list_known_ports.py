@@ -11,6 +11,7 @@ from .utils import (
     rpc_success,
     build_event_source,
     emit_error_event,
+    apply_port_observation,
 )
 from rpc.events import event_dispatcher
 
@@ -145,15 +146,37 @@ async def handle(request: Dict[str, Any], world) -> Dict[str, Any]:
                     port_matches = True
 
                 if port_matches:
-                    contents = await sector_contents(world, current, character_id)
+                    in_sector = False
+                    if character_id in world.characters:
+                        char_state = world.characters[character_id]
+                        in_sector = (
+                            getattr(char_state, "sector", None) == current
+                            and not getattr(char_state, "in_hyperspace", False)
+                        )
+
+                    event_port, observed_at = apply_port_observation(
+                        world,
+                        observer_id=character_id,
+                        sector_id=current,
+                        port_data=port,
+                        in_sector=in_sector,
+                    )
+
+                    position = getattr(sector_knowledge, "position", None)
                     last_visited = getattr(sector_knowledge, "last_visited", None)
+
+                    if event_port is None:
+                        continue
+
+                    sector_entry: Dict[str, Any] = {"id": current, "port": event_port}
+                    if position is not None:
+                        sector_entry["position"] = position
 
                     ports.append(
                         {
-                            "sector_id": current,
+                            "sector": sector_entry,
+                            "updated_at": observed_at,
                             "hops_from_start": hops,
-                            "port": port,
-                            "position": contents.get("position"),
                             "last_visited": last_visited,
                         }
                     )
