@@ -458,10 +458,20 @@ class SimpleTUI(App):
         self._last_ship_meta: Dict[str, Any] = {"credits": None, "cargo": {}}
         self.status_updater = StatusBarUpdater(character)
         self._log_level = (log_level or "INFO").upper()
-        if self._log_level not in {"TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"}:
+        if self._log_level not in {
+            "TRACE",
+            "DEBUG",
+            "INFO",
+            "SUCCESS",
+            "WARNING",
+            "ERROR",
+            "CRITICAL",
+        }:
             self._log_level = "INFO"
         self._generic_event_suppressed: Set[str] = set()
-        self._scripted_tasks: List[str] = [task.strip() for task in (scripted_tasks or []) if task and task.strip()]
+        self._scripted_tasks: List[str] = [
+            task.strip() for task in (scripted_tasks or []) if task and task.strip()
+        ]
         self._stderr_interceptor: Optional[_StderrInterceptor] = None
         self._original_stderr = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -484,7 +494,9 @@ class SimpleTUI(App):
         yield self.task_banner
         self.status_display = Static("", id="status-bars")
         yield self.status_display
-        self.log_panel_label = Static("Log panel: Events (Ctrl+T)", id="log-panel-label")
+        self.log_panel_label = Static(
+            "Log panel: Events (Ctrl+T)", id="log-panel-label"
+        )
         yield self.log_panel_label
         self.events_log = AutoScrollListView(id="ws-log")
         self._log_views["events"] = self.events_log
@@ -564,7 +576,9 @@ class SimpleTUI(App):
             initial_status: Optional[Mapping[str, Any]] = None
             if self._status_snapshot_ready is not None:
                 try:
-                    await asyncio.wait_for(self._status_snapshot_ready.wait(), timeout=2.0)
+                    await asyncio.wait_for(
+                        self._status_snapshot_ready.wait(), timeout=2.0
+                    )
                     initial_status = self._last_status_payload
                 except asyncio.TimeoutError:
                     await self._append_log(
@@ -575,7 +589,9 @@ class SimpleTUI(App):
                         self._last_status_payload = None
                         await self.client.my_status(self.character)
                         if self._status_snapshot_ready is not None:
-                            await asyncio.wait_for(self._status_snapshot_ready.wait(), timeout=2.0)
+                            await asyncio.wait_for(
+                                self._status_snapshot_ready.wait(), timeout=2.0
+                            )
                             initial_status = self._last_status_payload
                     except Exception as exc:  # noqa: BLE001
                         await self._append_log(f"Unable to fetch initial status: {exc}")
@@ -692,7 +708,9 @@ class SimpleTUI(App):
 
     def _register_event_handlers(self) -> None:
         if self.client is None:
-            raise RuntimeError("AsyncGameClient must be initialized before registering events")
+            raise RuntimeError(
+                "AsyncGameClient must be initialized before registering events"
+            )
 
         special_handlers: Dict[str, Callable[[Dict[str, Any]], Awaitable[None]]] = {
             "status.update": self._on_status_update,
@@ -879,7 +897,9 @@ class SimpleTUI(App):
         destination = sector_data.get("id", "?")
         eta = payload.get("hyperspace_time", 0)
 
-        log_message = summary or f"Entering hyperspace to sector {destination} (ETA: {eta:.1f}s)"
+        log_message = (
+            summary or f"Entering hyperspace to sector {destination} (ETA: {eta:.1f}s)"
+        )
         await self._append_log(log_message)
 
         # Update status bars
@@ -923,7 +943,9 @@ class SimpleTUI(App):
         credits = player_data.get("credits_on_hand")
 
         # Try to extract trade details from ship cargo changes
-        await self._append_log(summary or f"Trade executed by {player_name} (credits: {credits})")
+        await self._append_log(
+            summary or f"Trade executed by {player_name} (credits: {credits})"
+        )
 
         # Update status bars
         self.status_updater.update_from_trade_executed(payload)
@@ -937,11 +959,14 @@ class SimpleTUI(App):
         sector_id = _extract_sector_id(sector_ref)
         if sector_id is None:
             sector_id = "?"
-        port_data = payload.get("port", {})
+        sector_payload = sector_ref if isinstance(sector_ref, dict) else {}
+        port_data = sector_payload.get("port", {}) if isinstance(sector_payload, dict) else {}
 
         # Format port update message
         code = port_data.get("code", "?")
-        await self._append_log(summary or f"Port prices updated at sector {sector_id} ({code})")
+        await self._append_log(
+            summary or f"Port prices updated at sector {sector_id} ({code})"
+        )
 
         # Update status bars
         self.status_updater.update_from_port_update(payload)
@@ -971,7 +996,9 @@ class SimpleTUI(App):
             await self._append_log(summary)
         else:
             sector_id = _extract_sector_id(payload.get("sector")) or "?"
-            await self._append_log(f"{event_name.replace('garrison.', 'garrison ')} in sector {sector_id}")
+            await self._append_log(
+                f"{event_name.replace('garrison.', 'garrison ')} in sector {sector_id}"
+            )
 
     async def _on_salvage_collected(self, event: Dict[str, Any]) -> None:
         """Handle salvage.collected event."""
@@ -995,16 +1022,30 @@ class SimpleTUI(App):
         payload = self._event_payload(event)
         summary = self._event_summary(event)
         movement = payload.get("movement")
-        char_name = payload.get("name")
-        ship_type = payload.get("ship_type", "unknown")
+        player = payload.get("player") or {}
+        ship = payload.get("ship") or {}
+
+        char_name = (
+            player.get("name")
+            or player.get("id")
+            or payload.get("name")
+            or "unknown pilot"
+        )
+        ship_name = ship.get("ship_name")
+        ship_type = ship.get("ship_type") or payload.get("ship_type")
+
+        if ship_name and ship_type:
+            ship_desc = f"{ship_name} ({ship_type})"
+        else:
+            ship_desc = ship_name or ship_type or "unknown ship"
 
         # Log the movement
         if summary:
             await self._append_log(summary)
         elif movement == "arrive":
-            await self._append_log(f"{char_name} ({ship_type}) arrived")
+            await self._append_log(f"{char_name} in {ship_desc} arrived")
         elif movement == "depart":
-            await self._append_log(f"{char_name} ({ship_type}) departed")
+            await self._append_log(f"{char_name} in {ship_desc} departed")
 
         # Update status bars
         self.status_updater.update_from_character_moved(payload)
@@ -1032,7 +1073,9 @@ class SimpleTUI(App):
 
             if not getattr(self, "_combat_started_announced", False):
                 opponents = [
-                    p.name for pid, p in state.participants.items() if pid != self.character
+                    p.name
+                    for pid, p in state.participants.items()
+                    if pid != self.character
                 ]
                 await self._append_log(
                     f"Combat {state.combat_id} started vs: {', '.join(opponents) or '(none)'}"
@@ -1345,7 +1388,9 @@ class SimpleTUI(App):
             friendly = garrison.get("is_friendly")
             if fighters is None:
                 continue
-            owner_label = "you" if owner_name == self.character else str(owner_name or "?")
+            owner_label = (
+                "you" if owner_name == self.character else str(owner_name or "?")
+            )
             tag = f"{owner_label}:{fighters}"
             if isinstance(max_fighters, (int, float)) and max_fighters:
                 tag += f"/{int(max_fighters)}"
@@ -1483,7 +1528,7 @@ class SimpleTUI(App):
             )
 
         try:
-            status = await self.client.my_status(self.character)
+            await self.client.my_status(self.character)
         except Exception as exc:  # noqa: BLE001
             await self._append_log(
                 f"Failed to retrieve status before running task: {exc!r}"
@@ -1493,21 +1538,10 @@ class SimpleTUI(App):
                     await self.client.resume_event_delivery()
             return
 
-        initial_state = {
-            "status": status,
-            "time": datetime.now(timezone.utc).isoformat(),
-        }
-
-        snapshot = (
-            status.get("sector_contents") if isinstance(status, Mapping) else None
-        )
-        self._update_sector_details(snapshot)
-
         success = False
         try:
             success = await self.task_agent.run_task(
                 task=prompt,
-                initial_state=initial_state,
                 max_iterations=self.task_max_iterations,
             )
         except asyncio.CancelledError:
@@ -1909,7 +1943,9 @@ class SimpleTUI(App):
             return
 
         formatted = format_log_line(message, expanded=False)
-        item = ListItem(Static(Text(formatted), expand=False), id=f"{panel}-log-{line_id}")
+        item = ListItem(
+            Static(Text(formatted), expand=False), id=f"{panel}-log-{line_id}"
+        )
         item.add_class("collapsed")
         item.data_line_id = line_id  # type: ignore[attr-defined]
 
@@ -2013,9 +2049,10 @@ class SimpleTUI(App):
         except Exception:
             pass
         self._loguru_sink_id = None
-        target = self._original_stderr if self._original_stderr is not None else sys.stderr
+        target = (
+            self._original_stderr if self._original_stderr is not None else sys.stderr
+        )
         logger.add(target, colorize=True)
-
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         value = event.value
@@ -2163,7 +2200,9 @@ class SimpleTUI(App):
 
         try:
             items = list(view.children)
-            await self._append_debug_line(f"[DEBUG] Found {len(items)} items in ListView")
+            await self._append_debug_line(
+                f"[DEBUG] Found {len(items)} items in ListView"
+            )
 
             if not items or view.index >= len(items):
                 await self._append_debug_line("[DEBUG] Index out of range")
@@ -2172,7 +2211,9 @@ class SimpleTUI(App):
 
             item = items[view.index]
             if not isinstance(item, ListItem):
-                await self._append_debug_line(f"[DEBUG] Item is not ListItem: {type(item)}")
+                await self._append_debug_line(
+                    f"[DEBUG] Item is not ListItem: {type(item)}"
+                )
                 return
 
             line_id = getattr(item, "data_line_id", None)
@@ -2185,7 +2226,9 @@ class SimpleTUI(App):
             state = self._log_state[panel]
             original_text = state["lines"].get(line_id)
             if original_text is None:
-                await self._append_debug_line("[DEBUG] original_text not found in log state")
+                await self._append_debug_line(
+                    "[DEBUG] original_text not found in log state"
+                )
                 return
 
             await self._append_debug_line(
@@ -2199,7 +2242,9 @@ class SimpleTUI(App):
                 if success:
                     self.notify("JSON copied to clipboard", timeout=2)
                 else:
-                    await self._append_debug_line(f"[DEBUG] Clipboard copy failed: {error}")
+                    await self._append_debug_line(
+                        f"[DEBUG] Clipboard copy failed: {error}"
+                    )
                     self.notify(f"Copy failed: {error}", severity="error", timeout=3)
             else:
                 await self._append_debug_line("[DEBUG] Copying full text (no JSON)")
@@ -2207,7 +2252,9 @@ class SimpleTUI(App):
                 if success:
                     self.notify("Log line copied to clipboard", timeout=2)
                 else:
-                    await self._append_debug_line(f"[DEBUG] Clipboard copy failed: {error}")
+                    await self._append_debug_line(
+                        f"[DEBUG] Clipboard copy failed: {error}"
+                    )
                     self.notify(f"Copy failed: {error}", severity="error", timeout=3)
 
         except Exception as exc:  # noqa: BLE001
@@ -2397,7 +2444,15 @@ class ProgrammaticSimpleRunner:
         self.tasks = [task.strip() for task in tasks if task and task.strip()]
         self.max_iterations = max(1, max_iterations)
         self.log_level = (log_level or "INFO").upper()
-        if self.log_level not in {"TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"}:
+        if self.log_level not in {
+            "TRACE",
+            "DEBUG",
+            "INFO",
+            "SUCCESS",
+            "WARNING",
+            "ERROR",
+            "CRITICAL",
+        }:
             self.log_level = "INFO"
         self.thinking_budget = thinking_budget
         self.idle_timeout = idle_timeout
@@ -2417,7 +2472,9 @@ class ProgrammaticSimpleRunner:
             self._log_file = self.log_path.open("a", encoding="utf-8")
 
         async def log_frame(direction: str, frame: Mapping[str, Any]) -> None:
-            logger.debug("WS %s: %s", direction.upper(), json.dumps(frame, sort_keys=True))
+            logger.debug(
+                "WS %s: %s", direction.upper(), json.dumps(frame, sort_keys=True)
+            )
 
         self.client = AsyncGameClient(
             base_url=self.server,
@@ -2469,12 +2526,16 @@ class ProgrammaticSimpleRunner:
             await self.client.pause_event_delivery()
             paused_events = True
         except Exception as exc:  # noqa: BLE001
-            self._log_line(f"Failed to pause events before task: {exc!r}", level="WARNING")
+            self._log_line(
+                f"Failed to pause events before task: {exc!r}", level="WARNING"
+            )
 
         try:
             status = await self.client.my_status(self.character)
         except Exception as exc:  # noqa: BLE001
-            self._log_line(f"Unable to fetch status for task '{prompt}': {exc!r}", level="ERROR")
+            self._log_line(
+                f"Unable to fetch status for task '{prompt}': {exc!r}", level="ERROR"
+            )
             if paused_events:
                 with suppress(Exception):
                     await self.client.resume_event_delivery()
@@ -2535,18 +2596,29 @@ class ProgrammaticSimpleRunner:
 
     def _handle_task_output(self, text: str, message_type: Optional[str]) -> None:
         label = (message_type or "MESSAGE").upper()
-        level = "ERROR" if message_type == TaskOutputType.ERROR.value else self.log_level
+        level = (
+            "ERROR" if message_type == TaskOutputType.ERROR.value else self.log_level
+        )
         self._log_line(f"[{label}] {text}", level=level)
 
     def _log_line(self, message: str, *, level: str = "INFO") -> None:
         log_level = (level or self.log_level).upper()
-        if log_level not in {"TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"}:
+        if log_level not in {
+            "TRACE",
+            "DEBUG",
+            "INFO",
+            "SUCCESS",
+            "WARNING",
+            "ERROR",
+            "CRITICAL",
+        }:
             log_level = self.log_level
         logger.log(log_level, message)
         if self._log_file is not None:
             timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
             self._log_file.write(f"{timestamp} {message}\n")
             self._log_file.flush()
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(

@@ -1,4 +1,8 @@
+from copy import deepcopy
+from datetime import datetime, timezone
+
 from fastapi import HTTPException
+
 from .utils import (
     log_trade,
     ensure_not_in_combat,
@@ -119,6 +123,44 @@ async def _execute_trade(
                 port_data["sells"].append(name)
         return port_data
 
+    async def _broadcast_port_update():
+        base_port = port_snapshot(world, character.sector)
+        if not base_port:
+            return
+
+        characters_in_sector = [
+            cid
+            for cid, char in world.characters.items()
+            if char.sector == character.sector and not char.in_hyperspace
+        ]
+        if not characters_in_sector:
+            return
+
+        observation_time = datetime.now(timezone.utc).isoformat()
+        knowledge_port = deepcopy(base_port)
+        knowledge_port["observed_at"] = observation_time
+
+        event_port = deepcopy(base_port)
+        event_port["observed_at"] = None
+
+        for cid in characters_in_sector:
+            world.knowledge_manager.update_port_observation(
+                cid,
+                character.sector,
+                knowledge_port,
+            )
+
+        sector_payload = {"id": character.sector, "port": event_port}
+
+        await event_dispatcher.emit(
+            "port.update",
+            {
+                "sector": sector_payload,
+                "updated_at": observation_time,
+            },
+            character_filter=characters_in_sector,
+        )
+
     if trade_type == "buy":
         idx = {"QF": 0, "RO": 1, "NS": 2}[commodity_key]
         if port_state.code[idx] != "S":
@@ -183,30 +225,7 @@ async def _execute_trade(
             character_filter=[character_id],
         )
 
-        # Emit port.update to all characters in the sector
-        port_update_payload = port_snapshot(world, character.sector)
-        if port_update_payload:
-            # Find all characters in this sector
-            characters_in_sector = [
-                cid
-                for cid, char in world.characters.items()
-                if char.sector == character.sector and not char.in_hyperspace
-            ]
-            if characters_in_sector:
-                await event_dispatcher.emit(
-                    "port.update",
-                    {
-                        "sector": {"id": character.sector},
-                        "updated_at": port_update_payload["observed_at"],
-                        "port": {
-                            "code": port_update_payload["code"],
-                            "prices": port_update_payload["prices"],
-                            "stock": port_update_payload["stock"],
-                            "observed_at": None,  # Set to null for current observers
-                        },
-                    },
-                    character_filter=characters_in_sector,
-                )
+        await _broadcast_port_update()
 
         return rpc_success()
     else:
@@ -271,29 +290,6 @@ async def _execute_trade(
             character_filter=[character_id],
         )
 
-        # Emit port.update to all characters in the sector
-        port_update_payload = port_snapshot(world, character.sector)
-        if port_update_payload:
-            # Find all characters in this sector
-            characters_in_sector = [
-                cid
-                for cid, char in world.characters.items()
-                if char.sector == character.sector and not char.in_hyperspace
-            ]
-            if characters_in_sector:
-                await event_dispatcher.emit(
-                    "port.update",
-                    {
-                        "sector": {"id": character.sector},
-                        "updated_at": port_update_payload["observed_at"],
-                        "port": {
-                            "code": port_update_payload["code"],
-                            "prices": port_update_payload["prices"],
-                            "stock": port_update_payload["stock"],
-                            "observed_at": None,  # Set to null for current observers
-                        },
-                    },
-                    character_filter=characters_in_sector,
-                )
+        await _broadcast_port_update()
 
         return rpc_success()

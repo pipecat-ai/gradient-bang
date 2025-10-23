@@ -301,17 +301,8 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
         # Client requested my status
         if msg_type == "get-my-status":
-            # Get current status from the task manager
-            status = await task_manager.game_client.my_status(task_manager.character_id)
-            await rtvi.push_frame(
-                RTVIServerMessageFrame(
-                    {
-                        "frame_type": "event",
-                        "event": "status.update",
-                        "payload": status,
-                    }
-                )
-            )
+            # Trigger a status.snapshot event from the task manager
+            await task_manager.game_client.my_status(task_manager.character_id)
             return
 
         # Client requested known ports

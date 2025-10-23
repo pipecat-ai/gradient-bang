@@ -75,6 +75,7 @@ async def run_task(args: argparse.Namespace) -> int:
     ) as game_client:
         logger.info(f"CONNECT server={args.server}")
         await game_client.pause_event_delivery()
+        # first event task will get is status.snapshot
         await game_client.join(args.character_id)
         logger.info("JOINED")
 

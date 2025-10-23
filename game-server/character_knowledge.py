@@ -7,6 +7,7 @@ including visited sectors, discovered ports, and learned connections.
 """
 
 import json
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 import os
@@ -246,6 +247,41 @@ class CharacterKnowledgeManager:
         knowledge.last_update = now
         knowledge.current_sector = sector_id
         self.save_knowledge(knowledge)
+
+    def update_port_observation(
+        self,
+        character_id: str,
+        sector_id: int,
+        port_data: Dict[str, Any],
+    ) -> None:
+        """Record the latest port snapshot observed by a character."""
+
+        port_copy = deepcopy(port_data)
+        observed_at = port_copy.get("observed_at")
+        if not observed_at:
+            observed_at = datetime.now(timezone.utc).isoformat()
+            port_copy["observed_at"] = observed_at
+
+        sector_key = str(sector_id)
+
+        lock = self._locks.setdefault(character_id, threading.Lock())
+        with lock:
+            knowledge = self.load_knowledge(character_id)
+
+            if sector_key in knowledge.sectors_visited:
+                sector_knowledge = knowledge.sectors_visited[sector_key]
+                sector_knowledge.port = port_copy
+            else:
+                # Create a minimal sector record so the port data is persisted
+                sector_knowledge = SectorKnowledge(
+                    sector_id=sector_id,
+                    last_visited=observed_at,
+                    port=port_copy,
+                )
+                knowledge.sectors_visited[sector_key] = sector_knowledge
+
+            knowledge.last_update = observed_at
+            self.save_knowledge(knowledge)
 
     def update_current_sector(self, character_id: str, sector_id: int) -> None:
         """Persist the character's current sector without other updates."""

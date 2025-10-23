@@ -254,42 +254,18 @@ class VoiceTaskManager:
         if message_type != TaskOutputType.EVENT:
             self.task_buffer.append(text)
 
-    def _start_task_async(
-        self, task_description: str, game_state: Dict[str, Any]
-    ) -> asyncio.Task:
-        """Start a task asynchronously.
-
-        Args:
-            task_description: Natural language task description
-            game_state: Current game state
-
-        Returns:
-            Asyncio task for the running task
-        """
-        if self.current_task and not self.current_task.done():
-            raise RuntimeError("A task is already running")
-
-        self.task_buffer.clear()
-        self.task_running = True
-
-        self.current_task = asyncio.create_task(
-            self._run_task(task_description, game_state)
-        )
-        return self.current_task
-
-    async def _run_task(self, task_description: str, game_state: Dict[str, Any]):
+    async def _run_task(self, task_description: str):
         """Run a task to completion.
 
         Args:
             task_description: Natural language task description
-            game_state: Current game state
         """
         was_cancelled = False
 
         try:
             logger.info(f"!!! running task: {task_description}")
             success = await self.task_agent.run_task(
-                task=task_description, initial_state=game_state, max_iterations=50
+                task=task_description, max_iterations=100
             )
             logger.info(f"!!! task result: {success}")
 
@@ -400,21 +376,16 @@ class VoiceTaskManager:
                 }
 
             task_desc = params.arguments.get("task_description", "")
-            context = params.arguments.get("context", "")
             await self.game_client.pause_event_delivery()
+            # call my_status so the first thing the task gets is a status.snapshot event
             try:
-                game_state = await self.game_client.my_status(
-                    character_id=self.character_id
-                )
+                self.game_client.my_status(character_id=self.character_id)
             except Exception:
                 await self.game_client.resume_event_delivery()
                 raise
-            task_content = f"{context}\n{task_desc}" if context else task_desc
             self.task_buffer.clear()
             self.task_running = True
-            self.current_task = asyncio.create_task(
-                self._run_task(task_content, game_state)
-            )
+            self.current_task = asyncio.create_task(self._run_task(task_desc))
             return {"success": True, "message": "Task started"}
         except Exception as e:
             logger.error(f"start_task failed: {e}")
