@@ -128,6 +128,7 @@ async def handle(request: dict, world) -> dict:
         # Send character.moved with movement: "depart" to old sector observers
         observer_payload = {
             "name": character.id,
+            "id": character.id,
             "ship_type": knowledge.ship_config.ship_type,
             "timestamp": character.last_active.isoformat(),
             "move_type": "normal",

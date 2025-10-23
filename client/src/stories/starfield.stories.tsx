@@ -1,5 +1,6 @@
-import { StarField } from "@/components/StarField";
+import { Settings } from "@/dialogs/Settings";
 import useGameStore from "@/stores/game";
+import { StarField } from "@hud/StarField";
 import type { Story } from "@ladle/react";
 import { useEffect, useState } from "react";
 
@@ -7,13 +8,17 @@ import "@/css/starfield-ui.css";
 import "@/css/starfield.css";
 
 export const Starfield: Story = () => {
-  const [start, setStart] = useState(false);
+  const gameState = useGameStore((state) => state.gameState);
+  const setGameState = useGameStore((state) => state.setGameState);
   const starfieldInstance = useGameStore((state) => state.starfieldInstance);
+  const setActiveModal = useGameStore.use.setActiveModal();
 
   return (
     <>
       <div className="fixed z-99 w-full flex flex-row gap-2">
-        <button onClick={() => setStart(true)}>Start</button>
+        <button onClick={() => setActiveModal("settings")}>Settings</button>
+
+        <button onClick={() => setGameState("ready")}>Start</button>
 
         <button
           disabled={!starfieldInstance}
@@ -105,7 +110,8 @@ export const Starfield: Story = () => {
           Remove First GO
         </button>
       </div>
-      {start && <StarField />}
+      {gameState === "ready" && <StarField />}
+      <Settings />
     </>
   );
 };
@@ -122,7 +128,6 @@ export const StarFieldSequence: Story = () => {
   const [status, setStatus] = useState("");
   const [bypassFlash, setBypassFlash] = useState(false);
   const starfieldInstance = useGameStore((state) => state.starfieldInstance);
-  const autopilot = useGameStore.use.uiState() === "autopilot";
 
   useEffect(() => {
     if (!starfieldInstance) {
@@ -309,12 +314,7 @@ export const StarFieldSequence: Story = () => {
 
   return (
     <div className="relative w-full h-full bg-card">
-      {autopilot && (
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-red-500/80 p-4 shadow-xlong text-white z-[9999] animate-pulse">
-          Autopilot Engaged
-        </div>
-      )}
-      <div className="fixed top-4 left-4 z-[999] bg-black/80 p-4 rounded-lg text-white space-y-2 max-w-md">
+      <div className="fixed top-4 left-4 z-999 bg-black/80 p-4 rounded-lg text-white space-y-2 max-w-md">
         <div className="text-sm font-mono mb-4">Status: {status}</div>
 
         <div className="space-y-2">

@@ -59,6 +59,7 @@ Environment Variables:
 
 def ensure_api_key() -> str:
     api_key = os.getenv("GOOGLE_API_KEY")
+    print(api_key)
     if not api_key:
         logger.error("GOOGLE_API_KEY environment variable not set")
         logger.info("Export it with: export GOOGLE_API_KEY=your-key")

@@ -8,8 +8,8 @@ import ViewContainer from "@/views/ViewContainer";
 
 import "./css/index.css";
 
-// @TODO: Rather than apply during constructor, we should
-// modify relevant properties on client later.
+// @TODO: Rather than apply during instantiation, we should
+// modify relevant properties on pipecat client later.
 // Currently, the noAudioOutput setting is irreversible!
 const Settings = getLocalSettings();
 
