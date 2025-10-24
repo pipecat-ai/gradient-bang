@@ -48,41 +48,39 @@ _g.__gb_soundsPreloaded = _g.__gb_soundsPreloaded || false;
 // Preload all sounds defined in SoundMap
 export const preloadAllSounds = (): Promise<void> => {
   if (_g.__gb_soundsPreloaded) {
-    console.debug("[GAME SOUND] preloadAllSounds: already preloaded, skipping");
+    console.debug("[SOUND] preloadAllSounds: already preloaded, skipping");
     return Promise.resolve();
   }
 
   const entries = Object.entries(SoundMap);
   console.debug(
-    `[GAME SOUND] preloadAllSounds: starting (${entries.length} sounds)`
+    `[SOUND] preloadAllSounds: starting (${entries.length} sounds)`
   );
 
   const loadPromises = entries.map(([name, sound]) => {
     return new Promise<void>((resolve) => {
       // If already cached, skip
       if (soundCache.has(name)) {
-        console.debug(
-          `[GAME SOUND] preloadAllSounds: cache hit, skipping ${name}`
-        );
+        console.debug(`[SOUND] preloadAllSounds: cache hit, skipping ${name}`);
         resolve();
         return;
       }
 
       const audio = new Audio(sound.src);
       console.debug(
-        `[GAME SOUND] preloadAllSounds: loading ${name} from ${sound.src}`
+        `[SOUND] preloadAllSounds: loading ${name} from ${sound.src}`
       );
 
       const onReady = () => {
         soundCache.set(name, audio);
-        console.debug(`[GAME SOUND] preloadAllSounds: ready ${name}`);
+        console.debug(`[SOUND] preloadAllSounds: ready ${name}`);
         resolve();
       };
 
       const onError = (e: unknown) => {
         // Resolve (not reject) so a single failed asset doesn't block the preload phase
         console.error(
-          `[GAME SOUND] preloadAllSounds: failed ${name} (${sound.src})`,
+          `[SOUND] preloadAllSounds: failed ${name} (${sound.src})`,
           e
         );
         resolve();
@@ -98,7 +96,7 @@ export const preloadAllSounds = (): Promise<void> => {
 
   return Promise.all(loadPromises).then(() => {
     _g.__gb_soundsPreloaded = true;
-    console.debug("[GAME SOUND] preloadAllSounds: completed");
+    console.debug("[SOUND] preloadAllSounds: completed");
   });
 };
 
@@ -168,7 +166,7 @@ export const usePlaySound = () => {
         }
         entry.suspended = true;
         console.debug(
-          `[GAME SOUND] once sound suspended due to settings (type=${soundType})`
+          `[SOUND] once sound suspended due to settings (type=${soundType})`
         );
       } else {
         if (audio.paused && entry.suspended) {
@@ -181,7 +179,7 @@ export const usePlaySound = () => {
           }
           entry.suspended = false;
           console.debug(
-            `[GAME SOUND] once sound resumed (type=${soundType}, volume=${audio.volume.toFixed(
+            `[SOUND] once sound resumed (type=${soundType}, volume=${audio.volume.toFixed(
               2
             )})`
           );
@@ -202,17 +200,17 @@ export const usePlaySound = () => {
       soundName: string,
       options?: { volume?: number; loop?: boolean; once?: boolean }
     ) => {
-      console.debug("[GAME SOUND] playSound called", { soundName, options });
+      console.debug("[SOUND] playSound called", { soundName, options });
       if (options?.once && activeOnceSounds.has(soundName)) {
         console.debug(
-          `[GAME SOUND] playSound: ${soundName} already active (once) — skipping`
+          `[SOUND] playSound: ${soundName} already active (once) — skipping`
         );
         return;
       }
 
       const sound = SoundMap[soundName as keyof typeof SoundMap];
       if (!sound) {
-        console.warn(`[GAME SOUND] playSound: unknown sound "${soundName}"`);
+        console.warn(`[SOUND] playSound: unknown sound "${soundName}"`);
         return;
       }
 
@@ -232,7 +230,7 @@ export const usePlaySound = () => {
 
       if (!options?.once && isDisabled) {
         console.debug(
-          `[GAME SOUND] playSound: ${soundName} disabled by settings (type=${sound.type})`
+          `[SOUND] playSound: ${soundName} disabled by settings (type=${sound.type})`
         );
         return;
       }
@@ -244,18 +242,18 @@ export const usePlaySound = () => {
         if (!options?.once && !options?.loop) {
           audio = cached.cloneNode() as HTMLAudioElement;
           console.debug(
-            `[GAME SOUND] playSound: using cached audio (cloned) for ${soundName}`
+            `[SOUND] playSound: using cached audio (cloned) for ${soundName}`
           );
         } else {
           audio = cached;
           console.debug(
-            `[GAME SOUND] playSound: using cached audio for ${soundName}`
+            `[SOUND] playSound: using cached audio for ${soundName}`
           );
         }
       } else {
         audio = new Audio(sound.src);
         console.debug(
-          `[GAME SOUND] playSound: created new Audio for ${soundName} from ${sound.src}`
+          `[SOUND] playSound: created new Audio for ${soundName} from ${sound.src}`
         );
       }
 
@@ -272,7 +270,7 @@ export const usePlaySound = () => {
       }
       audio.volume = finalVolume;
       console.debug(
-        `[GAME SOUND] volume: ${soundName} base=${baseVolume} final=${finalVolume.toFixed(
+        `[SOUND] volume: ${soundName} base=${baseVolume} final=${finalVolume.toFixed(
           2
         )} type=${
           sound.type
@@ -282,7 +280,7 @@ export const usePlaySound = () => {
       if (options?.once || options?.loop) {
         audio.loop = true;
         console.debug(
-          `[GAME SOUND] loop enabled for ${soundName} (once=${!!options?.once}, loop=${!!options?.loop})`
+          `[SOUND] loop enabled for ${soundName} (once=${!!options?.once}, loop=${!!options?.loop})`
         );
       }
 
@@ -293,18 +291,15 @@ export const usePlaySound = () => {
           soundType: sound.type,
           suspended: isDisabled,
         });
-        console.debug(`[GAME SOUND] registered once sound ${soundName}`);
+        console.debug(`[SOUND] registered once sound ${soundName}`);
       }
 
       if (!isDisabled) {
-        console.debug(`[GAME SOUND] playing ${soundName}`);
+        console.debug(`[SOUND] playing ${soundName}`);
         const playPromise = audio.play();
         if (playPromise !== undefined) {
           playPromise.catch((error) => {
-            console.warn(
-              `[GAME SOUND] Failed to play sound ${soundName}:`,
-              error
-            );
+            console.warn(`[SOUND] Failed to play sound ${soundName}:`, error);
           });
         }
       }

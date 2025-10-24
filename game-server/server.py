@@ -20,7 +20,6 @@ from api import (
     join as api_join,
     move as api_move,
     my_status as api_my_status,
-    my_map as api_my_map,
     local_map_region as api_local_map_region,
     list_known_ports as api_list_known_ports,
     path_with_region as api_path_with_region,
@@ -155,9 +154,6 @@ RPC_HANDLERS: Dict[str, RPCHandler] = {
     "move": _with_rate_limit("move", lambda payload: api_move.handle(payload, world)),
     "my_status": _with_rate_limit(
         "my_status", lambda payload: api_my_status.handle(payload, world)
-    ),
-    "my_map": _with_rate_limit(
-        "my_map", lambda payload: api_my_map.handle(payload, world)
     ),
     "local_map_region": _with_rate_limit(
         "local_map_region", lambda payload: api_local_map_region.handle(payload, world)
@@ -366,7 +362,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                         frame_id,
                         endpoint or "unknown",
                         HTTPException(
-                            status_code=400, detail="Invalid payload type; expected object"
+                            status_code=400,
+                            detail="Invalid payload type; expected object",
                         ),
                     )
                 )

@@ -86,6 +86,12 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
     [client]
   );
 
+  // Dev-only: Expose to console using globalThis
+  if (import.meta.env.DEV) {
+    // @ts-expect-error - Dev-only console helper
+    globalThis.sendUserTextInput = sendUserTextInput;
+  }
+
   /**
    * Dispatch game event to server
    */

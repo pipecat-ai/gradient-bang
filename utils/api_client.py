@@ -792,6 +792,7 @@ class AsyncGameClient:
         center_sector: Optional[int] = None,
         max_hops: int = 3,
         max_sectors: int = 100,
+        source: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Get all known sectors around current location for local navigation.
 
@@ -819,6 +820,8 @@ class AsyncGameClient:
             payload["center_sector"] = int(center_sector)
         payload["max_hops"] = int(max_hops)
         payload["max_sectors"] = int(max_sectors)
+        if source is not None:
+            payload["source"] = source
 
         ack = await self._request("local_map_region", payload)
         return ack

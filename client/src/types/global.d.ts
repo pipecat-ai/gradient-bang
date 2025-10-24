@@ -105,6 +105,7 @@ declare global {
 
   interface MapSectorNode {
     id: number;
+    hops_from_center?: number;
     position: [number, number];
     visited?: boolean;
     port?: string;

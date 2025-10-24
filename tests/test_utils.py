@@ -343,7 +343,6 @@ class TestAsyncToolExecutor:
             ("plot_course", {"from_sector": 1, "to_sector": 2}),
             ("move", {"to_sector": 5}),
             ("my_status", {}),
-            ("my_map", {}),
             (
                 "find_port",
                 {"commodity": "quantum_foam", "buy_or_sell": "buy", "from_sector": 3},
@@ -442,17 +441,13 @@ class TestToolDefinitions:
         if not tools:
             pytest.skip("Tool definitions unavailable")
         
-        assert len(tools) == 7
+        assert len(tools) >= 6
         
         # Check tool names
         tool_names = [t["function"]["name"] for t in tools]
-        assert "plot_course" in tool_names
-        assert "move" in tool_names
-        assert "my_status" in tool_names
-        assert "my_map" in tool_names
-        assert "find_port" in tool_names
-        assert "wait_for_time" in tool_names
-        assert "finished" in tool_names
+        expected = {"plot_course", "move", "my_status", "find_port", "wait_for_time", "finished"}
+        missing = expected.difference(tool_names)
+        assert not missing, f"Missing tool definitions: {sorted(missing)}"
         
         # Check structure
         for tool in tools:

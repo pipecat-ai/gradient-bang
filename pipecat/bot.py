@@ -112,7 +112,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     {
                         "frame_type": "event",
                         "event": "task_complete",
-                        "gg-action": "task_complete",
                         "payload": {
                             "was_cancelled": was_cancelled,
                             "via_stop_tool": via_stop_tool,
@@ -218,50 +217,10 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             await asyncio.sleep(2)
             await task_manager.game_client.pause_event_delivery()
             await task_manager.join()
-            await task_manager.game_client.local_map_region(
-                character_id=task_manager.character_id,
-            )
             await task_manager.game_client.resume_event_delivery()
 
         asyncio.create_task(_join())
-
-        # # Dispatch initialization data to client
-        # await rtvi.push_frame(
-        #     RTVIServerMessageFrame(
-        #         {
-        #             "frame_type": "event",
-        #             "event": "status.update",
-        #             "payload": initial_status,
-        #         }
-        #     )
-        # )
-
-        # try:
-        #     current_sector = initial_status.get("sector", {}).get("id")
-        #     if current_sector is not None:
-        #         map_data = await task_manager.game_client.local_map_region(
-        #             character_id=task_manager.character_id,
-        #             center_sector=current_sector,
-        #             max_hops=4,
-        #             max_sectors=28,
-        #         )
-        #         await rtvi.push_frame(
-        #             RTVIServerMessageFrame(
-        #                 {
-        #                     "frame_type": "event",
-        #                     "event": "map.local",
-        #                     "payload": map_data,
-        #                 }
-        #             )
-        #         )
-        # except Exception as exc:
-        #     logger.exception("Failed to send initial map")
-
         await rtvi.set_bot_ready()
-
-        # Kick off the conversation
-        if runner_args.body.get("start_on_join", True):
-            await task.queue_frames([LLMRunFrame()])
 
     @rtvi.event_handler("on_client_message")
     async def on_client_message(rtvi, message):
@@ -321,61 +280,42 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             )
             return
 
-        if msg_type == "get-local-map":
+        if msg_type == "get-my-map":
             try:
                 if not isinstance(msg_data, dict):
                     raise ValueError("Message data must be an object")
 
-                sector = msg_data.get("sector")
-                if sector is None:
-                    raise ValueError("Missing required field 'sector'")
-                sector = int(sector)
+                center_sector = msg_data.get("center_sector")
+                if center_sector is None:
+                    raise ValueError("Missing required field 'center_sector'")
+                center_sector = int(center_sector)
 
                 max_sectors_raw = msg_data.get("max_sectors")
                 max_hops_raw = msg_data.get("max_hops")
 
                 max_hops = int(max_hops_raw) if max_hops_raw is not None else 3
-                if max_hops < 0 or max_hops > 10:
-                    raise ValueError("max_hops must be between 0 and 10")
+                if max_hops < 0 or max_hops > 12:
+                    raise ValueError("max_hops must be between 0 and 12")
 
                 max_sectors = (
-                    int(max_sectors_raw) if max_sectors_raw is not None else 100
+                    int(max_sectors_raw) if max_sectors_raw is not None else 1000
                 )
                 if max_sectors <= 0:
                     raise ValueError("max_sectors must be positive")
 
                 # Use local_map_region endpoint
-                map_data = await task_manager.game_client.local_map_region(
+                await task_manager.game_client.local_map_region(
                     character_id=task_manager.character_id,
-                    center_sector=sector,
+                    center_sector=center_sector,
                     max_hops=max_hops,
                     max_sectors=max_sectors,
+                    source="get-my-map",
                 )
 
-                await rtvi.push_frame(
-                    RTVIServerMessageFrame(
-                        {
-                            "frame_type": "event",
-                            "event": "map.local",
-                            "payload": map_data,
-                        }
-                    )
-                )
             except Exception as exc:  # noqa: BLE001
                 logger.exception("Failed to fetch local map region via client message")
                 await rtvi.push_frame(
-                    RTVIServerMessageFrame(
-                        {
-                            "frame_type": "event",
-                            "event": "map.local",
-                            "payload": {
-                                "error": str(exc),
-                                "center_sector": msg_data.get("sector")
-                                if isinstance(msg_data, dict)
-                                else None,
-                            },
-                        }
-                    )
+                    RTVIServerMessageFrame({"frame_type": "error", "error": str(exc)})
                 )
             return
 

@@ -102,7 +102,8 @@ export const Init: Story = () => {
               map_data={localMapData}
               width={440}
               height={440}
-              maxDistance={3}
+              maxDistance={2}
+              config={{ debug: true }}
             />
           )}
           <Divider />

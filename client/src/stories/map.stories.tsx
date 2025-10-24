@@ -131,7 +131,7 @@ const storyData: MapData = [
 
 export const MiniMapMock: Story = () => {
   const [currentSectorId, setCurrentSectorId] = useState<number>(0);
-  const [maxDistance, setMaxDistance] = useState<number>(3);
+  const [maxDistance, setMaxDistance] = useState<number>(2);
   const [bypassAnimation, setBypassAnimation] = useState<boolean>(false);
 
   const handleSetSector = useCallback(
