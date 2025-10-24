@@ -50,6 +50,7 @@ export class GameInstanceManager {
         );
         if (renderStarfield) {
           this._constructStarfield();
+          this.initializeStarfield();
         } else {
           this._destroyStarfield();
         }

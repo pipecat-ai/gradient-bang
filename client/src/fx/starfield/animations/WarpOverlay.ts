@@ -102,18 +102,20 @@ export class WarpOverlay {
   private maxRadius: number;
 
   constructor() {
-    // Try to find existing canvas first
-    this.canvas = document.getElementById(
-      "warpOverlay"
-    ) as HTMLCanvasElement | null;
+    // Always create a fresh canvas for clean state
+    this.canvas = document.createElement("canvas");
+    this.canvas.id = "warpOverlay";
+    this.canvas.className = ""; // Will be managed by activate/deactivate
 
-    // If canvas doesn't exist, create it
-    if (!this.canvas) {
+    // Find the starfield container and append canvas there
+    const container = document.getElementById("starfield-container");
+    if (container) {
+      container.appendChild(this.canvas);
+    } else {
+      // Fallback to body if container not found
       console.warn(
-        "WarpOverlay: Canvas 'warpOverlay' not found, creating new canvas"
+        "WarpOverlay: 'starfield-container' not found, appending to body"
       );
-      this.canvas = document.createElement("canvas");
-      this.canvas.id = "warpOverlay";
       document.body.appendChild(this.canvas);
     }
 
@@ -232,12 +234,12 @@ export class WarpOverlay {
 
       this._needsFullClear = true;
 
-      // Update canvas styles - ensure it's positioned over the 3D scene
+      // Update canvas styles - ensure it's positioned over the 3D scene but below UI
       this.canvas.style.position = "absolute";
       this.canvas.style.top = "0";
       this.canvas.style.left = "0";
       this.canvas.style.pointerEvents = "none";
-      this.canvas.style.zIndex = "1000"; // Higher z-index to ensure it's on top
+      this.canvas.style.zIndex = "2"; // Just above renderer (z-index 1) but below UI
       this.canvas.style.mixBlendMode = "screen"; // CSS blend mode as backup
 
       // Clear gradient cache when canvas size changes
@@ -1132,6 +1134,12 @@ export class WarpOverlay {
     // Remove event listeners
     window.removeEventListener("resize", () => this.resizeCanvas());
 
+    // Remove canvas from DOM for complete cleanup
+    if (this.canvas && this.canvas.parentNode) {
+      this.canvas.parentNode.removeChild(this.canvas);
+    }
+
+    // Release references
     this.canvas = null;
     this.ctx = null;
 

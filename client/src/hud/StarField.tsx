@@ -8,17 +8,13 @@ export const StarField = memo(() => {
   const starfieldInstance = useGameStore.use.starfieldInstance?.();
   const settings = useGameStore.use.settings();
 
-  //const shouldRenderRef = useRef(settings.renderStarfield);
-
-  //@TODO: we need to reset callbacks on settings change
-
   const onWarpStart = useCallback(() => {
     console.log("[STARFIELD] 🚀 Warp started");
     playSound("warp");
   }, [playSound]);
 
   /*
-   * Initialization
+   * Initialize or re-initialize starfield
    */
   useEffect(() => {
     if (!settings.renderStarfield || !starfieldInstance) {
@@ -94,7 +90,6 @@ export const StarField = memo(() => {
   return (
     <div id="starfield-container" className="relative">
       <div id="whiteFlash"></div>
-      <canvas id="warpOverlay"></canvas>
       <div id="vignette"></div>
       <div id="starfield"></div>
     </div>
