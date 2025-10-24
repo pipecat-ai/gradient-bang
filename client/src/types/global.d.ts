@@ -111,7 +111,7 @@ declare global {
     port?: string;
     region?: string;
     lanes: MapLane[];
-    is_mega: boolean;
+    is_mega?: boolean;
   }
 
   interface MapLane {
