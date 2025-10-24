@@ -1,6 +1,7 @@
 import useGameStore from "@stores/game";
 import { memo, useCallback, useEffect } from "react";
 
+import type { GameObjectInstance } from "@/fx/starfield/types";
 import { usePlaySound } from "@/hooks/usePlaySound";
 
 export const StarField = memo(() => {
@@ -12,6 +13,18 @@ export const StarField = memo(() => {
     console.log("[STARFIELD] 🚀 Warp started");
     playSound("warp");
   }, [playSound]);
+
+  const onGameObjectSelected = useCallback((gameObject: GameObjectInstance) => {
+    console.log("[STARFIELD] Game object selected:", gameObject.name);
+  }, []);
+
+  const onGameObjectInView = useCallback((gameObject: GameObjectInstance) => {
+    console.log("[STARFIELD] Game object in view:", gameObject.name);
+  }, []);
+
+  const onGameObjectCleared = useCallback(() => {
+    console.log("[STARFIELD] Game object cleared");
+  }, []);
 
   /*
    * Initialize or re-initialize starfield
@@ -25,8 +38,18 @@ export const StarField = memo(() => {
 
     starfieldInstance.callbacks = {
       onWarpStart: onWarpStart,
+      onGameObjectSelected: onGameObjectSelected,
+      onGameObjectInView: onGameObjectInView,
+      onGameObjectCleared: onGameObjectCleared,
     };
-  }, [settings.renderStarfield, onWarpStart, starfieldInstance]);
+  }, [
+    settings.renderStarfield,
+    onWarpStart,
+    onGameObjectSelected,
+    onGameObjectInView,
+    onGameObjectCleared,
+    starfieldInstance,
+  ]);
 
   /*
    * Create starfield instance on initial render

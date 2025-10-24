@@ -2,7 +2,8 @@ import * as THREE from "three";
 import {
   type GameObjectSpawnRules,
   type GameObjectTypes,
-} from "./types/GameObject";
+  type RGBColor,
+} from "./types";
 
 // ============================================================================
 // TYPE DEFINITIONS

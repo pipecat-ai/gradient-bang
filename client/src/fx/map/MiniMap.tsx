@@ -23,6 +23,7 @@ export interface MiniMapConfigBase {
   hex_size: number;
   sector_label_offset: number;
   frame_padding: number;
+  edge_feather_size?: number;
   current_sector_outer_border: number;
   animation_duration_pan: number;
   animation_duration_zoom: number;
@@ -62,6 +63,7 @@ export const DEFAULT_MINIMAP_CONFIG: Omit<
   hex_size: 20,
   sector_label_offset: 5,
   frame_padding: 40,
+  edge_feather_size: 220,
   current_sector_outer_border: 5,
   animation_duration_pan: 500,
   animation_duration_zoom: 800,
@@ -664,6 +666,48 @@ function renderHexGrid(
   ctx.restore();
 }
 
+/** Apply a rectangular feather mask around the edges in screen space */
+function applyRectangularFeatherMask(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  featherSize: number
+) {
+  if (featherSize <= 0) return;
+  ctx.save();
+  ctx.globalCompositeOperation = "destination-out";
+
+  // Top edge
+  let gradient = ctx.createLinearGradient(0, 0, 0, featherSize);
+  gradient.addColorStop(0, "rgba(0,0,0,1)");
+  gradient.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, featherSize);
+
+  // Bottom edge
+  gradient = ctx.createLinearGradient(0, height - featherSize, 0, height);
+  gradient.addColorStop(0, "rgba(0,0,0,0)");
+  gradient.addColorStop(1, "rgba(0,0,0,1)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, height - featherSize, width, featherSize);
+
+  // Left edge
+  gradient = ctx.createLinearGradient(0, 0, featherSize, 0);
+  gradient.addColorStop(0, "rgba(0,0,0,1)");
+  gradient.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, featherSize, height);
+
+  // Right edge
+  gradient = ctx.createLinearGradient(width - featherSize, 0, width, 0);
+  gradient.addColorStop(0, "rgba(0,0,0,0)");
+  gradient.addColorStop(1, "rgba(0,0,0,1)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(width - featherSize, 0, featherSize, height);
+
+  ctx.restore();
+}
+
 /** Calculate complete camera state for given props */
 function calculateCameraState(
   data: MapData,
@@ -857,6 +901,7 @@ function renderWithCameraState(
   const hexSize = config.hex_size ?? gridSpacing * 0.85;
   const scale = gridSpacing;
 
+  // 1) Draw grid in world space
   ctx.save();
   ctx.translate(width / 2, height / 2);
   ctx.scale(cameraState.zoom, cameraState.zoom);
@@ -875,6 +920,20 @@ function renderWithCameraState(
       config.colors.grid
     );
   }
+  ctx.restore();
+
+  // 2) Apply rectangular feather mask to background + grid (screen space)
+  const featherSize = Math.min(
+    config.edge_feather_size ?? 40,
+    Math.min(width, height) / 2
+  );
+  applyRectangularFeatherMask(ctx, width, height, featherSize);
+
+  // 3) Draw lanes and sectors in world space (unmasked)
+  ctx.save();
+  ctx.translate(width / 2, height / 2);
+  ctx.scale(cameraState.zoom, cameraState.zoom);
+  ctx.translate(cameraState.offsetX, cameraState.offsetY);
 
   const hyperlaneLabels = config.show_warps
     ? renderAllLanes(ctx, cameraState.filteredData, scale, hexSize, config)
@@ -1003,6 +1062,11 @@ export function createMiniMapController(
         ctx.scale(dpr, dpr);
         ctx.fillStyle = config.colors.background;
         ctx.fillRect(0, 0, width, height);
+        const feather = Math.min(
+          config.edge_feather_size ?? 40,
+          Math.min(width, height) / 2
+        );
+        applyRectangularFeatherMask(ctx, width, height, feather);
       }
       return;
     }
@@ -1095,6 +1159,11 @@ export function renderMiniMapCanvas(
       ctx.scale(dpr, dpr);
       ctx.fillStyle = config.colors.background;
       ctx.fillRect(0, 0, width, height);
+      const feather = Math.min(
+        config.edge_feather_size ?? 40,
+        Math.min(width, height) / 2
+      );
+      applyRectangularFeatherMask(ctx, width, height, feather);
     }
     return;
   }
@@ -1153,6 +1222,11 @@ export function updateCurrentSector(
       ctx.scale(dpr, dpr);
       ctx.fillStyle = config.colors.background;
       ctx.fillRect(0, 0, width, height);
+      const feather = Math.min(
+        config.edge_feather_size ?? 40,
+        Math.min(width, height) / 2
+      );
+      applyRectangularFeatherMask(ctx, width, height, feather);
     }
     return () => {};
   }

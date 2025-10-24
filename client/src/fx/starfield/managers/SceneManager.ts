@@ -288,10 +288,6 @@ export class SceneManager {
     return config;
   }
 
-  // Removed debug object generation; game objects are supplied externally
-
-  // Removed: random position helper was only used for debug object generation
-
   /**
    * Reset scene manager
    */

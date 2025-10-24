@@ -3,8 +3,8 @@
  * Provides type-safe configuration-to-uniform conversion with comprehensive mapping support
  */
 
-import { type StarfieldState } from ".";
-import { type GalaxyStarfieldConfig, type WarpPhase } from "./constants";
+import { type FrameState, type RGBColor } from "./types";
+import { type GalaxyStarfieldConfig } from "./constants";
 import { UniformManager } from "./managers/UniformManager";
 
 // ============================================================================
@@ -39,22 +39,6 @@ export interface ConfigMappings {
 /** Star-specific configuration mappings */
 export interface StarConfigMappings {
   [configKey: string]: string;
-}
-
-/** Frame state for animation-based uniform updates */
-export interface FrameState {
-  currentState: StarfieldState;
-  currentShakeIntensity: number;
-  shakePhase: number;
-  cloudsShakeProgress: number;
-  warpProgress: number;
-  tunnelEffectValue: number;
-  warpPhase: WarpPhase;
-  cameraRotation: {
-    x: number;
-    y: number;
-    z: number;
-  };
 }
 
 /** Shadow center coordinates */

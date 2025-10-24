@@ -6,11 +6,10 @@ import { useEffect, useState } from "react";
 
 import "@/css/starfield-ui.css";
 import "@/css/starfield.css";
+import { GalaxyStarfield } from "@/fx/starfield";
 
 export const Starfield: Story = () => {
-  const gameState = useGameStore((state) => state.gameState);
-  const setGameState = useGameStore((state) => state.setGameState);
-  const starfieldInstance = useGameStore((state) => state.starfieldInstance);
+  const starfieldInstance = useGameStore.use.starfieldInstance?.();
   const setActiveModal = useGameStore.use.setActiveModal();
 
   return (
@@ -18,19 +17,17 @@ export const Starfield: Story = () => {
       <div className="fixed z-99 w-full flex flex-row gap-2">
         <button onClick={() => setActiveModal("settings")}>Settings</button>
 
-        <button onClick={() => setGameState("ready")}>Start</button>
-
         <button
-          disabled={!starfieldInstance}
-          onClick={async () => {
-            if (!starfieldInstance) {
-              return;
-            }
-            await starfieldInstance.initializeScene();
-            console.log("[STARFIELD] Initialized scene");
+          onClick={() => {
+            const starfield = new GalaxyStarfield();
+            useGameStore.setState({
+              starfieldInstance: starfield,
+              gameState: "ready",
+            });
+            starfield?.initializeScene();
           }}
         >
-          Init
+          Start
         </button>
 
         <button
@@ -59,14 +56,12 @@ export const Starfield: Story = () => {
                 firstObject.name,
                 firstObject.id
               );
-              const success = starfieldInstance?.selectGameObject(
-                firstObject.id,
-                {
-                  zoom: true,
-                  zoomFactor: 0.5,
-                }
-              );
-              console.log("Selection and look-at animation started:", success);
+              console.log("Selection and look-at animation started");
+              await starfieldInstance?.selectGameObject(firstObject.id, {
+                zoom: true,
+                zoomFactor: 0.5,
+              });
+              console.log("Selection and look-at animation completed");
             } else {
               console.log("No game objects found");
             }
@@ -78,10 +73,11 @@ export const Starfield: Story = () => {
         <button
           onClick={() => {
             const cleared = starfieldInstance?.clearGameObjectSelection();
+            starfieldInstance?.stopShake();
             console.log("Clear selection result:", cleared);
           }}
         >
-          Clear Selection
+          Clear Selection / Shake
         </button>
 
         <button
@@ -110,7 +106,7 @@ export const Starfield: Story = () => {
           Remove First GO
         </button>
       </div>
-      {gameState === "ready" && <StarField />}
+      <StarField />
       <Settings />
     </>
   );
@@ -127,17 +123,9 @@ export const StarFieldSequence: Story = () => {
   const [start, setStart] = useState(false);
   const [status, setStatus] = useState("");
   const [bypassFlash, setBypassFlash] = useState(false);
-  const starfieldInstance = useGameStore((state) => state.starfieldInstance);
-
-  useEffect(() => {
-    if (!starfieldInstance) {
-      return;
-    }
-
-    console.log("[STARFIELD] Starfield instance", starfieldInstance);
-
-    starfieldInstance.initializeScene();
-  }, [starfieldInstance]);
+  const starfieldInstance = useGameStore.use.starfieldInstance?.();
+  const setStarfieldInstance = useGameStore.use.setStarfieldInstance();
+  const setGameState = useGameStore.use.setGameState();
 
   const generateRandomSectorId = () =>
     Math.floor(Math.random() * 10000).toString();
@@ -150,7 +138,7 @@ export const StarFieldSequence: Story = () => {
 
   // Update status every 100ms
   useEffect(() => {
-    if (!starfieldInstance) return;
+    if (!starfieldInstance || !start) return;
 
     const updateStatus = () => {
       const queueLength = starfieldInstance.getWarpQueueLength();
@@ -162,14 +150,19 @@ export const StarFieldSequence: Story = () => {
     };
 
     const interval = setInterval(updateStatus, 100);
+    updateStatus();
+
     return () => clearInterval(interval);
-  }, [starfieldInstance]);
+  }, [starfieldInstance, start]);
 
   const testScenarios = {
     // Scenario 1: Single warp (should play animation)
     singleWarp: () => {
       console.log("\n[STORY] 🧪 TEST: Single Warp");
-      starfieldInstance?.warpToSector({ id: generateRandomSectorId() });
+      starfieldInstance?.warpToSector({
+        id: generateRandomSectorId(),
+        bypassFlash,
+      });
     },
 
     // Scenario 2: Rapid fire during animation (should queue)
@@ -409,20 +402,23 @@ export const StarFieldSequence: Story = () => {
           >
             Reset (Clear Queue + Cooldown)
           </button>
-        </div>
-      </div>
-
-      {start && <StarField />}
-      {!start && (
-        <div className="absolute inset-0 flex items-center justify-center">
           <button
             className="px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg text-white text-lg"
-            onClick={() => setStart(true)}
+            onClick={() => {
+              const starfield = new GalaxyStarfield();
+              setStarfieldInstance(starfield);
+
+              starfield.initializeScene();
+              setStart(true);
+              setGameState("ready");
+            }}
           >
             Start Starfield
           </button>
         </div>
-      )}
+      </div>
+
+      <StarField />
     </div>
   );
 };
