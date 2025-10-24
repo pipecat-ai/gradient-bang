@@ -9,8 +9,9 @@ const storyData: MapData = [
   {
     id: 0,
     position: [126, 126],
-    visited: true,
-    port: "MEGA",
+    visited: "2025-10-24T12:00:00Z",
+    port: "SSS",
+    is_mega: true,
     region: "core_worlds",
     lanes: [
       { to: 581, two_way: true },
@@ -21,7 +22,7 @@ const storyData: MapData = [
   {
     id: 126,
     position: [128, 129],
-    visited: true,
+    visited: "2025-10-24T12:00:00Z",
     port: "",
     region: "frontier",
     lanes: [{ to: 581, two_way: true }],
@@ -29,7 +30,7 @@ const storyData: MapData = [
   {
     id: 389,
     position: [123, 125],
-    visited: true,
+    visited: "2025-10-24T12:00:00Z",
     port: "SSS",
     region: "frontier",
     lanes: [
@@ -41,14 +42,14 @@ const storyData: MapData = [
   {
     id: 492,
     position: [130, 120],
-    visited: false,
+    visited: "2025-10-24T12:00:00Z",
     region: "frontier",
     lanes: [{ to: 1284, two_way: true }],
   },
   {
     id: 566,
     position: [120, 125],
-    visited: true,
+    visited: "2025-10-24T12:00:00Z",
     port: "",
     region: "frontier",
     lanes: [
@@ -61,7 +62,7 @@ const storyData: MapData = [
   {
     id: 581,
     position: [128, 126],
-    visited: true,
+    visited: "2025-10-24T12:00:00Z",
     port: "BSB",
     region: "core_worlds",
     lanes: [
@@ -73,14 +74,14 @@ const storyData: MapData = [
   {
     id: 653,
     position: [117, 125],
-    visited: false,
+    visited: "2025-10-24T12:00:00Z",
     region: "frontier",
     lanes: [],
   },
   {
     id: 657,
     position: [124, 127],
-    visited: true,
+    visited: "2025-10-24T12:00:00Z",
     port: "",
     region: "core_worlds",
     lanes: [
@@ -92,7 +93,7 @@ const storyData: MapData = [
   {
     id: 849,
     position: [124, 126],
-    visited: true,
+    visited: "2025-10-24T12:00:00Z",
     port: "",
     region: "core_worlds",
     lanes: [
@@ -104,7 +105,7 @@ const storyData: MapData = [
   {
     id: 1284,
     position: [129, 123],
-    visited: true,
+    visited: "2025-10-24T12:00:00Z",
     port: "",
     region: "frontier",
     lanes: [
@@ -116,14 +117,14 @@ const storyData: MapData = [
   {
     id: 1317,
     position: [117, 123],
-    visited: false,
+    visited: "2025-10-24T12:00:00Z",
     region: "frontier",
     lanes: [],
   },
   {
     id: 1401,
     position: [131, 120],
-    visited: false,
+    visited: "2025-10-24T12:00:00Z",
     region: "frontier",
     lanes: [],
   },

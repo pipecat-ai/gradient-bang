@@ -609,7 +609,7 @@ function renderSector(
   drawHex(ctx, world.x, world.y, hexSize, true);
 
   if (config.show_ports && node.port) {
-    const isMegaPort = node.port === "MEGA";
+    const isMegaPort = node.is_mega || node.id === 0;
     const portColor = isMegaPort ? config.colors.mega_port : config.colors.port;
     ctx.fillStyle = applyAlpha(portColor, opacity);
     ctx.beginPath();

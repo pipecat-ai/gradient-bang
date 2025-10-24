@@ -1,4 +1,8 @@
-import { GET_KNOWN_PORT_LIST, GET_MY_STATUS_MESSAGE } from "@/actions/dispatch";
+import {
+  GET_KNOWN_PORT_LIST,
+  GET_MAP_REGION,
+  GET_MY_STATUS_MESSAGE,
+} from "@/actions/dispatch";
 import { CaptainsLogPanel } from "@/components/CaptainsLogPanel";
 import { CoursePlotPanel } from "@/components/CoursePlotPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
@@ -48,6 +52,9 @@ export const Init: Story = () => {
         </Button>
         <Button onClick={() => dispatchEvent(GET_KNOWN_PORT_LIST)}>
           Get Known Port List
+        </Button>
+        <Button onClick={() => dispatchEvent(GET_MAP_REGION)}>
+          Get my map
         </Button>
       </div>
       <div className="story-card">

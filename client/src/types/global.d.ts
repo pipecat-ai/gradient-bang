@@ -107,10 +107,11 @@ declare global {
     id: number;
     hops_from_center?: number;
     position: [number, number];
-    visited?: boolean;
+    visited?: string;
     port?: string;
     region?: string;
     lanes: MapLane[];
+    is_mega: boolean;
   }
 
   interface MapLane {
