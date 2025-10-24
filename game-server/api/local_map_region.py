@@ -102,7 +102,9 @@ async def handle(request: Dict[str, Any], world) -> Dict[str, Any]:
     )
 
     request_id = request.get("request_id") or "missing-request-id"
-    region_payload["source"] = build_event_source("local_map_region", request_id)
+    region_payload["source"] = build_event_source(
+        request.get("source", "local_map_region"), request_id
+    )
 
     await event_dispatcher.emit(
         "map.region",

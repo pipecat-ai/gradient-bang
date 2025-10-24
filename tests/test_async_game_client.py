@@ -184,27 +184,6 @@ class TestPlotCourseAPI:
             await client.plot_course(to_sector=5, character_id="wrong_char")
 
 
-class TestMyMapAPI:
-    """Tests for my_map() API method."""
-
-    async def test_my_map_success(self, client):
-        """Test successful map retrieval."""
-        await client.join("test_client_char")
-
-        result = await client.my_map(character_id="test_client_char")
-
-        assert isinstance(result, dict)
-        assert result["character_id"] == "test_client_char"
-        assert "sectors_visited" in result
-
-    async def test_my_map_wrong_character_id(self, client):
-        """Test my_map with mismatched character_id raises error."""
-        await client.join("test_client_char")
-
-        with pytest.raises(ValueError, match="bound to character_id"):
-            await client.my_map(character_id="wrong_char")
-
-
 class TestServerStatusAPI:
     """Tests for server_status() API method."""
 

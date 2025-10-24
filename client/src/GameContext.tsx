@@ -45,6 +45,17 @@ export function GameProvider({ children }: GameProviderProps) {
   const gameStore = useGameStore();
   const client = usePipecatClient();
 
+    // Expose sendMessage helper for console debugging
+    if (typeof window !== 'undefined') {
+      (window as any).sendMessage = (type: string, args: any) => {
+        if (!client) {
+          console.error('Client not available');
+          return;
+        }
+        client.sendClientMessage(type, args);
+      };
+    }
+  
   /**
    * Send user text input to server
    */

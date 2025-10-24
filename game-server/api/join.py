@@ -7,6 +7,7 @@ from .utils import (
     build_event_source,
     rpc_success,
     build_character_moved_payload,
+    build_local_map_region,
 )
 from ships import ShipType, get_ship_stats, validate_ship_type
 from rpc.events import event_dispatcher
@@ -14,6 +15,9 @@ from combat.utils import build_character_combatant, serialize_round_waiting_even
 from api.combat_initiate import start_sector_combat
 
 logger = logging.getLogger("gradient-bang.api.join")
+
+MAX_LOCAL_MAP_HOPS = 4
+MAX_LOCAL_MAP_NODES = 28
 
 
 async def handle(request: dict, world) -> dict:
@@ -241,7 +245,16 @@ async def handle(request: dict, world) -> dict:
         character_filter=[character_id],
     )
 
-    # Note: We don't emit map.local here because the RTVI pipeline may not be
-    # started yet. Clients should request the map explicitly after they're ready,
-    # or rely on move events to trigger map updates.
+    map_data = await build_local_map_region(
+        world,
+        character_id=character_id,
+        center_sector=character.sector,
+        max_hops=MAX_LOCAL_MAP_HOPS,
+        max_sectors=MAX_LOCAL_MAP_NODES,
+    )
+    await event_dispatcher.emit(
+        "map.local",
+        map_data,
+        character_filter=[character_id],
+    )
     return rpc_success()
