@@ -537,6 +537,9 @@ export class GalaxyStarfield {
     );
 
     this._blurHandler = () => {
+      if (!this._isRendering) {
+        return;
+      }
       if (!this.isPaused) {
         this.pauseForVisibility();
         if (this.debugMode && this.performanceMonitor) {

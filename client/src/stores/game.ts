@@ -5,6 +5,7 @@ import {
   type StoreApi,
   type UseBoundStore,
 } from "zustand";
+import { subscribeWithSelector } from "zustand/middleware";
 
 import type { DiamondFXController } from "@fx/frame";
 import { GalaxyStarfield } from "@fx/starfield";
@@ -205,13 +206,15 @@ const createGameSlice: StateCreator<
 
 const useGameStoreBase = create<
   GameSlice & HistorySlice & TaskSlice & SettingsSlice & UISlice
->()((...a) => ({
-  ...createGameSlice(...a),
-  ...createHistorySlice(...a),
-  ...createTaskSlice(...a),
-  ...createSettingsSlice(...a),
-  ...createUISlice(...a),
-}));
+>()(
+  subscribeWithSelector((...a) => ({
+    ...createGameSlice(...a),
+    ...createHistorySlice(...a),
+    ...createTaskSlice(...a),
+    ...createSettingsSlice(...a),
+    ...createUISlice(...a),
+  }))
+);
 
 const useGameStore = createSelectors(useGameStoreBase);
 

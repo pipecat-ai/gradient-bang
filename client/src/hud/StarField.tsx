@@ -1,16 +1,16 @@
 import useGameStore from "@stores/game";
-import { memo, useCallback, useEffect, useRef } from "react";
+import { memo, useCallback, useEffect } from "react";
 
-import type { StarfieldSceneConfig } from "@/fx/starfield/constants";
-import { GalaxyStarfield } from "@/fx/starfield/main";
 import { usePlaySound } from "@/hooks/usePlaySound";
 
 export const StarField = memo(() => {
   const playSound = usePlaySound();
-  const gameState = useGameStore.use.gameState();
+  const starfieldInstance = useGameStore.use.starfieldInstance?.();
   const settings = useGameStore.use.settings();
 
-  const shouldRenderRef = useRef(settings.renderStarfield);
+  //const shouldRenderRef = useRef(settings.renderStarfield);
+
+  //@TODO: we need to reset callbacks on settings change
 
   const onWarpStart = useCallback(() => {
     console.log("[STARFIELD] 🚀 Warp started");
@@ -21,70 +21,16 @@ export const StarField = memo(() => {
    * Initialization
    */
   useEffect(() => {
-    if (!settings.renderStarfield) {
+    if (!settings.renderStarfield || !starfieldInstance) {
       return;
     }
 
-    console.debug("[STARFIELD] Initializing starfield");
-    const state = useGameStore.getState();
+    console.debug("[STARFIELD] Attaching callbacks to starfield");
 
-    // Create new starfield instance
-    const instance = new GalaxyStarfield(
-      {},
-      {
-        onWarpStart: onWarpStart,
-      }
-    );
-    state.setStarfieldInstance(instance);
-  }, [settings.renderStarfield, onWarpStart]);
-
-  /*
-   * Re-initialize starfield on settings change
-   */
-  useEffect(() => {
-    // Only run when settings change
-    if (
-      gameState !== "ready" ||
-      shouldRenderRef.current === settings.renderStarfield
-    ) {
-      return;
-    }
-
-    const handleStarfieldToggle = async () => {
-      shouldRenderRef.current = settings.renderStarfield;
-      const state = useGameStore.getState();
-      let instance = state.starfieldInstance;
-
-      if (settings.renderStarfield) {
-        console.debug("[STARFIELD] Re-initializing starfield");
-
-        //state.setGameState("initializing");
-        if (!instance) {
-          console.debug(
-            "[STARFIELD] Starfield instance not found, creating new instance"
-          );
-          instance = new GalaxyStarfield(
-            {},
-            {
-              onWarpStart: onWarpStart,
-            }
-          );
-          state.setStarfieldInstance(instance);
-        }
-        await instance.initializeScene({
-          id: state.sector?.id.toString() ?? undefined,
-          sceneConfig: state.sector?.scene_config as StarfieldSceneConfig,
-        });
-        //state.setGameState("ready");
-      } else {
-        console.debug("[STARFIELD] Destroying starfield instance");
-        instance?.destroy();
-        state.setStarfieldInstance(undefined);
-      }
+    starfieldInstance.callbacks = {
+      onWarpStart: onWarpStart,
     };
-
-    handleStarfieldToggle();
-  }, [gameState, settings.renderStarfield, onWarpStart]);
+  }, [settings.renderStarfield, onWarpStart, starfieldInstance]);
 
   /*
    * Create starfield instance on initial render
