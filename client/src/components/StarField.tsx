@@ -6,7 +6,7 @@ import { usePlaySound } from "@/hooks/usePlaySound";
 
 export const StarField = memo(() => {
   const playSound = usePlaySound();
-  const ready = useGameStore.use.ready();
+  const ready = useGameStore.use.gameState() === "ready";
   const settings = useGameStore.use.settings();
   const starfieldInstance = useGameStore.use.starfieldInstance?.();
 

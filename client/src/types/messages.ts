@@ -15,6 +15,15 @@ export interface ServerMessagePayload {
   [key: string]: unknown;
 }
 
+export interface ErrorMessage extends ServerMessagePayload {
+  error: string;
+  endpoint?: string;
+}
+
+export interface IncomingChatMessage
+  extends ServerMessagePayload,
+    ChatMessage {}
+
 export interface StatusMessage extends ServerMessagePayload {
   player: PlayerSelf;
   ship: ShipSelf;
@@ -79,4 +88,12 @@ export interface CharacterMovedMessage extends ServerMessagePayload {
   timestamp: string;
   move_type: string;
   movement?: "depart" | "arrive";
+  player_type?: "npc" | "human";
+}
+
+export interface KnownPortListMessage extends ServerMessagePayload {
+  from_sector: number;
+  ports: Port[];
+  total_ports_found: number;
+  searched_sectors: number;
 }

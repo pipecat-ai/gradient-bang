@@ -75,6 +75,20 @@
 
   --color-screen-background: rgba(0, 0, 0, 0.5);
   --color-screen-foreground: rgba(255, 255, 255, 1);
+
+  /* Outline Pulse Animation */
+  --animate-outline-pulse: outline-pulse 1s cubic-bezier(0.4, 0, 0.6, 1)
+    infinite;
+
+  @keyframes outline-pulse {
+    0%,
+    100% {
+      outline-color: rgba(255, 255, 255, 0.5);
+    }
+    50% {
+      outline-color: rgba(255, 255, 255, 1);
+    }
+  }
 }
 
 @import "./components.css";

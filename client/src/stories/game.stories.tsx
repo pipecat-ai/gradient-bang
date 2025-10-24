@@ -1,18 +1,39 @@
+import {
+  GET_KNOWN_PORT_LIST,
+  GET_MAP_REGION,
+  GET_MY_STATUS_MESSAGE,
+} from "@/actions/dispatch";
 import { CaptainsLogPanel } from "@/components/CaptainsLogPanel";
 import { CoursePlotPanel } from "@/components/CoursePlotPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { useGameContext } from "@/hooks/useGameContext";
+import { useMessageNotificationSound } from "@/hooks/useMessageNotificationSound";
 import MiniMap from "@/hud/MiniMap";
 import useGameStore from "@/stores/game";
 import type { Story } from "@ladle/react";
-import { Divider, TextInput } from "@pipecat-ai/voice-ui-kit";
+import { Button, Divider, TextInput } from "@pipecat-ai/voice-ui-kit";
+import { useMemo } from "react";
 
 export const Init: Story = () => {
   const player = useGameStore((state) => state.player);
   const ship = useGameStore((state) => state.ship);
   const sector = useGameStore((state) => state.sector);
   const localMapData = useGameStore((state) => state.local_map_data);
-  const { sendUserTextInput } = useGameContext();
+  const messages = useGameStore.use.messages();
+
+  useMessageNotificationSound();
+
+  const { dispatchEvent, sendUserTextInput } = useGameContext();
+
+  // Filter in the component
+  const directMessages = useMemo(
+    () =>
+      messages
+        .filter((message) => message.type === "direct")
+        .sort((a, b) => a.timestamp.localeCompare(b.timestamp)),
+    [messages]
+  );
+
   return (
     <>
       <div className="story-description flex flex-col gap-4">
@@ -24,6 +45,17 @@ export const Init: Story = () => {
             sendUserTextInput?.(text);
           }}
         />
+        <Divider />
+
+        <Button onClick={() => dispatchEvent(GET_MY_STATUS_MESSAGE)}>
+          Get My Status
+        </Button>
+        <Button onClick={() => dispatchEvent(GET_KNOWN_PORT_LIST)}>
+          Get Known Port List
+        </Button>
+        <Button onClick={() => dispatchEvent(GET_MAP_REGION)}>
+          Get my map
+        </Button>
       </div>
       <div className="story-card">
         <h3 className="story-heading">Player:</h3>
@@ -77,7 +109,8 @@ export const Init: Story = () => {
               map_data={localMapData}
               width={440}
               height={440}
-              maxDistance={3}
+              maxDistance={2}
+              config={{ debug: true }}
             />
           )}
           <Divider />
@@ -87,6 +120,13 @@ export const Init: Story = () => {
         <div className="story-card bg-card">
           <h3 className="story-heading">Activity Log:</h3>
           <CaptainsLogPanel />
+        </div>
+
+        <div className="story-card bg-card">
+          <h3 className="story-heading">Chat messages:</h3>
+          {directMessages.map((message) => (
+            <div key={message.id}>{JSON.stringify(message)}</div>
+          ))}
         </div>
       </div>
     </>

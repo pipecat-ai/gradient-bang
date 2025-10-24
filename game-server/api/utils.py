@@ -311,6 +311,7 @@ async def sector_contents(
 
         player = {
             "created_at": character.first_visit.isoformat(),
+            "id": character.id,
             "name": character.id,  # todo: make name settable
             "player_type": character.player_type,
             "ship": {

@@ -1,14 +1,17 @@
 import { RTVIEvent } from "@pipecat-ai/client-js";
 import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react";
-import { useCallback, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, type ReactNode } from "react";
 
 import { checkForNewSectors, startMoveToSector } from "@/actions";
 import { GameContext } from "@/hooks/useGameContext";
-import { type StarfieldSceneConfig } from "@fx/starfield";
-import useGameStore from "@stores/game";
+import { wait } from "@/utils/animation";
+import useGameStore, { GameInitStateMessage } from "@stores/game";
 
 import {
+  type CharacterMovedMessage,
   type CoursePlotMessage,
+  type ErrorMessage,
+  type IncomingChatMessage,
   type MapLocalMessage,
   type MovementCompleteMessage,
   type MovementStartMessage,
@@ -18,9 +21,11 @@ import {
   type WarpPurchaseMessage,
   type WarpTransferMessage,
 } from "@/types/messages";
+import GameInstanceManager from "./GameInstanceManager";
 
 interface GameProviderProps {
   children: ReactNode;
+  onConnect?: () => void;
 }
 
 //@TODO: remove this method once game server changes
@@ -41,21 +46,25 @@ const transformMessage = (e: ServerMessage): ServerMessage | undefined => {
   return e;
 };
 
-export function GameProvider({ children }: GameProviderProps) {
+export function GameProvider({ children, onConnect }: GameProviderProps) {
   const gameStore = useGameStore();
   const client = usePipecatClient();
 
-    // Expose sendMessage helper for console debugging
-    if (typeof window !== 'undefined') {
-      (window as any).sendMessage = (type: string, args: any) => {
-        if (!client) {
-          console.error('Client not available');
-          return;
-        }
-        client.sendClientMessage(type, args);
-      };
+  const instanceManagerRef = useRef<GameInstanceManager | null>(null);
+
+  useEffect(() => {
+    if (!client) return;
+
+    if (!instanceManagerRef.current) {
+      instanceManagerRef.current = new GameInstanceManager();
     }
-  
+
+    return () => {
+      instanceManagerRef.current?.destroy();
+      instanceManagerRef.current = null;
+    };
+  }, [client]);
+
   /**
    * Send user text input to server
    */
@@ -76,6 +85,12 @@ export function GameProvider({ children }: GameProviderProps) {
     },
     [client]
   );
+
+  // Dev-only: Expose to console using globalThis
+  if (import.meta.env.DEV) {
+    // @ts-expect-error - Dev-only console helper
+    globalThis.sendUserTextInput = sendUserTextInput;
+  }
 
   /**
    * Dispatch game event to server
@@ -101,6 +116,48 @@ export function GameProvider({ children }: GameProviderProps) {
   /**
    * Initialization method
    */
+  const initialize = useCallback(async () => {
+    console.debug("[GAME CONTEXT] Initializing...", onConnect);
+
+    if (!instanceManagerRef.current) {
+      console.error("[GAME CONTEXT] Game instance manager not found");
+      return;
+    }
+
+    gameStore.setGameStateMessage(GameInitStateMessage.INIT);
+    gameStore.setGameState("initializing");
+
+    // 1. Construct game instance
+    await instanceManagerRef.current?.initialize();
+
+    // 2. Connect to agent
+    gameStore.setGameStateMessage(GameInitStateMessage.CONNECTING);
+    try {
+      await onConnect?.();
+      if (!client?.connected) {
+        throw new Error("Failed to connect to game server");
+      }
+    } catch {
+      console.error("[GAME CONTEXT] Error connecting to game server");
+      gameStore.setGameState("error");
+      return;
+    }
+
+    // 3. Initialize game instances with data
+    gameStore.setGameStateMessage(GameInitStateMessage.STARTING);
+
+    await wait(1000);
+
+    console.debug("[GAME CONTEXT] Initialized, setting ready state");
+
+    // 4. Set ready state and dispatch start event to bot
+    gameStore.setGameStateMessage(GameInitStateMessage.READY);
+    gameStore.setGameState("ready");
+    dispatchEvent({ type: "start" });
+  }, [onConnect, gameStore, dispatchEvent, client]);
+
+  /**
+   * Initialization method
   const initialize = useCallback(async () => {
     const state = useGameStore.getState();
 
@@ -132,6 +189,7 @@ export function GameProvider({ children }: GameProviderProps) {
     // Dispatch start event to initialize bot conversation
     dispatchEvent({ type: "start" });
   }, [gameStore, dispatchEvent]);
+   */
 
   /**
    * Handle server message
@@ -171,8 +229,6 @@ export function GameProvider({ children }: GameProviderProps) {
               // refer to source.method === "join" too, but better that client
               // is source of truth for it's current game state.
               if (gameStore.gameState === "not_ready") {
-                initialize();
-
                 gameStore.addActivityLogEntry({
                   type: "join",
                   message: "Joined the game",
@@ -185,8 +241,38 @@ export function GameProvider({ children }: GameProviderProps) {
             // ----- CHARACTERS / NPCS
             case "character.moved": {
               console.debug("[GAME EVENT] Character moved", gameEvent.payload);
-              //const data = gameEvent.payload as CharacterMovedMessage;
+              const data = gameEvent.payload as CharacterMovedMessage;
+
               // Update sector contents with new player
+              // @TODO: update to use new event shape when available
+              const tempDataRemap: Player = {
+                id: data.name,
+                name: data.name,
+                player_type: data.player_type ?? "npc",
+                ship: {
+                  ship_name: data.ship_type,
+                  ship_type: data.ship_type,
+                } as Ship,
+              };
+
+              if (data.movement === "arrive") {
+                console.debug(
+                  "[GAME EVENT] Adding player to sector",
+                  gameEvent.payload
+                );
+                gameStore.addSectorPlayer(tempDataRemap);
+              } else if (data.movement === "depart") {
+                console.debug(
+                  "[GAME EVENT] Removing player from sector",
+                  gameEvent.payload
+                );
+                gameStore.removeSectorPlayer(tempDataRemap);
+              } else {
+                console.warn(
+                  "[GAME EVENT] Unknown movement type",
+                  data.movement
+                );
+              }
 
               break;
             }
@@ -304,6 +390,7 @@ export function GameProvider({ children }: GameProviderProps) {
             }
 
             // ----- TRADING & COMMERCE
+
             case "port.update": {
               console.debug("[GAME EVENT] Port update", gameEvent.payload);
               const data = gameEvent.payload as PortUpdateMessage;
@@ -313,6 +400,14 @@ export function GameProvider({ children }: GameProviderProps) {
                 gameStore.setSectorPort(data.sector.id, data.port);
               }
 
+              break;
+            }
+
+            case "ports.list": {
+              console.debug("[GAME EVENT] Port list", gameEvent.payload);
+              // @TODO: implement - waiting on shape of event to align to schema
+              //const data = gameEvent.payload as KnownPortListMessage;
+              //gameStore.setKnownPorts(data.ports);
               break;
             }
 
@@ -333,15 +428,47 @@ export function GameProvider({ children }: GameProviderProps) {
             case "warp.transfer": {
               console.debug("[GAME EVENT] Warp transfer", gameEvent.payload);
               const data = gameEvent.payload as WarpTransferMessage;
-              // @TODO: implement (needs test case)
+
+              let message = "";
+              if (data.from_character_id === gameStore.player?.id) {
+                message = `Transferred ${data.units} warp units to ${data.to_character_id}`;
+              } else {
+                message = `Received ${data.units} warp units from ${data.from_character_id}`;
+              }
 
               gameStore.addActivityLogEntry({
                 type: "warp.transfer",
-                message: `Transferred ${data.units} warp units to ${data.to_character_id}`,
+                message: message,
               });
               break;
             }
             // ----- COMBAT
+
+            // ----- MISC
+
+            case "chat.message": {
+              console.debug("[GAME EVENT] Chat message", gameEvent.payload);
+              const data = gameEvent.payload as IncomingChatMessage;
+
+              gameStore.addMessage(data);
+              gameStore.setNotifications({ newChatMessage: true });
+              break;
+            }
+
+            case "error": {
+              console.debug("[GAME EVENT] Error", gameEvent.payload);
+              const data = gameEvent.payload as ErrorMessage;
+
+              // @TODO: keep tabs on errors in separate store
+
+              gameStore.addActivityLogEntry({
+                type: "error",
+                message: `Ship Protocol Failure: ${
+                  data.endpoint ?? "Unknown"
+                } - ${data.error}`,
+              });
+              break;
+            }
 
             // ----- UNHANDLED :(
             default:
@@ -363,12 +490,14 @@ export function GameProvider({ children }: GameProviderProps) {
           }*/
         }
       },
-      [gameStore, initialize]
+      [gameStore]
     )
   );
 
   return (
-    <GameContext.Provider value={{ sendUserTextInput, dispatchEvent }}>
+    <GameContext.Provider
+      value={{ sendUserTextInput, dispatchEvent, initialize }}
+    >
       {children}
     </GameContext.Provider>
   );

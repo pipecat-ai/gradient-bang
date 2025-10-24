@@ -214,7 +214,8 @@ function filterReachableSectors(
 /** Calculate bounding box of all sectors */
 function calculateSectorBounds(
   data: MapData,
-  scale: number
+  scale: number,
+  hexSize: number
 ): { minX: number; minY: number; maxX: number; maxY: number } {
   let minX = Infinity;
   let minY = Infinity;
@@ -223,10 +224,10 @@ function calculateSectorBounds(
 
   data.forEach((node) => {
     const world = hexToWorld(node.position[0], node.position[1], scale);
-    minX = Math.min(minX, world.x);
-    minY = Math.min(minY, world.y);
-    maxX = Math.max(maxX, world.x);
-    maxY = Math.max(maxY, world.y);
+    minX = Math.min(minX, world.x - hexSize);
+    minY = Math.min(minY, world.y - hexSize);
+    maxX = Math.max(maxX, world.x + hexSize);
+    maxY = Math.max(maxY, world.y + hexSize);
   });
 
   return { minX, minY, maxX, maxY };
@@ -239,12 +240,12 @@ function calculateCameraTransform(
   width: number,
   height: number,
   scale: number,
-  _hexSize: number,
+  hexSize: number,
   framePadding = 0
 ): { offsetX: number; offsetY: number; zoom: number } {
-  const bounds = calculateSectorBounds(data, scale);
-  const boundsWidth = bounds.maxX - bounds.minX;
-  const boundsHeight = bounds.maxY - bounds.minY;
+  const bounds = calculateSectorBounds(data, scale, hexSize);
+  const boundsWidth = Math.max(bounds.maxX - bounds.minX, hexSize);
+  const boundsHeight = Math.max(bounds.maxY - bounds.minY, hexSize);
 
   const scaleX = (width - framePadding * 2) / boundsWidth;
   const scaleY = (height - framePadding * 2) / boundsHeight;
@@ -260,9 +261,10 @@ function calculateCameraTransform(
 function renderDebugBounds(
   ctx: CanvasRenderingContext2D,
   data: MapData,
-  scale: number
+  scale: number,
+  hexSize: number
 ) {
-  const bounds = calculateSectorBounds(data, scale);
+  const bounds = calculateSectorBounds(data, scale, hexSize);
   ctx.save();
   ctx.strokeStyle = "#00ff00";
   ctx.lineWidth = 2;
@@ -323,7 +325,8 @@ function renderLane(
   toNode: MapSectorNode,
   scale: number,
   hexSize: number,
-  config: MiniMapConfigBase
+  config: MiniMapConfigBase,
+  isBidirectional: boolean
 ) {
   const fromCenter = hexToWorld(
     fromNode.position[0],
@@ -338,7 +341,7 @@ function renderLane(
   if (lane.hyperlane && config.show_hyperlanes) {
     ctx.strokeStyle = config.colors.hyperlane;
     ctx.lineWidth = 2;
-  } else if (lane.two_way) {
+  } else if (isBidirectional) {
     ctx.strokeStyle = config.colors.lane;
     ctx.lineWidth = 1.5;
   } else {
@@ -351,7 +354,7 @@ function renderLane(
   ctx.lineTo(to.x, to.y);
   ctx.stroke();
 
-  if (!lane.two_way) {
+  if (!isBidirectional) {
     renderArrow(ctx, from, to);
   }
 }
@@ -463,6 +466,17 @@ function renderHyperlaneStub(
   };
 }
 
+function getUndirectedLaneKey(a: number, b: number): string {
+  return a < b ? `${a}-${b}` : `${b}-${a}`;
+}
+
+function hasReciprocalLane(
+  fromNode: MapSectorNode,
+  toNode: MapSectorNode
+): boolean {
+  return toNode.lanes.some((candidate) => candidate.to === fromNode.id);
+}
+
 /** Render all lanes and return hyperlane stub labels for later rendering */
 function renderAllLanes(
   ctx: CanvasRenderingContext2D,
@@ -497,13 +511,25 @@ function renderAllLanes(
         return;
       }
 
-      if (lane.two_way) {
-        const laneKey = [fromNode.id, lane.to].sort((a, b) => a - b).join("-");
+      const isBidirectional =
+        lane.two_way || hasReciprocalLane(fromNode, toNode);
+
+      if (isBidirectional) {
+        const laneKey = getUndirectedLaneKey(fromNode.id, lane.to);
         if (renderedLanes.has(laneKey)) return;
         renderedLanes.add(laneKey);
       }
 
-      renderLane(ctx, lane, fromNode, toNode, scale, hexSize, config);
+      renderLane(
+        ctx,
+        lane,
+        fromNode,
+        toNode,
+        scale,
+        hexSize,
+        config,
+        isBidirectional
+      );
     });
   });
 
@@ -550,8 +576,8 @@ function renderSector(
   opacity = 1
 ) {
   const world = hexToWorld(node.position[0], node.position[1], scale);
-  const isVisited = node.visited ?? false;
   const isCurrent = node.id === config.current_sector_id;
+  const isVisited = Boolean(node.visited) || isCurrent;
   const isCrossRegion =
     currentRegion && node.region && node.region !== currentRegion;
 
@@ -583,7 +609,7 @@ function renderSector(
   drawHex(ctx, world.x, world.y, hexSize, true);
 
   if (config.show_ports && node.port) {
-    const isMegaPort = node.port === "MEGA";
+    const isMegaPort = node.is_mega || node.id === 0;
     const portColor = isMegaPort ? config.colors.mega_port : config.colors.port;
     ctx.fillStyle = applyAlpha(portColor, opacity);
     ctx.beginPath();
@@ -886,7 +912,7 @@ function renderWithCameraState(
   });
 
   if (config.debug) {
-    renderDebugBounds(ctx, cameraState.filteredData, scale);
+    renderDebugBounds(ctx, cameraState.filteredData, scale, hexSize);
   }
 
   ctx.restore();
@@ -950,6 +976,7 @@ export function createMiniMapController(
   let currentCameraState: CameraState | null = null;
   let currentProps = { ...props };
   let animationCleanup: (() => void) | null = null;
+  let animationCompletionTimeout: number | null = null;
 
   const render = () => {
     const { width, height, data, config, maxDistance = 3 } = currentProps;
@@ -989,6 +1016,10 @@ export function createMiniMapController(
       animationCleanup();
       animationCleanup = null;
     }
+    if (animationCompletionTimeout !== null) {
+      window.clearTimeout(animationCompletionTimeout);
+      animationCompletionTimeout = null;
+    }
 
     const updatedProps = {
       ...currentProps,
@@ -1010,9 +1041,10 @@ export function createMiniMapController(
         updatedProps.config.animation_duration_zoom
       );
 
-      setTimeout(() => {
+      animationCompletionTimeout = window.setTimeout(() => {
         currentCameraState = getCurrentCameraState(updatedProps);
         animationCleanup = null;
+        animationCompletionTimeout = null;
       }, animDuration);
     } else {
       render();
@@ -1022,9 +1054,9 @@ export function createMiniMapController(
   const getCurrentState = () => currentCameraState;
 
   const updateProps = (newProps: Partial<MiniMapProps>) => {
-    currentProps = { ...currentProps, ...newProps };
+    Object.assign(currentProps, newProps);
     if (newProps.config) {
-      currentProps.config = { ...currentProps.config, ...newProps.config };
+      Object.assign(currentProps.config, newProps.config);
     }
   };
 

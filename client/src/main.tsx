@@ -8,8 +8,8 @@ import ViewContainer from "@/views/ViewContainer";
 
 import "./css/index.css";
 
-// @TODO: Rather than apply during constructor, we should
-// modify relevant properties on client later.
+// @TODO: Rather than apply during instantiation, we should
+// modify relevant properties on pipecat client later.
 // Currently, the noAudioOutput setting is irreversible!
 const Settings = getLocalSettings();
 
@@ -29,8 +29,8 @@ createRoot(document.getElementById("root")!).render(
     noAudioOutput={Settings.disableRemoteAudio}
   >
     {({ handleConnect, error }) => (
-      <GameProvider>
-        <ViewContainer onConnect={handleConnect} error={error} />
+      <GameProvider onConnect={handleConnect}>
+        <ViewContainer error={error} />
       </GameProvider>
     )}
   </PipecatAppBase>

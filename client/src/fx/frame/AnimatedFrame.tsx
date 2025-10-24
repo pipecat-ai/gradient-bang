@@ -1,3 +1,4 @@
+import { usePlaySound } from "@/hooks/usePlaySound";
 import useGameStore from "@stores/game";
 import { useEffect, useRef } from "react";
 
@@ -147,6 +148,7 @@ const DEFAULTS: InternalDiamondFXConfig = {
  */
 export const AnimatedFrame = ({ config = {} }: AnimatedFrameProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const playSound = usePlaySound();
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -154,8 +156,18 @@ export const AnimatedFrame = ({ config = {} }: AnimatedFrameProps) => {
 
     const state = useGameStore.getState();
 
+    console.log("[GAME] AnimatedFrame initialized");
     if (!state.diamondFXInstance) {
-      const fx = createDiamondFX(canvas, config);
+      const fx = createDiamondFX(canvas, {
+        onPhaseComplete(phase) {
+          if (phase === "start" || phase === "exit-start") {
+            playSound("chime6");
+          }
+          if (phase === "split" || phase === "refresh-end") {
+            playSound("chime3");
+          }
+        },
+      });
       state.setDiamondFXInstance(fx);
     }
 
@@ -166,8 +178,7 @@ export const AnimatedFrame = ({ config = {} }: AnimatedFrameProps) => {
         state.setDiamondFXInstance(undefined);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [playSound]);
 
   useEffect(() => {
     const state = useGameStore.getState();
@@ -208,7 +219,7 @@ function createDiamondFX(
   let playing = false,
     t0 = 0;
   let currentTargetId: string | null = null;
-  let targetRect: DOMRect | null = null;
+  let targetRect: Rect | null = null;
   let holdBlink = false,
     blinkLoopStart = 0;
   let rafId: number | null = null;
@@ -222,12 +233,18 @@ function createDiamondFX(
   const FADE_OUT_DURATION = 300;
 
   const fired = {
+    start: false,
     in: false,
     morph: false,
     pause: false,
     blink: false,
     spin: false,
     split: false,
+    "refresh-start": false,
+    "refresh-center": false,
+    "refresh-end": false,
+    "exit-start": false,
+    "exit-out": false,
   };
   let completeFired = false;
 
@@ -242,6 +259,47 @@ function createDiamondFX(
 
   let parsedStartColor: RGBAColor | null = null;
   let parsedLineColor: RGBAColor | null = null;
+
+  const SAFE_SHADOW_COLOR = "rgba(255,255,255,0.35)";
+
+  const isIdleState = () =>
+    !!(
+      currentTargetId &&
+      !playing &&
+      !isFadingOut &&
+      !isAnimatingOut &&
+      !isRefreshing
+    );
+
+  const safeInvoke = <Args extends unknown[]>(
+    fn: ((...args: Args) => void) | undefined,
+    ...args: Args
+  ) => {
+    if (!fn) return;
+    try {
+      fn(...args);
+    } catch {
+      // Ignore callback errors
+    }
+  };
+
+  function refreshTargetRect(id: string | null = currentTargetId) {
+    if (!id) {
+      targetRect = null;
+      return targetRect;
+    }
+    targetRect = getTargetRect(id);
+    return targetRect;
+  }
+
+  function updateParsedColors() {
+    parsedStartColor = cfg.lineStartColor
+      ? parseColor(cfg.lineStartColor)
+      : null;
+    parsedLineColor = parseColor(cfg.lineColor);
+  }
+
+  updateParsedColors();
 
   // Utility functions
   const clamp01 = (t: number) => Math.max(0, Math.min(1, t));
@@ -323,7 +381,7 @@ function createDiamondFX(
     ctx!.strokeStyle = color;
     ctx!.lineCap = "butt";
     ctx!.lineJoin = "miter";
-    ctx!.shadowColor = "rgba(255,255,255,0.35)";
+    ctx!.shadowColor = SAFE_SHADOW_COLOR;
     ctx!.shadowBlur = stroke * cfg.shadowBlur;
   }
 
@@ -401,8 +459,8 @@ function createDiamondFX(
     ro = new ResizeObserver(() => {
       if (!currentTargetId) return;
       // Always refresh bounds; only draw when idle/docked
-      targetRect = getTargetRect(currentTargetId) as DOMRect;
-      if (!playing && !isFadingOut && !isAnimatingOut && !isRefreshing) {
+      refreshTargetRect();
+      if (isIdleState()) {
         drawDockedTicks();
       }
     });
@@ -411,8 +469,8 @@ function createDiamondFX(
     mo = new MutationObserver(() => {
       if (!currentTargetId) return;
       // Always refresh bounds; only draw when idle/docked
-      targetRect = getTargetRect(currentTargetId) as DOMRect;
-      if (!playing && !isFadingOut && !isAnimatingOut && !isRefreshing) {
+      refreshTargetRect();
+      if (isIdleState()) {
         drawDockedTicks();
       }
     });
@@ -433,13 +491,7 @@ function createDiamondFX(
               playing = false;
             }
             ctx!.clearRect(0, 0, W, H);
-            if (typeof cfg.onTargetRemoved === "function") {
-              try {
-                cfg.onTargetRemoved(targetId);
-              } catch {
-                // Ignore callback errors
-              }
-            }
+            safeInvoke(cfg.onTargetRemoved, targetId);
             cleanupObservers();
             return;
           }
@@ -509,14 +561,8 @@ function createDiamondFX(
     canvas.height = Math.floor(H * DPR);
     ctx!.setTransform(DPR, 0, 0, DPR, 0, 0);
 
-    if (
-      currentTargetId &&
-      !playing &&
-      !isFadingOut &&
-      !isAnimatingOut &&
-      !isRefreshing
-    ) {
-      targetRect = getTargetRect(currentTargetId) as DOMRect;
+    if (isIdleState()) {
+      refreshTargetRect();
       drawDockedTicks();
     }
   }
@@ -533,30 +579,48 @@ function createDiamondFX(
     }
   }
 
+  function getStrokeWidth() {
+    return cfg.lineWidthPx ?? Math.max(1.5, Math.min(W, H) * 0.0025);
+  }
+
+  function getLineColorWithOpacity(opacity: number) {
+    if (opacity >= 1) {
+      return cfg.lineColor;
+    }
+    if (parsedLineColor) {
+      return colorToString({
+        r: parsedLineColor.r,
+        g: parsedLineColor.g,
+        b: parsedLineColor.b,
+        a: parsedLineColor.a * opacity,
+      });
+    }
+    const match = cfg.lineColor.match(
+      /rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/
+    );
+    if (match) {
+      const [, r, g, b, a] = match;
+      const baseAlpha = a ? parseFloat(a) : 1;
+      return `rgba(${r},${g},${b},${baseAlpha * opacity})`;
+    }
+    return cfg.lineColor;
+  }
+
   function drawDockedTicks(opacity = 1) {
     if (!currentTargetId) {
       ctx!.clearRect(0, 0, W, H);
       return;
     }
 
-    const rect = getTargetRect(currentTargetId);
+    const rect = targetRect ?? refreshTargetRect();
+    if (!rect) {
+      ctx!.clearRect(0, 0, W, H);
+      return;
+    }
     ctx!.clearRect(0, 0, W, H);
 
-    const stroke = cfg.lineWidthPx ?? Math.max(1.5, Math.min(W, H) * 0.0025);
-    const baseColor = cfg.lineColor;
-    let color = baseColor;
-
-    if (opacity < 1) {
-      const match = baseColor.match(
-        /rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/
-      );
-      if (match) {
-        const [, r, g, b] = match;
-        color = `rgba(${r},${g},${b},${opacity})`;
-      }
-    }
-
-    style(stroke, color);
+    const stroke = getStrokeWidth();
+    style(stroke, getLineColorWithOpacity(opacity));
 
     const L = cfg.markerLen;
     const half = L / 2;
@@ -612,7 +676,7 @@ function createDiamondFX(
       cy = H / 2;
     const baseAngle = Math.PI / 4;
     const baseSide = Math.min(W, H) * cfg.diamondSize;
-    const stroke = cfg.lineWidthPx ?? Math.max(1.5, Math.min(W, H) * 0.0025);
+    const stroke = getStrokeWidth();
 
     const screenCorners = [
       { x: 0, y: 0 },
@@ -637,7 +701,7 @@ function createDiamondFX(
       { x: -1, y: 1 },
     ];
 
-    const rect = targetRect || getTargetRect(currentTargetId!);
+    const rect = targetRect ?? refreshTargetRect() ?? getTargetRect("");
     const elemCorners = [
       { x: rect.left, y: rect.top },
       { x: rect.right, y: rect.top },
@@ -832,6 +896,11 @@ function createDiamondFX(
     const tMorph = tSpin + morphMs;
     const tOut = tMorph + outMs;
 
+    maybeFirePhase(elapsed, [
+      { name: "exit-start", end: tMorph, dur: 0 },
+      { name: "exit-out", end: tOut, dur: outMs },
+    ]);
+
     // Phase 1: Unsplit (dashes move from docked to diamond center)
     if (elapsed <= tSplit) {
       renderSplitPhase(1 - clamp01(elapsed / splitMs), context); // Reverse progress
@@ -869,13 +938,7 @@ function createDiamondFX(
     cleanupObservers();
 
     // Fire onComplete callback with exit=true
-    if (typeof cfg.onComplete === "function") {
-      try {
-        cfg.onComplete(true);
-      } catch {
-        // Ignore callback errors
-      }
-    }
+    safeInvoke(cfg.onComplete, true);
   }
 
   // Refresh loop: unsplit (old dock -> center square), split (center square -> new dock)
@@ -885,12 +948,21 @@ function createDiamondFX(
 
     // Continuously re-measure the current target during refresh
     if (currentTargetId) {
-      targetRect = getTargetRect(currentTargetId) as DOMRect;
+      refreshTargetRect();
     }
 
     ctx!.clearRect(0, 0, W, H);
     const context = getAnimationContext();
     style(context.stroke, cfg.lineColor);
+
+    const tCenter = refreshMs;
+    const tEnd = refreshMs + refreshMs;
+
+    maybeFirePhase(elapsed, [
+      { name: "refresh-start", end: 0, dur: 0 },
+      { name: "refresh-center", end: tCenter, dur: 0 },
+      { name: "refresh-end", end: tEnd, dur: 0 },
+    ]);
 
     if (elapsed <= refreshMs) {
       const p = clamp01(elapsed / refreshMs);
@@ -916,27 +988,14 @@ function createDiamondFX(
     refreshFromDockCenters = null;
     rafId = null;
 
-    if (typeof cfg.onComplete === "function") {
-      try {
-        cfg.onComplete(false);
-      } catch {
-        // ignore
-      }
-    }
+    safeInvoke(cfg.onComplete, false);
   }
 
   function maybeFirePhase(elapsed: number, phases: Phase[]) {
     for (const p of phases) {
-      if (p.dur <= 0) continue;
       if (!fired[p.name as keyof typeof fired] && elapsed >= p.end) {
         fired[p.name as keyof typeof fired] = true;
-        if (typeof cfg.onPhaseComplete === "function") {
-          try {
-            cfg.onPhaseComplete(p.name);
-          } catch {
-            // Ignore callback errors
-          }
-        }
+        safeInvoke(cfg.onPhaseComplete, p.name);
       }
     }
   }
@@ -945,7 +1004,7 @@ function createDiamondFX(
     const elapsed = now - t0;
 
     if (currentTargetId) {
-      targetRect = getTargetRect(currentTargetId) as DOMRect;
+      refreshTargetRect();
     }
 
     ctx!.clearRect(0, 0, W, H);
@@ -967,22 +1026,21 @@ function createDiamondFX(
     const tSpin = tBlink + cfg.timings.spin;
     const tSplit = tSpin + cfg.timings.split;
 
-    maybeFirePhase(elapsed, [
-      { name: "in", end: tIn, dur: inMs },
-      { name: "morph", end: tMorph, dur: morphMs },
-      { name: "pause", end: tPause, dur: pauseMs },
-      { name: "blink", end: tBlink, dur: blinkMs },
-      { name: "spin", end: tSpin, dur: cfg.timings.spin },
-      { name: "split", end: tSplit, dur: cfg.timings.split },
-    ]);
+    // Fire "start" immediately
+    maybeFirePhase(elapsed, [{ name: "start", end: 0, dur: 0 }]);
 
     if (!cfg.half && elapsed <= tIn) {
+      maybeFirePhase(elapsed, [{ name: "in", end: tIn, dur: inMs }]);
       renderInPhase(clamp01(elapsed / tIn), context);
       rafId = requestAnimationFrame(draw);
       return;
     }
 
     if (morphMs > 0 && elapsed <= tMorph) {
+      maybeFirePhase(elapsed, [
+        { name: "in", end: tIn, dur: inMs },
+        { name: "morph", end: tMorph, dur: morphMs },
+      ]);
       const p = (elapsed - (cfg.half ? 0 : tIn)) / morphMs;
       renderMorphPhase(clamp01(p), context);
       rafId = requestAnimationFrame(draw);
@@ -990,6 +1048,11 @@ function createDiamondFX(
     }
 
     if (pauseMs > 0 && elapsed <= tPause) {
+      maybeFirePhase(elapsed, [
+        { name: "in", end: tIn, dur: inMs },
+        { name: "morph", end: tMorph, dur: morphMs },
+        { name: "pause", end: tPause, dur: pauseMs },
+      ]);
       const d = squareCorners(
         context.cx,
         context.cy,
@@ -1005,6 +1068,13 @@ function createDiamondFX(
     const initialFlip = pauseMs === 0 ? 1 : 0;
 
     if (holdBlink && elapsed >= tPause) {
+      // Only fire callbacks up to and including blink when holding
+      maybeFirePhase(elapsed, [
+        { name: "in", end: tIn, dur: inMs },
+        { name: "morph", end: tMorph, dur: morphMs },
+        { name: "pause", end: tPause, dur: pauseMs },
+        { name: "blink", end: tBlink, dur: blinkMs },
+      ]);
       if (!blinkLoopStart) blinkLoopStart = now;
       const loopAge = (now - blinkLoopStart) % blinkMs;
       const blinkT = loopAge / blinkMs;
@@ -1023,6 +1093,12 @@ function createDiamondFX(
     }
 
     if (elapsed <= tBlink) {
+      maybeFirePhase(elapsed, [
+        { name: "in", end: tIn, dur: inMs },
+        { name: "morph", end: tMorph, dur: morphMs },
+        { name: "pause", end: tPause, dur: pauseMs },
+        { name: "blink", end: tBlink, dur: blinkMs },
+      ]);
       const blinkT = (elapsed - tPause) / blinkMs;
       const visible = (Math.floor(blinkT * blinkPairs) + initialFlip) % 2 === 0;
       const d = squareCorners(
@@ -1039,6 +1115,13 @@ function createDiamondFX(
     }
 
     if (elapsed <= tSpin) {
+      maybeFirePhase(elapsed, [
+        { name: "in", end: tIn, dur: inMs },
+        { name: "morph", end: tMorph, dur: morphMs },
+        { name: "pause", end: tPause, dur: pauseMs },
+        { name: "blink", end: tBlink, dur: blinkMs },
+        { name: "spin", end: tSpin, dur: cfg.timings.spin },
+      ]);
       const spinT = (elapsed - tBlink) / cfg.timings.spin;
       renderSpinPhase(spinT, context);
       rafId = requestAnimationFrame(draw);
@@ -1046,6 +1129,14 @@ function createDiamondFX(
     }
 
     {
+      maybeFirePhase(elapsed, [
+        { name: "in", end: tIn, dur: inMs },
+        { name: "morph", end: tMorph, dur: morphMs },
+        { name: "pause", end: tPause, dur: pauseMs },
+        { name: "blink", end: tBlink, dur: blinkMs },
+        { name: "spin", end: tSpin, dur: cfg.timings.spin },
+        { name: "split", end: tSplit, dur: cfg.timings.split },
+      ]);
       const p = clamp01((elapsed - tSpin) / cfg.timings.split);
       renderSplitPhase(p, context);
 
@@ -1056,13 +1147,7 @@ function createDiamondFX(
 
       drawDockedTicks();
       if (!completeFired) {
-        if (typeof cfg.onComplete === "function") {
-          try {
-            cfg.onComplete(false);
-          } catch {
-            // Ignore callback errors
-          }
-        }
+        safeInvoke(cfg.onComplete, false);
         completeFired = true;
       }
       playing = false;
@@ -1092,23 +1177,18 @@ function createDiamondFX(
         // Restart
       } else {
         currentTargetId = targetId;
-        targetRect = getTargetRect(targetId) as DOMRect;
+        refreshTargetRect(targetId);
         setupObservers(targetId);
         return;
       }
     }
 
     // If currently docked and refresh requested, play refresh loop instead
-    const docked =
-      !playing &&
-      !isFadingOut &&
-      !isAnimatingOut &&
-      !isRefreshing &&
-      currentTargetId;
+    const docked = isIdleState();
     if (docked && refresh) {
       // Ensure we have the latest bounds for the CURRENT target before capturing old dock centers
       if (currentTargetId) {
-        targetRect = getTargetRect(currentTargetId) as DOMRect;
+        refreshTargetRect();
       }
       // Capture old dock centers based on the latest bounds
       refreshFromDockCenters = getAnimationContext().dockCenters;
@@ -1117,12 +1197,17 @@ function createDiamondFX(
       if (currentTargetId !== targetId) {
         cleanupObservers();
         currentTargetId = targetId;
-        targetRect = getTargetRect(targetId) as DOMRect;
+        refreshTargetRect(targetId);
         setupObservers(targetId);
       } else if (currentTargetId) {
         // Even when not switching, re-evaluate bounds to reflect any layout changes
-        targetRect = getTargetRect(currentTargetId) as DOMRect;
+        refreshTargetRect();
       }
+
+      // Reset refresh phase flags for each refresh animation
+      fired["refresh-start"] = false;
+      fired["refresh-center"] = false;
+      fired["refresh-end"] = false;
 
       if (rafId) cancelAnimationFrame(rafId);
       isRefreshing = true;
@@ -1146,13 +1231,10 @@ function createDiamondFX(
     blinkLoopStart = 0;
 
     currentTargetId = targetId;
-    targetRect = getTargetRect(targetId) as DOMRect;
+    refreshTargetRect(targetId);
     setupObservers(targetId);
 
-    parsedStartColor = cfg.lineStartColor
-      ? parseColor(cfg.lineStartColor)
-      : null;
-    parsedLineColor = parseColor(cfg.lineColor);
+    updateParsedColors();
 
     playing = true;
     t0 = performance.now();
@@ -1176,13 +1258,7 @@ function createDiamondFX(
     t0 = performance.now() - tBlink;
     if (!fired.blink) {
       fired.blink = true;
-      if (typeof cfg.onPhaseComplete === "function") {
-        try {
-          cfg.onPhaseComplete("blink");
-        } catch {
-          // Ignore callback errors
-        }
-      }
+      safeInvoke(cfg.onPhaseComplete, "blink");
     }
     if (!playing) {
       playing = true;
@@ -1234,14 +1310,11 @@ function createDiamondFX(
     deepMerge(cfg, next);
 
     if ("lineStartColor" in next || "lineColor" in next) {
-      parsedStartColor = cfg.lineStartColor
-        ? parseColor(cfg.lineStartColor)
-        : null;
-      parsedLineColor = parseColor(cfg.lineColor);
+      updateParsedColors();
     }
 
-    if (currentTargetId && !playing && !isFadingOut && !isAnimatingOut) {
-      targetRect = getTargetRect(currentTargetId) as DOMRect;
+    if (isIdleState()) {
+      refreshTargetRect();
       drawDockedTicks();
     }
   }

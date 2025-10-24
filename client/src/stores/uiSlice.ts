@@ -2,11 +2,18 @@ import type { StateCreator } from "zustand";
 
 import { produce } from "immer";
 
+interface Notifications {
+  newChatMessage: boolean;
+}
+
 export interface UISlice {
   uiState: UIState;
   activeScreen?: UIScreen;
   activeModal?: UIModal;
   activePanel?: string;
+
+  notifications: Notifications;
+  setNotifications: (notifications: Partial<Notifications>) => void;
 
   setUIState: (newState: UIState) => void;
   setActiveScreen: (screen?: UIScreen) => void;
@@ -19,6 +26,21 @@ export const createUISlice: StateCreator<UISlice> = (set) => ({
   activeScreen: undefined,
   activeModal: undefined,
   activePanel: undefined,
+
+  notifications: {
+    newChatMessage: false,
+  },
+
+  setNotifications: (notifications: Partial<Notifications>) => {
+    set(
+      produce((state) => {
+        state.notifications = {
+          ...state.notifications,
+          ...notifications,
+        };
+      })
+    );
+  },
 
   setUIState: (newState: UIState) => {
     set(

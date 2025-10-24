@@ -1,19 +1,17 @@
-import useGameStore from "@/stores/game";
-import Connect from "@views/Connect";
+import { useGameContext } from "@/hooks/useGameContext";
+import useGameStore from "@stores/game";
 import Error from "@views/Error";
 import Game from "@views/Game";
+import JoinStatus from "@views/JoinStatus";
 import Title from "@views/Title";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
 
-export const ViewContainer = ({
-  error,
-  onConnect,
-}: {
-  onConnect?: () => void;
-  error?: string | null;
-}) => {
+export const ViewContainer = ({ error }: { error?: string | null }) => {
   const settings = useGameStore.use.settings();
+  const gameState = useGameStore.use.gameState();
+  const { initialize } = useGameContext();
+
   const [viewState, setViewState] = useState<"title" | "game">(
     settings.bypassTitleScreen ? "game" : "title"
   );
@@ -22,8 +20,7 @@ export const ViewContainer = ({
     setViewState(state);
   }, []);
 
-  // Show errors first
-  if (error) {
+  if (error || gameState === "error") {
     return <Error>{error}</Error>;
   }
 
@@ -42,7 +39,22 @@ export const ViewContainer = ({
         )}
         {viewState === "game" && (
           <>
-            <Connect connectHandler={onConnect} />
+            <AnimatePresence>
+              {gameState !== "ready" && (
+                <motion.div
+                  initial={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.5 }}
+                >
+                  <JoinStatus
+                    handleStart={() => {
+                      if (gameState !== "not_ready") return;
+                      initialize();
+                    }}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
             <Game />
           </>
         )}

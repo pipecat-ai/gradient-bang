@@ -30,12 +30,22 @@ const createSelectors = <S extends UseBoundStore<StoreApi<object>>>(
   return store;
 };
 
+type GameInitState = "not_ready" | "initializing" | "ready" | "error";
+
+export const GameInitStateMessage = {
+  INIT: "Initializing game instances...",
+  CONNECTING: "Connecting to server...",
+  STARTING: "Rendering scene...",
+  READY: "Game ready!",
+} as const;
+
 export interface GameState {
   player: PlayerSelf;
   ship: ShipSelf;
   sector?: Sector;
   local_map_data?: MapData;
   course_plot?: CoursePlot;
+  messages: ChatMessage[];
 
   /* Singleton Instances */
   starfieldInstance?: GalaxyStarfield;
@@ -45,13 +55,17 @@ export interface GameState {
   sectorBuffer?: Sector;
 
   /* Game State */
-  gameState: "not_ready" | "initializing" | "ready";
+  gameState: GameInitState;
+  gameStateMessage?: string;
 }
 
 export interface GameSlice extends GameState {
   setState: (newState: Partial<GameState>) => void;
+  addMessage: (message: ChatMessage) => void;
   setSector: (sector: Sector) => void;
   setSectorPort: (sectorId: number, port: Port) => void;
+  addSectorPlayer: (player: Player) => void;
+  removeSectorPlayer: (player: Player) => void;
   setSectorBuffer: (sector: Sector) => void;
   setShip: (ship: Partial<ShipSelf>) => void;
   setLocalMapData: (localMapData: MapData) => void;
@@ -63,7 +77,8 @@ export interface GameSlice extends GameState {
   setDiamondFXInstance: (
     diamondFXInstance: DiamondFXController | undefined
   ) => void;
-  setGameState: (gameState: "not_ready" | "initializing" | "ready") => void;
+  setGameState: (gameState: GameInitState) => void;
+  setGameStateMessage: (gameStateMessage: string) => void;
 }
 
 const createGameSlice: StateCreator<
@@ -77,12 +92,25 @@ const createGameSlice: StateCreator<
   sector: undefined,
   local_map_data: undefined, // @TODO: move to map slice
   course_plot: undefined, // @TODO: move to map slice
+  messages: [],
+
   starfieldInstance: undefined,
   diamondFXInstance: undefined,
   gameState: "not_ready",
+  gameStateMessage: GameInitStateMessage.INIT,
 
+  setGameStateMessage: (gameStateMessage: string) => set({ gameStateMessage }),
   setState: (newState: Partial<GameState>) =>
     set({ ...get(), ...newState }, true),
+
+  addMessage: (message: ChatMessage) =>
+    set(
+      produce((state) => {
+        state.messages.push({
+          ...message,
+        });
+      })
+    ),
 
   setSector: (sector: Sector) =>
     set(
@@ -96,6 +124,33 @@ const createGameSlice: StateCreator<
       produce((state) => {
         if (state.sector?.id === sectorId) {
           state.sector.port = port;
+        }
+      })
+    ),
+
+  addSectorPlayer: (player: Player) =>
+    set(
+      produce((state) => {
+        if (state.sector?.players) {
+          const index = state.sector.players.findIndex(
+            (p: Player) => p.id === player.id
+          );
+          if (index !== -1) {
+            state.sector.players[index] = player;
+          } else {
+            state.sector.players.push(player);
+          }
+        }
+      })
+    ),
+
+  removeSectorPlayer: (player: Player) =>
+    set(
+      produce((state) => {
+        if (state.sector?.players) {
+          state.sector.players = state.sector.players.filter(
+            (p: Player) => p.id !== player.id
+          );
         }
       })
     ),
@@ -145,8 +200,7 @@ const createGameSlice: StateCreator<
   setDiamondFXInstance: (diamondFXInstance: DiamondFXController | undefined) =>
     set({ diamondFXInstance }),
 
-  setGameState: (gameState: "not_ready" | "initializing" | "ready") =>
-    set({ gameState }),
+  setGameState: (gameState: GameInitState) => set({ gameState }),
 });
 
 const useGameStoreBase = create<

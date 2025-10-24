@@ -11,13 +11,40 @@ export type MiniMapConfig = Partial<
   colors?: Partial<MiniMapConfigBase["colors"]>;
 };
 
+const mapTopologyChanged = (
+  previous: MapData | null,
+  next: MapData
+): boolean => {
+  if (!previous) return true;
+  if (previous.length !== next.length) return true;
+
+  const previousHops = new Map<number, number | null>();
+  previous.forEach((sector) => {
+    previousHops.set(sector.id, sector.hops_from_center ?? null);
+  });
+
+  for (const sector of next) {
+    if (!previousHops.has(sector.id)) {
+      return true;
+    }
+    const previousHop = previousHops.get(sector.id);
+    const nextHop = sector.hops_from_center ?? null;
+    if (previousHop !== nextHop) {
+      return true;
+    }
+    previousHops.delete(sector.id);
+  }
+
+  return previousHops.size > 0;
+};
+
 export const MiniMap = ({
   current_sector_id,
   config,
   map_data,
   width = 440,
   height = 440,
-  maxDistance = 3,
+  maxDistance = 2,
   showLegend = true,
 }: {
   current_sector_id: number;
@@ -31,6 +58,13 @@ export const MiniMap = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const controllerRef = useRef<MiniMapController | null>(null);
   const prevSectorIdRef = useRef<number>(current_sector_id);
+  const previousMapRef = useRef<MapData | null>(null);
+  const lastDimensionsRef = useRef<{ width: number; height: number }>({
+    width,
+    height,
+  });
+  const lastMaxDistanceRef = useRef<number | undefined>(maxDistance);
+  const lastConfigInputRef = useRef<MiniMapConfig | undefined>(config);
 
   const mergedConfig = useMemo<MiniMapConfigBase>(
     () => ({
@@ -46,50 +80,75 @@ export const MiniMap = ({
   );
 
   useEffect(() => {
-    const currentSectorData = map_data.find((s) => s.id === current_sector_id);
-    console.log("[MiniMap Debug] Current sector data:", {
-      id: current_sector_id,
-      visited: currentSectorData?.visited,
-      fullData: currentSectorData,
-    });
-  }, [current_sector_id, map_data]);
-
-  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    if (!controllerRef.current) {
-      console.debug("[MiniMap] Initial render");
-      controllerRef.current = createMiniMapController(canvas, {
+    let controller = controllerRef.current;
+
+    if (!controller) {
+      controller = createMiniMapController(canvas, {
         width,
         height,
         data: map_data,
         config: mergedConfig,
         maxDistance,
       });
+      controllerRef.current = controller;
       prevSectorIdRef.current = current_sector_id;
+      previousMapRef.current = map_data;
+      lastDimensionsRef.current = { width, height };
+      lastMaxDistanceRef.current = maxDistance;
+      lastConfigInputRef.current = config;
       return;
     }
 
-    // Update controller props (including config changes like bypass_animation)
-    controllerRef.current.updateProps({
+    const topologyChanged = mapTopologyChanged(
+      previousMapRef.current,
+      map_data
+    );
+    const sectorChanged = current_sector_id !== prevSectorIdRef.current;
+    const dimensionsChanged =
+      lastDimensionsRef.current.width !== width ||
+      lastDimensionsRef.current.height !== height;
+    const maxDistanceChanged = lastMaxDistanceRef.current !== maxDistance;
+    const configChanged = lastConfigInputRef.current !== config;
+
+    controller.updateProps({
       width,
       height,
-      data: map_data,
-      config: mergedConfig,
       maxDistance,
+      config: mergedConfig,
+      data: map_data,
     });
 
-    const sectorChanged = current_sector_id !== prevSectorIdRef.current;
-
-    if (sectorChanged) {
-      console.debug(
-        `[MiniMap] moveToSector called: ${prevSectorIdRef.current} → ${current_sector_id}`
-      );
-      controllerRef.current.moveToSector(current_sector_id, map_data);
-      prevSectorIdRef.current = current_sector_id;
+    if (sectorChanged || topologyChanged || maxDistanceChanged) {
+      controller.moveToSector(current_sector_id, map_data);
+      if (sectorChanged) {
+        prevSectorIdRef.current = current_sector_id;
+      }
+    } else if (dimensionsChanged || configChanged) {
+      controller.render();
     }
-  }, [current_sector_id, map_data, width, height, maxDistance, mergedConfig]);
+
+    previousMapRef.current = map_data;
+    lastDimensionsRef.current = { width, height };
+    lastMaxDistanceRef.current = maxDistance;
+    lastConfigInputRef.current = config;
+  }, [
+    current_sector_id,
+    height,
+    map_data,
+    maxDistance,
+    mergedConfig,
+    config,
+    width,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      controllerRef.current = null;
+    };
+  }, []);
 
   return (
     <div style={{ display: "grid", gap: 8, overflow: "hidden" }}>

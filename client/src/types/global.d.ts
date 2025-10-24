@@ -1,7 +1,6 @@
 declare global {
   // --- PLAYER
   interface PlayerBase {
-    created_at: string;
     id: string;
     last_active?: string;
     name: string;
@@ -10,6 +9,7 @@ declare global {
   interface PlayerSelf extends PlayerBase {
     credits_in_bank: number;
     credits_on_hand: number;
+    created_at: string;
   }
 
   interface Player extends PlayerBase {
@@ -26,7 +26,8 @@ declare global {
     fighters?: number;
     shields?: number;
     ship_name: string;
-    ship_type: ShipType;
+    ship_type: string;
+    // ship_type: ShipType;
   }
 
   interface ShipType {
@@ -104,11 +105,13 @@ declare global {
 
   interface MapSectorNode {
     id: number;
+    hops_from_center?: number;
     position: [number, number];
-    visited?: boolean;
+    visited?: string;
     port?: string;
     region?: string;
     lanes: MapLane[];
+    is_mega?: boolean;
   }
 
   interface MapLane {
@@ -134,11 +137,11 @@ declare global {
   }
 
   // --- UI
-  type UIState = "idle" | "moving" | "autopilot" | "combat" | "paused";
+  type UIState = "idle" | "moving" | "combat" | "paused";
   type UIScreen = "self" | "messaging" | "trading" | "map" | "tasks" | "combat";
   type UIModal = "settings" | undefined;
 
-  // --- ACTIVITY
+  // --- MISC
 
   interface LogEntry {
     type: string;
@@ -146,6 +149,15 @@ declare global {
 
     timestamp?: string; // Note: set by the store
     meta?: Record<string, unknown>; // Note: set by the store
+  }
+
+  interface ChatMessage {
+    id: number;
+    type: "direct" | "broadcast";
+    from_name: string;
+    content: string;
+    to_name?: string;
+    timestamp: string;
   }
 }
 

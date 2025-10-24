@@ -1,5 +1,6 @@
 import { AutoPilot } from "@/components/AutoPilot";
 import { Settings } from "@/dialogs/Settings";
+import { useMessageNotificationSound } from "@/hooks/useMessageNotificationSound";
 import { usePlaySound } from "@/hooks/usePlaySound";
 import { ShipVisor } from "@/hud/ShipVisor";
 import useGameStore from "@/stores/game";
@@ -8,15 +9,18 @@ import { ShipHUD } from "@hud/ShipHUD";
 import { StarField } from "@hud/StarField";
 import { TopBar } from "@hud/TopBar";
 
+import { AnimatedFrame } from "@/fx/frame";
 import { useEffect } from "react";
 
 export const Game = () => {
   const playSound = usePlaySound();
   const gameState = useGameStore.use.gameState();
 
+  useMessageNotificationSound();
+
   useEffect(() => {
     if (gameState === "ready") {
-      playSound("ambience", { loop: true, once: true });
+      playSound("ambience", { loop: true, once: true, volume: 0.5 });
     }
   }, [playSound, gameState]);
 
@@ -39,6 +43,7 @@ export const Game = () => {
       <ShipVisor />
       <StarField />
       <Settings />
+      <AnimatedFrame />
     </>
   );
 };
