@@ -2,5 +2,19 @@
   "meta": {
     "version": 1
   },
-  "sectors": []
+  "sectors": [
+    {
+      "sector": 1,
+      "garrisons": [
+        {
+          "owner_id": "test_def_deployer",
+          "fighters": 50,
+          "mode": "defensive",
+          "toll_amount": 0,
+          "toll_balance": 0,
+          "deployed_at": "2025-10-25T18:18:05.857561+00:00"
+        }
+      ]
+    }
+  ]
 }

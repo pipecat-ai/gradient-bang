@@ -1,106 +1,4 @@
 
-
-
-
-
---
-
-Yes, config is the information that was used to create the universe, so that we can recreate it if we need to. Plus the `meta` information in the current universe_structure.json file. 
-
->   - For "Sector ID is row number" - do we still need an explicit sector_id INTEGER PRIMARY KEY column, or rely on implicit row numbers?
-
-It seems like we need this column, yes. Easier to define this column like this than to use auto-increment and implicit row numbers. Do you agree?
-
->   Sector Contents table:
-  - For the columns you mentioned (port pointer, garrisons, combat state, salvage):
-    - Port pointer: port_id INTEGER REFERENCES ports(port_id) or NULL if no port?
-    - Garrisons: JSONB array, or foreign key to separate garrisons table?
-    - Combat state: Just a boolean has_combat, or reference to combat encounter ID?
-    - Salvage: JSONB array of salvage containers in this sector?
-
-Port pointer as you describe. Garrisons: JSONB array. Combat should also be a JSONB array with current combat round number and any other state information needed by the combat edge function. Salvage: JSONB array of salvage containers in this sector.
-
-We do not need "port class". The 3-char port code is sufficient. (Do we use a port class integer anywhere in our code? I thought we removed that.) 
-
-Warps should be a JSONB column.
-
-Yes, we want to add a feature: characters can own multiple ships! We will add code for moving between ships and other ship-specific features in the future. Right now we just need the ships table data structures to allow us to add these features without changing the table designs.
-
-Yes, total wealth is credit across all ships and in the bank, plus value of ships, fighters, cargo, etc.
-
-Yes, cargo is per-ship, because cargo is stored in a ship's holds.
-
-If combat destroys a ship, we change the ship instance to escape pod.
-
-Map knowledge for a character is unavoidably large when a character has explored most of the universe. I don't think there's a way to avoid this with data structure design. Map knowledge is purely per-character. We never query or join this. We retrieve it from the database, and walk the data structure to respond to map knowledge endpoint requests. Look at the code to confirm this and understand it. Suggest a better data structure if you can.
-
-Character data: name, created_at, credits_in_megabank, current ship pointer, map knowledge. Hyperspace state should be part of the ship table. Maybe we store ship current location as [ sector ID | HYPERSPACE ].
-
->   - If 10 characters are in a sector and someone moves, we create 10 event rows (one per recipient)?
-
-Yes. I think modern databases can handle having large numbers of rows. Especially for an append-only design like this. Suggest a different strategy if you disagree.
-
->   - For Supabase Broadcast: do we insert into events table first, THEN trigger broadcasts?
-
-This seems right.
-
->   - Or should it be move(ship_id, to_sector) and we verify the character owns that ship?
-
-Yes, we should do it this way. Verify character ownership and character residence in the ship. In the future we will add the ability to "remote control" ships even if a character is not in the ship.
-
-An important addition: we should deliver events to a character if the character has a ship or garrison in the sector where the events happen, even if the character is not in the ship that's in that sector. Is that clear?
-
-We should create the multi-ship table structure now, but not modify the endpoints to take full advantage of multi-ship. We will do that in a future phase.
-
-
-
---
-
-Universe - 4 tables:
-- Universe config. Configuration output from universe bang.
-- Universe structure. Created by universe bang and never modified. Sector ID is monotonically increasing row number. position, region, warps. 
-- Ports. One row per port. port_id, sector_id, port_code, max capacities for each resource type, current stock for each resource type.
-- Sector contents. One row per sector. Sector ID is index. Port pointer, garrisons, combat state (current combat in sector, or not), salvage
-
-Ships - 2 tables:
-- Ship definitions table. Created by world gen and never modified.
-- Ship instances table. One row per ship owned by character.
-  - Column for credits held on this ship instance.
-  - Current location (sector ID). Indexed.
-
-Characters - single table:
-- One row per character
-- map-knowledge is a json-b column.
-- Current ship residence column. Which ship is this character currently using?
-- Add a column to be used in the future for credits_in_megaport_bank
-
-Events - single table:
-- One row per rpc call sent from a character
-- One row per event sent to each character
-- No need for separate messages table, because we can extract messages from events table via SQL queries.
-
-
-
---
-Today's task: porting the game server to use:
-  1. SQL storage for all world data, character data, and event logging
-  2. Use Supabase for hosting the SQL and game server logic.
-
-First step: draft a plan for SQL table structures and interface code.
-  - Catalog all game world, character, and log data structures.
-  - Examine game-server code to understand how the API manipulates the data structures.
-  - Design SQL table structures.
-  - Design data storage interface code.
-
-Second step: draft an additional phase for using Supabase hosted features.
-  - Implement all game server rpc endpoints using Supabase edge functions.
-  - Implement all event delivery using Supabase broadcast messages. Hypothesis: AsyncGameClient should subscribe to a channel named after the character ID. Edge functions send messages to each character channel. 
-
-Third step:
-  - Design leaderboard lookup functions
-  - Least likely to fit through the eye of a needle: credits + ship value
-  - Most territory: fighters stationed in most sectors
-
 ----
 
 todo:
@@ -124,7 +22,10 @@ todo:
 
 ----
 
-We are no longer using the openai library. Why do we have openai tests and an openai stub?
+During migration, should we move the game-server/tests into the main tests directory, so we have a consolidated set of tests when we're finished?
+
+
+
 
 ----
 

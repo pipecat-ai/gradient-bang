@@ -3,7 +3,7 @@
   "sectors_visited": {
     "0": {
       "sector_id": 0,
-      "last_visited": "2025-10-15T15:21:22.766972+00:00",
+      "last_visited": "2025-10-25T18:18:08.861132+00:00",
       "port": null,
       "position": [
         0,
@@ -15,11 +15,39 @@
         2,
         5
       ]
+    },
+    "1": {
+      "sector_id": 1,
+      "last_visited": "2025-10-25T18:18:04.855616+00:00",
+      "port": {
+        "code": "BBS",
+        "prices": {
+          "quantum_foam": 31,
+          "retro_organics": 12,
+          "neuro_symbolics": 38
+        },
+        "stock": {
+          "quantum_foam": 300,
+          "retro_organics": 300,
+          "neuro_symbolics": 675
+        },
+        "observed_at": "2025-10-25T18:18:08.861518+00:00"
+      },
+      "position": [
+        0,
+        0
+      ],
+      "planets": [],
+      "adjacent_sectors": [
+        0,
+        3,
+        4
+      ]
     }
   },
   "total_sectors_visited": 1,
-  "first_visit": "2025-10-15T15:21:22.766972+00:00",
-  "last_update": "2025-10-15T15:21:22.766972+00:00",
+  "first_visit": "2025-10-25T18:18:01.845562+00:00",
+  "last_update": "2025-10-25T18:18:08.861518+00:00",
   "ship_config": {
     "ship_type": "kestrel_courier",
     "ship_name": null,
@@ -28,9 +56,9 @@
       "retro_organics": 0,
       "neuro_symbolics": 0
     },
-    "current_warp_power": 300,
+    "current_warp_power": 294,
     "current_shields": 150,
-    "current_fighters": 300,
+    "current_fighters": 250,
     "equipped_modules": []
   },
   "credits": 1000,

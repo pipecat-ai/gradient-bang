@@ -3,7 +3,7 @@
   "sectors_visited": {
     "0": {
       "sector_id": 0,
-      "last_visited": "2025-10-15T15:21:11.456256+00:00",
+      "last_visited": "2025-10-25T18:16:48.389347+00:00",
       "port": null,
       "position": [
         0,
@@ -19,7 +19,7 @@
   },
   "total_sectors_visited": 1,
   "first_visit": "2025-10-15T15:21:11.456256+00:00",
-  "last_update": "2025-10-15T15:21:11.456256+00:00",
+  "last_update": "2025-10-25T18:16:48.389347+00:00",
   "ship_config": {
     "ship_type": "kestrel_courier",
     "ship_name": null,
@@ -29,8 +29,8 @@
       "neuro_symbolics": 0
     },
     "current_warp_power": 300,
-    "current_shields": 149,
-    "current_fighters": 298,
+    "current_shields": 146,
+    "current_fighters": 290,
     "equipped_modules": []
   },
   "credits": 1000,

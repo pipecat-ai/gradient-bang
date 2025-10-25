@@ -27,6 +27,16 @@
       "email": "test_3p_player1@test.com",
       "password_hash": ""
     },
+    "test_3p_player2": {
+      "name": "test_3p_player2",
+      "email": "test_3p_player2@test.com",
+      "password_hash": ""
+    },
+    "test_3p_player3": {
+      "name": "test_3p_player3",
+      "email": "test_3p_player3@test.com",
+      "password_hash": ""
+    },
     "test_abf_attacker": {
       "name": "test_abf_attacker",
       "email": "test_abf_attacker@test.com",

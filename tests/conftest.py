@@ -331,10 +331,11 @@ async def check_server_available(server_url):
     """
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(f"{server_url}/health", timeout=1.0)
+            # Use root endpoint (server doesn't have /health)
+            response = await client.get(f"{server_url}/", timeout=1.0)
             if response.status_code != 200:
                 pytest.skip(
-                    f"Test server not healthy at {server_url}. "
+                    f"Test server not responding at {server_url}. "
                     f"Start with: PORT=8002 WORLD_DATA_DIR=tests/test-world-data uv run python -m game-server"
                 )
     except (httpx.ConnectError, httpx.TimeoutException):
@@ -369,8 +370,8 @@ async def test_server(server_url):
     process = start_test_server(port=8002, world_data_dir="tests/test-world-data")
 
     try:
-        # Wait for server to be ready
-        await wait_for_server_ready(server_url, timeout=10.0)
+        # Wait for server to be ready (pass process for better error messages)
+        await wait_for_server_ready(server_url, timeout=30.0, process=process)
 
         # Provide the server URL to tests
         yield server_url

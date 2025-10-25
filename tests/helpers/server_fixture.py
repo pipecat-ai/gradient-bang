@@ -43,14 +43,14 @@ def start_test_server(
         "PYTHONUNBUFFERED": "1",  # Ensure output is not buffered
     }
 
-    # Start the server process
+    # Start the server process (suppress output to avoid pipe deadlock)
+    # Output goes to DEVNULL instead of being captured
     process = subprocess.Popen(
         ["uv", "run", "python", "-m", "game-server"],
         cwd=str(project_root),
         env={**subprocess.os.environ, **env},
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
 
     return process
@@ -82,22 +82,31 @@ def stop_test_server(process: subprocess.Popen, timeout: float = 5.0) -> None:
         process.wait()
 
 
-async def wait_for_server_ready(url: str, timeout: float = 10.0) -> None:
+async def wait_for_server_ready(url: str, timeout: float = 10.0, process: Optional[subprocess.Popen] = None) -> None:
     """
     Poll the server health endpoint until it's ready or timeout.
 
     Args:
         url: Base URL of the server (e.g., "http://localhost:8002")
         timeout: Maximum time to wait for server to be ready (seconds)
+        process: Optional server process to check for crashes
 
     Raises:
         RuntimeError: If server doesn't become ready within timeout
     """
-    health_url = f"{url}/health"
+    # Use root endpoint for health check (server doesn't have /health)
+    health_url = url if url.endswith("/") else f"{url}/"
     start_time = time.time()
 
     async with httpx.AsyncClient() as client:
         while time.time() - start_time < timeout:
+            # Check if process has crashed
+            if process and process.poll() is not None:
+                raise RuntimeError(
+                    f"Server process crashed with exit code {process.returncode}\n"
+                    f"Check that WORLD_DATA_DIR is valid and contains required files"
+                )
+
             try:
                 response = await client.get(health_url, timeout=1.0)
                 if response.status_code == 200:
@@ -107,9 +116,15 @@ async def wait_for_server_ready(url: str, timeout: float = 10.0) -> None:
 
             await asyncio.sleep(0.5)
 
-    raise RuntimeError(
-        f"Server at {url} did not become ready within {timeout} seconds"
-    )
+    # If we timeout, provide helpful error message
+    error_msg = f"Server at {url} did not become ready within {timeout} seconds"
+    if process and process.poll() is None:
+        # Server is still running but not responding
+        error_msg += "\nServer process is running but not responding to health checks"
+    elif process and process.poll() is not None:
+        error_msg += f"\nServer crashed with exit code {process.returncode}"
+
+    raise RuntimeError(error_msg)
 
 
 def copy_test_world_data(dest_dir: str) -> None:

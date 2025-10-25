@@ -3,7 +3,7 @@
   "sectors_visited": {
     "0": {
       "sector_id": 0,
-      "last_visited": "2025-10-15T15:21:17.561351+00:00",
+      "last_visited": "2025-10-25T18:17:03.581552+00:00",
       "port": null,
       "position": [
         0,
@@ -18,21 +18,21 @@
     }
   },
   "total_sectors_visited": 1,
-  "first_visit": "2025-10-15T15:21:17.561351+00:00",
-  "last_update": "2025-10-15T15:21:17.561351+00:00",
+  "first_visit": "2025-10-25T18:17:03.580134+00:00",
+  "last_update": "2025-10-25T18:17:03.581552+00:00",
   "ship_config": {
-    "ship_type": "kestrel_courier",
+    "ship_type": "atlas_hauler",
     "ship_name": null,
     "cargo": {
-      "quantum_foam": 0,
-      "retro_organics": 0,
-      "neuro_symbolics": 0
+      "quantum_foam": 20,
+      "retro_organics": 10,
+      "neuro_symbolics": 30
     },
     "current_warp_power": 300,
-    "current_shields": 150,
-    "current_fighters": 300,
+    "current_shields": 200,
+    "current_fighters": 195,
     "equipped_modules": []
   },
-  "credits": 1000,
+  "credits": 2000,
   "current_sector": 0
 }
