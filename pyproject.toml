@@ -34,6 +34,12 @@ override-dependencies = [
 ]
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"
 markers = [
-    "integration: marks integration tests that require the live game server",
+    "unit: Unit tests (fast, no server needed)",
+    "integration: Integration tests (may need server)",
+    "requires_server: Requires live server on port 8002",
+    "stress: Stress tests (slow, concurrent operations) - skip by default",
 ]

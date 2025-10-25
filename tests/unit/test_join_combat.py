@@ -15,7 +15,8 @@ def _make_knowledge():
             current_warp_power=20,
             ship_name="Test Ship",
             cargo={},
-        )
+        ),
+        sectors_visited={},
     )
 
 
@@ -33,12 +34,16 @@ def _build_world(character_id: str, sector: int, encounter):
         find_encounter_in_sector=AsyncMock(return_value=encounter),
         add_participant=AsyncMock(return_value=encounter),
     )
+    character_registry = SimpleNamespace(
+        get_profile=MagicMock(return_value=SimpleNamespace(name="Test Character"))
+    )
     world = SimpleNamespace(
         characters=characters,
         knowledge_manager=knowledge_manager,
         universe_graph=SimpleNamespace(sector_count=2048),
         garrisons=None,
         combat_manager=combat_manager,
+        character_registry=character_registry,
     )
     return world
 
@@ -55,12 +60,16 @@ async def test_join_new_character_emits_status_snapshot(monkeypatch):
         update_credits=MagicMock(),
         get_current_sector=MagicMock(return_value=None),
     )
+    character_registry = SimpleNamespace(
+        get_profile=MagicMock(return_value=SimpleNamespace(name="Test Character"))
+    )
     world = SimpleNamespace(
         characters={},
         knowledge_manager=knowledge_manager,
         universe_graph=SimpleNamespace(sector_count=2048),
         garrisons=None,
         combat_manager=None,
+        character_registry=character_registry,
     )
 
     monkeypatch.setattr(
@@ -68,6 +77,9 @@ async def test_join_new_character_emits_status_snapshot(monkeypatch):
     )
     monkeypatch.setattr(
         join, "build_status_payload", AsyncMock(return_value={"ok": True})
+    )
+    monkeypatch.setattr(
+        join, "build_local_map_region", AsyncMock(return_value={"sectors": []})
     )
     emit_mock = AsyncMock()
     monkeypatch.setattr(join.event_dispatcher, "emit", emit_mock)
@@ -79,14 +91,20 @@ async def test_join_new_character_emits_status_snapshot(monkeypatch):
     assert result == {"success": True}
     assert character_id in world.characters
     emit_calls = emit_mock.await_args_list
-    assert len(emit_calls) == 1
-    event_call = emit_calls[0]
-    assert event_call.args[0] == "status.snapshot"
-    payload = event_call.args[1]
+    assert len(emit_calls) == 2  # status.snapshot + map.local
+
+    # Check status.snapshot event
+    status_call = next(call for call in emit_calls if call.args[0] == "status.snapshot")
+    payload = status_call.args[1]
     assert payload["ok"] is True
     assert payload["source"]["method"] == "join"
     assert payload["source"]["request_id"] == "req-join"
-    assert event_call.kwargs["character_filter"] == [character_id]
+    assert status_call.kwargs["character_filter"] == [character_id]
+
+    # Check map.local event
+    map_call = next(call for call in emit_calls if call.args[0] == "map.local")
+    assert map_call.kwargs["character_filter"] == [character_id]
+
     assert all(call.args[0] != "character.joined" for call in emit_calls)
 
 
@@ -107,6 +125,9 @@ async def test_join_emits_combat_round_waiting(monkeypatch):
     monkeypatch.setattr(
         join, "build_status_payload", AsyncMock(return_value={"ok": True})
     )
+    monkeypatch.setattr(
+        join, "build_local_map_region", AsyncMock(return_value={"sectors": []})
+    )
     round_waiting_payload = {"combat_id": "combat-123", "participants": []}
     serialize_mock = AsyncMock(return_value=round_waiting_payload)
     monkeypatch.setattr(join, "serialize_round_waiting_event", serialize_mock)
@@ -125,7 +146,7 @@ async def test_join_emits_combat_round_waiting(monkeypatch):
     )
 
     await_calls = emit_mock.await_args_list
-    assert len(await_calls) == 2
+    assert len(await_calls) == 3  # combat.round_waiting + status.snapshot + map.local
 
     round_call = next(call for call in await_calls if call.args[0] == "combat.round_waiting")
     round_payload = round_call.args[1]
@@ -140,6 +161,10 @@ async def test_join_emits_combat_round_waiting(monkeypatch):
     assert status_payload["source"]["method"] == "join"
     assert status_payload["source"]["request_id"] == "req-join"
     assert status_call.kwargs["character_filter"] == [character_id]
+
+    # Check map.local event
+    map_call = next(call for call in await_calls if call.args[0] == "map.local")
+    assert map_call.kwargs["character_filter"] == [character_id]
 
     assert all(call.args[0] != "character.joined" for call in await_calls)
 
@@ -158,6 +183,9 @@ async def test_join_no_combat_does_not_emit(monkeypatch):
         join, "build_status_payload", AsyncMock(return_value={"ok": True})
     )
     monkeypatch.setattr(
+        join, "build_local_map_region", AsyncMock(return_value={"sectors": []})
+    )
+    monkeypatch.setattr(
         join, "serialize_round_waiting_event", AsyncMock(return_value={})
     )
 
@@ -171,12 +199,15 @@ async def test_join_no_combat_does_not_emit(monkeypatch):
     assert result == {"success": True}
 
     await_calls = emit_mock.await_args_list
-    assert len(await_calls) == 1
+    assert len(await_calls) == 2  # status.snapshot + map.local
 
-    status_call = await_calls[0]
-    assert status_call.args[0] == "status.snapshot"
+    status_call = next(call for call in await_calls if call.args[0] == "status.snapshot")
     status_payload = status_call.args[1]
     assert status_payload["ok"] is True
     assert status_payload["source"]["method"] == "join"
     assert status_payload["source"]["request_id"] == "req-join"
     assert status_call.kwargs["character_filter"] == [character_id]
+
+    # Check map.local event
+    map_call = next(call for call in await_calls if call.args[0] == "map.local")
+    assert map_call.kwargs["character_filter"] == [character_id]

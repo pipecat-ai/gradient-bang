@@ -9,6 +9,7 @@ from api import move
 def _make_ship_config():
     return SimpleNamespace(
         ship_type="kestrel_courier",
+        ship_name="Test Ship",
         current_warp_power=10,
         current_fighters=40,
         current_shields=80,
