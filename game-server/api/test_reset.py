@@ -99,6 +99,12 @@ async def handle(request: dict, world) -> dict:
                 json.dump({"meta": {"version": 1}, "sectors": []}, f, indent=2)
             logger.info("Reset garrison file")
 
+        # Truncate event log
+        event_log = Path(__file__).parent.parent.parent / "world-data" / "event-log.jsonl"
+        if event_log.exists():
+            event_log.write_text("")
+            logger.info("Truncated event-log.jsonl")
+
     return {
         "cleared_characters": cleared_characters,
         "cleared_combats": cleared_combats,

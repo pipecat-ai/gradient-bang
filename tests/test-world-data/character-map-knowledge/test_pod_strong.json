@@ -3,7 +3,7 @@
   "sectors_visited": {
     "0": {
       "sector_id": 0,
-      "last_visited": "2025-10-25T18:17:01.566041+00:00",
+      "last_visited": "2025-10-25T18:47:20.507132+00:00",
       "port": null,
       "position": [
         0,
@@ -18,8 +18,8 @@
     }
   },
   "total_sectors_visited": 1,
-  "first_visit": "2025-10-25T18:17:01.564505+00:00",
-  "last_update": "2025-10-25T18:17:01.566041+00:00",
+  "first_visit": "2025-10-25T18:47:20.505840+00:00",
+  "last_update": "2025-10-25T18:47:20.507132+00:00",
   "ship_config": {
     "ship_type": "atlas_hauler",
     "ship_name": null,
@@ -30,7 +30,7 @@
     },
     "current_warp_power": 300,
     "current_shields": 200,
-    "current_fighters": 498,
+    "current_fighters": 500,
     "equipped_modules": []
   },
   "credits": 2000,

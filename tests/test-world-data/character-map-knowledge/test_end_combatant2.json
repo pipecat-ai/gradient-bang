@@ -3,7 +3,7 @@
   "sectors_visited": {
     "0": {
       "sector_id": 0,
-      "last_visited": "2025-10-25T18:18:11.981754+00:00",
+      "last_visited": "2025-10-25T18:48:30.912370+00:00",
       "port": null,
       "position": [
         0,
@@ -18,8 +18,8 @@
     }
   },
   "total_sectors_visited": 1,
-  "first_visit": "2025-10-25T18:18:11.978265+00:00",
-  "last_update": "2025-10-25T18:18:11.981754+00:00",
+  "first_visit": "2025-10-25T18:48:30.908507+00:00",
+  "last_update": "2025-10-25T18:48:30.912370+00:00",
   "ship_config": {
     "ship_type": "kestrel_courier",
     "ship_name": null,

@@ -3,7 +3,7 @@
   "sectors_visited": {
     "0": {
       "sector_id": 0,
-      "last_visited": "2025-10-25T18:18:08.861132+00:00",
+      "last_visited": "2025-10-25T18:48:27.786066+00:00",
       "port": null,
       "position": [
         0,
@@ -18,7 +18,7 @@
     },
     "1": {
       "sector_id": 1,
-      "last_visited": "2025-10-25T18:18:04.855616+00:00",
+      "last_visited": "2025-10-25T18:48:23.776615+00:00",
       "port": {
         "code": "BBS",
         "prices": {
@@ -31,7 +31,7 @@
           "retro_organics": 300,
           "neuro_symbolics": 675
         },
-        "observed_at": "2025-10-25T18:18:08.861518+00:00"
+        "observed_at": "2025-10-25T18:48:27.786568+00:00"
       },
       "position": [
         0,
@@ -46,8 +46,8 @@
     }
   },
   "total_sectors_visited": 1,
-  "first_visit": "2025-10-25T18:18:01.845562+00:00",
-  "last_update": "2025-10-25T18:18:08.861518+00:00",
+  "first_visit": "2025-10-25T18:48:20.768765+00:00",
+  "last_update": "2025-10-25T18:48:27.786568+00:00",
   "ship_config": {
     "ship_type": "kestrel_courier",
     "ship_name": null,

@@ -186,6 +186,221 @@
       "name": "test_weak_opponent",
       "email": "test_weak_opponent@test.com",
       "password_hash": ""
+    },
+    "test_clean1": {
+      "name": "test_clean1",
+      "email": "test_clean1@test.com",
+      "password_hash": ""
+    },
+    "test_clean2": {
+      "name": "test_clean2",
+      "email": "test_clean2@test.com",
+      "password_hash": ""
+    },
+    "test_conc1a": {
+      "name": "test_conc1a",
+      "email": "test_conc1a@test.com",
+      "password_hash": ""
+    },
+    "test_conc1b": {
+      "name": "test_conc1b",
+      "email": "test_conc1b@test.com",
+      "password_hash": ""
+    },
+    "test_conc2a": {
+      "name": "test_conc2a",
+      "email": "test_conc2a@test.com",
+      "password_hash": ""
+    },
+    "test_conc2b": {
+      "name": "test_conc2b",
+      "email": "test_conc2b@test.com",
+      "password_hash": ""
+    },
+    "test_disc1": {
+      "name": "test_disc1",
+      "email": "test_disc1@test.com",
+      "password_hash": ""
+    },
+    "test_disc2": {
+      "name": "test_disc2",
+      "email": "test_disc2@test.com",
+      "password_hash": ""
+    },
+    "test_dmg_attacker": {
+      "name": "test_dmg_attacker",
+      "email": "test_dmg_attacker@test.com",
+      "password_hash": ""
+    },
+    "test_dmg_defender": {
+      "name": "test_dmg_defender",
+      "email": "test_dmg_defender@test.com",
+      "password_hash": ""
+    },
+    "test_fail_chaser": {
+      "name": "test_fail_chaser",
+      "email": "test_fail_chaser@test.com",
+      "password_hash": ""
+    },
+    "test_fail_runner": {
+      "name": "test_fail_runner",
+      "email": "test_fail_runner@test.com",
+      "password_hash": ""
+    },
+    "test_filt_observer": {
+      "name": "test_filt_observer",
+      "email": "test_filt_observer@test.com",
+      "password_hash": ""
+    },
+    "test_filt_player1": {
+      "name": "test_filt_player1",
+      "email": "test_filt_player1@test.com",
+      "password_hash": ""
+    },
+    "test_filt_player2": {
+      "name": "test_filt_player2",
+      "email": "test_filt_player2@test.com",
+      "password_hash": ""
+    },
+    "test_flee_chaser": {
+      "name": "test_flee_chaser",
+      "email": "test_flee_chaser@test.com",
+      "password_hash": ""
+    },
+    "test_flee_runner": {
+      "name": "test_flee_runner",
+      "email": "test_flee_runner@test.com",
+      "password_hash": ""
+    },
+    "test_hit_attacker": {
+      "name": "test_hit_attacker",
+      "email": "test_hit_attacker@test.com",
+      "password_hash": ""
+    },
+    "test_hit_defender": {
+      "name": "test_hit_defender",
+      "email": "test_hit_defender@test.com",
+      "password_hash": ""
+    },
+    "test_inv_attacker": {
+      "name": "test_inv_attacker",
+      "email": "test_inv_attacker@test.com",
+      "password_hash": ""
+    },
+    "test_inv_victim": {
+      "name": "test_inv_victim",
+      "email": "test_inv_victim@test.com",
+      "password_hash": ""
+    },
+    "test_launch1": {
+      "name": "test_launch1",
+      "email": "test_launch1@test.com",
+      "password_hash": ""
+    },
+    "test_launch2": {
+      "name": "test_launch2",
+      "email": "test_launch2@test.com",
+      "password_hash": ""
+    },
+    "test_multi_strong": {
+      "name": "test_multi_strong",
+      "email": "test_multi_strong@test.com",
+      "password_hash": ""
+    },
+    "test_multi_weak": {
+      "name": "test_multi_weak",
+      "email": "test_multi_weak@test.com",
+      "password_hash": ""
+    },
+    "test_prob_chaser": {
+      "name": "test_prob_chaser",
+      "email": "test_prob_chaser@test.com",
+      "password_hash": ""
+    },
+    "test_prob_runner": {
+      "name": "test_prob_runner",
+      "email": "test_prob_runner@test.com",
+      "password_hash": ""
+    },
+    "test_salv_loser": {
+      "name": "test_salv_loser",
+      "email": "test_salv_loser@test.com",
+      "password_hash": ""
+    },
+    "test_salv_winner": {
+      "name": "test_salv_winner",
+      "email": "test_salv_winner@test.com",
+      "password_hash": ""
+    },
+    "test_shield1": {
+      "name": "test_shield1",
+      "email": "test_shield1@test.com",
+      "password_hash": ""
+    },
+    "test_shield2": {
+      "name": "test_shield2",
+      "email": "test_shield2@test.com",
+      "password_hash": ""
+    },
+    "test_state1": {
+      "name": "test_state1",
+      "email": "test_state1@test.com",
+      "password_hash": ""
+    },
+    "test_state2": {
+      "name": "test_state2",
+      "email": "test_state2@test.com",
+      "password_hash": ""
+    },
+    "test_submit1": {
+      "name": "test_submit1",
+      "email": "test_submit1@test.com",
+      "password_hash": ""
+    },
+    "test_submit2": {
+      "name": "test_submit2",
+      "email": "test_submit2@test.com",
+      "password_hash": ""
+    },
+    "test_summary1": {
+      "name": "test_summary1",
+      "email": "test_summary1@test.com",
+      "password_hash": ""
+    },
+    "test_summary2": {
+      "name": "test_summary2",
+      "email": "test_summary2@test.com",
+      "password_hash": ""
+    },
+    "test_timeout1": {
+      "name": "test_timeout1",
+      "email": "test_timeout1@test.com",
+      "password_hash": ""
+    },
+    "test_timeout2": {
+      "name": "test_timeout2",
+      "email": "test_timeout2@test.com",
+      "password_hash": ""
+    },
+    "test_warp_chaser": {
+      "name": "test_warp_chaser",
+      "email": "test_warp_chaser@test.com",
+      "password_hash": ""
+    },
+    "test_warp_runner": {
+      "name": "test_warp_runner",
+      "email": "test_warp_runner@test.com",
+      "password_hash": ""
+    },
+    "test_win_loser": {
+      "name": "test_win_loser",
+      "email": "test_win_loser@test.com",
+      "password_hash": ""
+    },
+    "test_win_winner": {
+      "name": "test_win_winner",
+      "email": "test_win_winner@test.com",
+      "password_hash": ""
     }
   }
 }

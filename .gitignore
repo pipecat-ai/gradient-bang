@@ -1,5 +1,10 @@
 world-data/
 
+# Test artifacts - ALL runtime files in test-world-data except source data
+tests/test-world-data/*
+!tests/test-world-data/universe_structure.json
+!tests/test-world-data/README.md
+
 # Python-generated files
 __pycache__/
 *.py[oc]
