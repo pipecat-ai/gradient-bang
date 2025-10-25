@@ -17,6 +17,7 @@ TEST_CHARACTER_IDS = [
     "test_2p_player2",
     "test_3p_player1",
     "test_3p_player2",
+    "test_3p_player3",
     "test_abf_attacker",
     "test_abf_defender",
     "test_char_2",

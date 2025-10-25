@@ -6,6 +6,7 @@ WARNING: This endpoint clears all game state and should only be used in test env
 import logging
 from pathlib import Path
 import json
+from core.config import get_world_data_path
 
 logger = logging.getLogger("gradient-bang.api.test_reset")
 
@@ -81,8 +82,9 @@ async def handle(request: dict, world) -> dict:
     # Optionally clear test files from disk
     deleted_files = 0
     if clear_files:
-        # Get the world-data directory
-        knowledge_dir = Path(__file__).parent.parent.parent / "world-data" / "character-map-knowledge"
+        # Get the configured world-data directory
+        world_data_dir = get_world_data_path()
+        knowledge_dir = world_data_dir / "character-map-knowledge"
 
         if knowledge_dir.exists():
             for json_file in knowledge_dir.glob("*.json"):
@@ -93,14 +95,24 @@ async def handle(request: dict, world) -> dict:
             logger.info(f"Deleted {deleted_files} test character files")
 
         # Reset garrison file
-        garrison_file = Path(__file__).parent.parent.parent / "world-data" / "sector_garrisons.json"
+        garrison_file = world_data_dir / "sector_garrisons.json"
         if garrison_file.exists():
             with open(garrison_file, "w") as f:
                 json.dump({"meta": {"version": 1}, "sectors": []}, f, indent=2)
             logger.info("Reset garrison file")
 
+        # Clean up port state files
+        port_states_dir = world_data_dir / "port-states"
+        if port_states_dir.exists():
+            port_files_deleted = 0
+            for port_file in port_states_dir.glob("*.json"):
+                port_file.unlink()
+                port_files_deleted += 1
+            if port_files_deleted > 0:
+                logger.info(f"Deleted {port_files_deleted} port state files")
+
         # Truncate event log
-        event_log = Path(__file__).parent.parent.parent / "world-data" / "event-log.jsonl"
+        event_log = world_data_dir / "event-log.jsonl"
         if event_log.exists():
             event_log.write_text("")
             logger.info("Truncated event-log.jsonl")

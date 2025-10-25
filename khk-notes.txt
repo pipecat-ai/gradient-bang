@@ -1,4 +1,10 @@
 
+1. Are we properly starting from scratch with each test run?
+
+2. Tell me what's going on with these two tests.
+tests/integration/test_combat_system.py::TestBasicCombatScenarios::test_three_players_combat FAILED
+tests/integration/test_combat_system.py::TestCombatRoundMechanics::test_shields_recharged_per_round SKIPPED 
+
 ----
 
 todo:

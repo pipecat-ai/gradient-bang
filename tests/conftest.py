@@ -9,8 +9,12 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Awaitable, Callable, List, Optional
 
-# Add game-server directory to Python path for unit tests
+# Add project root to Python path for utils module
 _project_root = Path(__file__).parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
+# Add game-server directory to Python path for unit tests
 _game_server_path = _project_root / "game-server"
 if str(_game_server_path) not in sys.path:
     sys.path.insert(0, str(_game_server_path))
@@ -278,12 +282,18 @@ _ensure_pipecat_stub()
 
 import pytest
 import httpx
+import logging
 from helpers.character_setup import register_all_test_characters
 from helpers.server_fixture import (
     start_test_server,
     stop_test_server,
     wait_for_server_ready,
 )
+
+# Import AsyncGameClient for test reset calls
+from utils.api_client import AsyncGameClient
+
+logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -379,3 +389,39 @@ async def test_server(server_url):
     finally:
         # Stop the server after tests complete
         stop_test_server(process, timeout=5.0)
+
+
+@pytest.fixture(autouse=True)
+async def reset_test_state(server_url):
+    """
+    Reset server state after each test for proper test isolation.
+
+    This fixture calls the test.reset endpoint to clear:
+    - In-memory character state (world.characters)
+    - Combat manager encounters
+    - Salvage manager state
+    - Garrison manager state
+    - Knowledge manager cache
+    - Test character knowledge files on disk
+    - Event log
+
+    Scope: function - Runs after EVERY test automatically
+    """
+    yield  # Let the test run first
+
+    # After test completes, reset the server state
+    try:
+        async with AsyncGameClient(base_url=server_url) as client:
+            # Call the test.reset endpoint
+            result = await client._request("test.reset", {
+                "clear_files": True,  # Delete test character files from disk
+                "file_prefixes": ["test_", "weak_", "strong_", "player", "push_"]
+            })
+            logger.info(
+                f"Test reset completed: {result['cleared_characters']} characters, "
+                f"{result['cleared_combats']} combats, {result['deleted_files']} files deleted"
+            )
+    except Exception as e:
+        # Log but don't fail the test if reset fails
+        # This might happen if server isn't running (for unit tests)
+        logger.debug(f"Test reset skipped or failed: {e}")
