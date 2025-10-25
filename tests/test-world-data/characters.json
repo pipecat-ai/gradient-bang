@@ -11,6 +11,171 @@
       "name": "push_player",
       "email": "push_player@test.com",
       "password_hash": ""
+    },
+    "test_2p_player1": {
+      "name": "test_2p_player1",
+      "email": "test_2p_player1@test.com",
+      "password_hash": ""
+    },
+    "test_2p_player2": {
+      "name": "test_2p_player2",
+      "email": "test_2p_player2@test.com",
+      "password_hash": ""
+    },
+    "test_3p_player1": {
+      "name": "test_3p_player1",
+      "email": "test_3p_player1@test.com",
+      "password_hash": ""
+    },
+    "test_abf_attacker": {
+      "name": "test_abf_attacker",
+      "email": "test_abf_attacker@test.com",
+      "password_hash": ""
+    },
+    "test_abf_defender": {
+      "name": "test_abf_defender",
+      "email": "test_abf_defender@test.com",
+      "password_hash": ""
+    },
+    "test_char_2": {
+      "name": "test_char_2",
+      "email": "test_char_2@test.com",
+      "password_hash": ""
+    },
+    "test_char_events": {
+      "name": "test_char_events",
+      "email": "test_char_events@test.com",
+      "password_hash": ""
+    },
+    "test_client_char": {
+      "name": "test_client_char",
+      "email": "test_client_char@test.com",
+      "password_hash": ""
+    },
+    "test_def_deployer": {
+      "name": "test_def_deployer",
+      "email": "test_def_deployer@test.com",
+      "password_hash": ""
+    },
+    "test_def_victim": {
+      "name": "test_def_victim",
+      "email": "test_def_victim@test.com",
+      "password_hash": ""
+    },
+    "test_dest_attacker": {
+      "name": "test_dest_attacker",
+      "email": "test_dest_attacker@test.com",
+      "password_hash": ""
+    },
+    "test_dest_victim": {
+      "name": "test_dest_victim",
+      "email": "test_dest_victim@test.com",
+      "password_hash": ""
+    },
+    "test_end_combatant1": {
+      "name": "test_end_combatant1",
+      "email": "test_end_combatant1@test.com",
+      "password_hash": ""
+    },
+    "test_end_combatant2": {
+      "name": "test_end_combatant2",
+      "email": "test_end_combatant2@test.com",
+      "password_hash": ""
+    },
+    "test_end_observer": {
+      "name": "test_end_observer",
+      "email": "test_end_observer@test.com",
+      "password_hash": ""
+    },
+    "test_garrison_target": {
+      "name": "test_garrison_target",
+      "email": "test_garrison_target@test.com",
+      "password_hash": ""
+    },
+    "test_gow_enemy": {
+      "name": "test_gow_enemy",
+      "email": "test_gow_enemy@test.com",
+      "password_hash": ""
+    },
+    "test_gow_owner": {
+      "name": "test_gow_owner",
+      "email": "test_gow_owner@test.com",
+      "password_hash": ""
+    },
+    "test_gwo_deployer": {
+      "name": "test_gwo_deployer",
+      "email": "test_gwo_deployer@test.com",
+      "password_hash": ""
+    },
+    "test_gwo_victim": {
+      "name": "test_gwo_victim",
+      "email": "test_gwo_victim@test.com",
+      "password_hash": ""
+    },
+    "test_off_deployer": {
+      "name": "test_off_deployer",
+      "email": "test_off_deployer@test.com",
+      "password_hash": ""
+    },
+    "test_off_victim": {
+      "name": "test_off_victim",
+      "email": "test_off_victim@test.com",
+      "password_hash": ""
+    },
+    "test_opponent": {
+      "name": "test_opponent",
+      "email": "test_opponent@test.com",
+      "password_hash": ""
+    },
+    "test_opponent2": {
+      "name": "test_opponent2",
+      "email": "test_opponent2@test.com",
+      "password_hash": ""
+    },
+    "test_opponent3": {
+      "name": "test_opponent3",
+      "email": "test_opponent3@test.com",
+      "password_hash": ""
+    },
+    "test_pod_strong": {
+      "name": "test_pod_strong",
+      "email": "test_pod_strong@test.com",
+      "password_hash": ""
+    },
+    "test_pod_weak": {
+      "name": "test_pod_weak",
+      "email": "test_pod_weak@test.com",
+      "password_hash": ""
+    },
+    "test_salv_attacker": {
+      "name": "test_salv_attacker",
+      "email": "test_salv_attacker@test.com",
+      "password_hash": ""
+    },
+    "test_salv_observer": {
+      "name": "test_salv_observer",
+      "email": "test_salv_observer@test.com",
+      "password_hash": ""
+    },
+    "test_salv_victim": {
+      "name": "test_salv_victim",
+      "email": "test_salv_victim@test.com",
+      "password_hash": ""
+    },
+    "test_toll_deployer": {
+      "name": "test_toll_deployer",
+      "email": "test_toll_deployer@test.com",
+      "password_hash": ""
+    },
+    "test_toll_payer": {
+      "name": "test_toll_payer",
+      "email": "test_toll_payer@test.com",
+      "password_hash": ""
+    },
+    "test_weak_opponent": {
+      "name": "test_weak_opponent",
+      "email": "test_weak_opponent@test.com",
+      "password_hash": ""
     }
   }
 }

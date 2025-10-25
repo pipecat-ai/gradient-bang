@@ -15,6 +15,11 @@ _game_server_path = _project_root / "game-server"
 if str(_game_server_path) not in sys.path:
     sys.path.insert(0, str(_game_server_path))
 
+# Add tests directory to Python path for test helpers
+_tests_path = Path(__file__).parent
+if str(_tests_path) not in sys.path:
+    sys.path.insert(0, str(_tests_path))
+
 
 def _ensure_openai_stub() -> None:
     if "openai" in sys.modules:
@@ -265,3 +270,111 @@ def _ensure_pipecat_stub() -> None:
 
 _ensure_openai_stub()
 _ensure_pipecat_stub()
+
+
+# =============================================================================
+# Test Infrastructure Fixtures
+# =============================================================================
+
+import pytest
+import httpx
+from helpers.character_setup import register_all_test_characters
+from helpers.server_fixture import (
+    start_test_server,
+    stop_test_server,
+    wait_for_server_ready,
+)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_test_characters():
+    """
+    Register all test characters ONCE per pytest session.
+
+    This fixture automatically runs before any tests and registers all
+    ~35 test character IDs to prevent "Character is not registered" errors.
+
+    The registration writes to tests/test-world-data/characters.json which
+    is used by test servers.
+    """
+    register_all_test_characters()
+    yield
+    # Cleanup handled by temp directory removal if needed
+
+
+@pytest.fixture(scope="session")
+def server_url():
+    """
+    Provide the test server URL.
+
+    Returns:
+        str: The base URL for the test server (http://localhost:8002)
+    """
+    return "http://localhost:8002"
+
+
+@pytest.fixture(scope="session")
+async def check_server_available(server_url):
+    """
+    Check if test server is available, skip tests if not running.
+
+    This fixture checks if a server is running on port 8002 by attempting
+    to connect to the /health endpoint with a 1-second timeout.
+
+    If the server is not available, tests marked with @pytest.mark.requires_server
+    will be skipped with a helpful message.
+
+    Usage:
+        @pytest.mark.requires_server
+        async def test_something(check_server_available):
+            # Test code here
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{server_url}/health", timeout=1.0)
+            if response.status_code != 200:
+                pytest.skip(
+                    f"Test server not healthy at {server_url}. "
+                    f"Start with: PORT=8002 WORLD_DATA_DIR=tests/test-world-data uv run python -m game-server"
+                )
+    except (httpx.ConnectError, httpx.TimeoutException):
+        pytest.skip(
+            f"Test server not running at {server_url}. "
+            f"Start with: PORT=8002 WORLD_DATA_DIR=tests/test-world-data uv run python -m game-server"
+        )
+
+    yield
+
+
+@pytest.fixture(scope="module")
+async def test_server(server_url):
+    """
+    Start and manage a test server for integration tests.
+
+    This fixture:
+    1. Starts a game server on port 8002 with test data
+    2. Waits for the server to be ready (polls /health endpoint)
+    3. Yields the server URL for tests to use
+    4. Stops the server after all tests in the module complete
+
+    Scope: module - Server is started once per test module, shared across tests
+
+    Usage:
+        @pytest.mark.requires_server
+        async def test_something(test_server):
+            async with AsyncGameClient(test_server) as client:
+                # Test code here
+    """
+    # Start the server
+    process = start_test_server(port=8002, world_data_dir="tests/test-world-data")
+
+    try:
+        # Wait for server to be ready
+        await wait_for_server_ready(server_url, timeout=10.0)
+
+        # Provide the server URL to tests
+        yield server_url
+
+    finally:
+        # Stop the server after tests complete
+        stop_test_server(process, timeout=5.0)

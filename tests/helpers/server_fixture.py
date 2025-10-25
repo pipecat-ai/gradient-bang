@@ -1,0 +1,138 @@
+"""
+Server lifecycle management for integration tests.
+
+This module provides utilities for starting, stopping, and managing test servers
+during integration tests.
+"""
+
+import asyncio
+import subprocess
+import signal
+import time
+from pathlib import Path
+from typing import Optional
+import httpx
+
+
+def start_test_server(
+    port: int = 8002,
+    world_data_dir: str = "tests/test-world-data",
+    timeout: float = 10.0
+) -> subprocess.Popen:
+    """
+    Start a test server subprocess.
+
+    Args:
+        port: Port to run the server on (default: 8002)
+        world_data_dir: Path to the world data directory
+        timeout: Maximum time to wait for server to start (seconds)
+
+    Returns:
+        subprocess.Popen: The running server process
+
+    Raises:
+        RuntimeError: If server fails to start within timeout
+    """
+    project_root = Path(__file__).parent.parent.parent
+    game_server_path = project_root / "game-server"
+
+    # Set environment variables for the server
+    env = {
+        "PORT": str(port),
+        "WORLD_DATA_DIR": world_data_dir,
+        "PYTHONUNBUFFERED": "1",  # Ensure output is not buffered
+    }
+
+    # Start the server process
+    process = subprocess.Popen(
+        ["uv", "run", "python", "-m", "game-server"],
+        cwd=str(project_root),
+        env={**subprocess.os.environ, **env},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    return process
+
+
+def stop_test_server(process: subprocess.Popen, timeout: float = 5.0) -> None:
+    """
+    Gracefully stop a test server process.
+
+    Sends SIGTERM first, waits for graceful shutdown. If process doesn't
+    terminate within timeout, sends SIGKILL.
+
+    Args:
+        process: The server process to stop
+        timeout: Maximum time to wait for graceful shutdown (seconds)
+    """
+    if process.poll() is not None:
+        # Process already terminated
+        return
+
+    # Try graceful shutdown first
+    process.terminate()
+
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        # Force kill if graceful shutdown fails
+        process.kill()
+        process.wait()
+
+
+async def wait_for_server_ready(url: str, timeout: float = 10.0) -> None:
+    """
+    Poll the server health endpoint until it's ready or timeout.
+
+    Args:
+        url: Base URL of the server (e.g., "http://localhost:8002")
+        timeout: Maximum time to wait for server to be ready (seconds)
+
+    Raises:
+        RuntimeError: If server doesn't become ready within timeout
+    """
+    health_url = f"{url}/health"
+    start_time = time.time()
+
+    async with httpx.AsyncClient() as client:
+        while time.time() - start_time < timeout:
+            try:
+                response = await client.get(health_url, timeout=1.0)
+                if response.status_code == 200:
+                    return
+            except (httpx.ConnectError, httpx.TimeoutException):
+                pass
+
+            await asyncio.sleep(0.5)
+
+    raise RuntimeError(
+        f"Server at {url} did not become ready within {timeout} seconds"
+    )
+
+
+def copy_test_world_data(dest_dir: str) -> None:
+    """
+    Copy test world data to a destination directory for isolation.
+
+    This allows tests to modify test data without affecting other test runs
+    or the original test data files.
+
+    Args:
+        dest_dir: Destination directory to copy test data to
+
+    Note:
+        This function uses shell commands for efficient directory copying.
+    """
+    import shutil
+
+    source_dir = Path(__file__).parent.parent / "test-world-data"
+    dest_path = Path(dest_dir)
+
+    # Remove existing destination if it exists
+    if dest_path.exists():
+        shutil.rmtree(dest_path)
+
+    # Copy test data
+    shutil.copytree(source_dir, dest_path)

@@ -23,6 +23,7 @@ dev = [
     "httpx>=0.27.0",  # Match main dependency
     "pytest>=8.4.1",
     "pytest-asyncio>=1.1.0",
+    "pytest-timeout>=2.3.1",  # Add timeout support
 ]
 
 [tool.uv]
@@ -45,3 +46,9 @@ markers = [
     "requires_server: Requires live server on port 8002",
     "stress: Stress tests (slow, concurrent operations) - skip by default",
 ]
+# Timeout configuration (prevent hanging tests)
+timeout = 30  # Max 30 seconds per test
+# Event waiting timeouts (use asyncio.timeout() in tests):
+#   - Integration tests: 10 seconds (real server, events)
+#   - Unit tests: 5 seconds (fast, mocked operations)
+#   - Combat tests: 20 seconds (combat rounds can take 15s)
