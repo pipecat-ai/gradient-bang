@@ -66,7 +66,7 @@ async def test_list_known_ports_emits_event(monkeypatch):
     assert event_name == "ports.list"
     assert payload["from_sector"] == 0
     assert payload["total_ports_found"] == 1
-    assert payload["ports"][0]["sector_id"] == 0
+    assert payload["ports"][0]["sector"]["id"] == 0  # Fixed: sector_id -> sector.id
     assert payload["source"]["method"] == "list_known_ports"
     assert payload["source"]["request_id"] == "req-ports"
     assert mock_emit.await_args.kwargs["character_filter"] == ["char-1"]

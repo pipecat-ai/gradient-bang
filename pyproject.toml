@@ -37,6 +37,8 @@ override-dependencies = [
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
+# Exclude archived integration tests from default test runs
+norecursedirs = ["integration-old", ".git", "__pycache__", "*.egg-info"]
 markers = [
     "unit: Unit tests (fast, no server needed)",
     "integration: Integration tests (may need server)",
