@@ -45,14 +45,19 @@ import sys
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(_THIS_DIR)
+_GAME_SERVER_DIR = os.path.join(_REPO_ROOT, "game-server")
 print(_THIS_DIR)
 print(_REPO_ROOT)
 if _THIS_DIR not in sys.path:
     sys.path.insert(0, _THIS_DIR)
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
+if _GAME_SERVER_DIR not in sys.path:
+    sys.path.insert(0, _GAME_SERVER_DIR)
 
 from utils.prompts import GAME_DESCRIPTION, CHAT_INSTRUCTIONS, VOICE_INSTRUCTIONS
+from core.character_registry import CharacterRegistry
+from core.config import get_world_data_path
 
 try:
     # Prefer package import when available
@@ -66,6 +71,38 @@ load_dotenv()
 # Configure loguru
 logger.remove()
 logger.add(sys.stderr, level="INFO")
+
+
+def _lookup_character_display_name(character_id: str) -> str | None:
+    """Return the stored display name for a character ID, if available."""
+    registry_path = get_world_data_path() / "characters.json"
+    registry = CharacterRegistry(registry_path)
+    try:
+        registry.load()
+    except Exception:
+        logger.warning("Unable to load character registry from %s", registry_path)
+        return None
+    profile = registry.get_profile(character_id)
+    if profile:
+        return profile.name
+    logger.warning("Character ID %s not found in registry", character_id)
+    return None
+
+
+def _resolve_character_identity() -> tuple[str, str]:
+    """Resolve the character UUID and display name for the voice bot."""
+    character_id = os.getenv("PIPECAT_CHARACTER_ID") or os.getenv("NPC_CHARACTER_ID")
+    if not character_id:
+        raise RuntimeError(
+            "Set PIPECAT_CHARACTER_ID (or NPC_CHARACTER_ID) in the environment before starting the bot."
+        )
+    display_name = (
+        os.getenv("PIPECAT_CHARACTER_NAME")
+        or os.getenv("NPC_CHARACTER_NAME")
+        or _lookup_character_display_name(character_id)
+        or character_id
+    )
+    return character_id, display_name
 
 
 class TaskProgressInserter(FrameProcessor):
@@ -135,9 +172,16 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
         asyncio.create_task(_complete())
 
+    character_id, character_display_name = _resolve_character_identity()
+    logger.info(
+        "Initializing VoiceTaskManager with character_id=%s display_name=%s",
+        character_id,
+        character_display_name,
+    )
+
     # Create voice task manager
     task_manager = VoiceTaskManager(
-        character_id="TraderP",
+        character_id=character_id,
         rtvi_processor=rtvi,
         task_complete_callback=task_complete_callback,
     )
@@ -175,7 +219,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         },
         {
             "role": "user",
-            "content": "<start_of_session>Character Name: TraderP</start_of_session>",
+            "content": f"<start_of_session>Character Name: {character_display_name}</start_of_session>",
         },
     ]
 

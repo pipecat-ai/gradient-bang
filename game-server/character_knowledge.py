@@ -188,6 +188,16 @@ class CharacterKnowledgeManager:
         except Exception as e:
             print(f"Error saving knowledge for {knowledge.character_id}: {e}")
 
+    def delete_knowledge(self, character_id: str) -> None:
+        """Remove persisted knowledge for a character."""
+        file_path = self.get_file_path(character_id)
+        try:
+            if file_path.exists():
+                file_path.unlink()
+        except Exception as exc:  # noqa: BLE001
+            print(f"Error deleting knowledge for {character_id}: {exc}")
+        self.cache.pop(character_id, None)
+
     def update_sector_visit(
         self,
         character_id: str,

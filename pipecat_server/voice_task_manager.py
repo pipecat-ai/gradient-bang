@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 from collections import deque
-from typing import Optional, Callable, Dict, Any
+from typing import Optional, Callable, Dict, Any, Mapping
 from types import SimpleNamespace
 
 from loguru import logger
@@ -31,6 +31,34 @@ from utils.tools_schema import (
 )
 
 
+def _extract_display_name(payload: Mapping[str, Any]) -> Optional[str]:
+    """Extract the player's display name from a payload if available."""
+
+    def _clean(value: Any) -> Optional[str]:
+        if isinstance(value, str):
+            value = value.strip()
+            if value:
+                return value
+        return None
+
+    if not isinstance(payload, Mapping):
+        return None
+
+    player = payload.get("player")
+    if isinstance(player, Mapping):
+        for key in ("name", "display_name", "player_name"):
+            candidate = _clean(player.get(key))
+            if candidate:
+                return candidate
+
+    for fallback in ("player_name", "name"):
+        candidate = _clean(payload.get(fallback))
+        if candidate:
+            return candidate
+
+    return None
+
+
 class VoiceTaskManager:
     def __init__(
         self,
@@ -46,6 +74,7 @@ class VoiceTaskManager:
             task_complete_callback: Callback when task completes (receives was_cancelled flag)
         """
         self.character_id = character_id
+        self.display_name: str = character_id
         # Create a game client; base_url comes from default or env via AsyncGameClient
         self.game_client = AsyncGameClient(
             character_id=character_id,
@@ -98,7 +127,6 @@ class VoiceTaskManager:
         self.task_buffer: deque = deque(maxlen=1000)
         self.task_running = False
         self.cancelled_via_tool = False
-
         # Build generic tool dispatch map for common game tools
         # Start/stop/ui_show_panel are handled inline in execute_tool_call
         # Note: Most game_client methods require character_id, but the LLM tools
@@ -136,11 +164,18 @@ class VoiceTaskManager:
             ),
         }
 
+    def _update_display_name(self, payload: Mapping[str, Any]) -> None:
+        candidate = _extract_display_name(payload)
+        if isinstance(candidate, str) and candidate and candidate != self.display_name:
+            self.display_name = candidate
+
     async def join(self):
         logger.info(f"Joining game as character: {self.character_id}")
         result = await self.game_client.join(self.character_id)
         await self.game_client.subscribe_my_messages()
-        logger.info(f"Join successful: {result}")
+        if isinstance(result, Mapping):
+            self._update_display_name(result)
+        logger.info(f"Join successful as {self.display_name}: {result}")
         return result
 
     async def _relay_event(self, event: Dict[str, Any]) -> None:

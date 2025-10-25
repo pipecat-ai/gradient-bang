@@ -763,6 +763,83 @@ class AsyncGameClient:
         """
         return await self._request("server_status", {})
 
+    async def character_create(
+        self,
+        *,
+        name: str,
+        admin_password: Optional[str] = None,
+        player: Optional[Dict[str, Any]] = None,
+        ship: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Create a character via admin RPC."""
+
+        payload: Dict[str, Any] = {"name": name}
+        if admin_password is not None:
+            payload["admin_password"] = admin_password
+        if player:
+            payload["player"] = player
+        if ship:
+            payload["ship"] = ship
+        return await self._request("character.create", payload)
+
+    async def character_modify(
+        self,
+        *,
+        character_id: str,
+        admin_password: Optional[str] = None,
+        name: Optional[str] = None,
+        player: Optional[Dict[str, Any]] = None,
+        ship: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Modify an existing character's metadata."""
+
+        payload: Dict[str, Any] = {"character_id": character_id}
+        if admin_password is not None:
+            payload["admin_password"] = admin_password
+        if name is not None:
+            payload["name"] = name
+        if player:
+            payload["player"] = player
+        if ship:
+            payload["ship"] = ship
+        return await self._request("character.modify", payload)
+
+    async def character_delete(
+        self,
+        *,
+        character_id: str,
+        admin_password: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Delete a character via admin RPC."""
+
+        payload: Dict[str, Any] = {"character_id": character_id}
+        if admin_password is not None:
+            payload["admin_password"] = admin_password
+        return await self._request("character.delete", payload)
+
+    async def event_query(
+        self,
+        *,
+        start: str,
+        end: str,
+        admin_password: Optional[str] = None,
+        character_id: Optional[str] = None,
+        sector: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Query event logs within a time range."""
+
+        payload: Dict[str, Any] = {
+            "start": start,
+            "end": end,
+        }
+        if admin_password is not None:
+            payload["admin_password"] = admin_password
+        if character_id:
+            payload["character_id"] = character_id
+        if sector is not None:
+            payload["sector"] = sector
+        return await self._request("event.query", payload)
+
     # DEPRECATED
     async def my_map(self, character_id: str) -> Dict[str, Any]:
         """Request cached map knowledge for the character.

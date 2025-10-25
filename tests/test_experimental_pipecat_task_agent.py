@@ -34,15 +34,18 @@ def ensure_pipecat_package():
 
 ensure_pipecat_package()
 
-from pipecat.frames.frames import (  # noqa: E402
-    ErrorFrame,
-    LLMContextFrame,
-    LLMFullResponseEndFrame,
-    LLMFullResponseStartFrame,
-    LLMTextFrame,
-    FunctionCallFromLLM,
-)
-from pipecat.processors.frame_processor import FrameDirection
+try:
+    from pipecat.frames.frames import (  # noqa: E402
+        ErrorFrame,
+        LLMContextFrame,
+        LLMFullResponseEndFrame,
+        LLMFullResponseStartFrame,
+        LLMTextFrame,
+        FunctionCallFromLLM,
+    )
+    from pipecat.processors.frame_processor import FrameDirection
+except ImportError as exc:  # pragma: no cover - missing upstream dependency
+    pytest.skip(f"pipecat frames unavailable ({exc})", allow_module_level=True)
 try:
     from pipecat.services.llm_service import LLMService
 except ModuleNotFoundError:  # pragma: no cover - namespace conflict fallback

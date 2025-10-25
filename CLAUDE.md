@@ -102,8 +102,10 @@ uv run npc/run_npc.py <character_id> "<task>"
 
 # Example:
 export OPENAI_API_KEY="your-key"
-uv run npc/run_npc.py trader "Move to sector 10 and find the nearest port"
+uv run npc/run_npc.py 2b4ff0c2-1234-5678-90ab-1cd2ef345678 "Move to sector 10 and find the nearest port"
 ```
+
+`<character_id>` must be the immutable UUID stored in the registry, not the display name shown in-game. Use `uv run scripts/character_lookup.py "Display Name"` (and `scripts/character_modify.py` for edits) to manage entries before launching NPCs or TUIs.
 
 ### Terminal Viewers
 ```bash

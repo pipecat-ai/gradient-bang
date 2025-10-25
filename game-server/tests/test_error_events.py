@@ -34,3 +34,6 @@ async def test_emit_error_event_dispatches_with_source_metadata():
     assert isinstance(source["timestamp"], str)
 
     assert call_args.kwargs["character_filter"] == ["char1"]
+    log_context = call_args.kwargs.get("log_context")
+    assert log_context is not None
+    assert log_context.sender == "char1"

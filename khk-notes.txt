@@ -1,278 +1,242 @@
-Map events
-  - right after join you get a map.local
-  - after a move you get a map.local
-  - client can send a get-my-map RTVI message to get a map.region event that shows the maparound any visited sector
-    `window.sendMessage("get-my-map", { center_sector: 1510, max_hops: 8 })`
-  - get-my-map calls the game server local_map_region endpoint. The LLM can also call this, so you'll see a map.region event if the LLM calls local_map_region, too.
-  - map.region:payload.source will be local_map_region if it's called by the LLM, or "get-my-map" if it's triggered by an RTVI message from the client.
 
-```
-{
-    "frame_type": "event",
-    "event": "map.region",
-    "payload": {
-        "center_sector": 1510,
-        "sectors": [
-            {
-                "id": 379,
-                "visited": true,
-                "hops_from_center": 1,
-                "adjacent_sectors": [
-                    764,
-                    1510
-                ],
-                "port": "SSS",
-                "last_visited": "2025-10-23T05:35:17.689530+00:00",
-                "position": [
-                    116,
-                    129
-                ],
-                "lanes": [
-                    {
-                        "to": 764,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 1510,
-                        "two_way": true,
-                        "hyperlane": false
-                    }
-                ]
-            },
-            {
-                "id": 566,
-                "visited": true,
-                "hops_from_center": 2,
-                "adjacent_sectors": [
-                    389,
-                    653,
-                    1317
-                ],
-                "port": "",
-                "last_visited": "2025-10-23T21:42:39.353536+00:00",
-                "position": [
-                    120,
-                    125
-                ],
-                "lanes": [
-                    {
-                        "to": 389,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 653,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 1317,
-                        "two_way": false,
-                        "hyperlane": false
-                    }
-                ]
-            },
-            {
-                "id": 653,
-                "visited": true,
-                "hops_from_center": 1,
-                "adjacent_sectors": [
-                    566,
-                    1317,
-                    1510
-                ],
-                "port": "BBB",
-                "last_visited": "2025-10-23T21:42:35.115007+00:00",
-                "position": [
-                    118,
-                    126
-                ],
-                "lanes": [
-                    {
-                        "to": 566,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 1317,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 1510,
-                        "two_way": true,
-                        "hyperlane": false
-                    }
-                ]
-            },
-            {
-                "id": 764,
-                "visited": true,
-                "hops_from_center": 2,
-                "adjacent_sectors": [
-                    373,
-                    379,
-                    869
-                ],
-                "port": "SSS",
-                "last_visited": "2025-10-20T00:06:53.412517+00:00",
-                "position": [
-                    114,
-                    130
-                ],
-                "lanes": [
-                    {
-                        "to": 373,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 379,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 869,
-                        "two_way": true,
-                        "hyperlane": false
-                    }
-                ]
-            },
-            {
-                "id": 920,
-                "visited": true,
-                "hops_from_center": 2,
-                "adjacent_sectors": [
-                    742,
-                    1021,
-                    1357
-                ],
-                "port": "",
-                "last_visited": "2025-10-22T01:13:06.686014+00:00",
-                "position": [
-                    110,
-                    124
-                ],
-                "lanes": [
-                    {
-                        "to": 742,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 1021,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 1357,
-                        "two_way": true,
-                        "hyperlane": false
-                    }
-                ]
-            },
-            {
-                "id": 1317,
-                "visited": true,
-                "hops_from_center": 2,
-                "adjacent_sectors": [
-                    653,
-                    740
-                ],
-                "port": "SSS",
-                "last_visited": "2025-10-20T04:51:34.168263+00:00",
-                "position": [
-                    120,
-                    128
-                ],
-                "lanes": [
-                    {
-                        "to": 653,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 740,
-                        "two_way": true,
-                        "hyperlane": false
-                    }
-                ]
-            },
-            {
-                "id": 1357,
-                "visited": true,
-                "hops_from_center": 1,
-                "adjacent_sectors": [
-                    920,
-                    1510
-                ],
-                "port": "",
-                "last_visited": "2025-10-22T01:13:10.147327+00:00",
-                "position": [
-                    114,
-                    125
-                ],
-                "lanes": [
-                    {
-                        "to": 920,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 1510,
-                        "two_way": true,
-                        "hyperlane": false
-                    }
-                ]
-            },
-            {
-                "id": 1510,
-                "visited": true,
-                "hops_from_center": 0,
-                "adjacent_sectors": [
-                    379,
-                    653,
-                    1357
-                ],
-                "port": "",
-                "last_visited": "2025-10-23T21:41:10.857820+00:00",
-                "position": [
-                    116,
-                    127
-                ],
-                "lanes": [
-                    {
-                        "to": 379,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 653,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 1357,
-                        "two_way": true,
-                        "hyperlane": false
-                    }
-                ]
-            }
-        ],
-        "total_sectors": 8,
-        "total_visited": 8,
-        "total_unvisited": 0,
-        "source": {
-            "type": "rpc",
-            "method": "get-my-map",
-            "request_id": "a373625c-2f6f-4497-ac3e-610bbd4164ca",
-            "timestamp": "2025-10-23T21:58:17.643927+00:00"
-        }
-    }
-}
-```
 
+
+
+
+--
+
+Yes, config is the information that was used to create the universe, so that we can recreate it if we need to. Plus the `meta` information in the current universe_structure.json file. 
+
+>   - For "Sector ID is row number" - do we still need an explicit sector_id INTEGER PRIMARY KEY column, or rely on implicit row numbers?
+
+It seems like we need this column, yes. Easier to define this column like this than to use auto-increment and implicit row numbers. Do you agree?
+
+>   Sector Contents table:
+  - For the columns you mentioned (port pointer, garrisons, combat state, salvage):
+    - Port pointer: port_id INTEGER REFERENCES ports(port_id) or NULL if no port?
+    - Garrisons: JSONB array, or foreign key to separate garrisons table?
+    - Combat state: Just a boolean has_combat, or reference to combat encounter ID?
+    - Salvage: JSONB array of salvage containers in this sector?
+
+Port pointer as you describe. Garrisons: JSONB array. Combat should also be a JSONB array with current combat round number and any other state information needed by the combat edge function. Salvage: JSONB array of salvage containers in this sector.
+
+We do not need "port class". The 3-char port code is sufficient. (Do we use a port class integer anywhere in our code? I thought we removed that.) 
+
+Warps should be a JSONB column.
+
+Yes, we want to add a feature: characters can own multiple ships! We will add code for moving between ships and other ship-specific features in the future. Right now we just need the ships table data structures to allow us to add these features without changing the table designs.
+
+Yes, total wealth is credit across all ships and in the bank, plus value of ships, fighters, cargo, etc.
+
+Yes, cargo is per-ship, because cargo is stored in a ship's holds.
+
+If combat destroys a ship, we change the ship instance to escape pod.
+
+Map knowledge for a character is unavoidably large when a character has explored most of the universe. I don't think there's a way to avoid this with data structure design. Map knowledge is purely per-character. We never query or join this. We retrieve it from the database, and walk the data structure to respond to map knowledge endpoint requests. Look at the code to confirm this and understand it. Suggest a better data structure if you can.
+
+Character data: name, created_at, credits_in_megabank, current ship pointer, map knowledge. Hyperspace state should be part of the ship table. Maybe we store ship current location as [ sector ID | HYPERSPACE ].
+
+>   - If 10 characters are in a sector and someone moves, we create 10 event rows (one per recipient)?
+
+Yes. I think modern databases can handle having large numbers of rows. Especially for an append-only design like this. Suggest a different strategy if you disagree.
+
+>   - For Supabase Broadcast: do we insert into events table first, THEN trigger broadcasts?
+
+This seems right.
+
+>   - Or should it be move(ship_id, to_sector) and we verify the character owns that ship?
+
+Yes, we should do it this way. Verify character ownership and character residence in the ship. In the future we will add the ability to "remote control" ships even if a character is not in the ship.
+
+An important addition: we should deliver events to a character if the character has a ship or garrison in the sector where the events happen, even if the character is not in the ship that's in that sector. Is that clear?
+
+We should create the multi-ship table structure now, but not modify the endpoints to take full advantage of multi-ship. We will do that in a future phase.
+
+
+
+--
+
+Universe - 4 tables:
+- Universe config. Configuration output from universe bang.
+- Universe structure. Created by universe bang and never modified. Sector ID is monotonically increasing row number. position, region, warps. 
+- Ports. One row per port. port_id, sector_id, port_code, max capacities for each resource type, current stock for each resource type.
+- Sector contents. One row per sector. Sector ID is index. Port pointer, garrisons, combat state (current combat in sector, or not), salvage
+
+Ships - 2 tables:
+- Ship definitions table. Created by world gen and never modified.
+- Ship instances table. One row per ship owned by character.
+  - Column for credits held on this ship instance.
+  - Current location (sector ID). Indexed.
+
+Characters - single table:
+- One row per character
+- map-knowledge is a json-b column.
+- Current ship residence column. Which ship is this character currently using?
+- Add a column to be used in the future for credits_in_megaport_bank
+
+Events - single table:
+- One row per rpc call sent from a character
+- One row per event sent to each character
+- No need for separate messages table, because we can extract messages from events table via SQL queries.
+
+
+
+--
+Today's task: porting the game server to use:
+  1. SQL storage for all world data, character data, and event logging
+  2. Use Supabase for hosting the SQL and game server logic.
+
+First step: draft a plan for SQL table structures and interface code.
+  - Catalog all game world, character, and log data structures.
+  - Examine game-server code to understand how the API manipulates the data structures.
+  - Design SQL table structures.
+  - Design data storage interface code.
+
+Second step: draft an additional phase for using Supabase hosted features.
+  - Implement all game server rpc endpoints using Supabase edge functions.
+  - Implement all event delivery using Supabase broadcast messages. Hypothesis: AsyncGameClient should subscribe to a channel named after the character ID. Edge functions send messages to each character channel. 
+
+Third step:
+  - Design leaderboard lookup functions
+  - Least likely to fit through the eye of a needle: credits + ship value
+  - Most territory: fighters stationed in most sectors
+
+----
+
+todo:
+  - fix issues lower down
+  - prevent new combat in a sector in which there is already combat
+  - implement port 0 port - warp purchase, ship trade-in and purchase, bank (this needs data structure support)
+  - implement buying a warp generator and warp generator warp recharge
+  - implement giving a player credits
+  - implement dumping cargo as salvage
+  - implement log search
+    - use log mechanic to implement logging for events in a sector with a character's fighter
+  - refactor bot to remove most tools from voice agent
+    - task
+    - log search
+    - ui triggers
+  - implement gemini audio in module
+  - think about corporations
+  - implement hyperspace module
+  - implement something worth defending -- citadel that does (what?)
+
+
+----
+
+We are no longer using the openai library. Why do we have openai tests and an openai stub?
+
+----
+
+Prevent new combat in a sector in which there is already combat.
+
+----
+
+# Notes
+
+## Logging
+
+From the perspective of a player, there are sent and received events. We want to log both.
+
+Rather than a character-ids array, should we log multiple lines for any event that is received by multiple characters, with a single character id in the reciever field? Would this make it easier to query?
+
+## Characters
+
+No need to write logic to auto-insert a character. That adds complexity to code that won't be needed because we will recreate the universe as part of implementing this plan. A newly created universe will have no characters.
+
+More character editing:
+  - Expand the character.create endpoint to take a json payload that allows the admin to set any of the character's player and ship properties.
+  - Change the character.rename endpoint to character.modify and make it take a json payload that allows the admin to set any of the character's player and ship properties.
+  - Write a small command-line tool that prompts for each property, with legal options if there are specific options (e.g., ship types), assembles the json payload, and calls the character.modify endpoint. character_modify should require the admin password.
+  - We need a small character_lookup command line utility to look up a character by name and return the character ID.
+  - Create and modify must check for character name uniqueness.
+  
+
+I don't think we need join to accept a name. It should accept only a character ID.
+
+Include a hook in character.modify that checks a name for content safety. For now, just define that hook to output a loguru.info message and return the name unchanged. But the hook should be pluggable so we can add content safety checks later, and if the hook returns False the name change should fail.
+
+In summarizer code, we should output only the human-readable name and not the ID.
+
+Display only name in simple_tui UI. (This should be automatically handled by summarizers.)
+
+## Passwords
+
+Add a password to the character registry. Store it hashed.
+
+Store the admin password plain text.
+
+## Universe creation question
+
+Where does port data come from? It looks like there is a sector_contents file and also a port-states directory.
+
+If there is redundant or stale data in either place, perhaps we should fix that before we continue to implement more world data functionality.
+
+# Plan
+
+Update planning doc to include all of the above.
+
+Update planning doc to note that:
+  - we always use uv
+  - we always use loguru
+  - we need to start by running baseline tests. we do not want to spend time trying to run tests that are not working while we implement this plan. Look in Agents.md, Claude.md, and README.md for information about tests. Add that information to this plan file.
+
+We do not need to migrate any legacy world data. We can recreate the universe from scratch. `rm -rf world-data/* && uv run ../scripts/universe-bang.py 5000 1234`. Do not spend any time on migration code or code that tests any legacy world data.
+
+We don't need a log rotation strategy. We can just let the file grow. 
+
+We don't need a character list utility because we can just look in the world knowledge files.
+
+Next steps:
+  - Review the entire planning document and provide any additional suggestions.
+  - Ask any additional questions you have before we begin implementation. 
+
+
+
+
+
+
+----
+
+Todo list for today:
+
+1. Log every game event.
+2. Move to having a unique, immutable ID for each character.
+
+# High-level overview
+
+## Logging every game event.
+
+It's possible we already implemented this, but I'm not sure.
+
+Goals:
+  - Log every game event that the game server executes.
+  - Include the character ID, if any, in the log.
+  - Include a timestamp.
+  - Include a sector number.
+  - Implement a lookup function that returns event lines filtered by time range. Optionally also filtered by character ID, sector number, or both.
+
+## Unique, server-side IDs for characters
+
+Goals:
+  1. Implement a character creation endpoint that takes a human-readable name, creates a character record, and returns a unique, immutable ID.
+  2. Implement a delete endpoint that takes a character ID and deletes the character record.
+  3. Implement a change-name endpoint that takes a character ID and a new name, and updates the character record.
+  4. Gate 1 and 2 behind an admin password. (Make the admin password a required argument.) Add the admin password to the data we load from world-data/
+
+For the ID, we should use a UUID. It should be generated by the server.
+
+Modify all code that creates event payloads to use the new character ID properly, alongside the human-readable name.
+
+# Planning
+
+Review all game-server code, utils/api-client.py code, pipecat/, and npc.simple-tui.py code to understand the current API. Do not consider code in client/
+
+Write a detailed planning document with design decisions. Describe each API change we will need to make. Include code snippets. Create a task list.
+
+Include any questions or suggestions that need to be considered before implementation.
+
+Write the document to disk for me to review.
 
 ---
 
@@ -286,8 +250,7 @@ Start people off with level 1 warp generator module (players have a natural tick
 Player trading
   - transfer credits and commodities
 
-Jon:
-  - I join, connect, then wait for status/map events, then "start"
+
   
 Need to fix IDs to be clean indexable without special characters
   - make a unique public ID for a player

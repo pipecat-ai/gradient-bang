@@ -11,6 +11,7 @@ from ships import ShipType, get_ship_stats
 from trading import get_port_prices, get_port_stock
 
 from sector import generate_scene_variant
+from rpc.events import EventLogContext
 
 if TYPE_CHECKING:
     from combat.models import GarrisonState
@@ -57,7 +58,7 @@ def build_character_moved_payload(
     payload: Dict[str, Any] = {
         "player": {
             "id": character_id,
-            "name": character_id,
+            "name": resolve_character_name(world, character_id),
         },
         "ship": {
             "ship_name": display_name,
@@ -101,6 +102,8 @@ async def emit_error_event(
     endpoint: str,
     request_id: str,
     error: str,
+    *,
+    world=None,
 ) -> None:
     """Emit a correlated error event to the requesting character."""
 
@@ -112,6 +115,33 @@ async def emit_error_event(
             "error": error,
         },
         character_filter=[character_id],
+        log_context=build_log_context(character_id=character_id, world=world),
+    )
+
+
+def build_log_context(
+    *,
+    character_id: str | None = None,
+    world=None,
+    sector: int | None = None,
+    meta: dict | None = None,
+    payload_override: dict | None = None,
+    timestamp: datetime | None = None,
+) -> EventLogContext:
+    """Create a reusable EventLogContext with optional sector inference."""
+
+    resolved_sector = sector
+    if resolved_sector is None and world and character_id:
+        character = getattr(world, "characters", {}).get(character_id)
+        if character:
+            resolved_sector = getattr(character, "sector", None)
+
+    return EventLogContext(
+        sender=character_id,
+        sector=resolved_sector,
+        meta=meta,
+        payload_override=payload_override,
+        timestamp=timestamp,
     )
 
 
@@ -167,7 +197,7 @@ def player_self(world, character_id: str) -> Dict[str, Any]:
         "created_at": character.first_visit.isoformat(),
         "last_active": character.last_active.isoformat(),
         "id": character.id,
-        "name": character.id,  # todo: make name settable
+        "name": getattr(character, "name", character.id),
         "credits_on_hand": world.knowledge_manager.get_credits(character_id),
         "credits_in_bank": 0,
     }
@@ -363,9 +393,14 @@ async def build_status_payload(
 def resolve_character_name(world, character_id: str) -> str:
     character = world.characters.get(character_id)
     if character:
-        display_name = getattr(character, "display_name", None)
-        if isinstance(display_name, str) and display_name.strip():
-            return display_name
+        name = getattr(character, "name", None)
+        if isinstance(name, str) and name.strip():
+            return name
+    registry = getattr(world, "character_registry", None)
+    if registry:
+        profile = registry.get_profile(character_id)
+        if profile:
+            return profile.name
     return character_id
 
 

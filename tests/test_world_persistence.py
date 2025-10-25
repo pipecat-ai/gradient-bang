@@ -35,6 +35,7 @@ from combat.models import (
     RoundAction,
 )
 from core.world import GameWorld
+from core.character_registry import CharacterProfile
 from ships import ShipType
 import server
 from api.utils import sector_contents
@@ -47,6 +48,14 @@ import api.combat_collect_fighters as combat_collect_module
 import api.combat_leave_fighters as combat_leave_module
 import api.combat_set_garrison_mode as combat_mode_module
 import api.salvage_collect as salvage_collect_module
+
+
+def register_character(world: GameWorld, character_id: str, name: str | None = None) -> None:
+    profile = CharacterProfile(
+        character_id=character_id,
+        name=name or character_id,
+    )
+    world.character_registry.add_or_update(profile)
 
 
 @pytest.fixture()
@@ -79,6 +88,9 @@ def hydrated_world(monkeypatch, tmp_path):
 
     test_world = GameWorld()
     test_world.load_data()
+
+    register_character(test_world, "khk_aggressive")
+    register_character(test_world, "khk_passive")
 
     # Ensure server-global world references point at the isolated world instance.
     import core.world as world_module
@@ -218,13 +230,16 @@ async def test_sector_wide_combat_initiation(monkeypatch, hydrated_world):
     monkeypatch.setattr(server.event_dispatcher, "emit", _noop_emit)
 
     result = await combat_initiate_handle({"character_id": "khk_aggressive"}, world)
-    participants = set(result.get("participants", {}).keys())
+    assert result["success"] is True
+    combat_id = result["combat_id"]
+    encounter = await world.combat_manager.get_encounter(combat_id)
+    participants = set(encounter.participants.keys())
     assert "khk_aggressive" in participants
     assert "khk_passive" in participants
 
     # Second participant should join existing encounter without error.
     result_again = await combat_initiate_handle({"character_id": "khk_passive"}, world)
-    assert result_again["combat_id"] == result["combat_id"]
+    assert result_again["combat_id"] == combat_id
 
 
 @pytest.mark.asyncio
@@ -284,6 +299,7 @@ async def test_auto_engage_on_offensive_garrison(monkeypatch, hydrated_world):
     world.knowledge_manager.save_knowledge(knowledge)
     world.characters.pop(newcomer, None)
 
+    register_character(world, newcomer)
     await join_handle({"character_id": newcomer, "sector": 5}, world)
 
     encounter = await world.combat_manager.find_encounter_in_sector(5)
@@ -315,6 +331,7 @@ async def test_collect_fighters_returns_toll_balance(monkeypatch, hydrated_world
     world.knowledge_manager.update_credits(owner_id, 100)
 
     # Ensure character exists in active world state
+    register_character(world, owner_id)
     await join_handle({"character_id": owner_id, "sector": sector_id}, world)
 
     await world.garrisons.deploy(

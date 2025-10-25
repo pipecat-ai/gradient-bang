@@ -112,7 +112,7 @@ async def test_programmatic_runner_executes_tasks(monkeypatch):
 
     runner = simple_tui.ProgrammaticSimpleRunner(
         server="http://localhost:8000",
-        character="codex-1",
+        character_id="codex-1",
         tasks=["map the sector"],
         max_iterations=5,
         log_level="INFO",
