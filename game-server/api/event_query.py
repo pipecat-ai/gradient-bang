@@ -1,4 +1,4 @@
-"""Admin RPC handler for querying event logs."""
+"""RPC handler for querying event logs (admin and character modes)."""
 
 from __future__ import annotations
 
@@ -27,19 +27,31 @@ async def handle(payload: dict, world) -> dict:
     if registry is None:
         raise HTTPException(status_code=500, detail="Character registry unavailable")
 
+    # Determine if this is an admin query or character query
+    # Treat as admin only if admin_password was explicitly provided AND it validates
+    admin_password_provided = "admin_password" in payload
     admin_password = payload.get("admin_password")
-    if not registry.validate_admin_password(admin_password):
-        raise HTTPException(status_code=403, detail="Invalid admin password")
+    is_admin = admin_password_provided and registry.validate_admin_password(admin_password)
 
+    # Parse required time range
     start = _parse_timestamp(payload.get("start"), "start")
     end = _parse_timestamp(payload.get("end"), "end")
     if start > end:
         raise HTTPException(status_code=400, detail="start must be before end")
 
+    # Parse optional character_id filter (required for non-admin queries)
     character_id = payload.get("character_id")
     if character_id is not None and not isinstance(character_id, str):
         raise HTTPException(status_code=400, detail="character_id must be a string")
 
+    # In character mode (non-admin), character_id is required
+    if not is_admin and not character_id:
+        raise HTTPException(
+            status_code=403,
+            detail="character_id required for non-admin queries"
+        )
+
+    # Parse optional sector filter
     sector_value = payload.get("sector")
     sector = None
     if sector_value is not None:
@@ -48,6 +60,9 @@ async def handle(payload: dict, world) -> dict:
         except (TypeError, ValueError):
             raise HTTPException(status_code=400, detail="sector must be an integer")
 
+    # Query the event log with filters
+    # If character_id provided: returns events where sender=character_id OR receiver=character_id
+    # If sector provided: additionally filters to events in that sector
     log_path = get_world_data_path() / "event-log.jsonl"
     logger = EventLogger(log_path)
     events = logger.query(start, end, character_id=character_id, sector=sector)
