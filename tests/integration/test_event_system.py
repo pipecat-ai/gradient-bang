@@ -17,8 +17,10 @@ These tests require a test server running on port 8002.
 """
 
 import asyncio
+import json
 import pytest
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Add project paths
@@ -605,29 +607,673 @@ class TestEventPayloadStructure:
 class TestJSONLAuditLog:
     """Tests for JSONL event log persistence."""
 
-    async def test_events_logged_to_jsonl_file(self):
-        """Test that events are persisted to JSONL file."""
-        pytest.skip("Requires server log file access")
+    async def test_events_logged_to_jsonl_file(self, server_url):
+        """Test that events are persisted to JSONL file and queryable via event.query API."""
+        char_id = "test_jsonl_logging"
+        client = AsyncGameClient(base_url=server_url, character_id=char_id)
 
-    async def test_jsonl_one_event_per_line(self):
+        try:
+            # Join and trigger a movement event
+            await client.join(character_id=char_id)
+
+            # Record start time for query
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # Get current location and move
+            status = await get_status(client, char_id)
+            adjacent = status["sector"]["adjacent_sectors"]
+            if not adjacent:
+                pytest.skip("No adjacent sectors for movement")
+
+            await client.move(to_sector=adjacent[0], character_id=char_id)
+            await asyncio.sleep(1.0)
+
+            end_time = datetime.now(timezone.utc)
+
+            # Test 1: Admin query sees the event
+            admin_result = await client._request("event.query", {
+                "admin_password": "",  # Test server has no password (open access)
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+                "character_id": char_id,
+            })
+
+            assert admin_result["success"], "Admin query should succeed"
+            assert admin_result["count"] > 0, "Admin query should find events"
+
+            # Find movement event
+            move_events = [e for e in admin_result["events"] if e.get("event") == "movement.complete"]
+            assert len(move_events) >= 1, "Should find at least one movement.complete event"
+
+            # Test 2: Character query (no admin password) sees the same event
+            char_result = await client._request("event.query", {
+                # No admin_password provided - character mode
+                "character_id": char_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            assert char_result["success"], "Character query should succeed"
+            assert char_result["count"] > 0, "Character query should find events"
+
+            # Character should also see their movement event
+            char_move_events = [e for e in char_result["events"] if e.get("event") == "movement.complete"]
+            assert len(char_move_events) >= 1, "Character should see their own movement event"
+
+        finally:
+            await client.close()
+
+    async def test_jsonl_one_event_per_line(self, server_url):
         """Test that JSONL has exactly one event per line."""
-        pytest.skip("Requires server log file access")
+        char_id = "test_jsonl_format"
+        client = AsyncGameClient(base_url=server_url, character_id=char_id)
 
-    async def test_jsonl_append_only(self):
-        """Test that JSONL is append-only (no modification)."""
-        pytest.skip("Requires server log file access and monitoring")
+        try:
+            # Join and trigger multiple events
+            await client.join(character_id=char_id)
+
+            # Trigger 3 status checks (should generate events)
+            for _ in range(3):
+                await get_status(client, char_id)
+                await asyncio.sleep(0.2)
+
+            await asyncio.sleep(1.0)  # Let events flush to disk
+
+            # Read log file directly
+            log_path = Path("tests/test-world-data/event-log.jsonl")
+            if not log_path.exists():
+                pytest.skip("Log file doesn't exist yet")
+
+            with log_path.open("r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            # Filter out empty lines
+            non_empty_lines = [line.strip() for line in lines if line.strip()]
+
+            assert len(non_empty_lines) > 0, "Log file should have events"
+
+            # Validate each line is valid JSON
+            valid_events = 0
+            for i, line in enumerate(non_empty_lines):
+                try:
+                    event = json.loads(line)
+                    valid_events += 1
+                    # Basic structure check
+                    assert isinstance(event, dict), f"Line {i} is not a dict"
+                except json.JSONDecodeError as e:
+                    pytest.fail(f"Line {i} is not valid JSON: {line[:100]}, Error: {e}")
+
+            assert valid_events == len(non_empty_lines), "All lines should be valid JSON"
+
+        finally:
+            await client.close()
+
+    async def test_jsonl_readable_and_parseable(self, server_url):
+        """Test that JSONL log is readable and parseable with valid EventRecord structure."""
+        char_id = "test_jsonl_parseable"
+        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+
+        try:
+            # Join and trigger an event
+            await client.join(character_id=char_id)
+            await get_status(client, char_id)
+            await asyncio.sleep(1.0)
+
+            # Read log file directly
+            log_path = Path("tests/test-world-data/event-log.jsonl")
+            if not log_path.exists():
+                pytest.skip("Log file doesn't exist yet")
+
+            with log_path.open("r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            # Parse and validate EventRecord structure
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+
+                event = json.loads(line)
+
+                # Validate required EventRecord fields
+                assert "timestamp" in event, "Event missing timestamp"
+                assert "direction" in event, "Event missing direction"
+                assert "event" in event, "Event missing event type"
+                assert "payload" in event, "Event missing payload"
+
+                # Optional fields (should be present but may be None)
+                assert "sender" in event, "Event missing sender"
+                assert "receiver" in event, "Event missing receiver"
+                assert "sector" in event, "Event missing sector"
+
+                # Validate types
+                assert isinstance(event["timestamp"], str), "timestamp should be string"
+                assert isinstance(event["event"], str), "event should be string"
+                assert isinstance(event["payload"], dict), "payload should be dict"
+
+        finally:
+            await client.close()
+
+    async def test_jsonl_append_only(self, server_url):
+        """Test that JSONL is append-only (no modification) with monotonic timestamps."""
+        char_id = "test_jsonl_append"
+        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+
+        try:
+            # Join character
+            await client.join(character_id=char_id)
+
+            # Read initial log state
+            log_path = Path("tests/test-world-data/event-log.jsonl")
+            if not log_path.exists():
+                pytest.skip("Log file doesn't exist yet")
+
+            with log_path.open("r", encoding="utf-8") as f:
+                initial_lines = f.readlines()
+
+            initial_count = len([l for l in initial_lines if l.strip()])
+
+            # Get last timestamp if any
+            last_timestamp = None
+            if initial_lines:
+                for line in reversed(initial_lines):
+                    if line.strip():
+                        try:
+                            event = json.loads(line.strip())
+                            last_timestamp = event.get("timestamp")
+                            break
+                        except json.JSONDecodeError:
+                            continue
+
+            # Trigger new event
+            await get_status(client, char_id)
+            await asyncio.sleep(1.0)
+
+            # Read log again
+            with log_path.open("r", encoding="utf-8") as f:
+                final_lines = f.readlines()
+
+            final_count = len([l for l in final_lines if l.strip()])
+
+            # Verify log grew (append-only)
+            assert final_count > initial_count, "Log should have grown (append-only)"
+
+            # Verify new events have monotonic timestamps
+            new_lines = final_lines[initial_count:]
+            for line in new_lines:
+                line = line.strip()
+                if not line:
+                    continue
+
+                event = json.loads(line)
+                new_timestamp = event.get("timestamp")
+
+                if last_timestamp:
+                    assert new_timestamp >= last_timestamp, \
+                        f"Timestamps not monotonic: {last_timestamp} -> {new_timestamp}"
+
+                last_timestamp = new_timestamp
+
+        finally:
+            await client.close()
 
     async def test_jsonl_survives_server_restart(self):
         """Test that JSONL log persists across server restarts."""
         pytest.skip("Requires server restart capability")
 
-    async def test_jsonl_readable_and_parseable(self):
-        """Test that JSONL log is readable and parseable."""
-        pytest.skip("Requires server log file access")
-
     async def test_jsonl_log_rotation(self):
         """Test that JSONL log rotation works (if implemented)."""
         pytest.skip("Requires log rotation configuration")
+
+
+# =============================================================================
+# Admin Query Mode Tests (5 tests) - Phase 2
+# =============================================================================
+
+
+class TestAdminQueryMode:
+    """Tests for admin query mode with event.query API."""
+
+    async def test_admin_query_sees_all_events(self, server_url):
+        """Test that admin query with no character_id filter sees all events."""
+        # Create 2 characters and trigger events from each
+        char1_id = "test_admin_query_char1"
+        char2_id = "test_admin_query_char2"
+
+        client1 = AsyncGameClient(base_url=server_url, character_id=char1_id)
+        client2 = AsyncGameClient(base_url=server_url, character_id=char2_id)
+
+        try:
+            # Record start time
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # Both characters join and trigger events
+            await client1.join(character_id=char1_id)
+            await client2.join(character_id=char2_id)
+
+            await get_status(client1, char1_id)
+            await get_status(client2, char2_id)
+
+            await asyncio.sleep(1.0)
+            end_time = datetime.now(timezone.utc)
+
+            # Admin query with no character_id filter (should see all events)
+            admin_result = await client1._request("event.query", {
+                "admin_password": "",  # Admin mode (test server open access)
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+                # No character_id filter
+            })
+
+            assert admin_result["success"], "Admin query should succeed"
+            events = admin_result["events"]
+
+            # Should see events from both characters
+            char1_events = [e for e in events if e.get("sender") == char1_id or e.get("receiver") == char1_id]
+            char2_events = [e for e in events if e.get("sender") == char2_id or e.get("receiver") == char2_id]
+
+            assert len(char1_events) > 0, "Admin should see char1 events"
+            assert len(char2_events) > 0, "Admin should see char2 events"
+
+        finally:
+            await client1.close()
+            await client2.close()
+
+    async def test_admin_query_with_character_filter(self, server_url):
+        """Test that admin query with character_id filter sees only that character's events."""
+        char1_id = "test_admin_filter_char1"
+        char2_id = "test_admin_filter_char2"
+
+        client1 = AsyncGameClient(base_url=server_url, character_id=char1_id)
+        client2 = AsyncGameClient(base_url=server_url, character_id=char2_id)
+
+        try:
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # Both characters trigger events
+            await client1.join(character_id=char1_id)
+            await client2.join(character_id=char2_id)
+
+            await get_status(client1, char1_id)
+            await get_status(client2, char2_id)
+
+            await asyncio.sleep(1.0)
+            end_time = datetime.now(timezone.utc)
+
+            # Admin query filtered by char1
+            admin_result = await client1._request("event.query", {
+                "admin_password": "",
+                "character_id": char1_id,  # Filter to char1
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            assert admin_result["success"]
+            events = admin_result["events"]
+
+            # All events should involve char1 (sender OR receiver)
+            for event in events:
+                sender = event.get("sender")
+                receiver = event.get("receiver")
+                assert sender == char1_id or receiver == char1_id, \
+                    f"Event should involve {char1_id}, got sender={sender}, receiver={receiver}"
+
+            # Should NOT see char2's private events (where char2 is sender AND receiver)
+            char2_only_events = [
+                e for e in events
+                if e.get("sender") == char2_id and e.get("receiver") == char2_id
+            ]
+            assert len(char2_only_events) == 0, "Should not see char2's private events"
+
+        finally:
+            await client1.close()
+            await client2.close()
+
+    async def test_admin_query_with_sector_filter(self, server_url):
+        """Test that admin query with sector filter sees only events in that sector."""
+        char_id = "test_admin_sector_filter"
+        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+
+        try:
+            await client.join(character_id=char_id)
+
+            # Get current sector and move to another
+            status = await get_status(client, char_id)
+            sector1 = status["sector"]["id"]
+            adjacent = status["sector"]["adjacent_sectors"]
+
+            if not adjacent:
+                pytest.skip("No adjacent sectors")
+
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # Trigger event in sector1
+            await get_status(client, char_id)
+
+            # Move to sector2
+            sector2 = adjacent[0]
+            await client.move(to_sector=sector2, character_id=char_id)
+            await asyncio.sleep(1.0)
+
+            # Trigger event in sector2
+            await get_status(client, char_id)
+
+            await asyncio.sleep(1.0)
+            end_time = datetime.now(timezone.utc)
+
+            # Admin query filtered by sector1
+            admin_result = await client._request("event.query", {
+                "admin_password": "",
+                "sector": sector1,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            assert admin_result["success"]
+            events = admin_result["events"]
+
+            # All returned events should be from sector1
+            for event in events:
+                event_sector = event.get("sector")
+                # Note: Some events may not have sector field
+                if event_sector is not None:
+                    assert event_sector == sector1, \
+                        f"Event should be from sector {sector1}, got {event_sector}"
+
+        finally:
+            await client.close()
+
+    async def test_admin_query_combined_filters(self, server_url):
+        """Test admin query with both character_id AND sector filters."""
+        char_id = "test_admin_combined"
+        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+
+        try:
+            await client.join(character_id=char_id)
+
+            status = await get_status(client, char_id)
+            sector1 = status["sector"]["id"]
+            adjacent = status["sector"]["adjacent_sectors"]
+
+            if not adjacent:
+                pytest.skip("No adjacent sectors")
+
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # Event in sector1
+            await get_status(client, char_id)
+
+            # Move to sector2
+            sector2 = adjacent[0]
+            await client.move(to_sector=sector2, character_id=char_id)
+            await asyncio.sleep(1.0)
+
+            # Event in sector2
+            await get_status(client, char_id)
+
+            await asyncio.sleep(1.0)
+            end_time = datetime.now(timezone.utc)
+
+            # Query with both filters: character AND sector
+            admin_result = await client._request("event.query", {
+                "admin_password": "",
+                "character_id": char_id,
+                "sector": sector2,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            assert admin_result["success"]
+            events = admin_result["events"]
+
+            # Events should match BOTH filters
+            for event in events:
+                sender = event.get("sender")
+                receiver = event.get("receiver")
+                event_sector = event.get("sector")
+
+                # Must involve the character
+                assert sender == char_id or receiver == char_id
+
+                # Must be in the specified sector (if sector field present)
+                if event_sector is not None:
+                    assert event_sector == sector2
+
+        finally:
+            await client.close()
+
+    async def test_admin_query_with_invalid_password(self, server_url):
+        """Test that query without admin_password key and without character_id fails with 403.
+
+        Note: Test server has open access mode (no password configured), so any provided
+        password validates as admin. To test non-admin mode, we omit admin_password entirely.
+        """
+        client = AsyncGameClient(base_url=server_url, character_id="test_admin_invalid")
+
+        try:
+            start_time = datetime.now(timezone.utc)
+            end_time = datetime.now(timezone.utc)
+
+            # Query WITHOUT admin_password key and WITHOUT character_id
+            # This should fail: not admin (no password key), no character_id
+            with pytest.raises(RPCError) as exc_info:
+                await client._request("event.query", {
+                    # No admin_password key - character mode
+                    # No character_id - should fail
+                    "start": start_time.isoformat(),
+                    "end": end_time.isoformat(),
+                })
+
+            assert exc_info.value.status == 403
+            assert "character_id required" in exc_info.value.detail
+
+        finally:
+            await client.close()
+
+
+# =============================================================================
+# Character Query Mode Tests (5 tests) - Phase 3
+# =============================================================================
+
+
+class TestCharacterQueryMode:
+    """Tests for character query mode (non-admin) with event.query API."""
+
+    async def test_character_query_sees_own_events(self, server_url):
+        """Test that character query (no admin password) sees only own events."""
+        char_id = "test_char_query_own"
+        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+
+        try:
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # Join and trigger events
+            await client.join(character_id=char_id)
+            await get_status(client, char_id)
+
+            await asyncio.sleep(1.0)
+            end_time = datetime.now(timezone.utc)
+
+            # Character query (no admin_password)
+            char_result = await client._request("event.query", {
+                # No admin_password - character mode
+                "character_id": char_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            assert char_result["success"]
+            events = char_result["events"]
+
+            # All events should involve this character
+            for event in events:
+                sender = event.get("sender")
+                receiver = event.get("receiver")
+                assert sender == char_id or receiver == char_id, \
+                    f"Character should only see own events (sender={sender}, receiver={receiver})"
+
+        finally:
+            await client.close()
+
+    async def test_character_query_privacy(self, server_url):
+        """Test that character cannot see other character's private events."""
+        char1_id = "test_char_privacy1"
+        char2_id = "test_char_privacy2"
+
+        client1 = AsyncGameClient(base_url=server_url, character_id=char1_id)
+        client2 = AsyncGameClient(base_url=server_url, character_id=char2_id)
+
+        try:
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # Both characters trigger events
+            await client1.join(character_id=char1_id)
+            await client2.join(character_id=char2_id)
+
+            await get_status(client1, char1_id)
+            await get_status(client2, char2_id)
+
+            await asyncio.sleep(1.0)
+            end_time = datetime.now(timezone.utc)
+
+            # Char1 queries without admin password
+            char1_result = await client1._request("event.query", {
+                "character_id": char1_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            assert char1_result["success"]
+            events = char1_result["events"]
+
+            # Char1 should NOT see char2's private events
+            char2_only_events = [
+                e for e in events
+                if e.get("sender") == char2_id and e.get("receiver") == char2_id
+            ]
+            assert len(char2_only_events) == 0, \
+                "Char1 should not see char2's private events"
+
+        finally:
+            await client1.close()
+            await client2.close()
+
+    async def test_character_query_with_sector_filter(self, server_url):
+        """Test that character query with sector filter sees only own events in that sector."""
+        char_id = "test_char_sector_filter"
+        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+
+        try:
+            await client.join(character_id=char_id)
+
+            status = await get_status(client, char_id)
+            sector1 = status["sector"]["id"]
+            adjacent = status["sector"]["adjacent_sectors"]
+
+            if not adjacent:
+                pytest.skip("No adjacent sectors")
+
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # Event in sector1
+            await get_status(client, char_id)
+
+            # Move to sector2
+            sector2 = adjacent[0]
+            await client.move(to_sector=sector2, character_id=char_id)
+            await asyncio.sleep(1.0)
+
+            # Event in sector2
+            await get_status(client, char_id)
+
+            await asyncio.sleep(1.0)
+            end_time = datetime.now(timezone.utc)
+
+            # Character query filtered by sector2
+            char_result = await client._request("event.query", {
+                "character_id": char_id,
+                "sector": sector2,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            assert char_result["success"]
+            events = char_result["events"]
+
+            # All events should be in sector2 AND involve this character
+            for event in events:
+                sender = event.get("sender")
+                receiver = event.get("receiver")
+                event_sector = event.get("sector")
+
+                assert sender == char_id or receiver == char_id
+                if event_sector is not None:
+                    assert event_sector == sector2
+
+        finally:
+            await client.close()
+
+    async def test_character_query_empty_sector(self, server_url):
+        """Test that querying a sector character wasn't in returns empty (not error)."""
+        char_id = "test_char_empty_sector"
+        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+
+        try:
+            await client.join(character_id=char_id)
+
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # Trigger some events
+            await get_status(client, char_id)
+
+            await asyncio.sleep(1.0)
+            end_time = datetime.now(timezone.utc)
+
+            # Query for sector 9999 (character hasn't been there)
+            char_result = await client._request("event.query", {
+                "character_id": char_id,
+                "sector": 9999,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            # Should succeed but return empty
+            assert char_result["success"]
+            assert char_result["count"] == 0, "Should return empty for absent sector"
+
+        finally:
+            await client.close()
+
+    async def test_character_query_requires_character_id(self, server_url):
+        """Test that character query without character_id fails with 403."""
+        client = AsyncGameClient(base_url=server_url, character_id="test_char_requires_id")
+
+        try:
+            start_time = datetime.now(timezone.utc)
+            end_time = datetime.now(timezone.utc)
+
+            # Query without admin_password and without character_id
+            with pytest.raises(RPCError) as exc_info:
+                await client._request("event.query", {
+                    # No admin_password, no character_id
+                    "start": start_time.isoformat(),
+                    "end": end_time.isoformat(),
+                })
+
+            assert exc_info.value.status == 403
+            assert "character_id required" in exc_info.value.detail
+
+        finally:
+            await client.close()
 
 
 # =============================================================================

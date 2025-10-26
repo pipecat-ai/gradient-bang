@@ -210,6 +210,26 @@ TEST_CHARACTER_IDS = [
     "test_concurrent_event2",
     "test_public_event1",
     "test_public_event2",
+    # JSONL audit log test characters (TestJSONLAuditLog)
+    "test_jsonl_logging",
+    "test_jsonl_format",
+    "test_jsonl_parseable",
+    "test_jsonl_append",
+    # Admin query mode test characters (TestAdminQueryMode)
+    "test_admin_query_char1",
+    "test_admin_query_char2",
+    "test_admin_filter_char1",
+    "test_admin_filter_char2",
+    "test_admin_sector_filter",
+    "test_admin_combined",
+    "test_admin_invalid",
+    # Character query mode test characters (TestCharacterQueryMode)
+    "test_char_query_own",
+    "test_char_privacy1",
+    "test_char_privacy2",
+    "test_char_sector_filter",
+    "test_char_empty_sector",
+    "test_char_requires_id",
     # Phase 4: AsyncGameClient test characters (test_async_game_client.py)
     "test_client_connect",
     "test_client_cleanup",
