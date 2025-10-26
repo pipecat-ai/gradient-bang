@@ -43,15 +43,21 @@ def start_test_server(
         "PYTHONUNBUFFERED": "1",  # Ensure output is not buffered
     }
 
-    # Start the server process (suppress output to avoid pipe deadlock)
-    # Output goes to DEVNULL instead of being captured
+    # Start the server process (log output to file for debugging)
+    log_file = project_root / "logs" / f"test-server-{port}.log"
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    log_handle = open(log_file, "w")
+
     process = subprocess.Popen(
         ["uv", "run", "python", "-m", "game-server"],
         cwd=str(project_root),
         env={**subprocess.os.environ, **env},
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=log_handle,
+        stderr=subprocess.STDOUT,  # Merge stderr into stdout
     )
+
+    # Store log handle on process object for cleanup
+    process._log_handle = log_handle
 
     return process
 
@@ -80,6 +86,10 @@ def stop_test_server(process: subprocess.Popen, timeout: float = 5.0) -> None:
         # Force kill if graceful shutdown fails
         process.kill()
         process.wait()
+
+    # Close log file handle if present
+    if hasattr(process, '_log_handle'):
+        process._log_handle.close()
 
 
 async def wait_for_server_ready(url: str, timeout: float = 10.0, process: Optional[subprocess.Popen] = None) -> None:

@@ -14,9 +14,11 @@ from typing import Optional, Dict, Any
 TEST_WORLD_DATA_DIR = Path(__file__).parent.parent / "test-world-data"
 KNOWLEDGE_DIR = TEST_WORLD_DATA_DIR / "character-map-knowledge"
 UNIVERSE_FILE = TEST_WORLD_DATA_DIR / "universe_structure.json"
+SECTOR_CONTENTS_FILE = TEST_WORLD_DATA_DIR / "sector_contents.json"
 
 # Load universe data for adjacent sectors
 _universe_data = None
+_sector_contents_data = None
 
 
 def _get_adjacent_sectors(sector_id: int) -> list[int]:
@@ -32,6 +34,45 @@ def _get_adjacent_sectors(sector_id: int) -> list[int]:
     return []
 
 
+def _get_sector_details(sector_id: int) -> Dict[str, Any]:
+    """Get sector details including port information from sector_contents.json.
+
+    Args:
+        sector_id: Sector ID to query
+
+    Returns:
+        Dict with sector details including port info (if present)
+    """
+    global _sector_contents_data
+    if _sector_contents_data is None:
+        with open(SECTOR_CONTENTS_FILE, "r") as f:
+            _sector_contents_data = json.load(f)
+
+    sector = next(
+        (s for s in _sector_contents_data["sectors"] if s["id"] == sector_id),
+        None
+    )
+
+    if not sector:
+        return {"port": None, "planets": []}
+
+    # Build port info if present
+    port_info = None
+    if sector.get("port"):
+        port_data = sector["port"]
+        port_info = {
+            "class": port_data["class"],
+            "code": port_data["code"],
+            "buys": port_data["buys"],
+            "sells": port_data["sells"],
+        }
+
+    return {
+        "port": port_info,
+        "planets": sector.get("planets", []),
+    }
+
+
 def create_test_character_knowledge(
     character_id: str,
     *,
@@ -44,11 +85,13 @@ def create_test_character_knowledge(
     ship_type: str = "kestrel_courier",
     ship_name: Optional[str] = None,
     sector: int = 0,
+    visited_sectors: Optional[list[int]] = None,
     cargo: Optional[Dict[str, int]] = None,
 ) -> Path:
     """Create a character knowledge file with specific stats.
 
     This allows setting exact fighter/shield counts for predictable combat tests.
+    Optionally pre-populate map knowledge with visited sectors (including ports).
 
     Args:
         character_id: Unique character ID
@@ -61,6 +104,8 @@ def create_test_character_knowledge(
         ship_type: Ship type (e.g., "kestrel_courier")
         ship_name: Custom ship name (optional)
         sector: Starting sector
+        visited_sectors: List of sector IDs to mark as visited (includes ports).
+                        If None, only the starting sector is included.
         cargo: Cargo dict (default: empty)
 
     Returns:
@@ -71,22 +116,32 @@ def create_test_character_knowledge(
 
     now = datetime.now(timezone.utc).isoformat()
 
-    # Get adjacent sectors from universe data
-    adjacent_sectors = _get_adjacent_sectors(sector)
+    # Determine which sectors to include in knowledge
+    if visited_sectors is None:
+        sectors_to_visit = [sector]
+    else:
+        # Ensure starting sector is included
+        sectors_to_visit = list(set(visited_sectors) | {sector})
+
+    # Build sectors_visited dict for all sectors
+    sectors_visited_dict = {}
+    for sector_id in sectors_to_visit:
+        adjacent_sectors = _get_adjacent_sectors(sector_id)
+        sector_details = _get_sector_details(sector_id)
+
+        sectors_visited_dict[str(sector_id)] = {
+            "sector_id": sector_id,
+            "last_visited": now,
+            "port": sector_details["port"],
+            "position": [0, 0],  # Placeholder position
+            "planets": sector_details["planets"],
+            "adjacent_sectors": adjacent_sectors,
+        }
 
     knowledge = {
         "character_id": character_id,
-        "sectors_visited": {
-            str(sector): {
-                "sector_id": sector,
-                "last_visited": now,
-                "port": None,
-                "position": [0, 0],
-                "planets": [],
-                "adjacent_sectors": adjacent_sectors,
-            }
-        },
-        "total_sectors_visited": 1,
+        "sectors_visited": sectors_visited_dict,
+        "total_sectors_visited": len(sectors_visited_dict),
         "first_visit": now,
         "last_update": now,
         "ship_config": {
