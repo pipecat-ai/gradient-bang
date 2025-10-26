@@ -197,10 +197,6 @@ export class GalaxyStarfield {
   private _cloudsShakeStartTime?: number;
   private _isRendering: boolean = false;
 
-  // Scene loading state management
-  private readonly MIN_FLASH_HOLD_TIME = 300;
-  private readonly MAX_FLASH_HOLD_TIME = 5000;
-
   // Warp management
   private warpController: WarpController;
   private sceneController: SceneController;
@@ -249,21 +245,12 @@ export class GalaxyStarfield {
     this.resetNonAnimatedWarpState();
 
     try {
-      await this.sceneController.loadScene(task.preparedConfig ?? null, {
+      await this.sceneController.transitionToScene(task.preparedConfig ?? null, {
         triggerCallbacks: true,
         transition: !task.options.bypassFlash,
       });
 
-      if (this.gameObjectManager) {
-        if (task.gameObjects.length > 0) {
-          const expanded = task.gameObjects.map((base) =>
-            this.gameObjectManager!.generateGameObjectConfig(base)
-          );
-          this.gameObjectManager.setGameObjects(expanded);
-        } else {
-          this.gameObjectManager.destroyAllObjects();
-        }
-      }
+      this.applyGameObjectsToScene(task.gameObjects);
 
       if (
         this.callbacks.onWarpComplete &&
@@ -1135,13 +1122,12 @@ export class GalaxyStarfield {
       }
     }
 
-    const flashElapsedTime =
-      performance.now() - this.sceneController.getFlashHoldStartTime();
-    const minTimeElapsed = flashElapsedTime >= this.MIN_FLASH_HOLD_TIME;
+    const flashHoldStatus = this.sceneController.getFlashHoldStatus();
 
     if (
       currentPhase === "COOLDOWN" &&
-      (!this.sceneController.isSceneReady() || !minTimeElapsed)
+      (!this.sceneController.isSceneReady() ||
+        !flashHoldStatus.meetsMinimumHold)
     ) {
       currentPhase = "FLASH";
       phaseProgress = 0.99;
@@ -1243,25 +1229,19 @@ export class GalaxyStarfield {
         this.camera.position.z = -10 - phaseProgress * 5;
         break;
 
-      case "FLASH":
+      case "FLASH": {
         if (this.whiteFlash) {
           if (!this._warpBypassFlash) {
-            // Check for timeout fallback
-            const flashElapsed =
-              performance.now() - this.sceneController.getFlashHoldStartTime();
-            const hasTimedOut = flashElapsed >= this.MAX_FLASH_HOLD_TIME;
-
-            if (hasTimedOut && !this.sceneController.isSceneReady()) {
+            const holdStatus = this.sceneController.getFlashHoldStatus();
+            if (holdStatus.timedOut && !this.sceneController.isSceneReady()) {
               console.warn("[WARP] Flash hold timeout, forcing progression");
               this.sceneController.markSceneReady();
             }
 
-            // Keep flash visible until scene is ready and minimum time elapsed
-            const flashElapsedTime =
-              performance.now() - this.sceneController.getFlashHoldStartTime();
-            const minTimeElapsed = flashElapsedTime >= this.MIN_FLASH_HOLD_TIME;
-
-            if (!this.sceneController.isSceneReady() || !minTimeElapsed) {
+            if (
+              !this.sceneController.isSceneReady() ||
+              !holdStatus.meetsMinimumHold
+            ) {
               this.whiteFlash.style.opacity = "1.0";
             } else {
               this.whiteFlash.style.opacity = "1.0";
@@ -1274,6 +1254,7 @@ export class GalaxyStarfield {
         this.warpProgress = 1.0;
         this.tunnelEffectValue = 1.0;
         break;
+      }
 
       case "COOLDOWN":
         if (this.whiteFlash) {
@@ -1993,6 +1974,23 @@ export class GalaxyStarfield {
     this.cameraLookAtLock = null;
   }
 
+  private applyGameObjectsToScene(
+    gameObjects: GameObjectBaseConfig[]
+  ): void {
+    if (!this.gameObjectManager) {
+      return;
+    }
+
+    if (gameObjects.length > 0) {
+      const expanded = gameObjects.map((base) =>
+        this.gameObjectManager!.generateGameObjectConfig(base)
+      );
+      this.gameObjectManager.setGameObjects(expanded);
+    } else {
+      this.gameObjectManager.destroyAllObjects();
+    }
+  }
+
   // ============================================================================
   // UTILITY METHODS
   // ============================================================================
@@ -2391,21 +2389,13 @@ export class GalaxyStarfield {
     }
 
     // Load assets and wait for readiness without firing callbacks yet
-    await this.sceneController.loadScene(configToLoad, {
+    await this.sceneController.transitionToScene(configToLoad, {
       triggerCallbacks: false,
       transition: false,
     });
 
     // Expand and set game objects, if provided
-    if (this.gameObjectManager && gameObjects.length > 0) {
-      const expanded = gameObjects.map((base) =>
-        this.gameObjectManager!.generateGameObjectConfig(base)
-      );
-      this.gameObjectManager.setGameObjects(expanded);
-    } else if (this.gameObjectManager && gameObjects.length === 0) {
-      // Ensure no stale objects remain when none are passed
-      this.gameObjectManager.destroyAllObjects();
-    }
+    this.applyGameObjectsToScene(gameObjects);
 
     // Start rendering, ensuring the first frame is drawn
     this.startRendering();

@@ -1,5 +1,5 @@
-import type { SceneManager } from "../managers/SceneManager";
 import type { GalaxyStarfieldConfig } from "../constants";
+import type { SceneManager } from "../managers/SceneManager";
 
 interface SceneControllerHost {
   reloadConfig: (
@@ -20,14 +20,24 @@ interface LoadOptions {
   transition?: boolean;
 }
 
+interface TransitionOptions extends LoadOptions {
+  schedule?: "immediate" | "defer";
+}
+
+export interface FlashHoldStatus {
+  elapsedMs: number;
+  meetsMinimumHold: boolean;
+  timedOut: boolean;
+  remainingToMinimum: number;
+}
+
 export class SceneController {
   private readonly host: SceneControllerHost;
   private sceneReady: boolean = false;
-  private flashHoldStartMs: number = 0;
+  private flashHoldStartMs: number | null = null;
   private sceneSettleStartMs?: number;
   private isFirstRender: boolean = true;
   private lockedConfig: Partial<GalaxyStarfieldConfig> | null = null;
-  private sceneLoadPromise: Promise<void> | null = null;
 
   private readonly SCENE_SETTLE_DURATION = 150;
   private readonly MIN_FLASH_HOLD_TIME = 300;
@@ -46,10 +56,26 @@ export class SceneController {
   }
 
   public getFlashHoldStartTime(): number {
-    return this.flashHoldStartMs;
+    return this.flashHoldStartMs ?? 0;
   }
 
-  public async loadScene(
+  public getFlashHoldStatus(now: number = performance.now()): FlashHoldStatus {
+    return this.calculateFlashHoldStatus(this.flashHoldStartMs, now);
+  }
+
+  public transitionToScene(
+    newConfig: Partial<GalaxyStarfieldConfig> | null,
+    options: TransitionOptions = {}
+  ): Promise<void> {
+    const { schedule = "immediate", ...loadOptions } = options;
+    const operation = () => this.performSceneLoad(newConfig, loadOptions);
+
+    return schedule === "defer"
+      ? this.runDeferred(operation)
+      : operation();
+  }
+
+  private async performSceneLoad(
     newConfig: Partial<GalaxyStarfieldConfig> | null,
     options: LoadOptions = {}
   ): Promise<void> {
@@ -61,69 +87,80 @@ export class SceneController {
       this.host.onSceneLoading();
     }
 
-    const whiteFlash = transition ? this.host.resolveWhiteFlash() : null;
-
-    if (transition && whiteFlash) {
-      whiteFlash.style.opacity = "1.0";
-      await new Promise<void>((resolve) =>
-        requestAnimationFrame(() => resolve())
-      );
-      const flashStartTime = performance.now();
-
-      await this.host.reloadConfig(newConfig);
-      await this.waitForSceneReadyState();
-
-      const flashElapsed = performance.now() - flashStartTime;
-      const minTimeElapsed = flashElapsed >= this.MIN_FLASH_HOLD_TIME;
-      const hasTimedOut = flashElapsed >= this.MAX_FLASH_HOLD_TIME;
-
-      if (!minTimeElapsed && !hasTimedOut) {
-        const remainingTime = this.MIN_FLASH_HOLD_TIME - flashElapsed;
-        await new Promise((resolve) => setTimeout(resolve, remainingTime));
-      }
-
-      if (hasTimedOut) {
-        console.warn("[TRANSITION] Flash hold timeout, forcing progression");
-      }
-
-      await this.fadeOutWhiteFlash(whiteFlash, 200);
-    } else {
-      await this.host.reloadConfig(newConfig);
-      await this.waitForSceneReadyState();
-    }
-
-    if (triggerCallbacks) {
-      this.host.onSceneReady(this.isFirstRender, this.host.getCurrentSceneId());
-      this.isFirstRender = false;
-    }
-  }
-
-  public enterFlashPhase(): void {
-    this.flashHoldStartMs = performance.now();
-    this.sceneReady = false;
-    this.host.onSceneLoading();
-
     const wasRendering = this.host.suspendRendering();
-    this.sceneLoadPromise = this.createNewScene()
-      .then(() => {
+    let renderingResumed = false;
+    const resumeRendering = () => {
+      if (!renderingResumed) {
+        this.host.resumeRendering(wasRendering);
+        renderingResumed = true;
+      }
+    };
+    try {
+      const whiteFlash = transition ? this.host.resolveWhiteFlash() : null;
+
+      if (transition && whiteFlash) {
+        whiteFlash.style.opacity = "1.0";
+        const flashStartTime = performance.now();
+
+        await this.host.reloadConfig(newConfig);
+        await this.waitForSceneReadyState();
+        resumeRendering();
+
+        const holdStatus = this.calculateFlashHoldStatus(flashStartTime);
+        if (!holdStatus.meetsMinimumHold && !holdStatus.timedOut) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, holdStatus.remainingToMinimum)
+          );
+        }
+
+        if (holdStatus.timedOut) {
+          console.warn("[TRANSITION] Flash hold timeout, forcing progression");
+        }
+
+        await this.fadeOutWhiteFlash(whiteFlash, 200);
+      } else {
+        await this.host.reloadConfig(newConfig);
+        await this.waitForSceneReadyState();
+        resumeRendering();
+      }
+
+      if (triggerCallbacks) {
         this.host.onSceneReady(
           this.isFirstRender,
           this.host.getCurrentSceneId()
         );
         this.isFirstRender = false;
-      })
-      .catch((err) => {
-        console.error("[STARFIELD] WARP: Scene loading failed:", err);
-        this.sceneReady = true;
-      })
-      .finally(() => {
-        this.host.resumeRendering(wasRendering);
-      });
-
-    void this.sceneLoadPromise;
+      }
+    } finally {
+      resumeRendering();
+    }
   }
 
-  public async createNewScene(): Promise<void> {
+  public async enterFlashPhase(): Promise<void> {
+    this.flashHoldStartMs = performance.now();
+    this.sceneReady = false;
+    this.host.onSceneLoading();
+
+    let whiteFlash = this.host.resolveWhiteFlash();
+
+    try {
+      if (!whiteFlash) {
+        whiteFlash = this.host.resolveWhiteFlash();
+      }
+      if (whiteFlash) {
+        whiteFlash.style.opacity = "1.0";
+      }
+
+      await this.createNewSceneInternal("defer");
+    } catch (error) {
+      console.error("[STARFIELD] Failed to enter flash phase:", error);
+      this.sceneReady = true;
+    }
+  }
+
+  private async createNewSceneInternal(
+    schedule: "immediate" | "defer" = "immediate"
+  ): Promise<void> {
     const sceneManager = this.host.getSceneManager();
     if (!sceneManager) {
       console.warn("[STARFIELD] SceneManager not available");
@@ -138,11 +175,18 @@ export class SceneController {
       newConfig = sceneManager.create(this.host.getCurrentConfig());
     }
 
-    await this.loadScene(newConfig, { triggerCallbacks: false, transition: false });
+    await this.transitionToScene(newConfig, {
+      triggerCallbacks: false,
+      transition: false,
+      schedule,
+    });
+  }
+
+  public async createNewScene(): Promise<void> {
+    await this.createNewSceneInternal();
   }
 
   public dispose(): void {
-    this.sceneLoadPromise = null;
     this.lockedConfig = null;
     this.sceneReady = false;
   }
@@ -151,12 +195,38 @@ export class SceneController {
     this.sceneReady = true;
   }
 
+  private calculateFlashHoldStatus(
+    startTime: number | null,
+    now: number = performance.now()
+  ): FlashHoldStatus {
+    if (startTime === null) {
+      return {
+        elapsedMs: 0,
+        meetsMinimumHold: false,
+        timedOut: false,
+        remainingToMinimum: this.MIN_FLASH_HOLD_TIME,
+      };
+    }
+
+    const elapsedMs = Math.max(0, now - startTime);
+    return {
+      elapsedMs,
+      meetsMinimumHold: elapsedMs >= this.MIN_FLASH_HOLD_TIME,
+      timedOut: elapsedMs >= this.MAX_FLASH_HOLD_TIME,
+      remainingToMinimum: Math.max(
+        0,
+        this.MIN_FLASH_HOLD_TIME - elapsedMs
+      ),
+    };
+  }
+
   private async waitForSceneReadyState(): Promise<void> {
     this.sceneSettleStartMs = performance.now();
 
     await new Promise<void>((resolve) => {
       const checkSettling = () => {
-        const settleElapsed = performance.now() - (this.sceneSettleStartMs || 0);
+        const settleElapsed =
+          performance.now() - (this.sceneSettleStartMs || 0);
         if (settleElapsed >= this.SCENE_SETTLE_DURATION) {
           resolve();
         } else {
@@ -194,6 +264,14 @@ export class SceneController {
         }
       };
       fadeOut();
+    });
+  }
+
+  private runDeferred<T>(operation: () => Promise<T>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      window.setTimeout(() => {
+        operation().then(resolve).catch(reject);
+      }, 0);
     });
   }
 }
