@@ -1,4 +1,15 @@
 
+Fix shape of credits
+  - should credits go in ship or character? ship, maybe.
+  - credits_in_bank go in character?
+
+We'll have to prompt Claude to change all summary code and test code.
+
+----
+
+Look at server returing 500 instead of 400 for insufficient cargo. See if there are other instances of this.
+----
+
 gb-1025
   - bank
     - lightly tested
@@ -8,6 +19,8 @@ gb-1025
     - need to test with three players in the sector
   - cargo dumped as salvage
     - not tested
+
+----
 
 todo:
   - fix issues lower down

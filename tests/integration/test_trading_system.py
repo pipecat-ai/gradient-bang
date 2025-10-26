@@ -415,12 +415,12 @@ class TestInventoryManagement:
         # Get initial state
         status_before = await get_status(client, char_id)
         credits_before = status_before["player"]["credits_on_hand"]
-        cargo_before = status_before["player"].get("cargo", {})
+        cargo_before = status_before["ship"]["cargo"]
 
         try:
-            # Buy commodity
+            # Buy commodity (neuro_symbolics is sold at sector 1 port BBS)
             result = await client.trade(
-                commodity="quantum_foam",
+                commodity="neuro_symbolics",
                 quantity=5,
                 trade_type="buy",
                 character_id=char_id
@@ -430,15 +430,15 @@ class TestInventoryManagement:
                 # Get final state
                 status_after = await get_status(client, char_id)
                 credits_after = status_after["player"]["credits_on_hand"]
-                cargo_after = status_after["player"].get("cargo", {})
+                cargo_after = status_after["ship"]["cargo"]
 
                 # Verify credits decreased
                 assert credits_after < credits_before
 
                 # Verify cargo increased
-                cargo_quantum_before = cargo_before.get("quantum_foam", 0)
-                cargo_quantum_after = cargo_after.get("quantum_foam", 0)
-                assert cargo_quantum_after > cargo_quantum_before
+                cargo_ns_before = cargo_before.get("neuro_symbolics", 0)
+                cargo_ns_after = cargo_after.get("neuro_symbolics", 0)
+                assert cargo_ns_after > cargo_ns_before
 
         except RPCError:
             pytest.skip("Trade not available at this port")
@@ -503,9 +503,9 @@ class TestInventoryManagement:
         status_before = await get_status(client, char_id)
 
         try:
-            # Execute trade
+            # Execute trade (neuro_symbolics is sold at sector 1 port BBS)
             await client.trade(
-                commodity="quantum_foam",
+                commodity="neuro_symbolics",
                 quantity=1,
                 trade_type="buy",
                 character_id=char_id
@@ -515,8 +515,8 @@ class TestInventoryManagement:
             status_after = await get_status(client, char_id)
 
             # Verify all fields are present and valid
-            assert "credits" in status_after["player"]
-            assert "cargo" in status_after["player"]
+            assert "credits_on_hand" in status_after["player"]
+            assert "cargo" in status_after["ship"]
             assert status_after["player"]["credits_on_hand"] >= 0
 
         except RPCError:
@@ -618,9 +618,9 @@ class TestTradeEvents:
             await asyncio.sleep(0.5)
 
             try:
-                # Execute buy
+                # Execute buy (neuro_symbolics is sold at sector 1 port BBS)
                 result = await client.trade(
-                    commodity="quantum_foam",
+                    commodity="neuro_symbolics",
                     quantity=5,
                     trade_type="buy",
                     character_id=char_id
@@ -634,14 +634,42 @@ class TestTradeEvents:
 
                     # Verify event has trade details
                     payload = trade_event.get("payload", {})
-                    assert "commodity" in payload or "trade_type" in payload
+                    trade_details = payload.get("trade", {})
+                    assert "commodity" in trade_details or len(trade_details) > 0
 
             except RPCError:
                 pytest.skip("Trade not available")
 
     async def test_trade_event_emitted_on_sell(self, trader_with_cargo, server_url):
-        """Test that trade.completed event is emitted on sell."""
-        pytest.skip("Requires cargo setup first")
+        """Test that trade.executed event is emitted on sell."""
+        client = trader_with_cargo["client"]
+        char_id = trader_with_cargo["character_id"]
+
+        async with create_firehose_listener(server_url, char_id) as listener:
+            await asyncio.sleep(0.5)
+
+            try:
+                # Execute sell (quantum_foam - port BBS at sector 1 buys it)
+                result = await client.trade(
+                    commodity="quantum_foam",
+                    quantity=10,
+                    trade_type="sell",
+                    character_id=char_id
+                )
+
+                if result.get("success"):
+                    await asyncio.sleep(1.0)
+
+                    # Verify event emitted
+                    trade_event = assert_event_emitted(listener.events, "trade.executed")
+
+                    # Verify event has trade details
+                    payload = trade_event.get("payload", {})
+                    trade_details = payload.get("trade", {})
+                    assert "commodity" in trade_details or len(trade_details) > 0
+
+            except RPCError:
+                pytest.skip("Trade not available")
 
     async def test_trade_event_contains_pricing_info(self, trader_at_port, server_url):
         """Test that trade events include price information."""
@@ -652,8 +680,9 @@ class TestTradeEvents:
             await asyncio.sleep(0.5)
 
             try:
+                # Buy commodity (neuro_symbolics is sold at sector 1 port BBS)
                 result = await client.trade(
-                    commodity="quantum_foam",
+                    commodity="neuro_symbolics",
                     quantity=1,
                     trade_type="buy",
                     character_id=char_id
