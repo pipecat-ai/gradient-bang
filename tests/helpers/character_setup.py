@@ -167,6 +167,32 @@ TEST_CHARACTER_IDS = [
     "test_stress_combat_1",
     "test_stress_corruption_0",
     "test_stress_corruption_1",
+    # Persistence test characters (test_persistence.py)
+    "test_persistence_client",
+    "test_persistence_char1",
+    "test_persistence_multi1",
+    "test_persistence_multi2",
+    "test_persistence_attacker",
+    "test_persistence_defender",
+    "test_persistence_garrison2",
+    "test_persistence_garrison_owner",
+    "test_persistence_newcomer",
+    "test_persistence_flee_attacker",
+    "test_persistence_flee_defender",
+    "test_persistence_flee_attacker2",
+    "test_persistence_flee_defender2",
+    "test_reset_runner",
+    # Trading system test characters
+    "test_trading_client",
+    "test_concurrent_trader1",
+    "test_concurrent_trader2",
+    "test_hyperspace_trader",
+    "test_trader_no_port",
+    # Event system test characters
+    "test_concurrent_event1",
+    "test_concurrent_event2",
+    "test_public_event1",
+    "test_public_event2",
 ]
 
 
@@ -198,8 +224,38 @@ def register_all_test_characters(world_data_dir: str = "tests/test-world-data") 
             "characters": {}
         }
 
-    # Add all test characters
+    # Add all test characters from the list
     for character_id in TEST_CHARACTER_IDS:
+        if character_id not in data["characters"]:
+            data["characters"][character_id] = {
+                "name": character_id,
+                "email": f"{character_id}@test.com",
+                "password_hash": ""
+            }
+
+    # Add stress test characters (ranges)
+    # These are created dynamically by stress tests
+    stress_patterns = [
+        ("test_stress_move_", 50),      # test_50_concurrent_moves
+        ("test_stress_trade_", 50),     # test_50_concurrent_trades_at_same_port
+        ("test_stress_combat_", 20),    # test_10_concurrent_combat_sessions (20 chars, 10 pairs)
+        ("test_stress_mixed_", 50),     # test_concurrent_mixed_operations
+        ("test_stress_rapid_", 5),      # Additional stress test chars
+    ]
+
+    for prefix, count in stress_patterns:
+        for i in range(count):
+            character_id = f"{prefix}{i}"
+            if character_id not in data["characters"]:
+                data["characters"][character_id] = {
+                    "name": character_id,
+                    "email": f"{character_id}@test.com",
+                    "password_hash": ""
+                }
+
+    # Add event system test characters that create multiple chars dynamically
+    for i in range(10):  # Support up to 10 dynamic event test characters
+        character_id = f"test_event_char_{i}"
         if character_id not in data["characters"]:
             data["characters"][character_id] = {
                 "name": character_id,

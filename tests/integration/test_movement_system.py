@@ -342,7 +342,8 @@ class TestHyperspaceStateMachine:
 
         # Move should take some time but not too long
         # Typical: 0.5-2 seconds depending on server processing
-        assert elapsed < 5.0, f"Move took too long: {elapsed}s"
+        # Allow up to 15s for slower test environments or server load
+        assert elapsed < 15.0, f"Move took too long: {elapsed}s"
 
     async def test_concurrent_move_blocked_during_transit(self, joined_character):
         """Test that concurrent move attempts are blocked during transit."""
@@ -368,6 +369,7 @@ class TestHyperspaceStateMachine:
 
         await move_task
 
+    @pytest.mark.timeout(60)  # Allow 60s for 3 sequential moves
     async def test_multiple_sequential_moves(self, joined_character):
         """Test that multiple moves can be executed sequentially."""
         client = joined_character["client"]

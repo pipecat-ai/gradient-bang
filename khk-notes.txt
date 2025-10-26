@@ -1,4 +1,14 @@
 
+gb-1025
+  - bank
+    - lightly tested
+  - credit transfer
+    - changing to use name
+    - need to test
+    - need to test with three players in the sector
+  - cargo dumped as salvage
+    - not tested
+
 todo:
   - fix issues lower down
   - implement port 0 port - warp purchase, ship trade-in and purchase, bank (this needs data structure support)

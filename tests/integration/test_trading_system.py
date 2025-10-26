@@ -73,7 +73,8 @@ async def get_status(client, character_id):
 @pytest.fixture
 async def client(server_url, check_server_available):
     """Create an AsyncGameClient connected to test server."""
-    async with AsyncGameClient(base_url=server_url) as client:
+    char_id = "test_trading_client"
+    async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
         yield client
 
 
@@ -243,25 +244,30 @@ class TestTradeOperations:
         # Should get error about insufficient cargo
         assert exc_info.value.status in [400, 422]
 
-    async def test_trade_at_non_port_sector_fails(self, client):
+    async def test_trade_at_non_port_sector_fails(self, server_url):
         """Test that trading at a non-port sector fails."""
         char_id = "test_trader_no_port"
-        await client.join(character_id=char_id)
+        client = AsyncGameClient(base_url=server_url, character_id=char_id)
 
-        # Ensure we're not at a port (sector 0 typically isn't a port)
-        status = await get_status(client, char_id)
+        try:
+            await client.join(character_id=char_id)
 
-        # Try to trade
-        with pytest.raises(RPCError) as exc_info:
-            await client.trade(
-                commodity="quantum_foam",
-                quantity=10,
-                trade_type="buy",
-                character_id=char_id
-            )
+            # Ensure we're not at a port (sector 0 typically isn't a port)
+            status = await get_status(client, char_id)
 
-        # Should fail with appropriate error
-        assert exc_info.value.status in [400, 422]
+            # Try to trade
+            with pytest.raises(RPCError) as exc_info:
+                await client.trade(
+                    commodity="quantum_foam",
+                    quantity=10,
+                    trade_type="buy",
+                    character_id=char_id
+                )
+
+            # Should fail with appropriate error
+            assert exc_info.value.status in [400, 422]
+        finally:
+            await client.close()
 
     async def test_trade_exceeds_cargo_hold_fails(self, trader_at_port):
         """Test that buying more than cargo hold capacity fails."""
@@ -422,19 +428,10 @@ class TestAtomicityAndConcurrency:
         # This would require inducing a failure mid-transaction
         pytest.skip("Requires ability to induce transaction failures")
 
-    async def test_concurrent_trades_at_same_port_serialized(self, client, server_url):
+    async def test_concurrent_trades_at_same_port_serialized(self, server_url):
         """Test that concurrent trades at the same port are properly serialized."""
-        # Create two characters at same port
-        char1 = "test_concurrent_trader1"
-        char2 = "test_concurrent_trader2"
-
-        await client.join(character_id=char1)
-
-        async with AsyncGameClient(base_url=server_url) as client2:
-            await client2.join(character_id=char2)
-
-            # Both need to be at same port - complex setup
-            pytest.skip("Requires complex multi-character port setup")
+        # This test is complex and skipped for now
+        pytest.skip("Requires complex multi-character port setup")
 
     async def test_port_lock_prevents_race_condition(self, trader_at_port):
         """Test that port locks prevent inventory corruption."""
@@ -618,33 +615,38 @@ class TestTradeEdgeCases:
                 character_id=char_id
             )
 
-    async def test_trade_while_in_hyperspace_fails(self, client):
+    async def test_trade_while_in_hyperspace_fails(self, server_url):
         """Test that trading while in hyperspace is blocked."""
         char_id = "test_hyperspace_trader"
-        await client.join(character_id=char_id)
+        client = AsyncGameClient(base_url=server_url, character_id=char_id)
 
-        # Get adjacent sector
-        status = await get_status(client, char_id)
-        adjacent = status["sector"]["adjacent_sectors"]
+        try:
+            await client.join(character_id=char_id)
 
-        if not adjacent:
-            pytest.skip("No adjacent sectors for move")
+            # Get adjacent sector
+            status = await get_status(client, char_id)
+            adjacent = status["sector"]["adjacent_sectors"]
 
-        # Start move (puts character in hyperspace)
-        move_task = asyncio.create_task(
-            client.move(to_sector=adjacent[0], character_id=char_id)
-        )
+            if not adjacent:
+                pytest.skip("No adjacent sectors for move")
 
-        await asyncio.sleep(0.1)  # Let move start
-
-        # Try to trade while in hyperspace
-        with pytest.raises(RPCError):
-            await client.trade(
-                commodity="quantum_foam",
-                quantity=10,
-                trade_type="buy",
-                character_id=char_id
+            # Start move (puts character in hyperspace)
+            move_task = asyncio.create_task(
+                client.move(to_sector=adjacent[0], character_id=char_id)
             )
 
-        # Complete move
-        await move_task
+            await asyncio.sleep(0.1)  # Let move start
+
+            # Try to trade while in hyperspace
+            with pytest.raises(RPCError):
+                await client.trade(
+                    commodity="quantum_foam",
+                    quantity=10,
+                    trade_type="buy",
+                    character_id=char_id
+                )
+
+            # Wait for move to complete
+            await move_task
+        finally:
+            await client.close()
