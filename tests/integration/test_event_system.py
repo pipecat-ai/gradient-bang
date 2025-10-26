@@ -351,30 +351,595 @@ class TestEventOrdering:
 class TestCharacterFiltering:
     """Tests for event privacy and filtering (WHO gets WHAT)."""
 
-    async def test_private_events_only_to_character(self):
-        """Test that private events (trade, inventory, credits) only go to character."""
-        pytest.skip("Requires character-specific event stream implementation")
+    async def test_private_events_only_to_character(self, server_url):
+        """Test that private events (status.snapshot) only go to the requesting character.
+
+        Scenario:
+        1. Character 1 and Character 2 both call my_status()
+        2. Character 1 should ONLY receive their own status.snapshot event
+        3. Character 2 should ONLY receive their own status.snapshot event
+        4. JSONL queries should confirm proper filtering
+        """
+        char1_id = "test_private_char1"
+        char2_id = "test_private_char2"
+
+        print(f"\n{'='*80}")
+        print(f"STARTING PRIVATE EVENTS TEST")
+        print(f"Character 1: {char1_id}")
+        print(f"Character 2: {char2_id}")
+        print(f"{'='*80}\n")
+
+        # Create AsyncGameClients with WebSocket transport
+        client1 = AsyncGameClient(base_url=server_url, character_id=char1_id, transport="websocket")
+        client2 = AsyncGameClient(base_url=server_url, character_id=char2_id, transport="websocket")
+
+        # Event collectors for status.snapshot events
+        events_char1 = []
+        events_char2 = []
+
+        # Register event handlers
+        client1.on("status.snapshot")(lambda p: events_char1.append({"event": "status.snapshot", "payload": p}))
+        client2.on("status.snapshot")(lambda p: events_char2.append({"event": "status.snapshot", "payload": p}))
+
+        try:
+            # STEP 1: Both characters join
+            print("STEP 1: Both characters join...")
+            await client1.join(character_id=char1_id)
+            await client2.join(character_id=char2_id)
+            await asyncio.sleep(0.5)
+
+            # Clear any join-related status events
+            events_char1.clear()
+            events_char2.clear()
+
+            # Record start time
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # STEP 2: Character 1 calls my_status
+            print("\nSTEP 2: Character 1 calls my_status()...")
+            await client1.my_status(character_id=char1_id)
+            await asyncio.sleep(0.5)
+
+            # STEP 3: Character 2 calls my_status
+            print("STEP 3: Character 2 calls my_status()...")
+            await client2.my_status(character_id=char2_id)
+            await asyncio.sleep(0.5)
+
+            end_time = datetime.now(timezone.utc)
+
+            # STEP 4: Verify WebSocket reception
+            print("\nSTEP 4: Verifying WebSocket event reception...")
+            print(f"  Character 1 received {len(events_char1)} status.snapshot events")
+            print(f"  Character 2 received {len(events_char2)} status.snapshot events")
+
+            # Each character should have received exactly 1 status.snapshot (their own)
+            assert len(events_char1) >= 1, "Character 1 should receive status.snapshot"
+            assert len(events_char2) >= 1, "Character 2 should receive status.snapshot"
+
+            # Verify the events are for the correct character
+            for event in events_char1:
+                # The event structure is: {"event": "status.snapshot", "payload": <what handler received>}
+                # The handler receives the full event payload which may have nested structure
+                outer_payload = event.get("payload", {})
+                # The actual data is likely in outer_payload["payload"]
+                actual_payload = outer_payload.get("payload", outer_payload)
+
+                # Try multiple ways to extract character_id from payload
+                char_id = (
+                    actual_payload.get("character_id") or
+                    actual_payload.get("player", {}).get("id") or
+                    actual_payload.get("player", {}).get("character_id")
+                )
+                assert char_id == char1_id, f"Character 1 should only see their own status, got {char_id}"
+
+            for event in events_char2:
+                outer_payload = event.get("payload", {})
+                actual_payload = outer_payload.get("payload", outer_payload)
+
+                char_id = (
+                    actual_payload.get("character_id") or
+                    actual_payload.get("player", {}).get("id") or
+                    actual_payload.get("player", {}).get("character_id")
+                )
+                assert char_id == char2_id, f"Character 2 should only see their own status, got {char_id}"
+
+            print("  ✓ Each character only received their own status events via WebSocket")
+
+            # STEP 5: Verify JSONL filtering
+            print("\nSTEP 5: Verifying JSONL event filtering...")
+
+            # Character 1 queries their events
+            char1_result = await client1._request("event.query", {
+                "character_id": char1_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            # Character 2 queries their events
+            char2_result = await client2._request("event.query", {
+                "character_id": char2_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            print(f"  Character 1 query returned {char1_result['count']} events")
+            print(f"  Character 2 query returned {char2_result['count']} events")
+
+            # Find status.snapshot events in JSONL
+            char1_status_events = [e for e in char1_result["events"] if e.get("event") == "status.snapshot"]
+            char2_status_events = [e for e in char2_result["events"] if e.get("event") == "status.snapshot"]
+
+            assert len(char1_status_events) >= 1, "Character 1 should find their status.snapshot in JSONL"
+            assert len(char2_status_events) >= 1, "Character 2 should find their status.snapshot in JSONL"
+
+            # Verify no cross-contamination in JSONL
+            for event in char1_status_events:
+                # Event should involve char1 (as sender or receiver)
+                sender = event.get("sender")
+                receiver = event.get("receiver")
+                assert sender == char1_id or receiver == char1_id, \
+                    f"Character 1 query should only return events involving char1, got sender={sender}, receiver={receiver}"
+
+            for event in char2_status_events:
+                # Event should involve char2 (as sender or receiver)
+                sender = event.get("sender")
+                receiver = event.get("receiver")
+                assert sender == char2_id or receiver == char2_id, \
+                    f"Character 2 query should only return events involving char2, got sender={sender}, receiver={receiver}"
+
+            print("  ✓ JSONL properly filters events per character")
+
+            print("\n" + "="*80)
+            print("✅ PRIVATE EVENTS TEST PASSED!")
+            print("="*80)
+
+        finally:
+            await client1.close()
+            await client2.close()
 
     async def test_public_events_to_all_in_sector(self, server_url):
-        """Test that public events (movement in same sector) broadcast to all."""
-        # NOTE: This test had a NameError bug (undefined char_id) introduced in commit 44b47c0.
-        # After fixing the bug, the test still fails because the firehose listener without
-        # a character_id doesn't receive events. This suggests the underlying event system
-        # may have changed to require character identification for event delivery.
-        # Skipping until cross-character event visibility is properly implemented.
-        pytest.skip("Firehose requires character_id; cross-character event visibility not yet implemented")
+        """Test that public events (character.moved) are visible to all characters in the sector.
+
+        Scenario:
+        1. Character 1, 2, and 3 are all in the same sector
+        2. Character 1 moves out and back into the sector
+        3. All 3 characters should receive the character.moved event
+        4. JSONL queries should confirm all characters saw the event
+        """
+        char1_id = "test_public_char1"
+        char2_id = "test_public_char2"
+        char3_id = "test_public_char3"
+
+        print(f"\n{'='*80}")
+        print(f"STARTING PUBLIC EVENTS TEST")
+        print(f"Character 1 (mover): {char1_id}")
+        print(f"Character 2 (observer): {char2_id}")
+        print(f"Character 3 (observer): {char3_id}")
+        print(f"{'='*80}\n")
+
+        # Create AsyncGameClients with WebSocket transport
+        client1 = AsyncGameClient(base_url=server_url, character_id=char1_id, transport="websocket")
+        client2 = AsyncGameClient(base_url=server_url, character_id=char2_id, transport="websocket")
+        client3 = AsyncGameClient(base_url=server_url, character_id=char3_id, transport="websocket")
+
+        # Event collectors for character.moved events
+        events_char1 = []
+        events_char2 = []
+        events_char3 = []
+
+        # Register event handlers
+        client1.on("character.moved")(lambda p: events_char1.append({"event": "character.moved", "payload": p}))
+        client2.on("character.moved")(lambda p: events_char2.append({"event": "character.moved", "payload": p}))
+        client3.on("character.moved")(lambda p: events_char3.append({"event": "character.moved", "payload": p}))
+
+        try:
+            # STEP 1: All characters join
+            print("STEP 1: All characters join...")
+            await client1.join(character_id=char1_id)
+            await client2.join(character_id=char2_id)
+            await client3.join(character_id=char3_id)
+            await asyncio.sleep(0.5)
+
+            # STEP 2: Position all characters in the same sector
+            print("\nSTEP 2: Positioning all characters in same sector...")
+            status1 = await get_status(client1, char1_id)
+            status2 = await get_status(client2, char2_id)
+            status3 = await get_status(client3, char3_id)
+
+            sector1 = status1["sector"]["id"]
+            sector2 = status2["sector"]["id"]
+            sector3 = status3["sector"]["id"]
+
+            print(f"  Character 1 in sector {sector1}")
+            print(f"  Character 2 in sector {sector2}")
+            print(f"  Character 3 in sector {sector3}")
+
+            # Move character 2 to character 1's sector if needed
+            if sector2 != sector1:
+                result = await client2.plot_course(from_sector=sector2, to_sector=sector1)
+                if result.get("success") and result.get("path"):
+                    for next_sector in result["path"][1:]:
+                        await client2.move(to_sector=next_sector, character_id=char2_id)
+                        await asyncio.sleep(0.2)
+                else:
+                    pytest.skip("Cannot move character 2 to character 1's sector")
+
+            # Move character 3 to character 1's sector if needed
+            if sector3 != sector1:
+                result = await client3.plot_course(from_sector=sector3, to_sector=sector1)
+                if result.get("success") and result.get("path"):
+                    for next_sector in result["path"][1:]:
+                        await client3.move(to_sector=next_sector, character_id=char3_id)
+                        await asyncio.sleep(0.2)
+                else:
+                    pytest.skip("Cannot move character 3 to character 1's sector")
+
+            # Verify all in same sector
+            status1 = await get_status(client1, char1_id)
+            status2 = await get_status(client2, char2_id)
+            status3 = await get_status(client3, char3_id)
+
+            shared_sector = status1["sector"]["id"]
+            if status2["sector"]["id"] != shared_sector or status3["sector"]["id"] != shared_sector:
+                pytest.skip("Could not position all characters in same sector")
+
+            print(f"  ✓ All characters now in sector {shared_sector}")
+
+            # Clear any movement events from positioning
+            events_char1.clear()
+            events_char2.clear()
+            events_char3.clear()
+
+            # Record start time
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # STEP 3: Character 1 moves out and back
+            print(f"\nSTEP 3: Character 1 moves out and back into sector {shared_sector}...")
+            adjacent = status1["sector"]["adjacent_sectors"]
+            if not adjacent:
+                pytest.skip("No adjacent sectors for movement")
+
+            temp_sector = adjacent[0]
+            print(f"  Moving to temporary sector {temp_sector}")
+            await client1.move(to_sector=temp_sector, character_id=char1_id)
+            await asyncio.sleep(0.5)
+
+            print(f"  Moving back to sector {shared_sector}")
+            await client1.move(to_sector=shared_sector, character_id=char1_id)
+            await asyncio.sleep(2.0)
+
+            end_time = datetime.now(timezone.utc)
+
+            # STEP 4: Verify all characters received the movement events
+            print("\nSTEP 4: Verifying WebSocket event reception...")
+            print(f"  Character 1 received {len(events_char1)} character.moved events")
+            print(f"  Character 2 received {len(events_char2)} character.moved events")
+            print(f"  Character 3 received {len(events_char3)} character.moved events")
+
+            # All characters should see the movement (public event)
+            # Character 1's return to the shared sector should be visible to all
+            assert len(events_char2) > 0, "Character 2 should receive character.moved events (public visibility)"
+            assert len(events_char3) > 0, "Character 3 should receive character.moved events (public visibility)"
+
+            print("  ✓ All observers received character.moved events via WebSocket")
+
+            # STEP 5: Verify JSONL contains the events for all characters
+            print("\nSTEP 5: Verifying JSONL event visibility...")
+
+            char2_result = await client2._request("event.query", {
+                "character_id": char2_id,
+                "sector": shared_sector,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            char3_result = await client3._request("event.query", {
+                "character_id": char3_id,
+                "sector": shared_sector,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            char2_moved_events = [e for e in char2_result["events"] if e.get("event") == "character.moved"]
+            char3_moved_events = [e for e in char3_result["events"] if e.get("event") == "character.moved"]
+
+            assert len(char2_moved_events) > 0, "Character 2 should find character.moved in JSONL"
+            assert len(char3_moved_events) > 0, "Character 3 should find character.moved in JSONL"
+
+            print(f"  Character 2 found {len(char2_moved_events)} character.moved events in JSONL")
+            print(f"  Character 3 found {len(char3_moved_events)} character.moved events in JSONL")
+            print("  ✓ JSONL shows public events are visible to all sector occupants")
+
+            print("\n" + "="*80)
+            print("✅ PUBLIC EVENTS TEST PASSED!")
+            print("="*80)
+
+        finally:
+            await client1.close()
+            await client2.close()
+            await client3.close()
 
     async def test_combat_events_to_participants_only(self):
         """Test that combat round events only go to participants."""
         pytest.skip("Requires combat scenario with multiple participants")
 
-    async def test_trade_events_private_to_trader(self):
-        """Test that trade completion events are private to the trader."""
-        pytest.skip("Requires character-specific filtering")
+    async def test_trade_events_private_to_trader(self, server_url):
+        """Test that trade.executed events are private to the trader.
 
-    async def test_message_events_to_recipient_and_sender(self):
-        """Test that private messages only go to sender and recipient."""
-        pytest.skip("Requires private messaging and filtering")
+        Scenario:
+        1. Trader and Observer are both at a port (same sector)
+        2. Trader executes a trade
+        3. Trader should receive trade.executed event
+        4. Observer should NOT receive the trade event (private transaction)
+        5. JSONL queries should confirm filtering
+        """
+        trader_id = "test_trade_trader"
+        observer_id = "test_trade_observer"
+
+        print(f"\n{'='*80}")
+        print(f"STARTING TRADE PRIVACY TEST")
+        print(f"Trader: {trader_id}")
+        print(f"Observer: {observer_id}")
+        print(f"{'='*80}\n")
+
+        # Create AsyncGameClients with WebSocket transport
+        trader_client = AsyncGameClient(base_url=server_url, character_id=trader_id, transport="websocket")
+        observer_client = AsyncGameClient(base_url=server_url, character_id=observer_id, transport="websocket")
+
+        # Event collectors for trade.executed events
+        trader_events = []
+        observer_events = []
+
+        # Register event handlers
+        trader_client.on("trade.executed")(lambda p: trader_events.append({"event": "trade.executed", "payload": p}))
+        observer_client.on("trade.executed")(lambda p: observer_events.append({"event": "trade.executed", "payload": p}))
+
+        try:
+            # STEP 1: Both characters join
+            print("STEP 1: Both characters join...")
+            await trader_client.join(character_id=trader_id)
+            await observer_client.join(character_id=observer_id)
+            await asyncio.sleep(0.5)
+
+            # STEP 2: Position both characters at sector 1 (which has a port in test world)
+            print("\nSTEP 2: Positioning both characters at sector 1 (port location)...")
+            trader_status = await get_status(trader_client, trader_id)
+            current_sector = trader_status["sector"]["id"]
+
+            # Sector 1 has a port in test world (sells neuro_symbolics)
+            # Sector 0 and 1 are connected (two-way), so direct movement works
+            port_sector = 1
+            print(f"  Using sector {port_sector} (known port location)")
+
+            # Move trader to port if needed (sector 0 -> sector 1)
+            if current_sector != port_sector:
+                print(f"  Moving trader from sector {current_sector} to sector {port_sector}...")
+                await trader_client.move(to_sector=port_sector, character_id=trader_id)
+                await asyncio.sleep(0.5)
+
+            # Move observer to same sector
+            observer_status = await get_status(observer_client, observer_id)
+            observer_sector = observer_status["sector"]["id"]
+
+            if observer_sector != port_sector:
+                print(f"  Moving observer from sector {observer_sector} to sector {port_sector}...")
+                await observer_client.move(to_sector=port_sector, character_id=observer_id)
+                await asyncio.sleep(0.5)
+
+            # Verify both at port
+            trader_status = await get_status(trader_client, trader_id)
+            observer_status = await get_status(observer_client, observer_id)
+
+            if trader_status["sector"]["id"] != port_sector or observer_status["sector"]["id"] != port_sector:
+                pytest.skip("Could not position both characters at port")
+
+            print(f"  ✓ Both characters at port in sector {port_sector}")
+
+            # Record start time
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # STEP 3: Trader executes a trade
+            print(f"\nSTEP 3: Trader executes a buy trade...")
+            try:
+                # Sector 1 port sells neuro_symbolics
+                await trader_client.trade(
+                    commodity="neuro_symbolics",
+                    quantity=1,
+                    trade_type="buy",
+                    character_id=trader_id
+                )
+                await asyncio.sleep(1.0)
+            except Exception as e:
+                pytest.skip(f"Trade failed: {e}")
+
+            end_time = datetime.now(timezone.utc)
+
+            # STEP 4: Verify WebSocket reception
+            print("\nSTEP 4: Verifying WebSocket event reception...")
+            print(f"  Trader received {len(trader_events)} trade.executed events")
+            print(f"  Observer received {len(observer_events)} trade.executed events")
+
+            # Trader should receive their trade event
+            assert len(trader_events) >= 1, "Trader should receive trade.executed event"
+
+            # Observer should NOT receive the trade event (private)
+            assert len(observer_events) == 0, "Observer should NOT receive trader's private trade event"
+
+            print("  ✓ Trader received trade.executed event via WebSocket")
+            print("  ✓ Observer did NOT receive the trade event (privacy confirmed)")
+
+            # STEP 5: Verify JSONL filtering
+            print("\nSTEP 5: Verifying JSONL event filtering...")
+
+            trader_result = await trader_client._request("event.query", {
+                "character_id": trader_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            observer_result = await observer_client._request("event.query", {
+                "character_id": observer_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            trader_trade_events = [e for e in trader_result["events"] if e.get("event") == "trade.executed"]
+            observer_trade_events = [e for e in observer_result["events"] if e.get("event") == "trade.executed"]
+
+            assert len(trader_trade_events) >= 1, "Trader should find trade.executed in JSONL"
+            assert len(observer_trade_events) == 0, "Observer should NOT find trade.executed in JSONL"
+
+            print(f"  Trader found {len(trader_trade_events)} trade.executed events in JSONL")
+            print(f"  Observer found {len(observer_trade_events)} trade.executed events in JSONL (should be 0)")
+            print("  ✓ JSONL properly filters trade events as private to trader")
+
+            print("\n" + "="*80)
+            print("✅ TRADE PRIVACY TEST PASSED!")
+            print("="*80)
+
+        finally:
+            await trader_client.close()
+            await observer_client.close()
+
+    async def test_message_events_to_recipient_and_sender(self, server_url):
+        """Test that direct messages only go to sender and recipient, not to outsiders.
+
+        Scenario:
+        1. Character 1 (sender) sends a direct message to Character 2 (recipient)
+        2. Character 3 (outsider) is online but in different context
+        3. Sender and recipient should both receive the chat.message event
+        4. Outsider should NOT receive the chat.message event
+        5. JSONL queries should confirm proper filtering
+        """
+        sender_id = "test_message_sender"
+        recipient_id = "test_message_recipient"
+        outsider_id = "test_message_outsider"
+
+        print(f"\n{'='*80}")
+        print(f"STARTING MESSAGE FILTERING TEST")
+        print(f"Sender: {sender_id}")
+        print(f"Recipient: {recipient_id}")
+        print(f"Outsider: {outsider_id}")
+        print(f"{'='*80}\n")
+
+        # Create AsyncGameClients with WebSocket transport
+        sender_client = AsyncGameClient(base_url=server_url, character_id=sender_id, transport="websocket")
+        recipient_client = AsyncGameClient(base_url=server_url, character_id=recipient_id, transport="websocket")
+        outsider_client = AsyncGameClient(base_url=server_url, character_id=outsider_id, transport="websocket")
+
+        # Event collectors for chat.message events
+        sender_events = []
+        recipient_events = []
+        outsider_events = []
+
+        # Register event handlers
+        sender_client.on("chat.message")(lambda p: sender_events.append({"event": "chat.message", "payload": p}))
+        recipient_client.on("chat.message")(lambda p: recipient_events.append({"event": "chat.message", "payload": p}))
+        outsider_client.on("chat.message")(lambda p: outsider_events.append({"event": "chat.message", "payload": p}))
+
+        try:
+            # STEP 1: All characters join
+            print("STEP 1: All characters join...")
+            await sender_client.join(character_id=sender_id)
+            await recipient_client.join(character_id=recipient_id)
+            await outsider_client.join(character_id=outsider_id)
+            await asyncio.sleep(0.5)
+
+            # Record start time
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # STEP 2: Sender sends direct message to recipient
+            print(f"\nSTEP 2: {sender_id} sends direct message to {recipient_id}...")
+            message_content = "This is a private message for testing"
+            await sender_client.send_message(
+                content=message_content,
+                msg_type="direct",
+                to_name=recipient_id,
+                character_id=sender_id
+            )
+            await asyncio.sleep(1.0)
+
+            end_time = datetime.now(timezone.utc)
+
+            # STEP 3: Verify WebSocket reception
+            print("\nSTEP 3: Verifying WebSocket event reception...")
+            print(f"  Sender received {len(sender_events)} chat.message events")
+            print(f"  Recipient received {len(recipient_events)} chat.message events")
+            print(f"  Outsider received {len(outsider_events)} chat.message events")
+
+            # Sender and recipient should both receive the message
+            assert len(sender_events) >= 1, "Sender should receive their own direct message"
+            assert len(recipient_events) >= 1, "Recipient should receive the direct message"
+
+            # Outsider should NOT receive the message
+            assert len(outsider_events) == 0, "Outsider should NOT receive direct messages between other characters"
+
+            print("  ✓ Sender and recipient received message via WebSocket")
+            print("  ✓ Outsider did NOT receive the private message")
+
+            # STEP 4: Verify message content
+            print("\nSTEP 4: Verifying message content...")
+            sender_msg = sender_events[0]["payload"]
+            recipient_msg = recipient_events[0]["payload"]
+
+            # Get the actual content from nested payload if needed
+            sender_content = sender_msg.get("content") or sender_msg.get("payload", {}).get("content")
+            recipient_content = recipient_msg.get("content") or recipient_msg.get("payload", {}).get("content")
+
+            assert sender_content == message_content, "Sender should see correct message content"
+            assert recipient_content == message_content, "Recipient should see correct message content"
+
+            print("  ✓ Message content matches for both sender and recipient")
+
+            # STEP 5: Verify JSONL filtering
+            print("\nSTEP 5: Verifying JSONL event filtering...")
+
+            # Query events for sender
+            sender_result = await sender_client._request("event.query", {
+                "character_id": sender_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            # Query events for recipient
+            recipient_result = await recipient_client._request("event.query", {
+                "character_id": recipient_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            # Query events for outsider
+            outsider_result = await outsider_client._request("event.query", {
+                "character_id": outsider_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            sender_chat_events = [e for e in sender_result["events"] if e.get("event") == "chat.message"]
+            recipient_chat_events = [e for e in recipient_result["events"] if e.get("event") == "chat.message"]
+            outsider_chat_events = [e for e in outsider_result["events"] if e.get("event") == "chat.message"]
+
+            assert len(sender_chat_events) >= 1, "Sender should find chat.message in JSONL"
+            assert len(recipient_chat_events) >= 1, "Recipient should find chat.message in JSONL"
+            assert len(outsider_chat_events) == 0, "Outsider should NOT find chat.message in JSONL"
+
+            print(f"  Sender found {len(sender_chat_events)} chat.message events in JSONL")
+            print(f"  Recipient found {len(recipient_chat_events)} chat.message events in JSONL")
+            print(f"  Outsider found {len(outsider_chat_events)} chat.message events in JSONL (should be 0)")
+            print("  ✓ JSONL properly filters direct messages to sender and recipient only")
+
+            print("\n" + "="*80)
+            print("✅ MESSAGE FILTERING TEST PASSED!")
+            print("="*80)
+
+        finally:
+            await sender_client.close()
+            await recipient_client.close()
+            await outsider_client.close()
 
     async def test_firehose_delivers_all_events(self, active_character, server_url):
         """Test that firehose delivers all events without filtering."""
@@ -398,9 +963,163 @@ class TestCharacterFiltering:
             # Firehose should have all events
             assert len(listener.events) > 0, "Firehose should receive events"
 
-    async def test_movement_events_visible_to_sector_occupants(self):
-        """Test that arrivals/departures visible to those in same sector."""
-        pytest.skip("Requires multi-character sector setup")
+    async def test_movement_events_visible_to_sector_occupants(self, server_url):
+        """Test that departures are visible to sector occupants (complements arrival test).
+
+        Scenario:
+        1. Characters 1, 2, and 3 are all in the same sector
+        2. Character 1 departs (moves to adjacent sector)
+        3. Characters 2 and 3 (remaining occupants) should see the departure event
+        4. JSONL queries should confirm visibility
+
+        Note: This complements test_movement_event_fanout which tests arrivals.
+        """
+        mover_id = "test_depart_mover"
+        observer1_id = "test_depart_observer1"
+        observer2_id = "test_depart_observer2"
+
+        print(f"\n{'='*80}")
+        print(f"STARTING DEPARTURE VISIBILITY TEST")
+        print(f"Mover (departing): {mover_id}")
+        print(f"Observer 1 (staying): {observer1_id}")
+        print(f"Observer 2 (staying): {observer2_id}")
+        print(f"{'='*80}\n")
+
+        # Create AsyncGameClients with WebSocket transport
+        mover_client = AsyncGameClient(base_url=server_url, character_id=mover_id, transport="websocket")
+        observer1_client = AsyncGameClient(base_url=server_url, character_id=observer1_id, transport="websocket")
+        observer2_client = AsyncGameClient(base_url=server_url, character_id=observer2_id, transport="websocket")
+
+        # Event collectors for character.moved events
+        mover_events = []
+        observer1_events = []
+        observer2_events = []
+
+        # Register event handlers
+        mover_client.on("character.moved")(lambda p: mover_events.append({"event": "character.moved", "payload": p}))
+        observer1_client.on("character.moved")(lambda p: observer1_events.append({"event": "character.moved", "payload": p}))
+        observer2_client.on("character.moved")(lambda p: observer2_events.append({"event": "character.moved", "payload": p}))
+
+        try:
+            # STEP 1: All characters join
+            print("STEP 1: All characters join...")
+            await mover_client.join(character_id=mover_id)
+            await observer1_client.join(character_id=observer1_id)
+            await observer2_client.join(character_id=observer2_id)
+            await asyncio.sleep(0.5)
+
+            # STEP 2: Position all characters in the same sector
+            print("\nSTEP 2: Positioning all characters in same sector...")
+            mover_status = await get_status(mover_client, mover_id)
+            observer1_status = await get_status(observer1_client, observer1_id)
+            observer2_status = await get_status(observer2_client, observer2_id)
+
+            mover_sector = mover_status["sector"]["id"]
+            observer1_sector = observer1_status["sector"]["id"]
+            observer2_sector = observer2_status["sector"]["id"]
+
+            print(f"  Mover in sector {mover_sector}")
+            print(f"  Observer 1 in sector {observer1_sector}")
+            print(f"  Observer 2 in sector {observer2_sector}")
+
+            # Move observers to mover's sector if needed
+            if observer1_sector != mover_sector:
+                result = await observer1_client.plot_course(from_sector=observer1_sector, to_sector=mover_sector)
+                if result.get("success") and result.get("path"):
+                    for next_sector in result["path"][1:]:
+                        await observer1_client.move(to_sector=next_sector, character_id=observer1_id)
+                        await asyncio.sleep(0.2)
+                else:
+                    pytest.skip("Cannot move observer 1 to mover's sector")
+
+            if observer2_sector != mover_sector:
+                result = await observer2_client.plot_course(from_sector=observer2_sector, to_sector=mover_sector)
+                if result.get("success") and result.get("path"):
+                    for next_sector in result["path"][1:]:
+                        await observer2_client.move(to_sector=next_sector, character_id=observer2_id)
+                        await asyncio.sleep(0.2)
+                else:
+                    pytest.skip("Cannot move observer 2 to mover's sector")
+
+            # Verify all in same sector
+            mover_status = await get_status(mover_client, mover_id)
+            observer1_status = await get_status(observer1_client, observer1_id)
+            observer2_status = await get_status(observer2_client, observer2_id)
+
+            shared_sector = mover_status["sector"]["id"]
+            if observer1_status["sector"]["id"] != shared_sector or observer2_status["sector"]["id"] != shared_sector:
+                pytest.skip("Could not position all characters in same sector")
+
+            print(f"  ✓ All characters now in sector {shared_sector}")
+
+            # Clear any positioning-related movement events
+            mover_events.clear()
+            observer1_events.clear()
+            observer2_events.clear()
+
+            # Record start time
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # STEP 3: Mover departs to adjacent sector
+            print(f"\nSTEP 3: Mover departs from sector {shared_sector}...")
+            adjacent = mover_status["sector"]["adjacent_sectors"]
+            if not adjacent:
+                pytest.skip("No adjacent sectors for departure")
+
+            departure_target = adjacent[0]
+            print(f"  Moving to sector {departure_target}")
+            await mover_client.move(to_sector=departure_target, character_id=mover_id)
+            await asyncio.sleep(2.0)
+
+            end_time = datetime.now(timezone.utc)
+
+            # STEP 4: Verify observers received the departure event
+            print("\nSTEP 4: Verifying WebSocket event reception...")
+            print(f"  Observer 1 received {len(observer1_events)} character.moved events")
+            print(f"  Observer 2 received {len(observer2_events)} character.moved events")
+
+            # Observers should see the departure
+            assert len(observer1_events) > 0, "Observer 1 should receive departure events"
+            assert len(observer2_events) > 0, "Observer 2 should receive departure events"
+
+            print("  ✓ Observers received departure event via WebSocket")
+
+            # STEP 5: Verify JSONL contains the departure events
+            print("\nSTEP 5: Verifying JSONL event visibility...")
+
+            observer1_result = await observer1_client._request("event.query", {
+                "character_id": observer1_id,
+                "sector": shared_sector,  # Query the sector they're still in
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            observer2_result = await observer2_client._request("event.query", {
+                "character_id": observer2_id,
+                "sector": shared_sector,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            observer1_moved_events = [e for e in observer1_result["events"] if e.get("event") == "character.moved"]
+            observer2_moved_events = [e for e in observer2_result["events"] if e.get("event") == "character.moved"]
+
+            assert len(observer1_moved_events) > 0, "Observer 1 should find departure events in JSONL"
+            assert len(observer2_moved_events) > 0, "Observer 2 should find departure events in JSONL"
+
+            print(f"  Observer 1 found {len(observer1_moved_events)} character.moved events in JSONL")
+            print(f"  Observer 2 found {len(observer2_moved_events)} character.moved events in JSONL")
+            print("  ✓ JSONL shows departure events are visible to sector occupants")
+
+            print("\n" + "="*80)
+            print("✅ DEPARTURE VISIBILITY TEST PASSED!")
+            print("="*80)
+
+        finally:
+            await mover_client.close()
+            await observer1_client.close()
+            await observer2_client.close()
 
     async def test_garrison_events_filtered_correctly(self):
         """Test that garrison creation events have correct visibility."""
