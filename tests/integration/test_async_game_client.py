@@ -408,16 +408,37 @@ async def test_combat_action_submits_action(server_url, check_server_available):
     await client2.close()
 
 
-@pytest.mark.skip(reason="New characters start with full warp power - cannot test recharge")
 async def test_recharge_warp_power(server_url, check_server_available):
     """Verify recharge_warp_power() works at sector 0."""
     char_id = "test_recharge"
     async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
         await client.join(character_id=char_id, credits=100000)
 
-        # Recharge warp power (character starts at sector 0)
+        # Deplete warp power by moving
+        await client.move(to_sector=1, character_id=char_id)
+        await asyncio.sleep(0.5)  # Wait for move to complete
+        await client.move(to_sector=0, character_id=char_id)
+        await asyncio.sleep(0.5)  # Wait for move to complete
+
+        # Get initial state
+        status_before = await get_status(client, char_id)
+        warp_before = status_before["ship"]["warp_power"]
+        credits_before = status_before["player"]["credits_on_hand"]
+
+        # Verify warp power was depleted
+        assert warp_before < 300, "Warp power should be depleted after movement"
+
+        # Recharge warp power (character at sector 0)
         result = await client.recharge_warp_power(units=10, character_id=char_id)
         assert result.get("success") is True
+
+        # Verify warp power increased and credits decreased
+        status_after = await get_status(client, char_id)
+        warp_after = status_after["ship"]["warp_power"]
+        credits_after = status_after["player"]["credits_on_hand"]
+
+        assert warp_after > warp_before, "Warp power should increase after recharge"
+        assert credits_after < credits_before, "Credits should decrease after recharge"
 
 
 async def test_transfer_warp_power(server_url, check_server_available):
