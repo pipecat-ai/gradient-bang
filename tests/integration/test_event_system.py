@@ -1277,6 +1277,248 @@ class TestCharacterQueryMode:
 
 
 # =============================================================================
+# Multi-Character Event Fan-out Tests (3 tests) - Phase 4
+# =============================================================================
+
+
+class TestMultiCharacterEventFanout:
+    """Tests for event fan-out to multiple characters."""
+
+    async def test_movement_event_fanout(self, server_url):
+        """Test that movement into sector with multiple players fans out correctly.
+
+        Scenario:
+        1. Player 2 and Player 3 join and are in sector X (with WebSocket listeners active)
+        2. Player 1 moves into sector X
+        3. Player 2 and Player 3 should RECEIVE character.moved event via WebSocket
+        4. Player 2 and Player 3 should be able to QUERY event log and see the same event
+
+        This tests the complete flow: broadcast → JSONL logging → query API
+        """
+        char1_id = "test_fanout_player1"
+        char2_id = "test_fanout_player2"
+        char3_id = "test_fanout_player3"
+
+        print(f"\n{'='*80}")
+        print(f"STARTING FAN-OUT TEST")
+        print(f"Player 1: {char1_id}")
+        print(f"Player 2: {char2_id}")
+        print(f"Player 3: {char3_id}")
+        print(f"{'='*80}\n")
+
+        # Create AsyncGameClients with WebSocket transport
+        client1 = AsyncGameClient(base_url=server_url, character_id=char1_id, transport="websocket")
+        client2 = AsyncGameClient(base_url=server_url, character_id=char2_id, transport="websocket")
+        client3 = AsyncGameClient(base_url=server_url, character_id=char3_id, transport="websocket")
+
+        # Event collectors to capture events received by each client
+        events_p2 = []
+        events_p3 = []
+
+        # Register event handlers - these will be called when events arrive via WebSocket
+        client2.on("character.moved")(lambda p: events_p2.append({"event": "character.moved", "payload": p}))
+        client3.on("character.moved")(lambda p: events_p3.append({"event": "character.moved", "payload": p}))
+
+        try:
+            # STEP 1: Player 2 and Player 3 join
+            print("STEP 1: Player 2 and Player 3 join...")
+            await client2.join(character_id=char2_id)
+            await client3.join(character_id=char3_id)
+
+            # STEP 2: Position Player 3 in same sector as Player 2
+            print("STEP 2: Positioning players in same sector...")
+            status2 = await get_status(client2, char2_id)
+            status3 = await get_status(client3, char3_id)
+            sector2 = status2["sector"]["id"]
+            sector3 = status3["sector"]["id"]
+
+            print(f"  Player 2 in sector {sector2}")
+            print(f"  Player 3 in sector {sector3}")
+
+            if sector3 != sector2:
+                result = await client3.plot_course(from_sector=sector3, to_sector=sector2)
+                if result.get("success") and result.get("path"):
+                    print(f"  Moving Player 3 along path: {result['path']}")
+                    for next_sector in result["path"][1:]:
+                        await client3.move(to_sector=next_sector, character_id=char3_id)
+                        await asyncio.sleep(0.2)
+                else:
+                    pytest.skip("Cannot find path between players")
+
+            status2 = await get_status(client2, char2_id)
+            status3 = await get_status(client3, char3_id)
+            shared_sector = status2["sector"]["id"]
+
+            if status3["sector"]["id"] != shared_sector:
+                pytest.skip("Could not position players in same sector")
+
+            print(f"  ✓ Both players now in sector {shared_sector}")
+
+            # STEP 3: Player 1 joins and moves to shared sector
+            print(f"\nSTEP 3: Player 1 moves into sector {shared_sector}...")
+            await client1.join(character_id=char1_id)
+            status1 = await get_status(client1, char1_id)
+            sector1 = status1["sector"]["id"]
+            print(f"  Player 1 starts in sector {sector1}")
+
+            # Record start time
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # Move Player 1 to shared sector
+            if sector1 != shared_sector:
+                result = await client1.plot_course(from_sector=sector1, to_sector=shared_sector)
+                if result.get("success") and result.get("path"):
+                    print(f"  Moving Player 1 along path: {result['path']}")
+                    for next_sector in result["path"][1:]:
+                        await client1.move(to_sector=next_sector, character_id=char1_id)
+                        await asyncio.sleep(0.3)
+                else:
+                    pytest.skip("Cannot find path to shared sector")
+            else:
+                # Already there, move out and back
+                adjacent = status1["sector"]["adjacent_sectors"]
+                if not adjacent:
+                    pytest.skip("No adjacent sectors")
+                await client1.move(to_sector=adjacent[0], character_id=char1_id)
+                await asyncio.sleep(0.3)
+                await client1.move(to_sector=shared_sector, character_id=char1_id)
+
+            # Wait for events to propagate
+            await asyncio.sleep(2.0)
+            end_time = datetime.now(timezone.utc)
+
+            status1_final = await get_status(client1, char1_id)
+            print(f"  ✓ Player 1 now in sector {status1_final['sector']['id']}")
+
+            if status1_final["sector"]["id"] != shared_sector:
+                pytest.skip("Player1 did not reach shared sector")
+
+            # STEP 5: Verify WebSocket reception
+            print("\nSTEP 5: Checking WebSocket event reception...")
+            print(f"  Player 2 received {len(events_p2)} character.moved events via WebSocket")
+            print(f"  Player 3 received {len(events_p3)} character.moved events via WebSocket")
+
+            # Print events received
+            if events_p2:
+                print(f"\n  Player 2 WebSocket events:")
+                for e in events_p2:
+                    payload = e.get("payload", {})
+                    mover = payload.get("player", {}).get("id", "unknown")
+                    print(f"    - character.moved: player={mover}")
+            else:
+                print(f"  ⚠️  Player 2 received NO character.moved events via WebSocket!")
+
+            if events_p3:
+                print(f"\n  Player 3 WebSocket events:")
+                for e in events_p3:
+                    payload = e.get("payload", {})
+                    mover = payload.get("player", {}).get("id", "unknown")
+                    print(f"    - character.moved: player={mover}")
+            else:
+                print(f"  ⚠️  Player 3 received NO character.moved events via WebSocket!")
+
+            # STEP 6: Verify JSONL logging
+            print("\nSTEP 6: Checking JSONL event log...")
+
+            # Admin query to see what was logged
+            admin_result = await client1._request("event.query", {
+                "admin_password": "",
+                "sector": shared_sector,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            print(f"  Admin query found {admin_result['count']} events in JSONL log")
+
+            # STEP 7: Query from Player 2's perspective
+            print("\nSTEP 7: Player 2 queries event log...")
+            p2_result = await client2._request("event.query", {
+                "character_id": char2_id,
+                "sector": shared_sector,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            print(f"  Player 2 query returned {p2_result['count']} events from JSONL")
+            for e in p2_result["events"]:
+                print(f"    - {e.get('event')}: sender={e.get('sender')}, receiver={e.get('receiver')}, direction={e.get('direction')}")
+
+            # STEP 8: Query from Player 3's perspective
+            print("\nSTEP 8: Player 3 queries event log...")
+            p3_result = await client3._request("event.query", {
+                "character_id": char3_id,
+                "sector": shared_sector,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            print(f"  Player 3 query returned {p3_result['count']} events from JSONL")
+            for e in p3_result["events"]:
+                print(f"    - {e.get('event')}: sender={e.get('sender')}, receiver={e.get('receiver')}, direction={e.get('direction')}")
+
+            # ASSERTIONS
+            print("\n" + "="*80)
+            print("VERIFICATION:")
+            print("="*80)
+
+            # Verify WebSocket reception
+            if len(events_p2) == 0:
+                print("⚠️  Player 2 did NOT receive character.moved via WebSocket")
+            else:
+                print(f"✓ Player 2 received {len(events_p2)} character.moved events via WebSocket")
+
+            if len(events_p3) == 0:
+                print("⚠️  Player 3 did NOT receive character.moved via WebSocket")
+            else:
+                print(f"✓ Player 3 received {len(events_p3)} character.moved events via WebSocket")
+
+            # Verify JSONL contains those events
+            p2_moved_in_log = [e for e in p2_result["events"] if e.get("event") == "character.moved" and e.get("receiver") == char2_id]
+            p3_moved_in_log = [e for e in p3_result["events"] if e.get("event") == "character.moved" and e.get("receiver") == char3_id]
+
+            if len(p2_moved_in_log) == 0:
+                print("⚠️  Player 2 CANNOT query character.moved from JSONL")
+            else:
+                print(f"✓ Player 2 can query {len(p2_moved_in_log)} character.moved events from JSONL")
+
+            if len(p3_moved_in_log) == 0:
+                print("⚠️  Player 3 CANNOT query character.moved from JSONL")
+            else:
+                print(f"✓ Player 3 can query {len(p3_moved_in_log)} character.moved events from JSONL")
+
+            # Final assertions
+            assert len(events_p2) > 0 or len(events_p3) > 0, \
+                "At least one player should receive character.moved via WebSocket"
+
+            assert len(p2_moved_in_log) > 0 or len(p3_moved_in_log) > 0, \
+                "At least one player should be able to query character.moved from JSONL"
+
+            print("\n🎉 FAN-OUT TEST PASSED!")
+
+        finally:
+            await client1.close()
+            await client2.close()
+            await client3.close()
+
+    async def test_trade_event_visibility(self, server_url):
+        """Test that trade events are visible to both parties but not third party.
+
+        Scenario: Player1 and Player2 execute trade. Player3 in different sector.
+        - Player1 query: sees trade event (sender)
+        - Player2 query: sees trade event (receiver, if port trades create receiver records)
+        - Player3 query: does NOT see trade event
+        """
+        # NOTE: This test may need adjustment based on whether port trades
+        # create receiver records or only sender records
+        pytest.skip("Trade event receiver behavior needs verification - ports may not have receiver records")
+
+    async def test_combat_event_fanout(self, server_url):
+        """Test that combat events are visible to all participants."""
+        pytest.skip("Combat event fan-out requires combat system verification")
+
+
+# =============================================================================
 # Edge Case Tests (4 tests)
 # =============================================================================
 

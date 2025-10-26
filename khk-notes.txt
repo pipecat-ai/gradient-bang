@@ -1,9 +1,6 @@
 
-Fix shape of credits
-  - should credits go in ship or character? ship, maybe.
-  - credits_in_bank go in character?
-
-We'll have to prompt Claude to change all summary code and test code.
+1. test_trade_event_visibility
+2. Do we have good tests for multi-character fan-out of events received when a character moves or a trade is executed? Not log query fanout tests. But events received in realtime by multiple characters in a sector.
 
 ----
 

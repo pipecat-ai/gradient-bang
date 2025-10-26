@@ -15,6 +15,7 @@ These tests require a test server running on port 8002.
 import asyncio
 import pytest
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Add project paths
@@ -588,9 +589,62 @@ class TestEventOrdering:
         pytest.skip("Character-specific event filtering not yet implemented in test infra")
 
     async def test_move_events_logged_to_jsonl(self, joined_character, server_url):
-        """Test that movement events are persisted to JSONL log."""
-        # This test would require access to server's JSONL log file
-        pytest.skip("JSONL log validation requires server file access")
+        """Test that movement events are persisted to JSONL log and queryable."""
+        client = joined_character["client"]
+        char_id = joined_character["character_id"]
+
+        # Get adjacent sector for movement
+        status = await get_status(client, char_id)
+        adjacent = status["sector"]["adjacent_sectors"]
+
+        if not adjacent:
+            pytest.skip("No adjacent sectors for movement")
+
+        # Record start time
+        start_time = datetime.now(timezone.utc)
+        await asyncio.sleep(0.1)
+
+        # Execute movement
+        target_sector = adjacent[0]
+        await client.move(to_sector=target_sector, character_id=char_id)
+
+        await asyncio.sleep(1.0)
+        end_time = datetime.now(timezone.utc)
+
+        # Test 1: Admin query sees the movement event
+        admin_result = await client._request("event.query", {
+            "admin_password": "",  # Admin mode
+            "character_id": char_id,
+            "start": start_time.isoformat(),
+            "end": end_time.isoformat(),
+        })
+
+        assert admin_result["success"], "Admin query should succeed"
+        events = admin_result["events"]
+
+        # Find movement.complete event
+        move_events = [e for e in events if e.get("event") == "movement.complete"]
+        assert len(move_events) >= 1, "Should find at least one movement.complete event"
+
+        # Verify movement event has expected data
+        move_event = move_events[0]
+        payload = move_event.get("payload", {})
+        assert "sector" in payload, "Movement event should have sector information"
+
+        # Test 2: Character query (no admin password) sees the same event
+        char_result = await client._request("event.query", {
+            # No admin_password - character mode
+            "character_id": char_id,
+            "start": start_time.isoformat(),
+            "end": end_time.isoformat(),
+        })
+
+        assert char_result["success"], "Character query should succeed"
+        char_events = char_result["events"]
+
+        # Character should also see their movement event
+        char_move_events = [e for e in char_events if e.get("event") == "movement.complete"]
+        assert len(char_move_events) >= 1, "Character should see their own movement event"
 
 
 # =============================================================================

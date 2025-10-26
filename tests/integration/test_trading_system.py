@@ -16,6 +16,7 @@ These tests require a test server running on port 8002.
 import asyncio
 import pytest
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Add project paths
@@ -700,9 +701,67 @@ class TestTradeEvents:
             except RPCError:
                 pytest.skip("Trade not available")
 
-    async def test_trade_event_logged_to_jsonl(self):
-        """Test that trade events are persisted to JSONL log."""
-        pytest.skip("Requires server log file access")
+    async def test_trade_event_logged_to_jsonl(self, trader_with_cargo, server_url):
+        """Test that trade events are persisted to JSONL log and queryable."""
+        client = trader_with_cargo["client"]
+        char_id = trader_with_cargo["character_id"]
+
+        # Record start time
+        start_time = datetime.now(timezone.utc)
+        await asyncio.sleep(0.1)
+
+        try:
+            # Execute a trade (sell quantum_foam - port BBS at sector 1 buys it)
+            result = await client.trade(
+                commodity="quantum_foam",
+                quantity=10,
+                trade_type="sell",
+                character_id=char_id
+            )
+
+            if not result.get("success"):
+                pytest.skip(f"Trade failed: {result}")
+
+            await asyncio.sleep(1.0)
+            end_time = datetime.now(timezone.utc)
+
+            # Test 1: Admin query sees the trade event
+            admin_result = await client._request("event.query", {
+                "admin_password": "",  # Admin mode
+                "character_id": char_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            assert admin_result["success"], "Admin query should succeed"
+            events = admin_result["events"]
+
+            # Find trade.executed event
+            trade_events = [e for e in events if e.get("event") == "trade.executed"]
+            assert len(trade_events) >= 1, "Should find at least one trade.executed event"
+
+            # Verify trade event has expected data
+            trade_event = trade_events[0]
+            payload = trade_event.get("payload", {})
+            assert "trade" in payload or "commodity" in payload, "Trade event should have trade details"
+
+            # Test 2: Character query (no admin password) sees the same event
+            char_result = await client._request("event.query", {
+                # No admin_password - character mode
+                "character_id": char_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            assert char_result["success"], "Character query should succeed"
+            char_events = char_result["events"]
+
+            # Character should also see their trade event
+            char_trade_events = [e for e in char_events if e.get("event") == "trade.executed"]
+            assert len(char_trade_events) >= 1, "Character should see their own trade event"
+
+        except RPCError as e:
+            pytest.skip(f"Trade not available: {e}")
 
 
 # =============================================================================

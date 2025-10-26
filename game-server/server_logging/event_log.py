@@ -68,6 +68,7 @@ class EventLogger:
         line = record.to_json()
         with self._path.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
+            handle.flush()  # Ensure it's written immediately
 
     def query(
         self,

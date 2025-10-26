@@ -230,6 +230,10 @@ TEST_CHARACTER_IDS = [
     "test_char_sector_filter",
     "test_char_empty_sector",
     "test_char_requires_id",
+    # Multi-character fan-out test characters (TestMultiCharacterEventFanout)
+    "test_fanout_player1",
+    "test_fanout_player2",
+    "test_fanout_player3",
     # Phase 4: AsyncGameClient test characters (test_async_game_client.py)
     "test_client_connect",
     "test_client_cleanup",
