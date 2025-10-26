@@ -357,7 +357,7 @@ async def check_server_available(server_url):
     yield
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session", autouse=True)
 async def test_server(server_url):
     """
     Start and manage a test server for integration tests.
@@ -366,15 +366,14 @@ async def test_server(server_url):
     1. Starts a game server on port 8002 with test data
     2. Waits for the server to be ready (polls /health endpoint)
     3. Yields the server URL for tests to use
-    4. Stops the server after all tests in the module complete
+    4. Stops the server after all tests complete
 
-    Scope: module - Server is started once per test module, shared across tests
+    Scope: session - Server is started once for entire test session, shared across all test files
+    Autouse: True - Automatically starts for all integration tests
 
     Usage:
-        @pytest.mark.requires_server
-        async def test_something(test_server):
-            async with AsyncGameClient(test_server) as client:
-                # Test code here
+        Tests can use server_url fixture which provides "http://localhost:8002"
+        The test_server fixture ensures server is running for entire session
     """
     # Start the server
     process = start_test_server(port=8002, world_data_dir="tests/test-world-data")
@@ -411,16 +410,18 @@ async def reset_test_state(server_url):
 
     # After test completes, reset the server state
     try:
-        async with AsyncGameClient(base_url=server_url) as client:
-            # Call the test.reset endpoint
-            result = await client._request("test.reset", {
-                "clear_files": True,  # Delete test character files from disk
-                "file_prefixes": ["test_", "weak_", "strong_", "player", "push_"]
-            })
-            logger.info(
-                f"Test reset completed: {result['cleared_characters']} characters, "
-                f"{result['cleared_combats']} combats, {result['deleted_files']} files deleted"
-            )
+        client = AsyncGameClient(base_url=server_url, character_id="test_reset_runner")
+        # Call the test.reset endpoint
+        result = await client._request("test.reset", {
+            "clear_files": True,  # Delete test character files from disk
+            "file_prefixes": ["test_", "weak_", "strong_", "player", "push_"]
+        })
+        logger.info(
+            f"Test reset completed: {result['cleared_characters']} characters, "
+            f"{result['cleared_combats']} combats, {result['deleted_files']} files deleted, "
+            f"{result.get('ports_reset', 0)} ports reset"
+        )
+        await client.close()
     except Exception as e:
         # Log but don't fail the test if reset fails
         # This might happen if server isn't running (for unit tests)

@@ -34,6 +34,38 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires
 
 
 # =============================================================================
+# Helper Functions
+# =============================================================================
+
+
+async def get_status(client, character_id):
+    """
+    Get character status by calling my_status and waiting for status.snapshot event.
+
+    The my_status RPC returns just {"success": True}, but emits a status.snapshot
+    event with the actual status data.
+    """
+    # Set up event listener before making the request
+    status_received = asyncio.Future()
+
+    def on_status(event):
+        if not status_received.done():
+            status_received.set_result(event.get("payload", event))
+
+    token = client.add_event_handler("status.snapshot", on_status)
+
+    try:
+        # Make the request
+        await client.my_status(character_id=character_id)
+
+        # Wait for the event with timeout
+        status_data = await asyncio.wait_for(status_received, timeout=5.0)
+        return status_data
+    finally:
+        client.remove_event_handler(token)
+
+
+# =============================================================================
 # Test Fixtures
 # =============================================================================
 
@@ -46,20 +78,22 @@ async def client(server_url, check_server_available):
 
 
 @pytest.fixture
-async def trader_at_port(client):
+async def trader_at_port(server_url):
     """Create a character at a port sector for trading."""
     char_id = "test_trader_at_port"
+    client = AsyncGameClient(base_url=server_url, character_id=char_id)
 
     # Join game
     await client.join(character_id=char_id)
 
     # Find a port
-    status = await client.my_status(character_id=char_id)
+    status = await get_status(client, char_id)
 
     # Look for nearby ports
     ports_result = await client.list_known_ports(character_id=char_id, max_hops=5)
 
     if not ports_result.get("ports"):
+        await client.close()
         pytest.skip("No ports found within 5 hops for trading tests")
 
     # Navigate to first port
@@ -75,40 +109,48 @@ async def trader_at_port(client):
             await client.move(to_sector=next_sector, character_id=char_id)
             await asyncio.sleep(1.0)  # Wait for move to complete
 
-    return {
+    yield {
         "character_id": char_id,
         "client": client,
         "port_sector": port_sector,
         "port_info": port_info,
     }
 
+    await client.close()
+
 
 @pytest.fixture
-async def trader_with_cargo(client):
+async def trader_with_cargo(server_url):
     """Create a character with some cargo for selling."""
     # This is a simplified fixture - actual implementation would need to
     # buy cargo first or use admin commands to set up character state
     char_id = "test_trader_with_cargo"
+    client = AsyncGameClient(base_url=server_url, character_id=char_id)
     await client.join(character_id=char_id)
 
-    return {
+    yield {
         "character_id": char_id,
         "client": client,
     }
 
+    await client.close()
+
 
 @pytest.fixture
-async def rich_trader(client):
+async def rich_trader(server_url):
     """Create a character with high credits for buying."""
     # In actual implementation, would need admin API to set credits
     # For now, characters start with default credits
     char_id = "test_rich_trader"
+    client = AsyncGameClient(base_url=server_url, character_id=char_id)
     await client.join(character_id=char_id)
 
-    return {
+    yield {
         "character_id": char_id,
         "client": client,
     }
+
+    await client.close()
 
 
 # =============================================================================
@@ -125,11 +167,11 @@ class TestTradeOperations:
         char_id = trader_at_port["character_id"]
 
         # Get initial status
-        status_before = await client.my_status(character_id=char_id)
+        status_before = await get_status(client, char_id)
         credits_before = status_before["player"]["credits"]
 
         # Capture events during trade
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
             # Buy commodity (quantum_foam is a standard commodity)
@@ -146,7 +188,7 @@ class TestTradeOperations:
                     await asyncio.sleep(1.0)
 
                     # Verify credits decreased
-                    status_after = await client.my_status(character_id=char_id)
+                    status_after = await get_status(client, char_id)
                     credits_after = status_after["player"]["credits"]
                     assert credits_after < credits_before, "Credits should decrease after buying"
 
@@ -207,7 +249,7 @@ class TestTradeOperations:
         await client.join(character_id=char_id)
 
         # Ensure we're not at a port (sector 0 typically isn't a port)
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
 
         # Try to trade
         with pytest.raises(RPCError) as exc_info:
@@ -290,7 +332,7 @@ class TestInventoryManagement:
         char_id = trader_at_port["character_id"]
 
         # Get initial state
-        status_before = await client.my_status(character_id=char_id)
+        status_before = await get_status(client, char_id)
         credits_before = status_before["player"]["credits"]
         cargo_before = status_before["player"].get("cargo", {})
 
@@ -305,7 +347,7 @@ class TestInventoryManagement:
 
             if result.get("success"):
                 # Get final state
-                status_after = await client.my_status(character_id=char_id)
+                status_after = await get_status(client, char_id)
                 credits_after = status_after["player"]["credits"]
                 cargo_after = status_after["player"].get("cargo", {})
 
@@ -344,7 +386,7 @@ class TestInventoryManagement:
         char_id = trader_at_port["character_id"]
 
         # Get state before trade
-        status_before = await client.my_status(character_id=char_id)
+        status_before = await get_status(client, char_id)
 
         try:
             # Execute trade
@@ -356,7 +398,7 @@ class TestInventoryManagement:
             )
 
             # Get state after trade
-            status_after = await client.my_status(character_id=char_id)
+            status_after = await get_status(client, char_id)
 
             # Verify all fields are present and valid
             assert "credits" in status_after["player"]
@@ -408,7 +450,7 @@ class TestAtomicityAndConcurrency:
         char_id = trader_at_port["character_id"]
 
         # Get initial state
-        status_before = await client.my_status(character_id=char_id)
+        status_before = await get_status(client, char_id)
         credits_before = status_before["player"]["credits"]
 
         # Try invalid trade that should fail
@@ -423,7 +465,7 @@ class TestAtomicityAndConcurrency:
             pass  # Expected
 
         # Verify state unchanged
-        status_after = await client.my_status(character_id=char_id)
+        status_after = await get_status(client, char_id)
         credits_after = status_after["player"]["credits"]
 
         assert credits_after == credits_before, "Credits should be unchanged after failed trade"
@@ -467,7 +509,7 @@ class TestTradeEvents:
         client = trader_at_port["client"]
         char_id = trader_at_port["character_id"]
 
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
             try:
@@ -501,7 +543,7 @@ class TestTradeEvents:
         client = trader_at_port["client"]
         char_id = trader_at_port["character_id"]
 
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
             try:
@@ -582,7 +624,7 @@ class TestTradeEdgeCases:
         await client.join(character_id=char_id)
 
         # Get adjacent sector
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         adjacent = status["sector"]["adjacent_sectors"]
 
         if not adjacent:

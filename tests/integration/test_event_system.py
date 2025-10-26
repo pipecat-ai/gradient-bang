@@ -40,6 +40,38 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires
 
 
 # =============================================================================
+# Helper Functions
+# =============================================================================
+
+
+async def get_status(client, character_id):
+    """
+    Get character status by calling my_status and waiting for status.snapshot event.
+
+    The my_status RPC returns just {"success": True}, but emits a status.snapshot
+    event with the actual status data.
+    """
+    # Set up event listener before making the request
+    status_received = asyncio.Future()
+
+    def on_status(event):
+        if not status_received.done():
+            status_received.set_result(event.get("payload", event))
+
+    token = client.add_event_handler("status.snapshot", on_status)
+
+    try:
+        # Make the request
+        await client.my_status(character_id=character_id)
+
+        # Wait for the event with timeout
+        status_data = await asyncio.wait_for(status_received, timeout=5.0)
+        return status_data
+    finally:
+        client.remove_event_handler(token)
+
+
+# =============================================================================
 # Test Fixtures
 # =============================================================================
 
@@ -52,15 +84,18 @@ async def client(server_url, check_server_available):
 
 
 @pytest.fixture
-async def active_character(client):
+async def active_character(server_url):
     """Create an active test character."""
     char_id = "test_event_character"
+    client = AsyncGameClient(base_url=server_url, character_id=char_id)
     await client.join(character_id=char_id)
 
-    return {
+    yield {
         "character_id": char_id,
         "client": client,
     }
+
+    await client.close()
 
 
 @pytest.fixture
@@ -79,13 +114,15 @@ async def firehose_listener(server_url):
 class TestEventEmission:
     """Tests that all major event types are properly emitted."""
 
-    async def test_character_joined_event(self, client, server_url):
+    async def test_character_joined_event(self, server_url):
         """Test that character.joined event is emitted on join."""
-        async with create_firehose_listener(server_url) as listener:
+        char_id = "test_join_event"
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
-            # Join game
-            await client.join(character_id="test_join_event")
+            # Create client and join game
+            client = AsyncGameClient(base_url=server_url, character_id=char_id)
+            await client.join(character_id=char_id)
 
             await asyncio.sleep(1.0)
 
@@ -94,19 +131,21 @@ class TestEventEmission:
             status_events = listener.filter_events("status.snapshot")
             assert len(status_events) > 0, "No status events received after join"
 
+            await client.close()
+
     async def test_character_moved_event(self, active_character, server_url):
         """Test that movement.complete event is emitted on move."""
         client = active_character["client"]
         char_id = active_character["character_id"]
 
         # Get adjacent sector
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         adjacent = status["sector"]["adjacent_sectors"]
 
         if not adjacent:
             pytest.skip("No adjacent sectors for movement")
 
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
             # Move
@@ -148,7 +187,7 @@ class TestEventEmission:
         client = active_character["client"]
         char_id = active_character["character_id"]
 
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
             # Send message
@@ -181,11 +220,11 @@ class TestEventOrdering:
         client = active_character["client"]
         char_id = active_character["character_id"]
 
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
             # Generate multiple events
-            status = await client.my_status(character_id=char_id)
+            status = await get_status(client, char_id)
             await asyncio.sleep(0.5)
 
             adjacent = status["sector"]["adjacent_sectors"]
@@ -202,13 +241,13 @@ class TestEventOrdering:
         client = active_character["client"]
         char_id = active_character["character_id"]
 
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         adjacent = status["sector"]["adjacent_sectors"]
 
         if not adjacent:
             pytest.skip("No adjacent sectors")
 
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
             await client.move(to_sector=adjacent[0], character_id=char_id)
@@ -231,13 +270,13 @@ class TestEventOrdering:
         client = active_character["client"]
         char_id = active_character["character_id"]
 
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
             # Generate events
-            await client.my_status(character_id=char_id)
+            await get_status(client, char_id)
             await asyncio.sleep(0.5)
-            await client.my_status(character_id=char_id)
+            await get_status(client, char_id)
             await asyncio.sleep(1.0)
 
             # Check timestamps
@@ -252,23 +291,25 @@ class TestEventOrdering:
                 assert timestamps[i] >= timestamps[i-1], \
                     f"Timestamp decreased: {timestamps[i-1]} -> {timestamps[i]}"
 
-    async def test_concurrent_events_from_different_characters(self, client, server_url):
+    async def test_concurrent_events_from_different_characters(self, server_url):
         """Test that concurrent events from different characters are properly ordered."""
         # Create two characters
         char1 = "test_concurrent_event1"
         char2 = "test_concurrent_event2"
 
-        await client.join(character_id=char1)
+        client1 = AsyncGameClient(base_url=server_url, character_id=char1)
+        await client1.join(character_id=char1)
 
-        async with AsyncGameClient(base_url=server_url) as client2:
-            await client2.join(character_id=char2)
+        client2 = AsyncGameClient(base_url=server_url, character_id=char2)
+        await client2.join(character_id=char2)
 
-            async with create_firehose_listener(server_url) as listener:
+        try:
+            async with create_firehose_listener(server_url, char_id) as listener:
                 await asyncio.sleep(0.5)
 
                 # Both characters perform actions concurrently
                 await asyncio.gather(
-                    client.my_status(character_id=char1),
+                    client1.my_status(character_id=char1),
                     client2.my_status(character_id=char2),
                 )
 
@@ -276,20 +317,23 @@ class TestEventOrdering:
 
                 # Verify events are properly timestamped
                 assert_events_chronological(listener.events)
+        finally:
+            await client1.close()
+            await client2.close()
 
     async def test_event_sequence_matches_action_sequence(self, active_character, server_url):
         """Test that event sequence matches the action sequence."""
         client = active_character["client"]
         char_id = active_character["character_id"]
 
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
             # Perform sequence of actions
-            await client.my_status(character_id=char_id)
+            await get_status(client, char_id)
             await asyncio.sleep(0.5)
 
-            status = await client.my_status(character_id=char_id)
+            status = await get_status(client, char_id)
             await asyncio.sleep(1.0)
 
             # Verify status events appear in order
@@ -309,28 +353,33 @@ class TestCharacterFiltering:
         """Test that private events (trade, inventory, credits) only go to character."""
         pytest.skip("Requires character-specific event stream implementation")
 
-    async def test_public_events_to_all_in_sector(self, client, server_url):
+    async def test_public_events_to_all_in_sector(self, server_url):
         """Test that public events (movement in same sector) broadcast to all."""
         # Create two characters
         char1 = "test_public_event1"
         char2 = "test_public_event2"
 
-        await client.join(character_id=char1)
+        client1 = AsyncGameClient(base_url=server_url, character_id=char1)
+        await client1.join(character_id=char1)
 
-        async with AsyncGameClient(base_url=server_url) as client2:
-            await client2.join(character_id=char2)
+        client2 = AsyncGameClient(base_url=server_url, character_id=char2)
+        await client2.join(character_id=char2)
 
+        try:
             # Both characters should see each other's status events on firehose
-            async with create_firehose_listener(server_url) as listener:
+            async with create_firehose_listener(server_url, char_id) as listener:
                 await asyncio.sleep(0.5)
 
                 # Char1 checks status
-                await client.my_status(character_id=char1)
+                await client1.my_status(character_id=char1)
                 await asyncio.sleep(1.0)
 
                 # Firehose should have the event
                 events = listener.filter_events("status.snapshot")
                 assert len(events) > 0, "Status events should be on firehose"
+        finally:
+            await client1.close()
+            await client2.close()
 
     async def test_combat_events_to_participants_only(self):
         """Test that combat round events only go to participants."""
@@ -349,14 +398,14 @@ class TestCharacterFiltering:
         client = active_character["client"]
         char_id = active_character["character_id"]
 
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
             # Perform various actions
-            await client.my_status(character_id=char_id)
+            await get_status(client, char_id)
             await asyncio.sleep(0.5)
 
-            status = await client.my_status(character_id=char_id)
+            status = await get_status(client, char_id)
             adjacent = status["sector"]["adjacent_sectors"]
 
             if adjacent:
@@ -397,11 +446,11 @@ class TestWebSocketDelivery:
         client = active_character["client"]
         char_id = active_character["character_id"]
 
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
             # Generate event
-            await client.my_status(character_id=char_id)
+            await get_status(client, char_id)
             await asyncio.sleep(1.0)
 
             # Should have received events
@@ -412,8 +461,8 @@ class TestWebSocketDelivery:
         client = active_character["client"]
         char_id = active_character["character_id"]
 
-        async with create_firehose_listener(server_url) as listener1:
-            async with create_firehose_listener(server_url) as listener2:
+        async with create_firehose_listener(server_url, char_id) as listener1:
+            async with create_firehose_listener(server_url, char_id) as listener2:
                 await asyncio.sleep(0.5)
 
                 # Clear any initial events
@@ -421,7 +470,7 @@ class TestWebSocketDelivery:
                 listener2.clear_events()
 
                 # Generate event
-                await client.my_status(character_id=char_id)
+                await get_status(client, char_id)
                 await asyncio.sleep(1.0)
 
                 # Both should have events
@@ -448,19 +497,19 @@ class TestWebSocketDelivery:
         char_id = active_character["character_id"]
 
         # First connection
-        async with create_firehose_listener(server_url) as listener1:
+        async with create_firehose_listener(server_url, char_id) as listener1:
             await asyncio.sleep(0.5)
 
-            await client.my_status(character_id=char_id)
+            await get_status(client, char_id)
             await asyncio.sleep(1.0)
 
             events_count_1 = len(listener1.events)
 
         # Second connection (after disconnect)
-        async with create_firehose_listener(server_url) as listener2:
+        async with create_firehose_listener(server_url, char_id) as listener2:
             await asyncio.sleep(0.5)
 
-            await client.my_status(character_id=char_id)
+            await get_status(client, char_id)
             await asyncio.sleep(1.0)
 
             # Should only receive new events, not duplicates
@@ -481,10 +530,10 @@ class TestEventPayloadStructure:
         client = active_character["client"]
         char_id = active_character["character_id"]
 
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
-            await client.my_status(character_id=char_id)
+            await get_status(client, char_id)
             await asyncio.sleep(1.0)
 
             # Check each event has required fields
@@ -497,10 +546,10 @@ class TestEventPayloadStructure:
         client = active_character["client"]
         char_id = active_character["character_id"]
 
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
-            status = await client.my_status(character_id=char_id)
+            status = await get_status(client, char_id)
             await asyncio.sleep(1.0)
 
             # Find status event and validate structure
@@ -518,13 +567,13 @@ class TestEventPayloadStructure:
         client = active_character["client"]
         char_id = active_character["character_id"]
 
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         adjacent = status["sector"]["adjacent_sectors"]
 
         if not adjacent:
             pytest.skip("No adjacent sectors")
 
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
             target = adjacent[0]
@@ -548,10 +597,10 @@ class TestEventPayloadStructure:
         client = active_character["client"]
         char_id = active_character["character_id"]
 
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
-            await client.my_status(character_id=char_id)
+            await get_status(client, char_id)
             await asyncio.sleep(1.0)
 
             # All events should be JSON serializable
@@ -618,11 +667,11 @@ class TestEventEdgeCases:
         client = active_character["client"]
         char_id = active_character["character_id"]
 
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
-            # Generate events
-            await client.my_map(character_id=char_id)
+            # Generate events (my_map removed - use get_status instead)
+            await get_status(client, char_id)
             await asyncio.sleep(1.0)
 
             # Verify events were received (even if large)
@@ -633,12 +682,12 @@ class TestEventEdgeCases:
         client = active_character["client"]
         char_id = active_character["character_id"]
 
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
             # Generate rapid events
             for _ in range(5):
-                await client.my_status(character_id=char_id)
+                await get_status(client, char_id)
                 await asyncio.sleep(0.1)
 
             await asyncio.sleep(2.0)

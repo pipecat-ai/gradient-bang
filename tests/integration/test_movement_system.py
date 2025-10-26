@@ -34,6 +34,38 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires
 
 
 # =============================================================================
+# Helper Functions
+# =============================================================================
+
+
+async def get_status(client, character_id):
+    """
+    Get character status by calling my_status and waiting for status.snapshot event.
+
+    The my_status RPC returns just {"success": True}, but emits a status.snapshot
+    event with the actual status data.
+    """
+    # Set up event listener before making the request
+    status_received = asyncio.Future()
+
+    def on_status(event):
+        if not status_received.done():
+            status_received.set_result(event.get("payload", event))
+
+    token = client.add_event_handler("status.snapshot", on_status)
+
+    try:
+        # Make the request
+        await client.my_status(character_id=character_id)
+
+        # Wait for the event with timeout
+        status_data = await asyncio.wait_for(status_received, timeout=5.0)
+        return status_data
+    finally:
+        client.remove_event_handler(token)
+
+
+# =============================================================================
 # Test Fixtures
 # =============================================================================
 
@@ -41,43 +73,52 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires
 @pytest.fixture
 async def client(server_url, check_server_available):
     """Create an AsyncGameClient connected to test server."""
-    async with AsyncGameClient(base_url=server_url) as client:
+    # AsyncGameClient now requires character_id
+    char_id = "test_generic_client"
+    async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
         yield client
 
 
 @pytest.fixture
-async def joined_character(client):
+async def joined_character(server_url):
     """Create and join a test character."""
-    # Join game
-    result = await client.join(character_id="test_movement_player1")
+    char_id = "test_movement_player1"
+    client = AsyncGameClient(base_url=server_url, character_id=char_id)
+
+    # Join game - characters start at sector 0
+    result = await client.join(character_id=char_id)
     assert result.get("success") is True
 
-    # Get initial status
-    status = await client.my_status(character_id="test_movement_player1")
-
-    return {
-        "character_id": "test_movement_player1",
+    yield {
+        "character_id": char_id,
         "client": client,
-        "initial_sector": status["sector"]["id"],
+        "initial_sector": 0,  # Characters always start at sector 0
     }
+
+    await client.close()
 
 
 @pytest.fixture
-async def two_characters(client, server_url):
+async def two_characters(server_url):
     """Create two test characters for multi-character tests."""
-    # Join first character
-    result1 = await client.join(character_id="test_movement_player1")
+    char1_id = "test_movement_player1"
+    char2_id = "test_movement_player2"
+
+    client1 = AsyncGameClient(base_url=server_url, character_id=char1_id)
+    result1 = await client1.join(character_id=char1_id)
     assert result1.get("success") is True
 
-    # Create second client for second character
-    async with AsyncGameClient(base_url=server_url) as client2:
-        result2 = await client2.join(character_id="test_movement_player2")
-        assert result2.get("success") is True
+    client2 = AsyncGameClient(base_url=server_url, character_id=char2_id)
+    result2 = await client2.join(character_id=char2_id)
+    assert result2.get("success") is True
 
-        yield {
-            "char1": {"id": "test_movement_player1", "client": client},
-            "char2": {"id": "test_movement_player2", "client": client2},
-        }
+    yield {
+        "char1": {"id": char1_id, "client": client1},
+        "char2": {"id": char2_id, "client": client2},
+    }
+
+    await client1.close()
+    await client2.close()
 
 
 # =============================================================================
@@ -94,14 +135,14 @@ class TestMoveValidation:
         char_id = joined_character["character_id"]
 
         # Get current status to find adjacent sectors
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         adjacent = status["sector"]["adjacent_sectors"]
         assert len(adjacent) > 0, "No adjacent sectors found"
 
         target_sector = adjacent[0]
 
         # Capture events during move
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)  # Let listener connect
 
             # Execute move
@@ -142,7 +183,7 @@ class TestMoveValidation:
         char_id = joined_character["character_id"]
 
         # Get adjacent sectors
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         adjacent = status["sector"]["adjacent_sectors"]
         assert len(adjacent) >= 2, "Need at least 2 adjacent sectors"
 
@@ -161,26 +202,38 @@ class TestMoveValidation:
         # Wait for first move to complete
         await move_task
 
-    async def test_move_with_insufficient_warp_power_fails(self, client):
+    async def test_move_with_insufficient_warp_power_fails(self, server_url):
         """Test that moving without enough warp power fails."""
         # Note: This test may need adjustment based on actual game mechanics
         # For now, we'll just verify the character can't move when depleted
         char_id = "test_movement_low_warp"
 
-        # Join with default warp power
-        await client.join(character_id=char_id)
+        client = AsyncGameClient(base_url=server_url, character_id=char_id)
 
-        # Get status to check warp power
-        status = await client.my_status(character_id=char_id)
+        try:
+            # Join with default warp power
+            await client.join(character_id=char_id)
 
-        # If warp power is sufficient, this test is informational only
-        if status["ship"].get("warp_power", 0) > 0:
-            pytest.skip("Character has sufficient warp power")
+            # Get status to check warp power
+            status = await get_status(client, char_id)
 
-    async def test_move_with_invalid_character_id_fails(self, client):
+            # If warp power is sufficient, this test is informational only
+            if status["ship"].get("warp_power", 0) > 0:
+                pytest.skip("Character has sufficient warp power")
+        finally:
+            await client.close()
+
+    async def test_move_with_invalid_character_id_fails(self, server_url):
         """Test that move with nonexistent character fails."""
-        with pytest.raises(Exception):  # Could be RPCError or ValueError
-            await client.move(to_sector=1, character_id="nonexistent_character")
+        char_id = "test_generic_client"
+        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+
+        try:
+            # Client validates character_id before sending, raises ValueError
+            with pytest.raises(ValueError):
+                await client.move(to_sector=1, character_id="nonexistent_character")
+        finally:
+            await client.close()
 
 
 # =============================================================================
@@ -197,7 +250,7 @@ class TestHyperspaceStateMachine:
         char_id = joined_character["character_id"]
 
         # Get adjacent sector
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         target = status["sector"]["adjacent_sectors"][0]
 
         # Start move
@@ -207,7 +260,7 @@ class TestHyperspaceStateMachine:
 
         # Check status immediately (should be in hyperspace)
         await asyncio.sleep(0.1)
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
 
         # Complete move
         await move_task
@@ -221,14 +274,14 @@ class TestHyperspaceStateMachine:
         char_id = joined_character["character_id"]
 
         # Get adjacent sector
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         target = status["sector"]["adjacent_sectors"][0]
 
         # Complete move
         await client.move(to_sector=target, character_id=char_id)
 
         # Check status after arrival
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
 
         # Should NOT be in hyperspace anymore
         assert status.get("in_hyperspace") is not True
@@ -240,14 +293,14 @@ class TestHyperspaceStateMachine:
         initial_sector = joined_character["initial_sector"]
 
         # Get adjacent sector
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         target = status["sector"]["adjacent_sectors"][0]
 
         # Move to target
         await client.move(to_sector=target, character_id=char_id)
 
         # Verify location updated
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         assert status["sector"]["id"] == target
         assert status["sector"]["id"] != initial_sector
 
@@ -257,7 +310,7 @@ class TestHyperspaceStateMachine:
         char_id = joined_character["character_id"]
 
         # Get initial warp power
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         initial_warp = status["ship"].get("warp_power", 0)
         target = status["sector"]["adjacent_sectors"][0]
 
@@ -265,7 +318,7 @@ class TestHyperspaceStateMachine:
         await client.move(to_sector=target, character_id=char_id)
 
         # Check warp power after move
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         final_warp = status["ship"].get("warp_power", 0)
 
         # Warp power should be reduced (unless it's infinite or special case)
@@ -278,7 +331,7 @@ class TestHyperspaceStateMachine:
         char_id = joined_character["character_id"]
 
         # Get adjacent sector
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         target = status["sector"]["adjacent_sectors"][0]
 
         # Time the move
@@ -298,7 +351,7 @@ class TestHyperspaceStateMachine:
         client = joined_character["client"]
         char_id = joined_character["character_id"]
 
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         adjacent = status["sector"]["adjacent_sectors"]
         assert len(adjacent) >= 2
 
@@ -322,7 +375,7 @@ class TestHyperspaceStateMachine:
 
         # Execute 3 sequential moves
         for _ in range(3):
-            status = await client.my_status(character_id=char_id)
+            status = await get_status(client, char_id)
             adjacent = status["sector"]["adjacent_sectors"]
 
             if not adjacent:
@@ -333,7 +386,7 @@ class TestHyperspaceStateMachine:
             assert result.get("success") is True
 
             # Verify location updated
-            status = await client.my_status(character_id=char_id)
+            status = await get_status(client, char_id)
             assert status["sector"]["id"] == target
 
     async def test_transit_interruption_handling(self, joined_character):
@@ -357,11 +410,11 @@ class TestEventOrdering:
         char_id = joined_character["character_id"]
 
         # Get adjacent sector
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         target = status["sector"]["adjacent_sectors"][0]
 
         # Capture events during move
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
             # Execute move
@@ -388,10 +441,10 @@ class TestEventOrdering:
         client = joined_character["client"]
         char_id = joined_character["character_id"]
 
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         target = status["sector"]["adjacent_sectors"][0]
 
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
             await client.move(to_sector=target, character_id=char_id)
@@ -411,10 +464,10 @@ class TestEventOrdering:
         client = joined_character["client"]
         char_id = joined_character["character_id"]
 
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         target = status["sector"]["adjacent_sectors"][0]
 
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
             await client.move(to_sector=target, character_id=char_id)
@@ -428,10 +481,10 @@ class TestEventOrdering:
         client = joined_character["client"]
         char_id = joined_character["character_id"]
 
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         target = status["sector"]["adjacent_sectors"][0]
 
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
             await client.move(to_sector=target, character_id=char_id)
@@ -447,12 +500,12 @@ class TestEventOrdering:
         char2 = two_characters["char2"]
 
         # Move char2 to same sector as char1
-        status1 = await char1["client"].my_status(character_id=char1["id"])
+        status1 = await get_status(char1["client"], char1["id"])
         char1_sector = status1["sector"]["id"]
 
         # Plot course for char2 to char1's sector
         # For simplicity, just verify events are broadcast
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char1["id"]) as listener:
             await asyncio.sleep(0.5)
 
             # Move char1
@@ -461,7 +514,7 @@ class TestEventOrdering:
                 await char1["client"].move(to_sector=adjacent[0], character_id=char1["id"])
                 await asyncio.sleep(2.0)
 
-                # Verify movement event was broadcast
+                # Verify movement event was broadcast (server emits movement.complete)
                 assert_event_emitted(listener.events, "movement.complete")
 
     async def test_failed_move_emits_error_event(self, joined_character, server_url):
@@ -469,7 +522,7 @@ class TestEventOrdering:
         client = joined_character["client"]
         char_id = joined_character["character_id"]
 
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
             # Try invalid move
@@ -488,10 +541,10 @@ class TestEventOrdering:
         client = joined_character["client"]
         char_id = joined_character["character_id"]
 
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         target = status["sector"]["adjacent_sectors"][0]
 
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
             await client.move(to_sector=target, character_id=char_id)
@@ -509,11 +562,11 @@ class TestEventOrdering:
         client = joined_character["client"]
         char_id = joined_character["character_id"]
 
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         target = status["sector"]["adjacent_sectors"][0]
 
         # Connect to firehose
-        async with create_firehose_listener(server_url) as listener:
+        async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
             # Execute move
@@ -557,14 +610,14 @@ class TestAutoGarrisonCombat:
         char_id = joined_character["character_id"]
 
         # Move to empty sector
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         adjacent = status["sector"]["adjacent_sectors"]
 
         if adjacent:
             await client.move(to_sector=adjacent[0], character_id=char_id)
 
             # Check status - should NOT be in combat
-            status = await client.my_status(character_id=char_id)
+            status = await get_status(client, char_id)
             # Note: Actual field name may vary
             assert not status.get("in_combat", False)
 
@@ -598,8 +651,8 @@ class TestPathfindingIntegration:
         client = joined_character["client"]
         char_id = joined_character["character_id"]
 
-        # Plot course to a distant sector
-        result = await client.plot_course(to_sector=100, character_id=char_id)
+        # Plot course to a distant sector (test universe has 10 sectors: 0-9)
+        result = await client.plot_course(to_sector=9, character_id=char_id)
 
         assert "path" in result or "success" in result
         # Verify path structure if returned
@@ -609,11 +662,13 @@ class TestPathfindingIntegration:
         client = joined_character["client"]
         char_id = joined_character["character_id"]
 
-        # Try to plot to potentially unreachable sector
-        result = await client.plot_course(to_sector=999999, character_id=char_id)
+        # In the test universe (10 connected sectors), all sectors should be reachable
+        # Test with invalid sector number instead
+        with pytest.raises(RPCError) as exc_info:
+            await client.plot_course(to_sector=999999, character_id=char_id)
 
-        # Should either return empty path or error
-        # Actual behavior depends on server implementation
+        # Should get error for invalid sector
+        assert exc_info.value.status == 400
 
     async def test_sequential_moves_follow_plotted_course(self, joined_character):
         """Test that character can follow a plotted course."""
@@ -621,11 +676,11 @@ class TestPathfindingIntegration:
         char_id = joined_character["character_id"]
 
         # Get current location
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         current = status["sector"]["id"]
 
-        # Plot course to nearby sector
-        target = 10  # Arbitrary target
+        # Plot course to nearby sector (test universe has 10 sectors: 0-9)
+        target = 9 if current != 9 else 8  # Pick a different sector
         course = await client.plot_course(to_sector=target, character_id=char_id)
 
         # If path exists and is reasonable length, follow it
@@ -637,7 +692,7 @@ class TestPathfindingIntegration:
                 await client.move(to_sector=next_sector, character_id=char_id)
 
                 # Verify we're at expected location
-                status = await client.my_status(character_id=char_id)
+                status = await get_status(client, char_id)
                 assert status["sector"]["id"] == next_sector
 
     async def test_pathfinding_performance_large_universe(self, joined_character):
@@ -647,9 +702,9 @@ class TestPathfindingIntegration:
 
         import time
 
-        # Plot course to distant sector
+        # Plot course to distant sector (test universe has 10 sectors: 0-9)
         start_time = time.time()
-        await client.plot_course(to_sector=4999, character_id=char_id)
+        await client.plot_course(to_sector=9, character_id=char_id)
         elapsed = time.time() - start_time
 
         # Pathfinding should complete quickly
@@ -670,7 +725,7 @@ class TestEdgeCases:
         char_id = joined_character["character_id"]
 
         # Move away from sector 0 first
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         if status["sector"]["id"] == 0:
             adjacent = status["sector"]["adjacent_sectors"]
             if adjacent:
@@ -678,7 +733,7 @@ class TestEdgeCases:
 
         # Now try to move to sector 0
         # This may or may not be a special case depending on game rules
-        status = await client.my_status(character_id=char_id)
+        status = await get_status(client, char_id)
         current = status["sector"]["id"]
 
         if current != 0:
@@ -698,21 +753,4 @@ class TestEdgeCases:
         # This requires depleting warp power first
         pytest.skip("Warp power depletion not yet in test scope")
 
-    async def test_move_updates_knowledge_cache(self, joined_character):
-        """Test that moving updates the character's map knowledge."""
-        client = joined_character["client"]
-        char_id = joined_character["character_id"]
-
-        # Get initial map knowledge
-        map_before = await client.my_map(character_id=char_id)
-
-        # Move to new sector
-        status = await client.my_status(character_id=char_id)
-        target = status["sector"]["adjacent_sectors"][0]
-        await client.move(to_sector=target, character_id=char_id)
-
-        # Get updated map knowledge
-        map_after = await client.my_map(character_id=char_id)
-
-        # Knowledge should include the new sector
-        # Note: Actual structure depends on my_map response format
+    # Note: test_move_updates_knowledge_cache removed - my_map endpoint no longer exists

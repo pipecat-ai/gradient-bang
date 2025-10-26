@@ -48,10 +48,20 @@ class EventListener:
     async def connect(self):
         """Connect to the WebSocket event stream."""
         ws_url = self.server_url.replace("http://", "ws://").replace("https://", "wss://")
-        ws_url = ws_url.rstrip("/") + "/api/firehose"
+        ws_url = ws_url.rstrip("/") + "/ws"
 
         self.websocket = await websockets.connect(ws_url)
         self._connected = True
+
+        # If we have a character_id, identify to receive character-specific events
+        if self.character_id:
+            import json
+            identify_msg = {
+                "type": "identify",
+                "character_id": self.character_id,
+                "id": "identify-1"
+            }
+            await self.websocket.send(json.dumps(identify_msg))
 
         # Start listening in background
         self._listen_task = asyncio.create_task(self._listen())
@@ -76,10 +86,15 @@ class EventListener:
             while self._connected and self.websocket:
                 try:
                     message = await self.websocket.recv()
-                    event = json.loads(message)
+                    frame = json.loads(message)
 
-                    # Skip "connected" type messages (server acknowledgment)
-                    if event.get("type") != "connected":
+                    # Only capture event frames (not RPC responses)
+                    if frame.get("frame_type") == "event":
+                        # Normalize: add 'type' field from 'event' field for compatibility
+                        event = {
+                            **frame,
+                            "type": frame.get("event"),  # Map 'event' to 'type'
+                        }
                         self.events.append(event)
 
                 except websockets.ConnectionClosed:
@@ -214,17 +229,18 @@ async def create_event_listener(
 
 
 @asynccontextmanager
-async def create_firehose_listener(server_url: str):
+async def create_firehose_listener(server_url: str, character_id: Optional[str] = None):
     """
     Factory for creating firehose (all events) listeners.
 
     Args:
         server_url: Base URL of the server
+        character_id: Optional character ID to filter events for
 
     Yields:
         EventListener instance configured for firehose
     """
-    listener = EventListener(server_url, character_id=None)
+    listener = EventListener(server_url, character_id=character_id)
     async with listener:
         yield listener
 

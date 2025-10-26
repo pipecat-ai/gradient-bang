@@ -22,6 +22,7 @@ async def handle(request: dict, world) -> dict:
     - Clears knowledge manager cache
     - Optionally deletes test character knowledge files from disk
     - Resets garrison JSON file
+    - Resets all ports to initial universe state (inventory, cache, files)
 
     Args:
         request: {
@@ -36,7 +37,8 @@ async def handle(request: dict, world) -> dict:
             "cleared_salvage": int,
             "cleared_garrisons": int,
             "cleared_cache": int,
-            "deleted_files": int
+            "deleted_files": int,
+            "ports_reset": int
         }
     """
     clear_files = request.get("clear_files", True)
@@ -101,15 +103,11 @@ async def handle(request: dict, world) -> dict:
                 json.dump({"meta": {"version": 1}, "sectors": []}, f, indent=2)
             logger.info("Reset garrison file")
 
-        # Clean up port state files
-        port_states_dir = world_data_dir / "port-states"
-        if port_states_dir.exists():
-            port_files_deleted = 0
-            for port_file in port_states_dir.glob("*.json"):
-                port_file.unlink()
-                port_files_deleted += 1
-            if port_files_deleted > 0:
-                logger.info(f"Deleted {port_files_deleted} port state files")
+        # Reset ports to initial universe state (deletes files, clears cache, reloads from universe data)
+        ports_reset = 0
+        if hasattr(world, "port_manager") and world.port_manager:
+            ports_reset = world.port_manager.reset_all_ports()
+            logger.info(f"Reset {ports_reset} ports to initial state")
 
         # Truncate event log
         event_log = world_data_dir / "event-log.jsonl"
@@ -124,4 +122,5 @@ async def handle(request: dict, world) -> dict:
         "cleared_garrisons": cleared_garrisons,
         "cleared_cache": cleared_cache,
         "deleted_files": deleted_files,
+        "ports_reset": ports_reset if clear_files else 0,
     }

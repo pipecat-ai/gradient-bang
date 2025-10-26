@@ -148,12 +148,22 @@ def assert_events_chronological(events: List[Dict[str, Any]]):
     """
     timestamps = [e.get("timestamp") for e in events]
 
-    for i in range(1, len(timestamps)):
-        if timestamps[i] < timestamps[i - 1]:
+    # Filter out None timestamps (events may not have timestamps)
+    valid_timestamps = [(i, ts) for i, ts in enumerate(timestamps) if ts is not None]
+
+    if len(valid_timestamps) < 2:
+        # Not enough timestamps to compare
+        return
+
+    for idx in range(1, len(valid_timestamps)):
+        i_prev, ts_prev = valid_timestamps[idx - 1]
+        i_curr, ts_curr = valid_timestamps[idx]
+
+        if ts_curr < ts_prev:
             raise AssertionError(
                 f"Events not chronological. "
-                f"Event {i-1} timestamp: {timestamps[i-1]}, "
-                f"Event {i} timestamp: {timestamps[i]}"
+                f"Event {i_prev} timestamp: {ts_prev}, "
+                f"Event {i_curr} timestamp: {ts_curr}"
             )
 
 

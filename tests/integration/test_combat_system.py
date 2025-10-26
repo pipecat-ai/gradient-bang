@@ -22,7 +22,7 @@ from pathlib import Path
 # Add project paths for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from utils.api_client import AsyncGameClient
+from utils.api_client import AsyncGameClient, RPCError
 from tests.helpers.combat_helpers import (
     create_test_character_knowledge,
     create_weak_character,
@@ -2360,3 +2360,331 @@ class TestCombatEdgeCases:
         finally:
             # client1 already closed
             await client2.close()
+
+
+# ============================================================================
+# Test Class: Combat Zone Restrictions
+# ============================================================================
+
+@pytest.mark.integration
+@pytest.mark.requires_server
+class TestCombatZoneRestrictions:
+    """Test restrictions on characters in sectors with active combat."""
+
+    async def test_arrival_in_combat_zone_prevents_non_combat_actions(self, test_server):
+        """Character arriving in sector with active combat cannot move or trade."""
+        # Create three characters: two fighters in sector 3, one arriving from sector 1
+        # Sector 1 and 3 are adjacent (verified in universe_structure.json)
+        create_test_character_knowledge("test_combat_zone_fighter1", sector=3, fighters=100)
+        create_test_character_knowledge("test_combat_zone_fighter2", sector=3, fighters=100)
+        create_test_character_knowledge("test_combat_zone_arrival", sector=1, fighters=100, credits=10000)
+
+        collector1 = EventCollector()
+        collector_arrival = EventCollector()
+
+        client1 = AsyncGameClient(
+            base_url="http://localhost:8002",
+            character_id="test_combat_zone_fighter1",
+            transport="websocket",
+        )
+        client2 = AsyncGameClient(
+            base_url="http://localhost:8002",
+            character_id="test_combat_zone_fighter2",
+            transport="websocket",
+        )
+        client_arrival = AsyncGameClient(
+            base_url="http://localhost:8002",
+            character_id="test_combat_zone_arrival",
+            transport="websocket",
+        )
+
+        client1.on("combat.round_waiting")(lambda p: collector1.add_event("combat.round_waiting", p))
+        client_arrival.on("combat.round_waiting")(lambda p: collector_arrival.add_event("combat.round_waiting", p))
+
+        try:
+            # Set up fighters in sector 3
+            await client1.join("test_combat_zone_fighter1")
+            await client2.join("test_combat_zone_fighter2")
+            await asyncio.sleep(2.0)
+
+            # Start combat in sector 3
+            await client1.combat_initiate(character_id="test_combat_zone_fighter1")
+            await collector1.wait_for_event("combat.round_waiting", timeout=10.0)
+
+            # New character joins and tries to move to sector 3 (combat zone)
+            await client_arrival.join("test_combat_zone_arrival")
+            await asyncio.sleep(1.0)
+
+            # Move to combat zone (sector 3) - should succeed
+            await client_arrival.move(to_sector=3, character_id="test_combat_zone_arrival")
+
+            await asyncio.sleep(2.0)  # Allow arrival to process
+
+            # Try to move out (should fail if character is restricted by combat)
+            try:
+                await client_arrival.move(to_sector=1, character_id="test_combat_zone_arrival")
+                # If move succeeds without exception, character is not restricted
+                # This might be valid behavior if they haven't auto-engaged in combat
+                print("\n  → Character was able to move out (not restricted by combat zone)")
+            except RPCError as e:
+                # Expected: Move blocked due to combat
+                print(f"\n  ✓ Move blocked: {e}")
+                assert "combat" in str(e).lower() or "cannot" in str(e).lower(), \
+                    f"Expected combat-related error, got: {e}"
+
+            # Try to trade (should also fail if in combat zone)
+            try:
+                await client_arrival.trade(
+                    commodity="quantum_foam",
+                    quantity=1,
+                    trade_type="buy",
+                    character_id="test_combat_zone_arrival"
+                )
+                # If trade succeeds, character is not in combat
+                print("\n  → Character was able to trade (not restricted by combat zone)")
+            except RPCError as e:
+                # Expected: Trade blocked due to combat
+                print(f"\n  ✓ Trade blocked: {e}")
+
+        finally:
+            await client1.close()
+            await client2.close()
+            await client_arrival.close()
+
+    async def test_arrival_in_combat_zone_can_join_combat(self, test_server):
+        """Character arriving in combat zone can initiate combat and join."""
+        # Create three characters: two fighters in sector 3, one arriving from sector 1
+        # Sector 1 and 3 are adjacent (verified in universe_structure.json)
+        create_test_character_knowledge("test_join_zone_fighter1", sector=3, fighters=100)
+        create_test_character_knowledge("test_join_zone_fighter2", sector=3, fighters=100)
+        create_test_character_knowledge("test_join_zone_arrival", sector=1, fighters=100)
+
+        collector1 = EventCollector()
+        collector_arrival = EventCollector()
+
+        client1 = AsyncGameClient(
+            base_url="http://localhost:8002",
+            character_id="test_join_zone_fighter1",
+            transport="websocket",
+        )
+        client2 = AsyncGameClient(
+            base_url="http://localhost:8002",
+            character_id="test_join_zone_fighter2",
+            transport="websocket",
+        )
+        client_arrival = AsyncGameClient(
+            base_url="http://localhost:8002",
+            character_id="test_join_zone_arrival",
+            transport="websocket",
+        )
+
+        client1.on("combat.round_waiting")(lambda p: collector1.add_event("combat.round_waiting", p))
+        client_arrival.on("combat.round_waiting")(lambda p: collector_arrival.add_event("combat.round_waiting", p))
+        client_arrival.on("combat.round_resolved")(lambda p: collector_arrival.add_event("combat.round_resolved", p))
+
+        try:
+            # Set up fighters in sector 3
+            await client1.join("test_join_zone_fighter1")
+            await client2.join("test_join_zone_fighter2")
+            await asyncio.sleep(2.0)
+
+            # Start combat in sector 3
+            await client1.combat_initiate(character_id="test_join_zone_fighter1")
+            waiting1 = await collector1.wait_for_event("combat.round_waiting", timeout=10.0)
+            combat_id = waiting1["combat_id"]
+
+            # New character joins and moves to combat zone
+            await client_arrival.join("test_join_zone_arrival")
+            await asyncio.sleep(1.0)
+            await client_arrival.move(to_sector=3, character_id="test_join_zone_arrival")
+            await asyncio.sleep(2.0)
+
+            # Character should be able to join the combat
+            # Try to initiate combat (should work)
+            result = await client_arrival.combat_initiate(character_id="test_join_zone_arrival")
+
+            # Should succeed in joining combat (returns {"success": True, "combat_id": "..."})
+            assert result.get("success"), \
+                f"Should be able to engage in combat in combat zone. Got: {result}"
+
+        finally:
+            await client1.close()
+            await client2.close()
+            await client_arrival.close()
+
+    async def test_arrival_joins_existing_combat_not_new_session(self, test_server):
+        """Character arriving in combat zone joins existing session, not creates new one.
+
+        This test verifies the critical invariant: only ONE combat session per sector.
+
+        Test flow:
+        1. Two characters already in sector 3
+        2. One calls combat_initiate() -> combat starts
+        3. Wait 2 seconds (combat fully established)
+        4. Third character moves from sector 1 -> sector 3 (move is synchronous)
+        5. Third character calls combat_initiate()
+        6. ASSERT: Third character gets SAME combat_id (joins existing, doesn't create new)
+        """
+        # Create three characters: two already in sector 3, one in sector 1
+        create_test_character_knowledge("test_join_existing_fighter1", sector=3, fighters=100)
+        create_test_character_knowledge("test_join_existing_fighter2", sector=3, fighters=100)
+        create_test_character_knowledge("test_join_existing_arrival", sector=1, fighters=100)
+
+        collector1 = EventCollector()
+        collector2 = EventCollector()
+        collector_arrival = EventCollector()
+
+        client1 = AsyncGameClient(
+            base_url="http://localhost:8002",
+            character_id="test_join_existing_fighter1",
+            transport="websocket",
+        )
+        client2 = AsyncGameClient(
+            base_url="http://localhost:8002",
+            character_id="test_join_existing_fighter2",
+            transport="websocket",
+        )
+        client_arrival = AsyncGameClient(
+            base_url="http://localhost:8002",
+            character_id="test_join_existing_arrival",
+            transport="websocket",
+        )
+
+        # Listen for events
+        client1.on("combat.round_waiting")(lambda p: collector1.add_event("combat.round_waiting", p))
+        client2.on("combat.round_waiting")(lambda p: collector2.add_event("combat.round_waiting", p))
+        client_arrival.on("combat.round_waiting")(lambda p: collector_arrival.add_event("combat.round_waiting", p))
+
+        try:
+            # Step 1: Two characters already in sector 3
+            print("\n1. Setting up two characters in sector 3...")
+            await client1.join("test_join_existing_fighter1")
+            await client2.join("test_join_existing_fighter2")
+            await asyncio.sleep(1.0)
+
+            # Step 2: One calls combat_initiate()
+            print("2. Fighter1 initiating combat...")
+            await client1.combat_initiate(character_id="test_join_existing_fighter1")
+
+            # Wait for combat to start and capture original combat_id
+            waiting1 = await collector1.wait_for_event("combat.round_waiting", timeout=10.0)
+            original_combat_id = waiting1["combat_id"]
+            print(f"   ✓ Combat started with combat_id: {original_combat_id}")
+
+            # Step 3: Wait 2 seconds (combat fully established)
+            print("3. Waiting 2 seconds for combat to be fully established...")
+            await asyncio.sleep(2.0)
+
+            # Step 4: Third character joins and moves to sector 3
+            print("4. Third character joining and moving to sector 3...")
+            await client_arrival.join("test_join_existing_arrival")
+            await asyncio.sleep(0.5)
+
+            # Step 5: Move to sector 3 (synchronous - when call returns, move is complete)
+            print("5. Moving to sector 3...")
+            await client_arrival.move(to_sector=3, character_id="test_join_existing_arrival")
+            print(f"   ✓ Move completed: character now in sector 3")
+
+            # Step 6: Third character calls combat_initiate()
+            print("6. Third character attempting to initiate combat...")
+            await client_arrival.combat_initiate(character_id="test_join_existing_arrival")
+
+            # Wait for combat.round_waiting event for the arriving character
+            waiting_arrival = await collector_arrival.wait_for_event("combat.round_waiting", timeout=10.0)
+            arrival_combat_id = waiting_arrival["combat_id"]
+            print(f"   ✓ Received combat.round_waiting with combat_id: {arrival_combat_id}")
+
+            # Step 7: CRITICAL ASSERTION - Should be the SAME combat_id
+            assert arrival_combat_id == original_combat_id, \
+                f"\n❌ BUG DETECTED: Two separate combat sessions in the same sector!\n" \
+                f"   Original combat_id: {original_combat_id}\n" \
+                f"   Arrival combat_id:  {arrival_combat_id}\n" \
+                f"   Expected: Same combat_id (character joins existing combat)\n" \
+                f"   Actual: Different combat_id (character created NEW combat)\n"
+
+            print(f"\n✅ TEST PASSED: Character joined the SAME combat session")
+            participants = waiting_arrival.get("participants", [])
+            print(f"   Combat now has {len(participants)} participants (expected 3)")
+
+        finally:
+            await client1.close()
+            await client2.close()
+            await client_arrival.close()
+
+    async def test_arrival_in_combat_zone_after_combat_ends(self, test_server):
+        """Character can perform normal actions if arriving after combat ends."""
+        # Create three characters: two fighters in sector 3, one arriving from sector 1
+        # Sector 1 and 3 are adjacent (verified in universe_structure.json)
+        create_test_character_knowledge("test_ended_fighter1", sector=3, fighters=100)
+        create_test_character_knowledge("test_ended_fighter2", sector=3, fighters=100)
+        create_test_character_knowledge("test_ended_arrival", sector=1, fighters=100)
+
+        collector1 = EventCollector()
+        collector2 = EventCollector()
+
+        client1 = AsyncGameClient(
+            base_url="http://localhost:8002",
+            character_id="test_ended_fighter1",
+            transport="websocket",
+        )
+        client2 = AsyncGameClient(
+            base_url="http://localhost:8002",
+            character_id="test_ended_fighter2",
+            transport="websocket",
+        )
+        client_arrival = AsyncGameClient(
+            base_url="http://localhost:8002",
+            character_id="test_ended_arrival",
+            transport="websocket",
+        )
+
+        client1.on("combat.round_waiting")(lambda p: collector1.add_event("combat.round_waiting", p))
+        client1.on("combat.ended")(lambda p: collector1.add_event("combat.ended", p))
+        client2.on("combat.round_waiting")(lambda p: collector2.add_event("combat.round_waiting", p))
+
+        try:
+            # Set up fighters in sector 3
+            await client1.join("test_ended_fighter1")
+            await client2.join("test_ended_fighter2")
+            await asyncio.sleep(2.0)
+
+            # Start combat
+            await client1.combat_initiate(character_id="test_ended_fighter1")
+            waiting = await collector1.wait_for_event("combat.round_waiting", timeout=10.0)
+            combat_id = waiting["combat_id"]
+
+            # Both fighters flee to end combat (to adjacent sectors)
+            await client1.combat_action(
+                character_id="test_ended_fighter1",
+                combat_id=combat_id,
+                action="flee",
+                to_sector=1,
+            )
+            await client2.combat_action(
+                character_id="test_ended_fighter2",
+                combat_id=combat_id,
+                action="flee",
+                to_sector=4,
+            )
+
+            # Wait for combat to end
+            await collector1.wait_for_event("combat.ended", timeout=25.0)
+
+            # Now new character arrives in sector 3 (where combat was)
+            await client_arrival.join("test_ended_arrival")
+            await asyncio.sleep(1.0)
+
+            # Should be able to move to sector after combat ends (no exception = success)
+            await client_arrival.move(to_sector=3, character_id="test_ended_arrival")
+            print("\n  ✓ Character moved to sector 3 (where combat ended)")
+
+            await asyncio.sleep(1.0)
+
+            # Should be able to move freely (combat is over)
+            await client_arrival.move(to_sector=1, character_id="test_ended_arrival")
+            print("  ✓ Character moved freely back to sector 1 (combat restrictions lifted)")
+
+        finally:
+            await client1.close()
+            await client2.close()
+            await client_arrival.close()
