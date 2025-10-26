@@ -1195,7 +1195,9 @@ export class GalaxyStarfield {
 
     if (currentPhase === "FLASH" && this.warpPhase !== "FLASH") {
       console.debug("[STARFIELD] WARP: Transitioning to FLASH phase");
-      this.sceneController.enterFlashPhase();
+      void this.sceneController.enterFlashPhase({
+        skipFlash: this._warpBypassFlash,
+      });
     }
 
     this.warpPhase = currentPhase;

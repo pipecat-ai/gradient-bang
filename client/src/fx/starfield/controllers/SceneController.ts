@@ -24,6 +24,10 @@ interface TransitionOptions extends LoadOptions {
   schedule?: "immediate" | "defer";
 }
 
+interface FlashPhaseOptions {
+  skipFlash?: boolean;
+}
+
 export interface FlashHoldStatus {
   elapsedMs: number;
   meetsMinimumHold: boolean;
@@ -53,10 +57,6 @@ export class SceneController {
 
   public isSceneReady(): boolean {
     return this.sceneReady;
-  }
-
-  public getFlashHoldStartTime(): number {
-    return this.flashHoldStartMs ?? 0;
   }
 
   public getFlashHoldStatus(now: number = performance.now()): FlashHoldStatus {
@@ -136,19 +136,21 @@ export class SceneController {
     }
   }
 
-  public async enterFlashPhase(): Promise<void> {
+  public async enterFlashPhase(
+    options: FlashPhaseOptions = {}
+  ): Promise<void> {
+    const { skipFlash = false } = options;
     this.flashHoldStartMs = performance.now();
     this.sceneReady = false;
     this.host.onSceneLoading();
 
-    let whiteFlash = this.host.resolveWhiteFlash();
+    const whiteFlash = this.host.resolveWhiteFlash();
 
     try {
-      if (!whiteFlash) {
-        whiteFlash = this.host.resolveWhiteFlash();
-      }
-      if (whiteFlash) {
+      if (!skipFlash && whiteFlash) {
         whiteFlash.style.opacity = "1.0";
+      } else if (skipFlash && whiteFlash) {
+        whiteFlash.style.opacity = "0";
       }
 
       await this.createNewSceneInternal("defer");
@@ -180,10 +182,6 @@ export class SceneController {
       transition: false,
       schedule,
     });
-  }
-
-  public async createNewScene(): Promise<void> {
-    await this.createNewSceneInternal();
   }
 
   public dispose(): void {

@@ -169,7 +169,10 @@ export const StarFieldSequence: Story = () => {
     rapidFireDuringAnimation: () => {
       resetState();
       console.log("\n[STORY] 🧪 TEST: Rapid Fire During Animation");
-      starfieldInstance?.warpToSector({ id: generateRandomSectorId() });
+      starfieldInstance?.warpToSector({
+        id: generateRandomSectorId(),
+        bypassFlash,
+      });
       setTimeout(
         () =>
           starfieldInstance?.warpToSector({
@@ -200,11 +203,17 @@ export const StarFieldSequence: Story = () => {
     callDuringCooldown: () => {
       resetState();
       console.log("\n[STORY] 🧪 TEST: Call During Cooldown");
-      starfieldInstance?.warpToSector({ id: generateRandomSectorId() });
+      starfieldInstance?.warpToSector({
+        id: generateRandomSectorId(),
+        bypassFlash,
+      });
       // Wait for animation to complete (5s) + 1s, then call (should be in cooldown)
       setTimeout(() => {
         console.log("[STORY] Calling during cooldown period...");
-        starfieldInstance?.warpToSector({ id: generateRandomSectorId() });
+        starfieldInstance?.warpToSector({
+          id: generateRandomSectorId(),
+          bypassFlash,
+        });
       }, 6000);
     },
 
@@ -232,7 +241,10 @@ export const StarFieldSequence: Story = () => {
       resetState();
       console.log("\n[STORY] 🧪 TEST: Queue Buildup");
       // Start animation
-      starfieldInstance?.warpToSector({ id: generateRandomSectorId() });
+      starfieldInstance?.warpToSector({
+        id: generateRandomSectorId(),
+        bypassFlash,
+      });
       // Queue 5 more during animation
       setTimeout(() => {
         for (let i = 0; i < 5; i++) {
@@ -248,14 +260,20 @@ export const StarFieldSequence: Story = () => {
     clearCooldownTest: () => {
       resetState();
       console.log("\n[STORY] 🧪 TEST: Clear Cooldown");
-      starfieldInstance?.warpToSector({ id: generateRandomSectorId() });
+      starfieldInstance?.warpToSector({
+        id: generateRandomSectorId(),
+        bypassFlash,
+      });
       // Wait 6s (animation done, cooldown active), clear cooldown, then warp
       setTimeout(() => {
         console.log("[STORY] Clearing cooldown...");
         starfieldInstance?.clearWarpCooldown();
         setTimeout(() => {
           console.log("[STORY] Warping after cooldown clear (should animate)");
-          starfieldInstance?.warpToSector({ id: generateRandomSectorId() });
+          starfieldInstance?.warpToSector({
+            id: generateRandomSectorId(),
+            bypassFlash,
+          });
         }, 100);
       }, 6000);
     },
@@ -264,7 +282,10 @@ export const StarFieldSequence: Story = () => {
     clearQueueTest: () => {
       resetState();
       console.log("\n[STORY] 🧪 TEST: Clear Queue");
-      starfieldInstance?.warpToSector({ id: generateRandomSectorId() });
+      starfieldInstance?.warpToSector({
+        id: generateRandomSectorId(),
+        bypassFlash,
+      });
       setTimeout(() => {
         for (let i = 0; i < 3; i++) {
           starfieldInstance?.warpToSector({
@@ -285,7 +306,10 @@ export const StarFieldSequence: Story = () => {
       resetState();
       console.log("\n[STORY] 🧪 TEST: Full Cycle");
       // Initial animation
-      starfieldInstance?.warpToSector({ id: generateRandomSectorId() });
+      starfieldInstance?.warpToSector({
+        id: generateRandomSectorId(),
+        bypassFlash,
+      });
       // Queue 2 items during animation
       setTimeout(() => {
         starfieldInstance?.warpToSector({
@@ -300,7 +324,10 @@ export const StarFieldSequence: Story = () => {
       // After cooldown expires (animation 5s + cooldown 15s = 20s), warp again
       setTimeout(() => {
         console.log("[STORY] Cooldown should be expired, animating again...");
-        starfieldInstance?.warpToSector({ id: generateRandomSectorId() });
+        starfieldInstance?.warpToSector({
+          id: generateRandomSectorId(),
+          bypassFlash,
+        });
       }, 21000);
     },
   };

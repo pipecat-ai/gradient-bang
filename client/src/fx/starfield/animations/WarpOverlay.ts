@@ -114,7 +114,7 @@ export class WarpOverlay {
     } else {
       // Fallback to body if container not found
       console.warn(
-        "WarpOverlay: 'starfield-container' not found, appending to body"
+        "[STARFIELD] WarpOverlay: 'starfield-container' not found, appending to body"
       );
       document.body.appendChild(this.canvas);
     }
@@ -177,7 +177,7 @@ export class WarpOverlay {
    */
   private setupCanvas(): void {
     if (!this.canvas || !this.ctx) {
-      console.warn("WarpOverlay: Canvas or context not available");
+      console.warn("[STARFIELD] WarpOverlay: Canvas or context not available");
       return;
     }
 
@@ -287,7 +287,7 @@ export class WarpOverlay {
       }
     }
 
-    console.debug("WarpOverlay: Activated");
+    console.debug("[STARFIELD] WarpOverlay: Activated");
   }
 
   /**
@@ -308,7 +308,7 @@ export class WarpOverlay {
     this.clearCache();
     this.clearTrigCaches();
 
-    console.debug("WarpOverlay: Deactivated");
+    console.debug("[STARFIELD] WarpOverlay: Deactivated");
   }
 
   /**
@@ -326,7 +326,7 @@ export class WarpOverlay {
     this.clearTrigCaches();
 
     // Keep trails intact - they will fade and shrink as intensity decreases
-    console.debug("WarpOverlay: Beginning fade-out");
+    console.debug("[STARFIELD] WarpOverlay: Beginning fade-out");
   }
 
   /**
@@ -336,7 +336,9 @@ export class WarpOverlay {
     this.active = true;
     this.intensity = Math.max(0, Math.min(1, intensity));
     this.generateTrails();
-    console.debug(`WarpOverlay: Started with intensity ${this.intensity}`);
+    console.debug(
+      `[STARFIELD] WarpOverlay: Started with intensity ${this.intensity}`
+    );
   }
 
   /**
@@ -345,9 +347,9 @@ export class WarpOverlay {
   public stop(): void {
     this.active = false;
     this.intensity = 0;
-    this.clearTrails();
+    console.debug("[STARFIELD] WarpOverlay: Stopped");
     this.clearCanvas();
-    console.debug("WarpOverlay: Stopped");
+    console.debug("[STARFIELD] WarpOverlay: Stopped");
   }
 
   /**
@@ -1143,7 +1145,7 @@ export class WarpOverlay {
     this.canvas = null;
     this.ctx = null;
 
-    console.debug("WarpOverlay: Disposed");
+    console.debug("[STARFIELD] WarpOverlay: Disposed");
   }
 
   /**
