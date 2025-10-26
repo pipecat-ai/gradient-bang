@@ -182,6 +182,23 @@ TEST_CHARACTER_IDS = [
     "test_persistence_flee_attacker2",
     "test_persistence_flee_defender2",
     "test_reset_runner",
+    # Cache coherence test characters (test_persistence.py Phase 3.5)
+    "test_cache_coherence_1",
+    "test_cache_coherence_2",
+    "test_cache_coherence_3",
+    "test_cache_coherence_4",
+    "test_cache_coherence_5",
+    # Crash recovery test characters (test_persistence.py Phase 3.5)
+    "test_crash_recovery_1",
+    "test_crash_recovery_2",
+    "test_crash_recovery_3a",
+    "test_crash_recovery_3b",
+    "test_crash_recovery_4",
+    # Supabase schema validation test characters (test_persistence.py Phase 3.5)
+    "test_supabase_schema_1",
+    "test_supabase_schema_2",
+    "test_supabase_schema_3",
+    "test_supabase_schema_5",
     # Trading system test characters
     "test_trading_client",
     "test_concurrent_trader1",
