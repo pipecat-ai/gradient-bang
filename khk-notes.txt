@@ -1,280 +1,46 @@
-Map events
-  - right after join you get a map.local
-  - after a move you get a map.local
-  - client can send a get-my-map RTVI message to get a map.region event that shows the maparound any visited sector
-    `window.sendMessage("get-my-map", { center_sector: 1510, max_hops: 8 })`
-  - get-my-map calls the game server local_map_region endpoint. The LLM can also call this, so you'll see a map.region event if the LLM calls local_map_region, too.
-  - map.region:payload.source will be local_map_region if it's called by the LLM, or "get-my-map" if it's triggered by an RTVI message from the client.
 
-```
-{
-    "frame_type": "event",
-    "event": "map.region",
-    "payload": {
-        "center_sector": 1510,
-        "sectors": [
-            {
-                "id": 379,
-                "visited": true,
-                "hops_from_center": 1,
-                "adjacent_sectors": [
-                    764,
-                    1510
-                ],
-                "port": "SSS",
-                "last_visited": "2025-10-23T05:35:17.689530+00:00",
-                "position": [
-                    116,
-                    129
-                ],
-                "lanes": [
-                    {
-                        "to": 764,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 1510,
-                        "two_way": true,
-                        "hyperlane": false
-                    }
-                ]
-            },
-            {
-                "id": 566,
-                "visited": true,
-                "hops_from_center": 2,
-                "adjacent_sectors": [
-                    389,
-                    653,
-                    1317
-                ],
-                "port": "",
-                "last_visited": "2025-10-23T21:42:39.353536+00:00",
-                "position": [
-                    120,
-                    125
-                ],
-                "lanes": [
-                    {
-                        "to": 389,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 653,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 1317,
-                        "two_way": false,
-                        "hyperlane": false
-                    }
-                ]
-            },
-            {
-                "id": 653,
-                "visited": true,
-                "hops_from_center": 1,
-                "adjacent_sectors": [
-                    566,
-                    1317,
-                    1510
-                ],
-                "port": "BBB",
-                "last_visited": "2025-10-23T21:42:35.115007+00:00",
-                "position": [
-                    118,
-                    126
-                ],
-                "lanes": [
-                    {
-                        "to": 566,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 1317,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 1510,
-                        "two_way": true,
-                        "hyperlane": false
-                    }
-                ]
-            },
-            {
-                "id": 764,
-                "visited": true,
-                "hops_from_center": 2,
-                "adjacent_sectors": [
-                    373,
-                    379,
-                    869
-                ],
-                "port": "SSS",
-                "last_visited": "2025-10-20T00:06:53.412517+00:00",
-                "position": [
-                    114,
-                    130
-                ],
-                "lanes": [
-                    {
-                        "to": 373,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 379,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 869,
-                        "two_way": true,
-                        "hyperlane": false
-                    }
-                ]
-            },
-            {
-                "id": 920,
-                "visited": true,
-                "hops_from_center": 2,
-                "adjacent_sectors": [
-                    742,
-                    1021,
-                    1357
-                ],
-                "port": "",
-                "last_visited": "2025-10-22T01:13:06.686014+00:00",
-                "position": [
-                    110,
-                    124
-                ],
-                "lanes": [
-                    {
-                        "to": 742,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 1021,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 1357,
-                        "two_way": true,
-                        "hyperlane": false
-                    }
-                ]
-            },
-            {
-                "id": 1317,
-                "visited": true,
-                "hops_from_center": 2,
-                "adjacent_sectors": [
-                    653,
-                    740
-                ],
-                "port": "SSS",
-                "last_visited": "2025-10-20T04:51:34.168263+00:00",
-                "position": [
-                    120,
-                    128
-                ],
-                "lanes": [
-                    {
-                        "to": 653,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 740,
-                        "two_way": true,
-                        "hyperlane": false
-                    }
-                ]
-            },
-            {
-                "id": 1357,
-                "visited": true,
-                "hops_from_center": 1,
-                "adjacent_sectors": [
-                    920,
-                    1510
-                ],
-                "port": "",
-                "last_visited": "2025-10-22T01:13:10.147327+00:00",
-                "position": [
-                    114,
-                    125
-                ],
-                "lanes": [
-                    {
-                        "to": 920,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 1510,
-                        "two_way": true,
-                        "hyperlane": false
-                    }
-                ]
-            },
-            {
-                "id": 1510,
-                "visited": true,
-                "hops_from_center": 0,
-                "adjacent_sectors": [
-                    379,
-                    653,
-                    1357
-                ],
-                "port": "",
-                "last_visited": "2025-10-23T21:41:10.857820+00:00",
-                "position": [
-                    116,
-                    127
-                ],
-                "lanes": [
-                    {
-                        "to": 379,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 653,
-                        "two_way": true,
-                        "hyperlane": false
-                    },
-                    {
-                        "to": 1357,
-                        "two_way": true,
-                        "hyperlane": false
-                    }
-                ]
-            }
-        ],
-        "total_sectors": 8,
-        "total_visited": 8,
-        "total_unvisited": 0,
-        "source": {
-            "type": "rpc",
-            "method": "get-my-map",
-            "request_id": "a373625c-2f6f-4497-ac3e-610bbd4164ca",
-            "timestamp": "2025-10-23T21:58:17.643927+00:00"
-        }
-    }
-}
-```
+0. After we merge gp-1025 we need to make sure the event-logger is threaded through all new emits.
+1. test_trade_event_visibility
+2. Do we have good tests for multi-character fan-out of events received when a character moves or a trade is executed? Not log query fanout tests. But events received in realtime by multiple characters in a sector.
+3. When we add garrison tests, we should make sure a player receives broadcast events from their garrison fighters in a different sectors, and add tests for being able to query combat events that happened to a player's garrison fighters. We may need new remote combat event types for this.
+4
+----
+
+Look at server returing 500 instead of 400 for insufficient cargo. See if there are other instances of this.
+----
+
+gb-1025 tests
+  - bank
+    - lightly tested
+  - credit transfer
+    - changing to use name
+    - need to test
+    - need to test with three players in the sector
+  - cargo dumped as salvage
+    - not tested
 
 
----
+----
+
+todo:
+  - fix issues lower down
+  - implement port 0 port - warp purchase, ship trade-in and purchase, bank (this needs data structure support)
+  - implement buying a warp generator and warp generator warp recharge
+  - implement player credits transfer
+  - implement dumping cargo as salvage
+  - implement log search
+    - use log mechanic to implement logging for events in a sector with a character's fighter
+  - implement game rules "docs map" lookup
+  - refactor bot to remove most tools from voice agent
+    - task
+    - log search
+    - ui triggers
+  - implement gemini audio in module
+  - think about corporations
+  - implement hyperspace module
+  - implement something worth defending -- citadel that does (what?)
+  
+
 
 Combat
   - Make it impossible to leave a sector when combat is happening
@@ -286,51 +52,9 @@ Start people off with level 1 warp generator module (players have a natural tick
 Player trading
   - transfer credits and commodities
 
-Jon:
-  - I join, connect, then wait for status/map events, then "start"
-  
-Need to fix IDs to be clean indexable without special characters
-  - make a unique public ID for a player
-  - methods
-    - create character
-    - set name
-
 Why would this be a rate limit?
 > ERROR:gradient-bang.rate_limit:Error processing request for TraderP: 400: Sector 0 is not adjacent to current sector 0 
 - possibly related to previous errors in warp power failed buys
-
-----
-
-Make sure:
-- We update our ship status based on trade.executed payload.
-- We update garrison and other info based on sector.update payload.
-- We update relevant game state based on garrison events.
-- We update relevant game state based on salvage.collected payload.
-
----
-
-I ran a toll garrison test using two players and simple_tui.py. Everything worked except for the toll credits. Examine the logs in logs/toll-h.log and logs/toll-i.log. Build a chronology of events on both sides. One player deposited toll fighters. The other player entered the sector and paid the toll. The first player then collected the fighters but did not receive the toll credits.
-
-Examine the game server code to find the bug.
-
----
-
-We only need to make VoiceTaskManager work, for now. We can come back and fix other code that depends on the current TaskAgent later.
-
-- We do not need verbose_prompts. Remove use of this in VoiceTaskManager.
-- output_callback should be an async function.
-- We do not need tool_call_event_callback and tool_result_event_callback. Remove use of these in VoiceTaskManager.
-- Fix constructor format to whatever makes the most sense from the perspective of VoiceTaskManager.
-- We can remove LLMConfig and do all of that config inside VoiceTaskManager. That helper is an unnecessary abstraction. It's okay for VoiceTaskManager to depend on the Google genai library looking for the GOOGLE_API_KEY in the environment.
-- Do not touch utils/experimental_pipecat_agent.py -- leave it as-is for now. We will remove the file when we are completely done with the migration.
-- If ExperimentalTaskAgent does not support a task cancellation API, we should add one to it. The VoiceTaskManager defines an LLM tool call to cancel the active task. 
-
-
-
-
-todo
-  - task output should go to the llm as buffered messages
-  - task output should go to the game client as an event
 
 ----
 

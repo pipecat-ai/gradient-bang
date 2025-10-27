@@ -16,6 +16,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from core.world import lifespan as world_lifespan, world
 from api import (
+    character_create as api_character_create,
+    character_delete as api_character_delete,
+    character_modify as api_character_modify,
     plot_course as api_plot_course,
     join as api_join,
     move as api_move,
@@ -35,6 +38,7 @@ from api import (
     combat_set_garrison_mode as api_combat_set_garrison_mode,
     salvage_collect as api_salvage_collect,
     test_reset as api_test_reset,
+    event_query as api_event_query,
 )
 from core.config import get_world_data_path
 from messaging.store import MessageStore
@@ -46,15 +50,15 @@ from combat.callbacks import (
     on_toll_payment,
 )
 from rpc import (
-    Connection,
     event_dispatcher,
     rpc_error,
     rpc_success,
-    send_initial_status,
     RPCHandler,
     RateLimiter,
 )
+from rpc.connection import Connection, send_initial_status
 from core.locks import CreditLockManager, PortLockManager
+from server_logging.event_log import EventLogger
 
 logger = logging.getLogger("gradient-bang.server")
 logging.basicConfig(level=logging.INFO)
@@ -63,6 +67,8 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
     async with world_lifespan(app):
+        log_path = get_world_data_path() / "event-log.jsonl"
+        event_dispatcher.set_event_logger(EventLogger(log_path))
         if world.combat_manager:
             # Configure combat callbacks with dependencies
             world.combat_manager.configure_callbacks(
@@ -184,6 +190,22 @@ RPC_HANDLERS: Dict[str, RPCHandler] = {
         lambda payload: handle_send_message(
             payload, world, _MESSAGES, event_dispatcher
         ),
+    ),
+    "event.query": _with_rate_limit(
+        "event.query",
+        lambda payload: api_event_query.handle(payload, world),
+    ),
+    "character.create": _with_rate_limit(
+        "character.create",
+        lambda payload: api_character_create.handle(payload, world),
+    ),
+    "character.modify": _with_rate_limit(
+        "character.modify",
+        lambda payload: api_character_modify.handle(payload, world),
+    ),
+    "character.delete": _with_rate_limit(
+        "character.delete",
+        lambda payload: api_character_delete.handle(payload, world),
     ),
     "combat.initiate": _with_rate_limit(
         "combat.initiate", lambda payload: api_combat_initiate.handle(payload, world)

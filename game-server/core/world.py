@@ -12,6 +12,7 @@ from port_manager import PortManager
 from .config import get_world_data_path
 from combat import CombatManager, GarrisonStore, SalvageManager
 from ships import ShipType, get_ship_stats
+from .character_registry import CharacterRegistry
 
 
 class UniverseGraph:
@@ -92,6 +93,7 @@ class Character:
         character_id: str,
         sector: int = 0,
         *,
+        name: Optional[str] = None,
         fighters: int = 0,
         shields: int = 0,
         max_fighters: int = 0,
@@ -103,6 +105,7 @@ class Character:
         in_hyperspace: bool = False,
     ) -> None:
         self.id = character_id
+        self.name = name or character_id
         self.sector = sector
         self.last_active = last_active or datetime.now(timezone.utc)
         self.first_visit = first_visit or datetime.now(timezone.utc)
@@ -136,9 +139,10 @@ class Character:
             self.max_shields = max_shields
 
     def to_response(self) -> dict:
-        # Do not leak character_id beyond name
+        """Serialize character summary for admin responses."""
         return {
-            "name": self.id,
+            "id": self.id,
+            "name": self.name,
             "sector": self.sector,
             "last_active": self.last_active.isoformat(),
             "first_visit": self.first_visit.isoformat(),
@@ -155,6 +159,7 @@ class GameWorld:
         self.combat_manager: Optional[CombatManager] = None
         self.garrisons: Optional[GarrisonStore] = None
         self.salvage_manager: Optional[SalvageManager] = None
+        self.character_registry: Optional[CharacterRegistry] = None
 
     def load_data(self):
         world_data_path = get_world_data_path()
@@ -176,6 +181,10 @@ class GameWorld:
 
         self.port_manager = PortManager(universe_contents=self.sector_contents)
 
+        registry_path = world_data_path / "characters.json"
+        self.character_registry = CharacterRegistry(registry_path)
+        self.character_registry.load()
+
         garrison_path = world_data_path / "sector_garrisons.json"
         self.garrisons = GarrisonStore(garrison_path)
         self.combat_manager = CombatManager()
@@ -191,9 +200,15 @@ class GameWorld:
                 continue
             stats = get_ship_stats(ship_type)
             last_active = _parse_timestamp(knowledge.last_update)
+            display_name = knowledge.character_id
+            if self.character_registry:
+                profile = self.character_registry.get_profile(knowledge.character_id)
+                if profile:
+                    display_name = profile.name
             character = Character(
                 knowledge.character_id,
                 sector=knowledge.current_sector,
+                name=display_name,
                 fighters=knowledge.ship_config.current_fighters,
                 shields=knowledge.ship_config.current_shields,
                 max_fighters=stats.fighters,

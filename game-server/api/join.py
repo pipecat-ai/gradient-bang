@@ -8,6 +8,7 @@ from .utils import (
     rpc_success,
     build_character_moved_payload,
     build_local_map_region,
+    build_log_context,
 )
 from ships import ShipType, get_ship_stats, validate_ship_type
 from rpc.events import event_dispatcher
@@ -29,6 +30,16 @@ async def handle(request: dict, world) -> dict:
     ship_type = request.get("ship_type")
     credits = request.get("credits")
     sector = request.get("sector")
+
+    registry = getattr(world, "character_registry", None)
+    if registry is None:
+        raise HTTPException(status_code=500, detail="Character registry unavailable")
+
+    profile = registry.get_profile(character_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Character is not registered")
+
+    display_name = profile.name
 
     is_connected = character_id in world.characters
     # Determine if we have prior knowledge on disk
@@ -73,6 +84,7 @@ async def handle(request: dict, world) -> dict:
         character = Character(
             character_id,
             sector=start_sector,
+            name=display_name,
             fighters=knowledge.ship_config.current_fighters,
             shields=knowledge.ship_config.current_shields,
             max_fighters=ship_stats.fighters,
@@ -90,6 +102,7 @@ async def handle(request: dict, world) -> dict:
         # todo: maybe lock this down a bit?
         character = world.characters[character_id]
         character.update_activity()
+        character.name = display_name
         knowledge = world.knowledge_manager.load_knowledge(character_id)
         ship_stats = get_ship_stats(ShipType(knowledge.ship_config.ship_type))
         character.update_ship_state(
@@ -120,10 +133,21 @@ async def handle(request: dict, world) -> dict:
                         "to_sector": sector,
                     },
                 )
+                arrival_context = build_log_context(
+                    character_id=character_id,
+                    world=world,
+                    sector=sector,
+                )
+                depart_context = build_log_context(
+                    character_id=character_id,
+                    world=world,
+                    sector=old_sector,
+                )
                 await event_dispatcher.emit(
                     "character.moved",
                     mover_payload,
                     character_filter=[character_id],
+                    log_context=arrival_context,
                 )
 
                 observer_payload = build_character_moved_payload(
@@ -149,6 +173,7 @@ async def handle(request: dict, world) -> dict:
                         "character.moved",
                         {**observer_payload, "movement": "arrive", "to_sector": sector},
                         character_filter=arriving_observers,
+                        log_context=arrival_context,
                     )
                 if departing_observers:
                     await event_dispatcher.emit(
@@ -159,6 +184,7 @@ async def handle(request: dict, world) -> dict:
                             "from_sector": old_sector,
                         },
                         character_filter=departing_observers,
+                        log_context=depart_context,
                     )
             else:
                 character.sector = sector
@@ -176,6 +202,11 @@ async def handle(request: dict, world) -> dict:
     )
     status_payload = await build_status_payload(world, character_id)
     status_payload["source"] = build_event_source("join", request_id)
+    base_log_context = build_log_context(
+        character_id=character_id,
+        world=world,
+        sector=character.sector,
+    )
 
     active_encounter = None
     if world.combat_manager:
@@ -237,12 +268,14 @@ async def handle(request: dict, world) -> dict:
                 "combat.round_waiting",
                 round_waiting_payload,
                 character_filter=[character_id],
+                log_context=base_log_context,
             )
 
     await event_dispatcher.emit(
         "status.snapshot",
         status_payload,
         character_filter=[character_id],
+        log_context=base_log_context,
     )
 
     map_data = await build_local_map_region(
@@ -256,5 +289,6 @@ async def handle(request: dict, world) -> dict:
         "map.local",
         map_data,
         character_filter=[character_id],
+        log_context=base_log_context,
     )
     return rpc_success()

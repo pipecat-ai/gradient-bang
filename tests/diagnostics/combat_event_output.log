@@ -1,0 +1,43 @@
+Setting up characters...
+Joining characters...
+Traceback (most recent call last):
+  File "/home/khkramer/src/gradient-bang/tests/diagnostics/test_combat_event_payloads.py", line 118, in <module>
+    asyncio.run(main())
+  File "/home/khkramer/.pyenv/versions/3.12.10/lib/python3.12/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/home/khkramer/.pyenv/versions/3.12.10/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/khkramer/.pyenv/versions/3.12.10/lib/python3.12/asyncio/base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/home/khkramer/src/gradient-bang/tests/diagnostics/test_combat_event_payloads.py", line 71, in main
+    await attacker.join("diagnostic_attacker")
+  File "/home/khkramer/src/gradient-bang/utils/api_client.py", line 663, in join
+    ack = await self._request("join", payload)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/khkramer/src/gradient-bang/utils/api_client.py", line 493, in _request
+    await self._ensure_ws()
+  File "/home/khkramer/src/gradient-bang/utils/api_client.py", line 400, in _ensure_ws
+    self._ws = await websockets.connect(ws_url)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/khkramer/src/gradient-bang/.venv/lib/python3.12/site-packages/websockets/asyncio/client.py", line 444, in __await_impl__
+    self.connection = await self.create_connection()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/khkramer/src/gradient-bang/.venv/lib/python3.12/site-packages/websockets/asyncio/client.py", line 370, in create_connection
+    _, connection = await loop.create_connection(factory, **kwargs)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/khkramer/.pyenv/versions/3.12.10/lib/python3.12/asyncio/base_events.py", line 1132, in create_connection
+    raise exceptions[0]
+  File "/home/khkramer/.pyenv/versions/3.12.10/lib/python3.12/asyncio/base_events.py", line 1107, in create_connection
+    sock = await self._connect_sock(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/khkramer/.pyenv/versions/3.12.10/lib/python3.12/asyncio/base_events.py", line 1010, in _connect_sock
+    await self.sock_connect(sock, address)
+  File "/home/khkramer/.pyenv/versions/3.12.10/lib/python3.12/asyncio/selector_events.py", line 651, in sock_connect
+    return await fut
+           ^^^^^^^^^
+  File "/home/khkramer/.pyenv/versions/3.12.10/lib/python3.12/asyncio/selector_events.py", line 691, in _sock_connect_cb
+    raise OSError(err, f'Connect call failed {address}')
+ConnectionRefusedError: [Errno 111] Connect call failed ('127.0.0.1', 8002)

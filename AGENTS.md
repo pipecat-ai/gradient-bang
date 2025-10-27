@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 - `game-server/`: FastAPI backend (`server.py`) and game logic.
 - `client/`: React + Vite UI (TypeScript). Run locally via `npm`.
-- `tui/`: Textual-based terminal UI used by `player_tui.py`.
+- `tui/`: Legacy textual UI (superseded by `npc/simple_tui.py` for day-to-day ops).
 - `utils/`: Python clients, agents, prompts, and tool schemas.
 - `npc/` and `pipecat/`: Voice/agent runners and examples (`env.example` for config).
 - `tools/` and `scripts/`: Admin utilities and data generation (`scripts/universe-bang.py`).
@@ -12,6 +12,7 @@
 ## Architecture & Conventions
 - JSON everywhere: APIs and tools use plain dictionaries (no Pydantic). Access with `resp['field']`.
 - Async-only: use `AsyncGameClient` (`utils/api_client.py`); avoid sync clients.
+- Character identity: every pilot has an immutable UUID plus a mutable display name. Use `uv run scripts/character_lookup.py "Display Name"` to obtain the UUID, and `uv run scripts/character_modify.py` for admin adjustments. All NPC/TUI/voice tooling must authenticate with the UUID even though UIs show the name.
 - Tool/endpoint parameters must match exactly:
   - `plot_course`: `from_sector`, `to_sector`
   - `move`: `to_sector`
@@ -21,9 +22,9 @@
 ## Build, Test, and Development Commands
 - Python uses `uv` (Python 3.12+). `uv sync` to install; no manual venv.
   - Generate world: `mkdir -p world-data && uv run scripts/universe-bang.py 5000 1234`
-  - Run server: `uv run game-server/server.py` (or `cd game-server && uv run server.py`)
-  - Run TUI: `export OPENAI_API_KEY=... && uv run player_tui.py JoePlayer`
-  - Pipecat bot: `uv run pipecat/bot.py`
+  - Run server: `uv run -m game_server.server` 
+  - Run Simple TUI: `uv run -m npc/simple_tui --character-id <uuid>`
+  - Pipecat bot: `PIPECAT_CHARACTER_ID=<uuid> uv run pipecat_server.bot`
   - Tests: `uv run pytest -q`
 - Client (from `client/`):
   - Install: `npm install`

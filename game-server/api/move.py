@@ -141,10 +141,15 @@ async def handle(request: dict, world) -> dict:
             if info.sector == old_sector and cid != character_id
         ]
         if departing_observers:
+            from rpc.events import EventLogContext
             await event_dispatcher.emit(
                 "character.moved",
                 observer_payload,
                 character_filter=departing_observers,
+                log_context=EventLogContext(
+                    sender=character_id,
+                    sector=old_sector,
+                ),
             )
 
         logger.info(
@@ -304,10 +309,15 @@ async def handle(request: dict, world) -> dict:
             and not info.in_hyperspace
         ]
         if arriving_observers:
+            from rpc.events import EventLogContext
             await event_dispatcher.emit(
                 "character.moved",
                 observer_payload,
                 character_filter=arriving_observers,
+                log_context=EventLogContext(
+                    sender=character_id,
+                    sector=to_sector,
+                ),
             )
 
         # Return minimal RPC acknowledgment; movement.complete carries status payload
