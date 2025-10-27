@@ -305,6 +305,31 @@ TEST_CHARACTER_IDS = [
     "test_api_recharge",
     "test_api_xfer_from",
     "test_api_xfer_to",
+    # Combat event system test characters (test_event_system.py - Combat Events)
+    "test_combat_waiting_char1",
+    "test_combat_waiting_char2",
+    "test_combat_resolved_char1",
+    "test_combat_resolved_char2",
+    "test_combat_ended_attacker",
+    "test_combat_ended_victim",
+    "test_ship_destroyed_attacker",
+    "test_ship_destroyed_victim",
+    "test_combat_privacy_fighter1",
+    "test_combat_privacy_fighter2",
+    "test_combat_privacy_outsider",
+    # Trade event system test characters (test_event_system.py - Trade Events)
+    "test_trade_executed_trader",
+    "test_trade_visibility_trader",
+    "test_trade_visibility_outsider",
+    # Garrison event system test characters (test_event_system.py - Garrison Events)
+    "test_garrison_deployed_char",
+    "test_garrison_deployer",
+    "test_garrison_observer",
+    "test_garrison_outsider",
+    # Salvage event system test characters (test_event_system.py - Salvage Events)
+    "test_salvage_collector",
+    "test_salvage_victim",
+    "test_salvage_observer",
 ]
 
 

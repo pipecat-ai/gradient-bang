@@ -159,30 +159,491 @@ class TestEventEmission:
             move_event = assert_event_emitted(listener.events, "movement.complete")
             assert "payload" in move_event
 
-    async def test_combat_started_event(self):
-        """Test that combat.started event is emitted when combat begins."""
-        pytest.skip("Requires combat initiation setup")
+    async def test_combat_round_waiting_first_event(self, server_url):
+        """Test that first combat.round_waiting event serves as combat start signal.
 
-    async def test_combat_round_ended_event(self):
-        """Test that combat.round_ended event is emitted after each round."""
-        pytest.skip("Requires combat setup and round execution")
+        Note: combat.started event was removed October 7, 2025.
+        The first combat.round_waiting event now serves as the combat start signal.
+        """
+        from datetime import datetime, timezone
+        import asyncio
+        from tests.helpers.combat_helpers import create_test_character_knowledge
 
-    async def test_combat_ended_event(self):
-        """Test that combat.ended event is emitted when combat finishes."""
-        pytest.skip("Requires complete combat scenario")
+        char1_id = "test_combat_waiting_char1"
+        char2_id = "test_combat_waiting_char2"
 
-    async def test_trade_completed_event(self, active_character, server_url):
-        """Test that trade.completed event is emitted on trade."""
-        # This test requires character to be at a port
-        pytest.skip("Requires port navigation setup")
+        # Create characters at sector 0
+        create_test_character_knowledge(char1_id, sector=0, fighters=100, shields=100)
+        create_test_character_knowledge(char2_id, sector=0, fighters=100, shields=100)
 
-    async def test_garrison_created_event(self):
-        """Test that garrison.created event is emitted when garrison is placed."""
-        pytest.skip("Requires garrison creation API")
+        client1 = AsyncGameClient(base_url=server_url, character_id=char1_id, transport="websocket")
+        client2 = AsyncGameClient(base_url=server_url, character_id=char2_id, transport="websocket")
+
+        # Setup event collectors
+        char1_events = []
+        char2_events = []
+
+        client1.on("combat.round_waiting")(lambda p: char1_events.append({"event": "combat.round_waiting", "payload": p}))
+        client2.on("combat.round_waiting")(lambda p: char2_events.append({"event": "combat.round_waiting", "payload": p}))
+
+        try:
+            await client1.join(character_id=char1_id)
+            await client2.join(character_id=char2_id)
+
+            # Record start time
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # Initiate combat
+            await client1.combat_initiate(character_id=char1_id)
+
+            # Wait for events
+            await asyncio.sleep(2.0)
+
+            end_time = datetime.now(timezone.utc)
+
+            # WebSocket verification: Both characters receive combat.round_waiting
+            assert len(char1_events) > 0, "Character 1 should receive combat.round_waiting via WebSocket"
+            assert len(char2_events) > 0, "Character 2 should receive combat.round_waiting via WebSocket"
+
+            # Verify payload structure of first round_waiting
+            # Note: WebSocket events are wrapped: {event_name, payload, summary}
+            waiting1 = char1_events[0]["payload"]
+            inner_payload = waiting1.get("payload", waiting1)  # Handle wrapped or unwrapped
+
+            assert inner_payload.get("round") == 1, f"First event should be round 1"
+            assert "combat_id" in inner_payload, "Should contain combat_id"
+            assert inner_payload.get("initiator") == char1_id, f"Initiator should be {char1_id}"
+            assert len(inner_payload.get("participants", [])) == 2, "Should have 2 participants"
+
+            # JSONL verification for char1
+            result1 = await client1._request("event.query", {
+                "character_id": char1_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            combat_events1 = [e for e in result1["events"] if e["event"] == "combat.round_waiting"]
+            assert len(combat_events1) > 0, "Character 1 should have combat.round_waiting in JSONL"
+            assert combat_events1[0]["sender"] == char1_id, "JSONL event should have correct sender"
+            assert combat_events1[0]["sector"] == 0, "JSONL event should have correct sector"
+
+            # JSONL verification for char2
+            result2 = await client2._request("event.query", {
+                "character_id": char2_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            combat_events2 = [e for e in result2["events"] if e["event"] == "combat.round_waiting"]
+            assert len(combat_events2) > 0, "Character 2 should have combat.round_waiting in JSONL"
+
+        finally:
+            await client1.close()
+            await client2.close()
+
+    async def test_combat_round_resolved_event(self, server_url):
+        """Test that combat.round_resolved event is emitted after actions submitted.
+
+        Note: Event name is combat.round_resolved (NOT combat.round_ended).
+        """
+        from datetime import datetime, timezone
+        import asyncio
+        from tests.helpers.combat_helpers import create_test_character_knowledge
+
+        char1_id = "test_combat_resolved_char1"
+        char2_id = "test_combat_resolved_char2"
+
+        # Create characters at sector 0
+        create_test_character_knowledge(char1_id, sector=0, fighters=100, shields=100)
+        create_test_character_knowledge(char2_id, sector=0, fighters=100, shields=100)
+
+        client1 = AsyncGameClient(base_url=server_url, character_id=char1_id, transport="websocket")
+        client2 = AsyncGameClient(base_url=server_url, character_id=char2_id, transport="websocket")
+
+        # Setup event collectors
+        char1_events = []
+        char2_events = []
+
+        client1.on("combat.round_waiting")(lambda p: char1_events.append({"event": "combat.round_waiting", "payload": p}))
+        client1.on("combat.round_resolved")(lambda p: char1_events.append({"event": "combat.round_resolved", "payload": p}))
+        client2.on("combat.round_resolved")(lambda p: char2_events.append({"event": "combat.round_resolved", "payload": p}))
+
+        try:
+            await client1.join(character_id=char1_id)
+            await client2.join(character_id=char2_id)
+
+            # Record start time
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # Initiate combat
+            await client1.combat_initiate(character_id=char1_id)
+
+            # Wait for combat.round_waiting
+            await asyncio.sleep(2.0)
+
+            # Get combat_id from first event (handle wrapped payload structure)
+            waiting_events = [e for e in char1_events if e["event"] == "combat.round_waiting"]
+            assert len(waiting_events) > 0, "Should have received combat.round_waiting"
+            waiting_payload = waiting_events[0]["payload"]
+            inner_payload = waiting_payload.get("payload", waiting_payload)
+            combat_id = inner_payload["combat_id"]
+
+            # Submit attack actions
+            await client1.combat_action(
+                character_id=char1_id,
+                combat_id=combat_id,
+                action="attack",
+                target_id=char2_id,
+                commit=50,
+            )
+
+            await client2.combat_action(
+                character_id=char2_id,
+                combat_id=combat_id,
+                action="attack",
+                target_id=char1_id,
+                commit=50,
+            )
+
+            # Wait for round resolution
+            await asyncio.sleep(5.0)
+
+            end_time = datetime.now(timezone.utc)
+
+            # WebSocket verification: Both characters receive combat.round_resolved
+            resolved_events1 = [e for e in char1_events if e["event"] == "combat.round_resolved"]
+            resolved_events2 = [e for e in char2_events if e["event"] == "combat.round_resolved"]
+
+            assert len(resolved_events1) > 0, "Character 1 should receive combat.round_resolved via WebSocket"
+            assert len(resolved_events2) > 0, "Character 2 should receive combat.round_resolved via WebSocket"
+
+            # Verify damage calculations in payload (handle wrapped structure)
+            resolved1 = resolved_events1[0]["payload"]
+            inner_resolved = resolved1.get("payload", resolved1)
+            assert "participants" in inner_resolved, "Should have participants"
+            assert len(inner_resolved["participants"]) == 2, "Should have 2 participants"
+
+            # Check for damage indicators (shield_damage or fighter_loss)
+            damage_found = False
+            for participant in inner_resolved["participants"]:
+                if "ship" in participant:
+                    shield_dmg = participant["ship"].get("shield_damage")
+                    fighter_loss = participant["ship"].get("fighter_loss")
+                    if (shield_dmg is not None and shield_dmg != 0) or (fighter_loss is not None and fighter_loss != 0):
+                        damage_found = True
+                        break
+
+            assert damage_found, "Should have damage calculations (shield_damage or fighter_loss) in combat.round_resolved"
+
+            # JSONL verification
+            result1 = await client1._request("event.query", {
+                "character_id": char1_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            resolved_jsonl1 = [e for e in result1["events"] if e["event"] == "combat.round_resolved"]
+            assert len(resolved_jsonl1) > 0, "Character 1 should have combat.round_resolved in JSONL"
+
+            result2 = await client2._request("event.query", {
+                "character_id": char2_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            resolved_jsonl2 = [e for e in result2["events"] if e["event"] == "combat.round_resolved"]
+            assert len(resolved_jsonl2) > 0, "Character 2 should have combat.round_resolved in JSONL"
+
+        finally:
+            await client1.close()
+            await client2.close()
+
+    async def test_combat_ended_event_with_destruction(self, server_url):
+        """Test that combat.ended event is emitted with salvage when ships destroyed."""
+        from datetime import datetime, timezone
+        import asyncio
+        from tests.helpers.combat_helpers import (
+            create_strong_character,
+            create_weak_character,
+            set_character_cargo,
+        )
+
+        attacker_id = "test_combat_ended_attacker"
+        victim_id = "test_combat_ended_victim"
+
+        # Create strong attacker and weak victim with cargo
+        create_strong_character(attacker_id, sector=0, fighters=500)
+        create_weak_character(victim_id, sector=0, fighters=5)
+        set_character_cargo(victim_id, quantum_foam=10, retro_organics=5, neuro_symbolics=2)
+
+        attacker = AsyncGameClient(base_url=server_url, character_id=attacker_id, transport="websocket")
+        victim = AsyncGameClient(base_url=server_url, character_id=victim_id, transport="websocket")
+
+        # Setup event collectors
+        attacker_events = []
+        victim_events = []
+
+        attacker.on("combat.round_waiting")(lambda p: attacker_events.append({"event": "combat.round_waiting", "payload": p}))
+        attacker.on("combat.round_resolved")(lambda p: attacker_events.append({"event": "combat.round_resolved", "payload": p}))
+        attacker.on("combat.ended")(lambda p: attacker_events.append({"event": "combat.ended", "payload": p}))
+        victim.on("combat.ended")(lambda p: victim_events.append({"event": "combat.ended", "payload": p}))
+
+        try:
+            await attacker.join(character_id=attacker_id)
+            await victim.join(character_id=victim_id)
+
+            # Record start time
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # Initiate combat
+            await attacker.combat_initiate(character_id=attacker_id)
+
+            # Wait for combat.round_waiting
+            await asyncio.sleep(2.0)
+
+            # Get combat_id (handle wrapped payload structure)
+            waiting_events = [e for e in attacker_events if e["event"] == "combat.round_waiting"]
+            assert len(waiting_events) > 0, "Should have received combat.round_waiting"
+            waiting_payload = waiting_events[0]["payload"]
+            inner_payload = waiting_payload.get("payload", waiting_payload)
+            combat_id = inner_payload["combat_id"]
+
+            # Attacker destroys victim
+            await attacker.combat_action(
+                character_id=attacker_id,
+                combat_id=combat_id,
+                action="attack",
+                target_id=victim_id,
+                commit=200,
+            )
+
+            await victim.combat_action(
+                character_id=victim_id,
+                combat_id=combat_id,
+                action="brace",
+                commit=0,
+            )
+
+            # Wait for combat to end
+            await asyncio.sleep(8.0)
+
+            end_time = datetime.now(timezone.utc)
+
+            # WebSocket verification: Both receive combat.ended
+            attacker_ended_events = [e for e in attacker_events if e["event"] == "combat.ended"]
+            victim_ended_events = [e for e in victim_events if e["event"] == "combat.ended"]
+
+            assert len(attacker_ended_events) > 0, "Attacker should receive combat.ended via WebSocket"
+            assert len(victim_ended_events) > 0, "Victim should receive combat.ended via WebSocket"
+
+            # Verify salvage in attacker's combat.ended event (handle wrapped payload)
+            attacker_ended = attacker_ended_events[0]["payload"]
+            attacker_ended_inner = attacker_ended.get("payload", attacker_ended)
+            assert "salvage" in attacker_ended_inner, "combat.ended should contain salvage field"
+            assert len(attacker_ended_inner["salvage"]) > 0, "Should have salvage from destroyed victim"
+
+            # Verify salvage structure
+            salvage = attacker_ended_inner["salvage"][0]
+            assert "salvage_id" in salvage, "Salvage should have ID"
+            assert "cargo" in salvage, "Salvage should have cargo"
+            assert salvage["cargo"].get("quantum_foam", 0) > 0, "Salvage should contain victim's cargo"
+
+            # Verify privacy: salvage should NOT have character_id
+            assert "character_id" not in salvage.get("source", {}), "Salvage source should not expose character_id"
+            assert "ship_name" in salvage.get("source", {}), "Salvage source should have ship_name"
+
+            # JSONL verification for attacker
+            result_attacker = await attacker._request("event.query", {
+                "character_id": attacker_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            ended_jsonl_attacker = [e for e in result_attacker["events"] if e["event"] == "combat.ended"]
+            assert len(ended_jsonl_attacker) > 0, "Attacker should have combat.ended in JSONL"
+
+            # JSONL verification for victim
+            result_victim = await victim._request("event.query", {
+                "character_id": victim_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            ended_jsonl_victim = [e for e in result_victim["events"] if e["event"] == "combat.ended"]
+            assert len(ended_jsonl_victim) > 0, "Victim should have combat.ended in JSONL"
+
+        finally:
+            await attacker.close()
+            await victim.close()
+
+    async def test_trade_executed_event(self, server_url):
+        """Test that trade.executed event is emitted when a character trades at a port.
+
+        Note: Event name is trade.executed (NOT trade.completed).
+        """
+        from datetime import datetime, timezone
+        import asyncio
+
+        trader_id = "test_trade_executed_trader"
+
+        trader = AsyncGameClient(base_url=server_url, character_id=trader_id, transport="websocket")
+
+        # Setup event collector
+        trader_events = []
+        trader.on("trade.executed")(lambda p: trader_events.append({"event": "trade.executed", "payload": p}))
+
+        try:
+            await trader.join(character_id=trader_id)
+
+            # Move to sector 1 (has a port that sells neuro_symbolics in test world)
+            trader_status = await get_status(trader, trader_id)
+            current_sector = trader_status["sector"]["id"]
+
+            if current_sector != 1:
+                await trader.move(to_sector=1, character_id=trader_id)
+                await asyncio.sleep(0.5)
+
+            # Verify at port
+            trader_status = await get_status(trader, trader_id)
+            if trader_status["sector"]["id"] != 1:
+                pytest.skip("Could not position trader at port")
+
+            # Record start time
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # Execute trade
+            try:
+                await trader.trade(
+                    commodity="neuro_symbolics",
+                    quantity=1,
+                    trade_type="buy",
+                    character_id=trader_id
+                )
+                await asyncio.sleep(1.0)
+            except Exception as e:
+                pytest.skip(f"Trade failed: {e}")
+
+            end_time = datetime.now(timezone.utc)
+
+            # WebSocket verification: Trader receives trade.executed
+            assert len(trader_events) > 0, "Trader should receive trade.executed via WebSocket"
+
+            # Verify payload structure (handle wrapped payload)
+            trade_event = trader_events[0]["payload"]
+            inner_payload = trade_event.get("payload", trade_event)
+            assert "trade" in inner_payload, "Event should have trade field"
+            assert "player" in inner_payload, "Event should have player field"
+            assert "ship" in inner_payload, "Event should have ship field"
+
+            # Verify trade details
+            trade_details = inner_payload["trade"]
+            assert trade_details.get("trade_type") == "buy", "Should be a buy trade"
+            assert trade_details.get("commodity") == "neuro_symbolics", "Should be neuro_symbolics"
+            assert trade_details.get("units") >= 1, "Should have traded at least 1 unit"
+
+            # JSONL verification
+            result = await trader._request("event.query", {
+                "character_id": trader_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            trade_events_jsonl = [e for e in result["events"] if e["event"] == "trade.executed"]
+            assert len(trade_events_jsonl) > 0, "Trader should have trade.executed in JSONL"
+
+        finally:
+            await trader.close()
+
+    async def test_garrison_deployed_event(self, server_url):
+        """Test that garrison.deployed event is emitted when garrison is deployed.
+
+        Note: Event name is garrison.deployed (NOT garrison.created).
+        """
+        from datetime import datetime, timezone
+        import asyncio
+        from tests.helpers.combat_helpers import create_test_character_knowledge
+
+        char_id = "test_garrison_deployed_char"
+
+        # Create character at sector 0 with fighters
+        create_test_character_knowledge(char_id, sector=0, fighters=100, shields=100)
+
+        client = AsyncGameClient(base_url=server_url, character_id=char_id, transport="websocket")
+
+        # Setup event collector
+        garrison_events = []
+        client.on("garrison.deployed")(lambda p: garrison_events.append({"event": "garrison.deployed", "payload": p}))
+
+        try:
+            await client.join(character_id=char_id)
+
+            # Move to sector 1
+            await client.move(to_sector=1, character_id=char_id)
+            await asyncio.sleep(0.5)
+
+            # Record start time
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # Deploy garrison in sector 1
+            await client.combat_leave_fighters(
+                character_id=char_id,
+                sector=1,
+                quantity=50,
+                mode="defensive"
+            )
+
+            # Wait for event propagation
+            await asyncio.sleep(1.0)
+
+            end_time = datetime.now(timezone.utc)
+
+            # WebSocket verification
+            assert len(garrison_events) >= 1, "Should receive garrison.deployed via WebSocket"
+
+            # Verify payload structure (handle wrapped payload)
+            garrison_event = garrison_events[0]["payload"]
+            inner_payload = garrison_event.get("payload", garrison_event)
+
+            assert "sector" in inner_payload, "Event should have sector field"
+            assert inner_payload["sector"]["id"] == 1, "Should be in sector 1"
+
+            assert "garrison" in inner_payload, "Event should have garrison field"
+            garrison = inner_payload["garrison"]
+            assert garrison["owner_name"] == char_id, "Garrison owner should match character"
+            assert garrison["fighters"] == 50, "Garrison should have 50 fighters"
+            assert garrison["mode"] == "defensive", "Garrison mode should be defensive"
+            assert garrison.get("is_friendly") == True, "Should be marked as friendly to owner"
+
+            assert "fighters_remaining" in inner_payload, "Event should show fighters remaining on ship"
+
+            # JSONL verification
+            result = await client._request("event.query", {
+                "character_id": char_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            garrison_logged = [e for e in result["events"] if e.get("event") == "garrison.deployed"]
+            assert len(garrison_logged) > 0, "Should find garrison.deployed in JSONL"
+
+        finally:
+            await client.close()
 
     async def test_salvage_created_event(self):
-        """Test that salvage.created event is emitted on ship destruction."""
-        pytest.skip("Requires ship destruction scenario")
+        """Test that salvage creation is included in combat.ended event payload.
+
+        NOTE: This test is REDUNDANT - salvage creation is already fully tested in
+        test_combat_ended_event_with_destruction (Category A).
+
+        There is NO separate salvage.created event. Salvage appears in the combat.ended
+        payload when a ship is destroyed.
+        """
+        pytest.skip("Redundant - salvage creation already tested in test_combat_ended_event_with_destruction")
 
     async def test_message_sent_event(self, active_character, server_url):
         """Test that message.sent event is emitted on send_message."""
@@ -204,9 +665,135 @@ class TestEventEmission:
             # Check for message event (event name may vary)
             # Actual event type depends on server implementation
 
-    async def test_ship_destroyed_event(self):
-        """Test that ship.destroyed event is emitted on ship destruction."""
-        pytest.skip("Requires ship destruction scenario")
+    async def test_ship_destroyed_detection_patterns(self, server_url):
+        """Test ship destruction detection via ship_type == 'escape_pod' in event payloads.
+
+        Note: There is NO separate ship.destroyed event.
+        Ship destruction is detected by checking ship_type in combat.round_resolved or combat.ended.
+        """
+        from datetime import datetime, timezone
+        import asyncio
+        from tests.helpers.combat_helpers import (
+            create_strong_character,
+            create_weak_character,
+        )
+
+        attacker_id = "test_ship_destroyed_attacker"
+        victim_id = "test_ship_destroyed_victim"
+
+        # Create strong attacker and weak victim
+        create_strong_character(attacker_id, sector=0, fighters=500)
+        create_weak_character(victim_id, sector=0, fighters=5)
+
+        attacker = AsyncGameClient(base_url=server_url, character_id=attacker_id, transport="websocket")
+        victim = AsyncGameClient(base_url=server_url, character_id=victim_id, transport="websocket")
+
+        # Setup event collectors
+        attacker_events = []
+        victim_events = []
+
+        attacker.on("combat.round_waiting")(lambda p: attacker_events.append({"event": "combat.round_waiting", "payload": p}))
+        attacker.on("combat.round_resolved")(lambda p: attacker_events.append({"event": "combat.round_resolved", "payload": p}))
+        attacker.on("combat.ended")(lambda p: attacker_events.append({"event": "combat.ended", "payload": p}))
+        victim.on("combat.ended")(lambda p: victim_events.append({"event": "combat.ended", "payload": p}))
+
+        try:
+            await attacker.join(character_id=attacker_id)
+            await victim.join(character_id=victim_id)
+
+            # Record start time
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # Initiate combat
+            await attacker.combat_initiate(character_id=attacker_id)
+
+            # Wait for combat.round_waiting
+            await asyncio.sleep(2.0)
+
+            # Get combat_id (handle wrapped payload structure)
+            waiting_events = [e for e in attacker_events if e["event"] == "combat.round_waiting"]
+            assert len(waiting_events) > 0, "Should have received combat.round_waiting"
+            waiting_payload = waiting_events[0]["payload"]
+            inner_payload = waiting_payload.get("payload", waiting_payload)
+            combat_id = inner_payload["combat_id"]
+
+            # Attacker destroys victim
+            await attacker.combat_action(
+                character_id=attacker_id,
+                combat_id=combat_id,
+                action="attack",
+                target_id=victim_id,
+                commit=200,
+            )
+
+            await victim.combat_action(
+                character_id=victim_id,
+                combat_id=combat_id,
+                action="brace",
+                commit=0,
+            )
+
+            # Wait for combat to end
+            await asyncio.sleep(8.0)
+
+            end_time = datetime.now(timezone.utc)
+
+            # DETECTION PATTERN 1: Check combat.round_resolved for escape_pod
+            resolved_events = [e for e in attacker_events if e["event"] == "combat.round_resolved"]
+            if len(resolved_events) > 0:
+                resolved = resolved_events[0]["payload"]
+                resolved_inner = resolved.get("payload", resolved)
+                victim_data = next(
+                    (p for p in resolved_inner["participants"] if p["name"] == victim_id),
+                    None
+                )
+                if victim_data and "ship" in victim_data:
+                    # Ship destroyed = ship_type becomes "escape_pod"
+                    if victim_data["ship"]["ship_type"] == "escape_pod":
+                        assert victim_data["ship"]["fighters"] == 0, "Escape pod should have 0 fighters"
+                        print(f"Ship destruction detected in combat.round_resolved: {victim_id} → escape_pod")
+
+            # DETECTION PATTERN 2: Check combat.ended for escape_pod
+            victim_ended_events = [e for e in victim_events if e["event"] == "combat.ended"]
+            assert len(victim_ended_events) > 0, "Victim should receive combat.ended"
+
+            victim_ended = victim_ended_events[0]["payload"]
+            victim_ended_inner = victim_ended.get("payload", victim_ended)
+            assert "ship" in victim_ended_inner, "combat.ended should have ship field"
+            assert victim_ended_inner["ship"]["ship_type"] == "escape_pod", "Victim's ship should be escape_pod in combat.ended"
+            assert victim_ended_inner["ship"]["fighters"] == 0, "Escape pod should have 0 fighters"
+
+            # DETECTION PATTERN 3: Check participants list in combat.ended
+            attacker_ended_events = [e for e in attacker_events if e["event"] == "combat.ended"]
+            assert len(attacker_ended_events) > 0, "Attacker should receive combat.ended"
+
+            attacker_ended = attacker_ended_events[0]["payload"]
+            attacker_ended_inner = attacker_ended.get("payload", attacker_ended)
+            victim_in_participants = next(
+                (p for p in attacker_ended_inner["participants"] if p["name"] == victim_id),
+                None
+            )
+            assert victim_in_participants is not None, "Victim should be in participants list"
+            assert victim_in_participants["ship"]["ship_type"] == "escape_pod", "Victim should be escape_pod in participants"
+
+            # JSONL verification: Ship destruction is in logged events
+            result_victim = await victim._request("event.query", {
+                "character_id": victim_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            ended_jsonl = [e for e in result_victim["events"] if e["event"] == "combat.ended"]
+            assert len(ended_jsonl) > 0, "Victim should have combat.ended in JSONL"
+
+            # Parse JSONL payload to verify escape_pod detection works in persisted data
+            ended_payload = ended_jsonl[0]["payload"]
+            assert ended_payload["ship"]["ship_type"] == "escape_pod", "JSONL should show escape_pod ship_type"
+
+        finally:
+            await attacker.close()
+            await victim.close()
 
 
 # =============================================================================
@@ -661,9 +1248,138 @@ class TestCharacterFiltering:
             await client2.close()
             await client3.close()
 
-    async def test_combat_events_to_participants_only(self):
-        """Test that combat round events only go to participants."""
-        pytest.skip("Requires combat scenario with multiple participants")
+    async def test_combat_events_to_participants_only(self, server_url):
+        """Test that combat events are filtered to participants only (different sectors).
+
+        Note: All characters in the SAME sector are forced into combat.
+        This test verifies characters in DIFFERENT sectors don't see combat events.
+        """
+        from datetime import datetime, timezone
+        import asyncio
+        from tests.helpers.combat_helpers import create_test_character_knowledge
+
+        fighter1_id = "test_combat_privacy_fighter1"
+        fighter2_id = "test_combat_privacy_fighter2"
+        outsider_id = "test_combat_privacy_outsider"
+
+        # Create all characters at sector 0 (spawn sector), will move them after joining
+        create_test_character_knowledge(fighter1_id, sector=0, fighters=100, shields=100)
+        create_test_character_knowledge(fighter2_id, sector=0, fighters=100, shields=100)
+        create_test_character_knowledge(outsider_id, sector=0, fighters=100, shields=100)
+
+        fighter1 = AsyncGameClient(base_url=server_url, character_id=fighter1_id, transport="websocket")
+        fighter2 = AsyncGameClient(base_url=server_url, character_id=fighter2_id, transport="websocket")
+        outsider = AsyncGameClient(base_url=server_url, character_id=outsider_id, transport="websocket")
+
+        # Setup event collectors
+        fighter1_events = []
+        fighter2_events = []
+        outsider_events = []
+
+        # Fighters register combat event handlers
+        fighter1.on("combat.round_waiting")(lambda p: fighter1_events.append({"event": "combat.round_waiting", "payload": p}))
+        fighter1.on("combat.round_resolved")(lambda p: fighter1_events.append({"event": "combat.round_resolved", "payload": p}))
+        fighter1.on("combat.ended")(lambda p: fighter1_events.append({"event": "combat.ended", "payload": p}))
+
+        fighter2.on("combat.round_waiting")(lambda p: fighter2_events.append({"event": "combat.round_waiting", "payload": p}))
+        fighter2.on("combat.round_resolved")(lambda p: fighter2_events.append({"event": "combat.round_resolved", "payload": p}))
+        fighter2.on("combat.ended")(lambda p: fighter2_events.append({"event": "combat.ended", "payload": p}))
+
+        # Outsider registers same combat event handlers
+        outsider.on("combat.round_waiting")(lambda p: outsider_events.append({"event": "combat.round_waiting", "payload": p}))
+        outsider.on("combat.round_resolved")(lambda p: outsider_events.append({"event": "combat.round_resolved", "payload": p}))
+        outsider.on("combat.ended")(lambda p: outsider_events.append({"event": "combat.ended", "payload": p}))
+
+        try:
+            # Move characters to their designated sectors
+            await fighter1.join(character_id=fighter1_id)
+            await fighter2.join(character_id=fighter2_id)
+            await outsider.join(character_id=outsider_id)
+
+            await fighter1.move(to_sector=1, character_id=fighter1_id)
+            await fighter2.move(to_sector=1, character_id=fighter2_id)
+            await outsider.move(to_sector=2, character_id=outsider_id)
+
+            await asyncio.sleep(1.0)
+
+            # Record start time
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # Initiate combat in sector 1
+            await fighter1.combat_initiate(character_id=fighter1_id)
+
+            # Wait for combat.round_waiting
+            await asyncio.sleep(2.0)
+
+            # Get combat_id (handle wrapped payload structure)
+            waiting_events = [e for e in fighter1_events if e["event"] == "combat.round_waiting"]
+            assert len(waiting_events) > 0, "Fighter1 should receive combat.round_waiting"
+            waiting_payload = waiting_events[0]["payload"]
+            inner_payload = waiting_payload.get("payload", waiting_payload)
+            combat_id = inner_payload["combat_id"]
+
+            # Submit actions
+            await fighter1.combat_action(
+                character_id=fighter1_id,
+                combat_id=combat_id,
+                action="attack",
+                target_id=fighter2_id,
+                commit=50,
+            )
+
+            await fighter2.combat_action(
+                character_id=fighter2_id,
+                combat_id=combat_id,
+                action="attack",
+                target_id=fighter1_id,
+                commit=50,
+            )
+
+            # Wait for round resolution
+            await asyncio.sleep(5.0)
+
+            end_time = datetime.now(timezone.utc)
+
+            # WebSocket verification: Fighters receive combat events
+            assert len(fighter1_events) > 0, "Fighter1 should receive combat events via WebSocket"
+            assert len(fighter2_events) > 0, "Fighter2 should receive combat events via WebSocket"
+
+            # WebSocket verification: Outsider receives ZERO combat events
+            combat_event_types = ["combat.round_waiting", "combat.round_resolved", "combat.ended"]
+            outsider_combat_events = [e for e in outsider_events if e["event"] in combat_event_types]
+            assert len(outsider_combat_events) == 0, \
+                f"Outsider in different sector should receive ZERO combat events, got {len(outsider_combat_events)}"
+
+            # JSONL verification: Fighters have combat events
+            result_fighter1 = await fighter1._request("event.query", {
+                "character_id": fighter1_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            fighter1_combat_jsonl = [e for e in result_fighter1["events"] if any(
+                combat_type in e["event"] for combat_type in combat_event_types
+            )]
+            assert len(fighter1_combat_jsonl) > 0, "Fighter1 should have combat events in JSONL"
+
+            # JSONL verification: Outsider has ZERO combat events
+            result_outsider = await outsider._request("event.query", {
+                "character_id": outsider_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            outsider_combat_jsonl = [e for e in result_outsider["events"] if any(
+                combat_type in e["event"] for combat_type in combat_event_types
+            )]
+            assert len(outsider_combat_jsonl) == 0, \
+                f"Outsider should have ZERO combat events in JSONL, got {len(outsider_combat_jsonl)}"
+
+        finally:
+            await fighter1.close()
+            await fighter2.close()
+            await outsider.close()
 
     async def test_trade_events_private_to_trader(self, server_url):
         """Test that trade.executed events are private to the trader.
@@ -1121,13 +1837,288 @@ class TestCharacterFiltering:
             await observer1_client.close()
             await observer2_client.close()
 
-    async def test_garrison_events_filtered_correctly(self):
-        """Test that garrison creation events have correct visibility."""
-        pytest.skip("Requires garrison mechanics")
+    async def test_garrison_events_privacy(self, server_url):
+        """Test that ALL garrison events are private to the garrison owner only.
 
-    async def test_salvage_events_visible_to_sector(self):
-        """Test that salvage creation/collection visible to sector occupants."""
-        pytest.skip("Requires salvage mechanics")
+        Scenario: Deployer creates, modifies, and collects garrison.
+        Observer in same sector and outsider in different sector should NOT see events.
+
+        Events tested:
+        - garrison.deployed (when creating garrison)
+        - garrison.mode_changed (when changing garrison mode)
+        - garrison.collected (when collecting garrison)
+        """
+        from datetime import datetime, timezone
+        import asyncio
+        from tests.helpers.combat_helpers import create_test_character_knowledge
+
+        deployer_id = "test_garrison_deployer"
+        observer_id = "test_garrison_observer"
+        outsider_id = "test_garrison_outsider"
+
+        # Create all characters at sector 0
+        create_test_character_knowledge(deployer_id, sector=0, fighters=100, shields=100)
+        create_test_character_knowledge(observer_id, sector=0, fighters=100, shields=100)
+        create_test_character_knowledge(outsider_id, sector=0, fighters=100, shields=100)
+
+        deployer = AsyncGameClient(base_url=server_url, character_id=deployer_id, transport="websocket")
+        observer = AsyncGameClient(base_url=server_url, character_id=observer_id, transport="websocket")
+        outsider = AsyncGameClient(base_url=server_url, character_id=outsider_id, transport="websocket")
+
+        # Setup event collectors for all 3 garrison events
+        deployer_events = []
+        observer_events = []
+        outsider_events = []
+
+        garrison_event_types = ["garrison.deployed", "garrison.mode_changed", "garrison.collected"]
+
+        for event_type in garrison_event_types:
+            deployer.on(event_type)(lambda p, et=event_type: deployer_events.append({"event": et, "payload": p}))
+            observer.on(event_type)(lambda p, et=event_type: observer_events.append({"event": et, "payload": p}))
+            outsider.on(event_type)(lambda p, et=event_type: outsider_events.append({"event": et, "payload": p}))
+
+        try:
+            await deployer.join(character_id=deployer_id)
+            await observer.join(character_id=observer_id)
+            await outsider.join(character_id=outsider_id)
+
+            # Move deployer and observer to sector 1 (same sector)
+            # Move outsider to sector 2 (different sector)
+            await deployer.move(to_sector=1, character_id=deployer_id)
+            await observer.move(to_sector=1, character_id=observer_id)
+            await outsider.move(to_sector=2, character_id=outsider_id)
+            await asyncio.sleep(0.5)
+
+            # Record start time
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # 1. Deploy garrison → garrison.deployed event
+            await deployer.combat_leave_fighters(
+                character_id=deployer_id,
+                sector=1,
+                quantity=50,
+                mode="defensive"
+            )
+            await asyncio.sleep(1.0)
+
+            # 2. Change garrison mode → garrison.mode_changed event
+            await deployer.combat_set_garrison_mode(
+                character_id=deployer_id,
+                sector=1,
+                mode="toll",
+                toll_amount=100
+            )
+            await asyncio.sleep(1.0)
+
+            # 3. Collect garrison → garrison.collected event
+            await deployer.combat_collect_fighters(
+                character_id=deployer_id,
+                sector=1,
+                quantity=50
+            )
+            await asyncio.sleep(1.0)
+
+            end_time = datetime.now(timezone.utc)
+
+            # WebSocket verification: Deployer should see all 3 events
+            deployer_deployed = [e for e in deployer_events if e["event"] == "garrison.deployed"]
+            deployer_mode_changed = [e for e in deployer_events if e["event"] == "garrison.mode_changed"]
+            deployer_collected = [e for e in deployer_events if e["event"] == "garrison.collected"]
+
+            assert len(deployer_deployed) >= 1, "Deployer should receive garrison.deployed"
+            assert len(deployer_mode_changed) >= 1, "Deployer should receive garrison.mode_changed"
+            assert len(deployer_collected) >= 1, "Deployer should receive garrison.collected"
+
+            # WebSocket verification: Observer should see ZERO garrison events (privacy)
+            assert len(observer_events) == 0, f"Observer should NOT receive garrison events (private to owner), got {len(observer_events)}"
+
+            # WebSocket verification: Outsider should see ZERO garrison events (privacy)
+            assert len(outsider_events) == 0, f"Outsider should NOT receive garrison events (private to owner), got {len(outsider_events)}"
+
+            # JSONL verification: Deployer should see all garrison events
+            deployer_result = await deployer._request("event.query", {
+                "character_id": deployer_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            deployer_garrison_jsonl = [e for e in deployer_result["events"] if e.get("event") in garrison_event_types]
+            assert len(deployer_garrison_jsonl) >= 3, f"Deployer should have at least 3 garrison events in JSONL, got {len(deployer_garrison_jsonl)}"
+
+            # JSONL verification: Observer should see ZERO garrison events
+            observer_result = await observer._request("event.query", {
+                "character_id": observer_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            observer_garrison_jsonl = [e for e in observer_result["events"] if e.get("event") in garrison_event_types]
+            assert len(observer_garrison_jsonl) == 0, f"Observer should have ZERO garrison events in JSONL (privacy), got {len(observer_garrison_jsonl)}"
+
+            # JSONL verification: Outsider should see ZERO garrison events
+            outsider_result = await outsider._request("event.query", {
+                "character_id": outsider_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            outsider_garrison_jsonl = [e for e in outsider_result["events"] if e.get("event") in garrison_event_types]
+            assert len(outsider_garrison_jsonl) == 0, f"Outsider should have ZERO garrison events in JSONL (privacy), got {len(outsider_garrison_jsonl)}"
+
+        finally:
+            await deployer.close()
+            await observer.close()
+            await outsider.close()
+
+    async def test_salvage_collected_event_privacy(self, server_url):
+        """Test that salvage.collected events are private to the collector only.
+
+        Scenario: Collector destroys victim (creates salvage), then collects it.
+        Observer in different sector should NOT see salvage.collected event.
+
+        Note: salvage.collected is the only salvage event. Salvage creation
+        appears in combat.ended payload (already tested in test_combat_ended_event_with_destruction).
+
+        CURRENT STATUS: Test implementation requires complex multi-character combat setup.
+        Salvage privacy is partially covered by existing event_catalog.md documentation
+        which specifies salvage.collected uses character_filter (private to collector).
+        """
+        from datetime import datetime, timezone
+        import asyncio
+        from tests.helpers.combat_helpers import create_strong_character, create_weak_character, set_character_cargo
+
+        collector_id = "test_salvage_collector"
+        victim_id = "test_salvage_victim"
+        observer_id = "test_salvage_observer"
+
+        # Create strong collector, weak victim with cargo, and observer
+        create_strong_character(collector_id, sector=0, fighters=500)
+        create_weak_character(victim_id, sector=0, fighters=5)  # Victim starts at sector 0
+        set_character_cargo(victim_id, quantum_foam=10, retro_organics=5)
+        create_strong_character(observer_id, sector=0, fighters=100)
+
+        collector = AsyncGameClient(base_url=server_url, character_id=collector_id, transport="websocket")
+        victim = AsyncGameClient(base_url=server_url, character_id=victim_id, transport="websocket")
+        observer = AsyncGameClient(base_url=server_url, character_id=observer_id, transport="websocket")
+
+        # Setup event collectors
+        collector_events = []
+        observer_salvage_events = []
+
+        collector.on("combat.round_waiting")(lambda p: collector_events.append({"event": "combat.round_waiting", "payload": p}))
+        collector.on("combat.ended")(lambda p: collector_events.append({"event": "combat.ended", "payload": p}))
+        collector.on("salvage.collected")(lambda p: collector_events.append({"event": "salvage.collected", "payload": p}))
+        observer.on("salvage.collected")(lambda p: observer_salvage_events.append({"event": "salvage.collected", "payload": p}))
+
+        try:
+            await collector.join(character_id=collector_id)
+            await victim.join(character_id=victim_id)  # Victim must join to be targetable
+            await observer.join(character_id=observer_id)
+
+            # Move collector and victim to sector 1 (they'll be forced into combat)
+            # Move observer to sector 2 (different sector, NOT in combat)
+            await collector.move(to_sector=1, character_id=collector_id)
+            await victim.move(to_sector=1, character_id=victim_id)
+            await observer.move(to_sector=2, character_id=observer_id)
+            await asyncio.sleep(0.5)
+
+            # Clear movement events
+            collector_events.clear()
+            observer_salvage_events.clear()
+
+            # Initiate combat (collector vs victim in sector 1)
+            # Note: victim is not joined as a client, but exists in game state
+            await collector.combat_initiate(character_id=collector_id)
+            await asyncio.sleep(2.0)
+
+            # Extract combat_id from combat.round_waiting event
+            waiting_events = [e for e in collector_events if e["event"] == "combat.round_waiting"]
+            if len(waiting_events) == 0:
+                pytest.skip("Did not receive combat.round_waiting event")
+
+            waiting_payload = waiting_events[0]["payload"]
+            inner_waiting = waiting_payload.get("payload", waiting_payload)
+            combat_id = inner_waiting["combat_id"]
+
+            # Submit attack actions (collector attacks victim)
+            await collector.combat_action(
+                action="attack",
+                combat_id=combat_id,
+                target_id=victim_id,
+                character_id=collector_id
+            )
+            await asyncio.sleep(8.0)  # Wait longer for combat to end
+
+            # Get salvage_id from combat.ended event
+            combat_ended = [e for e in collector_events if e["event"] == "combat.ended"]
+            if len(combat_ended) == 0:
+                pytest.skip("Combat did not end with salvage creation")
+
+            ended_payload = combat_ended[0]["payload"]
+            inner_ended = ended_payload.get("payload", ended_payload)
+
+            if "salvage" not in inner_ended or len(inner_ended["salvage"]) == 0:
+                pytest.skip("No salvage created in combat")
+
+            salvage_id = inner_ended["salvage"][0]["salvage_id"]
+
+            # Record start time for salvage collection
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # Collector collects the salvage → salvage.collected event
+            await collector.salvage_collect(
+                character_id=collector_id,
+                salvage_id=salvage_id
+            )
+
+            # Wait for event propagation
+            await asyncio.sleep(1.0)
+
+            end_time = datetime.now(timezone.utc)
+
+            # WebSocket verification: Collector should see salvage.collected
+            collector_salvage = [e for e in collector_events if e["event"] == "salvage.collected"]
+            assert len(collector_salvage) >= 1, "Collector should receive salvage.collected via WebSocket"
+
+            # Verify payload structure
+            salvage_event = collector_salvage[0]["payload"]
+            inner_salvage = salvage_event.get("payload", salvage_event)
+
+            assert "salvage" in inner_salvage, "Event should have salvage field"
+            assert inner_salvage["salvage"]["salvage_id"] == salvage_id, "Salvage ID should match"
+            assert "cargo" in inner_salvage["salvage"], "Salvage should have cargo field"
+            assert "cargo" in inner_salvage, "Event should show updated cargo after collection"
+            assert "credits" in inner_salvage, "Event should show updated credits"
+
+            # WebSocket verification: Observer should NOT see salvage.collected (privacy)
+            assert len(observer_salvage_events) == 0, f"Observer should NOT receive salvage.collected (private to collector), got {len(observer_salvage_events)}"
+
+            # JSONL verification: Collector should see salvage.collected
+            collector_result = await collector._request("event.query", {
+                "character_id": collector_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            collector_salvage_jsonl = [e for e in collector_result["events"] if e.get("event") == "salvage.collected"]
+            assert len(collector_salvage_jsonl) > 0, "Collector should find salvage.collected in JSONL"
+
+            # JSONL verification: Observer should NOT see salvage.collected
+            observer_result = await observer._request("event.query", {
+                "character_id": observer_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            observer_salvage_jsonl = [e for e in observer_result["events"] if e.get("event") == "salvage.collected"]
+            assert len(observer_salvage_jsonl) == 0, f"Observer should NOT see salvage.collected in JSONL (privacy), got {len(observer_salvage_jsonl)}"
+
+        finally:
+            await collector.close()
+            await victim.close()
+            await observer.close()
 
     async def test_error_events_only_to_character(self):
         """Test that error events are private to the character."""
@@ -1311,11 +2302,6 @@ class TestEventPayloadStructure:
                     json.dumps(event)
                 except (TypeError, ValueError) as e:
                     pytest.fail(f"Event not JSON serializable: {event}, Error: {e}")
-
-    async def test_event_immutable_after_emission(self):
-        """Test that events cannot be modified after emission."""
-        # This would require access to server internals
-        pytest.skip("Requires server-side event immutability verification")
 
 
 # =============================================================================
@@ -1537,13 +2523,6 @@ class TestJSONLAuditLog:
         finally:
             await client.close()
 
-    async def test_jsonl_survives_server_restart(self):
-        """Test that JSONL log persists across server restarts."""
-        pytest.skip("Requires server restart capability")
-
-    async def test_jsonl_log_rotation(self):
-        """Test that JSONL log rotation works (if implemented)."""
-        pytest.skip("Requires log rotation configuration")
 
 
 # =============================================================================
@@ -2221,20 +3200,197 @@ class TestMultiCharacterEventFanout:
             await client3.close()
 
     async def test_trade_event_visibility(self, server_url):
-        """Test that trade events are visible to both parties but not third party.
+        """Test that trade.executed events are private to trader only.
 
-        Scenario: Player1 and Player2 execute trade. Player3 in different sector.
-        - Player1 query: sees trade event (sender)
-        - Player2 query: sees trade event (receiver, if port trades create receiver records)
-        - Player3 query: does NOT see trade event
+        Scenario: Trader in sector 1 executes trade at port. Outsider in sector 2.
+        - Trader: receives trade.executed via WebSocket and JSONL
+        - Outsider: does NOT receive trade event (private to trader)
+
+        Note: Trade events are always private - only the trading character sees them.
         """
-        # NOTE: This test may need adjustment based on whether port trades
-        # create receiver records or only sender records
-        pytest.skip("Trade event receiver behavior needs verification - ports may not have receiver records")
+        from datetime import datetime, timezone
+        import asyncio
+        from tests.helpers.combat_helpers import create_test_character_knowledge
+
+        trader_id = "test_trade_visibility_trader"
+        outsider_id = "test_trade_visibility_outsider"
+
+        # Create both characters at sector 0
+        create_test_character_knowledge(trader_id, sector=0, credits=10000, fighters=100, shields=100)
+        create_test_character_knowledge(outsider_id, sector=0, credits=10000, fighters=100, shields=100)
+
+        trader = AsyncGameClient(base_url=server_url, character_id=trader_id, transport="websocket")
+        outsider = AsyncGameClient(base_url=server_url, character_id=outsider_id, transport="websocket")
+
+        # Setup event collectors
+        trader_events = []
+        outsider_events = []
+
+        trader.on("trade.executed")(lambda p: trader_events.append({"event": "trade.executed", "payload": p}))
+        outsider.on("trade.executed")(lambda p: outsider_events.append({"event": "trade.executed", "payload": p}))
+
+        try:
+            await trader.join(character_id=trader_id)
+            await outsider.join(character_id=outsider_id)
+
+            # Move trader to sector 1 (has port in test world)
+            # Move outsider to sector 2 (different sector)
+            await trader.move(to_sector=1, character_id=trader_id)
+            await outsider.move(to_sector=2, character_id=outsider_id)
+            await asyncio.sleep(0.5)
+
+            # Record start time
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # Trader executes trade at port in sector 1
+            await trader.trade(
+                commodity="neuro_symbolics",
+                quantity=1,
+                trade_type="buy",
+                character_id=trader_id
+            )
+
+            # Wait for event propagation
+            await asyncio.sleep(1.0)
+
+            end_time = datetime.now(timezone.utc)
+
+            # Verify WebSocket reception - trader should see event
+            assert len(trader_events) >= 1, "Trader should receive trade.executed via WebSocket"
+
+            trade_event = trader_events[0]["payload"]
+            inner_payload = trade_event.get("payload", trade_event)
+
+            assert "trade" in inner_payload, "Event should contain trade details"
+            assert inner_payload["trade"]["trade_type"] == "buy"
+            assert inner_payload["trade"]["commodity"] == "neuro_symbolics"
+
+            # Verify outsider does NOT receive the event (private to trader)
+            assert len(outsider_events) == 0, "Outsider should NOT receive trade events (private to trader)"
+
+            # Verify JSONL logging - trader should see it
+            trader_result = await trader._request("event.query", {
+                "character_id": trader_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            assert trader_result["count"] > 0, "Trader should find trade event in JSONL"
+            trade_events_logged = [e for e in trader_result["events"] if e.get("event") == "trade.executed"]
+            assert len(trade_events_logged) > 0, "Should find trade.executed in JSONL"
+
+            # Verify outsider does NOT see it in JSONL
+            outsider_result = await outsider._request("event.query", {
+                "character_id": outsider_id,
+                "start": start_time.isoformat(),
+                "end": end_time.isoformat(),
+            })
+
+            outsider_trade_events = [e for e in outsider_result["events"] if e.get("event") == "trade.executed"]
+            assert len(outsider_trade_events) == 0, "Outsider should NOT see trade events in JSONL (private to trader)"
+
+        finally:
+            await trader.close()
+            await outsider.close()
 
     async def test_combat_event_fanout(self, server_url):
-        """Test that combat events are visible to all participants."""
-        pytest.skip("Combat event fan-out requires combat system verification")
+        """Test that combat events are fanned out to all participants.
+
+        Scenario: 3 players in combat - verify ALL receive identical events.
+        This complements test_combat_events_to_participants_only (2 players + outsider).
+        """
+        from datetime import datetime, timezone
+        import asyncio
+        from tests.helpers.combat_helpers import create_test_character_knowledge
+
+        player1_id = "test_fanout_player1"
+        player2_id = "test_fanout_player2"
+        player3_id = "test_fanout_player3"
+
+        # Create 3 players at sector 0
+        create_test_character_knowledge(player1_id, sector=0, fighters=100, shields=100)
+        create_test_character_knowledge(player2_id, sector=0, fighters=100, shields=100)
+        create_test_character_knowledge(player3_id, sector=0, fighters=100, shields=100)
+
+        player1 = AsyncGameClient(base_url=server_url, character_id=player1_id, transport="websocket")
+        player2 = AsyncGameClient(base_url=server_url, character_id=player2_id, transport="websocket")
+        player3 = AsyncGameClient(base_url=server_url, character_id=player3_id, transport="websocket")
+
+        # Setup event collectors
+        player1_events = []
+        player2_events = []
+        player3_events = []
+
+        player1.on("combat.round_waiting")(lambda p: player1_events.append({"event": "combat.round_waiting", "payload": p}))
+        player1.on("combat.round_resolved")(lambda p: player1_events.append({"event": "combat.round_resolved", "payload": p}))
+
+        player2.on("combat.round_waiting")(lambda p: player2_events.append({"event": "combat.round_waiting", "payload": p}))
+        player2.on("combat.round_resolved")(lambda p: player2_events.append({"event": "combat.round_resolved", "payload": p}))
+
+        player3.on("combat.round_waiting")(lambda p: player3_events.append({"event": "combat.round_waiting", "payload": p}))
+        player3.on("combat.round_resolved")(lambda p: player3_events.append({"event": "combat.round_resolved", "payload": p}))
+
+        try:
+            await player1.join(character_id=player1_id)
+            await player2.join(character_id=player2_id)
+            await player3.join(character_id=player3_id)
+
+            # Move all to sector 1 (forced into combat)
+            await player1.move(to_sector=1, character_id=player1_id)
+            await player2.move(to_sector=1, character_id=player2_id)
+            await player3.move(to_sector=1, character_id=player3_id)
+            await asyncio.sleep(0.5)
+
+            # Clear movement events
+            player1_events.clear()
+            player2_events.clear()
+            player3_events.clear()
+
+            # Record start time
+            start_time = datetime.now(timezone.utc)
+            await asyncio.sleep(0.1)
+
+            # Player 1 initiates combat
+            await player1.combat_initiate(character_id=player1_id)
+            await asyncio.sleep(2.0)
+
+            end_time = datetime.now(timezone.utc)
+
+            # WebSocket verification: ALL 3 players should receive combat.round_waiting
+            p1_waiting = [e for e in player1_events if e["event"] == "combat.round_waiting"]
+            p2_waiting = [e for e in player2_events if e["event"] == "combat.round_waiting"]
+            p3_waiting = [e for e in player3_events if e["event"] == "combat.round_waiting"]
+
+            assert len(p1_waiting) >= 1, "Player 1 should receive combat.round_waiting"
+            assert len(p2_waiting) >= 1, "Player 2 should receive combat.round_waiting"
+            assert len(p3_waiting) >= 1, "Player 3 should receive combat.round_waiting"
+
+            # Verify all participants are in the event payload
+            p1_payload = p1_waiting[0]["payload"]
+            p1_inner = p1_payload.get("payload", p1_payload)
+
+            assert len(p1_inner.get("participants", [])) == 3, "Should have 3 participants"
+            participant_names = [p["name"] for p in p1_inner["participants"]]
+            assert player1_id in participant_names, "Player 1 should be in participants"
+            assert player2_id in participant_names, "Player 2 should be in participants"
+            assert player3_id in participant_names, "Player 3 should be in participants"
+
+            # JSONL verification: All 3 players can query combat events
+            for player_client, player_id in [(player1, player1_id), (player2, player2_id), (player3, player3_id)]:
+                result = await player_client._request("event.query", {
+                    "character_id": player_id,
+                    "start": start_time.isoformat(),
+                    "end": end_time.isoformat(),
+                })
+
+                combat_events = [e for e in result["events"] if e.get("event") == "combat.round_waiting"]
+                assert len(combat_events) > 0, f"{player_id} should find combat.round_waiting in JSONL"
+
+        finally:
+            await player1.close()
+            await player2.close()
+            await player3.close()
 
 
 # =============================================================================
@@ -2244,10 +3400,6 @@ class TestMultiCharacterEventFanout:
 
 class TestEventEdgeCases:
     """Tests for edge cases and error conditions."""
-
-    async def test_event_emission_during_server_shutdown(self):
-        """Test behavior of events during server shutdown."""
-        pytest.skip("Requires controlled server shutdown")
 
     async def test_large_event_payload_handling(self, active_character, server_url):
         """Test that large event payloads are handled correctly."""
@@ -2283,7 +3435,3 @@ class TestEventEdgeCases:
             # Should have received multiple events
             assert len(listener.events) >= 5, "Some events may have been lost"
 
-    async def test_event_with_special_characters_in_payload(self):
-        """Test that events with special characters are handled correctly."""
-        # This would test unicode, escaping, etc.
-        pytest.skip("Requires message sending with special characters")

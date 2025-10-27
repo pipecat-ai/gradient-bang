@@ -107,6 +107,40 @@ See `docs/combat_tests_analysis.md` for comprehensive documentation including:
 - Identified issues and improvement recommendations
 - Performance optimization opportunities
 
+**Event System Test Suite Details:**
+- **50 tests** covering event query system and event emission
+- **Total runtime:** ~3 minutes
+- **Test server:** Automatically started on port 8002 by pytest fixtures
+- **Test categories:**
+  - Phase 1: JSONL Infrastructure (4 tests) - File logging and parsing
+  - Phase 2: Admin Query Mode (5 tests) - Admin event queries
+  - Phase 3: Character Query Mode (5 tests) - Character-scoped queries
+  - Phase 4: Multi-Character Fan-out (3 tests) - Event propagation to multiple recipients
+  - Phase 6: Integration Tests (2 tests) - Cross-system verification
+  - Event Emission Tests (19 tests total):
+    - Combat Events (5 tests) - combat.round_waiting, combat.round_resolved, combat.ended
+    - Trade Events (2 tests) - trade.executed privacy and emission
+    - Garrison Events (2 tests) - garrison.deployed, mode changes, collection
+  - Event Ordering (5 tests) - Timestamp and chronological verification
+  - WebSocket Delivery (4 tests) - Real-time event streaming
+  - Event Payload Structure (4 tests) - Schema validation
+  - Character Filtering (5 tests) - Privacy and visibility rules
+  - Edge Cases (2 tests) - Large payloads and rapid emission
+
+**Event System Implementation Summary:**
+See `docs/event_system_implementation_summary.md` for comprehensive documentation including:
+- Complete event naming reference (combat.round_resolved vs combat.round_ended, etc.)
+- WebSocket + JSONL dual verification pattern
+- Event payload unwrapping pattern for WebSocket events
+- Character positioning and combat flow patterns
+- Test execution performance metrics
+
+**Key Event System Patterns:**
+- All events verified via both WebSocket (real-time) and JSONL (audit log)
+- WebSocket events have metadata wrapper: `{event_name, payload, summary}`
+- Event privacy enforced via `character_filter` parameter
+- Multi-character events use fan-out pattern (one JSONL line per recipient)
+
 ### Running NPCs
 ```bash
 # Requires OPENAI_API_KEY environment variable
