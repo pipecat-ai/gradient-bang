@@ -195,12 +195,18 @@ def _status_summary(result: Dict[str, Any], first_line: str) -> str:
 
     # Credits and cargo
     credits = player.get("credits_on_hand", 0)
+    bank_credits = player.get("credits_in_bank")
     cargo = ship.get("cargo", {})
     cargo_str = _format_cargo(cargo)
     cargo_used = sum(cargo.values())
     cargo_capacity = ship.get("cargo_capacity", 0)
     empty_holds = cargo_capacity - cargo_used
-    lines.append(f"Credits: {credits}. Cargo: {cargo_str}. Empty holds: {empty_holds}.")
+    bank_suffix = ""
+    if isinstance(bank_credits, (int, float)):
+        bank_suffix = f" (bank: {int(bank_credits)})"
+    lines.append(
+        f"Credits: {credits}{bank_suffix}. Cargo: {cargo_str}. Empty holds: {empty_holds}."
+    )
 
     # Warp power and shields
     warp = ship.get("warp_power", 0)
@@ -271,6 +277,7 @@ def status_update_summary(result: Dict[str, Any]) -> str:
 
     sector_id = sector.get("id", "unknown")
     credits = player.get("credits_on_hand")
+    bank_credits = player.get("credits_in_bank")
     warp = ship.get("warp_power")
     warp_max = ship.get("warp_power_capacity")
     shields = ship.get("shields")
@@ -281,7 +288,10 @@ def status_update_summary(result: Dict[str, Any]) -> str:
 
     parts: List[str] = [f"Sector {sector_id}"]
     if isinstance(credits, (int, float)):
-        parts.append(f"Credits {int(credits)}")
+        credit_part = f"Credits {int(credits)}"
+        if isinstance(bank_credits, (int, float)):
+            credit_part += f" (bank {int(bank_credits)})"
+        parts.append(credit_part)
     if isinstance(warp, (int, float)) and isinstance(warp_max, (int, float)):
         parts.append(f"Warp {int(warp)}/{int(warp_max)}")
     if isinstance(shields, (int, float)) and isinstance(shields_max, (int, float)):

@@ -279,22 +279,17 @@ async def _process_defeated_characters(
         # Get ship name for metadata
         ship_name = knowledge.ship_config.ship_name or stats.name
 
-        # Transfer credits to winner
-        if winner_owner and credits > 0:
-            winner_credits = world.knowledge_manager.get_credits(winner_owner)
-            world.knowledge_manager.update_credits(
-                winner_owner, winner_credits + credits
-            )
+        salvage_credits = credits if isinstance(credits, int) and credits > 0 else 0
         world.knowledge_manager.update_credits(owner_id, 0)
 
         # Create salvage container
-        if world.salvage_manager and (cargo or scrap):
+        if world.salvage_manager and (cargo or scrap or salvage_credits):
             salvages.append(
                 world.salvage_manager.create(
                     sector=encounter.sector_id,
                     cargo=cargo,
                     scrap=scrap,
-                    credits=0,
+                    credits=salvage_credits,
                     metadata={
                         "ship_type": ship_type.value,
                         "ship_name": ship_name,

@@ -8,6 +8,7 @@ from .utils import (
     rpc_success,
     build_event_source,
     emit_error_event,
+    resolve_sector_character_id,
 )
 from rpc.events import event_dispatcher
 
@@ -32,16 +33,25 @@ async def _fail(
 
 async def handle(request: dict, world) -> dict:
     from_character_id = request.get("from_character_id")
-    to_character_id = request.get("to_character_id")
+    to_player_name = request.get("to_player_name")
     units = request.get("units")
     request_id = request.get("request_id") or "missing-request-id"
 
-    if not all([from_character_id, to_character_id, units]):
+    if not all([from_character_id, units]):
         raise HTTPException(status_code=400, detail="Missing required parameters")
+    if not isinstance(to_player_name, str) or not to_player_name.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="transfer_warp_power requires to_player_name",
+        )
     if from_character_id not in world.characters:
         raise HTTPException(status_code=404, detail=f"Source character not found: {from_character_id}")
-    if to_character_id not in world.characters:
-        raise HTTPException(status_code=404, detail=f"Target character not found: {to_character_id}")
+    to_character_id = resolve_sector_character_id(
+        world,
+        source_character_id=from_character_id,
+        to_player_name=to_player_name,
+        endpoint="transfer_warp_power",
+    )
 
     from_character = world.characters[from_character_id]
     to_character = world.characters[to_character_id]

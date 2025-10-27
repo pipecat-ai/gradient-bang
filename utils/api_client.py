@@ -1054,12 +1054,16 @@ class AsyncGameClient:
         return ack
 
     async def transfer_warp_power(
-        self, to_character_id: str, units: int, character_id: str
+        self,
+        *,
+        to_player_name: str,
+        units: int,
+        character_id: str,
     ) -> Dict[str, Any]:
         """Transfer warp power to another character in the same sector.
 
         Args:
-            to_character_id: Character ID to transfer warp power to
+            to_player_name: Display name of the recipient in the same sector
             units: Number of warp power units to transfer
             character_id: Character transferring warp power (must match bound ID)
 
@@ -1068,7 +1072,7 @@ class AsyncGameClient:
 
         Raises:
             RPCError: If the request fails
-            ValueError: If character_id doesn't match bound ID
+            ValueError: If character_id doesn't match bound ID or name missing
         """
         if character_id != self._character_id:
             raise ValueError(
@@ -1076,15 +1080,64 @@ class AsyncGameClient:
                 f"received {character_id!r}"
             )
 
-        ack = await self._request(
-            "transfer_warp_power",
-            {
-                "from_character_id": character_id,
-                "to_character_id": to_character_id,
-                "units": units,
-            },
-        )
+        if not isinstance(to_player_name, str) or not to_player_name.strip():
+            raise ValueError("to_player_name must be a non-empty string")
+
+        payload = {
+            "from_character_id": character_id,
+            "units": units,
+            "to_player_name": to_player_name,
+        }
+
+        ack = await self._request("transfer_warp_power", payload)
         return ack
+
+    async def transfer_credits(
+        self,
+        *,
+        to_player_name: Optional[str] = None,
+        to_character_id: Optional[str] = None,
+        amount: int,
+        character_id: str,
+    ) -> Dict[str, Any]:
+        """Transfer on-hand credits to another character in the same sector."""
+
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        if not to_player_name and not to_character_id:
+            raise ValueError("Must provide to_player_name or to_character_id")
+
+        payload = {
+            "from_character_id": character_id,
+            "amount": amount,
+        }
+        if to_player_name:
+            payload["to_player_name"] = to_player_name
+        if to_character_id:
+            payload["to_character_id"] = to_character_id
+        return await self._request("transfer_credits", payload)
+
+    async def bank_transfer(
+        self, *, direction: str, amount: int, character_id: str
+    ) -> Dict[str, Any]:
+        """Move credits between the ship and the sector 0 bank."""
+
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        payload = {
+            "character_id": character_id,
+            "direction": direction,
+            "amount": amount,
+        }
+        return await self._request("bank_transfer", payload)
 
     async def combat_initiate(
         self,
@@ -1312,6 +1365,26 @@ class AsyncGameClient:
             "salvage_id": salvage_id,
         }
         return await self._request("salvage.collect", payload)
+
+    async def dump_cargo(
+        self,
+        *,
+        items: list[dict],
+        character_id: str,
+    ) -> Dict[str, Any]:
+        """Dump cargo from the ship, creating a salvage container."""
+
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        payload = {
+            "character_id": character_id,
+            "items": items,
+        }
+        return await self._request("dump_cargo", payload)
 
     async def send_message(
         self,

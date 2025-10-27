@@ -167,7 +167,7 @@ async def test_transfer_warp_power_emits_enhanced_event(monkeypatch):
     result = await transfer_warp_power.handle(
         {
             "from_character_id": sender,
-            "to_character_id": receiver,
+            "to_player_name": receiver,
             "units": 30,
             "request_id": "req-transfer-456",
         },
@@ -224,7 +224,7 @@ async def test_transfer_warp_power_returns_failure_for_capacity(monkeypatch):
         await transfer_warp_power.handle(
             {
                 "from_character_id": sender,
-                "to_character_id": receiver,
+                "to_player_name": receiver,
                 "units": 20,
                 "request_id": "req-cap",
             },

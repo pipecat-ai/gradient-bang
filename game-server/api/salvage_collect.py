@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import HTTPException
 from rpc.events import event_dispatcher
 from api.utils import sector_contents, rpc_success, build_event_source
+from ships import ShipType
 
 
 async def handle(request: dict, world) -> dict:
@@ -24,6 +25,11 @@ async def handle(request: dict, world) -> dict:
 
     if world.salvage_manager is None:
         raise HTTPException(status_code=503, detail="Salvage system unavailable")
+
+    knowledge = world.knowledge_manager.load_knowledge(character_id)
+    ship_type = ShipType(knowledge.ship_config.ship_type)
+    if ship_type == ShipType.ESCAPE_POD:
+        raise HTTPException(status_code=400, detail="Escape pods cannot collect salvage")
 
     container = world.salvage_manager.claim(salvage_id, character_id)
     if not container:
