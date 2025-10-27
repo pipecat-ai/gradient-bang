@@ -13,7 +13,7 @@ from .utils import (
     rpc_success,
     sector_contents,
 )
-from rpc.events import event_dispatcher
+from rpc.events import event_dispatcher, EventLogContext
 
 VALID_COMMODITIES = {"quantum_foam", "retro_organics", "neuro_symbolics"}
 
@@ -110,6 +110,8 @@ async def handle(request: dict, world) -> dict:
         metadata=metadata,
     )
 
+    log_context = EventLogContext(sender=character_id, sector=character.sector)
+
     await event_dispatcher.emit(
         "salvage.created",
         {
@@ -119,6 +121,7 @@ async def handle(request: dict, world) -> dict:
             "dumped_cargo": removed,
         },
         character_filter=[character_id],
+        log_context=log_context,
     )
 
     sector_payload = await sector_contents(world, character.sector, current_character_id=None)
@@ -133,6 +136,7 @@ async def handle(request: dict, world) -> dict:
             "sector.update",
             sector_payload,
             character_filter=characters_in_sector,
+            log_context=log_context,
         )
 
     return rpc_success()

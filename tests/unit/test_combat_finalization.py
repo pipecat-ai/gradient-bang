@@ -166,17 +166,22 @@ class TestFinalizeCombat:
         assert len(salvages) == 1
         world.salvage_manager.create.assert_called_once()
 
+        # Verify salvage contains loser's credits (not transferred to winner)
+        create_call_kwargs = world.salvage_manager.create.call_args[1]
+        assert create_call_kwargs["credits"] == 1000  # Loser's credits in salvage
+        assert "retro_organics" in create_call_kwargs["cargo"]
+        assert "neuro_symbolics" in create_call_kwargs["cargo"]
+
         # Verify loser converted to escape pod
         world.knowledge_manager.initialize_ship.assert_called_once_with(
             "loser1", ShipType.ESCAPE_POD
         )
 
-        # Verify credits transferred
+        # Verify loser's credits cleared (went to salvage)
         world.knowledge_manager.update_credits.assert_any_call("loser1", 0)
-        world.knowledge_manager.update_credits.assert_any_call("winner1", 1500)  # 500 + 1000
 
-        # Verify status updates emitted
-        assert emit_status_update.call_count >= 2  # loser and winner
+        # Verify status updates emitted (loser and winner)
+        assert emit_status_update.call_count >= 2
 
     async def test_escaped_pod_not_processed(self):
         """Test character already in escape pod is not processed."""

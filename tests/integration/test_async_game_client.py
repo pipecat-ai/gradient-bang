@@ -460,7 +460,7 @@ async def test_transfer_warp_power(server_url, check_server_available):
 
         # Transfer fuel
         result = await client.transfer_warp_power(
-            to_character_id=char2,
+            to_player_name=char2,
             units=10,
             character_id=char1,
         )

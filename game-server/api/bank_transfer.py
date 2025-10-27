@@ -14,7 +14,7 @@ from .utils import (
     ensure_not_in_combat,
     rpc_success,
 )
-from rpc.events import event_dispatcher
+from rpc.events import event_dispatcher, EventLogContext
 
 
 VALID_DIRECTIONS = {"deposit", "withdraw"}
@@ -94,6 +94,8 @@ async def handle(request: dict, world, credit_locks) -> dict:
 
     timestamp = datetime.now(timezone.utc).isoformat()
 
+    log_context = EventLogContext(sender=character_id, sector=0)
+
     await event_dispatcher.emit(
         "bank.transaction",
         {
@@ -109,9 +111,10 @@ async def handle(request: dict, world, credit_locks) -> dict:
             "credits_in_bank_after": new_bank,
         },
         character_filter=[character_id],
+        log_context=log_context,
     )
 
     payload = await build_status_payload(world, character_id)
-    await event_dispatcher.emit("status.update", payload, character_filter=[character_id])
+    await event_dispatcher.emit("status.update", payload, character_filter=[character_id], log_context=log_context)
 
     return rpc_success()

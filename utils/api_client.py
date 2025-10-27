@@ -1095,12 +1095,24 @@ class AsyncGameClient:
     async def transfer_credits(
         self,
         *,
-        to_player_name: Optional[str] = None,
-        to_character_id: Optional[str] = None,
+        to_player_name: str,
         amount: int,
         character_id: str,
     ) -> Dict[str, Any]:
-        """Transfer on-hand credits to another character in the same sector."""
+        """Transfer on-hand credits to another character in the same sector.
+
+        Args:
+            to_player_name: Display name of the recipient in the same sector
+            amount: Credits to transfer (must be positive)
+            character_id: Sender's character ID
+
+        Returns:
+            Success response dict
+
+        Raises:
+            ValueError: If character_id doesn't match bound character
+            HTTPException: If validation fails or characters not in same sector
+        """
 
         if character_id != self._character_id:
             raise ValueError(
@@ -1108,17 +1120,11 @@ class AsyncGameClient:
                 f"received {character_id!r}"
             )
 
-        if not to_player_name and not to_character_id:
-            raise ValueError("Must provide to_player_name or to_character_id")
-
         payload = {
             "from_character_id": character_id,
+            "to_player_name": to_player_name,
             "amount": amount,
         }
-        if to_player_name:
-            payload["to_player_name"] = to_player_name
-        if to_character_id:
-            payload["to_character_id"] = to_character_id
         return await self._request("transfer_credits", payload)
 
     async def bank_transfer(

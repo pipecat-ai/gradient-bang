@@ -793,9 +793,9 @@ async def test_transfer_warp_power_to_character(server_url, check_server_availab
 
             # Transfer fuel
             result = await client.transfer_warp_power(
-            to_character_id=char2,
-            units=10,
-            character_id=char1,
+                to_player_name=char2,
+                units=10,
+                character_id=char1,
             )
 
             # Validate API response
