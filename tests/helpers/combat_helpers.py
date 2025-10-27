@@ -347,3 +347,77 @@ def set_character_cargo(
 
     with open(filepath, "w") as f:
         json.dump(knowledge, f, indent=2)
+
+
+# Garrison helper functions for auto-combat tests
+
+
+async def deploy_garrison(
+    client,
+    owner_id: str,
+    sector: int,
+    fighters: int,
+    mode: str = "offensive",
+    toll_amount: int = 0
+) -> None:
+    """Deploy a garrison in a sector.
+
+    Args:
+        client: AsyncGameClient instance
+        owner_id: Character ID of garrison owner
+        sector: Sector ID where garrison will be deployed
+        fighters: Number of fighters to deploy
+        mode: Garrison mode (offensive, defensive, toll)
+        toll_amount: Toll amount if mode is toll
+    """
+    params = {
+        "character_id": owner_id,
+        "sector": sector,
+        "quantity": fighters,
+        "mode": mode,
+    }
+
+    if mode == "toll" and toll_amount > 0:
+        params["toll_amount"] = toll_amount
+
+    await client.combat_leave_fighters(**params)
+
+
+async def verify_garrison_combat(
+    events: list,
+    expected_garrison_owner: str,
+    expected_arrival_char: str
+) -> dict:
+    """Verify combat.round_waiting event contains garrison.
+
+    Args:
+        events: List of event dicts with "event" and "payload" keys
+        expected_garrison_owner: Expected garrison owner character ID
+        expected_arrival_char: Expected arriving character ID
+
+    Returns:
+        The unwrapped payload if found
+
+    Raises:
+        AssertionError: If validation fails
+    """
+    assert len(events) >= 1, "Should have combat.round_waiting event"
+
+    waiting_event = events[0]["payload"]
+    inner = waiting_event.get("payload", waiting_event)
+
+    # Verify garrison (top-level field, not in participants)
+    garrison = inner.get("garrison")
+    assert garrison is not None, "Garrison should be present in combat"
+    assert garrison.get("owner_name") == expected_garrison_owner, \
+        f"Expected garrison owner {expected_garrison_owner}, got {garrison.get('owner_name')}"
+
+    # Verify participants includes arriving character
+    participants = inner.get("participants", [])
+    assert len(participants) >= 1, "Should have at least the arriving character"
+
+    # Find arriving character
+    character = next((p for p in participants if p.get("name") == expected_arrival_char), None)
+    assert character is not None, f"Arriving character {expected_arrival_char} should be participant"
+
+    return inner

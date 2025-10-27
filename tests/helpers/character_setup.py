@@ -330,6 +330,23 @@ TEST_CHARACTER_IDS = [
     "test_salvage_collector",
     "test_salvage_victim",
     "test_salvage_observer",
+    # Garrison auto-combat test characters (test_movement_system.py - TestAutoGarrisonCombat)
+    "test_garrison_owner_a",
+    "test_garrison_arrival_b",
+    "test_garrison_event_owner",
+    "test_garrison_event_arrival",
+    "test_combat_state_owner",
+    "test_combat_state_arrival",
+    "test_combat_blocker_a",
+    "test_combat_blocker_b",
+    "test_garrison_ai_owner",
+    "test_garrison_ai_arrival",
+    "test_defensive_garrison_owner",
+    "test_defensive_garrison_arrival",
+    "test_toll_garrison_owner",
+    "test_toll_payer",
+    "test_toll_collection_owner",
+    "test_toll_collection_payer",
 ]
 
 

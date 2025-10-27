@@ -1,14 +1,15 @@
 
+0. After we merge gp-1025 we need to make sure the event-logger is threaded through all new emits.
 1. test_trade_event_visibility
 2. Do we have good tests for multi-character fan-out of events received when a character moves or a trade is executed? Not log query fanout tests. But events received in realtime by multiple characters in a sector.
 3. When we add garrison tests, we should make sure a player receives broadcast events from their garrison fighters in a different sectors, and add tests for being able to query combat events that happened to a player's garrison fighters. We may need new remote combat event types for this.
-
+4
 ----
 
 Look at server returing 500 instead of 400 for insufficient cargo. See if there are other instances of this.
 ----
 
-gb-1025
+gb-1025 tests
   - bank
     - lightly tested
   - credit transfer
@@ -17,6 +18,7 @@ gb-1025
     - need to test with three players in the sector
   - cargo dumped as salvage
     - not tested
+
 
 ----
 

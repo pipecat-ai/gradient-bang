@@ -22,10 +22,15 @@ def build_character_combatant(world, character_id: str) -> CombatantState:
     ship_config = knowledge.ship_config
     ship_type = ShipType(ship_config.ship_type)
     stats = get_ship_stats(ship_type)
+
+    # Get the character's display name (defaults to character_id if not set)
+    character = world.characters.get(character_id)
+    display_name = character.name if character else character_id
+
     return CombatantState(
         combatant_id=character_id,
         combatant_type="character",
-        name=character_id,
+        name=display_name,
         fighters=ship_config.current_fighters,
         shields=ship_config.current_shields,
         turns_per_warp=stats.turns_per_warp,
@@ -41,13 +46,22 @@ def build_garrison_combatant(
     sector_id: int,
     garrison: GarrisonState,
     *,
+    world = None,
     name_prefix: str = "Garrison",
 ) -> CombatantState:
     combatant_id = f"garrison:{sector_id}:{garrison.owner_id}"
+
+    # Get the owner's display name (defaults to owner_id if not available)
+    owner_display_name = garrison.owner_id
+    if world:
+        owner_character = world.characters.get(garrison.owner_id)
+        if owner_character:
+            owner_display_name = owner_character.name
+
     return CombatantState(
         combatant_id=combatant_id,
         combatant_type="garrison",
-        name=f"{name_prefix} ({garrison.owner_id})",
+        name=f"{name_prefix} ({owner_display_name})",
         fighters=garrison.fighters,
         shields=0,
         turns_per_warp=0,
@@ -280,9 +294,9 @@ def serialize_garrison_for_event(
     Returns:
         Dict with garrison data
     """
+    # Use owner_character_id which contains the owner's display name (character_id)
+    # This is consistent with how participant names work
     owner_name = garrison_state.owner_character_id
-    if actual_garrison and getattr(actual_garrison, "owner_id", None):
-        owner_name = actual_garrison.owner_id
 
     result = {
         "owner_name": owner_name,
