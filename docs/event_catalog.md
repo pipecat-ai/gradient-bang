@@ -426,6 +426,40 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 - The salvage payload mirrors the container that was just removed; clients can display it in loot history or notifications.
 - Updated cargo totals include the newly collected items; unknown salvage commodities are converted to `neuro_symbolics` by the server before emission.
 
+### salvage.created
+**When emitted:** Whenever a player dumps cargo and a new salvage container is spawned in their sector.
+**Who receives it:** Only the dumping character receives the `salvage.created` confirmation; everyone in the sector receives a separate `sector.update` showing the new salvage list.
+**Source:** `/game-server/api/dump_cargo.py`
+
+**Payload example:**
+```json
+{
+  "source": {
+    "type": "rpc",
+    "method": "dump_cargo",
+    "request_id": "req-dump-07",
+    "timestamp": "2025-10-19T03:14:15.926Z"
+  },
+  "sector": {"id": 12},
+  "salvage": {
+    "salvage_id": "salv_e3a45c",
+    "created_at": "2025-10-19T03:14:15.926Z",
+    "expires_at": "2025-10-19T03:29:15.926Z",
+    "cargo": {"retro_organics": 40},
+    "scrap": 0,
+    "credits": 0,
+    "claimed": false,
+    "source": {"ship_name": "Cargo Liner", "ship_type": "kestrel_courier"},
+    "metadata": {}
+  },
+  "dumped_cargo": {"retro_organics": 40}
+}
+```
+
+**Notes:**
+- Agents should treat the event as confirmation that the jettison succeeded; nearby pilots must watch for the accompanying `sector.update` to stay in sync.
+- Salvage containers expire automatically; this event only covers creation.
+
 ## Movement Events
 
 ### course.plot
@@ -890,6 +924,61 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
   "to_warp_power_current": 110
 }
 ```
+
+## Credit & Banking Events
+
+### credits.transfer
+**When emitted:** When one character sends on-hand credits to another character in the same sector via `/api/transfer_credits`.
+**Who receives it:** Sender and receiver (character_filter).
+**Source:** `/game-server/api/transfer_credits.py`
+
+**Payload example:**
+```json
+{
+  "source": {
+    "type": "rpc",
+    "method": "transfer_credits",
+    "request_id": "req-credits-19",
+    "timestamp": "2025-10-19T04:02:05.120Z"
+  },
+  "from_character_id": "helper_pilot",
+  "to_character_id": "newbie_trader",
+  "sector": {"id": 43},
+  "amount": 500,
+  "timestamp": "2025-10-19T04:02:05.120Z",
+  "from_balance_before": 8200,
+  "from_balance_after": 7700,
+  "to_balance_before": 1200,
+  "to_balance_after": 1700
+}
+```
+
+### bank.transaction
+**When emitted:** Whenever a deposit or withdrawal completes at the sector 0 bank via `/api/bank_transfer`.
+**Who receives it:** Only the initiating character.
+**Source:** `/game-server/api/bank_transfer.py`
+
+**Payload example:**
+```json
+{
+  "source": {
+    "type": "rpc",
+    "method": "bank_transfer",
+    "request_id": "req-bank-02",
+    "timestamp": "2025-10-19T05:44:00.000Z"
+  },
+  "character_id": "sector0_runner",
+  "sector": {"id": 0},
+  "direction": "deposit",
+  "amount": 2000,
+  "timestamp": "2025-10-19T05:44:00.000Z",
+  "credits_on_hand_before": 5600,
+  "credits_on_hand_after": 3600,
+  "credits_in_bank_before": 0,
+  "credits_in_bank_after": 2000
+}
+```
+
 
 ## Status Events
 

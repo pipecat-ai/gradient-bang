@@ -199,7 +199,7 @@ def player_self(world, character_id: str) -> Dict[str, Any]:
         "id": character.id,
         "name": getattr(character, "name", character.id),
         "credits_on_hand": world.knowledge_manager.get_credits(character_id),
-        "credits_in_bank": 0,
+        "credits_in_bank": world.knowledge_manager.get_bank_credits(character_id),
     }
 
 
@@ -336,17 +336,18 @@ async def sector_contents(
         ship_config = knowledge.ship_config
         ship_stats = get_ship_stats(ShipType(ship_config.ship_type))
 
-        # Use custom name if set, otherwise default to ship type name
-        display_name = ship_config.ship_name or ship_stats.name
+        # Use profile/display name when available for UI friendliness
+        display_name = resolve_character_name(world, char_id)
+        ship_display_name = ship_config.ship_name or ship_stats.name
 
         player = {
             "created_at": character.first_visit.isoformat(),
             "id": character.id,
-            "name": character.id,  # todo: make name settable
+            "name": display_name,
             "player_type": character.player_type,
             "ship": {
                 "ship_type": ship_config.ship_type,
-                "ship_name": display_name,
+                "ship_name": ship_display_name,
             },
         }
         players.append(player)
@@ -403,6 +404,59 @@ def resolve_character_name(world, character_id: str) -> str:
         if profile:
             return profile.name
     return character_id
+
+
+def resolve_sector_character_id(
+    world,
+    *,
+    source_character_id: str,
+    to_character_id: str | None = None,
+    to_player_name: str | None = None,
+    endpoint: str,
+) -> str:
+    """Resolve a sector-local character either by ID or by display name."""
+
+    if to_character_id:
+        if to_character_id not in world.characters:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Target character not found: {to_character_id}",
+            )
+        return to_character_id
+
+    if not to_player_name:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{endpoint} requires either to_player_name or to_character_id",
+        )
+
+    source_character = world.characters.get(source_character_id)
+    if not source_character:
+        raise HTTPException(status_code=404, detail="Source character not found")
+
+    needle = to_player_name.strip().casefold()
+    matches: list[str] = []
+    for candidate_id, character in world.characters.items():
+        if candidate_id == source_character_id:
+            continue
+        if character.sector != source_character.sector or character.in_hyperspace:
+            continue
+        display_name = resolve_character_name(world, candidate_id)
+        if display_name.strip().casefold() == needle:
+            matches.append(candidate_id)
+
+    if not matches:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No player named '{to_player_name}' in your sector",
+        )
+    if len(matches) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Multiple players named '{to_player_name}' present; specify by ID",
+        )
+
+    return matches[0]
 
 
 def serialize_garrison_for_client(
