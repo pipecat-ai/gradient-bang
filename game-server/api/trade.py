@@ -13,6 +13,7 @@ from .utils import (
     rpc_success,
 )
 from rpc.events import event_dispatcher
+from trading import TradingError
 
 
 async def handle(request: dict, world, port_locks=None) -> dict:
@@ -172,15 +173,18 @@ async def _execute_trade(
             port_state.stock[commodity_key],
             port_state.max_capacity[commodity_key],
         )
-        validate_buy_transaction(
-            knowledge.credits,
-            sum(knowledge.ship_config.cargo.values()),
-            ship_stats.cargo_holds,
-            commodity,
-            quantity,
-            port_state.stock[commodity_key],
-            price_per_unit,
-        )
+        try:
+            validate_buy_transaction(
+                knowledge.credits,
+                sum(knowledge.ship_config.cargo.values()),
+                ship_stats.cargo_holds,
+                commodity,
+                quantity,
+                port_state.stock[commodity_key],
+                price_per_unit,
+            )
+        except TradingError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         total_price = price_per_unit * quantity
         new_credits = knowledge.credits - total_price
         world.knowledge_manager.update_credits(character_id, new_credits)
@@ -239,13 +243,16 @@ async def _execute_trade(
             port_state.stock[commodity_key],
             port_state.max_capacity[commodity_key],
         )
-        validate_sell_transaction(
-            knowledge.ship_config.cargo,
-            commodity,
-            quantity,
-            port_state.stock[commodity_key],
-            port_state.max_capacity[commodity_key],
-        )
+        try:
+            validate_sell_transaction(
+                knowledge.ship_config.cargo,
+                commodity,
+                quantity,
+                port_state.stock[commodity_key],
+                port_state.max_capacity[commodity_key],
+            )
+        except TradingError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         total_price = price_per_unit * quantity
         new_credits = knowledge.credits + total_price
         world.knowledge_manager.update_credits(character_id, new_credits)

@@ -304,7 +304,7 @@ class TestTradeOperations:
         assert exc_info.value.status in [400, 422]
 
     async def test_sell_with_insufficient_cargo_fails(self, trader_at_port):
-        """Test that selling more than character has fails."""
+        """Test that selling more than character has fails with 400 (not 500)."""
         client = trader_at_port["client"]
         char_id = trader_at_port["character_id"]
 
@@ -317,8 +317,9 @@ class TestTradeOperations:
                 character_id=char_id
             )
 
-        # Should get error about insufficient cargo
-        assert exc_info.value.status in [400, 422, 500]
+        # Should get 400 client error (not 500 server error)
+        assert exc_info.value.status == 400, f"Expected 400, got {exc_info.value.status}"
+        assert "not enough" in str(exc_info.value).lower() or "insufficient" in str(exc_info.value).lower()
 
     async def test_trade_at_non_port_sector_fails(self, server_url):
         """Test that trading at a non-port sector fails."""
