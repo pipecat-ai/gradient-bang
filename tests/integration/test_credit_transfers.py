@@ -1,0 +1,364 @@
+"""
+Integration tests for credit transfer between players.
+
+This module tests:
+- Transfer credits between players in same sector
+- Player name resolution (not character IDs)
+- Sector validation (must be in same sector)
+- Balance validation (sufficient credits)
+- Combat restrictions (cannot transfer while in combat)
+- Event emissions (credits.transfer, status.update)
+
+IMPORTANT: All tests use player names (not character IDs) for targeting.
+
+These tests require a test server running on port 8002.
+"""
+
+import asyncio
+import pytest
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+# Add project paths
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from utils.api_client import AsyncGameClient, RPCError
+from helpers.combat_helpers import create_test_character_knowledge
+
+
+pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
+
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
+
+
+async def get_status(client, character_id):
+    """Get character status via status.snapshot event."""
+    status_received = asyncio.Future()
+
+    def on_status(event):
+        if not status_received.done():
+            status_received.set_result(event.get("payload", event))
+
+    token = client.add_event_handler("status.snapshot", on_status)
+
+    try:
+        await client.my_status(character_id=character_id)
+        status_data = await asyncio.wait_for(status_received, timeout=5.0)
+        return status_data
+    finally:
+        client.remove_event_handler(token)
+
+
+# =============================================================================
+# Test Credit Transfers - Happy Path
+# =============================================================================
+
+
+class TestCreditTransfers:
+    """Tests for successful credit transfer operations."""
+
+    async def test_transfer_credits_same_sector(self, server_url, check_server_available):
+        """Test transferring credits between players in same sector."""
+        sender_id = "test_credit_sender"
+        receiver_id = "test_credit_receiver"
+
+        # Create both characters in same sector with credits
+        create_test_character_knowledge(sender_id, sector=5, credits=1000)
+        create_test_character_knowledge(receiver_id, sector=5, credits=500)
+
+        # Create both clients
+        sender_client = AsyncGameClient(base_url=server_url, character_id=sender_id)
+        receiver_client = AsyncGameClient(base_url=server_url, character_id=receiver_id)
+
+        try:
+            # Join both characters
+            await sender_client.join(character_id=sender_id)
+            await receiver_client.join(character_id=receiver_id)
+
+            # Setup event listeners on both clients
+            sender_events = []
+            receiver_events = []
+
+            sender_client.on("credits.transfer")(lambda p: sender_events.append(p))
+            receiver_client.on("credits.transfer")(lambda p: receiver_events.append(p))
+
+            # Get initial state
+            sender_status_before = await get_status(sender_client, sender_id)
+            receiver_status_before = await get_status(receiver_client, receiver_id)
+
+            sender_credits_before = sender_status_before["player"]["credits_on_hand"]
+            receiver_credits_before = receiver_status_before["player"]["credits_on_hand"]
+
+            assert sender_credits_before == 1000
+            assert receiver_credits_before == 500
+
+            # Transfer 300 credits using player name (not character ID)
+            result = await sender_client.transfer_credits(
+                to_player_name=receiver_id,  # Using player name, not ID
+                amount=300,
+                character_id=sender_id
+            )
+
+            assert result.get("success") is True
+
+            # Wait for events
+            await asyncio.sleep(0.5)
+
+            # Verify both characters received credits.transfer event
+            assert len(sender_events) >= 1, "Sender should receive credits.transfer event"
+            assert len(receiver_events) >= 1, "Receiver should receive credits.transfer event"
+
+            # Verify sender event
+            sender_event = sender_events[0]
+            if "payload" in sender_event:
+                sender_event = sender_event["payload"]
+
+            assert sender_event["from_character_id"] == sender_id
+            assert sender_event["to_character_id"] == receiver_id
+            assert sender_event["amount"] == 300
+            assert sender_event["from_balance_before"] == 1000
+            assert sender_event["from_balance_after"] == 700
+
+            # Verify receiver event
+            receiver_event = receiver_events[0]
+            if "payload" in receiver_event:
+                receiver_event = receiver_event["payload"]
+
+            assert receiver_event["to_balance_before"] == 500
+            assert receiver_event["to_balance_after"] == 800
+
+            # Verify final state
+            sender_status_after = await get_status(sender_client, sender_id)
+            receiver_status_after = await get_status(receiver_client, receiver_id)
+
+            assert sender_status_after["player"]["credits_on_hand"] == 700
+            assert receiver_status_after["player"]["credits_on_hand"] == 800
+
+        finally:
+            await sender_client.close()
+            await receiver_client.close()
+
+    async def test_transfer_credits_uses_player_name(self, server_url, check_server_available):
+        """Test that transfer uses player display name resolution."""
+        sender_id = "test_credit_resolve_sender"
+        receiver_id = "test_credit_resolve_receiver"
+
+        # Create both characters (character ID = display name in test infrastructure)
+        create_test_character_knowledge(sender_id, sector=5, credits=1000)
+        create_test_character_knowledge(receiver_id, sector=5, credits=500)
+
+        async with AsyncGameClient(base_url=server_url, character_id=sender_id) as client:
+            await client.join(character_id=sender_id)
+
+            # Join receiver
+            receiver_client = AsyncGameClient(base_url=server_url, character_id=receiver_id)
+            await receiver_client.join(character_id=receiver_id)
+
+            # Transfer using player name (not character_id parameter)
+            result = await client.transfer_credits(
+                to_player_name=receiver_id,  # Display name
+                amount=100,
+                character_id=sender_id
+            )
+
+            assert result.get("success") is True
+
+            # Verify transfer completed
+            status = await get_status(client, sender_id)
+            assert status["player"]["credits_on_hand"] == 900
+
+            await receiver_client.close()
+
+
+# =============================================================================
+# Test Credit Transfer Validation
+# =============================================================================
+
+
+class TestCreditTransferValidation:
+    """Tests for credit transfer validation and error conditions."""
+
+    async def test_transfer_exceeds_sender_balance(self, server_url, check_server_available):
+        """Test transferring more than sender has fails."""
+        sender_id = "test_credit_exceed_sender"
+        receiver_id = "test_credit_exceed_receiver"
+
+        # Create sender with limited credits
+        create_test_character_knowledge(sender_id, sector=5, credits=100)
+        create_test_character_knowledge(receiver_id, sector=5, credits=500)
+
+        async with AsyncGameClient(base_url=server_url, character_id=sender_id) as client:
+            await client.join(character_id=sender_id)
+
+            # Join receiver
+            receiver_client = AsyncGameClient(base_url=server_url, character_id=receiver_id)
+            await receiver_client.join(character_id=receiver_id)
+
+            # Try to transfer more than available
+            with pytest.raises(RPCError) as exc_info:
+                await client.transfer_credits(
+                    to_player_name=receiver_id,
+                    amount=200,
+                    character_id=sender_id
+                )
+
+            # Should return 400 client error
+            assert exc_info.value.status == 400
+            assert "insufficient" in str(exc_info.value).lower() or "not enough" in str(exc_info.value).lower()
+
+            await receiver_client.close()
+
+    async def test_transfer_between_different_sectors(self, server_url, check_server_available):
+        """Test transferring between different sectors fails."""
+        sender_id = "test_credit_diff_sector_sender"
+        receiver_id = "test_credit_diff_sector_receiver"
+
+        # Create characters in DIFFERENT sectors
+        create_test_character_knowledge(sender_id, sector=5, credits=1000)
+        create_test_character_knowledge(receiver_id, sector=8, credits=500)
+
+        async with AsyncGameClient(base_url=server_url, character_id=sender_id) as client:
+            await client.join(character_id=sender_id)
+
+            # Join receiver in different sector
+            receiver_client = AsyncGameClient(base_url=server_url, character_id=receiver_id)
+            await receiver_client.join(character_id=receiver_id)
+
+            # Try to transfer across sectors
+            with pytest.raises(RPCError) as exc_info:
+                await client.transfer_credits(
+                    to_player_name=receiver_id,
+                    amount=100,
+                    character_id=sender_id
+                )
+
+            # Should return 404 - player not found in source's sector
+            assert exc_info.value.status == 404
+            assert "no player named" in str(exc_info.value).lower() or "not found" in str(exc_info.value).lower()
+
+            await receiver_client.close()
+
+    async def test_transfer_to_nonexistent_player(self, server_url, check_server_available):
+        """Test transferring to nonexistent player fails."""
+        sender_id = "test_credit_nonexistent_sender"
+
+        create_test_character_knowledge(sender_id, sector=5, credits=1000)
+
+        async with AsyncGameClient(base_url=server_url, character_id=sender_id) as client:
+            await client.join(character_id=sender_id)
+
+            # Try to transfer to nonexistent player
+            with pytest.raises(RPCError) as exc_info:
+                await client.transfer_credits(
+                    to_player_name="nonexistent_player_9999",
+                    amount=100,
+                    character_id=sender_id
+                )
+
+            # Should return 404 not found
+            assert exc_info.value.status == 404
+            assert "no player named" in str(exc_info.value).lower() or "not found" in str(exc_info.value).lower()
+
+    async def test_transfer_to_self(self, server_url, check_server_available):
+        """Test transferring to self fails."""
+        sender_id = "test_credit_self_sender"
+
+        create_test_character_knowledge(sender_id, sector=5, credits=1000)
+
+        async with AsyncGameClient(base_url=server_url, character_id=sender_id) as client:
+            await client.join(character_id=sender_id)
+
+            # Try to transfer to self
+            with pytest.raises(RPCError) as exc_info:
+                await client.transfer_credits(
+                    to_player_name=sender_id,  # Same as sender
+                    amount=100,
+                    character_id=sender_id
+                )
+
+            # Should return 404 - source character excluded from search
+            assert exc_info.value.status == 404
+            assert "no player named" in str(exc_info.value).lower() or "not found" in str(exc_info.value).lower()
+
+    async def test_transfer_while_sender_in_combat(self, server_url, check_server_available):
+        """Test transferring while sender is in combat fails."""
+        sender_id = "test_credit_combat_sender"
+        receiver_id = "test_credit_combat_receiver"
+
+        # Create characters with fighters for combat
+        create_test_character_knowledge(sender_id, sector=5, credits=1000, fighters=100)
+        create_test_character_knowledge(receiver_id, sector=5, credits=500)
+
+        async with AsyncGameClient(base_url=server_url, character_id=sender_id) as client:
+            await client.join(character_id=sender_id)
+
+            # Join receiver
+            receiver_client = AsyncGameClient(base_url=server_url, character_id=receiver_id)
+            await receiver_client.join(character_id=receiver_id)
+
+            # Deploy garrison to create combat
+            await client.combat_leave_fighters(
+                sector=5,
+                quantity=50,
+                mode="offensive",
+                character_id=sender_id
+            )
+
+            # Try to transfer while in combat
+            with pytest.raises(RPCError) as exc_info:
+                await client.transfer_credits(
+                    to_player_name=receiver_id,
+                    amount=100,
+                    character_id=sender_id
+                )
+
+            # Should return 409 conflict (combat in progress)
+            assert exc_info.value.status == 409
+            assert "combat" in str(exc_info.value).lower()
+
+            # Clean up garrison (not strictly necessary but good practice)
+            # Skip cleanup since combat is active
+            await receiver_client.close()
+
+    async def test_transfer_while_receiver_in_combat(self, server_url, check_server_available):
+        """Test transferring while receiver is in combat fails."""
+        sender_id = "test_credit_sender"
+        receiver_id = "test_credit_receiver"
+
+        # Create characters with fighters for combat
+        create_test_character_knowledge(sender_id, sector=6, credits=1000)
+        create_test_character_knowledge(receiver_id, sector=6, credits=500, fighters=100)
+
+        async with AsyncGameClient(base_url=server_url, character_id=sender_id) as sender_client:
+            await sender_client.join(character_id=sender_id)
+
+            receiver_client = AsyncGameClient(base_url=server_url, character_id=receiver_id)
+            await receiver_client.join(character_id=receiver_id)
+
+            # Deploy garrison from receiver to create combat
+            await receiver_client.combat_leave_fighters(
+                sector=6,
+                quantity=50,
+                mode="offensive",
+                character_id=receiver_id
+            )
+
+            # Try to transfer to receiver in combat
+            with pytest.raises(RPCError) as exc_info:
+                await sender_client.transfer_credits(
+                    to_player_name=receiver_id,
+                    amount=100,
+                    character_id=sender_id
+                )
+
+            # Should return 409 conflict (combat in progress)
+            assert exc_info.value.status == 409
+            assert "combat" in str(exc_info.value).lower()
+
+            # Clean up garrison (not strictly necessary but good practice)
+            # Skip cleanup since combat is active
+            await receiver_client.close()

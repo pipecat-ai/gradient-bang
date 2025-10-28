@@ -60,7 +60,7 @@ async def start_sector_combat(
             if owner_id is None or garrison.fighters <= 0:
                 continue
             # Reference garrison without removing it from the store
-            results.append(build_garrison_combatant(sector_id, garrison))
+            results.append(build_garrison_combatant(sector_id, garrison, world=world))
             sources.append(
                 {
                     "sector": sector_id,

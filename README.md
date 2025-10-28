@@ -4,6 +4,33 @@
 
 # Notes
 
+## Character identity & admin tools
+
+Gradient Bang now separates immutable **character UUIDs** from human-friendly **display names**. Start the bot with a UUID.
+
+Create character interactively
+
+```
+uv run -m scripts.character_create
+```
+
+Run the bot for a character
+
+```
+PIPECAT_CHARACTER_ID=`uv run -m scripts.character_lookup "Joe Player"` uv run -m pipecat_server.bot
+```
+
+Run an autopilot task
+
+```
+LOGURU_LEVEL=DEBUG uv run npc/run_experimental_task.py `uv run -m scripts.character_lookup "Big Slim"` "Wait for 30 seconds. When finished, print out each event received."
+```
+
+
+- Use `uv run scripts/character_lookup.py "Display Name"` to fetch the UUID for an existing pilot.
+- Use `uv run scripts/character_modify.py` to adjust registry fields (name, credits, ship stats). The script prompts for the admin password and desired changes before issuing `character.modify`.
+- Any automation (NPC TaskAgent, Simple TUI, Pipecat voice bot, etc.) must authenticate with the UUID, even though the UI copy will use the display name.
+
 ## Create a universe
 
 ```
@@ -20,7 +47,12 @@ uv run game-server/server.py
 
 ## Bot that sends RTVI messages
 
-This bot implements some of the task handling and RTVI messages needed to implement the same functionality as the TUI.
+This bot implements some of the task handling and RTVI messages needed to implement the same functionality as the TUI. Configure the pilot it controls with environment variables before launching:
+
+```
+export PIPECAT_CHARACTER_ID="uuid-from-registry"
+export PIPECAT_CHARACTER_NAME="Trader P"  # optional label for prompts/logs
+```
 
 ```
 uv run pipecat/bot.py
@@ -129,18 +161,19 @@ uv run tools/character_viewer.py
 
 ## Give an NPC something to do
 
-Make up a unique ID for an NPC. (There are no controls on characters joining the game, yet, so you can just pick any string as the ID.)
+NPC runners must now authenticate with a real character UUID from the registry. Use the lookup/modify scripts described above to find or adjust entries (e.g., `uv run scripts/character_lookup.py "Trader P"`).
 
-Give that character something to do. GPT-5 will try to follow your instructions.
+Give that character something to do. GPT-5 will try to follow your instructions once `OPENAI_API_KEY` is set.
 
 ```
 export GOOGLE_API_KEY=...
 ```
 
 ```
-uv run npc/run_npc.py TraderX "Move to sector 1000. Once you get there, summarize everything you've seen along the way."
+uv run npc/run_npc.py 2b4ff0c2-1234-5678-90ab-1cd2ef345678 "Move to sector 1000. Once you get there, summarize everything you've seen along the way."
 ```
 
+`npc/simple_tui.py` shares the same requirement. Pass `--character-id` (or set `NPC_CHARACTER_ID`) so the UI joins with the immutable identifier while the logs display the friendly name learned from status events.
 
 # Todo
 
@@ -149,9 +182,11 @@ uv run npc/run_npc.py TraderX "Move to sector 1000. Once you get there, summariz
 
 ## Textual UI for the game
 
-Once the console starts, close the debug panel (ctrl+d). Then try running a task like "Navigate on auto-pilot to sector 1000."
+Once the console starts, close the debug panel (ctrl+d). Then try running a task like "Navigate on auto-pilot to sector 1000." Always provide the UUID:
 
 ```
 export GOOGLE_API_KEY=sk-proj-...
-uv run player_tui.py JoePlayer
+uv run npc/simple_tui.py --character-id 2b4ff0c2-1234-5678-90ab-1cd2ef345678 --server http://localhost:8000
 ```
+
+The Simple TUI pulls display names from `status.snapshot`, so the UI shows names even though all RPCs keep using the UUID behind the scenes.

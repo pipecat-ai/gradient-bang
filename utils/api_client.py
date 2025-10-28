@@ -763,6 +763,83 @@ class AsyncGameClient:
         """
         return await self._request("server_status", {})
 
+    async def character_create(
+        self,
+        *,
+        name: str,
+        admin_password: Optional[str] = None,
+        player: Optional[Dict[str, Any]] = None,
+        ship: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Create a character via admin RPC."""
+
+        payload: Dict[str, Any] = {"name": name}
+        if admin_password is not None:
+            payload["admin_password"] = admin_password
+        if player:
+            payload["player"] = player
+        if ship:
+            payload["ship"] = ship
+        return await self._request("character.create", payload)
+
+    async def character_modify(
+        self,
+        *,
+        character_id: str,
+        admin_password: Optional[str] = None,
+        name: Optional[str] = None,
+        player: Optional[Dict[str, Any]] = None,
+        ship: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Modify an existing character's metadata."""
+
+        payload: Dict[str, Any] = {"character_id": character_id}
+        if admin_password is not None:
+            payload["admin_password"] = admin_password
+        if name is not None:
+            payload["name"] = name
+        if player:
+            payload["player"] = player
+        if ship:
+            payload["ship"] = ship
+        return await self._request("character.modify", payload)
+
+    async def character_delete(
+        self,
+        *,
+        character_id: str,
+        admin_password: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Delete a character via admin RPC."""
+
+        payload: Dict[str, Any] = {"character_id": character_id}
+        if admin_password is not None:
+            payload["admin_password"] = admin_password
+        return await self._request("character.delete", payload)
+
+    async def event_query(
+        self,
+        *,
+        start: str,
+        end: str,
+        admin_password: Optional[str] = None,
+        character_id: Optional[str] = None,
+        sector: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Query event logs within a time range."""
+
+        payload: Dict[str, Any] = {
+            "start": start,
+            "end": end,
+        }
+        if admin_password is not None:
+            payload["admin_password"] = admin_password
+        if character_id:
+            payload["character_id"] = character_id
+        if sector is not None:
+            payload["sector"] = sector
+        return await self._request("event.query", payload)
+
     # DEPRECATED
     async def my_map(self, character_id: str) -> Dict[str, Any]:
         """Request cached map knowledge for the character.
@@ -977,12 +1054,16 @@ class AsyncGameClient:
         return ack
 
     async def transfer_warp_power(
-        self, to_character_id: str, units: int, character_id: str
+        self,
+        *,
+        to_player_name: str,
+        units: int,
+        character_id: str,
     ) -> Dict[str, Any]:
         """Transfer warp power to another character in the same sector.
 
         Args:
-            to_character_id: Character ID to transfer warp power to
+            to_player_name: Display name of the recipient in the same sector
             units: Number of warp power units to transfer
             character_id: Character transferring warp power (must match bound ID)
 
@@ -991,7 +1072,7 @@ class AsyncGameClient:
 
         Raises:
             RPCError: If the request fails
-            ValueError: If character_id doesn't match bound ID
+            ValueError: If character_id doesn't match bound ID or name missing
         """
         if character_id != self._character_id:
             raise ValueError(
@@ -999,15 +1080,70 @@ class AsyncGameClient:
                 f"received {character_id!r}"
             )
 
-        ack = await self._request(
-            "transfer_warp_power",
-            {
-                "from_character_id": character_id,
-                "to_character_id": to_character_id,
-                "units": units,
-            },
-        )
+        if not isinstance(to_player_name, str) or not to_player_name.strip():
+            raise ValueError("to_player_name must be a non-empty string")
+
+        payload = {
+            "from_character_id": character_id,
+            "units": units,
+            "to_player_name": to_player_name,
+        }
+
+        ack = await self._request("transfer_warp_power", payload)
         return ack
+
+    async def transfer_credits(
+        self,
+        *,
+        to_player_name: str,
+        amount: int,
+        character_id: str,
+    ) -> Dict[str, Any]:
+        """Transfer on-hand credits to another character in the same sector.
+
+        Args:
+            to_player_name: Display name of the recipient in the same sector
+            amount: Credits to transfer (must be positive)
+            character_id: Sender's character ID
+
+        Returns:
+            Success response dict
+
+        Raises:
+            ValueError: If character_id doesn't match bound character
+            HTTPException: If validation fails or characters not in same sector
+        """
+
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        payload = {
+            "from_character_id": character_id,
+            "to_player_name": to_player_name,
+            "amount": amount,
+        }
+        return await self._request("transfer_credits", payload)
+
+    async def bank_transfer(
+        self, *, direction: str, amount: int, character_id: str
+    ) -> Dict[str, Any]:
+        """Move credits between the ship and the sector 0 bank."""
+
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        payload = {
+            "character_id": character_id,
+            "direction": direction,
+            "amount": amount,
+        }
+        return await self._request("bank_transfer", payload)
 
     async def combat_initiate(
         self,
@@ -1235,6 +1371,26 @@ class AsyncGameClient:
             "salvage_id": salvage_id,
         }
         return await self._request("salvage.collect", payload)
+
+    async def dump_cargo(
+        self,
+        *,
+        items: list[dict],
+        character_id: str,
+    ) -> Dict[str, Any]:
+        """Dump cargo from the ship, creating a salvage container."""
+
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        payload = {
+            "character_id": character_id,
+            "items": items,
+        }
+        return await self._request("dump_cargo", payload)
 
     async def send_message(
         self,

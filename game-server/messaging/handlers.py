@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from api import send_message as api_send_message
 from messaging.store import MessageStore
-from rpc import EventDispatcher
+from rpc.events import EventDispatcher
 
 
 async def handle_send_message(

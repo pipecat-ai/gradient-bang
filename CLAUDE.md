@@ -55,16 +55,23 @@ uv run pytest -vv
 uv run pytest -x
 ```
 
-#### Combat Tests (Integration Tests)
-The comprehensive combat test suite requires a test server running on port 8002:
+#### Integration Tests (Combat, Events, etc.)
+Integration tests automatically start and stop a test server on port 8002 using pytest fixtures.
+
+**IMPORTANT**: You do NOT need to manually start a test server. The `test_server` fixture in `tests/conftest.py` automatically:
+1. Starts the server on port 8002 with `tests/test-world-data` before any tests run
+2. Stops the server after all tests complete
+3. Is session-scoped and shared across all test files
 
 ```bash
-# Terminal 1: Start test server
-export PORT=8002
-uv run python -m game-server
+# Run all integration tests (server starts automatically)
+uv run pytest tests/integration/ -v
 
-# Terminal 2: Run combat tests
+# Run combat test suite
 uv run pytest tests/test_combat_scenarios_comprehensive.py -v
+
+# Run event system tests
+uv run pytest tests/integration/test_event_system.py -v
 
 # Run specific combat test
 uv run pytest tests/test_combat_scenarios_comprehensive.py::TestBasicCombatScenarios::test_two_players_combat_attack_actions -xvs
@@ -73,10 +80,10 @@ uv run pytest tests/test_combat_scenarios_comprehensive.py::TestBasicCombatScena
 uv run pytest tests/test_combat_scenarios_comprehensive.py::TestGarrisonModes -v
 ```
 
-**Test Suite Details:**
+**Combat Test Suite Details:**
 - **12 comprehensive tests** covering all combat scenarios
 - **Total runtime:** ~3 minutes (189 seconds)
-- **Test server:** Must run on port 8002 (separate from dev server on 8000)
+- **Test server:** Automatically started on port 8002 by pytest fixtures
 - **Test categories:**
   - `TestBasicCombatScenarios` (3 tests) - 2-player, 3-player, action combinations
   - `TestPlayerDestruction` (2 tests) - Salvage and escape pods
@@ -88,12 +95,51 @@ uv run pytest tests/test_combat_scenarios_comprehensive.py::TestGarrisonModes -v
 **Test Logs:**
 All test execution logs are saved to `docs/test_logs/` for debugging and analysis.
 
+**Test Fixtures (tests/conftest.py):**
+- `test_server` (session, autouse=True): Starts/stops test server automatically
+- `reset_test_state` (function, autouse=True): Resets state after each test
+- `check_server_available`: Skips tests if server isn't responding
+
 **Detailed Analysis:**
 See `docs/combat_tests_analysis.md` for comprehensive documentation including:
 - Step-by-step test flow analysis
 - Event specifications with complete payloads
 - Identified issues and improvement recommendations
 - Performance optimization opportunities
+
+**Event System Test Suite Details:**
+- **50 tests** covering event query system and event emission
+- **Total runtime:** ~3 minutes
+- **Test server:** Automatically started on port 8002 by pytest fixtures
+- **Test categories:**
+  - Phase 1: JSONL Infrastructure (4 tests) - File logging and parsing
+  - Phase 2: Admin Query Mode (5 tests) - Admin event queries
+  - Phase 3: Character Query Mode (5 tests) - Character-scoped queries
+  - Phase 4: Multi-Character Fan-out (3 tests) - Event propagation to multiple recipients
+  - Phase 6: Integration Tests (2 tests) - Cross-system verification
+  - Event Emission Tests (19 tests total):
+    - Combat Events (5 tests) - combat.round_waiting, combat.round_resolved, combat.ended
+    - Trade Events (2 tests) - trade.executed privacy and emission
+    - Garrison Events (2 tests) - garrison.deployed, mode changes, collection
+  - Event Ordering (5 tests) - Timestamp and chronological verification
+  - WebSocket Delivery (4 tests) - Real-time event streaming
+  - Event Payload Structure (4 tests) - Schema validation
+  - Character Filtering (5 tests) - Privacy and visibility rules
+  - Edge Cases (2 tests) - Large payloads and rapid emission
+
+**Event System Implementation Summary:**
+See `docs/event_system_implementation_summary.md` for comprehensive documentation including:
+- Complete event naming reference (combat.round_resolved vs combat.round_ended, etc.)
+- WebSocket + JSONL dual verification pattern
+- Event payload unwrapping pattern for WebSocket events
+- Character positioning and combat flow patterns
+- Test execution performance metrics
+
+**Key Event System Patterns:**
+- All events verified via both WebSocket (real-time) and JSONL (audit log)
+- WebSocket events have metadata wrapper: `{event_name, payload, summary}`
+- Event privacy enforced via `character_filter` parameter
+- Multi-character events use fan-out pattern (one JSONL line per recipient)
 
 ### Running NPCs
 ```bash
@@ -102,8 +148,10 @@ uv run npc/run_npc.py <character_id> "<task>"
 
 # Example:
 export OPENAI_API_KEY="your-key"
-uv run npc/run_npc.py trader "Move to sector 10 and find the nearest port"
+uv run npc/run_npc.py 2b4ff0c2-1234-5678-90ab-1cd2ef345678 "Move to sector 10 and find the nearest port"
 ```
+
+`<character_id>` must be the immutable UUID stored in the registry, not the display name shown in-game. Use `uv run scripts/character_lookup.py "Display Name"` (and `scripts/character_modify.py` for edits) to manage entries before launching NPCs or TUIs.
 
 ### Terminal Viewers
 ```bash
@@ -199,14 +247,231 @@ When modifying LLM tools, ensure consistency between:
 - `move`: uses `to_sector` (not `to`)
 - `trade`: uses `commodity`, `quantity`, `trade_type`
 
-## Testing Considerations
+## Writing Integration Tests
 
-When testing NPCs or client operations:
-1. Start the server first (it loads universe data from world-data/)
-2. Character map knowledge persists between sessions
-3. Use force_refresh=True on my_map() to bypass cache when needed
-4. The universe has 5000 sectors with various port types
-5. All API responses are dictionaries - use dict access patterns
+### Test Infrastructure (Automatic)
+
+**IMPORTANT**: Integration tests automatically start/stop a test server on port 8002. Do NOT manually start a server.
+
+**Test Fixtures** (`tests/conftest.py`):
+- `test_server` (session, autouse=True): Automatically starts test server before any tests, stops after all tests complete
+- `reset_test_state` (function, autouse=True): Resets state after each test (clears characters, combat, events, files)
+- `server_url`: Returns `"http://localhost:8002"` for use in tests
+
+**Test Data Isolation**:
+- Test server uses `tests/test-world-data/` (10 sectors, seed 12345)
+- Production server uses `world-data/` (5000 sectors)
+- Test characters are auto-registered from `tests/helpers/character_setup.py`
+
+### Character Registration
+
+**Add test characters to `tests/helpers/character_setup.py`**:
+```python
+TEST_CHARACTER_IDS = [
+    # ... existing characters ...
+    "test_my_feature_char1",
+    "test_my_feature_char2",
+]
+```
+
+Then register before tests run:
+```python
+uv run python -c "from tests.helpers.character_setup import register_all_test_characters; register_all_test_characters()"
+```
+
+### Common Test Patterns
+
+**Basic client setup**:
+```python
+async def test_example(server_url):
+    char_id = "test_example_char"
+    client = AsyncGameClient(base_url=server_url, character_id=char_id, transport="websocket")
+
+    try:
+        await client.join(character_id=char_id)
+        # ... test code ...
+    finally:
+        await client.close()
+```
+
+**Get status with event**:
+```python
+from helpers.test_helpers import get_status
+
+status = await get_status(client, char_id)
+sector_id = status["sector"]["id"]
+fighters = status["ship"]["fighters"]
+```
+
+**Event testing (WebSocket + JSONL verification)**:
+```python
+from datetime import datetime, timezone
+import asyncio
+
+# 1. Setup event collector
+events = []
+client.on("event.name")(lambda p: events.append({"event": "event.name", "payload": p}))
+
+# 2. Record time range
+start_time = datetime.now(timezone.utc)
+await asyncio.sleep(0.1)
+
+# 3. Trigger action
+await client.some_action(character_id=char_id)
+await asyncio.sleep(0.5)  # Wait for event propagation
+
+end_time = datetime.now(timezone.utc)
+
+# 4. Verify WebSocket reception
+assert len(events) >= 1, "Should receive event via WebSocket"
+
+# 5. Verify JSONL logging
+result = await client._request("event.query", {
+    "character_id": char_id,
+    "start": start_time.isoformat(),
+    "end": end_time.isoformat(),
+})
+assert result["count"] > 0, "Should find event in JSONL"
+```
+
+**Multi-character positioning**:
+```python
+# Move character to specific sector (assumes adjacency)
+await client.move(to_sector=target_sector, character_id=char_id)
+await asyncio.sleep(0.5)
+
+# Verify position
+status = await get_status(client, char_id)
+assert status["sector"]["id"] == target_sector
+```
+
+**Create character with custom stats**:
+```python
+from helpers.combat_helpers import create_test_character_knowledge
+
+create_test_character_knowledge(
+    "test_char",
+    sector=1,
+    fighters=500,
+    shields=200,
+    credits=10000,
+    ship_type="atlas_hauler",  # or "kestrel_courier"
+)
+```
+
+### Critical API Response Structures
+
+**Status structure** (use these paths, not others):
+```python
+status["sector"]["id"]              # Current sector
+status["ship"]["fighters"]          # Fighter count
+status["ship"]["shields"]           # Shield strength
+status["ship"]["cargo_holds"]       # Cargo capacity
+status["credits"]                   # Credits (NOT status["ship"]["credits"])
+```
+
+**Event payload nesting**:
+```python
+# WebSocket handler receives full event
+client.on("event.name")(lambda p: events.append({"event": "event.name", "payload": p}))
+
+# Access nested data
+outer_payload = event["payload"]
+actual_payload = outer_payload.get("payload", outer_payload)
+char_id = actual_payload.get("player", {}).get("character_id")
+```
+
+**Correct method names** (commonly confused):
+```python
+# Garrison methods (NOT garrison_deploy, garrison_collect, garrison_set_mode)
+await client.combat_leave_fighters(fighters=100, character_id=char_id)
+await client.combat_collect_fighters(character_id=char_id)
+await client.combat_set_garrison_mode(mode="defensive", character_id=char_id)
+
+# Combat flee (use to_sector, NOT destination)
+await client.combat_action(action="flee", to_sector=2, character_id=char_id)
+
+# Plot course (no from_sector parameter - uses current location)
+result = await client.plot_course(to_sector=5, character_id=char_id)
+```
+
+### Test World Configuration
+
+**Sectors**: 10 sectors (0-9), deterministic seed 12345
+
+**Ports**:
+- Sector 0: No port (special - fuel recharge)
+- Sector 1: Port (BBS) - sells neuro_symbolics
+- Sector 3: Port (BSS) - sells retro_organics + neuro_symbolics
+- Sector 5: Port (BSB) - sells retro_organics
+- Sector 9: Port (BBB) - buys all commodities, sells nothing
+
+**Key adjacencies** (for movement tests):
+- 0 → [1, 2, 5]
+- 1 → [0, 3, 4]
+- All characters spawn at sector 0
+
+**Commodities**: quantum_foam, retro_organics, neuro_symbolics (exact strings required)
+
+### Event Privacy Patterns
+
+**Private events** (only sender sees):
+- `status.snapshot` - Character's own status
+- `trade.executed` - Character's own trades
+
+**Bilateral events** (sender + recipient only):
+- `chat.message` (direct) - Private messages
+
+**Public events** (all sector occupants see):
+- `character.moved` - Movement into/out of sector
+- `port.update` - Port state changes
+
+**Test pattern for event privacy**:
+```python
+# Setup 3 clients: actor, observer in same sector, outsider elsewhere
+actor_events = []
+observer_events = []
+outsider_events = []
+
+# Register handlers on all clients
+actor_client.on("event.name")(lambda p: actor_events.append(p))
+observer_client.on("event.name")(lambda p: observer_events.append(p))
+outsider_client.on("event.name")(lambda p: outsider_events.append(p))
+
+# Trigger action
+await actor_client.some_action()
+await asyncio.sleep(1.0)
+
+# Verify privacy
+assert len(actor_events) > 0, "Actor should see event"
+assert len(observer_events) == 0 or len(observer_events) > 0, "Depends on event type"
+assert len(outsider_events) == 0, "Outsider should not see private/sector events"
+```
+
+### Running Tests
+
+```bash
+# Run all tests (server auto-starts)
+uv run pytest
+
+# Run specific integration test
+uv run pytest tests/integration/test_event_system.py -v
+
+# Run with output visible
+uv run pytest tests/integration/test_event_system.py::TestClass::test_name -xvs
+
+# Skip slow tests
+uv run pytest -m "not stress"
+```
+
+### Debugging Test Failures
+
+**Common issues**:
+1. **"Character is not registered"**: Add character ID to `tests/helpers/character_setup.py` and re-register
+2. **Timeout waiting for events**: Increase `await asyncio.sleep()` duration after actions (0.5s → 2.0s)
+3. **Empty JSONL query results**: Check that actions emit events with correct `log_context` (especially `sector` field)
+4. **Dict access errors**: API responses are plain dicts - use `response["field"]` not `response.field`
+5. **WebSocket not receiving**: Ensure client uses `transport="websocket"` and event handlers registered before action
 
 ## Common Issues
 

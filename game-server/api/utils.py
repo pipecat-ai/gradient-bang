@@ -11,6 +11,7 @@ from ships import ShipType, get_ship_stats
 from trading import get_port_prices, get_port_stock
 
 from sector import generate_scene_variant
+from rpc.events import EventLogContext
 
 if TYPE_CHECKING:
     from combat.models import GarrisonState
@@ -57,7 +58,7 @@ def build_character_moved_payload(
     payload: Dict[str, Any] = {
         "player": {
             "id": character_id,
-            "name": character_id,
+            "name": resolve_character_name(world, character_id),
         },
         "ship": {
             "ship_name": display_name,
@@ -101,6 +102,8 @@ async def emit_error_event(
     endpoint: str,
     request_id: str,
     error: str,
+    *,
+    world=None,
 ) -> None:
     """Emit a correlated error event to the requesting character."""
 
@@ -112,6 +115,33 @@ async def emit_error_event(
             "error": error,
         },
         character_filter=[character_id],
+        log_context=build_log_context(character_id=character_id, world=world),
+    )
+
+
+def build_log_context(
+    *,
+    character_id: str | None = None,
+    world=None,
+    sector: int | None = None,
+    meta: dict | None = None,
+    payload_override: dict | None = None,
+    timestamp: datetime | None = None,
+) -> EventLogContext:
+    """Create a reusable EventLogContext with optional sector inference."""
+
+    resolved_sector = sector
+    if resolved_sector is None and world and character_id:
+        character = getattr(world, "characters", {}).get(character_id)
+        if character:
+            resolved_sector = getattr(character, "sector", None)
+
+    return EventLogContext(
+        sender=character_id,
+        sector=resolved_sector,
+        meta=meta,
+        payload_override=payload_override,
+        timestamp=timestamp,
     )
 
 
@@ -167,9 +197,9 @@ def player_self(world, character_id: str) -> Dict[str, Any]:
         "created_at": character.first_visit.isoformat(),
         "last_active": character.last_active.isoformat(),
         "id": character.id,
-        "name": character.id,  # todo: make name settable
+        "name": getattr(character, "name", character.id),
         "credits_on_hand": world.knowledge_manager.get_credits(character_id),
-        "credits_in_bank": 0,
+        "credits_in_bank": world.knowledge_manager.get_bank_credits(character_id),
     }
 
 
@@ -306,17 +336,18 @@ async def sector_contents(
         ship_config = knowledge.ship_config
         ship_stats = get_ship_stats(ShipType(ship_config.ship_type))
 
-        # Use custom name if set, otherwise default to ship type name
-        display_name = ship_config.ship_name or ship_stats.name
+        # Use profile/display name when available for UI friendliness
+        display_name = resolve_character_name(world, char_id)
+        ship_display_name = ship_config.ship_name or ship_stats.name
 
         player = {
             "created_at": character.first_visit.isoformat(),
             "id": character.id,
-            "name": character.id,  # todo: make name settable
+            "name": display_name,
             "player_type": character.player_type,
             "ship": {
                 "ship_type": ship_config.ship_type,
-                "ship_name": display_name,
+                "ship_name": ship_display_name,
             },
         }
         players.append(player)
@@ -364,10 +395,68 @@ async def build_status_payload(
 def resolve_character_name(world, character_id: str) -> str:
     character = world.characters.get(character_id)
     if character:
-        display_name = getattr(character, "display_name", None)
-        if isinstance(display_name, str) and display_name.strip():
-            return display_name
+        name = getattr(character, "name", None)
+        if isinstance(name, str) and name.strip():
+            return name
+    registry = getattr(world, "character_registry", None)
+    if registry:
+        profile = registry.get_profile(character_id)
+        if profile:
+            return profile.name
     return character_id
+
+
+def resolve_sector_character_id(
+    world,
+    *,
+    source_character_id: str,
+    to_character_id: str | None = None,
+    to_player_name: str | None = None,
+    endpoint: str,
+) -> str:
+    """Resolve a sector-local character either by ID or by display name."""
+
+    if to_character_id:
+        if to_character_id not in world.characters:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Target character not found: {to_character_id}",
+            )
+        return to_character_id
+
+    if not to_player_name:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{endpoint} requires either to_player_name or to_character_id",
+        )
+
+    source_character = world.characters.get(source_character_id)
+    if not source_character:
+        raise HTTPException(status_code=404, detail="Source character not found")
+
+    needle = to_player_name.strip().casefold()
+    matches: list[str] = []
+    for candidate_id, character in world.characters.items():
+        if candidate_id == source_character_id:
+            continue
+        if character.sector != source_character.sector or character.in_hyperspace:
+            continue
+        display_name = resolve_character_name(world, candidate_id)
+        if display_name.strip().casefold() == needle:
+            matches.append(candidate_id)
+
+    if not matches:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No player named '{to_player_name}' in your sector",
+        )
+    if len(matches) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Multiple players named '{to_player_name}' present; specify by ID",
+        )
+
+    return matches[0]
 
 
 def serialize_garrison_for_client(

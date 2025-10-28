@@ -10,7 +10,7 @@ from typing import Any, Dict, List
 from fastapi import HTTPException
 
 from api import move as api_move
-from api.utils import build_status_payload
+from api.utils import build_status_payload, build_log_context
 from combat.utils import (
     serialize_round_waiting_event,
     serialize_round_resolved_event,
@@ -61,6 +61,7 @@ async def emit_status_update(character_id: str, world, event_dispatcher) -> None
         "status.update",
         payload,
         character_filter=[character_id],
+        log_context=build_log_context(character_id=character_id, world=world),
     )
     logger.debug("emit_status_update sent for %s", character_id)
 
@@ -97,6 +98,11 @@ async def on_round_waiting(encounter, world, event_dispatcher) -> None:
             "combat.round_waiting",
             payload,
             character_filter=[recipient],
+            log_context=build_log_context(
+                character_id=recipient,
+                world=world,
+                sector=encounter.sector_id,
+            ),
         )
 
     # Auto-submit garrison actions
@@ -210,6 +216,11 @@ async def on_round_resolved(encounter, outcome, world, event_dispatcher) -> None
             "combat.round_resolved",
             payload,
             character_filter=[recipient],
+            log_context=build_log_context(
+                character_id=recipient,
+                world=world,
+                sector=encounter.sector_id,
+            ),
         )
 
     logger.debug("combat.round_resolved emitted, syncing participants")
@@ -302,6 +313,11 @@ async def on_round_resolved(encounter, outcome, world, event_dispatcher) -> None
                 "combat.ended",
                 fled_payload,
                 character_filter=[character_id],
+                log_context=build_log_context(
+                    character_id=character_id,
+                    world=world,
+                    sector=encounter.sector_id,
+                ),
             )
             logger.info(
                 "Sent immediate combat.ended to fled character %s (fled from sector %s to %s)",
@@ -379,6 +395,11 @@ async def on_combat_ended(encounter, outcome, world, event_dispatcher) -> None:
             "combat.ended",
             payload,
             character_filter=[recipient],
+            log_context=build_log_context(
+                character_id=recipient,
+                world=world,
+                sector=encounter.sector_id,
+            ),
         )
 
     # Emit sector.update to all characters in the sector
@@ -400,6 +421,11 @@ async def on_combat_ended(encounter, outcome, world, event_dispatcher) -> None:
             "sector.update",
             sector_payload,
             character_filter=[cid],
+            log_context=build_log_context(
+                character_id=cid,
+                world=world,
+                sector=encounter.sector_id,
+            ),
         )
     if characters_in_sector:
         logger.debug(

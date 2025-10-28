@@ -16,6 +16,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from core.world import lifespan as world_lifespan, world
 from api import (
+    character_create as api_character_create,
+    character_delete as api_character_delete,
+    character_modify as api_character_modify,
+    bank_transfer as api_bank_transfer,
     plot_course as api_plot_course,
     join as api_join,
     move as api_move,
@@ -24,8 +28,10 @@ from api import (
     list_known_ports as api_list_known_ports,
     path_with_region as api_path_with_region,
     trade as api_trade,
+    dump_cargo as api_dump_cargo,
     recharge_warp_power as api_recharge,
     transfer_warp_power as api_transfer,
+    transfer_credits as api_transfer_credits,
     reset_ports as api_reset_ports,
     regenerate_ports as api_regen_ports,
     combat_initiate as api_combat_initiate,
@@ -35,6 +41,7 @@ from api import (
     combat_set_garrison_mode as api_combat_set_garrison_mode,
     salvage_collect as api_salvage_collect,
     test_reset as api_test_reset,
+    event_query as api_event_query,
 )
 from core.config import get_world_data_path
 from messaging.store import MessageStore
@@ -46,15 +53,15 @@ from combat.callbacks import (
     on_toll_payment,
 )
 from rpc import (
-    Connection,
     event_dispatcher,
     rpc_error,
     rpc_success,
-    send_initial_status,
     RPCHandler,
     RateLimiter,
 )
+from rpc.connection import Connection, send_initial_status
 from core.locks import CreditLockManager, PortLockManager
+from server_logging.event_log import EventLogger
 
 logger = logging.getLogger("gradient-bang.server")
 logging.basicConfig(level=logging.INFO)
@@ -63,6 +70,8 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
     async with world_lifespan(app):
+        log_path = get_world_data_path() / "event-log.jsonl"
+        event_dispatcher.set_event_logger(EventLogger(log_path))
         if world.combat_manager:
             # Configure combat callbacks with dependencies
             world.combat_manager.configure_callbacks(
@@ -167,11 +176,22 @@ RPC_HANDLERS: Dict[str, RPCHandler] = {
     "trade": _with_rate_limit(
         "trade", lambda payload: api_trade.handle(payload, world, port_locks)
     ),
+    "dump_cargo": _with_rate_limit(
+        "dump_cargo", lambda payload: api_dump_cargo.handle(payload, world)
+    ),
     "recharge_warp_power": _with_rate_limit(
         "recharge_warp_power", lambda payload: api_recharge.handle(payload, world)
     ),
     "transfer_warp_power": _with_rate_limit(
         "transfer_warp_power", lambda payload: api_transfer.handle(payload, world)
+    ),
+    "transfer_credits": _with_rate_limit(
+        "transfer_credits",
+        lambda payload: api_transfer_credits.handle(payload, world, credit_locks),
+    ),
+    "bank_transfer": _with_rate_limit(
+        "bank_transfer",
+        lambda payload: api_bank_transfer.handle(payload, world, credit_locks),
     ),
     "reset_ports": _with_rate_limit(
         "reset_ports", lambda payload: api_reset_ports.handle(payload, world)
@@ -184,6 +204,22 @@ RPC_HANDLERS: Dict[str, RPCHandler] = {
         lambda payload: handle_send_message(
             payload, world, _MESSAGES, event_dispatcher
         ),
+    ),
+    "event.query": _with_rate_limit(
+        "event.query",
+        lambda payload: api_event_query.handle(payload, world),
+    ),
+    "character.create": _with_rate_limit(
+        "character.create",
+        lambda payload: api_character_create.handle(payload, world),
+    ),
+    "character.modify": _with_rate_limit(
+        "character.modify",
+        lambda payload: api_character_modify.handle(payload, world),
+    ),
+    "character.delete": _with_rate_limit(
+        "character.delete",
+        lambda payload: api_character_delete.handle(payload, world),
     ),
     "combat.initiate": _with_rate_limit(
         "combat.initiate", lambda payload: api_combat_initiate.handle(payload, world)

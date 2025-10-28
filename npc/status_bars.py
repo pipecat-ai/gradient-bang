@@ -78,6 +78,7 @@ class StatusBarState:
 
     # Bar 2: Ship status
     credits: int = 0
+    bank_credits: int = 0
     fighters: int = 0
     shields: int = 0
     max_fighters: int = 0
@@ -349,8 +350,17 @@ class StatusBarUpdater:
                     self.state.port = PortInfo(
                         port_type=port_data.get("code", "unknown"),
                         stock=port_data.get("stock", {}),
-                        prices=port_data.get("prices", {}),
-                    )
+                    prices=port_data.get("prices", {}),
+                )
+
+    def update_from_bank_transaction(self, payload: dict) -> None:
+        """Update credits based on bank.transaction event payload."""
+        on_hand = payload.get("credits_on_hand_after")
+        bank_balance = payload.get("credits_in_bank_after")
+        if isinstance(on_hand, int):
+            self.state.credits = on_hand
+        if isinstance(bank_balance, int):
+            self.state.bank_credits = bank_balance
 
     def update_from_sector_update(self, payload: dict) -> None:
         """Update sector details from sector.update events."""
@@ -493,6 +503,8 @@ class StatusBarUpdater:
         # Update credits from player
         if "credits_on_hand" in player_data:
             self.state.credits = player_data["credits_on_hand"]
+        if "credits_in_bank" in player_data:
+            self.state.bank_credits = player_data["credits_in_bank"]
 
         # Update ship stats
         if "fighters" in ship_data:
@@ -619,8 +631,9 @@ class StatusBarUpdater:
         lines.append(f"sector {self.state.sector_id} | {self.state.combat_state}{eta_str}{adjacent_str}")
 
         # Bar 2: Ship status
+        bank_segment = f" (bank: {self.state.bank_credits})" if self.state.bank_credits is not None else ""
         lines.append(
-            f"credits: {self.state.credits} | "
+            f"credits: {self.state.credits}{bank_segment} | "
             f"fighters: {self.state.fighters}/{self.state.max_fighters} "
             f"shields: {self.state.shields}/{self.state.max_shields} | "
             f"cargo QF:{self.state.cargo.quantum_foam} "

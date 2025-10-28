@@ -1,0 +1,16 @@
+{
+  "admin_password_plain": "",
+  "password_hash": "",
+  "characters": {
+    "ws_player": {
+      "name": "ws_player",
+      "email": "ws_player@test.com",
+      "password_hash": ""
+    },
+    "push_player": {
+      "name": "push_player",
+      "email": "push_player@test.com",
+      "password_hash": ""
+    }
+  }
+}

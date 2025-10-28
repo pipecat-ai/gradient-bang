@@ -79,6 +79,34 @@ EVENT_NAMES: Tuple[str, ...] = (
 )
 
 
+def _extract_player_display_name(payload: Mapping[str, Any]) -> Optional[str]:
+    """Best-effort extraction of the player's display name from payloads."""
+
+    def _clean(value: Any) -> Optional[str]:
+        if isinstance(value, str):
+            value = value.strip()
+            if value:
+                return value
+        return None
+
+    if not isinstance(payload, Mapping):
+        return None
+
+    player_block = payload.get("player")
+    if isinstance(player_block, Mapping):
+        for key in ("name", "display_name", "player_name"):
+            cleaned = _clean(player_block.get(key))
+            if cleaned:
+                return cleaned
+
+    for fallback_key in ("player_name", "name"):
+        cleaned = _clean(payload.get(fallback_key))
+        if cleaned:
+            return cleaned
+
+    return None
+
+
 def _extract_sector_id(value: Any) -> Optional[int]:
     if isinstance(value, dict):
         return value.get("id")
@@ -414,7 +442,7 @@ class SimpleTUI(App):
         self,
         *,
         server: str,
-        character: str,
+        character_id: str,
         sector: Optional[int] = None,
         verbose: bool = False,
         log_path: Optional[str] = None,
@@ -426,7 +454,8 @@ class SimpleTUI(App):
     ) -> None:
         super().__init__()
         self.server = server.rstrip("/")
-        self.character = character
+        self.character_id = character_id
+        self.display_name: str = character_id
         self.target_sector = sector
         self.verbose = verbose
         self.log_path = Path(log_path) if log_path else Path.cwd() / "simple_tui.log"
@@ -456,7 +485,7 @@ class SimpleTUI(App):
         self._thinking_budget = thinking_budget
         self._pipeline_idle_timeout = idle_timeout
         self._last_ship_meta: Dict[str, Any] = {"credits": None, "cargo": {}}
-        self.status_updater = StatusBarUpdater(character)
+        self.status_updater = StatusBarUpdater(character_id)
         self._log_level = (log_level or "INFO").upper()
         if self._log_level not in {
             "TRACE",
@@ -532,7 +561,7 @@ class SimpleTUI(App):
             else "stay in current sector"
         )
         await self._append_log(
-            f"Configuration: server={self.server} character={self.character} "
+            f"Configuration: server={self.server} character_id={self.character_id} "
             f"target={target_desc} log_file={self.log_path}"
         )
 
@@ -544,7 +573,7 @@ class SimpleTUI(App):
 
         self.client = AsyncGameClient(
             base_url=self.server,
-            character_id=self.character,
+            character_id=self.character_id,
             websocket_frame_callback=log_frame,
         )
 
@@ -560,7 +589,7 @@ class SimpleTUI(App):
 
         self.task_agent = TaskAgent(
             game_client=self.client,
-            character_id=self.character,
+            character_id=self.character_id,
             **agent_kwargs,
         )
 
@@ -571,7 +600,7 @@ class SimpleTUI(App):
             self._status_snapshot_ready = asyncio.Event()
             self._last_status_payload = None
 
-            join_ack = await self.client.join(self.character)
+            join_ack = await self.client.join(self.character_id)
 
             initial_status: Optional[Mapping[str, Any]] = None
             if self._status_snapshot_ready is not None:
@@ -587,7 +616,7 @@ class SimpleTUI(App):
                     try:
                         self._status_snapshot_ready = asyncio.Event()
                         self._last_status_payload = None
-                        await self.client.my_status(self.character)
+                        await self.client.my_status(self.character_id)
                         if self._status_snapshot_ready is not None:
                             await asyncio.wait_for(
                                 self._status_snapshot_ready.wait(), timeout=2.0
@@ -599,6 +628,8 @@ class SimpleTUI(App):
             status_payload: Optional[Dict[str, Any]] = (
                 dict(initial_status) if isinstance(initial_status, Mapping) else None
             )
+            if status_payload:
+                self._update_display_name_from_payload(status_payload)
 
             # Extract sector for logging (using format-agnostic access)
             sector_id: Any = "?"
@@ -609,14 +640,16 @@ class SimpleTUI(App):
                 elif sector_info is not None:
                     sector_id = sector_info
 
-            await self._append_log(f"Joined as {self.character}; sector {sector_id}")
+            await self._append_log(
+                f"Joined as {self.display_name}; sector {sector_id}"
+            )
 
             await self.client.subscribe_my_messages()
 
             # Initialize CombatSession with initial status
             self.session = CombatSession(
                 self.client,
-                character_id=self.character,
+                character_id=self.character_id,
                 logger=None,
                 initial_status=status_payload if status_payload else None,
             )
@@ -665,6 +698,21 @@ class SimpleTUI(App):
             )
             await self._graceful_shutdown()
             self.exit(1)
+
+    def _update_display_name_from_payload(self, payload: Mapping[str, Any]) -> None:
+        """Update the cached display name using a status-like payload."""
+        candidate = _extract_player_display_name(payload)
+        if isinstance(candidate, str) and candidate and candidate != self.display_name:
+            self.display_name = candidate
+
+    def _is_self_identifier(self, value: Any) -> bool:
+        """Return True if the provided identifier refers to this character."""
+        if value is None:
+            return False
+        candidate = str(value)
+        if candidate == str(self.character_id):
+            return True
+        return candidate == str(self.display_name)
 
     def _start_stderr_capture(self) -> None:
         if self._stderr_interceptor is not None:
@@ -725,6 +773,7 @@ class SimpleTUI(App):
             "garrison.collected": self._on_garrison_event,
             "garrison.mode_changed": self._on_garrison_event,
             "salvage.collected": self._on_salvage_collected,
+            "bank.transaction": self._on_bank_transaction,
         }
 
         self._generic_event_suppressed = set(special_handlers.keys())
@@ -872,12 +921,14 @@ class SimpleTUI(App):
     async def _on_status_update(self, event: Dict[str, Any]) -> None:
         """Handle status.update event."""
         payload = self._event_payload(event)
+        self._update_display_name_from_payload(payload)
         # Update status bars
         self.status_updater.update_from_status_update(payload)
         self._refresh_status_display()
 
     async def _on_status_snapshot(self, event: Dict[str, Any]) -> None:
         payload = self._event_payload(event)
+        self._update_display_name_from_payload(payload)
         self.status_updater.update_from_status(payload)
         self._refresh_status_display()
         self._last_status_payload = dict(payload)
@@ -1010,10 +1061,27 @@ class SimpleTUI(App):
 
         if summary:
             await self._append_log(summary)
-        else:
-            salvage = payload.get("salvage") or {}
-            salvage_id = salvage.get("salvage_id", "?")
-            await self._append_log(f"Salvage collected: {salvage_id}")
+
+    async def _on_bank_transaction(self, event: Dict[str, Any]) -> None:
+        """Handle bank.transaction event for immediate HUD/log updates."""
+        payload = self._event_payload(event)
+        summary = self._event_summary(event)
+
+        self.status_updater.update_from_bank_transaction(payload)
+        self._refresh_status_display()
+
+        if summary:
+            await self._append_log(summary)
+            return
+
+        direction = payload.get("direction", "?")
+        amount = payload.get("amount")
+        on_hand = payload.get("credits_on_hand_after")
+        bank_balance = payload.get("credits_in_bank_after")
+        amount_text = f"{amount}" if amount is not None else "?"
+        await self._append_log(
+            f"Bank {direction}: {amount_text} credits → on-hand {on_hand}, bank {bank_balance}"
+        )
 
     # --- Sector Occupant Events ---
 
@@ -1075,7 +1143,7 @@ class SimpleTUI(App):
                 opponents = [
                     p.name
                     for pid, p in state.participants.items()
-                    if pid != self.character
+                    if pid != self.character_id
                 ]
                 await self._append_log(
                     f"Combat {state.combat_id} started vs: {', '.join(opponents) or '(none)'}"
@@ -1197,7 +1265,7 @@ class SimpleTUI(App):
             if current_info is not None and current_fighters > 0:
                 continue
             if prev_type == "character" and (
-                pid == self.character or prev_owner == self.character
+                pid == self.character_id or prev_owner == self.character_id
             ):
                 continue
             if prev_type not in {"character", "garrison"}:
@@ -1220,7 +1288,9 @@ class SimpleTUI(App):
             return self._last_player_stats
 
         session = self.session
-        candidate_ids = {str(self.character)}
+        candidate_ids = {str(self.character_id)}
+        if self.display_name:
+            candidate_ids.add(str(self.display_name))
         if session is not None:
             player_id = session.player_combatant_id()
             if player_id:
@@ -1372,7 +1442,7 @@ class SimpleTUI(App):
             if not isinstance(entry, Mapping):
                 continue
             name = entry.get("name")
-            if name and name != self.character:
+            if name and not self._is_self_identifier(name):
                 players.add(str(name))
 
         player_text = ", ".join(sorted(players)) if players else "none"
@@ -1389,7 +1459,9 @@ class SimpleTUI(App):
             if fighters is None:
                 continue
             owner_label = (
-                "you" if owner_name == self.character else str(owner_name or "?")
+                "you"
+                if self._is_self_identifier(owner_name)
+                else str(owner_name or "?")
             )
             tag = f"{owner_label}:{fighters}"
             if isinstance(max_fighters, (int, float)) and max_fighters:
@@ -1528,7 +1600,7 @@ class SimpleTUI(App):
             )
 
         try:
-            await self.client.my_status(self.character)
+            await self.client.my_status(self.character_id)
         except Exception as exc:  # noqa: BLE001
             await self._append_log(
                 f"Failed to retrieve status before running task: {exc!r}"
@@ -1629,6 +1701,7 @@ class SimpleTUI(App):
 
     def _sync_status_bar_from_status(self, status: Mapping[str, Any]) -> None:
         # Update StatusBarUpdater - this now handles all status display
+        self._update_display_name_from_payload(status)
         self.status_updater.update_from_status(dict(status))
         self._refresh_status_display()
 
@@ -1675,7 +1748,7 @@ class SimpleTUI(App):
 
         if action == "attack":
             participant = state.participants.get(
-                session.player_combatant_id() or self.character
+                session.player_combatant_id() or self.character_id
             )
             fighters = participant.fighters if participant else 0
             if fighters <= 0:
@@ -1692,7 +1765,7 @@ class SimpleTUI(App):
 
                 potential = self._collect_attack_targets(
                     state,
-                    exclude=session.player_combatant_id() or self.character,
+                    exclude=session.player_combatant_id() or self.character_id,
                 )
                 if not potential:
                     await self._append_log(
@@ -1753,7 +1826,7 @@ class SimpleTUI(App):
             # This is acceptable - we use it for instant confirmation, not state updates
             # State updates come from combat.round_resolved events
             result = await self.client.combat_action(
-                character_id=self.character,
+                character_id=self.character_id,
                 combat_id=state.combat_id,
                 action=action,
                 commit=commit,
@@ -1798,8 +1871,8 @@ class SimpleTUI(App):
         my_action = None
         if player_id and player_id in actions:
             my_action = actions.get(player_id)
-        elif self.character in actions:
-            my_action = actions.get(self.character)
+        elif self.character_id in actions:
+            my_action = actions.get(self.character_id)
         if isinstance(my_action, Mapping):
             action_type = str(my_action.get("action"))
             pieces = [action_type]
@@ -1814,7 +1887,7 @@ class SimpleTUI(App):
             if action_type == "flee" and payload:
                 flee_results = payload.get("flee_results")
                 if isinstance(flee_results, Mapping):
-                    my_id = player_id or self.character
+                    my_id = player_id or self.character_id
                     if my_id in flee_results:
                         if flee_results[my_id]:
                             pieces.append("✓ FLEE SUCCEEDED")
@@ -1845,7 +1918,7 @@ class SimpleTUI(App):
             if player_id:
                 player_delta = resolve_delta(player_id)
             else:
-                player_delta = resolve_delta(self.character)
+                player_delta = resolve_delta(self.character_id)
             pieces.append(format_delta("you", player_delta))
 
             target_identifier = my_action.get("target")
@@ -2274,7 +2347,7 @@ class SimpleTUI(App):
             return
 
         try:
-            await self.client.combat_initiate(character_id=self.character)
+            await self.client.combat_initiate(character_id=self.character_id)
             await self._append_log("Combat initiation requested.")
             if self.mode is InteractionMode.TASK and not self._is_task_running():
                 self._update_task_banner(
@@ -2332,7 +2405,11 @@ class SimpleTUI(App):
         for garrison in garrisons:
             owner_name = garrison.get("owner_name") or garrison.get("owner_id")
             fighters = int(garrison.get("fighters", 0))
-            if not owner_name or owner_name == self.character or fighters <= 0:
+            if (
+                not owner_name
+                or self._is_self_identifier(owner_name)
+                or fighters <= 0
+            ):
                 continue
             label = f"Garrison({owner_name}, fighters={fighters})"
             if label not in label_set:
@@ -2353,7 +2430,7 @@ class SimpleTUI(App):
                     return True
         players = self.session.other_players() if self.session else {}
         for pid, pdata in players.items():
-            if pid == self.character:
+            if pid == self.character_id:
                 continue
             if isinstance(pdata, Mapping) and pdata.get("is_friendly") is True:
                 continue
@@ -2431,7 +2508,7 @@ class ProgrammaticSimpleRunner:
         self,
         *,
         server: str,
-        character: str,
+        character_id: str,
         tasks: Sequence[str],
         max_iterations: int,
         log_level: str = "INFO",
@@ -2440,7 +2517,8 @@ class ProgrammaticSimpleRunner:
         idle_timeout: Optional[float] = None,
     ) -> None:
         self.server = server.rstrip("/")
-        self.character = character
+        self.character_id = character_id
+        self.display_name: str = character_id
         self.tasks = [task.strip() for task in tasks if task and task.strip()]
         self.max_iterations = max(1, max_iterations)
         self.log_level = (log_level or "INFO").upper()
@@ -2462,6 +2540,11 @@ class ProgrammaticSimpleRunner:
         self._log_file: Optional[TextIO] = None
         self._all_tasks_successful = True
 
+    def _update_display_name(self, payload: Mapping[str, Any]) -> None:
+        candidate = _extract_player_display_name(payload)
+        if isinstance(candidate, str) and candidate and candidate != self.display_name:
+            self.display_name = candidate
+
     async def run(self) -> int:
         if not self.tasks:
             logger.warning("Programmatic runner received no tasks; exiting")
@@ -2478,7 +2561,7 @@ class ProgrammaticSimpleRunner:
 
         self.client = AsyncGameClient(
             base_url=self.server,
-            character_id=self.character,
+            character_id=self.character_id,
             websocket_frame_callback=log_frame,
         )
         self._register_event_handlers()
@@ -2491,15 +2574,16 @@ class ProgrammaticSimpleRunner:
 
         self.task_agent = TaskAgent(
             game_client=self.client,
-            character_id=self.character,
+            character_id=self.character_id,
             **agent_kwargs,
         )
 
         try:
-            status = await self.client.join(self.character)
+            status = await self.client.join(self.character_id)
             await self.client.subscribe_my_messages()
+            self._update_display_name(status)
             self._log_line(
-                f"Joined server as {self.character}; sector=\n{json.dumps(status.get('sector', {}), ensure_ascii=False)}",
+                f"Joined server as {self.display_name}; sector=\n{json.dumps(status.get('sector', {}), ensure_ascii=False)}",
                 level=self.log_level,
             )
 
@@ -2531,7 +2615,7 @@ class ProgrammaticSimpleRunner:
             )
 
         try:
-            status = await self.client.my_status(self.character)
+            status = await self.client.my_status(self.character_id)
         except Exception as exc:  # noqa: BLE001
             self._log_line(
                 f"Unable to fetch status for task '{prompt}': {exc!r}", level="ERROR"
@@ -2632,10 +2716,12 @@ def parse_args() -> argparse.Namespace:
         help="Optional sector ID to move to after joining",
     )
     parser.add_argument(
+        "--character-id",
         "--character",
+        dest="character_id",
         required=False,
         default=None,
-        help="Character ID (defaults to NPC_CHARACTER_ID env var)",
+        help="Character UUID (defaults to NPC_CHARACTER_ID env var)",
     )
     parser.add_argument(
         "--server",
@@ -2693,12 +2779,14 @@ def parse_args() -> argparse.Namespace:
         help="Run without the Textual UI; execute scripted tasks and exit",
     )
     args = parser.parse_args()
-    if not args.character:
+    if not args.character_id:
         from os import getenv
 
-        args.character = getenv("NPC_CHARACTER_ID")
-    if not args.character:
-        parser.error("Character must be provided via --character or NPC_CHARACTER_ID")
+        args.character_id = getenv("NPC_CHARACTER_ID")
+    if not args.character_id:
+        parser.error(
+            "Character must be provided via --character-id/--character or NPC_CHARACTER_ID"
+        )
     if args.max_iterations <= 0:
         parser.error("--max-iterations must be greater than zero")
     if args.thinking_budget is None:
@@ -2731,7 +2819,7 @@ def main() -> None:
     if args.headless:
         runner = ProgrammaticSimpleRunner(
             server=args.server,
-            character=args.character,
+            character_id=args.character_id,
             tasks=tasks,
             max_iterations=args.max_iterations,
             log_level=args.log_level,
@@ -2744,7 +2832,7 @@ def main() -> None:
 
     app = SimpleTUI(
         server=args.server,
-        character=args.character,
+        character_id=args.character_id,
         sector=args.sector,
         verbose=args.verbose,
         log_path=args.log_file,
