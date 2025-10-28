@@ -120,7 +120,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
    * Initialization method
    */
   const initialize = useCallback(async () => {
-    console.debug("[GAME CONTEXT] Initializing...", onConnect);
+    console.debug("[GAME CONTEXT] Initializing...");
 
     if (!instanceManagerRef.current) {
       console.error("[GAME CONTEXT] Game instance manager not found");
