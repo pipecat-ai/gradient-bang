@@ -102,18 +102,20 @@ export class WarpOverlay {
   private maxRadius: number;
 
   constructor() {
-    // Try to find existing canvas first
-    this.canvas = document.getElementById(
-      "warpOverlay"
-    ) as HTMLCanvasElement | null;
+    // Always create a fresh canvas for clean state
+    this.canvas = document.createElement("canvas");
+    this.canvas.id = "warpOverlay";
+    this.canvas.className = ""; // Will be managed by activate/deactivate
 
-    // If canvas doesn't exist, create it
-    if (!this.canvas) {
+    // Find the starfield container and append canvas there
+    const container = document.getElementById("starfield-container");
+    if (container) {
+      container.appendChild(this.canvas);
+    } else {
+      // Fallback to body if container not found
       console.warn(
-        "WarpOverlay: Canvas 'warpOverlay' not found, creating new canvas"
+        "[STARFIELD] WarpOverlay: 'starfield-container' not found, appending to body"
       );
-      this.canvas = document.createElement("canvas");
-      this.canvas.id = "warpOverlay";
       document.body.appendChild(this.canvas);
     }
 
@@ -175,7 +177,7 @@ export class WarpOverlay {
    */
   private setupCanvas(): void {
     if (!this.canvas || !this.ctx) {
-      console.warn("WarpOverlay: Canvas or context not available");
+      console.warn("[STARFIELD] WarpOverlay: Canvas or context not available");
       return;
     }
 
@@ -232,12 +234,12 @@ export class WarpOverlay {
 
       this._needsFullClear = true;
 
-      // Update canvas styles - ensure it's positioned over the 3D scene
+      // Update canvas styles - ensure it's positioned over the 3D scene but below UI
       this.canvas.style.position = "absolute";
       this.canvas.style.top = "0";
       this.canvas.style.left = "0";
       this.canvas.style.pointerEvents = "none";
-      this.canvas.style.zIndex = "1000"; // Higher z-index to ensure it's on top
+      this.canvas.style.zIndex = "2"; // Just above renderer (z-index 1) but below UI
       this.canvas.style.mixBlendMode = "screen"; // CSS blend mode as backup
 
       // Clear gradient cache when canvas size changes
@@ -285,7 +287,7 @@ export class WarpOverlay {
       }
     }
 
-    console.debug("WarpOverlay: Activated");
+    console.debug("[STARFIELD] WarpOverlay: Activated");
   }
 
   /**
@@ -306,7 +308,7 @@ export class WarpOverlay {
     this.clearCache();
     this.clearTrigCaches();
 
-    console.debug("WarpOverlay: Deactivated");
+    console.debug("[STARFIELD] WarpOverlay: Deactivated");
   }
 
   /**
@@ -324,7 +326,7 @@ export class WarpOverlay {
     this.clearTrigCaches();
 
     // Keep trails intact - they will fade and shrink as intensity decreases
-    console.debug("WarpOverlay: Beginning fade-out");
+    console.debug("[STARFIELD] WarpOverlay: Beginning fade-out");
   }
 
   /**
@@ -334,7 +336,9 @@ export class WarpOverlay {
     this.active = true;
     this.intensity = Math.max(0, Math.min(1, intensity));
     this.generateTrails();
-    console.debug(`WarpOverlay: Started with intensity ${this.intensity}`);
+    console.debug(
+      `[STARFIELD] WarpOverlay: Started with intensity ${this.intensity}`
+    );
   }
 
   /**
@@ -343,9 +347,9 @@ export class WarpOverlay {
   public stop(): void {
     this.active = false;
     this.intensity = 0;
-    this.clearTrails();
+    console.debug("[STARFIELD] WarpOverlay: Stopped");
     this.clearCanvas();
-    console.debug("WarpOverlay: Stopped");
+    console.debug("[STARFIELD] WarpOverlay: Stopped");
   }
 
   /**
@@ -1132,10 +1136,16 @@ export class WarpOverlay {
     // Remove event listeners
     window.removeEventListener("resize", () => this.resizeCanvas());
 
+    // Remove canvas from DOM for complete cleanup
+    if (this.canvas && this.canvas.parentNode) {
+      this.canvas.parentNode.removeChild(this.canvas);
+    }
+
+    // Release references
     this.canvas = null;
     this.ctx = null;
 
-    console.debug("WarpOverlay: Disposed");
+    console.debug("[STARFIELD] WarpOverlay: Disposed");
   }
 
   /**

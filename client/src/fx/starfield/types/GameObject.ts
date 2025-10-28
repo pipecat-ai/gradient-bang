@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { type RGBColor } from "./color";
 
 // ============================================================================
 // GAME OBJECT TYPE DEFINITIONS
@@ -43,7 +44,7 @@ export interface GameObjectInstance {
   metadata: {
     name: string;
     lastSeen: number;
-    [key: string]: any;
+    [key: string]: unknown;
   };
   isSelected?: boolean;
 }

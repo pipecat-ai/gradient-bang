@@ -15,9 +15,12 @@ import {
   terminalVertexShader,
 } from "./shaders/terminal";
 
-import { ConfigUniformMapper } from "./ConfigUniformMapper";
 import { CameraLookAtAnimator } from "./animations/CameraLookAt";
 import { WarpOverlay } from "./animations/WarpOverlay";
+import { ConfigUniformMapper } from "./ConfigUniformMapper";
+import { LifecycleController } from "./controllers/LifecycleController";
+import { SceneController } from "./controllers/SceneController";
+import { WarpController, type WarpRequest } from "./controllers/WarpController";
 import { GameObjectManager } from "./managers/GameObjectManager";
 import { LayerManager } from "./managers/LayerManager";
 import { SceneManager } from "./managers/SceneManager";
@@ -32,120 +35,23 @@ import {
   type WarpPhase,
 } from "./constants";
 
+import { Background, Clouds, Nebula } from "./fx";
 import {
+  type CachedConfig,
+  type CachedUniforms,
+  type FrameState,
   type GameObjectBaseConfig,
   type GameObjectInstance,
   type GameObjectTypes,
-} from "./types/GameObject";
-
+  type InitializeSceneOptions,
+  type LookAtOptions,
+  type PerformanceStats,
+  type SelectionOptions,
+  type StarfieldCallbacks,
+  type StarfieldState,
+  type WarpOptions,
+} from "./types";
 import customDeepmerge from "./utils/merge";
-
-import { Background, Clouds, Nebula } from "./fx";
-
-// ============================================================================
-// TYPE DEFINITIONS
-// ============================================================================
-
-/** Animation states for the starfield */
-export type StarfieldState = "idle" | "shake" | "warping";
-
-/** Callback function signatures */
-export interface StarfieldCallbacks {
-  onGameObjectInView?: ((gameObject: GameObjectInstance) => void) | null;
-  onGameObjectSelected?: ((gameObject: GameObjectInstance) => void) | null;
-  onGameObjectCleared?: (() => void) | null;
-  onWarpStart?: (() => void) | null;
-  onWarpComplete?: ((queueRemainingCount: number) => void) | null;
-  onWarpCancel?: (() => void) | null;
-  onWarpQueue?: ((queueLength: number) => void) | null;
-  onSceneIsLoading?: (() => void) | null;
-  onSceneReady?:
-    | ((isInitialRender: boolean, sceneId: string | null) => void)
-    | null;
-}
-
-/** Frame state for animation loop */
-export interface FrameState {
-  currentState: StarfieldState;
-  currentShakeIntensity: number;
-  shakePhase: number;
-  cloudsShakeProgress: number;
-  warpProgress: number;
-  tunnelEffectValue: number;
-  warpPhase: WarpPhase;
-  cameraRotation: {
-    x: number;
-    y: number;
-    z: number;
-  };
-}
-
-/** Cached uniform values for performance optimization */
-export interface CachedUniforms {
-  shakeIntensity: number;
-  warpProgress: number;
-  tunnelEffect: number;
-  forwardOffset: number;
-}
-
-/** Cached configuration values for performance */
-export interface CachedConfig {
-  shakeIntensity: number;
-  shakeSpeed: number;
-  forwardDriftIdle: number;
-  forwardDriftShake: number;
-  idleSwayRandomSpeed: number;
-  idleSwayRandomIntensity: number;
-  warpFOVMax: number;
-}
-
-/** Performance statistics */
-export interface PerformanceStats {
-  drawCalls: number;
-  triangles: number;
-  programs: number;
-  frameTime: number;
-  lastFrameStart: number;
-  geometries: number;
-  textures: number;
-}
-
-/** Game object selection options */
-export interface SelectionOptions {
-  animate?: boolean;
-  duration?: number;
-  zoom?: boolean;
-  focus?: boolean;
-  zoomFactor?: number;
-  [key: string]: unknown;
-}
-
-/** Look at animation options */
-export interface LookAtOptions {
-  duration?: number;
-  zoom?: boolean;
-  easing?: string;
-  zoomFactor?: number;
-  onComplete?: () => void;
-  [key: string]: unknown;
-}
-
-/** Warp destination options */
-export interface WarpOptions {
-  id?: string;
-  name?: string;
-  sceneConfig?: Partial<StarfieldSceneConfig>; // Scene variant config (partial or full)
-  gameObjects?: GameObjectBaseConfig[];
-  bypassAnimation?: boolean; // Skip warp animation and load scene directly
-  bypassFlash?: boolean; // Skip flash transition effect (default: false)
-}
-
-/** Options for initializeScene (no animation, direct load) */
-export interface InitializeSceneOptions {
-  id?: string;
-  sceneConfig?: Partial<StarfieldSceneConfig>;
-  gameObjects?: GameObjectBaseConfig[];
-}
 
 // ============================================================================
 // MAIN STARFIELD CLASS
@@ -188,13 +94,13 @@ export class GalaxyStarfield {
   public animationId: number | null;
 
   // Locked config for current warp animation
-  private _lockedWarpConfig: StarfieldSceneConfig | null;
 
   // Current active scene ID
   private _currentSceneId: string | null;
 
   // Promise resolver for warp completion
   private _warpPromiseResolver: ((success: boolean) => void) | null;
+  private _isFirstRender: boolean = true;
 
   // Reusable objects to prevent garbage collection
   private _frameState: FrameState;
@@ -291,33 +197,81 @@ export class GalaxyStarfield {
   private _cloudsShakeStartTime?: number;
   private _isRendering: boolean = false;
 
-  // Scene loading state management
-  private _sceneLoadPromise: Promise<void> | null = null;
-  private _sceneReady: boolean = false;
-  private _sceneSettleStartTime: number | undefined;
-  private _flashHoldStartTime: number | undefined;
-  private _isFirstRender: boolean = true;
-  private readonly SCENE_SETTLE_DURATION = 150;
-  private readonly MIN_FLASH_HOLD_TIME = 300;
-  private readonly MAX_FLASH_HOLD_TIME = 5000;
-
-  // Warp queue management
-  private _warpQueue: WarpOptions[] = [];
-  private _isProcessingQueue: boolean = false;
-  private _queueDelayTimer: number | null = null;
+  // Warp management
+  private warpController: WarpController;
+  private sceneController: SceneController;
   private _shouldShakeDuringQueue: boolean = false;
+  private _warpBypassFlash: boolean = false;
 
-  // Warp cooldown management (controls animation rate-limiting)
-  private _warpCooldownTimer: number | null = null;
-
-  // Event handlers and observers for cleanup
-  private _visibilityChangeHandler?: () => void;
-  private _blurHandler?: () => void;
-  private _focusHandler?: () => void;
-  private _resizeHandler?: () => void;
-  private _resizeObserver?: ResizeObserver;
+  private lifecycleController: LifecycleController;
   private _webglContextLostHandler?: (event: Event) => void;
   private _webglContextRestoredHandler?: () => void;
+
+  private resolveWhiteFlashElement(): HTMLElement | null {
+    if (!this.whiteFlash || !document.contains(this.whiteFlash)) {
+      this.whiteFlash = document.getElementById("whiteFlash");
+    }
+    return this.whiteFlash ?? null;
+  }
+
+  private resetNonAnimatedWarpState(): void {
+    this.warpOverlay.deactivate();
+    if (this.starLayerManager) {
+      this.starLayerManager.setWarpState(false);
+      const shakeIntensity = this._shouldShakeDuringQueue
+        ? this.config.shakeIntensity || 0
+        : 0;
+      this.starLayerManager.setShakeState(shakeIntensity);
+    }
+    this.warpProgress = 0;
+    this.tunnelEffectValue = 0;
+    this.currentForwardOffset = 0;
+    this.camera.position.z = 0;
+    this._warpBypassFlash = false;
+  }
+
+  private startCinematicWarp(task: WarpRequest): void {
+    this.sceneController.setLockedConfig(task.preparedConfig);
+    this._warpBypassFlash = !!task.options.bypassFlash;
+    this._currentSceneId = task.sceneId;
+    this.startWarp();
+    this.startRendering();
+  }
+
+  private async executeBypassWarp(task: WarpRequest): Promise<void> {
+    this._warpBypassFlash = false;
+    this._currentSceneId = task.sceneId;
+    this.sceneController.setLockedConfig(null);
+    this.resetNonAnimatedWarpState();
+
+    try {
+      await this.sceneController.transitionToScene(task.preparedConfig ?? null, {
+        triggerCallbacks: true,
+        transition: !task.options.bypassFlash,
+      });
+
+      this.applyGameObjectsToScene(task.gameObjects);
+
+      if (
+        this.callbacks.onWarpComplete &&
+        typeof this.callbacks.onWarpComplete === "function"
+      ) {
+        this.callbacks.onWarpComplete(this.warpController.queueLength());
+      }
+    } catch (err) {
+      console.error("[STARFIELD] Scene loading failed:", err);
+      if (
+        this.callbacks.onWarpComplete &&
+        typeof this.callbacks.onWarpComplete === "function"
+      ) {
+        this.callbacks.onWarpComplete(this.warpController.queueLength());
+      }
+    } finally {
+      this.sceneController.markSceneReady();
+      this.startRendering();
+      this.resetNonAnimatedWarpState();
+    }
+  }
 
   constructor(
     config: Partial<GalaxyStarfieldConfig> = {},
@@ -343,6 +297,117 @@ export class GalaxyStarfield {
       ...callbacks,
     };
 
+    this.lifecycleController = new LifecycleController({
+      onVisibilityHidden: () => {
+        this.pauseForVisibility();
+        if (this.debugMode && this.performanceMonitor) {
+          this.performanceMonitor.updateStatus("Paused");
+        }
+      },
+      onVisibilityVisible: () => {
+        if (!this.isManuallyPaused) {
+          this.forceResume();
+        }
+      },
+      onWindowBlur: () => {
+        if (!this._isRendering) {
+          return;
+        }
+        if (!this.isPaused) {
+          this.pauseForVisibility();
+          if (this.debugMode && this.performanceMonitor) {
+            this.performanceMonitor.updateStatus("Paused");
+          }
+        }
+      },
+      onWindowFocus: () => {
+        if (!document.hidden && !this.isManuallyPaused) {
+          this.forceResume();
+        }
+      },
+      onResize: () => {
+        this.onContainerResize();
+      },
+    });
+
+    this.sceneController = new SceneController({
+      reloadConfig: this.reloadConfig.bind(this),
+      onSceneLoading: () => {
+        if (
+          this.callbacks.onSceneIsLoading &&
+          typeof this.callbacks.onSceneIsLoading === "function"
+        ) {
+          this.callbacks.onSceneIsLoading();
+        }
+      },
+      onSceneReady: (_ignored, sceneId) => {
+        const first = this._isFirstRender;
+        if (
+        this.callbacks.onSceneReady &&
+        typeof this.callbacks.onSceneReady === "function"
+      ) {
+        this.callbacks.onSceneReady(first, sceneId);
+      }
+      this._isFirstRender = false;
+      },
+      resolveWhiteFlash: () => this.resolveWhiteFlashElement(),
+      getSceneManager: () => this.sceneManager,
+      getCurrentConfig: () => this.config,
+      getCurrentSceneId: () => this._currentSceneId,
+      suspendRendering: () => {
+        const wasRendering = this._isRendering;
+        if (wasRendering) {
+          this._isRendering = false;
+          if (this.animationId) {
+            cancelAnimationFrame(this.animationId);
+            this.animationId = null;
+          }
+        }
+        return wasRendering;
+      },
+      resumeRendering: (wasRendering) => {
+        if (wasRendering) {
+          this._isRendering = true;
+          this.animate();
+        }
+      },
+    });
+
+    this.warpController = new WarpController({
+      getQueueDelayMs: () =>
+        Math.max(0, (this.config.queueProcessingDelaySec || 1) * 1000),
+      getCooldownMs: () =>
+        Math.max(0, (this.config.warpCooldownSec || 0) * 1000),
+      isCurrentlyWarping: () => this.state === "warping",
+      onQueueUpdate: (length) => {
+        if (
+          this.callbacks.onWarpQueue &&
+          typeof this.callbacks.onWarpQueue === "function"
+        ) {
+          this.callbacks.onWarpQueue(length);
+        }
+      },
+      onQueueIdle: () => {
+        if (this.state !== "warping") {
+          this.resetNonAnimatedWarpState();
+        }
+      },
+      setShakeActive: (active) => {
+        this._shouldShakeDuringQueue = active;
+        if (active) {
+          if (this.state !== "warping" && this.state !== "shake") {
+            this.setState("shake");
+          }
+        } else if (this.state === "shake") {
+          this.setState("idle");
+        }
+      },
+      handleCinematic: (task) => {
+        this.startCinematicWarp(task);
+      },
+      handleBypass: (task) => this.executeBypassWarp(task),
+    });
+
     this.state = "idle";
 
     this.clock = new THREE.Clock();
@@ -365,7 +430,6 @@ export class GalaxyStarfield {
     this.isManuallyPaused = false;
     this.animationId = null;
 
-    this._lockedWarpConfig = null;
     this._currentSceneId = null;
     this._warpPromiseResolver = null;
 
@@ -422,8 +486,7 @@ export class GalaxyStarfield {
     this.init();
     this.updateCachedConfig();
 
-    this.initVisibilityHandling();
-    this.initWindowResize();
+    this.lifecycleController.attach(this._targetElement);
 
     if (this.debugMode) {
       this._lazyLoadControlsManager();
@@ -511,73 +574,6 @@ export class GalaxyStarfield {
       this.disableDebugMode();
     } else {
       await this.enableDebugMode();
-    }
-  }
-
-  // ============================================================================
-  // VISIBILITY & PAUSE MANAGEMENT
-  // ============================================================================
-
-  private initVisibilityHandling(): void {
-    this._visibilityChangeHandler = () => {
-      if (document.hidden) {
-        this.pauseForVisibility();
-        if (this.debugMode && this.performanceMonitor) {
-          this.performanceMonitor.updateStatus("Paused");
-        }
-      } else {
-        if (!this.isManuallyPaused) {
-          this.forceResume();
-        }
-      }
-    };
-    document.addEventListener(
-      "visibilitychange",
-      this._visibilityChangeHandler
-    );
-
-    this._blurHandler = () => {
-      if (!this.isPaused) {
-        this.pauseForVisibility();
-        if (this.debugMode && this.performanceMonitor) {
-          this.performanceMonitor.updateStatus("Paused");
-        }
-      }
-    };
-    window.addEventListener("blur", this._blurHandler);
-
-    this._focusHandler = () => {
-      if (!document.hidden && !this.isManuallyPaused) {
-        this.forceResume();
-      }
-    };
-    window.addEventListener("focus", this._focusHandler);
-  }
-
-  private initWindowResize(): void {
-    let resizeTimeout: number;
-    this._resizeHandler = () => {
-      clearTimeout(resizeTimeout);
-      resizeTimeout = window.setTimeout(() => {
-        requestAnimationFrame(() => this.onContainerResize());
-      }, 100);
-    };
-
-    if (window.ResizeObserver && this._targetElement) {
-      try {
-        this._resizeObserver = new ResizeObserver((entries) => {
-          requestAnimationFrame(() => {
-            if (entries.length > 0) {
-              this.onContainerResize();
-            }
-          });
-        });
-        this._resizeObserver.observe(this._targetElement);
-      } catch {
-        window.addEventListener("resize", this._resizeHandler);
-      }
-    } else {
-      window.addEventListener("resize", this._resizeHandler);
     }
   }
 
@@ -994,6 +990,8 @@ export class GalaxyStarfield {
         z: this.camera.rotation.z,
       };
       this._cloudsShakeStartTime = this.clock.getElapsedTime();
+      this.camera.position.z = 0;
+      this.currentForwardOffset = 0;
     }
 
     this.state = newState;
@@ -1124,11 +1122,13 @@ export class GalaxyStarfield {
       }
     }
 
-    const flashElapsedTime =
-      performance.now() - (this._flashHoldStartTime || 0);
-    const minTimeElapsed = flashElapsedTime >= this.MIN_FLASH_HOLD_TIME;
+    const flashHoldStatus = this.sceneController.getFlashHoldStatus();
 
-    if (currentPhase === "COOLDOWN" && (!this._sceneReady || !minTimeElapsed)) {
+    if (
+      currentPhase === "COOLDOWN" &&
+      (!this.sceneController.isSceneReady() ||
+        !flashHoldStatus.meetsMinimumHold)
+    ) {
       currentPhase = "FLASH";
       phaseProgress = 0.99;
     }
@@ -1165,7 +1165,7 @@ export class GalaxyStarfield {
         this.callbacks.onWarpComplete &&
         typeof this.callbacks.onWarpComplete === "function"
       ) {
-        this.callbacks.onWarpComplete(this._warpQueue.length);
+        this.callbacks.onWarpComplete(this.warpController.queueLength());
       }
 
       if (this._warpPromiseResolver) {
@@ -1181,96 +1181,22 @@ export class GalaxyStarfield {
       this.shakeIntensityMultiplier = 0;
       this.currentShakeIntensity = 0;
       this._warpStartTime = undefined;
+      this._warpBypassFlash = false;
 
       if (this.whiteFlash) {
         this.whiteFlash.style.opacity = "0";
       }
 
-      // Check if we should shake during queue processing
-      if (this._warpQueue.length > 0) {
-        this._shouldShakeDuringQueue = true;
-        this.setState("shake");
-
-        // Trigger queue callback
-        if (
-          this.callbacks.onWarpQueue &&
-          typeof this.callbacks.onWarpQueue === "function"
-        ) {
-          this.callbacks.onWarpQueue(this._warpQueue.length);
-        }
-      } else {
-        this.setState("idle");
-      }
-
-      // Start cooldown timer to prevent animation spam
-      const warpCooldownSec = this.config.warpCooldownSec || 0;
-      if (warpCooldownSec > 0) {
-        console.debug(
-          `[STARFIELD] Starting warp animation cooldown for ${warpCooldownSec}s`
-        );
-        this._warpCooldownTimer = window.setTimeout(() => {
-          console.debug("[STARFIELD] Warp animation cooldown expired");
-          this._warpCooldownTimer = null;
-        }, warpCooldownSec * 1000);
-      }
-
-      // Process any queued warp requests
-      this._processWarpQueue();
+      this.setState("idle");
+      this.warpController.notifyWarpComplete();
 
       return;
     }
 
     if (currentPhase === "FLASH" && this.warpPhase !== "FLASH") {
       console.debug("[STARFIELD] WARP: Transitioning to FLASH phase");
-      this._flashHoldStartTime = performance.now();
-      this._sceneReady = false;
-
-      if (
-        this.callbacks.onSceneIsLoading &&
-        typeof this.callbacks.onSceneIsLoading === "function"
-      ) {
-        this.callbacks.onSceneIsLoading();
-      }
-
-      requestAnimationFrame(() => {
-        const wasRendering = this._isRendering;
-        if (wasRendering) {
-          this._isRendering = false;
-        }
-
-        this._sceneLoadPromise = this._createNewScene()
-          .then(() => {
-            console.debug("[STARFIELD] WARP: Scene loaded and ready");
-
-            // Trigger onSceneReady callback since scene is now ready
-            if (
-              this.callbacks.onSceneReady &&
-              typeof this.callbacks.onSceneReady === "function"
-            ) {
-              this.callbacks.onSceneReady(
-                this._isFirstRender,
-                this._currentSceneId
-              );
-              this._isFirstRender = false;
-            }
-
-            if (wasRendering) {
-              this._isRendering = true;
-              this.animate();
-            }
-          })
-          .catch((err) => {
-            console.error("[STARFIELD] WARP: Scene loading failed:", err);
-            // Even on failure, mark as ready to prevent infinite waiting
-            this._sceneReady = true;
-
-            if (wasRendering) {
-              this._isRendering = true;
-              this.animate();
-            }
-          });
-
-        void this._sceneLoadPromise;
+      void this.sceneController.enterFlashPhase({
+        skipFlash: this._warpBypassFlash,
       });
     }
 
@@ -1305,54 +1231,46 @@ export class GalaxyStarfield {
         this.camera.position.z = -10 - phaseProgress * 5;
         break;
 
-      case "FLASH":
+      case "FLASH": {
         if (this.whiteFlash) {
-          // Check for timeout fallback
-          const flashElapsed =
-            performance.now() - (this._flashHoldStartTime || 0);
-          const hasTimedOut = flashElapsed >= this.MAX_FLASH_HOLD_TIME;
-
-          if (hasTimedOut && !this._sceneReady) {
-            console.warn("[WARP] Flash hold timeout, forcing progression");
-            this._sceneReady = true;
+          if (!this._warpBypassFlash) {
+            const holdStatus = this.sceneController.getFlashHoldStatus();
+            if (holdStatus.timedOut && !this.sceneController.isSceneReady()) {
+              console.warn("[WARP] Flash hold timeout, forcing progression");
+              this.sceneController.markSceneReady();
+            }
 
             if (
-              this.callbacks.onSceneReady &&
-              typeof this.callbacks.onSceneReady === "function"
+              !this.sceneController.isSceneReady() ||
+              !holdStatus.meetsMinimumHold
             ) {
-              this.callbacks.onSceneReady(
-                this._isFirstRender,
-                this._currentSceneId
-              );
-              this._isFirstRender = false;
+              this.whiteFlash.style.opacity = "1.0";
+            } else {
+              this.whiteFlash.style.opacity = "1.0";
             }
-          }
-
-          // Keep flash visible until scene is ready and minimum time elapsed
-          const flashElapsedTime =
-            performance.now() - (this._flashHoldStartTime || 0);
-          const minTimeElapsed = flashElapsedTime >= this.MIN_FLASH_HOLD_TIME;
-
-          if (!this._sceneReady || !minTimeElapsed) {
-            this.whiteFlash.style.opacity = "1.0";
           } else {
-            this.whiteFlash.style.opacity = "1.0";
+            this.whiteFlash.style.opacity = "0";
           }
         }
         this.shakeIntensityMultiplier = 2.5 * (1 - phaseProgress);
         this.warpProgress = 1.0;
         this.tunnelEffectValue = 1.0;
         break;
+      }
 
       case "COOLDOWN":
         if (this.whiteFlash) {
-          const fadeProgress = phaseProgress;
-          const easedProgress =
-            fadeProgress < 0.5
-              ? 2 * fadeProgress * fadeProgress
-              : 1 - Math.pow(-2 * fadeProgress + 2, 2) / 2;
-          const fadeOutIntensity = Math.max(0, 1 - easedProgress);
-          this.whiteFlash.style.opacity = fadeOutIntensity.toString();
+          if (!this._warpBypassFlash) {
+            const fadeProgress = phaseProgress;
+            const easedProgress =
+              fadeProgress < 0.5
+                ? 2 * fadeProgress * fadeProgress
+                : 1 - Math.pow(-2 * fadeProgress + 2, 2) / 2;
+            const fadeOutIntensity = Math.max(0, 1 - easedProgress);
+            this.whiteFlash.style.opacity = fadeOutIntensity.toString();
+          } else {
+            this.whiteFlash.style.opacity = "0";
+          }
         }
         this.shakeIntensityMultiplier = (1 - phaseProgress) * 1.0;
         this.warpProgress = 1 - phaseProgress;
@@ -1733,180 +1651,23 @@ export class GalaxyStarfield {
       console.debug("[STARFIELD] Already at sector:", id);
       return;
     }
-
-    // If currently warping OR processing queue, queue the request
-    if (this.state === "warping" || this._isProcessingQueue) {
-      console.debug(
-        "[STARFIELD] Queuing warp request:",
-        id,
-        this.state === "warping" ? "(warping)" : "(processing queue)"
-      );
-      this._warpQueue.push(options);
-
-      // Trigger queue callback when item is added
-      if (
-        this.callbacks.onWarpQueue &&
-        typeof this.callbacks.onWarpQueue === "function"
-      ) {
-        this.callbacks.onWarpQueue(this._warpQueue.length);
-      }
-
-      return;
-    }
-
-    // If cooldown is active (animation played recently), queue the request
-    if (this._warpCooldownTimer !== null) {
-      console.debug(
-        `[STARFIELD] Queuing warp request: ${id} (cooldown active)`
-      );
-      this._warpQueue.push(options);
-
-      // Trigger queue callback when item is added
-      if (
-        this.callbacks.onWarpQueue &&
-        typeof this.callbacks.onWarpQueue === "function"
-      ) {
-        this.callbacks.onWarpQueue(this._warpQueue.length);
-      }
-
-      // Start queue processing if not already processing
-      if (!this._isProcessingQueue) {
-        // Set shake flag since we're starting queue processing
-        this._shouldShakeDuringQueue = true;
-        this._processWarpQueue();
-      }
-      return;
-    }
-
-    // Otherwise, process the warp request immediately (will play animation)
-    this._processWarpRequest(options);
-  }
-
-  /**
-   * Process a warp request immediately
-   * @private
-   */
-  private _processWarpRequest(options: WarpOptions): void {
-    const {
+    const preparedConfig = this.sceneManager.prepareSceneVariant(
       id,
-      gameObjects = [],
-      sceneConfig,
-      bypassAnimation = false,
-      bypassFlash = false,
-    } = options;
+      options.sceneConfig
+    ) as Partial<GalaxyStarfieldConfig>;
 
-    const preparedConfig = this.sceneManager!.prepareSceneVariant(
-      id!,
-      sceneConfig
-    );
+    const gameObjects = options.gameObjects ? [...options.gameObjects] : [];
 
     this.clearGameObjectSelection();
 
-    // Determine if we should bypass animation
-    const shouldBypass =
-      !this._currentSceneId || bypassAnimation || this._isProcessingQueue;
+    const warpRequest: WarpRequest = {
+      options,
+      preparedConfig,
+      gameObjects,
+      sceneId: id,
+    };
 
-    if (shouldBypass) {
-      // Direct loading without animation (used for queue processing)
-      console.debug(`[STARFIELD] Loading scene without animation: ${id}`);
-      this._loadSceneWithReadyState(preparedConfig, true, !bypassFlash)
-        .then(() => {
-          // Apply game objects after scene load
-          if (this.gameObjectManager) {
-            if (gameObjects.length > 0) {
-              const expanded = gameObjects.map((base) =>
-                this.gameObjectManager!.generateGameObjectConfig(base)
-              );
-              this.gameObjectManager.setGameObjects(expanded);
-            } else {
-              this.gameObjectManager.destroyAllObjects();
-            }
-          }
-          if (
-            this.callbacks.onWarpComplete &&
-            typeof this.callbacks.onWarpComplete === "function"
-          ) {
-            this.callbacks.onWarpComplete(this._warpQueue.length);
-          }
-
-          // Process next item in queue if any
-          this._processWarpQueue();
-        })
-        .catch((err) => {
-          console.error("[STARFIELD] Scene loading failed:", err);
-
-          if (
-            this.callbacks.onWarpComplete &&
-            typeof this.callbacks.onWarpComplete === "function"
-          ) {
-            this.callbacks.onWarpComplete(this._warpQueue.length);
-          }
-
-          // Still try to process queue on error
-          this._processWarpQueue();
-        });
-    } else {
-      // Start full warp animation - lock config for this animation
-      console.debug(`[STARFIELD] Starting warp animation: ${id}`);
-      this._lockedWarpConfig = preparedConfig;
-      this.startWarp();
-    }
-
-    this._currentSceneId = id!;
-    this.startRendering();
-  }
-
-  /**
-   * Process queued warp requests sequentially
-   * @private
-   */
-  private _processWarpQueue(): void {
-    if (this._warpQueue.length === 0) {
-      console.debug("[STARFIELD] Warp queue empty, processing complete");
-      this._isProcessingQueue = false;
-      this._queueDelayTimer = null;
-
-      // Clear shake flag and return to idle after queue finishes
-      if (this._shouldShakeDuringQueue) {
-        this._shouldShakeDuringQueue = false;
-        console.debug("[STARFIELD] Queue complete, returning to idle");
-        this.setState("idle");
-      }
-      return;
-    }
-
-    this._isProcessingQueue = true;
-
-    // Start shake if flag is set and we're not already shaking
-    if (this._shouldShakeDuringQueue && this.state !== "shake") {
-      console.debug("[STARFIELD] Starting shake for queue processing");
-      this.setState("shake");
-    }
-
-    const queueDelaySec = this.config.queueProcessingDelaySec || 1.0;
-    console.debug(
-      `[STARFIELD] Processing warp queue (${this._warpQueue.length} remaining), delay: ${queueDelaySec}s`
-    );
-
-    this._queueDelayTimer = window.setTimeout(() => {
-      this._queueDelayTimer = null;
-      const nextRequest = this._warpQueue.shift();
-      if (nextRequest) {
-        console.debug(
-          `[STARFIELD] Processing queued warp to: ${nextRequest.id}`
-        );
-        this._processWarpRequest(nextRequest);
-      } else {
-        this._isProcessingQueue = false;
-
-        // Clear shake flag when queue is done processing
-        if (this._shouldShakeDuringQueue) {
-          this._shouldShakeDuringQueue = false;
-          console.debug("[STARFIELD] Queue timer elapsed, returning to idle");
-          this.setState("idle");
-        }
-      }
-    }, queueDelaySec * 1000);
+    this.warpController.request(warpRequest);
   }
 
   /**
@@ -1995,7 +1756,7 @@ export class GalaxyStarfield {
    * @returns {boolean} True if in queue cycle, false otherwise
    */
   public get isProcessingWarpQueue(): boolean {
-    return this._isProcessingQueue || this._queueDelayTimer !== null;
+    return this.warpController.isProcessing();
   }
 
   /**
@@ -2003,17 +1764,16 @@ export class GalaxyStarfield {
    * @returns {boolean} True if cooldown active, false otherwise
    */
   public get isWarpCooldownActive(): boolean {
-    return this._warpCooldownTimer !== null;
+    return this.warpController.isCooldownActive();
   }
 
   /**
    * Clear the warp animation cooldown timer
    */
   public clearWarpCooldown(): void {
-    if (this._warpCooldownTimer !== null) {
+    if (this.warpController.isCooldownActive()) {
       console.debug("[STARFIELD] Manually clearing warp cooldown timer");
-      clearTimeout(this._warpCooldownTimer);
-      this._warpCooldownTimer = null;
+      this.warpController.clearCooldown();
     }
   }
 
@@ -2022,24 +1782,17 @@ export class GalaxyStarfield {
    * @returns {number} Number of queued warp requests
    */
   public getWarpQueueLength(): number {
-    return this._warpQueue.length;
+    return this.warpController.queueLength();
   }
 
   /**
    * Clear all queued warp requests
    */
   public clearWarpQueue(): void {
-    console.debug(
-      `[STARFIELD] Clearing ${this._warpQueue.length} queued warp requests`
-    );
-    this._warpQueue = [];
-
-    // Clear shake flag and return to idle if we were shaking during queue
-    if (this._shouldShakeDuringQueue) {
-      this._shouldShakeDuringQueue = false;
-      console.debug("[STARFIELD] Queue cleared, returning to idle");
-      this.setState("idle");
-    }
+    const queued = this.warpController.queueLength();
+    console.debug(`[STARFIELD] Clearing ${queued} queued warp requests`);
+    this.warpController.clearQueue();
+    this.resetNonAnimatedWarpState();
   }
 
   // ============================================================================
@@ -2221,6 +1974,23 @@ export class GalaxyStarfield {
       this.layerManager.startRestoration();
     }
     this.cameraLookAtLock = null;
+  }
+
+  private applyGameObjectsToScene(
+    gameObjects: GameObjectBaseConfig[]
+  ): void {
+    if (!this.gameObjectManager) {
+      return;
+    }
+
+    if (gameObjects.length > 0) {
+      const expanded = gameObjects.map((base) =>
+        this.gameObjectManager!.generateGameObjectConfig(base)
+      );
+      this.gameObjectManager.setGameObjects(expanded);
+    } else {
+      this.gameObjectManager.destroyAllObjects();
+    }
   }
 
   // ============================================================================
@@ -2440,148 +2210,6 @@ export class GalaxyStarfield {
     }
   }
 
-  /**
-   * Unified scene loading method that handles both async loading and ready state detection
-   * @private
-   */
-  private async _loadSceneWithReadyState(
-    newConfig: Partial<GalaxyStarfieldConfig> | null = null,
-    triggerCallbacks: boolean = true,
-    transition: boolean = false
-  ): Promise<void> {
-    if (
-      triggerCallbacks &&
-      this.callbacks.onSceneIsLoading &&
-      typeof this.callbacks.onSceneIsLoading === "function"
-    ) {
-      this.callbacks.onSceneIsLoading();
-    }
-
-    if (transition && this.whiteFlash) {
-      this.whiteFlash.style.opacity = "1.0";
-      const flashStartTime = performance.now();
-
-      await this.reloadConfig(newConfig);
-
-      await this._waitForSceneReadyState();
-
-      const flashElapsed = performance.now() - flashStartTime;
-      const minTimeElapsed = flashElapsed >= this.MIN_FLASH_HOLD_TIME;
-      const hasTimedOut = flashElapsed >= this.MAX_FLASH_HOLD_TIME;
-
-      if (!minTimeElapsed && !hasTimedOut) {
-        const remainingTime = this.MIN_FLASH_HOLD_TIME - flashElapsed;
-        await new Promise((resolve) => setTimeout(resolve, remainingTime));
-      }
-
-      if (hasTimedOut) {
-        console.warn("[TRANSITION] Flash hold timeout, forcing progression");
-      }
-
-      await this._fadeOutWhiteFlash(200);
-    } else {
-      await this.reloadConfig(newConfig);
-      await this._waitForSceneReadyState();
-    }
-
-    if (
-      triggerCallbacks &&
-      this.callbacks.onSceneReady &&
-      typeof this.callbacks.onSceneReady === "function"
-    ) {
-      this.callbacks.onSceneReady(this._isFirstRender, this._currentSceneId);
-      this._isFirstRender = false;
-    }
-  }
-
-  /**
-   * Wait for scene to be fully ready (includes settling period and minimum wait time)
-   * This ensures consistent behavior between warp animation and direct reload paths
-   * @private
-   */
-  private async _waitForSceneReadyState(): Promise<void> {
-    // Start the settling period
-    this._sceneSettleStartTime = performance.now();
-
-    // Wait for the settling duration
-    await new Promise<void>((resolve) => {
-      const checkSettling = () => {
-        const settleElapsed =
-          performance.now() - (this._sceneSettleStartTime || 0);
-        if (settleElapsed >= this.SCENE_SETTLE_DURATION) {
-          resolve();
-        } else {
-          requestAnimationFrame(checkSettling);
-        }
-      };
-      checkSettling();
-    });
-
-    // Mark scene as ready
-    this._sceneReady = true;
-  }
-
-  /**
-   * Fade out the white flash element with easing
-   * @private
-   */
-  private async _fadeOutWhiteFlash(duration: number = 200): Promise<void> {
-    if (!this.whiteFlash) return;
-
-    const fadeStartTime = performance.now();
-
-    await new Promise<void>((resolve) => {
-      const fadeOut = () => {
-        const fadeElapsed = performance.now() - fadeStartTime;
-        const fadeProgress = Math.min(fadeElapsed / duration, 1);
-        const easedProgress =
-          fadeProgress < 0.5
-            ? 2 * fadeProgress * fadeProgress
-            : 1 - Math.pow(-2 * fadeProgress + 2, 2) / 2;
-        const opacity = Math.max(0, 1 - easedProgress);
-
-        if (this.whiteFlash) {
-          this.whiteFlash.style.opacity = opacity.toString();
-        }
-
-        if (fadeProgress < 1) {
-          requestAnimationFrame(fadeOut);
-        } else {
-          resolve();
-        }
-      };
-      fadeOut();
-    });
-  }
-
-  /**
-   * Create a new scene using the SceneManager
-   * @private
-   */
-  private async _createNewScene(): Promise<void> {
-    if (!this.sceneManager) {
-      console.warn("[STARFIELD] SceneManager not available");
-      return;
-    }
-
-    await new Promise((resolve) =>
-      requestAnimationFrame(() => resolve(undefined))
-    );
-
-    // Use locked config from when animation started
-    let newConfig;
-
-    if (this._lockedWarpConfig) {
-      newConfig = this._lockedWarpConfig;
-      this._lockedWarpConfig = null; // Clear after use
-    } else {
-      // Fallback: generate random scene
-      newConfig = this.sceneManager.create(this.config);
-    }
-
-    await this._loadSceneWithReadyState(newConfig, false, false);
-  }
-
   // ============================================================================
   // CLEANUP METHODS
   // ============================================================================
@@ -2596,40 +2224,13 @@ export class GalaxyStarfield {
       this.animationId = null;
     }
 
-    // Clear all timers
-    if (this._queueDelayTimer !== null) {
-      clearTimeout(this._queueDelayTimer);
-      this._queueDelayTimer = null;
-    }
-    if (this._warpCooldownTimer !== null) {
-      clearTimeout(this._warpCooldownTimer);
-      this._warpCooldownTimer = null;
-    }
+    // Clear warp control state
+    this.warpController.dispose();
+    this.sceneController.dispose();
+    this._shouldShakeDuringQueue = false;
 
     // Remove event listeners
-    if (this._visibilityChangeHandler) {
-      document.removeEventListener(
-        "visibilitychange",
-        this._visibilityChangeHandler
-      );
-      this._visibilityChangeHandler = undefined;
-    }
-    if (this._blurHandler) {
-      window.removeEventListener("blur", this._blurHandler);
-      this._blurHandler = undefined;
-    }
-    if (this._focusHandler) {
-      window.removeEventListener("focus", this._focusHandler);
-      this._focusHandler = undefined;
-    }
-    if (this._resizeHandler) {
-      window.removeEventListener("resize", this._resizeHandler);
-      this._resizeHandler = undefined;
-    }
-    if (this._resizeObserver) {
-      this._resizeObserver.disconnect();
-      this._resizeObserver = undefined;
-    }
+    this.lifecycleController.detach();
     if (this._webglContextLostHandler && this.renderer?.domElement) {
       this.renderer.domElement.removeEventListener(
         "webglcontextlost",
@@ -2730,9 +2331,7 @@ export class GalaxyStarfield {
     };
 
     // Clear warp queue and promises
-    this._warpQueue = [];
     this._warpPromiseResolver = null;
-    this._sceneLoadPromise = null;
   }
 
   // ============================================================================
@@ -2760,7 +2359,7 @@ export class GalaxyStarfield {
   /**
    * Check if rendering is active
    */
-  public isRendering(): boolean {
+  public get rendering(): boolean {
     return this._isRendering;
   }
 
@@ -2792,18 +2391,13 @@ export class GalaxyStarfield {
     }
 
     // Load assets and wait for readiness without firing callbacks yet
-    await this._loadSceneWithReadyState(configToLoad, false, false);
+    await this.sceneController.transitionToScene(configToLoad, {
+      triggerCallbacks: false,
+      transition: false,
+    });
 
     // Expand and set game objects, if provided
-    if (this.gameObjectManager && gameObjects.length > 0) {
-      const expanded = gameObjects.map((base) =>
-        this.gameObjectManager!.generateGameObjectConfig(base)
-      );
-      this.gameObjectManager.setGameObjects(expanded);
-    } else if (this.gameObjectManager && gameObjects.length === 0) {
-      // Ensure no stale objects remain when none are passed
-      this.gameObjectManager.destroyAllObjects();
-    }
+    this.applyGameObjectsToScene(gameObjects);
 
     // Start rendering, ensuring the first frame is drawn
     this.startRendering();
@@ -2814,12 +2408,6 @@ export class GalaxyStarfield {
     );
 
     // Now signal that the scene is ready and rendering has started
-    if (
-      this.callbacks.onSceneReady &&
-      typeof this.callbacks.onSceneReady === "function"
-    ) {
-      this.callbacks.onSceneReady(this._isFirstRender, this._currentSceneId);
-      this._isFirstRender = false;
-    }
+    this.sceneController.markSceneReady();
   }
 }

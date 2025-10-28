@@ -4,6 +4,7 @@
  */
 
 import { type NebulaPalette } from "../constants";
+import { type RGBColor } from "../types";
 
 // ============================================================================
 // TYPE DEFINITIONS

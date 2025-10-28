@@ -99,7 +99,6 @@ export const StarField = memo(() => {
   return (
     <div id="starfield-container" className="relative">
       <div id="whiteFlash"></div>
-      <canvas id="warpOverlay"></canvas>
       <div id="vignette"></div>
       <div id="transition" className={ready ? "open" : ""}></div>
       <div id="starfield"></div>

@@ -113,6 +113,12 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
     [client]
   );
 
+  // Dev-only: Expose to console using globalThis
+  if (import.meta.env.DEV) {
+    // @ts-expect-error - Dev-only console helper
+    globalThis.dispatchEvent = dispatchEvent;
+  }
+
   /**
    * Initialization method
    */
@@ -127,8 +133,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
     gameStore.setGameStateMessage(GameInitStateMessage.INIT);
     gameStore.setGameState("initializing");
 
-    // 1. Construct game instance
-    await instanceManagerRef.current?.initialize();
+    // 1. Construct and await heavier game instances
+    await instanceManagerRef.current?.create_instances();
 
     // 2. Connect to agent
     gameStore.setGameStateMessage(GameInitStateMessage.CONNECTING);
@@ -143,53 +149,22 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
       return;
     }
 
-    // 3. Initialize game instances with data
+    // 3. Wait for initial data and initialize anything that needs it
+    await instanceManagerRef.current?.initialize();
     gameStore.setGameStateMessage(GameInitStateMessage.STARTING);
-
-    await wait(1000);
 
     console.debug("[GAME CONTEXT] Initialized, setting ready state");
 
     // 4. Set ready state and dispatch start event to bot
     gameStore.setGameStateMessage(GameInitStateMessage.READY);
     gameStore.setGameState("ready");
+
+    // A little bit of air, so the bot starts talking after the visor opens
+    await wait(1000);
+
+    // 5. Dispatch start event to bot to kick off the conversation
     dispatchEvent({ type: "start" });
   }, [onConnect, gameStore, dispatchEvent, client]);
-
-  /**
-   * Initialization method
-  const initialize = useCallback(async () => {
-    const state = useGameStore.getState();
-
-    state.setGameState("initializing");
-
-    console.debug("[GAME CONTEXT] Initializing");
-
-    // Initialize starfield and await readiness
-    if (gameStore.settings.renderStarfield) {
-      try {
-        await gameStore.starfieldInstance?.initializeScene({
-          id: state.sector?.id.toString() ?? undefined,
-          sceneConfig: state.sector?.scene_config as StarfieldSceneConfig,
-        });
-      } catch (e) {
-        console.error("[GAME CONTEXT] Error initializing starfield", e);
-      }
-    }
-
-    // Initialize minimap and await readiness
-    // @TODO: implement
-
-    // Give a little bit of air for FX components to settle
-    await setTimeout(() => {}, 1000);
-
-    // Set ready to true
-    gameStore.setGameState("ready");
-
-    // Dispatch start event to initialize bot conversation
-    dispatchEvent({ type: "start" });
-  }, [gameStore, dispatchEvent]);
-   */
 
   /**
    * Handle server message
@@ -225,10 +200,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
               // Initialize game client if this is the first status update
 
-              // Note: the client determines its own readiness state. We can
-              // refer to source.method === "join" too, but better that client
-              // is source of truth for it's current game state.
-              if (gameStore.gameState === "not_ready") {
+              if (status.source?.method === "join") {
                 gameStore.addActivityLogEntry({
                   type: "join",
                   message: "Joined the game",

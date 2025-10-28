@@ -2,8 +2,6 @@ import { usePlaySound } from "@/hooks/usePlaySound";
 import useGameStore from "@/stores/game";
 import { useEffect, useState } from "react";
 
-import { wait } from "@/utils/animation";
-
 export const ShipVisor = () => {
   const gameState = useGameStore.use.gameState();
   const playSound = usePlaySound();
@@ -15,7 +13,6 @@ export const ShipVisor = () => {
   useEffect(() => {
     const openVisor = async () => {
       if (gameState === "ready") {
-        await wait(2000);
         setIsOpen(true);
         playSound("start");
       }
