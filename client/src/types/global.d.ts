@@ -1,5 +1,6 @@
 declare global {
   // --- PLAYER
+
   interface PlayerBase {
     id: string;
     last_active?: string;
@@ -18,26 +19,17 @@ declare global {
   }
 
   // --- RESOURCE
+
   type Resource = "neuro_symbolics" | "quantum_foam" | "retro_organics";
-  type ResourceName = {
-    neuro_symbolics: "Neuro Symbolics";
-    quantum_foam: "Quantum Foam";
-    retro_organics: "Retro Organics";
-  };
-  type ResourceNameShort = {
-    neuro_symbolics: "NS";
-    quantum_foam: "QF";
-    retro_organics: "RO";
-  };
   type ResourceList = Resource[];
 
   // --- SHIP
+
   interface Ship {
     fighters?: number;
     shields?: number;
     ship_name: string;
     ship_type: string;
-    // ship_type: ShipType;
   }
 
   interface ShipType {
@@ -51,9 +43,11 @@ declare global {
   }
 
   interface ShipSelf extends Ship {
+    credits: number;
+
     cargo: Record<Resource, number>;
     cargo_capacity: number;
-    holds: number;
+    empty_holds: number;
     warp_power: number;
     warp_power_capacity: number;
   }
@@ -107,6 +101,7 @@ declare global {
   }
 
   // --- PORT
+
   interface PortBase {
     code: string;
   }
@@ -125,6 +120,7 @@ declare global {
   }
 
   // --- MAP
+
   type MapData = MapSectorNode[];
 
   interface MapSectorNode {

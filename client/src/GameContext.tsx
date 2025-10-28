@@ -60,11 +60,6 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
     if (!instanceManagerRef.current) {
       instanceManagerRef.current = new GameInstanceManager();
     }
-
-    return () => {
-      instanceManagerRef.current?.destroy();
-      instanceManagerRef.current = null;
-    };
   }, [client]);
 
   /**
@@ -201,7 +196,6 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               });
 
               // Initialize game client if this is the first status update
-
               if (status.source?.method === "join") {
                 gameStore.addActivityLogEntry({
                   type: "join",
