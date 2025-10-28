@@ -29,7 +29,7 @@
     {
       "label": "Bot",
       "type": "shell",
-      "command": "sleep 2 && uv run pipecat/bot.py",
+      "command": "sleep 2 && uv run pipecat_server/bot.py",
       "dependsOn": ["Check World Data"],
       "isBackground": true,
       "problemMatcher": [],

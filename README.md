@@ -55,7 +55,7 @@ export PIPECAT_CHARACTER_NAME="Trader P"  # optional label for prompts/logs
 ```
 
 ```
-uv run pipecat/bot.py
+uv run pipecat_server/bot.py
 ```
 
 ## Run the client dev server
