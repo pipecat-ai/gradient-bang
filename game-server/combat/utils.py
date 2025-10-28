@@ -408,7 +408,15 @@ async def serialize_round_waiting_event(
         context = getattr(encounter, "context", None)
         if isinstance(context, dict):
             initiator_id = context.get("initiator")
-        payload["initiator"] = initiator_id
+
+        # Convert character ID to display name
+        initiator_name = None
+        if initiator_id:
+            character = world.characters.get(initiator_id)
+            if character:
+                initiator_name = character.name
+
+        payload["initiator"] = initiator_name
     if ship_payload:
         payload["ship"] = ship_payload
     return payload

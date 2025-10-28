@@ -396,6 +396,12 @@ TEST_CHARACTER_IDS = [
     # API salvage test characters (test_game_server_api.py)
     "test_api_salvage_dumper",
     "test_api_salvage_collector",
+    # Combat issue fixes test characters (test_combat_system.py TestCombatEventPayloads)
+    "test_initiator_char1",
+    "test_initiator_char2",
+    "test_event_order_char1",
+    "test_event_order_char2",
+    "test_event_order_char3",
 ]
 
 

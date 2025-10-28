@@ -256,21 +256,6 @@ async def handle(request: dict, world) -> dict:
                     character.sector
                 )
 
-        if active_encounter and not active_encounter.ended:
-            round_waiting_payload = await serialize_round_waiting_event(
-                world,
-                active_encounter,
-                viewer_id=character_id,
-            )
-            round_waiting_payload["source"] = build_event_source("join", request_id)
-
-            await event_dispatcher.emit(
-                "combat.round_waiting",
-                round_waiting_payload,
-                character_filter=[character_id],
-                log_context=base_log_context,
-            )
-
     await event_dispatcher.emit(
         "status.snapshot",
         status_payload,
@@ -291,4 +276,21 @@ async def handle(request: dict, world) -> dict:
         character_filter=[character_id],
         log_context=base_log_context,
     )
+
+    # Check for active combat and send combat.round_waiting last
+    if active_encounter and not active_encounter.ended:
+        round_waiting_payload = await serialize_round_waiting_event(
+            world,
+            active_encounter,
+            viewer_id=character_id,
+        )
+        round_waiting_payload["source"] = build_event_source("join", request_id)
+
+        await event_dispatcher.emit(
+            "combat.round_waiting",
+            round_waiting_payload,
+            character_filter=[character_id],
+            log_context=base_log_context,
+        )
+
     return rpc_success()

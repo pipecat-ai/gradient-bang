@@ -104,6 +104,23 @@ async def submit_and_await_resolution(
     )
 
 
+async def get_status(client, character_id):
+    """Get character status via status.snapshot event."""
+    status_received = asyncio.Future()
+
+    def on_status(event):
+        if not status_received.done():
+            status_received.set_result(event.get("payload", event))
+
+    token = client.add_event_handler("status.snapshot", on_status)
+
+    try:
+        await client.my_status(character_id=character_id)
+        return await asyncio.wait_for(status_received, timeout=5.0)
+    finally:
+        client.remove_event_handler(token)
+
+
 @pytest.fixture(autouse=True)
 async def reset_test_world():
     """Reset world before and after each test using the test.reset endpoint."""
@@ -2688,3 +2705,232 @@ class TestCombatZoneRestrictions:
             await client1.close()
             await client2.close()
             await client_arrival.close()
+
+
+@pytest.mark.integration
+@pytest.mark.requires_server
+class TestCombatEventPayloads:
+    """Test combat event payload correctness and ordering (bug fixes from work-1028.md)."""
+
+    async def test_initiator_is_display_name_not_char_id(self, test_server):
+        """Test that the initiator field in combat.round_waiting uses display name.
+
+        Issue: Initiator field was using character ID, should use display name
+        to match the format in participants[].name
+        """
+        # Setup two characters
+        create_test_character_knowledge("test_initiator_char1", sector=0, fighters=100)
+        create_test_character_knowledge("test_initiator_char2", sector=0, fighters=100)
+
+        char_id_1 = "test_initiator_char1"
+        char_id_2 = "test_initiator_char2"
+
+        client1 = AsyncGameClient(
+            base_url="http://localhost:8002",
+            character_id=char_id_1,
+            transport="websocket",
+        )
+        client2 = AsyncGameClient(
+            base_url="http://localhost:8002",
+            character_id=char_id_2,
+            transport="websocket",
+        )
+
+        try:
+            # Join both characters
+            await client1.join(character_id=char_id_1)
+            await asyncio.sleep(0.5)
+            await client2.join(character_id=char_id_2)
+            await asyncio.sleep(0.5)
+
+            # Get display names
+            status1 = await get_status(client1, char_id_1)
+            status2 = await get_status(client2, char_id_2)
+            display_name_1 = status1["player"]["name"]
+            display_name_2 = status2["player"]["name"]
+
+            # Setup event collectors for both clients
+            events_char1 = []
+            events_char2 = []
+
+            client1.on("combat.round_waiting")(
+                lambda p: events_char1.append({"event": "combat.round_waiting", "payload": p})
+            )
+            client2.on("combat.round_waiting")(
+                lambda p: events_char2.append({"event": "combat.round_waiting", "payload": p})
+            )
+
+            # Character 1 initiates combat
+            await client1.combat_initiate(character_id=char_id_1)
+            await asyncio.sleep(2.0)
+
+            # Verify both characters received combat.round_waiting
+            assert len(events_char1) >= 1, "Character 1 should receive combat.round_waiting"
+            assert len(events_char2) >= 1, "Character 2 should receive combat.round_waiting"
+
+            # Check the first round_waiting event (round 1) for initiator field
+            # Note: WebSocket events are wrapped with event_name, payload, summary
+            payload_1 = events_char1[0]["payload"]
+            payload_2 = events_char2[0]["payload"]
+
+            # Unwrap if needed (WebSocket wraps events)
+            if "payload" in payload_1:
+                round_waiting_1 = payload_1["payload"]
+            else:
+                round_waiting_1 = payload_1
+
+            if "payload" in payload_2:
+                round_waiting_2 = payload_2["payload"]
+            else:
+                round_waiting_2 = payload_2
+
+            # Verify initiator field exists and is a display name (not UUID)
+            assert "initiator" in round_waiting_1, f"round_waiting should have initiator field. Got: {list(round_waiting_1.keys())}"
+            assert "initiator" in round_waiting_2, f"round_waiting should have initiator field. Got: {list(round_waiting_2.keys())}"
+
+            initiator_1 = round_waiting_1.get("initiator")
+            initiator_2 = round_waiting_2.get("initiator")
+
+            # Initiator should be the same for both events
+            assert initiator_1 == initiator_2, "Initiator should be consistent across events"
+
+            # Initiator should be character 1's display name
+            assert initiator_1 == display_name_1, (
+                f"Initiator should be display name '{display_name_1}', "
+                f"but got '{initiator_1}'"
+            )
+
+            # Verify format matches participants[].name (both use display names)
+            participants = round_waiting_1.get("participants", [])
+            participant_names = [p.get("name") for p in participants]
+
+            assert initiator_1 in participant_names, (
+                f"Initiator '{initiator_1}' should match format of participant names: {participant_names}"
+            )
+
+            # The key fix: initiator uses character.name (display name) from world.characters
+            # rather than the character ID from encounter.context
+            # This ensures consistency with participants[].name which also uses character.name
+            print(f"\n✓ Initiator field correctly uses display name: '{initiator_1}'")
+            print(f"✓ Matches participant name format: {participant_names}")
+
+        finally:
+            await client1.close()
+            await client2.close()
+
+    async def test_join_combat_event_order(self, test_server):
+        """Test that combat.round_waiting is sent AFTER status.snapshot and map.local on join.
+
+        Issue: combat.round_waiting was sent in the middle of the join event sequence,
+        but should come last.
+
+        Expected order:
+        1. character.moved (if teleport)
+        2. status.snapshot
+        3. map.local
+        4. combat.round_waiting (LAST)
+        """
+        # Setup three characters - two to start combat, one to join later
+        create_test_character_knowledge("test_event_order_char1", sector=0, fighters=100)
+        create_test_character_knowledge("test_event_order_char2", sector=0, fighters=100)
+        create_test_character_knowledge("test_event_order_char3", sector=0, fighters=100)
+
+        char_id_1 = "test_event_order_char1"
+        char_id_2 = "test_event_order_char2"
+        char_id_3 = "test_event_order_char3"
+
+        client1 = AsyncGameClient(
+            base_url="http://localhost:8002",
+            character_id=char_id_1,
+            transport="websocket",
+        )
+        client2 = AsyncGameClient(
+            base_url="http://localhost:8002",
+            character_id=char_id_2,
+            transport="websocket",
+        )
+        client3 = AsyncGameClient(
+            base_url="http://localhost:8002",
+            character_id=char_id_3,
+            transport="websocket",
+        )
+
+        try:
+            # Characters 1 and 2 join and start combat
+            await client1.join(character_id=char_id_1)
+            await asyncio.sleep(0.5)
+            await client2.join(character_id=char_id_2)
+            await asyncio.sleep(0.5)
+
+            await client1.combat_initiate(character_id=char_id_1)
+            await asyncio.sleep(1.0)
+
+            # Setup event collector for character 3 BEFORE they join
+            events_char3 = []
+
+            def collect_event(event_name):
+                def handler(payload):
+                    from datetime import timezone, datetime
+                    events_char3.append({
+                        "event": event_name,
+                        "payload": payload,
+                        "timestamp": datetime.now(timezone.utc)
+                    })
+                return handler
+
+            client3.on("character.moved")(collect_event("character.moved"))
+            client3.on("status.snapshot")(collect_event("status.snapshot"))
+            client3.on("map.local")(collect_event("map.local"))
+            client3.on("combat.round_waiting")(collect_event("combat.round_waiting"))
+
+            # Character 3 joins the game (will enter sector 0 with active combat)
+            await client3.join(character_id=char_id_3)
+            await asyncio.sleep(2.0)
+
+            # Extract event names in order
+            event_sequence = [e["event"] for e in events_char3]
+
+            # Debug: print the actual sequence
+            print(f"\n📋 Event sequence for character 3 joining active combat:")
+            for i, e in enumerate(events_char3):
+                print(f"  {i}: {e['event']}")
+
+            # Verify we received the key events
+            assert "status.snapshot" in event_sequence, "Should receive status.snapshot"
+            assert "map.local" in event_sequence, "Should receive map.local"
+            assert "combat.round_waiting" in event_sequence, "Should receive combat.round_waiting"
+
+            # Find positions of key events
+            status_idx = event_sequence.index("status.snapshot")
+            map_idx = event_sequence.index("map.local")
+
+            # Note: There may be multiple combat.round_waiting events
+            # (one when added to combat, one from join handler)
+            # We want to verify the LAST one comes after map.local
+            combat_indices = [i for i, e in enumerate(event_sequence) if e == "combat.round_waiting"]
+            combat_idx = combat_indices[-1]  # Get the last occurrence
+
+            print(f"  status.snapshot at position {status_idx}")
+            print(f"  map.local at position {map_idx}")
+            print(f"  combat.round_waiting at positions {combat_indices} (checking last: {combat_idx})")
+
+            # Verify order: status.snapshot → map.local → combat.round_waiting (last occurrence)
+            assert status_idx < map_idx, (
+                f"status.snapshot (pos {status_idx}) should come before map.local (pos {map_idx})"
+            )
+            assert map_idx < combat_idx, (
+                f"map.local (pos {map_idx}) should come before combat.round_waiting (last at pos {combat_idx})"
+            )
+
+            # Verify the LAST combat.round_waiting is the final event
+            assert combat_idx == len(event_sequence) - 1, (
+                f"Last combat.round_waiting should be final event, but found at position {combat_idx} "
+                f"out of {len(event_sequence)} events. Sequence: {event_sequence}"
+            )
+
+            print(f"✓ Event order verified: status.snapshot → map.local → combat.round_waiting")
+
+        finally:
+            await client1.close()
+            await client2.close()
+            await client3.close()

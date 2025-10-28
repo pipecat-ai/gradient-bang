@@ -348,6 +348,11 @@ class CombatManager:
         combat_id: str,
         state: CombatantState,
     ) -> CombatEncounter:
+        """Add a participant to an active combat encounter.
+
+        Note: This method does NOT emit combat.round_waiting event.
+        Callers are responsible for emitting events at the appropriate time.
+        """
         async with self._get_lock(combat_id):
             encounter = self._require_encounter(combat_id)
             if encounter.ended:
@@ -355,7 +360,6 @@ class CombatManager:
             if state.combatant_id in encounter.participants:
                 return encounter
             encounter.participants[state.combatant_id] = state
-        await self._emit_round_waiting(encounter)
         return encounter
 
     async def cancel_encounter(self, combat_id: str) -> None:
