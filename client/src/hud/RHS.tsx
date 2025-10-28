@@ -1,7 +1,11 @@
 import { ConversationPanel } from "@/components/ConversationPanel";
 import { ShipOSDPanel } from "@/components/ShipOSDPanel";
-import { TaskStatusBadge } from "@/components/TaskStatusBadge";
-import { CardContent, Divider } from "@pipecat-ai/voice-ui-kit";
+import {
+  CardContent,
+  Divider,
+  TextInput,
+  UserAudioControl,
+} from "@pipecat-ai/voice-ui-kit";
 
 export const RHS = () => {
   return (
@@ -18,7 +22,8 @@ export const RHS = () => {
           >
             Task status
           </Divider>
-          <TaskStatusBadge />
+          <UserAudioControl size="lg" variant="outline" />
+          <TextInput />
         </CardContent>
       </div>
     </div>
