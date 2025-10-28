@@ -310,17 +310,10 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
         # Client requested known ports
         if msg_type == "get-known-ports":
-            status = await task_manager.game_client.list_known_ports(
+            # Call list_known_ports to trigger server-side ports.list event
+            # The client will receive the port data via the ports.list event
+            await task_manager.game_client.list_known_ports(
                 task_manager.character_id
-            )
-            await rtvi.push_frame(
-                RTVIServerMessageFrame(
-                    {
-                        "frame_type": "event",
-                        "event": "map.known-ports",
-                        "payload": status,
-                    }
-                )
             )
             return
 
