@@ -694,11 +694,75 @@ async def test_garrison_creates_defensive_force(server_url, check_server_availab
             garrison_events = [e for e in events if "garrison" in e.get("event")]
             # Event name might vary - just verify garrison-related event exists
             assert len(events) > 0
-@pytest.mark.skip(reason="Salvage collection mechanics need verification")
 async def test_collect_salvage_picks_up_loot(server_url, check_server_available):
-    """Test salvage collection after combat."""
-    # Placeholder - would require setting up combat with salvage
-    pass
+    """Test POST /api/salvage.collect works and respects cargo capacity.
+
+    Validates:
+        - API returns success with collection details
+        - salvage.collected event is emitted
+        - Cargo is transferred to collector
+        - Partial collection works when cargo space limited
+    """
+    from helpers.combat_helpers import create_test_character_knowledge
+
+    dumper_id = "test_api_salvage_dumper"
+    collector_id = "test_api_salvage_collector"
+
+    # Create dumper with cargo, collector with limited space
+    create_test_character_knowledge(dumper_id, sector=5, cargo={"quantum_foam": 20})
+    create_test_character_knowledge(collector_id, sector=5, cargo={"retro_organics": 25})  # 25/30 holds used
+
+    async with create_firehose_listener(server_url, collector_id) as listener:
+        dumper_client = AsyncGameClient(base_url=server_url, character_id=dumper_id)
+        collector_client = AsyncGameClient(base_url=server_url, character_id=collector_id)
+
+        try:
+            await dumper_client.join(character_id=dumper_id)
+            await collector_client.join(character_id=collector_id)
+
+            # Dump cargo to create salvage
+            await dumper_client.dump_cargo(
+                items=[{"commodity": "quantum_foam", "units": 10}],
+                character_id=dumper_id
+            )
+            await asyncio.sleep(0.5)
+
+            # Get salvage ID
+            collector_status = await get_status(collector_client, collector_id)
+            sector_salvage = collector_status["sector"].get("salvage", [])
+            assert len(sector_salvage) > 0, "Should have salvage in sector"
+            salvage_id = sector_salvage[0]["salvage_id"]
+
+            # Collect salvage (should be partial - only 5 units fit)
+            result = await collector_client._request("salvage.collect", {
+                "character_id": collector_id,
+                "salvage_id": salvage_id
+            })
+
+            # Validate API response structure
+            assert result.get("success") is True
+            assert "collected" in result
+            assert "remaining" in result
+            assert "salvage_removed" in result
+
+            # Validate partial collection (5 space available, 10 in salvage)
+            assert result["collected"]["cargo"].get("quantum_foam", 0) == 5
+            assert result["remaining"]["cargo"].get("quantum_foam", 0) == 5
+            assert result["salvage_removed"] is False
+
+            # Validate salvage.collected event
+            await asyncio.sleep(0.5)
+            events = listener.events
+            salvage_events = [e for e in events if e.get("event") == "salvage.collected"]
+            assert len(salvage_events) >= 1, "Should emit salvage.collected event"
+
+            salvage_event = salvage_events[0]
+            payload = salvage_event.get("payload", {})
+            assert payload.get("collected", {}).get("cargo", {}).get("quantum_foam", 0) == 5
+
+        finally:
+            await dumper_client.close()
+            await collector_client.close()
 
 
 @pytest.mark.skip(reason="Combat status endpoint needs implementation verification")

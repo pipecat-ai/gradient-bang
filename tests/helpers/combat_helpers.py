@@ -82,6 +82,7 @@ def create_test_character_knowledge(
     max_shields: int = 150,
     warp_power: int = 300,
     credits: int = 1000,
+    credits_in_bank: int = 0,
     ship_type: str = "kestrel_courier",
     ship_name: Optional[str] = None,
     sector: int = 0,
@@ -100,7 +101,8 @@ def create_test_character_knowledge(
         shields: Current shield strength
         max_shields: Maximum shields (ship capacity)
         warp_power: Current warp power
-        credits: Starting credits
+        credits: Starting credits (on hand)
+        credits_in_bank: Bank balance (default: 0)
         ship_type: Ship type (e.g., "kestrel_courier")
         ship_name: Custom ship name (optional)
         sector: Starting sector
@@ -153,6 +155,7 @@ def create_test_character_knowledge(
             "equipped_modules": [],
         },
         "credits": credits,
+        "credits_in_bank": credits_in_bank,
         "current_sector": sector,
     }
 
