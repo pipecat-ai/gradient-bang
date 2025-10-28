@@ -63,12 +63,14 @@ export interface GameState {
 export interface GameSlice extends GameState {
   setState: (newState: Partial<GameState>) => void;
   addMessage: (message: ChatMessage) => void;
+  setPlayer: (player: Partial<PlayerSelf>) => void;
   setSector: (sector: Sector) => void;
   setSectorPort: (sectorId: number, port: Port) => void;
   addSectorPlayer: (player: Player) => void;
   removeSectorPlayer: (player: Player) => void;
   setSectorBuffer: (sector: Sector) => void;
   setShip: (ship: Partial<ShipSelf>) => void;
+  getShipHoldsRemaining: () => number;
   setLocalMapData: (localMapData: MapData) => void;
   setCoursePlot: (coursePlot: CoursePlot) => void;
   clearCoursePlot: () => void;
@@ -103,6 +105,13 @@ const createGameSlice: StateCreator<
   setGameStateMessage: (gameStateMessage: string) => set({ gameStateMessage }),
   setState: (newState: Partial<GameState>) =>
     set({ ...get(), ...newState }, true),
+
+  setPlayer: (player: Partial<PlayerSelf>) =>
+    set(
+      produce((state) => {
+        state.player = { ...state.player, ...player };
+      })
+    ),
 
   addMessage: (message: ChatMessage) =>
     set(
@@ -180,6 +189,17 @@ const createGameSlice: StateCreator<
         }
       })
     ),
+
+  getShipHoldsRemaining: () => {
+    if (!get().ship.cargo_capacity) {
+      return 0;
+    }
+
+    return (
+      get().ship.cargo_capacity -
+      Object.values(get().ship.cargo).reduce((acc, curr) => acc + curr, 0)
+    );
+  },
 
   setCoursePlot: (coursePlot: CoursePlot) =>
     set(

@@ -363,6 +363,13 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 )
             return
 
+        if msg_type == "salvage_collect":
+            await task_manager.game_client.salvage_collect(
+                character_id=task_manager.character_id,
+                salvage_id=msg_data.get("salvage_id"),
+            )
+            return
+
         # Handle user text input messages
         if msg_type == "user-text-input":
             text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""

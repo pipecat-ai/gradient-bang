@@ -20,7 +20,7 @@ export const Init: Story = () => {
   const sector = useGameStore((state) => state.sector);
   const localMapData = useGameStore((state) => state.local_map_data);
   const messages = useGameStore.use.messages();
-
+  const getShipHoldsRemaining = useGameStore.use.getShipHoldsRemaining();
   useMessageNotificationSound();
 
   const { dispatchEvent, sendUserTextInput } = useGameContext();
@@ -82,6 +82,7 @@ export const Init: Story = () => {
                 </span>
               </li>
             ))}
+            <li>Holds remaining: {getShipHoldsRemaining() || 0}</li>
           </ul>
         )}
 

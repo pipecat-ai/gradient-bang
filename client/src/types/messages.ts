@@ -97,3 +97,35 @@ export interface KnownPortListMessage extends ServerMessagePayload {
   total_ports_found: number;
   searched_sectors: number;
 }
+
+export interface BankTransactionMessage extends ServerMessagePayload {
+  character_id: string;
+  sector: Sector;
+  direction: "deposit" | "withdraw";
+  amount: number;
+  timestamp: string;
+  credits_on_hand_before: number;
+  credits_on_hand_after: number;
+  credits_in_bank_before: number;
+  credits_in_bank_after: number;
+}
+
+export interface SectorUpdateMessage extends ServerMessagePayload, Sector {}
+
+export interface SalvageCreatedMessage extends ServerMessagePayload {
+  sector: Sector;
+  salvage: Salvage;
+  dumped_cargo?: Record<Resource, number>;
+}
+
+export interface SalvageCollectedMessage extends ServerMessagePayload {
+  sector: Sector;
+  salvage: Salvage;
+  collected: {
+    cargo: Record<Resource, number>;
+    credits: number;
+  };
+  salvage_removed: boolean;
+  cargo_after: Record<Resource, number>;
+  credits_after: number;
+}

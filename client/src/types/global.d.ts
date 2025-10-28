@@ -19,6 +19,16 @@ declare global {
 
   // --- RESOURCE
   type Resource = "neuro_symbolics" | "quantum_foam" | "retro_organics";
+  type ResourceName = {
+    neuro_symbolics: "Neuro Symbolics";
+    quantum_foam: "Quantum Foam";
+    retro_organics: "Retro Organics";
+  };
+  type ResourceNameShort = {
+    neuro_symbolics: "NS";
+    quantum_foam: "QF";
+    retro_organics: "RO";
+  };
   type ResourceList = Resource[];
 
   // --- SHIP
@@ -42,7 +52,6 @@ declare global {
 
   interface ShipSelf extends Ship {
     cargo: Record<Resource, number>;
-    cargo_used: number;
     cargo_capacity: number;
     holds: number;
     warp_power: number;
@@ -80,6 +89,21 @@ declare global {
     class_code: string;
     class_name: string;
     id: number;
+  }
+
+  interface Salvage {
+    salvage;
+    created_at: string;
+    expires_at: string;
+    cargo: Record<Resource, number>;
+    scrap: number;
+    credits: number;
+    claimed: boolean;
+    source: {
+      ship_name: string;
+      ship_type: string;
+    };
+    metadata: object;
   }
 
   // --- PORT

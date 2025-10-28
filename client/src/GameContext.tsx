@@ -7,7 +7,9 @@ import { GameContext } from "@/hooks/useGameContext";
 import { wait } from "@/utils/animation";
 import useGameStore, { GameInitStateMessage } from "@stores/game";
 
+import { RESOURCE_SHORT_NAMES } from "@/types/constants";
 import {
+  type BankTransactionMessage,
   type CharacterMovedMessage,
   type CoursePlotMessage,
   type ErrorMessage,
@@ -16,6 +18,9 @@ import {
   type MovementCompleteMessage,
   type MovementStartMessage,
   type PortUpdateMessage,
+  type SalvageCollectedMessage,
+  type SalvageCreatedMessage,
+  type SectorUpdateMessage,
   type ServerMessage,
   type StatusMessage,
   type WarpPurchaseMessage,
@@ -320,6 +325,110 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               break;
             }
 
+            case "bank.transaction": {
+              console.debug("[GAME EVENT] Deposit", gameEvent.payload);
+              const data = gameEvent.payload as BankTransactionMessage;
+
+              // Note: we do not need to update the player or ship state
+              // as status.update is dispatched immediately after
+
+              if (data.direction === "deposit") {
+                gameStore.addActivityLogEntry({
+                  type: "bank.transaction",
+                  message: `Deposited [${data.amount}] credits to bank`,
+                });
+              } else {
+                gameStore.addActivityLogEntry({
+                  type: "bank.transaction",
+                  message: `Withdrew [${data.amount}] credits from bank`,
+                });
+              }
+              break;
+            }
+
+            // ----- MAP
+
+            case "sector.update": {
+              console.debug("[GAME EVENT] Sector update", gameEvent.payload);
+              const data = gameEvent.payload as SectorUpdateMessage;
+
+              gameStore.setSector(data as Sector);
+
+              // Note: not updating activity log as redundant from other logs
+
+              //gameStore.addActivityLogEntry({
+              //  type: "sector.update",
+              //  message: `Sector ${data.id} updated`,
+              //});
+
+              break;
+            }
+
+            case "salvage.created": {
+              console.debug("[GAME EVENT] Salvage created", gameEvent.payload);
+              const data = gameEvent.payload as SalvageCreatedMessage;
+
+              // Note: we update sector contents in proceeding sector.update event
+
+              // @TODO: status update is missing, so we may need to update player state here
+
+              gameStore.addActivityLogEntry({
+                type: "salvage.created",
+                message: `Salvage created in sector ${data.sector.id}`,
+              });
+              break;
+            }
+
+            case "salvage.collected": {
+              console.debug("[GAME EVENT] Salvage claimed", gameEvent.payload);
+              const data = gameEvent.payload as SalvageCollectedMessage;
+
+              // @TODO: ideally we would defer to a status update
+              // for now we'll use the event payload data
+              const cargoClaimed = Object.fromEntries(
+                Object.keys(RESOURCE_SHORT_NAMES).map((key) => [key, 0])
+              ) as Record<Resource, number>;
+              if (data.cargo_after) {
+                for (const [key, value] of Object.entries(
+                  data.collected.cargo
+                )) {
+                  cargoClaimed[key as Resource] = value;
+                }
+                gameStore.setShip({
+                  cargo: data.cargo_after,
+                });
+
+                const claimedItems = Object.entries(cargoClaimed)
+                  .filter((entry) => entry[1] > 0)
+                  .map(
+                    ([resource, amount]) =>
+                      `[${
+                        RESOURCE_SHORT_NAMES[resource as Resource]
+                      }: ${amount}]`
+                  )
+                  .join(" ");
+
+                gameStore.addActivityLogEntry({
+                  type: "salvage.claimed",
+                  message: `Salvage resources claimed: ${claimedItems}`,
+                });
+              }
+
+              if (data.credits_after && data.credits_after > 0) {
+                gameStore.setPlayer({
+                  credits_on_hand: data.credits_after,
+                });
+
+                gameStore.addActivityLogEntry({
+                  type: "salvage.claimed",
+                  message: `Salvage credits claimed: ${data.credits_after}`,
+                });
+              }
+              // @EOF: TODO
+
+              break;
+            }
+
             case "course.plot": {
               console.debug("[GAME EVENT] Course plot", gameEvent.payload);
               const data = gameEvent.payload as CoursePlotMessage;
@@ -327,8 +436,6 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               gameStore.setCoursePlot(data);
               break;
             }
-
-            // ----- MAP
 
             case "map.region":
             case "map.local": {
