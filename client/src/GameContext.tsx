@@ -12,6 +12,7 @@ import {
   type BankTransactionMessage,
   type CharacterMovedMessage,
   type CoursePlotMessage,
+  type CreditsTransferMessage,
   type ErrorMessage,
   type IncomingChatMessage,
   type MapLocalMessage,
@@ -35,11 +36,7 @@ interface GameProviderProps {
 
 //@TODO: remove this method once game server changes
 const transformMessage = (e: ServerMessage): ServerMessage | undefined => {
-  if (
-    ["tool_result", "tool_call", "task_output", "task_complete"].includes(
-      e.event
-    )
-  ) {
+  if (["tool_result", "tool_call"].includes(e.event)) {
     console.debug(
       "[GAME EVENT] Transforming server message",
       e.event,
@@ -475,9 +472,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               const data = gameEvent.payload as PortUpdateMessage;
 
               // If update is for current sector, update port payload
-              if (data.sector.id === gameStore.sector?.id) {
-                gameStore.setSectorPort(data.sector.id, data.port);
-              }
+              gameStore.updateSector(data.sector);
 
               break;
             }
@@ -499,7 +494,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
               gameStore.addActivityLogEntry({
                 type: "warp.purchase",
-                message: `Purchased ${data.units} warp units for ${data.price} credits`,
+                message: `Purchased [${data.units}] warp units for [${data.total_cost}] credits`,
               });
               break;
             }
@@ -510,9 +505,9 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
               let message = "";
               if (data.from_character_id === gameStore.player?.id) {
-                message = `Transferred ${data.units} warp units to ${data.to_character_id}`;
+                message = `Transferred [${data.units}] warp units to [${data.to_character_id}]`;
               } else {
-                message = `Received ${data.units} warp units from ${data.from_character_id}`;
+                message = `Received [${data.units}] warp units from [${data.from_character_id}]`;
               }
 
               gameStore.addActivityLogEntry({
@@ -521,6 +516,29 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               });
               break;
             }
+
+            case "credits.transfer": {
+              console.debug("[GAME EVENT] Credits transfer", gameEvent.payload);
+              const data = gameEvent.payload as CreditsTransferMessage;
+
+              // Note: we do not need to update the player or ship state
+              // as status.update is dispatched immediately after
+
+              const send_or_receive =
+                data.from_character_id === gameStore.player?.id;
+              const message = `${send_or_receive ? "Sent" : "Received"} [${
+                data.amount
+              }] credits ${send_or_receive ? "to" : "from"} [${
+                data.to_character_id
+              }]`;
+              gameStore.addActivityLogEntry({
+                type: "credits.transfer",
+                message: message,
+              });
+
+              break;
+            }
+
             // ----- COMBAT
 
             // ----- MISC

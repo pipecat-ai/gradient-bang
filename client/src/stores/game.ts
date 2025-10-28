@@ -65,7 +65,7 @@ export interface GameSlice extends GameState {
   addMessage: (message: ChatMessage) => void;
   setPlayer: (player: Partial<PlayerSelf>) => void;
   setSector: (sector: Sector) => void;
-  setSectorPort: (sectorId: number, port: Port) => void;
+  updateSector: (sector: Partial<Sector>) => void;
   addSectorPlayer: (player: Player) => void;
   removeSectorPlayer: (player: Player) => void;
   setSectorBuffer: (sector: Sector) => void;
@@ -129,11 +129,14 @@ const createGameSlice: StateCreator<
       })
     ),
 
-  setSectorPort: (sectorId: number, port: Port) =>
+  updateSector: (sectorUpdate: Partial<Sector>) =>
     set(
       produce((state) => {
-        if (state.sector?.id === sectorId) {
-          state.sector.port = port;
+        if (
+          state.sector?.id !== undefined &&
+          sectorUpdate.id === state.sector.id
+        ) {
+          state.sector = { ...state.sector, ...sectorUpdate };
         }
       })
     ),

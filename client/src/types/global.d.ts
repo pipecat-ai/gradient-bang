@@ -161,11 +161,18 @@ declare global {
   }
 
   // --- UI
+
   type UIState = "idle" | "moving" | "combat" | "paused";
   type UIScreen = "self" | "messaging" | "trading" | "map" | "tasks" | "combat";
   type UIModal = "settings" | undefined;
 
   // --- MISC
+
+  interface Task {
+    id: string;
+    summary: string;
+    timestamp: string;
+  }
 
   interface LogEntry {
     type: string;

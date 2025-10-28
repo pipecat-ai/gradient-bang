@@ -20,6 +20,17 @@ export interface ErrorMessage extends ServerMessagePayload {
   endpoint?: string;
 }
 
+export interface TaskOutputMessage extends ServerMessagePayload {
+  text: string;
+  task_message_type:
+    | "STEP"
+    | "ACTION"
+    | "EVENT"
+    | "MESSAGE"
+    | "ERROR"
+    | "FINISHED";
+}
+
 export interface IncomingChatMessage
   extends ServerMessagePayload,
     ChatMessage {}
@@ -79,7 +90,6 @@ export interface WarpTransferMessage extends ServerMessagePayload {
 
 export interface PortUpdateMessage extends ServerMessagePayload {
   sector: Sector;
-  port: Port;
 }
 
 export interface CharacterMovedMessage extends ServerMessagePayload {
@@ -128,4 +138,16 @@ export interface SalvageCollectedMessage extends ServerMessagePayload {
   salvage_removed: boolean;
   cargo_after: Record<Resource, number>;
   credits_after: number;
+}
+
+export interface CreditsTransferMessage extends ServerMessagePayload {
+  from_character_id: string;
+  to_character_id: string;
+  sector: Sector;
+  amount: number;
+  timestamp: string;
+  from_balance_before: number;
+  from_balance_after: number;
+  to_balance_before: number;
+  to_balance_after: number;
 }
