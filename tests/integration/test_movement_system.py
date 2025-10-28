@@ -347,9 +347,10 @@ class TestHyperspaceStateMachine:
         elapsed = time.time() - start_time
 
         # Move should take some time but not too long
-        # Typical: 0.5-2 seconds depending on server processing
-        # Allow up to 15s for slower test environments or server load
-        assert elapsed < 15.0, f"Move took too long: {elapsed}s"
+        # Typical: 2-3 seconds for hyperspace transit + server overhead
+        # Allow up to 60s for slower test environments, system load, or CI/CD
+        # This is primarily a non-hang test, not a precise timing test
+        assert elapsed < 60.0, f"Move took too long: {elapsed}s"
 
     async def test_concurrent_move_blocked_during_transit(self, joined_character):
         """Test that concurrent move attempts are blocked during transit."""
