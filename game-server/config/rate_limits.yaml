@@ -39,6 +39,10 @@ trade:
   limit: 1.0      # 1 trade per 2 seconds
   window: 2.0
 
+dump_cargo:
+  limit: 1.0      # 1 cargo dump per 2 seconds
+  window: 2.0
+
 # Combat endpoints
 combat.action:
   limit: 2.0      # 2 combat actions per second
@@ -55,6 +59,14 @@ recharge_warp_power:
 
 transfer_warp_power:
   limit: 1.0      # 1 transfer per 2 seconds
+  window: 2.0
+
+transfer_credits:
+  limit: 1.0      # 1 credit transfer per 2 seconds
+  window: 2.0
+
+bank_transfer:
+  limit: 1.0      # 1 bank transaction per 2 seconds
   window: 2.0
 
 # Map/status queries (more permissive)

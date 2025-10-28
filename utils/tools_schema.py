@@ -354,9 +354,9 @@ class RechargeWarpPower(GameClientTool):
 
 
 class TransferWarpPower(GameClientTool):
-    def __call__(self, to_character_id, units):
+    def __call__(self, to_player_name, units):
         return self.game_client.transfer_warp_power(
-            to_character_id=to_character_id,
+            to_player_name=to_player_name,
             units=units,
             character_id=self.game_client.character_id
         )
@@ -367,11 +367,10 @@ class TransferWarpPower(GameClientTool):
             name="transfer_warp_power",
             description="Transfer warp power to another character in the same sector",
             properties={
-                "to_character_id": {
+                "to_player_name": {
                     "type": "string",
-                    "description": "Character ID to transfer warp power to",
+                    "description": "Display name of the recipient currently in your sector",
                     "minLength": 1,
-                    "maxLength": 100,
                 },
                 "units": {
                     "type": "integer",
@@ -379,9 +378,103 @@ class TransferWarpPower(GameClientTool):
                     "minimum": 1,
                 },
             },
-            required=["to_character_id", "units"],
+            required=["to_player_name", "units"],
         )
 
+
+class TransferCredits(GameClientTool):
+    def __call__(self, to_player_name, amount):
+        return self.game_client.transfer_credits(
+            to_player_name=to_player_name,
+            amount=amount,
+            character_id=self.game_client.character_id
+        )
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="transfer_credits",
+            description="Transfer on-hand credits to another character in the same sector.",
+            properties={
+                "to_player_name": {
+                    "type": "string",
+                    "description": "Display name of the recipient currently in your sector",
+                    "minLength": 1,
+                },
+                "amount": {
+                    "type": "integer",
+                    "description": "Number of credits to transfer",
+                    "minimum": 1,
+                },
+            },
+            required=["to_player_name", "amount"],
+        )
+
+
+class BankTransfer(GameClientTool):
+    def __call__(self, direction, amount):
+        return self.game_client.bank_transfer(
+            direction=direction,
+            amount=amount,
+            character_id=self.game_client.character_id
+        )
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="bank_transfer",
+            description="Move credits between your ship and the mega-port bank account in sector 0.",
+            properties={
+                "direction": {
+                    "type": "string",
+                    "enum": ["deposit", "withdraw"],
+                    "description": "'deposit' to move ship credits into the bank, 'withdraw' to pull savings back aboard",
+                },
+                "amount": {
+                    "type": "integer",
+                    "description": "Number of credits to move",
+                    "minimum": 1,
+                },
+            },
+            required=["direction", "amount"],
+        )
+
+
+class DumpCargo(GameClientTool):
+    def __call__(self, items):
+        return self.game_client.dump_cargo(
+            items=items,
+            character_id=self.game_client.character_id
+        )
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="dump_cargo",
+            description="Jettison cargo into space to create salvage in the current sector.",
+            properties={
+                "items": {
+                    "type": "array",
+                    "description": "List of cargo entries to dump. Each entry requires a commodity and units.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "commodity": {
+                                "type": "string",
+                                "enum": ["quantum_foam", "retro_organics", "neuro_symbolics"],
+                            },
+                            "units": {
+                                "type": "integer",
+                                "minimum": 1,
+                            },
+                        },
+                        "required": ["commodity", "units"],
+                    },
+                    "minItems": 1,
+                }
+            },
+            required=["items"],
+        )
 
 
 class SendMessage(GameClientTool):

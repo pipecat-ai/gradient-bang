@@ -33,6 +33,27 @@ def start_test_server(
     Raises:
         RuntimeError: If server fails to start within timeout
     """
+    # Kill any existing server on this port to ensure fresh start
+    try:
+        result = subprocess.run(
+            ["lsof", "-ti", f":{port}"],
+            capture_output=True,
+            text=True,
+            timeout=2.0
+        )
+        if result.stdout.strip():
+            pids = result.stdout.strip().split('\n')
+            for pid in pids:
+                try:
+                    subprocess.run(["kill", "-9", pid], timeout=1.0)
+                except Exception:
+                    pass
+            # Wait a moment for ports to be released
+            time.sleep(0.5)
+    except Exception:
+        # lsof might not be available, continue anyway
+        pass
+
     project_root = Path(__file__).parent.parent.parent
     game_server_path = project_root / "game-server"
 

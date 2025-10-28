@@ -60,6 +60,14 @@ class DummyKnowledgeManager:
     def get_credits(self, character_id: str) -> int:
         return self._knowledge_map[character_id].credits
 
+    def get_bank_credits(self, character_id: str) -> int:
+        """Return bank balance (always 0 for test dummy)."""
+        return 0
+
+    def update_bank_credits(self, character_id: str, new_balance: int) -> None:
+        """Update bank balance (no-op for test dummy)."""
+        pass
+
     def update_port_observation(self, character_id: str, sector: int, port_data: dict) -> None:
         """Update port observation in character knowledge (no-op for test dummy)."""
         pass

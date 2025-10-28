@@ -1,23 +1,74 @@
 
+It looks to me like the participant field in combat.round_waiting 
+----
+
 0. After we merge gp-1025 we need to make sure the event-logger is threaded through all new emits.
 1. test_trade_event_visibility
 2. Do we have good tests for multi-character fan-out of events received when a character moves or a trade is executed? Not log query fanout tests. But events received in realtime by multiple characters in a sector.
 3. When we add garrison tests, we should make sure a player receives broadcast events from their garrison fighters in a different sectors, and add tests for being able to query combat events that happened to a player's garrison fighters. We may need new remote combat event types for this.
-4
+
 ----
 
 Look at server returing 500 instead of 400 for insufficient cargo. See if there are other instances of this.
+
 ----
 
-gb-1025 tests
-  - bank
-    - lightly tested
-  - credit transfer
-    - changing to use name
-    - need to test
-    - need to test with three players in the sector
-  - cargo dumped as salvage
-    - not tested
+We just merged some changes from a worktree. Commit d58a45462a82.
+
+We need to align the new code with existing code, write new tests for the new functionality, and fix one test we broke. Let's ultrathink together about how to do that. Look at the existing test code, the test fixtures that start the test server, and the instructions for writing tests in CLAUDE.md. Then look at the outline of a work plan below, and write a doc out to planning-files/ with a detailed plan, plus any suggestions or questions you have.
+
+1. The new events we've added in commit d58a45462a82 may not have proper EventLogger argument threading. Examine other event emit calls in the game server code and see if this needs to be updated.
+
+2. All rpc calls that reference another player should use player name, not character ID. Examine all AsyncGameClient tool calls, tool schema definitions, and game server rpc handlers to see if any need to be updated. The sender's character ID should be used, but any selection of another player should use player name. Examine transfer rpc calls, combat rpc calls, message sending rpc calls, and investigate whether any other rpc calls need to be updated to use ONLY player display name. Make a plan for updating all rpc calls as necessary, along with associated tests.
+
+3. We broke a few tests. Examine these tests and determine the changes in the code that are the root cause of the failures. Examine all other test code to see if we need to update any other tests. Also examine simple_tui.py and the code in client/ to see if we need to update any other code.
+
+FAILED tests/integration/test_async_game_client.py::test_transfer_warp_power - TypeError: AsyncGameClient.transfer_warp_power() got an unexpected keyword argument 'to_character_id'
+FAILED tests/integration/test_game_server_api.py::test_transfer_warp_power_to_character - TypeError: AsyncGameClient.transfer_warp_power() got an unexpected keyword argument 'to_character_id'
+FAILED tests/unit/test_combat_finalization.py::TestFinalizeCombat::test_defeated_character_creates_salvage - AssertionError: update_credits('winner1', 1500) call not found
+FAILED tests/unit/test_trade.py::test_trade_emits_enhanced_event_for_buy - AttributeError: 'DummyKnowledgeManager' object has no attribute 'get_bank_credits'. Did you mean: 'get_credits'?
+FAILED tests/unit/test_trade.py::test_trade_emits_enhanced_event_for_sell - AttributeError: 'DummyKnowledgeManager' object has no attribute 'get_bank_credits'. Did you mean: 'get_credits'?
+
+New functionality to ensure we have tests for:
+
+4. Bank deposit and withdrawal
+
+    - Deposit credits in the bank, when in sector 0. Player payload in sector.update event should update.
+    - Withdraw credits from the bank, when in sector 0. Player payload in sector.update event should update.
+    - Deposit more credits than available in credits_on_hand. Should fail.
+    - Withdraw more credits than available in credits_in_bank. Should fail.
+    - Deposit credits in the bank, when not in sector 0. Should fail.
+    - Withdraw credits from the bank, when not in sector 0. Should fail.
+
+5. Credit transfer between players
+
+    - All credit transfer tests should use player names, not character IDs.
+    - Transfer credits between players in the same sector. Player payloads in sector.update events should update to reflect the change in both player's credits_on_hand.
+    - Attempt to transfer more credits than available in credits_on_hand. Should fail.
+    - Transfer credits between players in different sectors. Should fail.
+
+6. Cargo dumped as salvage
+
+    - Do cargo dumps in a sector other than 0, just to avoid cluttering sector 0. Reset sector state between each test.
+    - Dump cargo as salvage. All players in the sector should see events. Player's own ship::cargo should update.
+    - Player retrieve their own dumped cargo. All players in the sector should see events. Player's own ship::cargo should update.
+    - Another player retrieve the cargo. All players in the sector should see events, etc.
+    - Player dump cargo, another player move into the sector, should see available salvage and be able to retrieve it. All events should fire as expected.
+    - Dump more cargo than available. Should fail.
+
+7. The game server is returning HTTP 500 instead of 400 for insufficient cargo when we try to sell at a port. It seems like the server should return 400. This is a small thing, but worth fixing anywhere we return a 500 instead of 400 for an error that is the result of a client miscalculation. Look at all of the rpc call handlers in the game server code and make a list of any places where we should return 400 instead of 500. We can update these, and then update any relevant tests.
+
+----
+
+If a player has a fighter in a sector, all events that would be sent to participants in that sector should be sent to the player. (And logged to the jsonl file as well, of course.)
+
+Let's ultrathink together about a plan to implement this, including adding any test coverage we need. We want to write a doc out to planning-files/ to describe and track our work.
+
+1. Examine the game server code to determine the best way to add event emitters that take into account the garrison in a sector. I think this may be as easy as adding logic in one place, to the player or sector filter.
+2. Examine our current test coverage and suggest an efficient way to add test coverage specifically to make sure that a player receives events from their garrison fighters in a different sector, and that those events are returned from a query of the event log.
+3. Create a detailed work plan, including a todo list.
+4. Include a section in the doc for questions and suggestions.
+5. Pause for us to discuss.
 
 
 ----

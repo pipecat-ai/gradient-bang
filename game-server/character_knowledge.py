@@ -51,6 +51,7 @@ class MapKnowledge(BaseModel):
     last_update: Optional[str] = None
     ship_config: ShipConfiguration = Field(default_factory=ShipConfiguration)
     credits: int = 1000  # Starting credits
+    credits_in_bank: int = 0  # Megaport savings account
     current_sector: Optional[int] = None  # Persist last known sector
 
 
@@ -450,6 +451,19 @@ class CharacterKnowledgeManager:
         """
         knowledge = self.load_knowledge(character_id)
         return knowledge.credits
+
+    def update_bank_credits(self, character_id: str, credits: int) -> None:
+        """Update a character's megaport bank balance."""
+        lock = self._locks.setdefault(character_id, threading.Lock())
+        with lock:
+            knowledge = self.load_knowledge(character_id)
+            knowledge.credits_in_bank = max(0, credits)
+            self.save_knowledge(knowledge)
+
+    def get_bank_credits(self, character_id: str) -> int:
+        """Return a character's megaport bank balance."""
+        knowledge = self.load_knowledge(character_id)
+        return knowledge.credits_in_bank
 
     def set_fighters(
         self, character_id: str, fighters: int, *, max_fighters: int | None = None

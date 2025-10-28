@@ -121,6 +121,47 @@ class SalvageManager:
                     self._by_sector.pop(sector_id, None)
                 break
 
+    def update(self, salvage_id: str, *, cargo: Optional[Dict[str, int]] = None, scrap: Optional[int] = None, credits: Optional[int] = None) -> bool:
+        """Update a salvage container's contents.
+
+        Args:
+            salvage_id: ID of salvage to update
+            cargo: New cargo dict (if provided)
+            scrap: New scrap amount (if provided)
+            credits: New credits amount (if provided)
+
+        Returns:
+            True if updated, False if salvage not found
+        """
+        container = self._find_by_id(salvage_id)
+        if not container:
+            return False
+
+        if cargo is not None:
+            container.cargo = dict(cargo)
+        if scrap is not None:
+            container.scrap = scrap
+        if credits is not None:
+            container.credits = credits
+
+        return True
+
+    def unclaim(self, salvage_id: str) -> bool:
+        """Unclaim a salvage container (for partial collection).
+
+        Args:
+            salvage_id: ID of salvage to unclaim
+
+        Returns:
+            True if unclaimed, False if salvage not found
+        """
+        container = self._find_by_id(salvage_id)
+        if not container:
+            return False
+
+        container.claimed = False
+        return True
+
     def prune_expired(self) -> None:
         now = datetime.now(timezone.utc)
         for sector_id, sector_map in list(self._by_sector.items()):

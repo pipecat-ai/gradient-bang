@@ -773,6 +773,7 @@ class SimpleTUI(App):
             "garrison.collected": self._on_garrison_event,
             "garrison.mode_changed": self._on_garrison_event,
             "salvage.collected": self._on_salvage_collected,
+            "bank.transaction": self._on_bank_transaction,
         }
 
         self._generic_event_suppressed = set(special_handlers.keys())
@@ -1060,10 +1061,27 @@ class SimpleTUI(App):
 
         if summary:
             await self._append_log(summary)
-        else:
-            salvage = payload.get("salvage") or {}
-            salvage_id = salvage.get("salvage_id", "?")
-            await self._append_log(f"Salvage collected: {salvage_id}")
+
+    async def _on_bank_transaction(self, event: Dict[str, Any]) -> None:
+        """Handle bank.transaction event for immediate HUD/log updates."""
+        payload = self._event_payload(event)
+        summary = self._event_summary(event)
+
+        self.status_updater.update_from_bank_transaction(payload)
+        self._refresh_status_display()
+
+        if summary:
+            await self._append_log(summary)
+            return
+
+        direction = payload.get("direction", "?")
+        amount = payload.get("amount")
+        on_hand = payload.get("credits_on_hand_after")
+        bank_balance = payload.get("credits_in_bank_after")
+        amount_text = f"{amount}" if amount is not None else "?"
+        await self._append_log(
+            f"Bank {direction}: {amount_text} credits → on-hand {on_hand}, bank {bank_balance}"
+        )
 
     # --- Sector Occupant Events ---
 

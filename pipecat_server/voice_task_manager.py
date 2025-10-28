@@ -26,6 +26,9 @@ from utils.tools_schema import (
     Trade,
     RechargeWarpPower,
     TransferWarpPower,
+    TransferCredits,
+    BankTransfer,
+    DumpCargo,
     SendMessage,
     UI_SHOW_PANEL_SCHEMA,
 )
@@ -98,10 +101,13 @@ class VoiceTaskManager:
             "port.update",
             "warp.purchase",
             "warp.transfer",
+            "credits.transfer",
             "garrison.deployed",
             "garrison.collected",
             "garrison.mode_changed",
             "salvage.collected",
+            "salvage.created",
+            "bank.transaction",
             "combat.round_waiting",
             "combat.round_resolved",
             "combat.ended",
@@ -153,6 +159,9 @@ class VoiceTaskManager:
             "trade": lambda **kwargs: self.game_client.trade(
                 character_id=self.character_id, **kwargs
             ),
+            "dump_cargo": lambda **kwargs: self.game_client.dump_cargo(
+                character_id=self.character_id, **kwargs
+            ),
             "send_message": lambda **kwargs: self.game_client.send_message(
                 character_id=self.character_id, **kwargs
             ),
@@ -160,6 +169,12 @@ class VoiceTaskManager:
                 character_id=self.character_id, amount=amount
             ),
             "transfer_warp_power": lambda **kwargs: self.game_client.transfer_warp_power(
+                character_id=self.character_id, **kwargs
+            ),
+            "transfer_credits": lambda **kwargs: self.game_client.transfer_credits(
+                character_id=self.character_id, **kwargs
+            ),
+            "bank_transfer": lambda **kwargs: self.game_client.bank_transfer(
                 character_id=self.character_id, **kwargs
             ),
         }
@@ -460,8 +475,11 @@ class VoiceTaskManager:
                 PathWithRegion.schema(),
                 Move.schema(),
                 Trade.schema(),
+                DumpCargo.schema(),
                 RechargeWarpPower.schema(),
                 TransferWarpPower.schema(),
+                TransferCredits.schema(),
+                BankTransfer.schema(),
                 SendMessage.schema(),
                 StartTask.schema(),
                 StopTask.schema(),
