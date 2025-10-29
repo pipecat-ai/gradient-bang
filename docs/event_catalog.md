@@ -90,6 +90,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
       "neuro_symbolics": 5
     },
     "cargo_capacity": 120,
+    "empty_holds": 60,
     "warp_power": 37,
     "warp_power_capacity": 50,
     "shields": 120,
@@ -104,6 +105,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 - The opening round includes an `initiator` field identifying who triggered the encounter; subsequent rounds omit the field.
 - Join-triggered and move-triggered emissions attach a `source` derived from their respective RPC request so clients can correlate the event to login or travel.
 - `ship` contains the same structure as other status-bearing events (`status.update`, `movement.complete`) but only for the receiving character. Other combatants see summary data (shield percentages, losses).
+- `ship.empty_holds` is a calculated field (cargo_capacity - sum(cargo)) included only in the viewer's own ship status, never in opponent views.
 - Garrisons now expose `owner_name` and omit `toll_balance` for privacy.
 
 ### combat.round_resolved
@@ -160,6 +162,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
       "neuro_symbolics": 5
     },
     "cargo_capacity": 120,
+    "empty_holds": 65,
     "warp_power": 35,
     "warp_power_capacity": 50,
     "shields": 80,
@@ -237,6 +240,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
       "neuro_symbolics": 5
     },
     "cargo_capacity": 120,
+    "empty_holds": 67,
     "warp_power": 33,
     "warp_power_capacity": 50,
     "shields": 65,
@@ -543,6 +547,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
       "neuro_symbolics": 20
     },
     "cargo_capacity": 100,
+    "empty_holds": 0,
     "warp_power": 47,
     "warp_power_capacity": 50,
     "shields": 85,
@@ -813,11 +818,12 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "ship_type": "kestrel_courier",
     "ship_name": "Kestrel Courier",
     "cargo": {
-      "quantum_foam": 100,
+      "quantum_foam": 50,
       "retro_organics": 30,
       "neuro_symbolics": 20
     },
     "cargo_capacity": 100,
+    "empty_holds": 0,
     "warp_power": 47,
     "warp_power_capacity": 50,
     "shields": 85,
@@ -828,12 +834,12 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
   "trade": {
     "trade_type": "buy",
     "commodity": "quantum_foam",
-    "units": 100,
+    "units": 50,
     "price_per_unit": 25,
-    "total_price": 2500,
+    "total_price": 1250,
     "new_credits": 7500,
     "new_cargo": {
-      "quantum_foam": 100,
+      "quantum_foam": 50,
       "retro_organics": 30,
       "neuro_symbolics": 20
     },
@@ -1087,6 +1093,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
       "neuro_symbolics": 4
     },
     "cargo_capacity": 120,
+    "empty_holds": 59,
     "warp_power": 38,
     "warp_power_capacity": 50,
     "shields": 120,
@@ -1133,11 +1140,12 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "ship_type": "kestrel_courier",
     "ship_name": "Kestrel Courier",
     "cargo": {
-      "quantum_foam": 70,
+      "quantum_foam": 50,
       "retro_organics": 30,
       "neuro_symbolics": 20
     },
     "cargo_capacity": 100,
+    "empty_holds": 0,
     "warp_power": 37,
     "warp_power_capacity": 50,
     "shields": 85,
@@ -1247,3 +1255,4 @@ The new combat event serialization (implemented in `/game-server/combat/utils.py
 - Cargo and credit information is never revealed to opponents
 - Character IDs are shown for ownership but player display names can be different
 - Garrison details (mode, toll) are revealed to participants in combat with that garrison
+- `ship.empty_holds` is a calculated convenience field (cargo_capacity - sum(cargo)) included only in events containing the viewer's own ship status (via `ship_self()`), never in public player views (sector.update, character.moved) or opponent combat data

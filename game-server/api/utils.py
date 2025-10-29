@@ -250,12 +250,17 @@ def ship_self(world, character_id: str) -> Dict[str, Any]:
     # Use custom name if set, otherwise default to ship type name
     display_name = ship_config.ship_name or ship_stats.name
 
+    # Calculate available cargo space
+    cargo_used = sum(ship_config.cargo.values())
+    empty_holds = ship_stats.cargo_holds - cargo_used
+
     # todo: refactor ship_config and ship_stats
     return {
         "ship_type": ship_config.ship_type,
         "ship_name": display_name,
         "cargo": ship_config.cargo,
         "cargo_capacity": ship_stats.cargo_holds,
+        "empty_holds": empty_holds,
         "warp_power": ship_config.current_warp_power,
         "warp_power_capacity": ship_stats.warp_power_capacity,
         "shields": ship_config.current_shields,

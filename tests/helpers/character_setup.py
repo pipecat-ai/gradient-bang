@@ -402,6 +402,9 @@ TEST_CHARACTER_IDS = [
     "test_event_order_char1",
     "test_event_order_char2",
     "test_event_order_char3",
+    # Empty holds test characters (test_game_server_api.py)
+    "test_empty_holds_char",
+    "test_empty_holds_edge",
 ]
 
 
