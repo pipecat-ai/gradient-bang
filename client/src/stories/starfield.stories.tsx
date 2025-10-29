@@ -155,6 +155,20 @@ export const StarFieldSequence: Story = () => {
     return () => clearInterval(interval);
   }, [starfieldInstance, start]);
 
+  useEffect(() => {
+    if (!starfieldInstance || !start) return;
+
+    starfieldInstance.on("sceneReady", (event) => {
+      console.log("[STARFIELD EVENT] Scene ready:", event);
+    });
+
+    return () => {
+      starfieldInstance.off("sceneReady", (event) => {
+        console.log("[STARFIELD EVENT] Scene ready:", event);
+      });
+    };
+  }, [starfieldInstance, start]);
+
   const testScenarios = {
     // Scenario 1: Single warp (should play animation)
     singleWarp: () => {

@@ -1,29 +1,158 @@
+import { usePlaySound } from "@/hooks/usePlaySound";
 import useGameStore from "@/stores/game";
-import { AnimatePresence, motion } from "motion/react";
-//import { useEffect, useState } from "react";
+import { ScrambleText, type ScrambleTextRef } from "@fx/ScrambleText";
+import { AnimatePresence, motion, useAnimate } from "motion/react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+const useDelayedVisibility = (value: boolean, delay: number) => {
+  const [delayedValue, setDelayedValue] = useState(value);
+  const timeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (value) {
+      if (timeoutRef.current !== null) {
+        window.clearTimeout(timeoutRef.current);
+      }
+
+      timeoutRef.current = window.setTimeout(() => {
+        setDelayedValue(true);
+        timeoutRef.current = null;
+      }, delay);
+    } else {
+      if (timeoutRef.current !== null) {
+        window.clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+
+      setDelayedValue(false);
+    }
+
+    return () => {
+      if (timeoutRef.current !== null) {
+        window.clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    };
+  }, [value, delay]);
+
+  return delayedValue;
+};
 
 export const SectorTitleBanner = () => {
+  const playSound = usePlaySound();
+  const starfieldInstance = useGameStore.use.starfieldInstance?.();
   const sector = useGameStore.use.sector?.();
+  const [isVisible, setIsVisible] = useState(false);
+  const [skipExit, setSkipExit] = useState(false);
+  const scrambleRef = useRef<ScrambleTextRef>(null);
+  const debouncedVisible = useDelayedVisibility(isVisible, 2500);
+  const [scope, animate] = useAnimate();
+  const hideTimerRef = useRef<number | null>(null);
+  const clearHideTimer = useCallback(() => {
+    if (hideTimerRef.current !== null) {
+      window.clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+  }, []);
 
-  const sectorId = sector?.id.toString() || "unknown";
+  const sectorText = `SECTOR ${sector?.id.toString() || "unknown"}`;
 
-  //if (!sector) return null;
+  useEffect(() => {
+    if (!debouncedVisible) {
+      clearHideTimer();
+      scrambleRef.current?.scrambleOut();
+      return;
+    }
+
+    // Ensure skip flag is reset whenever we show again
+    setSkipExit(false);
+
+    clearHideTimer();
+
+    hideTimerRef.current = window.setTimeout(() => {
+      setIsVisible(false);
+      hideTimerRef.current = null;
+    }, 3000);
+
+    return clearHideTimer;
+  }, [debouncedVisible, clearHideTimer]);
+
+  const onSceneChange = useCallback(() => {
+    setSkipExit(false);
+
+    const shouldDisplay =
+      (starfieldInstance?.getWarpQueueLength() ?? 0) === 0;
+    setIsVisible(shouldDisplay);
+  }, [starfieldInstance]);
+
+  useEffect(() => {
+    if (!debouncedVisible) return;
+    playSound("text", { volume: 0.1 });
+  }, [playSound, debouncedVisible]);
+
+  useEffect(() => {
+    if (sector) {
+      return;
+    }
+
+    clearHideTimer();
+    setIsVisible(false);
+  }, [sector, clearHideTimer]);
+
+  const onWarpStart = useCallback(async () => {
+    clearHideTimer();
+
+    if (!debouncedVisible) {
+      setSkipExit(false);
+      setIsVisible(false);
+      return;
+    }
+
+    scrambleRef.current?.scrambleOut(250);
+    setSkipExit(true);
+    await animate(
+      scope.current,
+      { opacity: 0 },
+      { duration: 0.25, ease: "easeOut" }
+    );
+    setIsVisible(false);
+  }, [animate, clearHideTimer, debouncedVisible, scope]);
+
+  useEffect(() => {
+    if (!starfieldInstance) return;
+
+    starfieldInstance.on("sceneReady", onSceneChange);
+    starfieldInstance.on("warpStart", onWarpStart);
+
+    return () => {
+      starfieldInstance.off("sceneReady", onSceneChange);
+      starfieldInstance.off("warpStart", onWarpStart);
+    };
+  }, [starfieldInstance, onSceneChange, onWarpStart]);
 
   return (
     <AnimatePresence>
-      <motion.div
-        key={sectorId}
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        transition={{
-          duration: 0.4,
-          ease: "easeOut",
-        }}
-        className="w-full h-full absolute inset-0 z-10 flex flex-col items-center justify-center pointer-events-none"
-      >
-        <h1 className="text-white text-2xl font-bold">{sectorId}</h1>
-      </motion.div>
+      {debouncedVisible && (
+        <motion.div
+          ref={scope}
+          key={`sector-${sector?.id}`}
+          initial={{ opacity: 0 }}
+          animate={{
+            opacity: 1,
+            transition: { duration: 0.4, ease: "easeOut" },
+          }}
+          exit={
+            skipExit
+              ? undefined
+              : { opacity: 0, transition: { duration: 2, ease: "easeOut" } }
+          }
+          className="w-full h-full absolute inset-0 flex flex-col items-center justify-center z-999"
+        >
+          <p className="text-white text-2xl font-bold uppercase text-shadow-lg">
+            <ScrambleText ref={scrambleRef}>{sectorText}</ScrambleText>
+          </p>
+        </motion.div>
+      )}
     </AnimatePresence>
   );
 };

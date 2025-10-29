@@ -282,7 +282,9 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
                 type: "movement",
                 message: `Moved from sector ${gameStore.sector?.id} to sector ${gameStore.sectorBuffer?.id}`,
               });
+
               // If this is our first time here, update log with discovery
+              // @TODO: implement
 
               // Swap in the buffered sector
               // Note: Starfield instance already in sync through animation sequencing
@@ -294,7 +296,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
               // Cleanup
 
-              // Remove any course plot data if we've reached out intended destination
+              // Remove any course plot data if we've reached our intended destination
               // @TODO: make this logic robust (plots should become stale after a certain time)
               if (
                 gameStore.course_plot?.to_sector === gameStore.sectorBuffer?.id

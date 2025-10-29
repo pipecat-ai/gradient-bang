@@ -2,7 +2,10 @@ import useGameStore from "@stores/game";
 import { memo, useCallback, useEffect } from "react";
 
 import { SectorTitleBanner } from "@/components/SectorTitleBanner";
-import type { GameObjectInstance } from "@/fx/starfield/types";
+import type {
+  GalaxyStarfieldEvents,
+  GameObjectInstance,
+} from "@/fx/starfield/types";
 import { usePlaySound } from "@/hooks/usePlaySound";
 
 export const StarField = memo(() => {
@@ -10,10 +13,15 @@ export const StarField = memo(() => {
   const starfieldInstance = useGameStore.use.starfieldInstance?.();
   const settings = useGameStore.use.settings();
 
-  const onWarpStart = useCallback(() => {
-    console.log("[STARFIELD] 🚀 Warp started");
-    playSound("warp");
-  }, [playSound]);
+  const onWarpStart = useCallback(
+    ({ willPlayAnimation }: GalaxyStarfieldEvents["warpStart"]) => {
+      console.log("[STARFIELD] 🚀 Warp started", willPlayAnimation);
+      if (willPlayAnimation) {
+        playSound("warp");
+      }
+    },
+    [playSound]
+  );
 
   const onGameObjectSelected = useCallback((gameObject: GameObjectInstance) => {
     console.log("[STARFIELD] Game object selected:", gameObject.name);

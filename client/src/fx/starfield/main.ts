@@ -201,6 +201,7 @@ export class GalaxyStarfield {
   private _phasePrefix: string;
   private _cloudsShakeStartTime?: number;
   private _isRendering: boolean = false;
+  private _sceneReadyPending: boolean = false;
 
   // Warp management
   private warpController: WarpController;
@@ -211,6 +212,25 @@ export class GalaxyStarfield {
   private lifecycleController: LifecycleController;
   private _webglContextLostHandler?: (event: Event) => void;
   private _webglContextRestoredHandler?: () => void;
+
+  private finalizeSceneReady(): void {
+    if (!this._sceneReadyPending) {
+      return;
+    }
+
+    this._sceneReadyPending = false;
+
+    if (!this.sceneController.isSceneReady()) {
+      this.sceneController.markSceneReady();
+    }
+
+    this.emit("sceneReady", {
+      isInitialRender: this._isFirstRender,
+      sceneId: this._currentSceneId,
+    });
+
+    this._isFirstRender = false;
+  }
 
   private resolveWhiteFlashElement(): HTMLElement | null {
     if (!this.whiteFlash || !document.contains(this.whiteFlash)) {
@@ -239,6 +259,7 @@ export class GalaxyStarfield {
     this.sceneController.setLockedConfig(task.preparedConfig);
     this._warpBypassFlash = !!task.options.bypassFlash;
     this._currentSceneId = task.sceneId;
+    this._sceneReadyPending = true;
     this.startWarp();
     this.startRendering();
   }
@@ -248,12 +269,14 @@ export class GalaxyStarfield {
     this._currentSceneId = task.sceneId;
     this.sceneController.setLockedConfig(null);
     this.resetNonAnimatedWarpState();
+    this._sceneReadyPending = true;
+    this.emit("warpStart", { willPlayAnimation: false });
 
     try {
       await this.sceneController.transitionToScene(
         task.preparedConfig ?? null,
         {
-          emitEvents: true,
+          emitEvents: false,
           transition: !task.options.bypassFlash,
         }
       );
@@ -264,7 +287,7 @@ export class GalaxyStarfield {
       console.error("[STARFIELD] Scene loading failed:", err);
       this.emit("warpComplete", this.warpController.queueLength());
     } finally {
-      this.sceneController.markSceneReady();
+      this.finalizeSceneReady();
       this.startRendering();
       this.resetNonAnimatedWarpState();
     }
@@ -915,6 +938,7 @@ export class GalaxyStarfield {
     if (this.state === "warping" && newState !== "warping") {
       if (!this._warpCompleted) {
         this.emit("warpCancel");
+        this._sceneReadyPending = false;
       }
 
       if (!this._warpCompleted && this._warpPromiseResolver) {
@@ -947,7 +971,7 @@ export class GalaxyStarfield {
 
       this._warpStartTime = this.clock.getElapsedTime();
 
-      this.emit("warpStart");
+      this.emit("warpStart", { willPlayAnimation: true });
     }
 
     if (newState === "shake") {
@@ -1150,6 +1174,7 @@ export class GalaxyStarfield {
 
       this.setState("idle");
       this.warpController.notifyWarpComplete();
+      this.finalizeSceneReady();
 
       return;
     }
@@ -2263,6 +2288,7 @@ export class GalaxyStarfield {
 
     // Drop listeners to prevent leaks
     this.emitter.all.clear();
+    this._sceneReadyPending = false;
 
     // Clear warp queue and promises
     this._warpPromiseResolver = null;
@@ -2324,6 +2350,8 @@ export class GalaxyStarfield {
       this._currentSceneId = "initial";
     }
 
+    this._sceneReadyPending = true;
+
     // Load assets and wait for readiness without emitting events yet
     await this.sceneController.transitionToScene(configToLoad, {
       emitEvents: false,
@@ -2342,6 +2370,6 @@ export class GalaxyStarfield {
     );
 
     // Now signal that the scene is ready and rendering has started
-    this.sceneController.markSceneReady();
+    this.finalizeSceneReady();
   }
 }

@@ -7,7 +7,7 @@ export type GalaxyStarfieldEvents = {
   gameObjectInView: GameObjectInstance;
   gameObjectSelected: GameObjectInstance;
   gameObjectCleared: void;
-  warpStart: void;
+  warpStart: { willPlayAnimation: boolean };
   warpComplete: number;
   warpCancel: void;
   warpQueue: number;
