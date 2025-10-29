@@ -117,19 +117,38 @@ class TestCreditTransfers:
             if "payload" in sender_event:
                 sender_event = sender_event["payload"]
 
-            assert sender_event["from_character_id"] == sender_id
-            assert sender_event["to_character_id"] == receiver_id
-            assert sender_event["amount"] == 300
-            assert sender_event["from_balance_before"] == 1000
-            assert sender_event["from_balance_after"] == 700
+            # Verify sender received "sent" event with new payload structure
+            assert sender_event["transfer_direction"] == "sent"
+            assert sender_event["transfer_details"]["credits"] == 300
+            assert sender_event["from"]["id"] == sender_id
+            assert sender_event["from"]["name"] is not None
+            assert sender_event["to"]["id"] == receiver_id
+            assert sender_event["to"]["name"] is not None
+
+            # Verify NO private balance fields in new payload
+            assert "from_balance_before" not in sender_event
+            assert "from_balance_after" not in sender_event
+            assert "amount" not in sender_event  # now in transfer_details.credits
+            assert "from_character_id" not in sender_event  # now in from.id
+            assert "to_character_id" not in sender_event  # now in to.id
 
             # Verify receiver event
             receiver_event = receiver_events[0]
             if "payload" in receiver_event:
                 receiver_event = receiver_event["payload"]
 
-            assert receiver_event["to_balance_before"] == 500
-            assert receiver_event["to_balance_after"] == 800
+            # Verify receiver received "received" event with new payload structure
+            assert receiver_event["transfer_direction"] == "received"
+            assert receiver_event["transfer_details"]["credits"] == 300
+            assert receiver_event["from"]["id"] == sender_id
+            assert receiver_event["to"]["id"] == receiver_id
+
+            # Verify NO private balance fields in new payload
+            assert "to_balance_before" not in receiver_event
+            assert "to_balance_after" not in receiver_event
+            assert "amount" not in receiver_event
+            assert "from_character_id" not in receiver_event
+            assert "to_character_id" not in receiver_event
 
             # Verify final state
             sender_status_after = await get_status(sender_client, sender_id)

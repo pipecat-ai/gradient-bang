@@ -10,9 +10,10 @@ from .utils import (
     ship_self,
     port_snapshot,
     build_event_source,
+    build_status_payload,
     rpc_success,
 )
-from rpc.events import event_dispatcher
+from rpc.events import event_dispatcher, EventLogContext
 from trading import TradingError
 
 
@@ -107,6 +108,7 @@ async def _execute_trade(
     )
 
     commodities = [("QF", "quantum_foam"), ("RO", "retro_organics"), ("NS", "neuro_symbolics")]
+    log_context = EventLogContext(sender=character_id, sector=character.sector)
 
     def build_port_data(state):
         port_data = {
@@ -227,6 +229,16 @@ async def _execute_trade(
                 },
             },
             character_filter=[character_id],
+            log_context=log_context,
+        )
+
+        # Emit status.update after trade
+        status_payload = await build_status_payload(world, character_id)
+        await event_dispatcher.emit(
+            "status.update",
+            status_payload,
+            character_filter=[character_id],
+            log_context=log_context,
         )
 
         await _broadcast_port_update()
@@ -295,6 +307,16 @@ async def _execute_trade(
                 },
             },
             character_filter=[character_id],
+            log_context=log_context,
+        )
+
+        # Emit status.update after trade
+        status_payload = await build_status_payload(world, character_id)
+        await event_dispatcher.emit(
+            "status.update",
+            status_payload,
+            character_filter=[character_id],
+            log_context=log_context,
         )
 
         await _broadcast_port_update()

@@ -1568,13 +1568,14 @@ class TestCharacterFiltering:
             start_time = datetime.now(timezone.utc)
             await asyncio.sleep(0.1)
 
-            # STEP 2: Sender sends direct message to recipient
-            print(f"\nSTEP 2: {sender_id} sends direct message to {recipient_id}...")
+            # STEP 2: Sender sends direct message to recipient (using display name)
+            recipient_display_name = "Message Recipient"
+            print(f"\nSTEP 2: {sender_id} sends direct message to {recipient_display_name}...")
             message_content = "This is a private message for testing"
             await sender_client.send_message(
                 content=message_content,
                 msg_type="direct",
-                to_name=recipient_id,
+                to_name=recipient_display_name,  # Use display name, not character ID
                 character_id=sender_id
             )
             await asyncio.sleep(1.0)

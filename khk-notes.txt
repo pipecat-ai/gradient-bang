@@ -1,5 +1,20 @@
 
-It looks to me like the participant field in combat.round_waiting 
+
+Next up:
+
+- tasks
+  - change task_output to task.output
+  - add task.started
+  - separate task.complete and a new task.cancelled
+  - prompt the llm to plan first with an estimated number of steps and output that.
+
+- add something about salvage to the core game prompt (bot sometimes forgets it can collect salvage)
+
+- separate PR
+  - move credits to ship self: credits_on_hand in player becomes ship::credits
+    - escape pods must not be able to hold credits
+
+
 ----
 
 0. After we merge gp-1025 we need to make sure the event-logger is threaded through all new emits.
@@ -520,6 +535,8 @@ Sunday
   - be able to analyze what happened in a game by looking at everything that happened across a time range, in the database tables
 
 # Things to write about.
+
+Emergent behavior - when we added dumping cargo, bots started doing that to buy things at ports.
 
 Trying to write as little code as possible to perform game functions on behalf of a player. Instead, everything should be done by the LLM. This means writing more code to summarize game state and coordinate actions between the conversation and task LLMs.
 

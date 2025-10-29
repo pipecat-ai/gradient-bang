@@ -743,12 +743,12 @@ async def test_collect_salvage_picks_up_loot(server_url, check_server_available)
             assert result.get("success") is True
             assert "collected" in result
             assert "remaining" in result
-            assert "salvage_removed" in result
+            assert "fully_collected" in result
 
             # Validate partial collection (5 space available, 10 in salvage)
             assert result["collected"]["cargo"].get("quantum_foam", 0) == 5
             assert result["remaining"]["cargo"].get("quantum_foam", 0) == 5
-            assert result["salvage_removed"] is False
+            assert result["fully_collected"] is False
 
             # Validate salvage.collected event
             await asyncio.sleep(0.5)
@@ -758,7 +758,9 @@ async def test_collect_salvage_picks_up_loot(server_url, check_server_available)
 
             salvage_event = salvage_events[0]
             payload = salvage_event.get("payload", {})
-            assert payload.get("collected", {}).get("cargo", {}).get("quantum_foam", 0) == 5
+            details = payload.get("salvage_details", {})
+            assert details.get("collected", {}).get("cargo", {}).get("quantum_foam", 0) == 5
+            assert details.get("fully_collected") is False
 
         finally:
             await dumper_client.close()
@@ -887,3 +889,129 @@ async def test_send_message_to_character(server_url, check_server_available):
 async def test_broadcast_message_to_sector(server_url, check_server_available):
     """Test sector broadcast messaging."""
     pass
+
+
+@pytest.mark.asyncio
+async def test_ship_empty_holds_calculation(server_url):
+    """Test that ship_self includes correct empty_holds calculation.
+
+    Verifies:
+    1. empty_holds field exists in status
+    2. Calculation is correct: cargo_capacity - sum(cargo)
+    3. Updates correctly after cargo changes (trade, dump, collect)
+    4. Only present in player's own ship view, not in sector.update
+    """
+    char_id = "test_empty_holds_char"
+    client = AsyncGameClient(base_url=server_url, character_id=char_id, transport="websocket")
+
+    try:
+        # STEP 1: Join and verify initial empty_holds
+        await client.join(character_id=char_id)
+        status = await get_status(client, char_id)
+        ship = status["ship"]
+
+        # Verify field exists
+        assert "empty_holds" in ship, "ship_self should include empty_holds field"
+        assert "cargo_capacity" in ship
+        assert "cargo" in ship
+
+        # Verify calculation is correct
+        cargo_used = sum(ship["cargo"].values())
+        expected_empty = ship["cargo_capacity"] - cargo_used
+        assert ship["empty_holds"] == expected_empty, \
+            f"empty_holds should be {expected_empty} (capacity={ship['cargo_capacity']}, used={cargo_used}), got {ship['empty_holds']}"
+
+        initial_empty = ship["empty_holds"]
+        print(f"Initial empty_holds: {initial_empty}/{ship['cargo_capacity']}")
+
+        # STEP 2: Move to a port (sector 1 has port BBS)
+        await client.move(to_sector=1, character_id=char_id)
+        await asyncio.sleep(0.5)
+
+        status = await get_status(client, char_id)
+        assert status["sector"]["id"] == 1
+
+        # STEP 3: Buy cargo and verify empty_holds decreases
+        port = status["sector"].get("port")
+        if port and port["code"] == "BBS":  # Sells neuro_symbolics
+            # Buy 10 units
+            await client.trade(
+                commodity="neuro_symbolics",
+                quantity=10,
+                trade_type="buy",
+                character_id=char_id
+            )
+            await asyncio.sleep(0.5)
+
+            status = await get_status(client, char_id)
+            ship = status["ship"]
+
+            # Verify empty_holds decreased by 10
+            assert ship["empty_holds"] == initial_empty - 10, \
+                f"After buying 10 units, empty_holds should decrease by 10"
+
+            # Verify calculation still correct
+            cargo_used = sum(ship["cargo"].values())
+            expected_empty = ship["cargo_capacity"] - cargo_used
+            assert ship["empty_holds"] == expected_empty
+
+            print(f"After buying 10 units: {ship['empty_holds']}/{ship['cargo_capacity']}")
+
+        # STEP 4: Dump cargo and verify empty_holds increases
+        if ship["cargo"].get("neuro_symbolics", 0) >= 5:
+            await client.dump_cargo(
+                items={"neuro_symbolics": 5},
+                character_id=char_id
+            )
+            await asyncio.sleep(0.5)
+
+            status = await get_status(client, char_id)
+            ship = status["ship"]
+
+            # Verify empty_holds increased
+            cargo_used = sum(ship["cargo"].values())
+            expected_empty = ship["cargo_capacity"] - cargo_used
+            assert ship["empty_holds"] == expected_empty
+
+            print(f"After dumping 5 units: {ship['empty_holds']}/{ship['cargo_capacity']}")
+
+        # STEP 5: Verify empty_holds NOT in sector.update (other players' view)
+        sector = status["sector"]
+        if "players" in sector:
+            for player in sector["players"]:
+                if "ship" in player:
+                    assert "empty_holds" not in player["ship"], \
+                        "empty_holds should NOT appear in public ship view (sector.update)"
+                    print("✓ Verified: empty_holds not in public player ship view")
+
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_empty_holds_edge_cases(server_url):
+    """Test empty_holds calculation with edge cases."""
+    char_id = "test_empty_holds_edge"
+    client = AsyncGameClient(base_url=server_url, character_id=char_id, transport="websocket")
+
+    try:
+        await client.join(character_id=char_id)
+        status = await get_status(client, char_id)
+        ship = status["ship"]
+
+        # Edge case 1: Empty cargo (initial state)
+        if sum(ship["cargo"].values()) == 0:
+            assert ship["empty_holds"] == ship["cargo_capacity"], \
+                "With empty cargo, empty_holds should equal cargo_capacity"
+            print("✓ Edge case: Empty cargo handled correctly")
+
+        # Edge case 2: Verify type is integer
+        assert isinstance(ship["empty_holds"], int), \
+            "empty_holds should be an integer"
+        assert ship["empty_holds"] >= 0, \
+            "empty_holds should never be negative"
+
+        print("✓ Edge cases verified")
+
+    finally:
+        await client.close()

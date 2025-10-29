@@ -10,6 +10,7 @@ from fastapi import HTTPException
 
 from .utils import (
     build_event_source,
+    build_public_player_data,
     build_status_payload,
     emit_error_event,
     ensure_not_in_combat,
@@ -111,21 +112,42 @@ async def handle(request: dict, world, credit_locks) -> dict:  # noqa: D401
 
     log_context = EventLogContext(sender=from_character_id, sector=from_character.sector)
 
+    # Build reusable data for new unified transfer payload
+    source = build_event_source("transfer_credits", request_id)
+    from_player_data = build_public_player_data(world, from_character_id)
+    to_player_data = build_public_player_data(world, to_character_id)
+    transfer_details = {"credits": amount}
+    sector_data = {"id": from_character.sector}
+
+    # Emit to sender with direction="sent"
     await event_dispatcher.emit(
         "credits.transfer",
         {
-            "source": build_event_source("transfer_credits", request_id),
-            "from_character_id": from_character_id,
-            "to_character_id": to_character_id,
-            "sector": {"id": from_character.sector},
-            "amount": amount,
+            "transfer_direction": "sent",
+            "transfer_details": transfer_details,
+            "from": from_player_data,
+            "to": to_player_data,
+            "sector": sector_data,
             "timestamp": timestamp,
-            "from_balance_before": from_balance_before,
-            "from_balance_after": from_balance_before - amount,
-            "to_balance_before": to_balance_before,
-            "to_balance_after": to_balance_before + amount,
+            "source": source,
         },
-        character_filter=[from_character_id, to_character_id],
+        character_filter=[from_character_id],
+        log_context=log_context,
+    )
+
+    # Emit to receiver with direction="received"
+    await event_dispatcher.emit(
+        "credits.transfer",
+        {
+            "transfer_direction": "received",
+            "transfer_details": transfer_details,
+            "from": from_player_data,
+            "to": to_player_data,
+            "sector": sector_data,
+            "timestamp": timestamp,
+            "source": source,
+        },
+        character_filter=[to_character_id],
         log_context=log_context,
     )
 

@@ -100,17 +100,25 @@ class TestCargoSalvage:
             # Wait for events
             await asyncio.sleep(0.5)
 
-            # Verify salvage.created event
+            # Verify salvage.created event (standardized payload)
             assert len(salvage_events) >= 1, "Should receive salvage.created event"
             salvage_event = salvage_events[0]
 
             if "payload" in salvage_event:
                 salvage_event = salvage_event["payload"]
 
-            assert "salvage" in salvage_event
-            salvage = salvage_event["salvage"]
-            assert salvage["cargo"]["quantum_foam"] == 3
-            assert salvage_event["dumped_cargo"]["quantum_foam"] == 3
+            # Verify standardized payload structure (private event - no actor needed)
+            assert salvage_event["action"] == "dumped"
+            assert "actor" not in salvage_event, "Private event should not include actor"
+
+            # Verify salvage_details (not full salvage object)
+            salvage_details = salvage_event["salvage_details"]
+            assert salvage_details["cargo"]["quantum_foam"] == 3
+            assert "salvage_id" in salvage_details
+            assert "expires_at" in salvage_details
+
+            # Verify privacy: no dumped_cargo redundancy
+            assert "dumped_cargo" not in salvage_event
 
             # Verify sector.update event
             assert len(sector_events) >= 1, "Should receive sector.update event"
