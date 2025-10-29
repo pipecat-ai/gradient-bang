@@ -1,6 +1,7 @@
 import useGameStore from "@stores/game";
 import { memo, useCallback, useEffect } from "react";
 
+import { SectorTitleBanner } from "@/components/SectorTitleBanner";
 import type { GameObjectInstance } from "@/fx/starfield/types";
 import { usePlaySound } from "@/hooks/usePlaySound";
 
@@ -34,84 +35,32 @@ export const StarField = memo(() => {
       return;
     }
 
-    console.debug("[STARFIELD] Attaching callbacks to starfield");
+    console.debug("[STARFIELD] Subscribing to starfield events");
 
-    starfieldInstance.callbacks = {
-      onWarpStart: onWarpStart,
-      onGameObjectSelected: onGameObjectSelected,
-      onGameObjectInView: onGameObjectInView,
-      onGameObjectCleared: onGameObjectCleared,
+    starfieldInstance.on("warpStart", onWarpStart);
+    starfieldInstance.on("gameObjectSelected", onGameObjectSelected);
+    starfieldInstance.on("gameObjectInView", onGameObjectInView);
+    starfieldInstance.on("gameObjectCleared", onGameObjectCleared);
+
+    return () => {
+      console.debug("[STARFIELD] Unsubscribing from starfield events");
+      starfieldInstance.off("warpStart", onWarpStart);
+      starfieldInstance.off("gameObjectSelected", onGameObjectSelected);
+      starfieldInstance.off("gameObjectInView", onGameObjectInView);
+      starfieldInstance.off("gameObjectCleared", onGameObjectCleared);
     };
   }, [
-    settings.renderStarfield,
     onWarpStart,
     onGameObjectSelected,
     onGameObjectInView,
     onGameObjectCleared,
     starfieldInstance,
+    settings.renderStarfield,
   ]);
-
-  /*
-   * Create starfield instance on initial render
-   */
-  /*useEffect(() => {
-    if (!ready) return;
-
-    if (!settings.renderStarfield || !starfieldInstance) {
-      return;
-    }
-
-    console.debug("[STARFIELD] Assigning callbacks");
-
-    starfieldInstance.callbacks = {
-      onSceneIsLoading: () => {
-        console.log("[STARFIELD] 🔄 Scene is loading...");
-      },
-      onSceneReady: (isInitialRender: boolean, sceneId: string | null) => {
-        console.log(
-          "[STARFIELD] ✅ Scene ready!",
-          isInitialRender ? "(initial)" : "(warp)",
-          `scene: ${sceneId || "unknown"}`
-        );
-      },
-      onWarpStart: () => {
-        console.log("[STARFIELD] 🚀 Warp started");
-        playSound("warp");
-      },
-      onWarpComplete(queueLength) {
-        console.log(`[STARFIELD] 🎉 Warp complete - ${queueLength} remaining`);
-        if (queueLength === 0) {
-          // state.setAutopilot(false);
-        }
-      },
-      onWarpQueue: () => {
-        // state.setAutopilot(true);
-      },
-      onGameObjectInView: (gameObject) => {
-        console.log("[STARFIELD] Game object in view:", gameObject.name);
-      },
-      onGameObjectSelected: (gameObject) => {
-        console.log("[STARFIELD] Game object selected:", gameObject.name);
-      },
-      onGameObjectCleared: () => {
-        console.log("[STARFIELD] Game object cleared");
-      },
-    };
-
-    return () => {
-      // Note: we don't unmount the Starfield instance as it's always
-      // rendered in the DOM and is not destroyed. We may want to revisit
-      // this later if the views change during gameplay.
-      //if (state.starfieldInstance) {
-      //  console.log("[STARFIELD RENDER] Unmounting Starfield instance");
-      //  state.starfieldInstance.destroy();
-      //  state.setStarfieldInstance(undefined);
-      //}
-    };
-  }, [playSound, ready, settings.renderStarfield, starfieldInstance]);*/
 
   return (
     <div id="starfield-container" className="relative">
+      <SectorTitleBanner />
       <div id="whiteFlash"></div>
       <div id="vignette"></div>
       <div id="starfield"></div>

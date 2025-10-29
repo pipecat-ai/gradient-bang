@@ -1,4 +1,9 @@
-import { differenceInHours, format, formatDistanceToNow } from "date-fns";
+import {
+  differenceInHours,
+  differenceInSeconds,
+  format,
+  formatDistanceToNow,
+} from "date-fns";
 
 /**
  * Formats a timestamp as relative time (e.g., "5 minutes ago") when recent;
@@ -17,4 +22,14 @@ export function formatTimeAgoOrDate(
   }
 
   return format(date, "MMM d, h:mm a");
+}
+
+export function combatRoundTimeRemaining(
+  deadline: string,
+  currentTime: string
+): number {
+  const deadlineDate = new Date(deadline);
+  const currentTimeDate = new Date(currentTime);
+  const timeDiff = differenceInSeconds(deadlineDate, currentTimeDate);
+  return timeDiff > 0 ? timeDiff : 0;
 }

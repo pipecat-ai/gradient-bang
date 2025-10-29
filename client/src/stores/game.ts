@@ -9,6 +9,7 @@ import { subscribeWithSelector } from "zustand/middleware";
 
 import type { DiamondFXController } from "@fx/frame";
 import { GalaxyStarfield } from "@fx/starfield";
+import { createCombatSlice, type CombatSlice } from "./combatSlice";
 import { createHistorySlice, type HistorySlice } from "./historySlice";
 import { createSettingsSlice, type SettingsSlice } from "./settingsSlice";
 import { createTaskSlice, type TaskSlice } from "./taskSlice";
@@ -85,7 +86,7 @@ export interface GameSlice extends GameState {
 }
 
 const createGameSlice: StateCreator<
-  GameSlice & HistorySlice & TaskSlice & UISlice & SettingsSlice,
+  GameSlice & CombatSlice & HistorySlice & TaskSlice & UISlice & SettingsSlice,
   [],
   [],
   GameSlice
@@ -228,10 +229,11 @@ const createGameSlice: StateCreator<
 });
 
 const useGameStoreBase = create<
-  GameSlice & HistorySlice & TaskSlice & SettingsSlice & UISlice
+  GameSlice & CombatSlice & HistorySlice & TaskSlice & SettingsSlice & UISlice
 >()(
   subscribeWithSelector((...a) => ({
     ...createGameSlice(...a),
+    ...createCombatSlice(...a),
     ...createHistorySlice(...a),
     ...createTaskSlice(...a),
     ...createSettingsSlice(...a),

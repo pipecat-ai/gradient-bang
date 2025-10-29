@@ -20,7 +20,7 @@
     transparent 100%
   );
   pointer-events: none;
-  z-index: 999;
+  z-index: 10;
 }
 
 #starfield-container::after {
@@ -32,7 +32,7 @@
   height: 30%;
   background: linear-gradient(to top, black 20%, transparent 100%);
   pointer-events: none;
-  z-index: 999;
+  z-index: 10;
 }
 
 #starfield {
@@ -69,7 +69,7 @@
   height: 100%;
   background: white;
   pointer-events: none;
-  z-index: 1001;
+  z-index: 2;
   opacity: 0;
 }
 /* ============================================================================

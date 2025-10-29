@@ -151,3 +151,25 @@ export interface CreditsTransferMessage extends ServerMessagePayload {
   to_balance_before: number;
   to_balance_after: number;
 }
+
+export interface CombatActionResponseMessage extends ServerMessagePayload {
+  combat_id: string;
+  round: number;
+  action: "attack" | "brace" | "flee";
+  round_resolved: boolean;
+  target_id: string;
+}
+
+export interface CombatRoundWaitingMessage extends ServerMessagePayload {
+  combat_id: string;
+  sector: Sector;
+  participants: Player[];
+  round: number;
+  deadline: string;
+  current_time: string;
+  initiator?: string;
+}
+
+export interface CombatRoundResolvedMessage
+  extends ServerMessagePayload,
+    CombatRound {}

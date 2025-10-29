@@ -16,7 +16,7 @@ interface SceneControllerHost {
 }
 
 interface LoadOptions {
-  triggerCallbacks?: boolean;
+  emitEvents?: boolean;
   transition?: boolean;
 }
 
@@ -79,11 +79,11 @@ export class SceneController {
     newConfig: Partial<GalaxyStarfieldConfig> | null,
     options: LoadOptions = {}
   ): Promise<void> {
-    const { triggerCallbacks = true, transition = false } = options;
+    const { emitEvents = true, transition = false } = options;
 
     this.sceneReady = false;
 
-    if (triggerCallbacks) {
+    if (emitEvents) {
       this.host.onSceneLoading();
     }
 
@@ -124,7 +124,7 @@ export class SceneController {
         resumeRendering();
       }
 
-      if (triggerCallbacks) {
+      if (emitEvents) {
         this.host.onSceneReady(
           this.isFirstRender,
           this.host.getCurrentSceneId()
@@ -178,7 +178,7 @@ export class SceneController {
     }
 
     await this.transitionToScene(newConfig, {
-      triggerCallbacks: false,
+      emitEvents: false,
       transition: false,
       schedule,
     });

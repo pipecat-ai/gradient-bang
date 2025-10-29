@@ -162,6 +162,42 @@ declare global {
   type UIScreen = "self" | "messaging" | "trading" | "map" | "tasks" | "combat";
   type UIModal = "settings" | undefined;
 
+  // --- COMBAT
+
+  interface CombatSession {
+    combat_id: string;
+    initiator: string;
+    participants: Player[];
+    round: number;
+    deadline: string;
+    current_time: string;
+  }
+
+  interface CombatAction {
+    combat_id: string;
+    action: "brace" | "attack" | "flee";
+    commit?: number;
+    round?: number;
+    target_id?: string;
+    to_sector?: number;
+  }
+
+  interface CombatRound {
+    combat_id: string;
+    sector: Sector;
+    round: number;
+
+    hits: Record<string, number>; // player_id -> number of hits
+    offensive_losses: Record<string, number>; // player_id -> number of offensive losses
+    defensive_losses: Record<string, number>; // player_id -> number of defensive losses
+    shield_loss: Record<string, number>; // player_id -> number of shield losses
+    flee_results: Record<string, boolean>; // player_id -> true if they fled successfully, false if they failed to flee
+    actions: Record<string, CombatAction>; // player_id -> CombatAction
+
+    end: string;
+    result: string;
+  }
+
   // --- MISC
 
   interface Task {

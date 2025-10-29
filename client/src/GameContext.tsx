@@ -11,6 +11,9 @@ import { RESOURCE_SHORT_NAMES } from "@/types/constants";
 import {
   type BankTransactionMessage,
   type CharacterMovedMessage,
+  type CombatActionResponseMessage,
+  type CombatRoundResolvedMessage,
+  type CombatRoundWaitingMessage,
   type CoursePlotMessage,
   type CreditsTransferMessage,
   type ErrorMessage,
@@ -534,6 +537,77 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             }
 
             // ----- COMBAT
+
+            case "combat.round_waiting": {
+              console.debug(
+                "[GAME EVENT] Combat round waiting",
+                gameEvent.payload
+              );
+              const data = gameEvent.payload as CombatRoundWaitingMessage;
+
+              // Immediately set the UI state to be "combat" for user feedback
+              gameStore.setUIState("combat");
+
+              // Do we have an active combat session?
+              if (!gameStore.activeCombatSession) {
+                gameStore.setActiveCombatSession(data as CombatSession);
+                gameStore.addActivityLogEntry({
+                  type: "combat.session.started",
+                  message: `Combat session started with ${data.participants.length} participants`,
+                });
+                break;
+              }
+              // Update combat session with new round details
+              break;
+            }
+
+            case "combat.round_resolved": {
+              console.debug(
+                "[GAME EVENT] Combat round resolved",
+                gameEvent.payload
+              );
+              const data = gameEvent.payload as CombatRoundResolvedMessage;
+              gameStore.addCombatRound(data as CombatRound);
+              gameStore.addActivityLogEntry({
+                type: "combat.round.resolved",
+                message: `Combat round ${data.round} resolved in sector ${data.sector.id}`,
+              });
+              break;
+            }
+
+            case "combat.action_response": {
+              console.debug(
+                "[GAME EVENT] Combat action response",
+                gameEvent.payload
+              );
+              const data = gameEvent.payload as CombatActionResponseMessage;
+
+              // @TODO: update store to log action round action
+
+              gameStore.addActivityLogEntry({
+                type: "combat.action.response",
+                message: `Combat action response for round ${data.round}: [${data.action}]`,
+              });
+              break;
+            }
+
+            case "combat.ended": {
+              console.debug("[GAME EVENT] Combat ended", gameEvent.payload);
+              const data = gameEvent.payload as CombatRoundResolvedMessage;
+
+              // Return to idle UI state
+              gameStore.setUIState("idle");
+
+              gameStore.endActiveCombatSession();
+
+              // Update activity log with combat session details
+              gameStore.addActivityLogEntry({
+                type: "combat.session.ended",
+                message: `Combat session ended with result: [${data.result}]`,
+              });
+
+              break;
+            }
 
             // ----- MISC
 

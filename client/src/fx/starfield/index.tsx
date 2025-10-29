@@ -1,13 +1,13 @@
 export type { GalaxyStarfieldConfig, StarfieldSceneConfig } from "./constants";
 export { GalaxyStarfield } from "./main";
 export type {
-  StarfieldState,
-  StarfieldCallbacks,
-  SelectionOptions,
-  LookAtOptions,
-  WarpOptions,
+  GalaxyStarfieldEvents,
   InitializeSceneOptions,
-  RGBColor,
+  LookAtOptions,
   RGBAColor,
+  RGBColor,
+  SelectionOptions,
+  StarfieldState,
+  WarpOptions,
 } from "./types";
 export type { GameObjectInstance } from "./types/GameObject";

@@ -3,19 +3,17 @@ import type { GameObjectInstance } from "./GameObject";
 
 export type StarfieldState = "idle" | "shake" | "warping";
 
-export interface StarfieldCallbacks {
-  onGameObjectInView?: ((gameObject: GameObjectInstance) => void) | null;
-  onGameObjectSelected?: ((gameObject: GameObjectInstance) => void) | null;
-  onGameObjectCleared?: (() => void) | null;
-  onWarpStart?: (() => void) | null;
-  onWarpComplete?: ((queueRemainingCount: number) => void) | null;
-  onWarpCancel?: (() => void) | null;
-  onWarpQueue?: ((queueLength: number) => void) | null;
-  onSceneIsLoading?: (() => void) | null;
-  onSceneReady?:
-    | ((isInitialRender: boolean, sceneId: string | null) => void)
-    | null;
-}
+export type GalaxyStarfieldEvents = {
+  gameObjectInView: GameObjectInstance;
+  gameObjectSelected: GameObjectInstance;
+  gameObjectCleared: void;
+  warpStart: void;
+  warpComplete: number;
+  warpCancel: void;
+  warpQueue: number;
+  sceneIsLoading: void;
+  sceneReady: { isInitialRender: boolean; sceneId: string | null };
+};
 
 export interface FrameState {
   currentState: StarfieldState;
