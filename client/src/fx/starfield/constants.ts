@@ -364,7 +364,7 @@ export const DEFAULT_GALAXY_CONFIG: GalaxyStarfieldConfig = {
   shakeTransitionTimeSec: 0.5, // Time to fade between idle and shake
 
   // === WARP EFFECT ===
-  warpDurationSec: 5, // Warp sequence duration in seconds
+  warpDurationSec: 3, // Warp sequence duration in seconds
   warpFOVMax: 140, // Maximum FOV during warp effect
   warpCooldownSec: 10, // Cooldown period after warp animation before next animation can play
   queueProcessingDelaySec: 1, // Delay between processing queued warp requests (fast sequential loading)
