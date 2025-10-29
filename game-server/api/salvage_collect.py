@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import HTTPException
 from rpc.events import event_dispatcher, EventLogContext
-from api.utils import sector_contents, rpc_success, build_event_source, build_status_payload
+from api.utils import (
+    build_event_source,
+    build_status_payload,
+    rpc_success,
+    sector_contents,
+)
 from ships import ShipType
 
 VALID_COMMODITIES = {"quantum_foam", "retro_organics", "neuro_symbolics"}
@@ -99,11 +106,11 @@ async def handle(request: dict, world) -> dict:
                 remaining_cargo[commodity] = amount - collectible
 
     # Determine if salvage should be removed or updated
-    salvage_removed = False
+    fully_collected = False
     if not remaining_cargo and remaining_scrap == 0:
         # Everything collected - remove salvage
         world.salvage_manager.remove(salvage_id)
-        salvage_removed = True
+        fully_collected = True
     else:
         # Partial collection - update container and unclaim for others
         world.salvage_manager.update(
@@ -114,35 +121,31 @@ async def handle(request: dict, world) -> dict:
         )
         world.salvage_manager.unclaim(salvage_id)
 
-    knowledge_after = world.knowledge_manager.load_knowledge(character_id)
-    cargo_after = knowledge_after.ship_config.cargo
-    credits_after = world.knowledge_manager.get_credits(character_id)
-
-    # Emit salvage.collected event with collection details
+    # Emit standardized salvage.collected event (private - only collector sees it)
     sector_id = character.sector
     request_id = request.get("request_id") or "missing-request-id"
     log_context = EventLogContext(sender=character_id, sector=sector_id)
+    timestamp = datetime.now(timezone.utc).isoformat()
 
     await event_dispatcher.emit(
         "salvage.collected",
         {
-            "source": build_event_source("salvage.collect", request_id),
-            "sector": {"id": sector_id},
-            "salvage": {
+            "action": "collected",
+            "salvage_details": {
                 "salvage_id": salvage_id,
-                "original": container.to_dict(),
+                "collected": {
+                    "cargo": collected_cargo,
+                    "credits": collected_credits,
+                },
+                "remaining": {
+                    "cargo": remaining_cargo,
+                    "scrap": remaining_scrap,
+                },
+                "fully_collected": fully_collected,
             },
-            "collected": {
-                "credits": collected_credits,
-                "cargo": collected_cargo,
-            },
-            "remaining": {
-                "cargo": remaining_cargo,
-                "scrap": remaining_scrap,
-            },
-            "salvage_removed": salvage_removed,
-            "cargo_after": cargo_after,
-            "credits_after": credits_after,
+            "sector": {"id": sector_id},
+            "timestamp": timestamp,
+            "source": build_event_source("salvage.collect", request_id),
         },
         character_filter=[character_id],
         log_context=log_context,
@@ -185,5 +188,5 @@ async def handle(request: dict, world) -> dict:
             "cargo": remaining_cargo,
             "scrap": remaining_scrap,
         },
-        "salvage_removed": salvage_removed,
+        "fully_collected": fully_collected,
     }

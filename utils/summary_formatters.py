@@ -819,6 +819,72 @@ def transfer_summary(event: Dict[str, Any]) -> str:
         return f"Transfer: {transfer_desc} between {from_name} and {to_name}."
 
 
+def salvage_created_summary(event: Dict[str, Any]) -> str:
+    """Summarize salvage.created events (dump cargo).
+
+    Private event - only the dumping player receives it.
+    """
+    salvage_details = event.get("salvage_details", {})
+
+    # Build items description
+    parts = []
+    cargo = salvage_details.get("cargo", {})
+    for commodity, qty in cargo.items():
+        parts.append(f"{qty} {commodity}")
+
+    credits = salvage_details.get("credits", 0)
+    if credits > 0:
+        parts.append(f"{credits} credits")
+
+    scrap = salvage_details.get("scrap", 0)
+    if scrap > 0:
+        parts.append(f"{scrap} scrap")
+
+    if not parts:
+        return "Created empty salvage container."
+    elif len(parts) == 1:
+        items_desc = parts[0]
+    else:
+        items_desc = ", ".join(parts[:-1]) + f" and {parts[-1]}"
+
+    return f"Dumped {items_desc} into salvage container."
+
+
+def salvage_collected_summary(event: Dict[str, Any]) -> str:
+    """Summarize salvage.collected events.
+
+    Shows what was collected and whether container was fully cleared.
+    Private event - only the collecting player receives it.
+    """
+    salvage_details = event.get("salvage_details", {})
+    collected = salvage_details.get("collected", {})
+    fully_collected = salvage_details.get("fully_collected", False)
+
+    # Build collected items description
+    parts = []
+    cargo = collected.get("cargo", {})
+    for commodity, qty in cargo.items():
+        parts.append(f"{qty} {commodity}")
+
+    credits = collected.get("credits", 0)
+    if credits > 0:
+        parts.append(f"{credits} credits")
+
+    if not parts:
+        return "Salvage container was empty."
+
+    if len(parts) == 1:
+        items_desc = parts[0]
+    else:
+        items_desc = ", ".join(parts[:-1]) + f" and {parts[-1]}"
+
+    # Add status suffix
+    if fully_collected:
+        return f"Collected {items_desc} from salvage (we retrieved the entire salvage)."
+    else:
+        return f"Partially collected {items_desc} from salvage."
+
+
 def chat_message_summary(event: Dict[str, Any]) -> str:
     """Summarize chat message events (broadcast and direct).
 

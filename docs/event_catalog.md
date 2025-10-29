@@ -393,76 +393,73 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 
 ### salvage.collected
 **When emitted:** When a character successfully claims salvage from a wreck.
-**Who receives it:** Only the collecting character (character_filter).
+**Who receives it:** Only the collecting character (character_filter - private event).
 **Source:** `/game-server/api/salvage_collect.py`
 
 **Payload example:**
 ```json
 {
+  "action": "collected",
+  "salvage_details": {
+    "salvage_id": "salv_ed5c1f",
+    "collected": {
+      "cargo": {"quantum_foam": 5},
+      "credits": 12
+    },
+    "remaining": {
+      "cargo": {},
+      "scrap": 0
+    },
+    "fully_collected": true
+  },
+  "sector": {"id": 5},
+  "timestamp": "2025-10-19T03:21:55.019Z",
   "source": {
     "type": "rpc",
     "method": "salvage.collect",
     "request_id": "req-salvage-11",
     "timestamp": "2025-10-16T18:21:55.019384+00:00"
-  },
-  "sector": {"id": 5},
-  "salvage": {
-    "salvage_id": "salv_ed5c1f",
-    "sector_id": 5,
-    "cargo": {"quantum_foam": 5},
-    "scrap": 3,
-    "credits": 12,
-    "metadata": {
-      "ship_name": "Wreck",
-      "ship_type": "sparrow_scout"
-    }
-  },
-  "cargo": {
-    "quantum_foam": 42,
-    "retro_organics": 10,
-    "neuro_symbolics": 5
-  },
-  "credits": 8612
+  }
 }
 ```
 
 **Notes:**
-- The salvage payload mirrors the container that was just removed; clients can display it in loot history or notifications.
-- Updated cargo totals include the newly collected items; unknown salvage commodities are converted to `neuro_symbolics` by the server before emission.
+- **Private event:** Only sent to collector (no actor field needed).
+- **Privacy:** No final cargo/credit balances included. Character receives `status.update` event with updated state.
+- **Partial collection:** If `fully_collected` is false, remaining items stay in salvage for others to collect.
+- Unknown commodities are converted to `neuro_symbolics` by the server before collection.
 
 ### salvage.created
 **When emitted:** Whenever a player dumps cargo and a new salvage container is spawned in their sector.
-**Who receives it:** Only the dumping character receives the `salvage.created` confirmation; everyone in the sector receives a separate `sector.update` showing the new salvage list.
+**Who receives it:** Only the dumping character receives the `salvage.created` confirmation (private event); everyone in the sector receives a separate `sector.update` showing the new salvage list.
 **Source:** `/game-server/api/dump_cargo.py`
 
 **Payload example:**
 ```json
 {
+  "action": "dumped",
+  "salvage_details": {
+    "salvage_id": "salv_e3a45c",
+    "cargo": {"retro_organics": 40},
+    "scrap": 0,
+    "credits": 0,
+    "expires_at": "2025-10-19T03:29:15.926Z"
+  },
+  "sector": {"id": 12},
+  "timestamp": "2025-10-19T03:14:15.926Z",
   "source": {
     "type": "rpc",
     "method": "dump_cargo",
     "request_id": "req-dump-07",
     "timestamp": "2025-10-19T03:14:15.926Z"
-  },
-  "sector": {"id": 12},
-  "salvage": {
-    "salvage_id": "salv_e3a45c",
-    "created_at": "2025-10-19T03:14:15.926Z",
-    "expires_at": "2025-10-19T03:29:15.926Z",
-    "cargo": {"retro_organics": 40},
-    "scrap": 0,
-    "credits": 0,
-    "claimed": false,
-    "source": {"ship_name": "Cargo Liner", "ship_type": "kestrel_courier"},
-    "metadata": {}
-  },
-  "dumped_cargo": {"retro_organics": 40}
+  }
 }
 ```
 
 **Notes:**
-- Agents should treat the event as confirmation that the jettison succeeded; nearby pilots must watch for the accompanying `sector.update` to stay in sync.
-- Salvage containers expire automatically; this event only covers creation.
+- **Private event:** Only sent to dumper (no actor field needed).
+- **Combat salvage:** When ships are destroyed in combat, salvage appears in `combat.ended` event (not as separate `salvage.created`).
+- Salvage containers expire automatically after 15 minutes; `sector.update` removes expired containers.
 
 ## Movement Events
 

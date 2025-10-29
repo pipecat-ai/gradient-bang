@@ -23,6 +23,8 @@ from utils.summary_formatters import (
     move_summary,
     plot_course_summary,
     port_update_summary,
+    salvage_collected_summary,
+    salvage_created_summary,
     sector_update_summary,
     status_update_summary,
     trade_executed_summary,
@@ -154,6 +156,8 @@ class AsyncGameClient:
             "combat.action_accepted": combat_action_accepted_summary,
             "combat.round_resolved": combat_round_resolved_summary,
             "combat.ended": combat_ended_summary,
+            "salvage.created": salvage_created_summary,
+            "salvage.collected": salvage_collected_summary,
             "sector.update": sector_update_summary,
         }
 
