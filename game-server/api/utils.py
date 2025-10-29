@@ -3,7 +3,7 @@ from copy import deepcopy
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, Optional, TYPE_CHECKING
+from typing import Dict, Any, Iterable, Optional, TYPE_CHECKING
 
 from fastapi import HTTPException
 
@@ -183,15 +183,27 @@ def build_log_context(
     )
 
 
-async def ensure_not_in_combat(world, character_id: str) -> None:
-    """Raise if the character is currently participating in active combat."""
+async def ensure_not_in_combat(world, character_ids: str | Iterable[str]) -> None:
+    """Raise if any provided character is currently participating in active combat."""
 
     manager = getattr(world, "combat_manager", None)
     if manager is None:
         return
-    encounter = await manager.find_encounter_for(character_id)
-    if encounter and not encounter.ended:
-        raise HTTPException(status_code=409, detail=COMBAT_ACTION_REQUIRED)
+
+    if isinstance(character_ids, str):
+        ids_to_check = [character_ids]
+    else:
+        try:
+            ids_to_check = list(character_ids)
+        except TypeError as exc:  # pragma: no cover - defensive guard
+            raise TypeError("character_ids must be a string or iterable of strings") from exc
+
+    for cid in ids_to_check:
+        if not isinstance(cid, str):
+            raise TypeError("character_ids iterable must contain string values")
+        encounter = await manager.find_encounter_for(cid)
+        if encounter and not encounter.ended:
+            raise HTTPException(status_code=409, detail=COMBAT_ACTION_REQUIRED)
 
 
 def log_trade(

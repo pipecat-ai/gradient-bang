@@ -126,3 +126,24 @@ async def test_round_waiting_omits_initiator_after_first_round(monkeypatch):
 
     assert payload["round"] == 2
     assert "initiator" not in payload
+
+
+@pytest.mark.asyncio
+async def test_round_waiting_initiator_falls_back_to_identifier(monkeypatch):
+    encounter = _build_encounter(round_number=1)
+    encounter.context["initiator"] = "missing-character-id"
+    world = SimpleNamespace(
+        garrisons=None,
+        characters={"initiator": SimpleNamespace(name="initiator")},
+        character_registry=None,
+    )
+
+    _patch_serialization_helpers(monkeypatch)
+
+    payload = await combat_utils.serialize_round_waiting_event(
+        world,
+        encounter,
+        viewer_id="initiator",
+    )
+
+    assert payload["initiator"] == "missing-character-id"
