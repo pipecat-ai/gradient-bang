@@ -743,12 +743,12 @@ async def test_collect_salvage_picks_up_loot(server_url, check_server_available)
             assert result.get("success") is True
             assert "collected" in result
             assert "remaining" in result
-            assert "salvage_removed" in result
+            assert "fully_collected" in result
 
             # Validate partial collection (5 space available, 10 in salvage)
             assert result["collected"]["cargo"].get("quantum_foam", 0) == 5
             assert result["remaining"]["cargo"].get("quantum_foam", 0) == 5
-            assert result["salvage_removed"] is False
+            assert result["fully_collected"] is False
 
             # Validate salvage.collected event
             await asyncio.sleep(0.5)
@@ -758,7 +758,9 @@ async def test_collect_salvage_picks_up_loot(server_url, check_server_available)
 
             salvage_event = salvage_events[0]
             payload = salvage_event.get("payload", {})
-            assert payload.get("collected", {}).get("cargo", {}).get("quantum_foam", 0) == 5
+            details = payload.get("salvage_details", {})
+            assert details.get("collected", {}).get("cargo", {}).get("quantum_foam", 0) == 5
+            assert details.get("fully_collected") is False
 
         finally:
             await dumper_client.close()
