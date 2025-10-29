@@ -127,6 +127,9 @@ async def test_trade_emits_enhanced_event_for_buy(monkeypatch):
         trade, "event_dispatcher", SimpleNamespace(emit=mock_emit)
     )
     monkeypatch.setattr(trade, "log_trade", lambda **_: None)
+    monkeypatch.setattr(
+        trade, "build_status_payload", AsyncMock(return_value={"status": "ok"})
+    )
 
     result = await trade.handle(
         {
@@ -178,6 +181,9 @@ async def test_trade_emits_enhanced_event_for_sell(monkeypatch):
         trade, "event_dispatcher", SimpleNamespace(emit=mock_emit)
     )
     monkeypatch.setattr(trade, "log_trade", lambda **_: None)
+    monkeypatch.setattr(
+        trade, "build_status_payload", AsyncMock(return_value={"status": "ok"})
+    )
 
     result = await trade.handle(
         {

@@ -777,3 +777,132 @@ def character_moved_summary(event: Dict[str, Any]) -> str:
     if move_type:
         return f"{name} in {ship_descriptor} movement update [{move_type}]."
     return f"{name} in {ship_descriptor} movement update."
+
+
+def transfer_summary(event: Dict[str, Any]) -> str:
+    """Summarize transfer events (credits and warp).
+
+    Handles both credits.transfer and warp.transfer events with
+    direction-aware messaging.
+    """
+    direction = event.get("transfer_direction", "unknown")
+    details = event.get("transfer_details", {})
+    from_data = event.get("from", {})
+    to_data = event.get("to", {})
+
+    from_name = from_data.get("name", "unknown")
+    to_name = to_data.get("name", "unknown")
+
+    # Build transfer description
+    parts = []
+    if "warp_power" in details:
+        parts.append(f"{details['warp_power']} warp power")
+    if "credits" in details:
+        parts.append(f"{details['credits']} credits")
+    if "cargo" in details:
+        # Future: format cargo details
+        cargo = details["cargo"]
+        cargo_parts = [f"{qty} {commodity}" for commodity, qty in cargo.items()]
+        parts.extend(cargo_parts)
+
+    if not parts:
+        transfer_desc = "unknown resources"
+    else:
+        transfer_desc = " and ".join(parts)
+
+    # Direction-aware message
+    if direction == "sent":
+        return f"Sent {transfer_desc} to {to_name}."
+    elif direction == "received":
+        return f"Received {transfer_desc} from {from_name}."
+    else:
+        return f"Transfer: {transfer_desc} between {from_name} and {to_name}."
+
+
+def salvage_created_summary(event: Dict[str, Any]) -> str:
+    """Summarize salvage.created events (dump cargo).
+
+    Private event - only the dumping player receives it.
+    """
+    salvage_details = event.get("salvage_details", {})
+
+    # Build items description
+    parts = []
+    cargo = salvage_details.get("cargo", {})
+    for commodity, qty in cargo.items():
+        parts.append(f"{qty} {commodity}")
+
+    credits = salvage_details.get("credits", 0)
+    if credits > 0:
+        parts.append(f"{credits} credits")
+
+    scrap = salvage_details.get("scrap", 0)
+    if scrap > 0:
+        parts.append(f"{scrap} scrap")
+
+    if not parts:
+        return "Created empty salvage container."
+    elif len(parts) == 1:
+        items_desc = parts[0]
+    else:
+        items_desc = ", ".join(parts[:-1]) + f" and {parts[-1]}"
+
+    return f"Dumped {items_desc} into salvage container."
+
+
+def salvage_collected_summary(event: Dict[str, Any]) -> str:
+    """Summarize salvage.collected events.
+
+    Shows what was collected and whether container was fully cleared.
+    Private event - only the collecting player receives it.
+    """
+    salvage_details = event.get("salvage_details", {})
+    collected = salvage_details.get("collected", {})
+    fully_collected = salvage_details.get("fully_collected", False)
+
+    # Build collected items description
+    parts = []
+    cargo = collected.get("cargo", {})
+    for commodity, qty in cargo.items():
+        parts.append(f"{qty} {commodity}")
+
+    credits = collected.get("credits", 0)
+    if credits > 0:
+        parts.append(f"{credits} credits")
+
+    if not parts:
+        return "Salvage container was empty."
+
+    if len(parts) == 1:
+        items_desc = parts[0]
+    else:
+        items_desc = ", ".join(parts[:-1]) + f" and {parts[-1]}"
+
+    # Add status suffix
+    if fully_collected:
+        return f"Collected {items_desc} from salvage (we retrieved the entire salvage)."
+    else:
+        return f"Partially collected {items_desc} from salvage."
+
+
+def chat_message_summary(event: Dict[str, Any]) -> str:
+    """Summarize chat message events (broadcast and direct).
+
+    Handles both broadcast and direct messages with type-aware formatting.
+    """
+    msg_type = event.get("type", "unknown")
+    from_name = event.get("from_name", event.get("from", "unknown"))
+    content = event.get("content", event.get("message", ""))
+
+    # Truncate long messages
+    max_length = 50
+    if len(content) > max_length:
+        content = content[:max_length] + "..."
+
+    if msg_type == "broadcast":
+        return f"{from_name} (broadcast): {content}"
+    elif msg_type == "direct":
+        to_name = event.get("to_name", event.get("to", "unknown"))
+        return f"{from_name} → {to_name}: {content}"
+    else:
+        return f"{from_name}: {content}"

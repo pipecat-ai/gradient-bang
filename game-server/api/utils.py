@@ -3,7 +3,7 @@ from copy import deepcopy
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, Optional, TYPE_CHECKING
+from typing import Dict, Any, Iterable, Optional, TYPE_CHECKING
 
 from fastapi import HTTPException
 
@@ -27,6 +27,44 @@ def rpc_success(data: Dict[str, Any] | None = None) -> Dict[str, Any]:
     if data:
         response.update(data)
     return response
+
+
+def build_public_player_data(world, character_id: str) -> Dict[str, Any]:
+    """Build public player data (no private stats like credits/cargo/warp).
+
+    Used in sector.update, transfer events, and other public contexts.
+    Pattern matches sector_contents() player list items.
+
+    Returns:
+        {
+            "created_at": "2025-10-28T10:00:00.000Z",
+            "id": "character_uuid",
+            "name": "Display Name",
+            "player_type": "human",
+            "ship": {
+                "ship_type": "kestrel_courier",
+                "ship_name": "Ship Name"
+            }
+        }
+    """
+    character = world.characters[character_id]
+    knowledge = world.knowledge_manager.load_knowledge(character_id)
+    ship_config = knowledge.ship_config
+    ship_stats = get_ship_stats(ShipType(ship_config.ship_type))
+
+    display_name = resolve_character_name(world, character_id)
+    ship_display_name = ship_config.ship_name or ship_stats.name
+
+    return {
+        "created_at": character.first_visit.isoformat(),
+        "id": character.id,
+        "name": display_name,
+        "player_type": character.player_type,
+        "ship": {
+            "ship_type": ship_config.ship_type,
+            "ship_name": ship_display_name,
+        },
+    }
 
 
 def build_character_moved_payload(
@@ -145,15 +183,27 @@ def build_log_context(
     )
 
 
-async def ensure_not_in_combat(world, character_id: str) -> None:
-    """Raise if the character is currently participating in active combat."""
+async def ensure_not_in_combat(world, character_ids: str | Iterable[str]) -> None:
+    """Raise if any provided character is currently participating in active combat."""
 
     manager = getattr(world, "combat_manager", None)
     if manager is None:
         return
-    encounter = await manager.find_encounter_for(character_id)
-    if encounter and not encounter.ended:
-        raise HTTPException(status_code=409, detail=COMBAT_ACTION_REQUIRED)
+
+    if isinstance(character_ids, str):
+        ids_to_check = [character_ids]
+    else:
+        try:
+            ids_to_check = list(character_ids)
+        except TypeError as exc:  # pragma: no cover - defensive guard
+            raise TypeError("character_ids must be a string or iterable of strings") from exc
+
+    for cid in ids_to_check:
+        if not isinstance(cid, str):
+            raise TypeError("character_ids iterable must contain string values")
+        encounter = await manager.find_encounter_for(cid)
+        if encounter and not encounter.ended:
+            raise HTTPException(status_code=409, detail=COMBAT_ACTION_REQUIRED)
 
 
 def log_trade(
@@ -212,12 +262,17 @@ def ship_self(world, character_id: str) -> Dict[str, Any]:
     # Use custom name if set, otherwise default to ship type name
     display_name = ship_config.ship_name or ship_stats.name
 
+    # Calculate available cargo space
+    cargo_used = sum(ship_config.cargo.values())
+    empty_holds = ship_stats.cargo_holds - cargo_used
+
     # todo: refactor ship_config and ship_stats
     return {
         "ship_type": ship_config.ship_type,
         "ship_name": display_name,
         "cargo": ship_config.cargo,
         "cargo_capacity": ship_stats.cargo_holds,
+        "empty_holds": empty_holds,
         "warp_power": ship_config.current_warp_power,
         "warp_power_capacity": ship_stats.warp_power_capacity,
         "shields": ship_config.current_shields,
@@ -331,25 +386,8 @@ async def sector_contents(
             continue
         if character.in_hyperspace:  # Skip characters in transit
             continue
-        # fill in created_at, name, player_type, ship
-        knowledge = world.knowledge_manager.load_knowledge(char_id)
-        ship_config = knowledge.ship_config
-        ship_stats = get_ship_stats(ShipType(ship_config.ship_type))
-
-        # Use profile/display name when available for UI friendliness
-        display_name = resolve_character_name(world, char_id)
-        ship_display_name = ship_config.ship_name or ship_stats.name
-
-        player = {
-            "created_at": character.first_visit.isoformat(),
-            "id": character.id,
-            "name": display_name,
-            "player_type": character.player_type,
-            "ship": {
-                "ship_type": ship_config.ship_type,
-                "ship_name": ship_display_name,
-            },
-        }
+        # Build public player data (no private stats)
+        player = build_public_player_data(world, char_id)
         players.append(player)
 
     # Garrisons

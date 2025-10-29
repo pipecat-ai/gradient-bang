@@ -90,6 +90,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
       "neuro_symbolics": 5
     },
     "cargo_capacity": 120,
+    "empty_holds": 60,
     "warp_power": 37,
     "warp_power_capacity": 50,
     "shields": 120,
@@ -104,6 +105,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 - The opening round includes an `initiator` field identifying who triggered the encounter; subsequent rounds omit the field.
 - Join-triggered and move-triggered emissions attach a `source` derived from their respective RPC request so clients can correlate the event to login or travel.
 - `ship` contains the same structure as other status-bearing events (`status.update`, `movement.complete`) but only for the receiving character. Other combatants see summary data (shield percentages, losses).
+- `ship.empty_holds` is a calculated field (cargo_capacity - sum(cargo)) included only in the viewer's own ship status, never in opponent views.
 - Garrisons now expose `owner_name` and omit `toll_balance` for privacy.
 
 ### combat.round_resolved
@@ -160,6 +162,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
       "neuro_symbolics": 5
     },
     "cargo_capacity": 120,
+    "empty_holds": 65,
     "warp_power": 35,
     "warp_power_capacity": 50,
     "shields": 80,
@@ -237,6 +240,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
       "neuro_symbolics": 5
     },
     "cargo_capacity": 120,
+    "empty_holds": 67,
     "warp_power": 33,
     "warp_power_capacity": 50,
     "shields": 65,
@@ -389,76 +393,73 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 
 ### salvage.collected
 **When emitted:** When a character successfully claims salvage from a wreck.
-**Who receives it:** Only the collecting character (character_filter).
+**Who receives it:** Only the collecting character (character_filter - private event).
 **Source:** `/game-server/api/salvage_collect.py`
 
 **Payload example:**
 ```json
 {
+  "action": "collected",
+  "salvage_details": {
+    "salvage_id": "salv_ed5c1f",
+    "collected": {
+      "cargo": {"quantum_foam": 5},
+      "credits": 12
+    },
+    "remaining": {
+      "cargo": {},
+      "scrap": 0
+    },
+    "fully_collected": true
+  },
+  "sector": {"id": 5},
+  "timestamp": "2025-10-19T03:21:55.019Z",
   "source": {
     "type": "rpc",
     "method": "salvage.collect",
     "request_id": "req-salvage-11",
     "timestamp": "2025-10-16T18:21:55.019384+00:00"
-  },
-  "sector": {"id": 5},
-  "salvage": {
-    "salvage_id": "salv_ed5c1f",
-    "sector_id": 5,
-    "cargo": {"quantum_foam": 5},
-    "scrap": 3,
-    "credits": 12,
-    "metadata": {
-      "ship_name": "Wreck",
-      "ship_type": "sparrow_scout"
-    }
-  },
-  "cargo": {
-    "quantum_foam": 42,
-    "retro_organics": 10,
-    "neuro_symbolics": 5
-  },
-  "credits": 8612
+  }
 }
 ```
 
 **Notes:**
-- The salvage payload mirrors the container that was just removed; clients can display it in loot history or notifications.
-- Updated cargo totals include the newly collected items; unknown salvage commodities are converted to `neuro_symbolics` by the server before emission.
+- **Private event:** Only sent to collector (no actor field needed).
+- **Privacy:** No final cargo/credit balances included. Character receives `status.update` event with updated state.
+- **Partial collection:** If `fully_collected` is false, remaining items stay in salvage for others to collect.
+- Unknown commodities are converted to `neuro_symbolics` by the server before collection.
 
 ### salvage.created
 **When emitted:** Whenever a player dumps cargo and a new salvage container is spawned in their sector.
-**Who receives it:** Only the dumping character receives the `salvage.created` confirmation; everyone in the sector receives a separate `sector.update` showing the new salvage list.
+**Who receives it:** Only the dumping character receives the `salvage.created` confirmation (private event); everyone in the sector receives a separate `sector.update` showing the new salvage list.
 **Source:** `/game-server/api/dump_cargo.py`
 
 **Payload example:**
 ```json
 {
+  "action": "dumped",
+  "salvage_details": {
+    "salvage_id": "salv_e3a45c",
+    "cargo": {"retro_organics": 40},
+    "scrap": 0,
+    "credits": 0,
+    "expires_at": "2025-10-19T03:29:15.926Z"
+  },
+  "sector": {"id": 12},
+  "timestamp": "2025-10-19T03:14:15.926Z",
   "source": {
     "type": "rpc",
     "method": "dump_cargo",
     "request_id": "req-dump-07",
     "timestamp": "2025-10-19T03:14:15.926Z"
-  },
-  "sector": {"id": 12},
-  "salvage": {
-    "salvage_id": "salv_e3a45c",
-    "created_at": "2025-10-19T03:14:15.926Z",
-    "expires_at": "2025-10-19T03:29:15.926Z",
-    "cargo": {"retro_organics": 40},
-    "scrap": 0,
-    "credits": 0,
-    "claimed": false,
-    "source": {"ship_name": "Cargo Liner", "ship_type": "kestrel_courier"},
-    "metadata": {}
-  },
-  "dumped_cargo": {"retro_organics": 40}
+  }
 }
 ```
 
 **Notes:**
-- Agents should treat the event as confirmation that the jettison succeeded; nearby pilots must watch for the accompanying `sector.update` to stay in sync.
-- Salvage containers expire automatically; this event only covers creation.
+- **Private event:** Only sent to dumper (no actor field needed).
+- **Combat salvage:** When ships are destroyed in combat, salvage appears in `combat.ended` event (not as separate `salvage.created`).
+- Salvage containers expire automatically after 15 minutes; `sector.update` removes expired containers.
 
 ## Movement Events
 
@@ -543,6 +544,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
       "neuro_symbolics": 20
     },
     "cargo_capacity": 100,
+    "empty_holds": 0,
     "warp_power": 47,
     "warp_power_capacity": 50,
     "shields": 85,
@@ -813,11 +815,12 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "ship_type": "kestrel_courier",
     "ship_name": "Kestrel Courier",
     "cargo": {
-      "quantum_foam": 100,
+      "quantum_foam": 50,
       "retro_organics": 30,
       "neuro_symbolics": 20
     },
     "cargo_capacity": 100,
+    "empty_holds": 0,
     "warp_power": 47,
     "warp_power_capacity": 50,
     "shields": 85,
@@ -828,12 +831,12 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
   "trade": {
     "trade_type": "buy",
     "commodity": "quantum_foam",
-    "units": 100,
+    "units": 50,
     "price_per_unit": 25,
-    "total_price": 2500,
+    "total_price": 1250,
     "new_credits": 7500,
     "new_cargo": {
-      "quantum_foam": 100,
+      "quantum_foam": 50,
       "retro_organics": 30,
       "neuro_symbolics": 20
     },
@@ -902,26 +905,64 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 ```
 
 ### warp.transfer
-**When emitted:** When warp power is transferred between two characters
-**Who receives it:** Both the sender and receiver characters (character_filter)
-**Source:** `/game-server/api/transfer_warp_power.py:66`
+**When emitted:** When warp power is transferred between two characters via `/api/transfer_warp_power`.
+**Who receives it:** Sender and receiver each receive their own copy with appropriate `transfer_direction`.
+**Source:** `/game-server/api/transfer_warp_power.py`
 
-**Payload example:**
+**Privacy:** Warp power levels are not included for privacy reasons. Each player receives their updated warp power via a `status.update` event immediately after the transfer.
+
+**Direction:** Each participant receives their own copy of the event with `transfer_direction` set to either `"sent"` or `"received"`.
+
+**Payload example (sender's view):**
 ```json
 {
+  "transfer_direction": "sent",
+  "transfer_details": {
+    "warp_power": 10
+  },
+  "from": {
+    "created_at": "2025-10-07T14:00:00.000Z",
+    "id": "trader",
+    "name": "Helpful Trader",
+    "player_type": "human",
+    "ship": {
+      "ship_type": "atlas_hauler",
+      "ship_name": "Heavy Freighter"
+    }
+  },
+  "to": {
+    "created_at": "2025-10-07T14:15:00.000Z",
+    "id": "merchant",
+    "name": "Local Merchant",
+    "player_type": "human",
+    "ship": {
+      "ship_type": "kestrel_courier",
+      "ship_name": "Fast Courier"
+    }
+  },
+  "sector": {"id": 43},
+  "timestamp": "2025-10-07T14:28:00.000Z",
   "source": {
     "type": "rpc",
     "method": "transfer_warp_power",
     "request_id": "req-transfer-987",
     "timestamp": "2025-10-07T14:28:00.000Z"
+  }
+}
+```
+
+**Payload example (receiver's view):**
+```json
+{
+  "transfer_direction": "received",
+  "transfer_details": {
+    "warp_power": 10
   },
-  "from_character_id": "trader",
-  "to_character_id": "merchant",
+  "from": { /* same as above */ },
+  "to": { /* same as above */ },
   "sector": {"id": 43},
-  "units": 10,
   "timestamp": "2025-10-07T14:28:00.000Z",
-  "from_warp_power_remaining": 90,
-  "to_warp_power_current": 110
+  "source": { /* same as above */ }
 }
 ```
 
@@ -929,27 +970,63 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 
 ### credits.transfer
 **When emitted:** When one character sends on-hand credits to another character in the same sector via `/api/transfer_credits`.
-**Who receives it:** Sender and receiver (character_filter).
+**Who receives it:** Sender and receiver each receive their own copy with appropriate `transfer_direction`.
 **Source:** `/game-server/api/transfer_credits.py`
 
-**Payload example:**
+**Privacy:** Balance information is not included for privacy reasons. Each player receives their updated balance via a `status.update` event immediately after the transfer.
+
+**Direction:** Each participant receives their own copy of the event with `transfer_direction` set to either `"sent"` or `"received"`.
+
+**Payload example (sender's view):**
 ```json
 {
+  "transfer_direction": "sent",
+  "transfer_details": {
+    "credits": 500
+  },
+  "from": {
+    "created_at": "2025-10-19T04:00:00.000Z",
+    "id": "helper_pilot",
+    "name": "Generous Trader",
+    "player_type": "human",
+    "ship": {
+      "ship_type": "kestrel_courier",
+      "ship_name": "The Philanthropist"
+    }
+  },
+  "to": {
+    "created_at": "2025-10-19T04:10:00.000Z",
+    "id": "newbie_trader",
+    "name": "Grateful Newbie",
+    "player_type": "human",
+    "ship": {
+      "ship_type": "sparrow_scout",
+      "ship_name": "Lucky Scout"
+    }
+  },
+  "sector": {"id": 43},
+  "timestamp": "2025-10-19T04:02:05.120Z",
   "source": {
     "type": "rpc",
     "method": "transfer_credits",
     "request_id": "req-credits-19",
     "timestamp": "2025-10-19T04:02:05.120Z"
+  }
+}
+```
+
+**Payload example (receiver's view):**
+```json
+{
+  "transfer_direction": "received",
+  "transfer_details": {
+    "credits": 500
   },
-  "from_character_id": "helper_pilot",
-  "to_character_id": "newbie_trader",
+  "from": { /* same as above */ },
+  "to": { /* same as above */ },
   "sector": {"id": 43},
-  "amount": 500,
   "timestamp": "2025-10-19T04:02:05.120Z",
-  "from_balance_before": 8200,
-  "from_balance_after": 7700,
-  "to_balance_before": 1200,
-  "to_balance_after": 1700
+  "source": { /* same as above */ }
 }
 ```
 
@@ -1013,6 +1090,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
       "neuro_symbolics": 4
     },
     "cargo_capacity": 120,
+    "empty_holds": 59,
     "warp_power": 38,
     "warp_power_capacity": 50,
     "shields": 120,
@@ -1059,11 +1137,12 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "ship_type": "kestrel_courier",
     "ship_name": "Kestrel Courier",
     "cargo": {
-      "quantum_foam": 70,
+      "quantum_foam": 50,
       "retro_organics": 30,
       "neuro_symbolics": 20
     },
     "cargo_capacity": 100,
+    "empty_holds": 0,
     "warp_power": 37,
     "warp_power_capacity": 50,
     "shields": 85,
@@ -1173,3 +1252,4 @@ The new combat event serialization (implemented in `/game-server/combat/utils.py
 - Cargo and credit information is never revealed to opponents
 - Character IDs are shown for ownership but player display names can be different
 - Garrison details (mode, toll) are revealed to participants in combat with that garrison
+- `ship.empty_holds` is a calculated convenience field (cargo_capacity - sum(cargo)) included only in events containing the viewer's own ship status (via `ship_self()`), never in public player views (sector.update, character.moved) or opponent combat data

@@ -30,6 +30,11 @@ from utils.tools_schema import (
     BankTransfer,
     DumpCargo,
     SendMessage,
+    CombatInitiate,
+    CombatAction,
+    PlaceFighters,
+    CollectFighters,
+    SalvageCollect,
     UI_SHOW_PANEL_SCHEMA,
 )
 
@@ -175,6 +180,21 @@ class VoiceTaskManager:
                 character_id=self.character_id, **kwargs
             ),
             "bank_transfer": lambda **kwargs: self.game_client.bank_transfer(
+                character_id=self.character_id, **kwargs
+            ),
+            "combat_initiate": lambda **kwargs: self.game_client.combat_initiate(
+                character_id=self.character_id, **kwargs
+            ),
+            "combat_action": lambda **kwargs: self.game_client.combat_action(
+                character_id=self.character_id, **kwargs
+            ),
+            "place_fighters": lambda **kwargs: self.game_client.combat_leave_fighters(
+                character_id=self.character_id, **kwargs
+            ),
+            "collect_fighters": lambda **kwargs: self.game_client.combat_collect_fighters(
+                character_id=self.character_id, **kwargs
+            ),
+            "salvage_collect": lambda **kwargs: self.game_client.salvage_collect(
                 character_id=self.character_id, **kwargs
             ),
         }
@@ -481,6 +501,11 @@ class VoiceTaskManager:
                 TransferCredits.schema(),
                 BankTransfer.schema(),
                 SendMessage.schema(),
+                CombatInitiate.schema(),
+                CombatAction.schema(),
+                PlaceFighters.schema(),
+                CollectFighters.schema(),
+                SalvageCollect.schema(),
                 StartTask.schema(),
                 StopTask.schema(),
                 UI_SHOW_PANEL_SCHEMA,

@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Dict, Iterable, Optional
 
 from ships import ShipType, get_ship_stats
-from api.utils import ship_self
+from api.utils import resolve_character_name, ship_self
 from .models import CombatEncounter, CombatantState, GarrisonState
 
 
@@ -408,7 +408,10 @@ async def serialize_round_waiting_event(
         context = getattr(encounter, "context", None)
         if isinstance(context, dict):
             initiator_id = context.get("initiator")
-        payload["initiator"] = initiator_id
+
+        # Convert character ID to display name (falls back to ID if unresolved)
+        initiator_name = resolve_character_name(world, initiator_id) if initiator_id else None
+        payload["initiator"] = initiator_name
     if ship_payload:
         payload["ship"] = ship_payload
     return payload

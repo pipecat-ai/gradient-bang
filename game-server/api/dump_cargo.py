@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Dict, Mapping, Optional
 
 from fastapi import HTTPException
 
 from .utils import (
     build_event_source,
+    build_status_payload,
     emit_error_event,
     ensure_not_in_combat,
     rpc_success,
@@ -111,15 +113,35 @@ async def handle(request: dict, world) -> dict:
     )
 
     log_context = EventLogContext(sender=character_id, sector=character.sector)
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    # Build standardized salvage.created event (private - only dumper sees it)
+    salvage_dict = salvage.to_dict()
 
     await event_dispatcher.emit(
         "salvage.created",
         {
-            "source": build_event_source("dump_cargo", request_id),
+            "action": "dumped",
+            "salvage_details": {
+                "salvage_id": salvage_dict["salvage_id"],
+                "cargo": salvage_dict["cargo"],
+                "scrap": salvage_dict["scrap"],
+                "credits": salvage_dict["credits"],
+                "expires_at": salvage_dict["expires_at"],
+            },
             "sector": {"id": character.sector},
-            "salvage": salvage.to_dict(),
-            "dumped_cargo": removed,
+            "timestamp": timestamp,
+            "source": build_event_source("dump_cargo", request_id),
         },
+        character_filter=[character_id],
+        log_context=log_context,
+    )
+
+    # Emit status.update after dumping cargo
+    status_payload = await build_status_payload(world, character_id)
+    await event_dispatcher.emit(
+        "status.update",
+        status_payload,
         character_filter=[character_id],
         log_context=log_context,
     )

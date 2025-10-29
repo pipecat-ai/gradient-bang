@@ -101,7 +101,7 @@ class TestSalvageCapacityFullCollection:
             # Verify response
             assert result.get("success") is True
             assert result["collected"]["cargo"].get("quantum_foam", 0) == 10
-            assert result["salvage_removed"] is True
+            assert result["fully_collected"] is True
             assert result["remaining"]["cargo"] == {}
 
             # Verify collector has cargo
@@ -172,7 +172,7 @@ class TestSalvageCapacityNoSpace:
             # Verify response
             assert result.get("success") is True
             assert result["collected"]["cargo"] == {}, "Should not collect any cargo"
-            assert result["salvage_removed"] is False, "Salvage should remain"
+            assert result["fully_collected"] is False, "Salvage should remain"
             assert result["remaining"]["cargo"].get("retro_organics", 0) == 5
 
             # Verify collector cargo unchanged
@@ -240,7 +240,7 @@ class TestSalvageCapacityPartialCollection:
             # Verify response
             assert result.get("success") is True
             assert result["collected"]["cargo"].get("quantum_foam", 0) == 5
-            assert result["salvage_removed"] is False
+            assert result["fully_collected"] is False
             assert result["remaining"]["cargo"].get("quantum_foam", 0) == 5
 
             # Verify collector has 5 units
@@ -317,7 +317,7 @@ class TestSalvageCapacityPartialCollection:
 
             # Should leave retro_organics
             assert remaining.get("retro_organics", 0) == 5
-            assert result["salvage_removed"] is False
+            assert result["fully_collected"] is False
 
             # Verify collector cargo
             await asyncio.sleep(0.5)
@@ -383,7 +383,7 @@ class TestSalvageCapacityReturnTrip:
 
             assert result1["collected"]["cargo"].get("quantum_foam", 0) == 10
             assert result1["remaining"]["cargo"].get("quantum_foam", 0) == 10
-            assert result1["salvage_removed"] is False
+            assert result1["fully_collected"] is False
 
             await asyncio.sleep(0.5)
 
@@ -404,7 +404,7 @@ class TestSalvageCapacityReturnTrip:
 
             assert result2["collected"]["cargo"].get("quantum_foam", 0) == 10
             assert result2["remaining"]["cargo"] == {}
-            assert result2["salvage_removed"] is True
+            assert result2["fully_collected"] is True
 
             # Verify final state
             await asyncio.sleep(0.5)
@@ -431,7 +431,7 @@ class TestSalvageCapacityReturnTrip:
 class TestSalvageRemovalLogic:
     """Tests for salvage persistence and removal."""
 
-    async def test_salvage_removed_only_when_empty(self, server_url, check_server_available):
+    async def test_salvage_fully_collected_only_when_empty(self, server_url, check_server_available):
         """Test salvage removed only after complete collection."""
         dumper_id = "test_capacity_dumper_6"
         collector_id = "test_capacity_collector_6"
@@ -489,7 +489,7 @@ class TestSalvageRemovalLogic:
                 "salvage_id": salvage_id
             })
 
-            assert result["salvage_removed"] is True
+            assert result["fully_collected"] is True
 
             await asyncio.sleep(0.5)
 
