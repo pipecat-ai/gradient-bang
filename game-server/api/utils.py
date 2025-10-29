@@ -29,6 +29,44 @@ def rpc_success(data: Dict[str, Any] | None = None) -> Dict[str, Any]:
     return response
 
 
+def build_public_player_data(world, character_id: str) -> Dict[str, Any]:
+    """Build public player data (no private stats like credits/cargo/warp).
+
+    Used in sector.update, transfer events, and other public contexts.
+    Pattern matches sector_contents() player list items.
+
+    Returns:
+        {
+            "created_at": "2025-10-28T10:00:00.000Z",
+            "id": "character_uuid",
+            "name": "Display Name",
+            "player_type": "human",
+            "ship": {
+                "ship_type": "kestrel_courier",
+                "ship_name": "Ship Name"
+            }
+        }
+    """
+    character = world.characters[character_id]
+    knowledge = world.knowledge_manager.load_knowledge(character_id)
+    ship_config = knowledge.ship_config
+    ship_stats = get_ship_stats(ShipType(ship_config.ship_type))
+
+    display_name = resolve_character_name(world, character_id)
+    ship_display_name = ship_config.ship_name or ship_stats.name
+
+    return {
+        "created_at": character.first_visit.isoformat(),
+        "id": character.id,
+        "name": display_name,
+        "player_type": character.player_type,
+        "ship": {
+            "ship_type": ship_config.ship_type,
+            "ship_name": ship_display_name,
+        },
+    }
+
+
 def build_character_moved_payload(
     world,
     character_id: str,
@@ -331,25 +369,8 @@ async def sector_contents(
             continue
         if character.in_hyperspace:  # Skip characters in transit
             continue
-        # fill in created_at, name, player_type, ship
-        knowledge = world.knowledge_manager.load_knowledge(char_id)
-        ship_config = knowledge.ship_config
-        ship_stats = get_ship_stats(ShipType(ship_config.ship_type))
-
-        # Use profile/display name when available for UI friendliness
-        display_name = resolve_character_name(world, char_id)
-        ship_display_name = ship_config.ship_name or ship_stats.name
-
-        player = {
-            "created_at": character.first_visit.isoformat(),
-            "id": character.id,
-            "name": display_name,
-            "player_type": character.player_type,
-            "ship": {
-                "ship_type": ship_config.ship_type,
-                "ship_name": ship_display_name,
-            },
-        }
+        # Build public player data (no private stats)
+        player = build_public_player_data(world, char_id)
         players.append(player)
 
     # Garrisons

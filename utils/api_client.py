@@ -25,6 +25,7 @@ from utils.summary_formatters import (
     sector_update_summary,
     status_update_summary,
     trade_executed_summary,
+    transfer_summary,
 )
 
 
@@ -143,6 +144,8 @@ class AsyncGameClient:
             "local_map_region": map_local_wrapper,
             "map.local": map_local_wrapper,
             "trade.executed": trade_executed_summary,
+            "credits.transfer": transfer_summary,
+            "warp.transfer": transfer_summary,
             "port.update": port_update_summary,
             "character.moved": character_moved_summary,
             "combat.round_waiting": combat_round_waiting_summary,

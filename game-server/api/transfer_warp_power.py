@@ -5,12 +5,14 @@ from fastapi import HTTPException
 
 from .utils import (
     build_status_payload,
+    build_public_player_data,
     rpc_success,
     build_event_source,
     emit_error_event,
     resolve_sector_character_id,
+    ensure_not_in_combat,
 )
-from rpc.events import event_dispatcher
+from rpc.events import event_dispatcher, EventLogContext
 
 
 async def _fail(
@@ -56,6 +58,10 @@ async def handle(request: dict, world) -> dict:
     from_character = world.characters[from_character_id]
     to_character = world.characters[to_character_id]
 
+    # Prevent self-transfer
+    if from_character_id == to_character_id:
+        raise HTTPException(status_code=400, detail="Cannot transfer warp power to yourself")
+
     if from_character.in_hyperspace:
         raise HTTPException(
             status_code=400,
@@ -66,6 +72,9 @@ async def handle(request: dict, world) -> dict:
             status_code=400,
             detail="Receiver is in hyperspace, cannot transfer warp power",
         )
+
+    # Block transfers during combat
+    await ensure_not_in_combat(world, [from_character_id, to_character_id])
 
     if from_character.sector != to_character.sector:
         raise HTTPException(status_code=400, detail="Characters must be in the same sector")
@@ -98,23 +107,48 @@ async def handle(request: dict, world) -> dict:
     world.knowledge_manager.save_knowledge(to_knowledge)
 
     timestamp = datetime.now(timezone.utc).isoformat()
+    log_context = EventLogContext(sender=from_character_id, sector=from_character.sector)
+
+    # Build reusable data for new unified transfer payload
+    source = build_event_source("transfer_warp_power", request_id)
+    from_player_data = build_public_player_data(world, from_character_id)
+    to_player_data = build_public_player_data(world, to_character_id)
+    transfer_details = {"warp_power": units_to_transfer}
+    sector_data = {"id": from_character.sector}
+
+    # Emit to sender with direction="sent"
     await event_dispatcher.emit(
         "warp.transfer",
         {
-            "source": build_event_source("transfer_warp_power", request_id),
-            "from_character_id": from_character_id,
-            "to_character_id": to_character_id,
-            "sector": {"id": from_character.sector},
-            "units": units_to_transfer,
+            "transfer_direction": "sent",
+            "transfer_details": transfer_details,
+            "from": from_player_data,
+            "to": to_player_data,
+            "sector": sector_data,
             "timestamp": timestamp,
-            "from_warp_power_remaining": from_knowledge.ship_config.current_warp_power,
-            "to_warp_power_current": to_knowledge.ship_config.current_warp_power,
+            "source": source,
         },
-        character_filter=[from_character_id, to_character_id],
+        character_filter=[from_character_id],
+        log_context=log_context,
     )
 
+    # Emit to receiver with direction="received"
+    await event_dispatcher.emit(
+        "warp.transfer",
+        {
+            "transfer_direction": "received",
+            "transfer_details": transfer_details,
+            "from": from_player_data,
+            "to": to_player_data,
+            "sector": sector_data,
+            "timestamp": timestamp,
+            "source": source,
+        },
+        character_filter=[to_character_id],
+        log_context=log_context,
+    )
     for cid in (from_character_id, to_character_id):
         payload = await build_status_payload(world, cid)
-        await event_dispatcher.emit("status.update", payload, character_filter=[cid])
+        await event_dispatcher.emit("status.update", payload, character_filter=[cid], log_context=log_context)
 
     return rpc_success()

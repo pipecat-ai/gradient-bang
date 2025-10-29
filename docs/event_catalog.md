@@ -902,26 +902,64 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 ```
 
 ### warp.transfer
-**When emitted:** When warp power is transferred between two characters
-**Who receives it:** Both the sender and receiver characters (character_filter)
-**Source:** `/game-server/api/transfer_warp_power.py:66`
+**When emitted:** When warp power is transferred between two characters via `/api/transfer_warp_power`.
+**Who receives it:** Sender and receiver each receive their own copy with appropriate `transfer_direction`.
+**Source:** `/game-server/api/transfer_warp_power.py`
 
-**Payload example:**
+**Privacy:** Warp power levels are not included for privacy reasons. Each player receives their updated warp power via a `status.update` event immediately after the transfer.
+
+**Direction:** Each participant receives their own copy of the event with `transfer_direction` set to either `"sent"` or `"received"`.
+
+**Payload example (sender's view):**
 ```json
 {
+  "transfer_direction": "sent",
+  "transfer_details": {
+    "warp_power": 10
+  },
+  "from": {
+    "created_at": "2025-10-07T14:00:00.000Z",
+    "id": "trader",
+    "name": "Helpful Trader",
+    "player_type": "human",
+    "ship": {
+      "ship_type": "atlas_hauler",
+      "ship_name": "Heavy Freighter"
+    }
+  },
+  "to": {
+    "created_at": "2025-10-07T14:15:00.000Z",
+    "id": "merchant",
+    "name": "Local Merchant",
+    "player_type": "human",
+    "ship": {
+      "ship_type": "kestrel_courier",
+      "ship_name": "Fast Courier"
+    }
+  },
+  "sector": {"id": 43},
+  "timestamp": "2025-10-07T14:28:00.000Z",
   "source": {
     "type": "rpc",
     "method": "transfer_warp_power",
     "request_id": "req-transfer-987",
     "timestamp": "2025-10-07T14:28:00.000Z"
+  }
+}
+```
+
+**Payload example (receiver's view):**
+```json
+{
+  "transfer_direction": "received",
+  "transfer_details": {
+    "warp_power": 10
   },
-  "from_character_id": "trader",
-  "to_character_id": "merchant",
+  "from": { /* same as above */ },
+  "to": { /* same as above */ },
   "sector": {"id": 43},
-  "units": 10,
   "timestamp": "2025-10-07T14:28:00.000Z",
-  "from_warp_power_remaining": 90,
-  "to_warp_power_current": 110
+  "source": { /* same as above */ }
 }
 ```
 
@@ -929,27 +967,63 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 
 ### credits.transfer
 **When emitted:** When one character sends on-hand credits to another character in the same sector via `/api/transfer_credits`.
-**Who receives it:** Sender and receiver (character_filter).
+**Who receives it:** Sender and receiver each receive their own copy with appropriate `transfer_direction`.
 **Source:** `/game-server/api/transfer_credits.py`
 
-**Payload example:**
+**Privacy:** Balance information is not included for privacy reasons. Each player receives their updated balance via a `status.update` event immediately after the transfer.
+
+**Direction:** Each participant receives their own copy of the event with `transfer_direction` set to either `"sent"` or `"received"`.
+
+**Payload example (sender's view):**
 ```json
 {
+  "transfer_direction": "sent",
+  "transfer_details": {
+    "credits": 500
+  },
+  "from": {
+    "created_at": "2025-10-19T04:00:00.000Z",
+    "id": "helper_pilot",
+    "name": "Generous Trader",
+    "player_type": "human",
+    "ship": {
+      "ship_type": "kestrel_courier",
+      "ship_name": "The Philanthropist"
+    }
+  },
+  "to": {
+    "created_at": "2025-10-19T04:10:00.000Z",
+    "id": "newbie_trader",
+    "name": "Grateful Newbie",
+    "player_type": "human",
+    "ship": {
+      "ship_type": "sparrow_scout",
+      "ship_name": "Lucky Scout"
+    }
+  },
+  "sector": {"id": 43},
+  "timestamp": "2025-10-19T04:02:05.120Z",
   "source": {
     "type": "rpc",
     "method": "transfer_credits",
     "request_id": "req-credits-19",
     "timestamp": "2025-10-19T04:02:05.120Z"
+  }
+}
+```
+
+**Payload example (receiver's view):**
+```json
+{
+  "transfer_direction": "received",
+  "transfer_details": {
+    "credits": 500
   },
-  "from_character_id": "helper_pilot",
-  "to_character_id": "newbie_trader",
+  "from": { /* same as above */ },
+  "to": { /* same as above */ },
   "sector": {"id": 43},
-  "amount": 500,
   "timestamp": "2025-10-19T04:02:05.120Z",
-  "from_balance_before": 8200,
-  "from_balance_after": 7700,
-  "to_balance_before": 1200,
-  "to_balance_after": 1700
+  "source": { /* same as above */ }
 }
 ```
 

@@ -163,6 +163,27 @@ async def test_transfer_warp_power_emits_enhanced_event(monkeypatch):
         "build_status_payload",
         AsyncMock(return_value={"status": "ok"}),
     )
+    monkeypatch.setattr(
+        transfer_warp_power,
+        "resolve_sector_character_id",
+        lambda world, source_character_id, to_player_name, endpoint: receiver,
+    )
+    monkeypatch.setattr(
+        transfer_warp_power,
+        "build_public_player_data",
+        lambda world, char_id: {
+            "id": char_id,
+            "name": f"Player_{char_id}",
+            "player_type": "human",
+            "created_at": "2025-01-01T00:00:00Z",
+            "ship": {"ship_type": "kestrel_courier", "ship_name": "Test Ship"}
+        },
+    )
+    monkeypatch.setattr(
+        transfer_warp_power,
+        "ensure_not_in_combat",
+        AsyncMock(),
+    )
 
     result = await transfer_warp_power.handle(
         {
@@ -179,17 +200,35 @@ async def test_transfer_warp_power_emits_enhanced_event(monkeypatch):
     transfer_calls = [
         call for call in mock_emit.await_args_list if call.args[0] == "warp.transfer"
     ]
-    assert len(transfer_calls) == 1
-    _, payload = transfer_calls[0].args[:2]
+    # Now we emit TWO separate events (one to sender, one to receiver)
+    assert len(transfer_calls) == 2, "Should emit two warp.transfer events (sent + received)"
 
-    assert set(transfer_calls[0].kwargs["character_filter"]) == {sender, receiver}
-    assert payload["source"]["method"] == "transfer_warp_power"
-    assert payload["source"]["request_id"] == "req-transfer-456"
-    assert payload["from_character_id"] == sender
-    assert payload["to_character_id"] == receiver
-    assert payload["units"] == 30
-    assert payload["from_warp_power_remaining"] == sender_knowledge.ship_config.current_warp_power
-    assert payload["to_warp_power_current"] == receiver_knowledge.ship_config.current_warp_power
+    # Check sender event (direction="sent")
+    sender_call = transfer_calls[0]
+    _, sender_payload = sender_call.args[:2]
+    assert sender_call.kwargs["character_filter"] == [sender]
+    assert sender_payload["transfer_direction"] == "sent"
+    assert sender_payload["transfer_details"]["warp_power"] == 30
+    assert sender_payload["from"]["id"] == sender
+    assert sender_payload["to"]["id"] == receiver
+    assert sender_payload["source"]["method"] == "transfer_warp_power"
+    assert sender_payload["source"]["request_id"] == "req-transfer-456"
+
+    # Verify NO private warp power fields
+    assert "from_warp_power_remaining" not in sender_payload
+    assert "to_warp_power_current" not in sender_payload
+    assert "units" not in sender_payload  # now in transfer_details.warp_power
+    assert "from_character_id" not in sender_payload  # now in from.id
+    assert "to_character_id" not in sender_payload  # now in to.id
+
+    # Check receiver event (direction="received")
+    receiver_call = transfer_calls[1]
+    _, receiver_payload = receiver_call.args[:2]
+    assert receiver_call.kwargs["character_filter"] == [receiver]
+    assert receiver_payload["transfer_direction"] == "received"
+    assert receiver_payload["transfer_details"]["warp_power"] == 30
+    assert receiver_payload["from"]["id"] == sender
+    assert receiver_payload["to"]["id"] == receiver
 
 
 @pytest.mark.asyncio

@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from .utils import (
     build_event_source,
+    build_status_payload,
     emit_error_event,
     ensure_not_in_combat,
     rpc_success,
@@ -120,6 +121,15 @@ async def handle(request: dict, world) -> dict:
             "salvage": salvage.to_dict(),
             "dumped_cargo": removed,
         },
+        character_filter=[character_id],
+        log_context=log_context,
+    )
+
+    # Emit status.update after dumping cargo
+    status_payload = await build_status_payload(world, character_id)
+    await event_dispatcher.emit(
+        "status.update",
+        status_payload,
         character_filter=[character_id],
         log_context=log_context,
     )

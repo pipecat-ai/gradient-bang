@@ -777,3 +777,43 @@ def character_moved_summary(event: Dict[str, Any]) -> str:
     if move_type:
         return f"{name} in {ship_descriptor} movement update [{move_type}]."
     return f"{name} in {ship_descriptor} movement update."
+
+
+def transfer_summary(event: Dict[str, Any]) -> str:
+    """Summarize transfer events (credits and warp).
+
+    Handles both credits.transfer and warp.transfer events with
+    direction-aware messaging.
+    """
+    direction = event.get("transfer_direction", "unknown")
+    details = event.get("transfer_details", {})
+    from_data = event.get("from", {})
+    to_data = event.get("to", {})
+
+    from_name = from_data.get("name", "unknown")
+    to_name = to_data.get("name", "unknown")
+
+    # Build transfer description
+    parts = []
+    if "warp_power" in details:
+        parts.append(f"{details['warp_power']} warp power")
+    if "credits" in details:
+        parts.append(f"{details['credits']} credits")
+    if "cargo" in details:
+        # Future: format cargo details
+        cargo = details["cargo"]
+        cargo_parts = [f"{qty} {commodity}" for commodity, qty in cargo.items()]
+        parts.extend(cargo_parts)
+
+    if not parts:
+        transfer_desc = "unknown resources"
+    else:
+        transfer_desc = " and ".join(parts)
+
+    # Direction-aware message
+    if direction == "sent":
+        return f"Sent {transfer_desc} to {to_name}."
+    elif direction == "received":
+        return f"Received {transfer_desc} from {from_name}."
+    else:
+        return f"Transfer: {transfer_desc} between {from_name} and {to_name}."

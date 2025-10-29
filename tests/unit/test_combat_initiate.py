@@ -89,7 +89,11 @@ def _patch_serialization_helpers(monkeypatch):
 async def test_round_waiting_includes_initiator_round_one(monkeypatch):
     encounter = _build_encounter(round_number=1)
     encounter.context["initiator"] = "initiator"
-    world = SimpleNamespace(garrisons=None)
+    # Add characters dict so initiator name can be resolved
+    world = SimpleNamespace(
+        garrisons=None,
+        characters={"initiator": SimpleNamespace(name="initiator")}
+    )
 
     _patch_serialization_helpers(monkeypatch)
 
@@ -106,7 +110,11 @@ async def test_round_waiting_includes_initiator_round_one(monkeypatch):
 @pytest.mark.asyncio
 async def test_round_waiting_omits_initiator_after_first_round(monkeypatch):
     encounter = _build_encounter(round_number=2)
-    world = SimpleNamespace(garrisons=None)
+    # Add characters dict for consistency (even though not used in round 2)
+    world = SimpleNamespace(
+        garrisons=None,
+        characters={"initiator": SimpleNamespace(name="initiator")}
+    )
 
     _patch_serialization_helpers(monkeypatch)
 

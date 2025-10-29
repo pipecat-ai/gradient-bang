@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from fastapi import HTTPException
-from rpc.events import event_dispatcher
-from api.utils import sector_contents, rpc_success, build_event_source
+from rpc.events import event_dispatcher, EventLogContext
+from api.utils import sector_contents, rpc_success, build_event_source, build_status_payload
 from ships import ShipType
 
 VALID_COMMODITIES = {"quantum_foam", "retro_organics", "neuro_symbolics"}
@@ -121,6 +121,7 @@ async def handle(request: dict, world) -> dict:
     # Emit salvage.collected event with collection details
     sector_id = character.sector
     request_id = request.get("request_id") or "missing-request-id"
+    log_context = EventLogContext(sender=character_id, sector=sector_id)
 
     await event_dispatcher.emit(
         "salvage.collected",
@@ -144,6 +145,16 @@ async def handle(request: dict, world) -> dict:
             "credits_after": credits_after,
         },
         character_filter=[character_id],
+        log_context=log_context,
+    )
+
+    # Emit status.update after collecting salvage
+    status_payload = await build_status_payload(world, character_id)
+    await event_dispatcher.emit(
+        "status.update",
+        status_payload,
+        character_filter=[character_id],
+        log_context=log_context,
     )
 
     # Emit sector.update to all characters in the sector
@@ -160,6 +171,7 @@ async def handle(request: dict, world) -> dict:
             "sector.update",
             sector_update_payload,
             character_filter=characters_in_sector,
+            log_context=log_context,
         )
 
     # Return detailed response
