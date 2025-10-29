@@ -30,7 +30,7 @@ class MessageStore:
     def now_iso(self) -> str:
         return datetime.now(timezone.utc).isoformat()
 
-    async def append(self, *, from_id: str, from_name: str, msg_type: str, content: str, to_name: Optional[str] = None) -> Dict[str, Any]:
+    async def append(self, *, from_id: str, from_name: str, msg_type: str, content: str, to_name: Optional[str] = None, to_character_id: Optional[str] = None) -> Dict[str, Any]:
         async with self.lock:
             mid = await self.next_id()
             rec: Dict[str, Any] = {
@@ -48,7 +48,9 @@ class MessageStore:
                 with (self.base_dir / "broadcast.jsonl").open("a") as f:
                     f.write(line + "\n")
             else:
-                inbox = self.base_dir / "inbox" / f"{to_name}.jsonl"
+                # Use character ID for inbox filename (stable, unique, filesystem-safe)
+                inbox_key = to_character_id if to_character_id else to_name
+                inbox = self.base_dir / "inbox" / f"{inbox_key}.jsonl"
                 with inbox.open("a") as f:
                     f.write(line + "\n")
             return rec

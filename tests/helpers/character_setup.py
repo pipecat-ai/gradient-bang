@@ -433,11 +433,21 @@ def register_all_test_characters(world_data_dir: str = "tests/test-world-data") 
             "characters": {}
         }
 
+    # Special display names for message test characters (different from character IDs)
+    MESSAGE_CHARACTER_NAMES = {
+        "test_message_sender": "Message Sender",
+        "test_message_recipient": "Message Recipient",
+        "test_message_outsider": "Message Outsider",
+    }
+
     # Add all test characters from the list
     for character_id in TEST_CHARACTER_IDS:
         if character_id not in data["characters"]:
+            # Use special display name if defined, otherwise use character ID
+            display_name = MESSAGE_CHARACTER_NAMES.get(character_id, character_id)
+
             data["characters"][character_id] = {
-                "name": character_id,
+                "name": display_name,
                 "email": f"{character_id}@test.com",
                 "password_hash": ""
             }

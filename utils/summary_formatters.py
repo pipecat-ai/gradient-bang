@@ -817,3 +817,26 @@ def transfer_summary(event: Dict[str, Any]) -> str:
         return f"Received {transfer_desc} from {from_name}."
     else:
         return f"Transfer: {transfer_desc} between {from_name} and {to_name}."
+
+
+def chat_message_summary(event: Dict[str, Any]) -> str:
+    """Summarize chat message events (broadcast and direct).
+
+    Handles both broadcast and direct messages with type-aware formatting.
+    """
+    msg_type = event.get("type", "unknown")
+    from_name = event.get("from_name", event.get("from", "unknown"))
+    content = event.get("content", event.get("message", ""))
+
+    # Truncate long messages
+    max_length = 50
+    if len(content) > max_length:
+        content = content[:max_length] + "..."
+
+    if msg_type == "broadcast":
+        return f"{from_name} (broadcast): {content}"
+    elif msg_type == "direct":
+        to_name = event.get("to_name", event.get("to", "unknown"))
+        return f"{from_name} → {to_name}: {content}"
+    else:
+        return f"{from_name}: {content}"

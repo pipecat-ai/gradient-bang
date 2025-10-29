@@ -10,6 +10,7 @@ import inspect
 import websockets
 
 from utils.summary_formatters import (
+    chat_message_summary,
     combat_action_accepted_summary,
     combat_ended_summary,
     combat_round_waiting_summary,
@@ -146,6 +147,7 @@ class AsyncGameClient:
             "trade.executed": trade_executed_summary,
             "credits.transfer": transfer_summary,
             "warp.transfer": transfer_summary,
+            "chat.message": chat_message_summary,
             "port.update": port_update_summary,
             "character.moved": character_moved_summary,
             "combat.round_waiting": combat_round_waiting_summary,

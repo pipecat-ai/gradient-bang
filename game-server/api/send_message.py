@@ -1,6 +1,8 @@
 from typing import Dict, Any, Optional
 from fastapi import HTTPException
 
+from api.utils import resolve_character_name
+
 
 async def handle(payload: Dict[str, Any], world, store, *, rate_limit_check=None) -> Dict[str, Any]:
     """Handle sending a message (broadcast or direct).
@@ -37,17 +39,18 @@ async def handle(payload: Dict[str, Any], world, store, *, rate_limit_check=None
     if rate_limit_check:
         rate_limit_check(from_id)
 
-    # Look up from_name (for display in messages)
-    from_name = world.characters.get(from_id).id if from_id in world.characters else from_id
+    # Look up sender's display name
+    from_name = resolve_character_name(world, from_id)
 
-    # For direct messages, look up recipient's character ID from name
+    # For direct messages, look up recipient's character ID from display name
     to_character_id: Optional[str] = None
     if msg_type == "direct" and to_name:
-        if to_name not in world.characters:
+        recipient_profile = world.character_registry.find_by_name(to_name)
+        if not recipient_profile:
             raise HTTPException(status_code=404, detail=f"Character '{to_name}' not found")
-        to_character_id = to_name  # Character ID is the same as the name
+        to_character_id = recipient_profile.character_id
 
-    record = await store.append(from_id=from_id, from_name=from_name, msg_type=msg_type, content=content, to_name=to_name)
+    record = await store.append(from_id=from_id, from_name=from_name, msg_type=msg_type, content=content, to_name=to_name, to_character_id=to_character_id)
 
     # Add to_character_id to record for server-side filtering
     if to_character_id:
