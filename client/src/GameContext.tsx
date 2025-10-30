@@ -619,6 +619,18 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
               gameStore.addMessage(data);
               gameStore.setNotifications({ newChatMessage: true });
+
+              // @TODO: lookup on ID not name
+              // Note: removing because in conversations it's annoying to fill activity log
+              // but without anything, we rely on just notification badge
+              // maybe debounce?
+              /*
+              if (data.from_name !== gameStore.player.name) {
+                gameStore.addActivityLogEntry({
+                  type: "chat.direct",
+                  message: `New direct message received from [${data.from_name}]`,
+                });
+              }*/
               break;
             }
 

@@ -81,6 +81,8 @@ export interface GameSlice extends GameState {
   setDiamondFXInstance: (
     diamondFXInstance: DiamondFXController | undefined
   ) => void;
+  getIncomingMessageLength: () => number;
+
   setGameState: (gameState: GameInitState) => void;
   setGameStateMessage: (gameStateMessage: string) => void;
 }
@@ -224,6 +226,12 @@ const createGameSlice: StateCreator<
 
   setDiamondFXInstance: (diamondFXInstance: DiamondFXController | undefined) =>
     set({ diamondFXInstance }),
+
+  getIncomingMessageLength: () =>
+    get().messages.filter(
+      (message) =>
+        message.type === "direct" && message.from_name !== get().player.name
+    ).length,
 
   setGameState: (gameState: GameInitState) => set({ gameState }),
 });

@@ -5,20 +5,13 @@ import { usePlaySound } from "./usePlaySound";
 export const useMessageNotificationSound = () => {
   const playSound = usePlaySound();
   const prevCountRef = useRef(0);
-  const isFirstRenderRef = useRef(true);
   const lastPlayedRef = useRef(0);
 
-  const messageCount = useGameStore((state) => state.messages.length);
+  const messageCount = useGameStore.use.getIncomingMessageLength()();
 
-  const COOLDOWN_MS = 5000;
+  const COOLDOWN_MS = 3000;
 
   useEffect(() => {
-    if (isFirstRenderRef.current) {
-      isFirstRenderRef.current = false;
-      prevCountRef.current = messageCount;
-      return;
-    }
-
     if (messageCount > prevCountRef.current && messageCount > 0) {
       const now = Date.now();
 
