@@ -34,6 +34,7 @@ export interface MiniMapConfigBase {
   show_sector_ids: boolean;
   show_ports: boolean;
   show_hyperlanes: boolean;
+  show_partial_lanes: boolean;
 }
 
 export const DEFAULT_MINIMAP_CONFIG: Omit<
@@ -73,7 +74,8 @@ export const DEFAULT_MINIMAP_CONFIG: Omit<
   show_warps: true,
   show_sector_ids: true,
   show_ports: true,
-  show_hyperlanes: true,
+  show_hyperlanes: false,
+  show_partial_lanes: true,
 };
 
 export interface MiniMapProps {
@@ -479,10 +481,47 @@ function hasReciprocalLane(
   return toNode.lanes.some((candidate) => candidate.to === fromNode.id);
 }
 
+/** Render a partial lane from an edge node to a culled (but visited) destination */
+function renderPartialLane(
+  ctx: CanvasRenderingContext2D,
+  fromNode: MapSectorNode,
+  culledToNode: MapSectorNode,
+  scale: number,
+  hexSize: number,
+  config: MiniMapConfigBase
+) {
+  const fromCenter = hexToWorld(
+    fromNode.position[0],
+    fromNode.position[1],
+    scale
+  );
+  const toCenter = hexToWorld(
+    culledToNode.position[0],
+    culledToNode.position[1],
+    scale
+  );
+
+  const from = getHexEdgePoint(fromCenter, toCenter, hexSize);
+  const to = getHexEdgePoint(toCenter, fromCenter, hexSize);
+
+  ctx.save();
+  ctx.strokeStyle = applyAlpha(config.colors.lane, 0.5); // Dimmer to indicate it leads off-map
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([3, 3]); // Dashed to indicate it leads to culled sector
+
+  ctx.beginPath();
+  ctx.moveTo(from.x, from.y);
+  ctx.lineTo(to.x, to.y);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 /** Render all lanes and return hyperlane stub labels for later rendering */
 function renderAllLanes(
   ctx: CanvasRenderingContext2D,
-  data: MapData,
+  filteredData: MapData,
+  fullData: MapData,
   scale: number,
   hexSize: number,
   config: MiniMapConfigBase
@@ -490,13 +529,35 @@ function renderAllLanes(
   const renderedLanes = new Set<string>();
   const hyperlaneLabels: Array<{ x: number; y: number; text: string }> = [];
 
-  data.forEach((fromNode) => {
+  filteredData.forEach((fromNode) => {
     fromNode.lanes.forEach((lane) => {
-      const toNode = findSector(data, lane.to);
+      const toNode = findSector(filteredData, lane.to);
 
       if (!toNode) {
+        // Check if fromNode is visited and we should render partial lanes
+        if (config.show_partial_lanes && fromNode.visited) {
+          const culledToNode = findSector(fullData, lane.to);
+          if (culledToNode) {
+            // Render partial lane to culled but real sector
+            renderPartialLane(
+              ctx,
+              fromNode,
+              culledToNode,
+              scale,
+              hexSize,
+              config
+            );
+            return;
+          }
+        }
+
+        // Original hyperlane stub logic for truly missing sectors
         if (lane.hyperlane && config.show_hyperlanes) {
-          const direction = findAvailableEdgeDirection(fromNode, data, scale);
+          const direction = findAvailableEdgeDirection(
+            fromNode,
+            filteredData,
+            scale
+          );
           const labelInfo = renderHyperlaneStub(
             ctx,
             fromNode,
@@ -936,7 +997,14 @@ function renderWithCameraState(
   ctx.translate(cameraState.offsetX, cameraState.offsetY);
 
   const hyperlaneLabels = config.show_warps
-    ? renderAllLanes(ctx, cameraState.filteredData, scale, hexSize, config)
+    ? renderAllLanes(
+        ctx,
+        cameraState.filteredData,
+        props.data,
+        scale,
+        hexSize,
+        config
+      )
     : [];
 
   const currentSector = findSector(

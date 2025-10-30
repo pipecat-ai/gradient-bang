@@ -596,6 +596,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
                   meta: {
                     from_name: data.from_name,
                     signature_prefix: "chat.direct:",
+                    //@TODO: change this to from_id when available
                     signature_keys: [data.from_name],
                   },
                 });

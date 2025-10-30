@@ -11,16 +11,16 @@ export const ShipHUD = () => {
 
   return (
     <div className="flex flex-row p-2 h-ui mt-auto gap-2 z-(--z-hud)">
-      <div className="min-w-(--hud-center)">
-        <div className="relative h-(--hud-center)">
+      <div className="min-w-[400px]">
+        <div className="relative h-[400px]">
           {sector && localMapData && (
             <MiniMap
               current_sector_id={sector.id}
               map_data={localMapData}
               maxDistance={3}
               showLegend={false}
-              width={330}
-              height={330}
+              width={400}
+              height={400}
             />
           )}
         </div>

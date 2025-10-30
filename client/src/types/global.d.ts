@@ -132,11 +132,13 @@ declare global {
     id: number;
     hops_from_center?: number;
     position: [number, number];
-    visited?: string;
+    adjacent_sectors?: number[];
+    visited?: boolean;
     port?: string;
     region?: string;
     lanes: MapLane[];
     is_mega?: boolean;
+    last_visited?: string;
   }
 
   interface MapLane {

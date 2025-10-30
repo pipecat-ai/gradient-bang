@@ -54,6 +54,7 @@ export const MiniMap = ({
   height?: number;
   maxDistance?: number;
   showLegend?: boolean;
+  debug?: boolean;
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const controllerRef = useRef<MiniMapController | null>(null);

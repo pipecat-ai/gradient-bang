@@ -6,8 +6,6 @@ export const SectorPlayersBadge = () => {
 
   const players = sector?.players;
 
-  console.log("PEW", players);
-
   return (
     <NumericalBadge value={players?.length ?? 0} formatAsCurrency={false}>
       Players:
