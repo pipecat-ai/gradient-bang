@@ -88,13 +88,25 @@ const storyData: MapData = [
   },
   {
     id: 657,
-    visited: false,
-    hops_from_center: 1,
-    position: [124, 127],
+    visited: true,
+    hops_from_center: 3,
+    adjacent_sectors: [0, 389, 849],
     port: "",
+    last_visited: "2025-10-30T04:54:36.096804+00:00",
+    position: [124, 127],
     lanes: [
       {
         to: 0,
+        two_way: true,
+        hyperlane: false,
+      },
+      {
+        to: 389,
+        two_way: false,
+        hyperlane: false,
+      },
+      {
+        to: 849,
         two_way: true,
         hyperlane: false,
       },
@@ -156,10 +168,175 @@ const storyData: MapData = [
   },
 ];
 
+const storyData2: MapData = [
+  {
+    id: 0,
+    visited: true,
+    hops_from_center: 2,
+    adjacent_sectors: [581, 657, 849],
+    port: "SSS",
+    last_visited: "2025-10-30T04:56:42.553687+00:00",
+    position: [126, 126],
+    lanes: [
+      {
+        to: 581,
+        two_way: true,
+        hyperlane: false,
+      },
+      {
+        to: 657,
+        two_way: true,
+        hyperlane: false,
+      },
+      {
+        to: 849,
+        two_way: true,
+        hyperlane: false,
+      },
+    ],
+  },
+  {
+    id: 126,
+    visited: false,
+    hops_from_center: 2,
+    position: [128, 129],
+    port: "",
+    lanes: [
+      {
+        to: 581,
+        two_way: true,
+        hyperlane: false,
+      },
+    ],
+  },
+
+  {
+    id: 492,
+    visited: false,
+    hops_from_center: 1,
+    position: [130, 122],
+    port: "",
+    lanes: [
+      {
+        to: 1284,
+        two_way: true,
+        hyperlane: false,
+      },
+    ],
+  },
+  {
+    id: 581,
+    visited: true,
+    hops_from_center: 1,
+    adjacent_sectors: [0, 126, 1284],
+    port: "BBB",
+    last_visited: "2025-10-30T04:57:09.506207+00:00",
+    position: [128, 126],
+    lanes: [
+      {
+        to: 0,
+        two_way: true,
+        hyperlane: false,
+      },
+      {
+        to: 126,
+        two_way: true,
+        hyperlane: false,
+      },
+      {
+        to: 1284,
+        two_way: true,
+        hyperlane: false,
+      },
+    ],
+  },
+  {
+    id: 657,
+    visited: true,
+    hops_from_center: 3,
+    adjacent_sectors: [0, 389, 849],
+    port: "",
+    last_visited: "2025-10-30T04:54:36.096804+00:00",
+    position: [124, 127],
+    lanes: [
+      {
+        to: 0,
+        two_way: true,
+        hyperlane: false,
+      },
+      {
+        to: 389,
+        two_way: false,
+        hyperlane: false,
+      },
+      {
+        to: 849,
+        two_way: true,
+        hyperlane: false,
+      },
+    ],
+  },
+  {
+    id: 849,
+    visited: false,
+    hops_from_center: 3,
+    position: [124, 126],
+    port: "",
+    lanes: [
+      {
+        to: 0,
+        two_way: true,
+        hyperlane: false,
+      },
+    ],
+  },
+  {
+    id: 1284,
+    visited: true,
+    hops_from_center: 0,
+    adjacent_sectors: [492, 581, 1401],
+    port: "",
+    last_visited: "2025-10-30T04:57:12.957082+00:00",
+    position: [129, 123],
+    lanes: [
+      {
+        to: 492,
+        two_way: true,
+        hyperlane: false,
+      },
+      {
+        to: 581,
+        two_way: true,
+        hyperlane: false,
+      },
+      {
+        to: 1401,
+        two_way: true,
+        hyperlane: false,
+      },
+    ],
+  },
+  {
+    id: 1401,
+    visited: false,
+    hops_from_center: 1,
+    position: [128, 122],
+    port: "",
+    lanes: [
+      {
+        to: 1284,
+        two_way: true,
+        hyperlane: false,
+      },
+    ],
+  },
+];
+
 export const MiniMapMock: Story = () => {
   const [currentSectorId, setCurrentSectorId] = useState<number>(0);
   const [maxDistance, setMaxDistance] = useState<number>(2);
   const [bypassAnimation, setBypassAnimation] = useState<boolean>(false);
+  const [currentStoryData, setCurrentStoryData] = useState<MapData>(storyData);
 
   const handleSetSector = useCallback(
     (id: number) => setCurrentSectorId(id),
@@ -177,7 +354,7 @@ export const MiniMapMock: Story = () => {
         <MiniMapComponent
           current_sector_id={currentSectorId}
           config={config}
-          map_data={storyData}
+          map_data={currentStoryData}
           width={440}
           height={440}
           maxDistance={maxDistance}
@@ -210,11 +387,23 @@ export const MiniMapMock: Story = () => {
             </label>
           </div>
           <div className="flex gap-2 flex-wrap">
-            {[0, 581, 126, 566, 849, 1284].map((id) => (
+            {[0, 581, 126, 1284, 849, 657].map((id) => (
               <Button size="sm" key={id} onClick={() => handleSetSector(id)}>
                 Center {id}
               </Button>
             ))}
+            <Button size="sm" onClick={() => setCurrentStoryData(storyData)}>
+              Load Story 1
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                setCurrentStoryData(storyData2);
+                handleSetSector(1284);
+              }}
+            >
+              Load Story 2
+            </Button>
           </div>
         </div>
       </div>

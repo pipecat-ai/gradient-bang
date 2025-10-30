@@ -22,6 +22,9 @@ export interface MiniMapConfigBase {
   grid_spacing: number;
   hex_size: number;
   sector_label_offset: number;
+  label_font_size: number;
+  label_font_weight: number | string;
+  label_padding: number;
   frame_padding: number;
   edge_feather_size?: number;
   current_sector_outer_border: number;
@@ -57,12 +60,15 @@ export const DEFAULT_MINIMAP_CONFIG: Omit<
     background: "#000000",
     label: "#000000",
     label_bg: "#ffffff",
-    current: "#4a90e2",
+    current: "rgba(74,144,226,0.4)",
     current_outline: "rgba(74,144,226,0.6)",
   },
   grid_spacing: 30,
   hex_size: 20,
   sector_label_offset: 5,
+  label_font_size: 10,
+  label_font_weight: 800,
+  label_padding: 2,
   frame_padding: 40,
   edge_feather_size: 220,
   current_sector_outer_border: 5,
@@ -117,6 +123,13 @@ function findSector(
   sectorId: number
 ): MapSectorNode | undefined {
   return data.find((s) => s.id === sectorId);
+}
+
+/** Build an index for O(1) sector lookups by id */
+function createSectorIndex(data: MapData): Map<number, MapSectorNode> {
+  const index = new Map<number, MapSectorNode>();
+  data.forEach((sector) => index.set(sector.id, sector));
+  return index;
 }
 
 function interpolateCameraState(
@@ -179,20 +192,22 @@ function calculateReachableSectors(
   maxDistance: number
 ): Map<number, number> {
   const reachableMap = new Map<number, number>();
-  const currentSector = findSector(data, currentSectorId);
+  const index = createSectorIndex(data);
+  const currentSector = index.get(currentSectorId);
   if (!currentSector) return reachableMap;
 
   const queue: Array<{ id: number; distance: number }> = [
     { id: currentSectorId, distance: 0 },
   ];
+  let head = 0;
   const visited = new Set<number>([currentSectorId]);
   reachableMap.set(currentSectorId, 0);
 
-  while (queue.length > 0) {
-    const current = queue.shift()!;
+  while (head < queue.length) {
+    const current = queue[head++];
     if (current.distance >= maxDistance) continue;
 
-    const sector = findSector(data, current.id);
+    const sector = index.get(current.id);
     if (!sector) continue;
 
     sector.lanes.forEach((lane) => {
@@ -364,14 +379,16 @@ function renderLane(
 }
 
 /** Find hex edge direction that avoids existing lane directions */
-function findAvailableEdgeDirection(
+
+/** Index-aware variant to avoid repeated linear lookups */
+function findAvailableEdgeDirectionWithIndex(
   fromNode: MapSectorNode,
-  data: MapData,
+  index: Map<number, MapSectorNode>,
   scale: number
 ): number {
   const usedAngles = fromNode.lanes
     .map((lane) => {
-      const toNode = findSector(data, lane.to);
+      const toNode = index.get(lane.to);
       if (!toNode) return null;
       const fromWorld = hexToWorld(
         fromNode.position[0],
@@ -528,15 +545,17 @@ function renderAllLanes(
 ): Array<{ x: number; y: number; text: string }> {
   const renderedLanes = new Set<string>();
   const hyperlaneLabels: Array<{ x: number; y: number; text: string }> = [];
+  const filteredIndex = createSectorIndex(filteredData);
+  const fullIndex = createSectorIndex(fullData);
 
   filteredData.forEach((fromNode) => {
     fromNode.lanes.forEach((lane) => {
-      const toNode = findSector(filteredData, lane.to);
+      const toNode = filteredIndex.get(lane.to);
 
       if (!toNode) {
         // Check if fromNode is visited and we should render partial lanes
         if (config.show_partial_lanes && fromNode.visited) {
-          const culledToNode = findSector(fullData, lane.to);
+          const culledToNode = fullIndex.get(lane.to);
           if (culledToNode) {
             // Render partial lane to culled but real sector
             renderPartialLane(
@@ -553,9 +572,9 @@ function renderAllLanes(
 
         // Original hyperlane stub logic for truly missing sectors
         if (lane.hyperlane && config.show_hyperlanes) {
-          const direction = findAvailableEdgeDirection(
+          const direction = findAvailableEdgeDirectionWithIndex(
             fromNode,
-            filteredData,
+            filteredIndex,
             scale
           );
           const labelInfo = renderHyperlaneStub(
@@ -628,6 +647,23 @@ function applyAlpha(color: string, alpha: number): string {
   return color;
 }
 
+/** Use the app's computed font-family (canvas or body) for labels */
+let cachedFontFamily: string | null = null;
+function getCanvasFontFamily(ctx: CanvasRenderingContext2D): string {
+  if (cachedFontFamily) return cachedFontFamily;
+  try {
+    const canvasEl = ctx.canvas as HTMLCanvasElement | undefined;
+    const canvasFamily = canvasEl
+      ? window.getComputedStyle(canvasEl).fontFamily
+      : "";
+    const bodyFamily = window.getComputedStyle(document.body).fontFamily;
+    cachedFontFamily = canvasFamily || bodyFamily || "sans-serif";
+  } catch {
+    cachedFontFamily = "sans-serif";
+  }
+  return cachedFontFamily;
+}
+
 /** Render a sector hex with optional opacity for fade effects */
 function renderSector(
   ctx: CanvasRenderingContext2D,
@@ -653,7 +689,11 @@ function renderSector(
     ctx.restore();
   }
 
-  const fillColor = isVisited ? config.colors.visited : config.colors.empty;
+  const fillColor = isCurrent
+    ? config.colors.current
+    : isVisited
+    ? config.colors.visited
+    : config.colors.empty;
   ctx.fillStyle = applyAlpha(fillColor, opacity);
 
   let strokeColor: string;
@@ -836,12 +876,14 @@ function renderSectorLabels(
   if (!config.show_sector_ids) return;
 
   ctx.save();
-  ctx.font = "8px monospace";
+  ctx.font = `${config.label_font_weight} ${
+    config.label_font_size
+  }px ${getCanvasFontFamily(ctx)}`;
   ctx.textAlign = "left";
-  ctx.textBaseline = "top";
+  ctx.textBaseline = "alphabetic";
 
   const labelOffset = config.sector_label_offset ?? 2;
-  const padding = 1;
+  const padding = config.label_padding ?? 2;
 
   data.forEach((node) => {
     const worldPos = hexToWorld(node.position[0], node.position[1], scale);
@@ -863,12 +905,18 @@ function renderSectorLabels(
 
     const metrics = ctx.measureText(text);
     const textWidth = metrics.width;
-    const textHeight = 8;
+    const ascent =
+      metrics.fontBoundingBoxAscent ??
+      metrics.actualBoundingBoxAscent ??
+      config.label_font_size;
+    const descent =
+      metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent ?? 0;
+    const textHeight = ascent + descent;
 
     ctx.fillStyle = config.colors.label_bg;
     ctx.fillRect(
       textX - padding,
-      textY - padding,
+      textY - ascent - padding,
       textWidth + padding * 2,
       textHeight + padding * 2
     );
@@ -894,12 +942,14 @@ function renderPortLabels(
   if (!config.show_ports) return;
 
   ctx.save();
-  ctx.font = "8px monospace";
+  ctx.font = `${config.label_font_weight} ${
+    config.label_font_size
+  }px ${getCanvasFontFamily(ctx)}`;
   ctx.textAlign = "left";
-  ctx.textBaseline = "top";
+  ctx.textBaseline = "alphabetic";
 
   const labelOffset = config.sector_label_offset ?? 2;
-  const padding = 1;
+  const padding = config.label_padding ?? 2;
 
   data.forEach((node) => {
     if (!node.port) return;
@@ -923,12 +973,18 @@ function renderPortLabels(
 
     const metrics = ctx.measureText(text);
     const textWidth = metrics.width;
-    const textHeight = 8;
+    const ascent =
+      metrics.fontBoundingBoxAscent ??
+      metrics.actualBoundingBoxAscent ??
+      config.label_font_size;
+    const descent =
+      metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent ?? 0;
+    const textHeight = ascent + descent;
 
     ctx.fillStyle = config.colors.label_bg;
     ctx.fillRect(
       textX - padding,
-      textY - padding,
+      textY - ascent - padding,
       textWidth + padding * 2,
       textHeight + padding * 2
     );
@@ -1067,7 +1123,11 @@ function renderWithCameraState(
 
   if (hyperlaneLabels.length > 0) {
     ctx.save();
-    ctx.font = "8px monospace";
+    ctx.font = `${config.label_font_weight} ${
+      config.label_font_size
+    }px ${getCanvasFontFamily(ctx)}`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
     hyperlaneLabels.forEach((label) => {
       const screenPos = worldToScreen(
         label.x,
@@ -1077,9 +1137,18 @@ function renderWithCameraState(
         cameraState
       );
       const metrics = ctx.measureText(label.text);
+      const ascent = metrics.actualBoundingBoxAscent ?? config.label_font_size;
+      const descent = metrics.actualBoundingBoxDescent ?? 0;
+      const textHeight = ascent + descent;
 
+      const padding = config.label_padding ?? 2;
       ctx.fillStyle = config.colors.label_bg;
-      ctx.fillRect(screenPos.x - 1, screenPos.y - 7, metrics.width + 2, 10);
+      ctx.fillRect(
+        screenPos.x - padding,
+        screenPos.y - ascent - padding,
+        metrics.width + padding * 2,
+        textHeight + padding * 2
+      );
 
       ctx.fillStyle = config.colors.label;
       ctx.fillText(label.text, screenPos.x, screenPos.y);
