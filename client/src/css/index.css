@@ -38,6 +38,9 @@
   --elbow-opacity: 1;
   --elbow-color: white;
 
+  --dot-color: var(--color-foreground);
+  --dot-opacity: 0.5;
+
   --z-starfield: 1;
   --z-visor: 2;
   --z-hud: 3;
@@ -67,14 +70,24 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-subtle: var(--color-foreground);
 
   /** UI **/
   --spacing-panel: calc(var(--spacing) * 2);
   --height-ui: 460px;
   --width-ui: 400px;
 
+  --text-shadow-hud: 0 0 12px rgba(0, 0, 0, 0.6);
+
   --color-screen-background: rgba(0, 0, 0, 0.5);
   --color-screen-foreground: rgba(255, 255, 255, 1);
+
+  --dot-gap-md: 10px;
+  --dot-size-md: 1px;
+  --dot-gap-sm: 6px;
+  --dot-size-sm: 1px;
+  --dot-gap-xs: 4px;
+  --dot-size-xs: 1px;
 
   /* Outline Pulse Animation */
   --animate-outline-pulse: outline-pulse 1s cubic-bezier(0.4, 0, 0.6, 1)

@@ -45,7 +45,7 @@ export const SectorTitleBanner = () => {
   const [isVisible, setIsVisible] = useState(false);
   const [skipExit, setSkipExit] = useState(false);
   const scrambleRef = useRef<ScrambleTextRef>(null);
-  const debouncedVisible = useDelayedVisibility(isVisible, 2500);
+  const debouncedVisible = useDelayedVisibility(isVisible, 2000);
   const [scope, animate] = useAnimate();
   const hideTimerRef = useRef<number | null>(null);
   const clearHideTimer = useCallback(() => {
@@ -80,8 +80,7 @@ export const SectorTitleBanner = () => {
   const onSceneChange = useCallback(() => {
     setSkipExit(false);
 
-    const shouldDisplay =
-      (starfieldInstance?.getWarpQueueLength() ?? 0) === 0;
+    const shouldDisplay = (starfieldInstance?.getWarpQueueLength() ?? 0) === 0;
     setIsVisible(shouldDisplay);
   }, [starfieldInstance]);
 
@@ -146,11 +145,15 @@ export const SectorTitleBanner = () => {
               ? undefined
               : { opacity: 0, transition: { duration: 2, ease: "easeOut" } }
           }
-          className="w-full h-full absolute inset-0 flex flex-col items-center justify-center z-999"
+          className="w-full absolute left-0 top-1/2 -translate-y-1/2 z-20"
         >
-          <p className="text-white text-2xl font-bold uppercase text-shadow-lg">
-            <ScrambleText ref={scrambleRef}>{sectorText}</ScrambleText>
-          </p>
+          <div className="flex flex-row gap-5 text-center justify-center items-center mx-auto">
+            <div className="bg-dotted-sm self-stretch w-[160px]" />
+            <p className="text-white text-xl font-bold uppercase text-shadow-hud tracking-wider leading-tight">
+              <ScrambleText ref={scrambleRef}>{sectorText}</ScrambleText>
+            </p>
+            <div className="bg-dotted-sm self-stretch w-[160px]" />
+          </div>
         </motion.div>
       )}
     </AnimatePresence>
