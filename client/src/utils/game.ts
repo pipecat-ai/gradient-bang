@@ -87,3 +87,72 @@ export function salvageCreatedSummaryString(salvage: {
     return " ";
   }
 }
+
+function getMetaValue<T>(meta: Record<string, unknown> | undefined, key: string) {
+  if (!meta) {
+    return undefined;
+  }
+
+  return meta[key] as T | undefined;
+}
+
+function normalizeSignaturePart(part: unknown) {
+  if (part === undefined || part === null) {
+    return "";
+  }
+  if (typeof part === "string") {
+    return part.trim().toLowerCase();
+  }
+  if (typeof part === "number" || typeof part === "boolean") {
+    return String(part);
+  }
+  if (part instanceof Date) {
+    return part.toISOString();
+  }
+  if (typeof part === "object") {
+    try {
+      return JSON.stringify(part);
+    } catch {
+      return "";
+    }
+  }
+  return String(part);
+}
+
+export function createLogEntrySignature(
+  entry: Pick<LogEntry, "type" | "meta">
+): string | undefined {
+  const signaturePrefix = getMetaValue<string>(entry.meta, "signature_prefix");
+  const signatureKeys = getMetaValue<unknown[]>(entry.meta, "signature_keys");
+
+  if (
+    typeof signaturePrefix === "string" &&
+    Array.isArray(signatureKeys) &&
+    signatureKeys.length
+  ) {
+    const normalizedParts = signatureKeys
+      .map((part) => normalizeSignaturePart(part))
+      .filter((part) => part.length > 0);
+
+    if (normalizedParts.length) {
+      return `${signaturePrefix}${normalizedParts.join("|")}`;
+    }
+  }
+
+  if (entry.type === "chat.direct") {
+    const chatMessage = getMetaValue<Partial<ChatMessage>>(
+      entry.meta,
+      "chat_message"
+    );
+    const fromName =
+      normalizeSignaturePart(
+        getMetaValue<string>(entry.meta, "from_name") ?? chatMessage?.from_name
+      ) || undefined;
+
+    if (fromName) {
+      return `chat.direct:${fromName}`;
+    }
+  }
+
+  return undefined;
+}

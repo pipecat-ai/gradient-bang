@@ -1,6 +1,8 @@
 import { produce } from "immer";
 import type { StateCreator } from "zustand";
 
+import { createLogEntrySignature } from "@/utils/game";
+
 export interface HistorySlice {
   activity_log: LogEntry[];
   addActivityLogEntry: (entry: LogEntry) => void;
@@ -19,17 +21,28 @@ export const createHistorySlice: StateCreator<HistorySlice> = (set) => ({
   addActivityLogEntry: (entry: LogEntry) =>
     set(
       produce((state) => {
+        const timestamp = entry.timestamp ?? new Date().toISOString();
+        const timestampClient = entry.timestamp_client ?? Date.now();
+        const meta = {
+          ...entry.meta,
+          //@TODO: see if we need this?
+          sector_id: state.sector?.id,
+          //player: state.player,
+          //ship: state.ship,
+          //sector: state.sector,
+        };
+
         state.activity_log.push({
           ...entry,
-          timestamp: new Date().toISOString(),
-          // Point in time data
-          // @TODO: server is better source of truth for this stuff,
-          // if no use-case emerges, remove this
-          meta: {
-            player: state.player,
-            ship: state.ship,
-            sector: state.sector,
-          },
+          timestamp,
+          timestamp_client: timestampClient,
+          signature:
+            entry.signature ??
+            createLogEntrySignature({
+              type: entry.type,
+              meta,
+            }),
+          meta,
         });
       })
     ),

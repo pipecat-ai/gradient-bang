@@ -131,7 +131,6 @@ const createGameSlice: StateCreator<
       produce((state) => {
         state.messages.push({
           ...message,
-          timestamp_client: Date.now(),
         });
       })
     ),

@@ -216,6 +216,8 @@ declare global {
     message: string;
 
     timestamp?: string; // Note: set by the store
+    timestamp_client?: number; // Note: set by the store
+    signature?: string; // Note: derived via utility for stacking
     meta?: Record<string, unknown>; // Note: set by the store
   }
 
@@ -226,7 +228,6 @@ declare global {
     content: string;
     to_name?: string;
     timestamp: string;
-    timestamp_client?: number;
   }
 }
 

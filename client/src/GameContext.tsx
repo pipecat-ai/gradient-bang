@@ -579,26 +579,27 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               console.debug("[GAME EVENT] Chat message", gameEvent.payload);
               const data = gameEvent.payload as IncomingChatMessage;
 
-              gameStore.addMessage(data);
+              gameStore.addMessage(data as ChatMessage);
               gameStore.setNotifications({ newChatMessage: true });
 
-              // @TODO: lookup on ID not name
-              // @TODO: we should figure a method of 'buffering' DMs in the
-              // captains log, e.g. received [2] new messages from [John Doe]
-              // otherwise it can get annoying to fill the activity log with DMs
-              // problem here is that the entries in the activity log are immutable...
+              const timestampClient = Date.now();
 
-              // simplest solution: add a buffer set in the chat slice <player_id, #>
-              // which stores a ref to the element ref in the captains log,
-              // and update the count when a new message is received, expiring after a few minutes
-
-              /*
-              if (data.from_name !== gameStore.player.name) {
+              if (
+                data.type === "direct" &&
+                data.from_name &&
+                data.from_name !== gameStore.player?.name
+              ) {
                 gameStore.addActivityLogEntry({
                   type: "chat.direct",
-                  message: `New direct message received from [${data.from_name}]`,
+                  message: `New direct message from [${data.from_name}]`,
+                  timestamp_client: timestampClient,
+                  meta: {
+                    from_name: data.from_name,
+                    signature_prefix: "chat.direct:",
+                    signature_keys: [data.from_name],
+                  },
                 });
-              }*/
+              }
               break;
             }
 
