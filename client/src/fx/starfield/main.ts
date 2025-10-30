@@ -256,7 +256,10 @@ export class GalaxyStarfield {
   }
 
   private startCinematicWarp(task: WarpRequest): void {
-    this.sceneController.setLockedConfig(task.preparedConfig);
+    this.sceneController.setLockedConfig(
+      task.preparedConfig,
+      task.gameObjects
+    );
     this._warpBypassFlash = !!task.options.bypassFlash;
     this._currentSceneId = task.sceneId;
     this._sceneReadyPending = true;
@@ -278,10 +281,14 @@ export class GalaxyStarfield {
         {
           emitEvents: false,
           transition: !task.options.bypassFlash,
+          gameObjects: task.gameObjects,
         }
       );
 
-      this.applyGameObjectsToScene(task.gameObjects);
+      // Removing this here as it should be handled in transitionToScene
+      // If we call it here, it's too late, as the scene has already been rendered
+      // and the game objects will pop in vs. be there as part of the white flash fade out
+      //this.applyGameObjectsToScene(task.gameObjects);
       this.emit("warpComplete", this.warpController.queueLength());
     } catch (err) {
       console.error("[STARFIELD] Scene loading failed:", err);
@@ -2137,7 +2144,8 @@ export class GalaxyStarfield {
    * Reload configuration and update the scene
    */
   public async reloadConfig(
-    newConfig: Partial<GalaxyStarfieldConfig> | null = null
+    newConfig: Partial<GalaxyStarfieldConfig> | null = null,
+    gameObjects: GameObjectBaseConfig[] = []
   ): Promise<void> {
     if (newConfig) {
       this.config = { ...this.config, ...newConfig };
@@ -2147,7 +2155,8 @@ export class GalaxyStarfield {
 
     // Recreate game objects if needed
     if (this.gameObjectManager) {
-      //this.gameObjectManager.updateConfig(this.config);
+      //this.gameObjectManager.setGameObjects();
+      this.gameObjectManager.destroyAllObjects();
     }
 
     // Update star layers with new config
@@ -2173,6 +2182,9 @@ export class GalaxyStarfield {
 
     // Wait for all async operations (primarily Background texture loading)
     await Promise.all(promises);
+
+    // Apply any pending game objects for the freshly loaded scene
+    this.applyGameObjectsToScene(gameObjects);
 
     if (this.controlsManager) {
       this.controlsManager.refresh();
@@ -2334,6 +2346,7 @@ export class GalaxyStarfield {
       return;
     }
 
+    console.log("[STARFIELD] Initializing scene", options);
     const { id, sceneConfig, gameObjects = [] } = options;
 
     // Build a config to load: prefer provided id/sceneConfig; fallback to create()
@@ -2356,10 +2369,8 @@ export class GalaxyStarfield {
     await this.sceneController.transitionToScene(configToLoad, {
       emitEvents: false,
       transition: false,
+      gameObjects,
     });
-
-    // Expand and set game objects, if provided
-    this.applyGameObjectsToScene(gameObjects);
 
     // Start rendering, ensuring the first frame is drawn
     this.startRendering();

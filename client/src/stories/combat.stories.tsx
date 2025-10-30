@@ -25,8 +25,6 @@ export const Combat: Story = () => {
 
   const { dispatchEvent, sendUserTextInput } = useGameContext();
 
-  console.log("PEW", activeTarget);
-
   return (
     <>
       <div className="story-description flex flex-col gap-4">

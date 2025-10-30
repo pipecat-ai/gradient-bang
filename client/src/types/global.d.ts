@@ -5,12 +5,12 @@ declare global {
     id: string;
     last_active?: string;
     name: string;
+    created_at?: string;
   }
 
   interface PlayerSelf extends PlayerBase {
     credits_in_bank: number;
     credits_on_hand: number;
-    created_at: string;
   }
 
   interface Player extends PlayerBase {
@@ -70,7 +70,7 @@ declare global {
     planets?: Planet[];
     players?: Player[];
     port?: Port;
-    region: Region;
+    region?: Region;
     scene_config?: unknown;
 
     // Not yet implemented
@@ -112,8 +112,9 @@ declare global {
   }
 
   interface Port extends PortBase {
-    max_capacity: Record<Resource, number>;
-    observed_at?: string;
+    // max_capacity: Record<Resource, number>;
+    code: string;
+    observed_at?: string | null;
     stock: Record<Resource, number>;
     prices: Record<Resource, number>;
     warp_power_depot?: PortWarpPowerDepot;

@@ -38,7 +38,7 @@
   --elbow-opacity: 1;
   --elbow-color: white;
 
-  --dot-color: var(--color-foreground);
+  --dot-color: white;
   --dot-opacity: 0.5;
 
   --z-starfield: 1;
@@ -83,9 +83,9 @@
   --color-screen-foreground: rgba(255, 255, 255, 1);
 
   --dot-gap-md: 10px;
-  --dot-size-md: 1px;
+  --dot-size-md: 1.5px;
   --dot-gap-sm: 6px;
-  --dot-size-sm: 1px;
+  --dot-size-sm: 1.2px;
   --dot-gap-xs: 4px;
   --dot-size-xs: 1px;
 

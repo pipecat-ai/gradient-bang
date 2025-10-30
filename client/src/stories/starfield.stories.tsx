@@ -8,13 +8,46 @@ import "@/css/starfield-ui.css";
 import "@/css/starfield.css";
 import { GalaxyStarfield } from "@/fx/starfield";
 
+const TEST_SECTOR: Sector = {
+  id: 0,
+  adjacent_sectors: [581, 657, 849],
+  port: {
+    code: "SSS",
+    prices: {
+      quantum_foam: 24,
+      retro_organics: 9,
+      neuro_symbolics: 38,
+    },
+    stock: {
+      quantum_foam: 6907,
+      retro_organics: 6999,
+      neuro_symbolics: 6999,
+    },
+    observed_at: null,
+  },
+  players: [
+    {
+      created_at: "2025-10-30T04:56:31.462247+00:00",
+      id: "7c971d13-fa1f-4c18-8714-cf1721d4c338",
+      name: "Test",
+      player_type: "human",
+      ship: {
+        ship_type: "kestrel_courier",
+        ship_name: "Kestrel Courier",
+      },
+    },
+  ],
+  garrisons: [],
+  salvage: [],
+};
+
 export const Starfield: Story = () => {
   const starfieldInstance = useGameStore.use.starfieldInstance?.();
   const setActiveModal = useGameStore.use.setActiveModal();
 
   return (
     <>
-      <div className="fixed z-99 w-full flex flex-row gap-2">
+      <div className="fixed z-99 flex flex-col gap-2 w-max">
         <button onClick={() => setActiveModal("settings")}>Settings</button>
 
         <button
@@ -24,7 +57,7 @@ export const Starfield: Story = () => {
               starfieldInstance: starfield,
               gameState: "ready",
             });
-            starfield?.initializeScene();
+            starfield?.initializeScene({});
           }}
         >
           Start
@@ -104,6 +137,23 @@ export const Starfield: Story = () => {
           }}
         >
           Remove First GO
+        </button>
+        <button
+          onClick={() => {
+            starfieldInstance?.warpToSector({
+              id: TEST_SECTOR.id.toString(),
+              gameObjects: [{ id: "port", type: "port", name: "Port" }],
+            });
+          }}
+        >
+          Warp to test sector
+        </button>
+        <button
+          onClick={() => {
+            starfieldInstance?.selectGameObject("port");
+          }}
+        >
+          Look at port
         </button>
       </div>
       <StarField />
@@ -443,8 +493,22 @@ export const StarFieldSequence: Story = () => {
           >
             Reset (Clear Queue + Cooldown)
           </button>
+        </div>
+        <div className="pt-2 border-t border-gray-600">
           <button
-            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg text-white text-lg"
+            className="w-full px-3 py-2 rounded text-sm"
+            onClick={() => {
+              starfieldInstance?.warpToSector({
+                id: TEST_SECTOR.id.toString(),
+                bypassFlash,
+                gameObjects: [{ id: "port", type: "port", name: "Port" }],
+              });
+            }}
+          >
+            Warp to test sector
+          </button>
+          <button
+            className="w-full px-3 py-2 rounded text-sm"
             onClick={() => {
               const starfield = new GalaxyStarfield();
               setStarfieldInstance(starfield);

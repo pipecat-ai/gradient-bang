@@ -345,7 +345,6 @@ export const MiniMapMock: Story = () => {
 
   const config: MiniMapConfig = {
     bypass_animation: bypassAnimation,
-    debug: true,
   };
 
   return (

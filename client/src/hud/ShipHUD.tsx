@@ -17,7 +17,7 @@ export const ShipHUD = () => {
             <MiniMap
               current_sector_id={sector.id}
               map_data={localMapData}
-              maxDistance={3}
+              maxDistance={2}
               showLegend={false}
               width={400}
               height={400}

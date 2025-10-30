@@ -123,6 +123,9 @@ export class GameInstanceManager {
 
     await starfield.initializeScene({
       id: state.sector?.id.toString() ?? undefined,
+      gameObjects: state.sector?.port
+        ? [{ id: "port", type: "port", name: "Port" }]
+        : undefined,
       sceneConfig: state.sector?.scene_config as StarfieldSceneConfig,
     });
   }
