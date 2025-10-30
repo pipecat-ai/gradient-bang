@@ -5,9 +5,13 @@ import { useCallback, useEffect, useRef, type ReactNode } from "react";
 import { checkForNewSectors, startMoveToSector } from "@/actions";
 import { GameContext } from "@/hooks/useGameContext";
 import { wait } from "@/utils/animation";
+import {
+  salvageCollectedSummaryString,
+  salvageCreatedSummaryString,
+  transferSummaryString,
+} from "@/utils/game";
 import useGameStore, { GameInitStateMessage } from "@stores/game";
 
-import { RESOURCE_SHORT_NAMES } from "@/types/constants";
 import {
   type BankTransactionMessage,
   type CharacterMovedMessage,
@@ -370,7 +374,9 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
               gameStore.addActivityLogEntry({
                 type: "salvage.created",
-                message: `Salvage created in sector ${data.sector.id}`,
+                message: `Salvage created in [sector ${
+                  data.sector.id
+                }] ${salvageCreatedSummaryString(data.salvage_details)}`,
               });
               break;
             }
@@ -379,48 +385,12 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               console.debug("[GAME EVENT] Salvage claimed", gameEvent.payload);
               const data = gameEvent.payload as SalvageCollectedMessage;
 
-              // @TODO: ideally we would defer to a status update
-              // for now we'll use the event payload data
-              const cargoClaimed = Object.fromEntries(
-                Object.keys(RESOURCE_SHORT_NAMES).map((key) => [key, 0])
-              ) as Record<Resource, number>;
-              if (data.cargo_after) {
-                for (const [key, value] of Object.entries(
-                  data.collected.cargo
-                )) {
-                  cargoClaimed[key as Resource] = value;
-                }
-                gameStore.setShip({
-                  cargo: data.cargo_after,
-                });
-
-                const claimedItems = Object.entries(cargoClaimed)
-                  .filter((entry) => entry[1] > 0)
-                  .map(
-                    ([resource, amount]) =>
-                      `[${
-                        RESOURCE_SHORT_NAMES[resource as Resource]
-                      }: ${amount}]`
-                  )
-                  .join(" ");
-
-                gameStore.addActivityLogEntry({
-                  type: "salvage.claimed",
-                  message: `Salvage resources claimed: ${claimedItems}`,
-                });
-              }
-
-              if (data.credits_after && data.credits_after > 0) {
-                gameStore.setPlayer({
-                  credits_on_hand: data.credits_after,
-                });
-
-                gameStore.addActivityLogEntry({
-                  type: "salvage.claimed",
-                  message: `Salvage credits claimed: ${data.credits_after}`,
-                });
-              }
-              // @EOF: TODO
+              gameStore.addActivityLogEntry({
+                type: "salvage.collected",
+                message: `Salvage collected in [sector ${
+                  data.sector.id
+                }] ${salvageCollectedSummaryString(data.salvage_details)}`,
+              });
 
               break;
             }
@@ -498,41 +468,33 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               break;
             }
 
-            case "warp.transfer": {
-              console.debug("[GAME EVENT] Warp transfer", gameEvent.payload);
-              const data = gameEvent.payload as WarpTransferMessage;
-
-              let message = "";
-              if (data.from_character_id === gameStore.player?.id) {
-                message = `Transferred [${data.units}] warp units to [${data.to_character_id}]`;
-              } else {
-                message = `Received [${data.units}] warp units from [${data.from_character_id}]`;
-              }
-
-              gameStore.addActivityLogEntry({
-                type: "warp.transfer",
-                message: message,
-              });
-              break;
-            }
-
+            case "warp.transfer":
             case "credits.transfer": {
-              console.debug("[GAME EVENT] Credits transfer", gameEvent.payload);
-              const data = gameEvent.payload as CreditsTransferMessage;
+              const eventType = gameEvent.event as
+                | "warp.transfer"
+                | "credits.transfer";
+              const transferType =
+                eventType === "warp.transfer" ? "Warp" : "Credits";
+
+              console.debug(
+                `[GAME EVENT] ${transferType} transfer`,
+                gameEvent.payload
+              );
+
+              const data = gameEvent.payload as
+                | WarpTransferMessage
+                | CreditsTransferMessage;
 
               // Note: we do not need to update the player or ship state
               // as status.update is dispatched immediately after
 
-              const send_or_receive =
-                data.from_character_id === gameStore.player?.id;
-              const message = `${send_or_receive ? "Sent" : "Received"} [${
-                data.amount
-              }] credits ${send_or_receive ? "to" : "from"} [${
-                data.to_character_id
-              }]`;
+              if (data.transfer_direction === "received") {
+                gameStore.triggerAlert("transfer");
+              }
+
               gameStore.addActivityLogEntry({
-                type: "credits.transfer",
-                message: message,
+                type: eventType,
+                message: transferSummaryString(data),
               });
 
               break;
@@ -621,9 +583,15 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               gameStore.setNotifications({ newChatMessage: true });
 
               // @TODO: lookup on ID not name
-              // Note: removing because in conversations it's annoying to fill activity log
-              // but without anything, we rely on just notification badge
-              // maybe debounce?
+              // @TODO: we should figure a method of 'buffering' DMs in the
+              // captains log, e.g. received [2] new messages from [John Doe]
+              // otherwise it can get annoying to fill the activity log with DMs
+              // problem here is that the entries in the activity log are immutable...
+
+              // simplest solution: add a buffer set in the chat slice <player_id, #>
+              // which stores a ref to the element ref in the captains log,
+              // and update the count when a new message is received, expiring after a few minutes
+
               /*
               if (data.from_name !== gameStore.player.name) {
                 gameStore.addActivityLogEntry({

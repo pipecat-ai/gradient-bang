@@ -78,16 +78,6 @@ export interface WarpPurchaseMessage extends ServerMessagePayload {
   new_credits: number;
 }
 
-export interface WarpTransferMessage extends ServerMessagePayload {
-  from_character_id: string;
-  to_character_id: string;
-  sector: Sector;
-  units: number;
-  timestamp: string;
-  from_warp_power_remaining: number;
-  to_warp_power_current: number;
-}
-
 export interface PortUpdateMessage extends ServerMessagePayload {
   sector: Sector;
 }
@@ -123,33 +113,36 @@ export interface BankTransactionMessage extends ServerMessagePayload {
 export interface SectorUpdateMessage extends ServerMessagePayload, Sector {}
 
 export interface SalvageCreatedMessage extends ServerMessagePayload {
+  action?: string;
   sector: Sector;
-  salvage: Salvage;
+  salvage_details: Salvage;
   dumped_cargo?: Record<Resource, number>;
 }
 
 export interface SalvageCollectedMessage extends ServerMessagePayload {
   sector: Sector;
-  salvage: Salvage;
-  collected: {
-    cargo: Record<Resource, number>;
-    credits: number;
-  };
-  salvage_removed: boolean;
-  cargo_after: Record<Resource, number>;
-  credits_after: number;
+  salvage_details: Salvage;
+  timestamp: string;
 }
 
-export interface CreditsTransferMessage extends ServerMessagePayload {
-  from_character_id: string;
-  to_character_id: string;
+export interface TransferMessageBase extends ServerMessagePayload {
+  transfer_direction: "received" | "sent";
+  from: Player;
+  to: Player;
   sector: Sector;
-  amount: number;
   timestamp: string;
-  from_balance_before: number;
-  from_balance_after: number;
-  to_balance_before: number;
-  to_balance_after: number;
+}
+
+export interface CreditsTransferMessage extends TransferMessageBase {
+  transfer_details: {
+    credits: number;
+  };
+}
+
+export interface WarpTransferMessage extends TransferMessageBase {
+  transfer_details: {
+    warp_power: number;
+  };
 }
 
 export interface CombatActionResponseMessage extends ServerMessagePayload {

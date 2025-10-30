@@ -4,10 +4,12 @@ import {
   GET_MY_STATUS_MESSAGE,
 } from "@/actions/dispatch";
 import { CaptainsLogPanel } from "@/components/CaptainsLogPanel";
+import { CargoCapacityBadge } from "@/components/CargoCapacityBadge";
 import { CoursePlotPanel } from "@/components/CoursePlotPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
+import { WarpBadge } from "@/components/WarpBadge";
 import { useGameContext } from "@/hooks/useGameContext";
-import { useMessageNotificationSound } from "@/hooks/useMessageNotificationSound";
+import { useNotificationSound } from "@/hooks/useNotificationSound";
 import MiniMap from "@/hud/MiniMap";
 import useGameStore from "@/stores/game";
 import type { Story } from "@ladle/react";
@@ -20,8 +22,7 @@ export const Init: Story = () => {
   const sector = useGameStore((state) => state.sector);
   const localMapData = useGameStore((state) => state.local_map_data);
   const messages = useGameStore.use.messages();
-  const getShipHoldsRemaining = useGameStore.use.getShipHoldsRemaining();
-  useMessageNotificationSound();
+  useNotificationSound();
 
   const { dispatchEvent, sendUserTextInput } = useGameContext();
 
@@ -82,9 +83,11 @@ export const Init: Story = () => {
                 </span>
               </li>
             ))}
-            <li>Holds remaining: {getShipHoldsRemaining() || 0}</li>
           </ul>
         )}
+
+        <CargoCapacityBadge />
+        <WarpBadge />
 
         <h3 className="story-heading">Sector:</h3>
         {sector && (

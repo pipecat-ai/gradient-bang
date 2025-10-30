@@ -8,10 +8,9 @@ export const CargoCapacityBadge = () => {
   const progressProps = useMemo(() => {
     if (!ship) return { color: "primary", percent: 0 };
 
-    const cargoPercentage = (ship.cargo_used / ship.cargo_capacity) * 100;
+    const cargoPercentage = (ship.empty_holds / ship.cargo_capacity) * 100;
 
     let color = "agent";
-    // Reversed logic: the more full, the worse it is
     if (cargoPercentage >= 100) {
       color = "destructive";
     } else if (cargoPercentage >= 75) {
@@ -30,7 +29,7 @@ export const CargoCapacityBadge = () => {
       Cargo:
       <Progress {...progressProps} size="xl" className="h-[8px]" />
       <div>
-        {ship?.cargo_used ?? 0}
+        {ship?.empty_holds ?? 0}
         <span className="opacity-30"> / </span>
         {ship?.cargo_capacity ?? 0}
       </div>

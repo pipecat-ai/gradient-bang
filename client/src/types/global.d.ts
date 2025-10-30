@@ -44,7 +44,6 @@ declare global {
 
   interface ShipSelf extends Ship {
     credits: number;
-
     cargo: Record<Resource, number>;
     cargo_capacity: number;
     empty_holds: number;
@@ -86,18 +85,24 @@ declare global {
   }
 
   interface Salvage {
-    salvage;
-    created_at: string;
-    expires_at: string;
-    cargo: Record<Resource, number>;
-    scrap: number;
-    credits: number;
-    claimed: boolean;
-    source: {
-      ship_name: string;
-      ship_type: string;
+    salvage_id: string;
+
+    cargo?: Record<Resource, number>;
+    credits?: number;
+    scrap?: number;
+
+    collected?: {
+      cargo: Record<Resource, number>;
+      scrap?: number;
+      credits?: number;
     };
-    metadata: object;
+    remaining?: {
+      cargo: Record<Resource, number>;
+      scrap?: number;
+      credits?: number;
+    };
+    expires_at?: string;
+    fully_collected?: boolean;
   }
 
   // --- PORT
@@ -221,6 +226,7 @@ declare global {
     content: string;
     to_name?: string;
     timestamp: string;
+    timestamp_client?: number;
   }
 }
 

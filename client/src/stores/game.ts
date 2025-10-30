@@ -33,6 +33,7 @@ const createSelectors = <S extends UseBoundStore<StoreApi<object>>>(
 };
 
 type GameInitState = "not_ready" | "initializing" | "ready" | "error";
+type AlertTypes = "transfer";
 
 export const GameInitStateMessage = {
   INIT: "Initializing game instances...",
@@ -53,8 +54,9 @@ export interface GameState {
   starfieldInstance?: GalaxyStarfield;
   diamondFXInstance?: DiamondFXController;
 
-  /* Buffers & Caches */
+  /* Buffers & Caches & Miscs */
   sectorBuffer?: Sector;
+  alertTransfer: number;
 
   /* Game State */
   gameState: GameInitState;
@@ -71,7 +73,6 @@ export interface GameSlice extends GameState {
   removeSectorPlayer: (player: Player) => void;
   setSectorBuffer: (sector: Sector) => void;
   setShip: (ship: Partial<ShipSelf>) => void;
-  getShipHoldsRemaining: () => number;
   setLocalMapData: (localMapData: MapData) => void;
   setCoursePlot: (coursePlot: CoursePlot) => void;
   clearCoursePlot: () => void;
@@ -83,6 +84,7 @@ export interface GameSlice extends GameState {
   ) => void;
   getIncomingMessageLength: () => number;
 
+  triggerAlert: (_ype: AlertTypes) => void;
   setGameState: (gameState: GameInitState) => void;
   setGameStateMessage: (gameStateMessage: string) => void;
 }
@@ -102,6 +104,8 @@ const createGameSlice: StateCreator<
 
   starfieldInstance: undefined,
   diamondFXInstance: undefined,
+
+  alertTransfer: 0,
   gameState: "not_ready",
   gameStateMessage: GameInitStateMessage.INIT,
 
@@ -116,11 +120,18 @@ const createGameSlice: StateCreator<
       })
     ),
 
+  // TODO: implement this properly
+  // @ts-expect-error - we don't care about the type here, just want to trigger the alert
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  triggerAlert: (type: AlertTypes) =>
+    set({ alertTransfer: Math.random() * 100 }),
+
   addMessage: (message: ChatMessage) =>
     set(
       produce((state) => {
         state.messages.push({
           ...message,
+          timestamp_client: Date.now(),
         });
       })
     ),
@@ -195,17 +206,6 @@ const createGameSlice: StateCreator<
         }
       })
     ),
-
-  getShipHoldsRemaining: () => {
-    if (!get().ship.cargo_capacity) {
-      return 0;
-    }
-
-    return (
-      get().ship.cargo_capacity -
-      Object.values(get().ship.cargo).reduce((acc, curr) => acc + curr, 0)
-    );
-  },
 
   setCoursePlot: (coursePlot: CoursePlot) =>
     set(
