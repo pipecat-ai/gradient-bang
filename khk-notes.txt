@@ -1,4 +1,95 @@
 
+- add new ship types
+
+Autonomous Probe
+  - role = "autonomous"
+  - price = 1000
+  - trade_in_value = 0
+  - cargo_holds = 
+  - fighters = 10
+  - shields = 0
+  - turns_per_warp = 1
+  - warp_power_capacity = 500
+  - equipment_slots = 0
+  - built_in_features = []
+
+Autonomous Light Hauler
+  - role = "autonomous"
+  - price = 5000
+  - trade_in_value = 0
+  - cargo_holds = 20
+  - fighters = 10
+  - shields = 0
+  - turns_per_warp = 5
+  - warp_power_capacity = 500
+  - equipment_slots = 0
+  - built_in_features = []
+
+- Change the cost to buy warp power to 1 credit per warp unit
+- Add buying fighters. Should work the same way buying warp power does.
+  - Fighter cost: 50 credit per fighter
+
+1. Test joining a corp and buying an autonomous Probe
+2. Work on long-running NPC
+3. Test NPC plus retrieving log information
+
+
+----
+
+
+TASK UPGRADES
+
+● Summary
+
+  I've completed a comprehensive analysis of the proposed task event changes. Here are the key findings:
+
+  📊 Current System
+
+  - task_output: RTVI frame streaming progress (6 message types)
+  - task_complete: Single event with was_cancelled flag (conflates outcomes)
+  - No planning phase: LLM jumps directly to execution
+  - No task.started event: Client doesn't know when task begins
+
+  🎯 Proposed Changes (All 4 Items)
+
+  1. Rename: task_output → task.output 🟢 Low complexity
+  - Align with event naming conventions (combat.ended, salvage.created)
+  - Breaking change for client
+
+  2. Add: task.started event 🟡 Medium complexity
+  - Signal task initiation with task_id, description, timestamp
+  - Provides clear lifecycle boundaries
+
+  3. Separate: task.complete vs task.cancelled 🟡 Medium complexity
+  - Distinct events for distinct outcomes
+  - task.complete: Successful completion only
+  - task.cancelled: With reason (user_requested, error, combat, timeout)
+  - Requires task state tracking (ID, start time, step count)
+
+  4. Add: Planning phase 🔴 High complexity
+  - New LLM prompt: "Create a plan before executing"
+  - New tool: submit_plan(plan_steps: string[])
+  - New event: task.plan with estimated steps
+  - Fallback: timeout after 30s, proceed without plan
+  - Adds 2-5s latency but provides visibility into LLM approach
+
+  📋 Implementation Phases
+
+  Phase 1-2 (3-5 hours): Renames + event separationPhase 3 (1-2 hours): Add task.startedPhase 4 (4-6 hours): Planning phaseTotal: 8-13
+  hours
+
+  ❓ Key Questions for You
+
+  1. Scope: Do you want all 4 changes, or should we do them incrementally (e.g., start with 1-3, defer planning to later)?
+  2. Planning Format: Should plan steps be freeform text array, or should we enforce structure (e.g., {step_number, description,
+  estimated_duration})?
+  3. Planning Requirement: Should tasks REQUIRE a plan before execution, or just strongly encourage it (with fallback)?
+  4. Timing: Should I start implementing now, or do you want to review/modify the approach first?
+  5. Client Impact: Are you okay with breaking changes that require client-side updates, or should we maintain backward compatibility?
+
+  What would you like to do next?
+
+----
 
 Next up:
 

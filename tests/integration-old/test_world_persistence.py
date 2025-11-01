@@ -16,10 +16,7 @@ import sys
 if str(GAME_SERVER_ROOT) not in sys.path:
     sys.path.insert(0, str(GAME_SERVER_ROOT))
 
-from character_knowledge import (
-    CharacterKnowledgeManager,
-    MapKnowledge,
-)
+from character_knowledge import CharacterKnowledgeManager
 from fastapi import HTTPException
 from combat.manager import CombatManager
 from combat.callbacks import (
@@ -35,6 +32,7 @@ from combat.models import (
     RoundAction,
 )
 from core.world import GameWorld
+from core.ships_manager import ShipsManager
 from core.character_registry import CharacterProfile
 from ships import ShipType
 import server
@@ -50,12 +48,19 @@ import api.combat_set_garrison_mode as combat_mode_module
 import api.salvage_collect as salvage_collect_module
 
 
-def register_character(world: GameWorld, character_id: str, name: str | None = None) -> None:
+def register_character(
+    world: GameWorld, character_id: str, name: str | None = None
+) -> None:
     profile = CharacterProfile(
         character_id=character_id,
         name=name or character_id,
     )
     world.character_registry.add_or_update(profile)
+
+
+def get_ship_state(world: GameWorld, character_id: str) -> dict:
+    ship = world.knowledge_manager.get_ship(character_id)
+    return ship.get("state", {})
 
 
 @pytest.fixture()
@@ -67,17 +72,27 @@ def hydrated_world(monkeypatch, tmp_path):
     shutil.copytree(source_world_data, temp_world_data)
 
     knowledge_dir = temp_world_data / "character-map-knowledge"
+    ships_manager = ShipsManager(temp_world_data)
+    ships_manager.load_all_ships()
     knowledge_manager = CharacterKnowledgeManager(data_dir=knowledge_dir)
+    knowledge_manager.set_ships_manager(ships_manager)
 
     timestamp = datetime.now(timezone.utc).isoformat()
 
-    def seed_knowledge(character_id: str, sector: int, fighters: int, shields: int) -> None:
-        knowledge = MapKnowledge(character_id=character_id)
-        knowledge.ship_config.ship_type = ShipType.KESTREL_COURIER.value
-        knowledge.ship_config.current_fighters = fighters
-        knowledge.ship_config.current_shields = shields
-        knowledge.ship_config.current_warp_power = 250
-        knowledge.current_sector = sector
+    def seed_knowledge(
+        character_id: str, sector: int, fighters: int, shields: int
+    ) -> None:
+        knowledge_manager.create_ship_for_character(
+            character_id,
+            ShipType.KESTREL_COURIER,
+            sector=sector,
+            fighters=fighters,
+            shields=shields,
+            warp_power=250,
+            abandon_existing=True,
+            former_owner_name=character_id,
+        )
+        knowledge = knowledge_manager.load_knowledge(character_id)
         knowledge.last_update = timestamp
         knowledge_manager.save_knowledge(knowledge)
 
@@ -170,7 +185,9 @@ async def test_combat_round_updates_persisted_ship_state(hydrated_world):
                 commit=200,
                 target_id="khk_passive",
             ),
-            "defender": RoundAction(action=CombatantAction.BRACE, commit=0, target_id=None),
+            "defender": RoundAction(
+                action=CombatantAction.BRACE, commit=0, target_id=None
+            ),
         },
     )
 
@@ -204,9 +221,9 @@ async def test_combat_round_updates_persisted_ship_state(hydrated_world):
     await manager.start_encounter(encounter, emit_waiting=False)
     await manager._resolve_round(encounter.combat_id)
 
-    knowledge = world.knowledge_manager.load_knowledge("khk_aggressive")
-    assert knowledge.ship_config.current_fighters == 80
-    assert knowledge.ship_config.current_shields == 55
+    ship_state = get_ship_state(world, "khk_aggressive")
+    assert ship_state["fighters"] == 80
+    assert ship_state["shields"] == 55
 
     character = world.characters["khk_aggressive"]
     assert character.fighters == 80
@@ -293,10 +310,6 @@ async def test_auto_engage_on_offensive_garrison(monkeypatch, hydrated_world):
     )
 
     newcomer = "khk_third"
-    world.knowledge_manager.initialize_ship(newcomer, ShipType.KESTREL_COURIER)
-    knowledge = world.knowledge_manager.load_knowledge(newcomer)
-    knowledge.current_sector = 5
-    world.knowledge_manager.save_knowledge(knowledge)
     world.characters.pop(newcomer, None)
 
     register_character(world, newcomer)
@@ -327,7 +340,6 @@ async def test_collect_fighters_returns_toll_balance(monkeypatch, hydrated_world
     owner_id = "toll_owner"
     sector_id = 5
 
-    world.knowledge_manager.initialize_ship(owner_id, ShipType.KESTREL_COURIER)
     world.knowledge_manager.update_credits(owner_id, 100)
 
     # Ensure character exists in active world state
@@ -355,13 +367,16 @@ async def test_collect_fighters_returns_toll_balance(monkeypatch, hydrated_world
     assert result == {"success": True}
 
     garrison_calls = [
-        entry for entry in mock_emit.await_args_list if entry.args and entry.args[0] == "garrison.collected"
+        entry
+        for entry in mock_emit.await_args_list
+        if entry.args and entry.args[0] == "garrison.collected"
     ]
     assert len(garrison_calls) == 1
     _, payload = garrison_calls[0].args[:2]
     assert garrison_calls[0].kwargs.get("character_filter") == [owner_id]
     assert payload["credits_collected"] == 46
-    assert payload["fighters_on_ship"] == world.knowledge_manager.load_knowledge(owner_id).ship_config.current_fighters
+    owner_ship_state = get_ship_state(world, owner_id)
+    assert payload["fighters_on_ship"] == owner_ship_state["fighters"]
     assert payload["garrison"] is not None
 
     garrisons = await world.garrisons.list_sector(sector_id)
@@ -404,15 +419,17 @@ async def test_leave_fighters_emits_garrison_event(monkeypatch, hydrated_world):
     assert result == {"success": True}
 
     deployed_calls = [
-        entry for entry in mock_emit.await_args_list if entry.args and entry.args[0] == "garrison.deployed"
+        entry
+        for entry in mock_emit.await_args_list
+        if entry.args and entry.args[0] == "garrison.deployed"
     ]
     assert len(deployed_calls) == 1
     _, payload = deployed_calls[0].args[:2]
     assert deployed_calls[0].kwargs.get("character_filter") == [owner_id]
     assert payload["sector"]["id"] == sector
     assert payload["garrison"]["fighters"] == 20
-    knowledge = world.knowledge_manager.load_knowledge(owner_id)
-    assert payload["fighters_remaining"] == knowledge.ship_config.current_fighters
+    ship_state = get_ship_state(world, owner_id)
+    assert payload["fighters_remaining"] == ship_state["fighters"]
 
 
 @pytest.mark.asyncio
@@ -456,7 +473,9 @@ async def test_set_garrison_mode_emits_event(monkeypatch, hydrated_world):
     assert result == {"success": True}
 
     mode_calls = [
-        entry for entry in mock_emit.await_args_list if entry.args and entry.args[0] == "garrison.mode_changed"
+        entry
+        for entry in mock_emit.await_args_list
+        if entry.args and entry.args[0] == "garrison.mode_changed"
     ]
     assert len(mode_calls) == 1
     _, payload = mode_calls[0].args[:2]
@@ -504,7 +523,9 @@ async def test_salvage_collect_emits_event(monkeypatch, hydrated_world):
     assert result == {"success": True}
 
     salvage_calls = [
-        entry for entry in mock_emit.await_args_list if entry.args and entry.args[0] == "salvage.collected"
+        entry
+        for entry in mock_emit.await_args_list
+        if entry.args and entry.args[0] == "salvage.collected"
     ]
     assert len(salvage_calls) == 1
     _, payload = salvage_calls[0].args[:2]
@@ -670,8 +691,8 @@ async def test_successful_flee_moves_character(monkeypatch, hydrated_world):
 
     monkeypatch.setattr(server.event_dispatcher, "emit", _noop_emit)
 
-    knowledge = world.knowledge_manager.load_knowledge("khk_aggressive")
-    initial_warp = knowledge.ship_config.current_warp_power
+    initial_ship_state = get_ship_state(world, "khk_aggressive")
+    initial_warp = initial_ship_state["warp_power"]
 
     encounter = CombatEncounter(
         combat_id="test-flee-success",
@@ -718,10 +739,11 @@ async def test_successful_flee_moves_character(monkeypatch, hydrated_world):
     await combat_on_round_resolved(encounter, outcome, world, server.event_dispatcher)
 
     updated_knowledge = world.knowledge_manager.load_knowledge("khk_aggressive")
+    updated_ship_state = get_ship_state(world, "khk_aggressive")
     assert updated_knowledge.current_sector == 6
-    assert updated_knowledge.ship_config.current_warp_power == initial_warp - 3
-    assert updated_knowledge.ship_config.current_fighters == 75
-    assert updated_knowledge.ship_config.current_shields == 50
+    assert updated_ship_state["warp_power"] == initial_warp - 3
+    assert updated_ship_state["fighters"] == 75
+    assert updated_ship_state["shields"] == 50
 
     character = world.characters["khk_aggressive"]
     assert character.sector == 6

@@ -3,7 +3,7 @@ from copy import deepcopy
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, Iterable, Optional, TYPE_CHECKING
+from typing import Dict, Any, Iterable, Optional, TYPE_CHECKING, List
 
 from fastapi import HTTPException
 
@@ -29,6 +29,13 @@ def rpc_success(data: Dict[str, Any] | None = None) -> Dict[str, Any]:
     return response
 
 
+def _get_character_ship(world, character_id: str):
+    """Return (ship_record, knowledge) for the character."""
+    knowledge = world.knowledge_manager.load_knowledge(character_id)
+    ship = world.knowledge_manager.get_ship(character_id)
+    return ship, knowledge
+
+
 def build_public_player_data(world, character_id: str) -> Dict[str, Any]:
     """Build public player data (no private stats like credits/cargo/warp).
 
@@ -48,12 +55,12 @@ def build_public_player_data(world, character_id: str) -> Dict[str, Any]:
         }
     """
     character = world.characters[character_id]
-    knowledge = world.knowledge_manager.load_knowledge(character_id)
-    ship_config = knowledge.ship_config
-    ship_stats = get_ship_stats(ShipType(ship_config.ship_type))
+    ship, _ = _get_character_ship(world, character_id)
+    ship_type_value = ship["ship_type"]
+    ship_stats = get_ship_stats(ShipType(ship_type_value))
+    ship_name = ship.get("name") or ship_stats.name
 
     display_name = resolve_character_name(world, character_id)
-    ship_display_name = ship_config.ship_name or ship_stats.name
 
     return {
         "created_at": character.first_visit.isoformat(),
@@ -61,8 +68,8 @@ def build_public_player_data(world, character_id: str) -> Dict[str, Any]:
         "name": display_name,
         "player_type": character.player_type,
         "ship": {
-            "ship_type": ship_config.ship_type,
-            "ship_name": ship_display_name,
+            "ship_type": ship_type_value,
+            "ship_name": ship_name,
         },
     }
 
@@ -82,9 +89,10 @@ def build_character_moved_payload(
     if knowledge is None:
         knowledge = world.knowledge_manager.load_knowledge(character_id)
 
-    ship_config = knowledge.ship_config
-    ship_stats = get_ship_stats(ShipType(ship_config.ship_type))
-    display_name = ship_config.ship_name or ship_stats.name
+    ship, _ = _get_character_ship(world, character_id)
+    ship_type_value = ship["ship_type"]
+    ship_stats = get_ship_stats(ShipType(ship_type_value))
+    display_name = ship.get("name") or ship_stats.name
 
     if isinstance(timestamp, datetime):
         iso_timestamp = timestamp.isoformat()
@@ -100,13 +108,13 @@ def build_character_moved_payload(
         },
         "ship": {
             "ship_name": display_name,
-            "ship_type": ship_config.ship_type,
+            "ship_type": ship_type_value,
         },
         "timestamp": iso_timestamp,
         "move_type": move_type,
         # Legacy fields retained for backward compatibility
         "name": character_id,
-        "ship_type": ship_config.ship_type,
+        "ship_type": ship_type_value,
     }
 
     if movement is not None:
@@ -255,29 +263,35 @@ def player_self(world, character_id: str) -> Dict[str, Any]:
 
 def ship_self(world, character_id: str) -> Dict[str, Any]:
     """Build ship status for player's own ship."""
-    knowledge = world.knowledge_manager.load_knowledge(character_id)
-    ship_config = knowledge.ship_config
-    ship_stats = get_ship_stats(ShipType(ship_config.ship_type))
+    ship, _ = _get_character_ship(world, character_id)
+    ship_type_value = ship["ship_type"]
+    ship_stats = get_ship_stats(ShipType(ship_type_value))
+    state = ship.get("state", {})
+    display_name = ship.get("name") or ship_stats.name
+    cargo = {
+        "quantum_foam": int(state.get("cargo", {}).get("quantum_foam", 0)),
+        "retro_organics": int(state.get("cargo", {}).get("retro_organics", 0)),
+        "neuro_symbolics": int(state.get("cargo", {}).get("neuro_symbolics", 0)),
+    }
+    cargo_capacity = state.get("cargo_holds", ship_stats.cargo_holds)
+    warp_power = state.get("warp_power", ship_stats.warp_power_capacity)
+    shields = state.get("shields", ship_stats.shields)
+    fighters = state.get("fighters", ship_stats.fighters)
 
-    # Use custom name if set, otherwise default to ship type name
-    display_name = ship_config.ship_name or ship_stats.name
+    cargo_used = sum(cargo.values())
+    empty_holds = cargo_capacity - cargo_used
 
-    # Calculate available cargo space
-    cargo_used = sum(ship_config.cargo.values())
-    empty_holds = ship_stats.cargo_holds - cargo_used
-
-    # todo: refactor ship_config and ship_stats
     return {
-        "ship_type": ship_config.ship_type,
+        "ship_type": ship_type_value,
         "ship_name": display_name,
-        "cargo": ship_config.cargo,
-        "cargo_capacity": ship_stats.cargo_holds,
+        "cargo": cargo,
+        "cargo_capacity": cargo_capacity,
         "empty_holds": empty_holds,
-        "warp_power": ship_config.current_warp_power,
+        "warp_power": warp_power,
         "warp_power_capacity": ship_stats.warp_power_capacity,
-        "shields": ship_config.current_shields,
+        "shields": shields,
         "max_shields": ship_stats.shields,
-        "fighters": ship_config.current_fighters,
+        "fighters": fighters,
         "max_fighters": ship_stats.fighters,
     }
 
@@ -442,6 +456,74 @@ def resolve_character_name(world, character_id: str) -> str:
         if profile:
             return profile.name
     return character_id
+
+
+def _normalize_corp_member_ids(corp: dict) -> List[str]:
+    return [
+        member for member in corp.get("members", []) if isinstance(member, str) and member
+    ]
+
+
+def _build_corp_ship_summaries(world, corp: dict) -> List[Dict[str, Any]]:
+    ships_manager = getattr(world, "ships_manager", None)
+    if ships_manager is None:
+        return []
+
+    summaries: List[Dict[str, Any]] = []
+    for ship_id in corp.get("ships", []) or []:
+        if not isinstance(ship_id, str) or not ship_id:
+            continue
+        ship = ships_manager.get_ship(ship_id)
+        if not ship:
+            continue
+        summaries.append(
+            {
+                "ship_id": ship_id,
+                "ship_type": ship.get("ship_type"),
+                "name": ship.get("name"),
+                "sector": ship.get("sector"),
+                "owner_type": ship.get("owner_type"),
+            }
+        )
+    return summaries
+
+
+def build_corporation_public_payload(world, corp: dict) -> Dict[str, Any]:
+    member_ids = _normalize_corp_member_ids(corp)
+    return {
+        "corp_id": corp.get("corp_id"),
+        "name": corp.get("name"),
+        "founded": corp.get("founded"),
+        "member_count": len(member_ids),
+    }
+
+
+def build_corporation_member_payload(world, corp: dict) -> Dict[str, Any]:
+    payload = build_corporation_public_payload(world, corp)
+    member_ids = _normalize_corp_member_ids(corp)
+    payload.update(
+        {
+            "founder_id": corp.get("founder_id"),
+            "invite_code": corp.get("invite_code"),
+            "invite_code_generated": corp.get("invite_code_generated"),
+            "invite_code_generated_by": corp.get("invite_code_generated_by"),
+            "members": [
+                {
+                    "character_id": member_id,
+                    "name": resolve_character_name(world, member_id),
+                }
+                for member_id in member_ids
+            ],
+            "ships": _build_corp_ship_summaries(world, corp),
+        }
+    )
+    return payload
+
+
+def is_corporation_member(corp: dict, character_id: str | None) -> bool:
+    if not character_id:
+        return False
+    return character_id in _normalize_corp_member_ids(corp)
 
 
 def resolve_sector_character_id(

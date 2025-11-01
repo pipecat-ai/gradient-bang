@@ -61,8 +61,8 @@ async def handle(request: dict, world) -> dict:
                 detail="Sector already contains another player's garrison; clear it before deploying your fighters.",
             )
 
-    knowledge = world.knowledge_manager.load_knowledge(character_id)
-    current_fighters = knowledge.ship_config.current_fighters
+    ship = world.knowledge_manager.get_ship(character_id)
+    current_fighters = ship.get("state", {}).get("fighters", 0)
     if quantity > current_fighters:
         raise HTTPException(status_code=400, detail="Insufficient fighters to deploy")
 
@@ -84,8 +84,8 @@ async def handle(request: dict, world) -> dict:
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    updated_knowledge = world.knowledge_manager.load_knowledge(character_id)
-    remaining = updated_knowledge.ship_config.current_fighters
+    updated_ship = world.knowledge_manager.get_ship(character_id)
+    remaining = updated_ship.get("state", {}).get("fighters", 0)
     character.update_ship_state(fighters=remaining, max_fighters=character.max_fighters)
 
     request_id = request.get("request_id") or "missing-request-id"

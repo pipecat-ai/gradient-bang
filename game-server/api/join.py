@@ -66,27 +66,34 @@ async def handle(request: dict, world) -> dict:
         from core.world import Character
 
         if not has_saved:
-            validated_ship_type = None
+            ship_type_enum = ShipType.KESTREL_COURIER
             if ship_type:
                 validated_ship_type = validate_ship_type(ship_type)
                 if not validated_ship_type:
                     raise HTTPException(
                         status_code=400, detail=f"Invalid ship type: {ship_type}"
                     )
-            world.knowledge_manager.initialize_ship(character_id, validated_ship_type)
+                ship_type_enum = validated_ship_type
+            world.knowledge_manager.create_ship_for_character(
+                character_id,
+                ship_type_enum,
+                sector=start_sector,
+            )
             knowledge = world.knowledge_manager.load_knowledge(character_id)
         else:
             knowledge = knowledge or world.knowledge_manager.load_knowledge(
                 character_id
             )
 
-        ship_stats = get_ship_stats(ShipType(knowledge.ship_config.ship_type))
+        ship = world.knowledge_manager.get_ship(character_id)
+        ship_stats = get_ship_stats(ShipType(ship["ship_type"]))
+        ship_state = ship.get("state", {})
         character = Character(
             character_id,
             sector=start_sector,
             name=display_name,
-            fighters=knowledge.ship_config.current_fighters,
-            shields=knowledge.ship_config.current_shields,
+            fighters=ship_state.get("fighters", ship_stats.fighters),
+            shields=ship_state.get("shields", ship_stats.shields),
             max_fighters=ship_stats.fighters,
             max_shields=ship_stats.shields,
             connected=True,
@@ -104,10 +111,12 @@ async def handle(request: dict, world) -> dict:
         character.update_activity()
         character.name = display_name
         knowledge = world.knowledge_manager.load_knowledge(character_id)
-        ship_stats = get_ship_stats(ShipType(knowledge.ship_config.ship_type))
+        ship = world.knowledge_manager.get_ship(character_id)
+        ship_stats = get_ship_stats(ShipType(ship["ship_type"]))
+        ship_state = ship.get("state", {})
         character.update_ship_state(
-            fighters=knowledge.ship_config.current_fighters,
-            shields=knowledge.ship_config.current_shields,
+            fighters=ship_state.get("fighters", ship_stats.fighters),
+            shields=ship_state.get("shields", ship_stats.shields),
             max_fighters=ship_stats.fighters,
             max_shields=ship_stats.shields,
         )
@@ -190,6 +199,18 @@ async def handle(request: dict, world) -> dict:
                 character.sector = sector
         if credits is not None:
             world.knowledge_manager.update_credits(character_id, credits)
+
+    corp_cache = getattr(world, "character_to_corp", None)
+    if isinstance(corp_cache, dict):
+        corp_membership = getattr(knowledge, "corporation", None)
+        if corp_membership and isinstance(corp_membership, dict):
+            corp_id = corp_membership.get("corp_id")
+            if corp_id:
+                corp_cache[character_id] = corp_id
+            else:
+                corp_cache.pop(character_id, None)
+        else:
+            corp_cache.pop(character_id, None)
 
     contents = await sector_contents(world, character.sector, character_id)
     world.knowledge_manager.update_sector_visit(

@@ -1,40 +1,149 @@
-"""Test utilities for combat scenarios.
+"""Test utilities for combat scenarios in integration-old suite."""
 
-Provides helpers to manipulate fighter counts, create test characters,
-and set up specific combat scenarios with predictable outcomes.
-"""
+from __future__ import annotations
 
 import json
-from pathlib import Path
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional, Dict, Any
 
+from ships import ShipType, get_ship_stats
 
 WORLD_DATA_DIR = Path(__file__).parent.parent.parent / "world-data"
 KNOWLEDGE_DIR = WORLD_DATA_DIR / "character-map-knowledge"
+SHIPS_FILE = WORLD_DATA_DIR / "ships.json"
 UNIVERSE_FILE = WORLD_DATA_DIR / "universe_structure.json"
 
-# Load universe data for adjacent sectors
 _universe_data = None
 
-def _get_adjacent_sectors(sector_id: int) -> list[int]:
-    """Get adjacent sectors for a given sector from universe data."""
+
+def _load_universe() -> dict:
     global _universe_data
     if _universe_data is None:
-        with open(UNIVERSE_FILE, "r") as f:
-            _universe_data = json.load(f)
+        with open(UNIVERSE_FILE, "r", encoding="utf-8") as handle:
+            _universe_data = json.load(handle)
+    return _universe_data
 
-    sector = next((s for s in _universe_data["sectors"] if s["id"] == sector_id), None)
+
+def _adjacent_sectors(sector_id: int) -> list[int]:
+    universe = _load_universe()
+    sector = next((s for s in universe["sectors"] if s["id"] == sector_id), None)
     if sector:
         return [w["to"] for w in sector.get("warps", [])]
     return []
+
+
+def _load_ships() -> Dict[str, dict]:
+    if SHIPS_FILE.exists():
+        with open(SHIPS_FILE, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+    return {}
+
+
+def _save_ships(ships: Dict[str, dict]) -> None:
+    SHIPS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(SHIPS_FILE, "w", encoding="utf-8") as handle:
+        json.dump(ships, handle, indent=2)
+
+
+def _ship_id(character_id: str) -> str:
+    return f"{character_id}-ship"
+
+
+def _ensure_ship(
+    character_id: str,
+    *,
+    ship_type: str,
+    sector: int,
+    fighters: Optional[int] = None,
+    shields: Optional[int] = None,
+    warp_power: Optional[int] = None,
+    cargo: Optional[Dict[str, int]] = None,
+    ship_name: Optional[str] = None,
+) -> str:
+    ships = _load_ships()
+    ship_id = _ship_id(character_id)
+    ship_type_enum = ShipType(ship_type)
+    stats = get_ship_stats(ship_type_enum)
+
+    record = ships.get(ship_id)
+    if record is None:
+        record = {
+            "ship_id": ship_id,
+            "ship_type": ship_type_enum.value,
+            "name": ship_name,
+            "sector": sector,
+            "owner_type": "character",
+            "owner_id": character_id,
+            "acquired": datetime.now(timezone.utc).isoformat(),
+            "state": {
+                "fighters": stats.fighters,
+                "shields": stats.shields,
+                "cargo": {
+                    "quantum_foam": 0,
+                    "retro_organics": 0,
+                    "neuro_symbolics": 0,
+                },
+                "cargo_holds": stats.cargo_holds,
+                "warp_power": stats.warp_power_capacity,
+                "warp_power_capacity": stats.warp_power_capacity,
+                "modules": [],
+            },
+            "became_unowned": None,
+            "former_owner_name": None,
+        }
+    else:
+        record = json.loads(json.dumps(record))
+        record["ship_type"] = ship_type_enum.value
+        record["owner_type"] = "character"
+        record["owner_id"] = character_id
+        record["sector"] = sector
+        if ship_name is not None:
+            record["name"] = ship_name
+
+    state = record.setdefault("state", {})
+    state.setdefault("cargo", {})
+    state.setdefault("modules", [])
+    state.setdefault("cargo_holds", stats.cargo_holds)
+    state.setdefault("warp_power_capacity", stats.warp_power_capacity)
+
+    if fighters is not None:
+        state["fighters"] = int(fighters)
+    else:
+        state.setdefault("fighters", stats.fighters)
+
+    if shields is not None:
+        state["shields"] = int(shields)
+    else:
+        state.setdefault("shields", stats.shields)
+
+    if warp_power is not None:
+        state["warp_power"] = int(warp_power)
+    else:
+        state.setdefault("warp_power", stats.warp_power_capacity)
+
+    base_cargo = {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0,
+    }
+    if cargo:
+        for key, value in cargo.items():
+            base_cargo[key] = int(value)
+    for key in base_cargo:
+        state.setdefault("cargo", {})
+        state["cargo"][key] = base_cargo[key]
+
+    ships[ship_id] = record
+    _save_ships(ships)
+    return ship_id
 
 
 def create_test_character_knowledge(
     character_id: str,
     *,
     fighters: int = 300,
-    max_fighters: int = 300,
+    max_fighters: int = 300,  # legacy compatibility
     shields: int = 150,
     max_shields: int = 150,
     warp_power: int = 300,
@@ -44,43 +153,25 @@ def create_test_character_knowledge(
     sector: int = 0,
     cargo: Optional[Dict[str, int]] = None,
 ) -> Path:
-    """Create a character knowledge file with specific stats.
-
-    This allows setting exact fighter/shield counts for predictable combat tests.
-
-    Args:
-        character_id: Unique character ID
-        fighters: Current fighter count
-        max_fighters: Maximum fighters (ship capacity)
-        shields: Current shield strength
-        max_shields: Maximum shields (ship capacity)
-        warp_power: Current warp power
-        credits: Starting credits
-        ship_type: Ship type (e.g., "kestrel_courier")
-        ship_name: Custom ship name (optional)
-        sector: Starting sector
-        cargo: Cargo dict (default: empty)
-
-    Returns:
-        Path to created knowledge file
-
-    Example:
-        # Create weak character that will be destroyed quickly
-        create_test_character_knowledge(
-            "weak_player",
-            fighters=5,
-            max_fighters=300,
-            shields=10,
-            max_shields=150,
-        )
-    """
     if cargo is None:
-        cargo = {"quantum_foam": 0, "retro_organics": 0, "neuro_symbolics": 0}
+        cargo = {
+            "quantum_foam": 0,
+            "retro_organics": 0,
+            "neuro_symbolics": 0,
+        }
 
     now = datetime.now(timezone.utc).isoformat()
 
-    # Get adjacent sectors from universe data
-    adjacent_sectors = _get_adjacent_sectors(sector)
+    ship_id = _ensure_ship(
+        character_id,
+        ship_type=ship_type,
+        sector=sector,
+        fighters=fighters,
+        shields=shields,
+        warp_power=warp_power,
+        cargo=cargo,
+        ship_name=ship_name,
+    )
 
     knowledge = {
         "character_id": character_id,
@@ -91,35 +182,22 @@ def create_test_character_knowledge(
                 "port": None,
                 "position": [0, 0],
                 "planets": [],
-                "adjacent_sectors": adjacent_sectors,
+                "adjacent_sectors": _adjacent_sectors(sector),
             }
         },
         "total_sectors_visited": 1,
         "first_visit": now,
         "last_update": now,
-        "ship_config": {
-            "ship_type": ship_type,
-            "cargo": cargo,
-            "current_warp_power": warp_power,
-            "current_shields": shields,
-            "current_fighters": fighters,
-            "equipped_modules": [],
-        },
+        "current_ship_id": ship_id,
         "credits": credits,
+        "credits_in_bank": 0,
         "current_sector": sector,
     }
 
-    # Add ship_name if provided
-    if ship_name:
-        knowledge["ship_config"]["ship_name"] = ship_name
-
-    # Ensure directory exists
     KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Write knowledge file
     filepath = KNOWLEDGE_DIR / f"{character_id}.json"
-    with open(filepath, "w") as f:
-        json.dump(knowledge, f, indent=2)
+    with open(filepath, "w", encoding="utf-8") as handle:
+        json.dump(knowledge, handle, indent=2)
 
     return filepath
 
@@ -129,195 +207,50 @@ def modify_character_fighters(
     fighters: int,
     shields: Optional[int] = None,
 ) -> None:
-    """Modify an existing character's fighter and shield counts.
-
-    Args:
-        character_id: Character ID to modify
-        fighters: New fighter count
-        shields: New shield count (optional, keep current if not provided)
-
-    Raises:
-        FileNotFoundError: If character knowledge file doesn't exist
-    """
-    filepath = KNOWLEDGE_DIR / f"{character_id}.json"
-
-    if not filepath.exists():
-        raise FileNotFoundError(f"Character knowledge not found: {character_id}")
-
-    with open(filepath, "r") as f:
-        knowledge = json.load(f)
-
-    knowledge["ship_config"]["current_fighters"] = fighters
+    ships = _load_ships()
+    ship_id = _ship_id(character_id)
+    if ship_id not in ships:
+        raise FileNotFoundError(f"Ship not found for character: {character_id}")
+    record = ships[ship_id]
+    record.setdefault("state", {})
+    record["state"]["fighters"] = int(fighters)
     if shields is not None:
-        knowledge["ship_config"]["current_shields"] = shields
+        record["state"]["shields"] = int(shields)
+    ships[ship_id] = record
+    _save_ships(ships)
 
-    knowledge["last_update"] = datetime.now(timezone.utc).isoformat()
-
-    with open(filepath, "w") as f:
-        json.dump(knowledge, f, indent=2)
+    filepath = KNOWLEDGE_DIR / f"{character_id}.json"
+    if filepath.exists():
+        data = json.loads(filepath.read_text())
+        data["last_update"] = datetime.now(timezone.utc).isoformat()
+        filepath.write_text(json.dumps(data, indent=2))
 
 
 def delete_test_character(character_id: str) -> bool:
-    """Delete a test character's knowledge file.
-
-    Args:
-        character_id: Character ID to delete
-
-    Returns:
-        True if file was deleted, False if it didn't exist
-    """
     filepath = KNOWLEDGE_DIR / f"{character_id}.json"
+    ship_id = _ship_id(character_id)
+    ships = _load_ships()
 
+    deleted = False
     if filepath.exists():
         filepath.unlink()
-        return True
-    return False
+        deleted = True
+    if ship_id in ships:
+        ships.pop(ship_id)
+        _save_ships(ships)
+    return deleted
 
 
 def cleanup_test_characters(prefix: str = "test_") -> int:
-    """Delete all test character knowledge files matching a prefix.
-
-    Args:
-        prefix: Prefix to match (default: "test_")
-
-    Returns:
-        Number of files deleted
-
-    Example:
-        # Clean up all test characters
-        cleanup_test_characters("test_")
-    """
     if not KNOWLEDGE_DIR.exists():
         return 0
 
     count = 0
+    ships = _load_ships()
     for filepath in KNOWLEDGE_DIR.glob(f"{prefix}*.json"):
+        character_id = filepath.stem
         filepath.unlink()
         count += 1
-
+        ships.pop(_ship_id(character_id), None)
+    _save_ships(ships)
     return count
-
-
-def create_weak_character(
-    character_id: str,
-    sector: int = 0,
-    fighters: int = 5,
-) -> Path:
-    """Create a character with very low fighters (will be destroyed quickly).
-
-    Args:
-        character_id: Character ID
-        sector: Starting sector
-        fighters: Fighter count (default: 5, enough for 1-2 rounds)
-
-    Returns:
-        Path to created knowledge file
-    """
-    return create_test_character_knowledge(
-        character_id,
-        fighters=fighters,
-        max_fighters=300,
-        shields=10,
-        max_shields=150,
-        sector=sector,
-    )
-
-
-def create_strong_character(
-    character_id: str,
-    sector: int = 0,
-    fighters: int = 500,
-) -> Path:
-    """Create a character with high fighters (will dominate combat).
-
-    Args:
-        character_id: Character ID
-        sector: Starting sector
-        fighters: Fighter count (default: 500)
-
-    Returns:
-        Path to created knowledge file
-    """
-    return create_test_character_knowledge(
-        character_id,
-        fighters=fighters,
-        max_fighters=500,
-        shields=200,
-        max_shields=200,
-        ship_type="atlas_hauler",  # Stronger ship with more capacity
-        sector=sector,
-    )
-
-
-def create_balanced_character(
-    character_id: str,
-    sector: int = 0,
-) -> Path:
-    """Create a character with standard stats.
-
-    Args:
-        character_id: Character ID
-        sector: Starting sector
-
-    Returns:
-        Path to created knowledge file
-    """
-    return create_test_character_knowledge(
-        character_id,
-        fighters=300,
-        max_fighters=300,
-        shields=150,
-        max_shields=150,
-        sector=sector,
-    )
-
-
-def set_character_cargo(
-    character_id: str,
-    quantum_foam: int = 0,
-    retro_organics: int = 0,
-    neuro_symbolics: int = 0,
-) -> None:
-    """Set a character's cargo for salvage testing.
-
-    Args:
-        character_id: Character ID to modify
-        quantum_foam: Quantum Foam quantity
-        retro_organics: Retro-organics quantity
-        neuro_symbolics: Neuro-symbolics quantity
-    """
-    filepath = KNOWLEDGE_DIR / f"{character_id}.json"
-
-    if not filepath.exists():
-        raise FileNotFoundError(f"Character knowledge not found: {character_id}")
-
-    with open(filepath, "r") as f:
-        knowledge = json.load(f)
-
-    knowledge["ship_config"]["cargo"] = {
-        "quantum_foam": quantum_foam,
-        "retro_organics": retro_organics,
-        "neuro_symbolics": neuro_symbolics,
-    }
-
-    knowledge["last_update"] = datetime.now(timezone.utc).isoformat()
-
-    with open(filepath, "w") as f:
-        json.dump(knowledge, f, indent=2)
-
-
-# Pytest fixtures for common scenarios
-
-
-def pytest_configure_test_characters():
-    """Pytest hook to clean up test characters before test run."""
-    cleanup_test_characters("test_combat_")
-    cleanup_test_characters("weak_")
-    cleanup_test_characters("strong_")
-
-
-def pytest_unconfigure_test_characters():
-    """Pytest hook to clean up test characters after test run."""
-    cleanup_test_characters("test_combat_")
-    cleanup_test_characters("weak_")
-    cleanup_test_characters("strong_")

@@ -19,11 +19,20 @@ from api import (
     character_create as api_character_create,
     character_delete as api_character_delete,
     character_modify as api_character_modify,
+    corporation_create as api_corporation_create,
+    corporation_join as api_corporation_join,
+    corporation_regenerate_invite_code as api_corporation_regenerate_invite_code,
+    corporation_leave as api_corporation_leave,
+    corporation_kick as api_corporation_kick,
+    corporation_info as api_corporation_info,
+    corporation_list as api_corporation_list,
+    ship_purchase as api_ship_purchase,
     bank_transfer as api_bank_transfer,
     plot_course as api_plot_course,
     join as api_join,
     move as api_move,
     my_status as api_my_status,
+    my_corporation as api_my_corporation,
     local_map_region as api_local_map_region,
     list_known_ports as api_list_known_ports,
     path_with_region as api_path_with_region,
@@ -198,6 +207,42 @@ RPC_HANDLERS: Dict[str, RPCHandler] = {
     ),
     "regenerate_ports": _with_rate_limit(
         "regenerate_ports", lambda payload: api_regen_ports.handle(payload, world)
+    ),
+    "corporation.create": _with_rate_limit(
+        "corporation.create",
+        lambda payload: api_corporation_create.handle(payload, world),
+    ),
+    "corporation.join": _with_rate_limit(
+        "corporation.join",
+        lambda payload: api_corporation_join.handle(payload, world),
+    ),
+    "corporation.regenerate_invite_code": _with_rate_limit(
+        "corporation.regenerate_invite_code",
+        lambda payload: api_corporation_regenerate_invite_code.handle(payload, world),
+    ),
+    "corporation.leave": _with_rate_limit(
+        "corporation.leave",
+        lambda payload: api_corporation_leave.handle(payload, world),
+    ),
+    "corporation.kick": _with_rate_limit(
+        "corporation.kick",
+        lambda payload: api_corporation_kick.handle(payload, world),
+    ),
+    "corporation.info": _with_rate_limit(
+        "corporation.info",
+        lambda payload: api_corporation_info.handle(payload, world),
+    ),
+    "corporation.list": _with_rate_limit(
+        "corporation.list",
+        lambda payload: api_corporation_list.handle(payload, world),
+    ),
+    "my.corporation": _with_rate_limit(
+        "my.corporation",
+        lambda payload: api_my_corporation.handle(payload, world),
+    ),
+    "ship.purchase": _with_rate_limit(
+        "ship.purchase",
+        lambda payload: api_ship_purchase.handle(payload, world, credit_locks),
     ),
     "send_message": _with_rate_limit(
         "send_message",

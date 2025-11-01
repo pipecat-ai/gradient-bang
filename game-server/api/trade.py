@@ -15,6 +15,7 @@ from .utils import (
 )
 from rpc.events import event_dispatcher, EventLogContext
 from trading import TradingError
+from ships import ShipType, get_ship_stats
 
 
 async def handle(request: dict, world, port_locks=None) -> dict:
@@ -38,9 +39,8 @@ async def handle(request: dict, world, port_locks=None) -> dict:
 
     await ensure_not_in_combat(world, character_id)
     knowledge = world.knowledge_manager.load_knowledge(character_id)
-    from ships import ShipType, get_ship_stats
-
-    ship_stats = get_ship_stats(ShipType(knowledge.ship_config.ship_type))
+    ship = world.knowledge_manager.get_ship(character_id)
+    ship_stats = get_ship_stats(ShipType(ship["ship_type"]))
 
     # Pre-validation before acquiring lock
     port_state = world.port_manager.load_port_state(character.sector)
@@ -110,6 +110,15 @@ async def _execute_trade(
     commodities = [("QF", "quantum_foam"), ("RO", "retro_organics"), ("NS", "neuro_symbolics")]
     log_context = EventLogContext(sender=character_id, sector=character.sector)
 
+    ship_id = getattr(knowledge, "current_ship_id", None)
+    ship = world.ships_manager.get_ship(ship_id) if ship_id else None
+    if ship is None:
+        raise HTTPException(status_code=500, detail="Ship data unavailable")
+    ship_state = ship.get("state", {})
+    cargo_state = dict(ship_state.get("cargo", {}))
+    for key in ("quantum_foam", "retro_organics", "neuro_symbolics"):
+        cargo_state.setdefault(key, 0)
+
     def build_port_data(state):
         port_data = {
             "class": state.port_class,
@@ -178,7 +187,7 @@ async def _execute_trade(
         try:
             validate_buy_transaction(
                 knowledge.credits,
-                sum(knowledge.ship_config.cargo.values()),
+                sum(cargo_state.values()),
                 ship_stats.cargo_holds,
                 commodity,
                 quantity,
@@ -190,12 +199,12 @@ async def _execute_trade(
         total_price = price_per_unit * quantity
         new_credits = knowledge.credits - total_price
         world.knowledge_manager.update_credits(character_id, new_credits)
-        world.knowledge_manager.update_cargo(character_id, commodity, quantity)
+        cargo_state[commodity] += quantity
+        world.ships_manager.update_ship_state(ship_id, cargo=cargo_state)
         world.port_manager.update_port_inventory(
             character.sector, commodity_key, quantity, "buy"
         )
         updated_port_state = world.port_manager.load_port_state(character.sector)
-        updated_cargo = world.knowledge_manager.get_cargo(character_id)
         port_data = build_port_data(updated_port_state)
         new_prices = get_port_prices(port_data)
 
@@ -224,7 +233,7 @@ async def _execute_trade(
                     "price_per_unit": price_per_unit,
                     "total_price": total_price,
                     "new_credits": new_credits,
-                    "new_cargo": updated_cargo,
+                    "new_cargo": cargo_state,
                     "new_prices": new_prices,
                 },
             },
@@ -257,7 +266,7 @@ async def _execute_trade(
         )
         try:
             validate_sell_transaction(
-                knowledge.ship_config.cargo,
+                cargo_state,
                 commodity,
                 quantity,
                 port_state.stock[commodity_key],
@@ -268,12 +277,12 @@ async def _execute_trade(
         total_price = price_per_unit * quantity
         new_credits = knowledge.credits + total_price
         world.knowledge_manager.update_credits(character_id, new_credits)
-        world.knowledge_manager.update_cargo(character_id, commodity, -quantity)
+        cargo_state[commodity] = max(0, cargo_state.get(commodity, 0) - quantity)
+        world.ships_manager.update_ship_state(ship_id, cargo=cargo_state)
         world.port_manager.update_port_inventory(
             character.sector, commodity_key, quantity, "sell"
         )
         updated_port_state = world.port_manager.load_port_state(character.sector)
-        updated_cargo = world.knowledge_manager.get_cargo(character_id)
         port_data = build_port_data(updated_port_state)
         new_prices = get_port_prices(port_data)
 
@@ -302,7 +311,7 @@ async def _execute_trade(
                     "price_per_unit": price_per_unit,
                     "total_price": total_price,
                     "new_credits": new_credits,
-                    "new_cargo": updated_cargo,
+                    "new_cargo": cargo_state,
                     "new_prices": new_prices,
                 },
             },

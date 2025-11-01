@@ -18,10 +18,10 @@ def new_combat_id() -> str:
 
 
 def build_character_combatant(world, character_id: str) -> CombatantState:
-    knowledge = world.knowledge_manager.load_knowledge(character_id)
-    ship_config = knowledge.ship_config
-    ship_type = ShipType(ship_config.ship_type)
+    ship = world.knowledge_manager.get_ship(character_id)
+    ship_type = ShipType(ship["ship_type"])
     stats = get_ship_stats(ship_type)
+    state = ship.get("state", {})
 
     # Get the character's display name (defaults to character_id if not set)
     character = world.characters.get(character_id)
@@ -31,8 +31,8 @@ def build_character_combatant(world, character_id: str) -> CombatantState:
         combatant_id=character_id,
         combatant_type="character",
         name=display_name,
-        fighters=ship_config.current_fighters,
-        shields=ship_config.current_shields,
+        fighters=state.get("fighters", stats.fighters),
+        shields=state.get("shields", stats.shields),
         turns_per_warp=stats.turns_per_warp,
         max_fighters=stats.fighters,
         max_shields=stats.shields,
@@ -46,7 +46,7 @@ def build_garrison_combatant(
     sector_id: int,
     garrison: GarrisonState,
     *,
-    world = None,
+    world=None,
     name_prefix: str = "Garrison",
 ) -> CombatantState:
     combatant_id = f"garrison:{sector_id}:{garrison.owner_id}"
@@ -73,8 +73,7 @@ def build_garrison_combatant(
 
 
 def compute_combatant_deltas(
-    current_encounter: CombatEncounter,
-    previous_encounter: Optional[CombatEncounter]
+    current_encounter: CombatEncounter, previous_encounter: Optional[CombatEncounter]
 ) -> Dict[str, Dict[str, int]]:
     """
     Compute fighter and shield deltas for each combatant.
@@ -85,7 +84,9 @@ def compute_combatant_deltas(
     """
     if not previous_encounter:
         # First round, no deltas
-        return {pid: {"fighters": 0, "shields": 0} for pid in current_encounter.participants}
+        return {
+            pid: {"fighters": 0, "shields": 0} for pid in current_encounter.participants
+        }
 
     deltas = {}
     for pid, current in current_encounter.participants.items():
@@ -93,7 +94,7 @@ def compute_combatant_deltas(
         if prev:
             deltas[pid] = {
                 "fighters": current.fighters - prev.fighters,
-                "shields": current.shields - prev.shields
+                "shields": current.shields - prev.shields,
             }
         else:
             # New participant this round
@@ -163,7 +164,10 @@ def serialize_log(log) -> dict:
         "timestamp": log.timestamp.isoformat(),
     }
 
-def serialize_round(encounter: CombatEncounter, outcome, *, include_logs: bool = False) -> dict:
+
+def serialize_round(
+    encounter: CombatEncounter, outcome, *, include_logs: bool = False
+) -> dict:
     result_flag = getattr(outcome, "round_result", outcome.end_state)
     payload = {
         "combat_id": encounter.combat_id,
@@ -187,8 +191,12 @@ def serialize_round(encounter: CombatEncounter, outcome, *, include_logs: bool =
         participant_dict = serialize_combatant(state)
         # Add deltas if available
         if outcome.participant_deltas and pid in outcome.participant_deltas:
-            participant_dict["fighters_delta"] = outcome.participant_deltas[pid]["fighters"]
-            participant_dict["shields_delta"] = outcome.participant_deltas[pid]["shields"]
+            participant_dict["fighters_delta"] = outcome.participant_deltas[pid][
+                "fighters"
+            ]
+            participant_dict["shields_delta"] = outcome.participant_deltas[pid][
+                "shields"
+            ]
         else:
             participant_dict["fighters_delta"] = 0
             participant_dict["shields_delta"] = 0
@@ -242,10 +250,8 @@ def serialize_participant_for_event(
         Dict with participant data suitable for event broadcast
     """
     if state.combatant_type == "character":
-        # Get ship name from knowledge
-        knowledge = world.knowledge_manager.load_knowledge(state.owner_character_id)
-        ship_config = knowledge.ship_config
-        ship_type_value = getattr(ship_config, "ship_type", state.ship_type)
+        ship = world.knowledge_manager.get_ship(state.owner_character_id)
+        ship_type_value = ship.get("ship_type") or state.ship_type
         ship_stats = None
         default_name = ship_type_value or "unknown"
         try:
@@ -255,7 +261,7 @@ def serialize_participant_for_event(
             ship_type_value = ship_type_enum.value
         except (ValueError, TypeError):
             pass
-        ship_name = getattr(ship_config, "ship_name", None) or default_name
+        ship_name = ship.get("name") or default_name
 
         # Get character creation time
         character = world.characters.get(state.owner_character_id)
@@ -269,9 +275,11 @@ def serialize_participant_for_event(
                 "ship_type": ship_type_value,
                 "ship_name": ship_name,
                 "shield_integrity": round(shield_integrity, 1),
-                "shield_damage": round(shield_damage, 1) if shield_damage != 0 else None,
+                "shield_damage": round(shield_damage, 1)
+                if shield_damage != 0
+                else None,
                 "fighter_loss": fighter_loss if fighter_loss > 0 else None,
-            }
+            },
         }
     else:
         # Garrison participant - should not be in participants array
@@ -324,7 +332,9 @@ def _state_matches_viewer(state: CombatantState, viewer_id: Optional[str]) -> bo
     return state.combatant_id == viewer_id
 
 
-def _build_ship_payload(world, viewer_id: Optional[str], state: CombatantState) -> Optional[dict]:
+def _build_ship_payload(
+    world, viewer_id: Optional[str], state: CombatantState
+) -> Optional[dict]:
     if viewer_id is None or not _state_matches_viewer(state, viewer_id):
         return None
     try:
@@ -410,7 +420,9 @@ async def serialize_round_waiting_event(
             initiator_id = context.get("initiator")
 
         # Convert character ID to display name (falls back to ID if unresolved)
-        initiator_name = resolve_character_name(world, initiator_id) if initiator_id else None
+        initiator_name = (
+            resolve_character_name(world, initiator_id) if initiator_id else None
+        )
         payload["initiator"] = initiator_name
     if ship_payload:
         payload["ship"] = ship_payload
@@ -463,7 +475,9 @@ async def serialize_round_resolved_event(
                 delta_fighters = 0
         fighter_loss = -delta_fighters if delta_fighters < 0 else delta_fighters
 
-        if hasattr(outcome, "offensive_losses") and hasattr(outcome, "defensive_losses"):
+        if hasattr(outcome, "offensive_losses") and hasattr(
+            outcome, "defensive_losses"
+        ):
             offensive_loss = outcome.offensive_losses.get(pid, 0) or 0
             defensive_loss = outcome.defensive_losses.get(pid, 0) or 0
             if not isinstance(offensive_loss, (int, float)):
@@ -564,6 +578,8 @@ async def serialize_combat_ended_event(
     if ship_payload:
         base_payload["ship"] = ship_payload
     return base_payload
+
+
 async def _list_sector_garrisons(world, sector_id: int) -> list:
     garrison_store = getattr(world, "garrisons", None)
     if not garrison_store:

@@ -20,7 +20,9 @@ from rpc.events import event_dispatcher, EventLogContext
 VALID_COMMODITIES = {"quantum_foam", "retro_organics", "neuro_symbolics"}
 
 
-async def _fail(character_id: Optional[str], request_id: str, detail: str, *, status: int = 400):
+async def _fail(
+    character_id: Optional[str], request_id: str, detail: str, *, status: int = 400
+):
     if character_id:
         await emit_error_event(
             event_dispatcher,
@@ -40,16 +42,24 @@ def _parse_manifest(raw_manifest) -> Dict[str, int]:
         iterator = []
         for entry in raw_manifest:
             if not isinstance(entry, Mapping):
-                raise HTTPException(status_code=400, detail="Each item must be an object")
+                raise HTTPException(
+                    status_code=400, detail="Each item must be an object"
+                )
             iterator.append((entry.get("commodity"), entry.get("units")))
     else:
-        raise HTTPException(status_code=400, detail="cargo/items must be an object or list")
+        raise HTTPException(
+            status_code=400, detail="cargo/items must be an object or list"
+        )
 
     for commodity, units in iterator:
         if commodity not in VALID_COMMODITIES:
-            raise HTTPException(status_code=400, detail=f"Invalid commodity: {commodity}")
+            raise HTTPException(
+                status_code=400, detail=f"Invalid commodity: {commodity}"
+            )
         if not isinstance(units, int) or units <= 0:
-            raise HTTPException(status_code=400, detail="Units must be positive integers")
+            raise HTTPException(
+                status_code=400, detail="Units must be positive integers"
+            )
         manifest[commodity] = manifest.get(commodity, 0) + units
 
     if not manifest:
@@ -64,14 +74,18 @@ async def handle(request: dict, world) -> dict:
     request_id = request.get("request_id") or "missing-request-id"
 
     if not character_id or raw_manifest is None:
-        raise HTTPException(status_code=400, detail="Missing character_id or cargo manifest")
+        raise HTTPException(
+            status_code=400, detail="Missing character_id or cargo manifest"
+        )
 
     if character_id not in world.characters:
         raise HTTPException(status_code=404, detail="Character not found")
 
     character = world.characters[character_id]
     if character.in_hyperspace:
-        raise HTTPException(status_code=400, detail="Character is in hyperspace, cannot dump cargo")
+        raise HTTPException(
+            status_code=400, detail="Character is in hyperspace, cannot dump cargo"
+        )
 
     await ensure_not_in_combat(world, character_id)
 
@@ -81,8 +95,9 @@ async def handle(request: dict, world) -> dict:
 
     manifest = _parse_manifest(raw_manifest)
 
-    knowledge = world.knowledge_manager.load_knowledge(character_id)
-    current_cargo = knowledge.ship_config.cargo.copy()
+    ship = world.knowledge_manager.get_ship(character_id)
+    state = ship.get("state", {})
+    current_cargo = dict(state.get("cargo", {}))
 
     removed: Dict[str, int] = {}
     for commodity, requested_units in manifest.items():
@@ -98,10 +113,9 @@ async def handle(request: dict, world) -> dict:
     if not removed:
         await _fail(character_id, request_id, "No cargo available to dump")
 
-    ship_config = knowledge.ship_config
     metadata = {
-        "ship_name": ship_config.ship_name,
-        "ship_type": ship_config.ship_type,
+        "ship_name": ship.get("name"),
+        "ship_type": ship["ship_type"],
     }
 
     salvage = salvage_manager.create(
@@ -146,7 +160,9 @@ async def handle(request: dict, world) -> dict:
         log_context=log_context,
     )
 
-    sector_payload = await sector_contents(world, character.sector, current_character_id=None)
+    sector_payload = await sector_contents(
+        world, character.sector, current_character_id=None
+    )
     characters_in_sector = [
         cid
         for cid, other in world.characters.items()

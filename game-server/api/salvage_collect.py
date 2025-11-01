@@ -20,7 +20,9 @@ async def handle(request: dict, world) -> dict:
     salvage_id = request.get("salvage_id")
 
     if not character_id or not salvage_id:
-        raise HTTPException(status_code=400, detail="Missing character_id or salvage_id")
+        raise HTTPException(
+            status_code=400, detail="Missing character_id or salvage_id"
+        )
 
     if character_id not in world.characters:
         raise HTTPException(status_code=404, detail="Character not found")
@@ -35,10 +37,12 @@ async def handle(request: dict, world) -> dict:
     if world.salvage_manager is None:
         raise HTTPException(status_code=503, detail="Salvage system unavailable")
 
-    knowledge = world.knowledge_manager.load_knowledge(character_id)
-    ship_type = ShipType(knowledge.ship_config.ship_type)
+    ship = world.knowledge_manager.get_ship(character_id)
+    ship_type = ShipType(ship["ship_type"])
     if ship_type == ShipType.ESCAPE_POD:
-        raise HTTPException(status_code=400, detail="Escape pods cannot collect salvage")
+        raise HTTPException(
+            status_code=400, detail="Escape pods cannot collect salvage"
+        )
 
     container = world.salvage_manager.claim(salvage_id, character_id)
     if not container:
@@ -46,11 +50,12 @@ async def handle(request: dict, world) -> dict:
 
     # Get ship stats for cargo capacity
     from ships import get_ship_stats
+
     ship_stats = get_ship_stats(ship_type)
 
     # Calculate available cargo space
-    knowledge = world.knowledge_manager.load_knowledge(character_id)
-    cargo_used = sum(knowledge.ship_config.cargo.values())
+    ship_state = ship.get("state", {})
+    cargo_used = sum(ship_state.get("cargo", {}).values())
     available_space = ship_stats.cargo_holds - cargo_used
 
     # Track what we collect vs. what remains
@@ -63,13 +68,19 @@ async def handle(request: dict, world) -> dict:
     if container.credits:
         collected_credits = container.credits
         existing = world.knowledge_manager.get_credits(character_id)
-        world.knowledge_manager.update_credits(character_id, existing + container.credits)
+        world.knowledge_manager.update_credits(
+            character_id, existing + container.credits
+        )
 
     # Collect scrap first (highest priority - always collectible as neuro_symbolics)
     if container.scrap and available_space > 0:
         collectible_scrap = min(container.scrap, available_space)
-        world.knowledge_manager.update_cargo(character_id, "neuro_symbolics", collectible_scrap)
-        collected_cargo["neuro_symbolics"] = collected_cargo.get("neuro_symbolics", 0) + collectible_scrap
+        world.knowledge_manager.update_cargo(
+            character_id, "neuro_symbolics", collectible_scrap
+        )
+        collected_cargo["neuro_symbolics"] = (
+            collected_cargo.get("neuro_symbolics", 0) + collectible_scrap
+        )
         available_space -= collectible_scrap
         remaining_scrap = container.scrap - collectible_scrap
     else:
@@ -98,8 +109,12 @@ async def handle(request: dict, world) -> dict:
         else:
             # Unknown commodity - treat as neuro_symbolics scrap
             collectible = min(amount, available_space)
-            world.knowledge_manager.update_cargo(character_id, "neuro_symbolics", collectible)
-            collected_cargo["neuro_symbolics"] = collected_cargo.get("neuro_symbolics", 0) + collectible
+            world.knowledge_manager.update_cargo(
+                character_id, "neuro_symbolics", collectible
+            )
+            collected_cargo["neuro_symbolics"] = (
+                collected_cargo.get("neuro_symbolics", 0) + collectible
+            )
             available_space -= collectible
 
             if amount > collectible:
@@ -117,7 +132,7 @@ async def handle(request: dict, world) -> dict:
             salvage_id,
             cargo=remaining_cargo,
             scrap=remaining_scrap,
-            credits=0  # Credits always collected
+            credits=0,  # Credits always collected
         )
         world.salvage_manager.unclaim(salvage_id)
 
@@ -161,7 +176,9 @@ async def handle(request: dict, world) -> dict:
     )
 
     # Emit sector.update to all characters in the sector
-    sector_update_payload = await sector_contents(world, sector_id, current_character_id=None)
+    sector_update_payload = await sector_contents(
+        world, sector_id, current_character_id=None
+    )
 
     characters_in_sector = [
         cid

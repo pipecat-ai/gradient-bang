@@ -264,20 +264,21 @@ async def _process_defeated_characters(
         if not owner_id:
             continue
 
-        knowledge = world.knowledge_manager.load_knowledge(owner_id)
-        ship_type = ShipType(knowledge.ship_config.ship_type)
+        ship = world.knowledge_manager.get_ship(owner_id)
+        ship_type = ShipType(ship["ship_type"])
 
         # Skip if already in escape pod
         if ship_type == ShipType.ESCAPE_POD:
             continue
 
         stats = get_ship_stats(ship_type)
-        cargo = {k: v for k, v in knowledge.ship_config.cargo.items() if v > 0}
+        state = ship.get("state", {})
+        cargo = {k: v for k, v in state.get("cargo", {}).items() if v > 0}
         credits = world.knowledge_manager.get_credits(owner_id)
         scrap = max(5, stats.price // 1000)
 
         # Get ship name for metadata
-        ship_name = knowledge.ship_config.ship_name or stats.name
+        ship_name = ship.get("name") or stats.name
 
         salvage_credits = credits if isinstance(credits, int) and credits > 0 else 0
         world.knowledge_manager.update_credits(owner_id, 0)
@@ -299,7 +300,15 @@ async def _process_defeated_characters(
             )
 
         # Convert to escape pod
-        world.knowledge_manager.initialize_ship(owner_id, ShipType.ESCAPE_POD)
+        owner_character = world.characters.get(owner_id)
+        former_owner_name = owner_character.name if owner_character else owner_id
+        world.knowledge_manager.create_ship_for_character(
+            owner_id,
+            ShipType.ESCAPE_POD,
+            sector=encounter.sector_id,
+            abandon_existing=True,
+            former_owner_name=former_owner_name,
+        )
         await emit_status_update(owner_id)
 
         # Update winner status

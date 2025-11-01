@@ -166,14 +166,16 @@ async def handle(request: dict, world) -> dict:
         raise HTTPException(status_code=400, detail="Missing character_id")
 
     if character_id not in world.characters:
-        raise HTTPException(status_code=404, detail=f"Character '{character_id}' not found")
+        raise HTTPException(
+            status_code=404, detail=f"Character '{character_id}' not found"
+        )
 
     initiator = world.characters[character_id]
 
     fighters = getattr(initiator, "fighters", 0) or 0
     if fighters <= 0:
-        knowledge = world.knowledge_manager.load_knowledge(character_id)
-        fighters = getattr(knowledge.ship_config, "current_fighters", 0)
+        ship = world.knowledge_manager.get_ship(character_id)
+        fighters = ship.get("state", {}).get("fighters", 0)
     if fighters <= 0:
         raise HTTPException(
             status_code=400,

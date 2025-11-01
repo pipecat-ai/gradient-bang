@@ -54,7 +54,7 @@ def parse_move_destination(request: dict) -> int:
 
 def validate_move_destination(
     world, character_id: str, to_sector: int
-) -> Tuple["Character", "MapKnowledge", ShipStats]:
+) -> Tuple["Character", "MapKnowledge", ShipStats, dict]:
     if not world.universe_graph:
         raise HTTPException(status_code=503, detail="Game world not loaded")
 
@@ -78,15 +78,25 @@ def validate_move_destination(
         )
 
     knowledge = world.knowledge_manager.load_knowledge(character_id)
-    ship_stats = get_ship_stats(ShipType(knowledge.ship_config.ship_type))
-    warp_cost = ship_stats.turns_per_warp
-    if knowledge.ship_config.current_warp_power < warp_cost:
+    ship_id = getattr(knowledge, "current_ship_id", None)
+    ship = world.ships_manager.get_ship(ship_id) if ship_id else None
+    if ship is None:
         raise HTTPException(
-            status_code=400,
-            detail=f"Insufficient warp power. Need {warp_cost} units but only have {knowledge.ship_config.current_warp_power}",
+            status_code=500,
+            detail="Ship data unavailable for character",
         )
 
-    return character, knowledge, ship_stats
+    ship_stats = get_ship_stats(ShipType(ship["ship_type"]))
+    ship_state = ship.get("state", {})
+    warp_cost = ship_stats.turns_per_warp
+    current_warp_power = ship_state.get("warp_power", ship_stats.warp_power_capacity)
+    if current_warp_power < warp_cost:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient warp power. Need {warp_cost} units but only have {current_warp_power}",
+        )
+
+    return character, knowledge, ship_stats, ship
 
 
 async def handle(request: dict, world) -> dict:
@@ -99,7 +109,7 @@ async def handle(request: dict, world) -> dict:
 
     to_sector = parse_move_destination(request)
 
-    character, knowledge, ship_stats = validate_move_destination(
+    character, knowledge, ship_stats, ship = validate_move_destination(
         world, character_id, to_sector
     )
 
@@ -118,8 +128,10 @@ async def handle(request: dict, world) -> dict:
 
     try:
         # Deduct warp power (already validated, won't fail)
-        knowledge.ship_config.current_warp_power -= warp_cost
-        world.knowledge_manager.save_knowledge(knowledge)
+        ship_id = getattr(knowledge, "current_ship_id", None)
+        ship_state = ship.get("state", {})
+        remaining_warp = max(0, ship_state.get("warp_power", 0) - warp_cost)
+        world.ships_manager.update_ship_state(ship_id, warp_power=remaining_warp)
 
         # Store old sector and update to new sector
         old_sector = character.sector
@@ -183,6 +195,8 @@ async def handle(request: dict, world) -> dict:
 
         # Update character activity timestamp after arrival
         character.update_activity()
+        if ship_id:
+            world.ships_manager.move_ship(ship_id, to_sector)
 
         # Send movement.complete and map.local events to the character
         # get sector contents again in case things changed

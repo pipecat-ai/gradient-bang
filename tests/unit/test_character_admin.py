@@ -4,18 +4,24 @@ import pytest
 
 from core.character_registry import CharacterRegistry
 from core.world import Character
+from core.ships_manager import ShipsManager
 from character_knowledge import CharacterKnowledgeManager
 from api import character_create, character_modify, character_delete
 
 
 @pytest.fixture
 def world(tmp_path):
+    world_data_dir = tmp_path / "world-data"
+    ships_manager = ShipsManager(world_data_dir)
+
     registry = CharacterRegistry(tmp_path / "characters.json")
     registry.load()
     registry.set_admin_password("secret")
-    knowledge_manager = CharacterKnowledgeManager(data_dir=tmp_path / "character-map-knowledge")
+    knowledge_manager = CharacterKnowledgeManager(data_dir=world_data_dir / "character-map-knowledge")
+    knowledge_manager.set_ships_manager(ships_manager)
     return SimpleNamespace(
         knowledge_manager=knowledge_manager,
+        ships_manager=ships_manager,
         character_registry=registry,
         characters={},
     )

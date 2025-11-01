@@ -20,19 +20,7 @@
   "total_sectors_visited": 1,
   "first_visit": "2025-10-25T15:23:35.018519+00:00",
   "last_update": "2025-10-25T15:35:04.405363+00:00",
-  "ship_config": {
-    "ship_type": "kestrel_courier",
-    "ship_name": null,
-    "cargo": {
-      "quantum_foam": 0,
-      "retro_organics": 0,
-      "neuro_symbolics": 0
-    },
-    "current_warp_power": 300,
-    "current_shields": 150,
-    "current_fighters": 300,
-    "equipped_modules": []
-  },
   "credits": 1000,
-  "current_sector": 0
+  "current_sector": 0,
+  "current_ship_id": "f5a7f5cc-d259-4a2c-90c7-dd3ac9027bb4"
 }

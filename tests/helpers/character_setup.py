@@ -405,6 +405,27 @@ TEST_CHARACTER_IDS = [
     # Empty holds test characters (test_game_server_api.py)
     "test_empty_holds_char",
     "test_empty_holds_edge",
+    # Corporation lifecycle integration tests
+    "test_corp_founder_1",
+    "test_corp_founder_credits",
+    "test_corp_founder_broke",
+    "test_join_founder",
+    "test_join_member",
+    "test_join_invalid_founder",
+    "test_join_invalid_member",
+    "test_join_case_founder",
+    "test_join_case_member",
+    "test_join_again_founder",
+    "test_join_again_member",
+    "test_regen_founder",
+    "test_regen_invalid_founder",
+    "test_regen_invalid_joiner",
+    "test_leave_founder",
+    "test_leave_member",
+    "test_disband_founder",
+    "test_kick_founder",
+    "test_kick_member",
+    "test_kick_self",
 ]
 
 

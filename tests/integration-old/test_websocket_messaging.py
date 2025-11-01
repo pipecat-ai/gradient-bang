@@ -312,20 +312,24 @@ def test_toll_payment_via_combat_action(ws_client):
         world.garrisons.remove(sector_toll, garrison.owner_id)
 
     # Initialise ships and credits
-    world.knowledge_manager.initialize_ship(owner_id, ShipType.KESTREL_COURIER)
-    world.knowledge_manager.initialize_ship(mover_id, ShipType.KESTREL_COURIER)
-
-    owner_knowledge = world.knowledge_manager.load_knowledge(owner_id)
-    owner_knowledge.current_sector = sector_toll
-    owner_knowledge.ship_config.current_fighters = 0
-    owner_knowledge.ship_config.current_shields = 150
-    world.knowledge_manager.save_knowledge(owner_knowledge)
-
-    mover_knowledge = world.knowledge_manager.load_knowledge(mover_id)
-    mover_knowledge.current_sector = entry_sector
-    mover_knowledge.ship_config.current_fighters = 120
-    mover_knowledge.ship_config.current_shields = 150
-    world.knowledge_manager.save_knowledge(mover_knowledge)
+    world.knowledge_manager.create_ship_for_character(
+        owner_id,
+        ShipType.KESTREL_COURIER,
+        sector=sector_toll,
+        fighters=0,
+        shields=150,
+        abandon_existing=True,
+        former_owner_name=owner_id,
+    )
+    world.knowledge_manager.create_ship_for_character(
+        mover_id,
+        ShipType.KESTREL_COURIER,
+        sector=entry_sector,
+        fighters=120,
+        shields=150,
+        abandon_existing=True,
+        former_owner_name=mover_id,
+    )
 
     world.characters[owner_id] = Character(
         owner_id,

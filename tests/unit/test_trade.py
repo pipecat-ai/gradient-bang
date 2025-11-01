@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -19,24 +20,35 @@ class DummyCharacter:
         self.last_active = now
 
 
-class DummyShipConfig:
-    def __init__(self, cargo: dict[str, int] | None = None) -> None:
-        self.ship_type = "kestrel_courier"
-        self.ship_name = "Test Courier"
-        self.cargo = cargo or {
+class DummyKnowledge:
+    def __init__(self, character_id: str, credits: int, cargo: dict[str, int] | None = None) -> None:
+        cargo = cargo or {
             "quantum_foam": 0,
             "retro_organics": 0,
             "neuro_symbolics": 0,
         }
-        self.current_warp_power = 20
-        self.current_shields = 10
-        self.current_fighters = 5
-
-
-class DummyKnowledge:
-    def __init__(self, credits: int, cargo: dict[str, int] | None = None) -> None:
         self.credits = credits
-        self.ship_config = DummyShipConfig(cargo)
+        self.current_ship_id = f"{character_id}-ship"
+        self.ship_record = {
+            "ship_id": self.current_ship_id,
+            "ship_type": "kestrel_courier",
+            "name": "Test Courier",
+            "sector": 5,
+            "owner_type": "character",
+            "owner_id": character_id,
+            "acquired": datetime.now(timezone.utc).isoformat(),
+            "state": {
+                "fighters": 5,
+                "shields": 10,
+                "cargo": dict(cargo),
+                "cargo_holds": 30,
+                "warp_power": 20,
+                "warp_power_capacity": 20,
+                "modules": [],
+            },
+            "became_unowned": None,
+            "former_owner_name": None,
+        }
 
 
 class DummyKnowledgeManager:
@@ -50,12 +62,14 @@ class DummyKnowledgeManager:
         self._knowledge_map[character_id].credits = new_credits
 
     def update_cargo(self, character_id: str, commodity: str, delta: int) -> None:
-        cargo = self._knowledge_map[character_id].ship_config.cargo
+        record = self._knowledge_map[character_id].ship_record
+        state = record.setdefault("state", {})
+        cargo = state.setdefault("cargo", {})
         cargo[commodity] = cargo.get(commodity, 0) + delta
 
     def get_cargo(self, character_id: str) -> dict[str, int]:
-        cargo = self._knowledge_map[character_id].ship_config.cargo
-        return dict(cargo)
+        record = self._knowledge_map[character_id].ship_record
+        return dict(record.get("state", {}).get("cargo", {}))
 
     def get_credits(self, character_id: str) -> int:
         return self._knowledge_map[character_id].credits
@@ -71,6 +85,9 @@ class DummyKnowledgeManager:
     def update_port_observation(self, character_id: str, sector: int, port_data: dict) -> None:
         """Update port observation in character knowledge (no-op for test dummy)."""
         pass
+
+    def get_ship(self, character_id: str) -> dict:
+        return json.loads(json.dumps(self._knowledge_map[character_id].ship_record))
 
 
 class DummyPortState:
@@ -93,10 +110,33 @@ class DummyPortManager:
             self._state.stock[commodity_key] -= quantity
         else:
             self._state.stock[commodity_key] += quantity
+class DummyShipsManager:
+    def __init__(self, knowledge_map: dict[str, DummyKnowledge]) -> None:
+        self._knowledge_map = knowledge_map
+
+    def get_ship(self, ship_id: str) -> dict | None:
+        for knowledge in self._knowledge_map.values():
+            if knowledge.current_ship_id == ship_id:
+                return json.loads(json.dumps(knowledge.ship_record))
+        return None
+
+    def update_ship_state(self, ship_id: str, **updates) -> None:
+        for knowledge in self._knowledge_map.values():
+            if knowledge.current_ship_id == ship_id:
+                state = knowledge.ship_record.setdefault("state", {})
+                if "cargo" in updates:
+                    state["cargo"] = dict(updates["cargo"])
+                if "fighters" in updates:
+                    state["fighters"] = updates["fighters"]
+                if "shields" in updates:
+                    state["shields"] = updates["shields"]
+                if "warp_power" in updates:
+                    state["warp_power"] = updates["warp_power"]
+                break
 
 
 def build_world(character_id: str, *, code: str, starting_credits: int, cargo: dict[str, int] | None = None) -> SimpleNamespace:
-    knowledge = DummyKnowledge(starting_credits, cargo)
+    knowledge = DummyKnowledge(character_id, starting_credits, cargo)
     knowledge_manager = DummyKnowledgeManager({character_id: knowledge})
     port_state = DummyPortState(
         code=code,
@@ -110,6 +150,7 @@ def build_world(character_id: str, *, code: str, starting_credits: int, cargo: d
         knowledge_manager=knowledge_manager,
         port_manager=port_manager,
         combat_manager=None,
+        ships_manager=DummyShipsManager({character_id: knowledge}),
     )
 
 

@@ -280,9 +280,11 @@ _ensure_pipecat_stub()
 # Test Infrastructure Fixtures
 # =============================================================================
 
+import json
 import pytest
 import httpx
 import logging
+from pathlib import Path
 from helpers.character_setup import register_all_test_characters
 from helpers.server_fixture import (
     start_test_server,
@@ -308,6 +310,17 @@ def setup_test_characters():
     is used by test servers.
     """
     register_all_test_characters()
+
+    world_data_dir = Path("tests/test-world-data")
+    corps_dir = world_data_dir / "corporations"
+    if corps_dir.exists():
+        for corp_file in corps_dir.glob("*.json"):
+            corp_file.unlink()
+
+    registry_path = world_data_dir / "corporation_registry.json"
+    registry_payload = {"by_name": {}}
+    registry_path.write_text(json.dumps(registry_payload, indent=2))
+
     yield
     # Cleanup handled by temp directory removal if needed
 

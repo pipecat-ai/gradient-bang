@@ -6,14 +6,26 @@ from core.world import Character
 from api import move
 
 
-def _make_ship_config():
-    return SimpleNamespace(
-        ship_type="kestrel_courier",
-        ship_name="Test Ship",
-        current_warp_power=10,
-        current_fighters=40,
-        current_shields=80,
-    )
+def _make_ship_record(character_id: str):
+    return {
+        "ship_id": f"{character_id}-ship",
+        "ship_type": "kestrel_courier",
+        "name": "Test Ship",
+        "sector": 0,
+        "owner_type": "character",
+        "owner_id": character_id,
+        "state": {
+            "warp_power": 10,
+            "warp_power_capacity": 300,
+            "fighters": 40,
+            "shields": 80,
+            "cargo": {
+                "quantum_foam": 0,
+                "retro_organics": 0,
+                "neuro_symbolics": 0,
+            },
+        },
+    }
 
 
 def _build_world(character_id: str, *, encounter=None):
@@ -25,15 +37,30 @@ def _build_world(character_id: str, *, encounter=None):
         sector_count=100,
     )
 
-    ship_config = _make_ship_config()
-    knowledge = SimpleNamespace(ship_config=ship_config)
+    ship_record = _make_ship_record(character_id)
+    knowledge = SimpleNamespace(current_ship_id=ship_record["ship_id"])
+
+    def get_ship(_character_id: str):
+        return {
+            "ship_id": ship_record["ship_id"],
+            "ship_type": ship_record["ship_type"],
+            "name": ship_record["name"],
+            "state": dict(ship_record["state"]),
+        }
+
     knowledge_manager = SimpleNamespace(
         load_knowledge=MagicMock(return_value=knowledge),
         save_knowledge=MagicMock(),
         update_sector_visit=MagicMock(),
         get_credits=MagicMock(return_value=0),
+        get_ship=MagicMock(side_effect=lambda cid: get_ship(cid)),
     )
     world.knowledge_manager = knowledge_manager
+    world.ships_manager = SimpleNamespace(
+        get_ship=lambda ship_id: get_ship(character_id) if ship_id == ship_record["ship_id"] else None,
+        update_ship_state=lambda ship_id, **updates: ship_record["state"].update(updates),
+        move_ship=lambda ship_id, to_sector: ship_record.__setitem__("sector", to_sector),
+    )
     world.garrisons = None
 
     if encounter is not None:

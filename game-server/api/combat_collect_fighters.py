@@ -76,11 +76,12 @@ async def handle(request: dict, world) -> dict:
         await world.garrisons.remove(sector, character_id)
 
     world.knowledge_manager.adjust_fighters(character_id, quantity)
-    updated_knowledge = world.knowledge_manager.load_knowledge(character_id)
+    updated_ship = world.knowledge_manager.get_ship(character_id)
+    ship_state = updated_ship.get("state", {})
     character = world.characters.get(character_id)
     if character:
         character.update_ship_state(
-            fighters=updated_knowledge.ship_config.current_fighters,
+            fighters=ship_state.get("fighters", character.max_fighters),
             max_fighters=character.max_fighters,
         )
 
@@ -103,7 +104,7 @@ async def handle(request: dict, world) -> dict:
             "sector": {"id": sector},
             "credits_collected": toll_payout,
             "garrison": garrison_payload,
-            "fighters_on_ship": updated_knowledge.ship_config.current_fighters,
+            "fighters_on_ship": ship_state.get("fighters", 0),
         },
         character_filter=[character_id],
     )
