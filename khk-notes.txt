@@ -1,3 +1,26 @@
+  - ❌ Ship Purchase (personal or corporation)
+  - ❌ Corporation management (create, join, leave)
+  - ❌ MyMap (defined but not imported)
+  - ❌ StartTask/StopTask (defined but not imported)
+
+khkramer@boule:~/src/gradient-bang$ uv run scripts/corporation_create.py `uv run scripts/character_lookup.py "Joe Player"` "Joe House"
+✓ Corporation created successfully.
+  Name: Joe House
+  Corp ID: 8667a616-151d-4b74-bab6-46a901dbbe78
+  Invite Code: 19110101
+  Founder ID: 6d2bb10f-9197-4083-9f18-9ec49510c770
+  Member Count: 1
+
+Remove tests/integration-old
+
+- Threading through corp id. For example in corporation_join event payload.
+- Test lookup only corp members are allowed to supply a corp filter
+
+
+- maybe remove corporation.info and my.corporation rpc calls. or maybe these are just for server admin
+
+
+----
 
 - add new ship types
 

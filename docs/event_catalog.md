@@ -2,6 +2,12 @@
 
 This document catalogs all WebSocket events emitted by the Gradient Bang game server during gameplay, with typical payloads showing all fields.
 
+## Event Metadata
+
+- Every event written to the audit log includes the standard envelope fields (`timestamp`, `direction`, `event`, `payload`, `sender`, `receiver`, `sector`, `meta`).
+- Starting with the corporation integration (Phase 5), events also record an optional `corporation_id`. The event dispatcher infers this automatically for corp-specific activity, and the value is surfaced both in `event-log.jsonl` and through the `event.query` API filter.
+- Earlier log entries (pre-Phase 5) simply omit `corporation_id`; consumers should treat the field as optional.
+
 ## System Events
 
 ### error
@@ -672,16 +678,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
         "code": "SBB",
         "observed_at": "2025-10-07T14:20:00.000Z"
       },
-      "players": ["pirate"],
-      "planets": [],
-      "garrisons": [
-        {
-          "owner_name": "Defender",
-          "fighters": 30,
-          "mode": "offensive",
-          "is_friendly": false
-        }
-      ]
+      "planets": []
     },
     "43": {
       "sector_id": 43,
@@ -691,9 +688,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
         "code": "BSB",
         "observed_at": null
       },
-      "players": ["trader", "merchant"],
-      "planets": [],
-      "garrisons": []
+      "planets": []
     },
     "44": {
       "sector_id": 44,
@@ -1057,6 +1052,116 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 ```
 
 
+## Ship Purchase Events
+
+### ship.traded_in
+**When emitted:** When a character trades in their current ship for a new one at sector 0
+**Who receives it:** Only the character making the purchase (character_filter - private)
+**Source:** `/game-server/api/ship_purchase.py`
+
+**Payload example:**
+```json
+{
+  "character_id": "trader",
+  "old_ship_id": "uuid-old-ship",
+  "old_ship_type": "kestrel_courier",
+  "new_ship_id": "uuid-new-ship",
+  "new_ship_type": "atlas_hauler",
+  "trade_in_value": 15000,
+  "price": 50000,
+  "net_cost": 35000,
+  "timestamp": "2025-11-01T16:00:00.000Z"
+}
+```
+
+**Notes:**
+- **Private event:** Only buyer sees it (financial transaction privacy)
+- **Trade-in required:** Cannot own multiple personal ships; must trade in current ship
+- Old ship is marked as `unowned` and becomes a derelict
+- Character receives `status.update` immediately after with new ship and credits
+- `net_cost` = price - trade_in_value (can be negative if downgrading)
+- Balance information not included; clients receive updated balances via `status.update`
+
+## Corporation Events
+
+### corporation.ship_purchased
+**When emitted:** When a corporation member purchases a ship on behalf of their corporation
+**Who receives it:** All corporation members (character_filter)
+**Source:** `/game-server/api/ship_purchase.py`
+
+**Payload example:**
+```json
+{
+  "corp_id": "corp-uuid-123",
+  "ship_id": "uuid-corp-ship",
+  "ship_type": "pike_frigate",
+  "ship_name": "Corporate Asset One",
+  "purchase_price": 100000,
+  "buyer_id": "member-uuid",
+  "buyer_name": "Fleet Admiral",
+  "sector": 0,
+  "timestamp": "2025-11-01T16:05:00.000Z"
+}
+```
+
+**Notes:**
+- **Member broadcast:** All corp members receive notification
+- **Buyer pays from bank:** Credits drawn from buyer's `credits_in_bank` (not shared corp treasury)
+- **Corp ownership:** Ship owned by corporation (`owner_type: "corporation"`)
+- **Cannot trade in:** Corp ships cannot be traded in, only purchased fresh
+- Each member receives `status.update` reflecting buyer's bank balance change
+- Balance information not included for privacy; clients track via `status.update`
+
+### corporation.created
+**When emitted:** When a character creates a new corporation
+**Who receives it:** Only the founder (character_filter - private)
+**Source:** `/game-server/api/corporation_create.py`
+**Status:** *(Implemented in Phase 1)*
+
+### corporation.member_joined
+**When emitted:** When a character joins a corporation using an invite code
+**Who receives it:** All corporation members (character_filter)
+**Source:** `/game-server/api/corporation_join.py`
+**Status:** *(Implemented in Phase 1)*
+
+### corporation.member_left
+**When emitted:** When a member voluntarily leaves a corporation
+**Who receives it:** Remaining corporation members (character_filter)
+**Source:** `/game-server/api/corporation_leave.py`
+**Status:** *(Implemented in Phase 1)*
+
+### corporation.member_kicked
+**When emitted:** When a member is kicked from a corporation
+**Who receives it:** All remaining members plus the kicked member (character_filter)
+**Source:** `/game-server/api/corporation_kick.py`
+**Status:** *(Implemented in Phase 1)*
+**Notes:** Logged with `corporation_id` even when the member is offline; the player will receive it on reconnect via WebSocket replay or by querying the event log.
+
+### corporation.invite_code_regenerated
+**When emitted:** When a member regenerates the corporation's invite code
+**Who receives it:** All corporation members (character_filter)
+**Source:** `/game-server/api/corporation_regenerate_invite_code.py`
+**Status:** *(Implemented in Phase 1)*
+
+### corporation.disbanded
+**When emitted:** When the last member leaves a corporation
+**Who receives it:** The leaving member (character_filter)
+**Source:** `/game-server/api/corporation_leave.py`
+**Status:** *(Implemented in Phase 1)*
+
+### corporation.ships_abandoned
+**When emitted:** When a corporation disbands and has ships to abandon
+**Who receives it:** The leaving member (character_filter)
+**Source:** `/game-server/api/corporation_leave.py`
+**Status:** *(Implemented in Phase 1)*
+
+**Notes on corporation events:**
+- All corp events include `corporation_id` in their `EventLogContext` for queryability
+- Invite codes are only revealed to corporation members
+- Corp events support multi-character fanout (all members notified simultaneously)
+- Offline members receive the next `corporation.*` event as soon as they reconnect (events are persisted and can be fetched via `event.query`).
+- See `planning-files/corporations_implementation.md` for complete specifications
+
 ## Status Events
 
 ### status.snapshot
@@ -1104,13 +1209,22 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "port": null,
     "players": [],
     "garrison": null,
-    "salvage": []
+    "salvage": [],
+    "unowned_ships": []
+  },
+  "corporation": {
+    "corp_id": "corp_d4f7",
+    "name": "Surveyors Guild",
+    "member_count": 6,
+    "joined_at": "2025-10-10T09:00:00.000Z"
   }
 }
 ```
 
 **Notes:**
+- `corporation` is omitted (`null`) when the viewer is not in a corp.
 - Correlation metadata in `source` mirrors the originating RPC frame (`my_status` or `join`) so clients can reconcile queued actions.
+- Payload structure matches `status.update`; clients can treat both events interchangeably for state hydration.
 - Payload structure matches `status.update`; clients can treat both events interchangeably for state hydration.
 
 ### status.update
@@ -1204,6 +1318,9 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
       "created_at": "2025-10-07T11:30:00.000Z",
       "name": "pirate",
       "player_type": "human",
+      "corporation": {
+        "name": "Sector Corps"
+      },
       "ship": {
         "ship_type": "sparrow_scout",
         "ship_name": "Sparrow Scout"
@@ -1230,9 +1347,17 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
         "combat_id": "example-combat"
       }
     }
-  ]
+  ],
+  "unowned_ships": []
 }
 ```
+
+**Notes:**
+- Emitted whenever sector contents change (combat resolution, salvage collection, garrison deployment/removal, toll payment).
+- Each entry in `players` includes `corporation.name` when available (omitted when unaffiliated).
+- When `garrison` is present, it contains `is_friendly`, which is `true` for the owner and any corp mates.
+- `unowned_ships` lists visible derelict hulls (`owner_type` = `"unowned"`) so clients can surface claim/salvage actions.
+- Multiple `sector.update` events can be emitted in quick succession; clients should treat the payload as authoritative for the sector.
 
 ## Event Filter Summary
 
@@ -1253,3 +1378,11 @@ The new combat event serialization (implemented in `/game-server/combat/utils.py
 - Character IDs are shown for ownership but player display names can be different
 - Garrison details (mode, toll) are revealed to participants in combat with that garrison
 - `ship.empty_holds` is a calculated convenience field (cargo_capacity - sum(cargo)) included only in events containing the viewer's own ship status (via `ship_self()`), never in public player views (sector.update, character.moved) or opponent combat data
+
+**Ship purchase and corporation event privacy:**
+- `ship.traded_in` is private to buyer only (financial transaction)
+- `corporation.ship_purchased` is broadcast to all corp members only
+- Purchase events do not include before/after balance information
+- Clients receive balance updates via separate `status.update` events
+- Corporation events are filtered by membership (only members receive corp-specific events)
+- Invite codes are only revealed in events sent to corporation members

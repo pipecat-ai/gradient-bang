@@ -1,0 +1,842 @@
+{
+  "18eb01ba-a6e0-48c5-b294-3121d2e7213d": {
+    "ship_id": "18eb01ba-a6e0-48c5-b294-3121d2e7213d",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 1,
+    "owner_type": "character",
+    "owner_id": "test_weak_opponent",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 280,
+      "shields": 142,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 297,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "c0361f8f-3a55-4e5b-8792-e8d023428d1e": {
+    "ship_id": "c0361f8f-3a55-4e5b-8792-e8d023428d1e",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "ws_player",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "65164b11-a88e-43e9-b002-614bcc95ac1e": {
+    "ship_id": "65164b11-a88e-43e9-b002-614bcc95ac1e",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_end_observer",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "4b1648c4-1020-48cd-9727-71e9ee0da678": {
+    "ship_id": "4b1648c4-1020-48cd-9727-71e9ee0da678",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_salv_attacker",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "99bbd980-840a-4430-b9e2-25e4b034fe4a": {
+    "ship_id": "99bbd980-840a-4430-b9e2-25e4b034fe4a",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 1,
+    "owner_type": "character",
+    "owner_id": "test_char_events",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 298,
+      "shields": 149,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 25
+      },
+      "cargo_holds": 30,
+      "warp_power": 297,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "88424a92-56c7-461a-bbbb-19b12020bc54": {
+    "ship_id": "88424a92-56c7-461a-bbbb-19b12020bc54",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_client_char",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 294,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "979b71a1-c6a9-4a9a-91d8-2f53642588f0": {
+    "ship_id": "979b71a1-c6a9-4a9a-91d8-2f53642588f0",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_salv_victim",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "f5a7f5cc-d259-4a2c-90c7-dd3ac9027bb4": {
+    "ship_id": "f5a7f5cc-d259-4a2c-90c7-dd3ac9027bb4",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "push_player",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "2284fad2-5a03-42a2-a5ed-3474400206a2": {
+    "ship_id": "2284fad2-5a03-42a2-a5ed-3474400206a2",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_dest_victim",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "97b51aa6-3122-4e25-927a-053142279cbc": {
+    "ship_id": "97b51aa6-3122-4e25-927a-053142279cbc",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 1,
+    "owner_type": "character",
+    "owner_id": "test_opponent",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 293,
+      "shields": 146,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 297,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "c2c98c6b-0d06-437a-9a18-95a39845de65": {
+    "ship_id": "c2c98c6b-0d06-437a-9a18-95a39845de65",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_toll_deployer",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "70498443-c5ff-4656-91c5-fc4ea4567dee": {
+    "ship_id": "70498443-c5ff-4656-91c5-fc4ea4567dee",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_pod_weak",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "dd885141-60e0-4ff6-86fb-d5b8ce5adddb": {
+    "ship_id": "dd885141-60e0-4ff6-86fb-d5b8ce5adddb",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 1,
+    "owner_type": "character",
+    "owner_id": "test_opponent2",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 297,
+      "shields": 148,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 297,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "7b6aa72b-4ab6-4010-ac5e-b80549affa30": {
+    "ship_id": "7b6aa72b-4ab6-4010-ac5e-b80549affa30",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_end_combatant1",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "5d299845-58e3-4e51-9fd3-f2e5f4e0c281": {
+    "ship_id": "5d299845-58e3-4e51-9fd3-f2e5f4e0c281",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_off_victim",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "d58a2734-9d79-4d24-aa00-b4f2273fa323": {
+    "ship_id": "d58a2734-9d79-4d24-aa00-b4f2273fa323",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 1,
+    "owner_type": "character",
+    "owner_id": "test_opponent3",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 293,
+      "shields": 146,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 297,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "ecf930aa-4a83-422d-8903-b6f2a4993ebc": {
+    "ship_id": "ecf930aa-4a83-422d-8903-b6f2a4993ebc",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_end_combatant2",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "85243f50-802b-4429-b1e2-391f77a1730f": {
+    "ship_id": "85243f50-802b-4429-b1e2-391f77a1730f",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_pod_strong",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "9239fc1c-9547-4487-95cd-77563302f2ae": {
+    "ship_id": "9239fc1c-9547-4487-95cd-77563302f2ae",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_abf_attacker",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "a05e881e-7ea7-4568-a876-00ab65d069ad": {
+    "ship_id": "a05e881e-7ea7-4568-a876-00ab65d069ad",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_3p_player1",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "ea747b92-c10f-4442-9746-77298dc40d5a": {
+    "ship_id": "ea747b92-c10f-4442-9746-77298dc40d5a",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_gow_enemy",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "88ab3563-7f9d-4544-9e5b-c39e111aed6e": {
+    "ship_id": "88ab3563-7f9d-4544-9e5b-c39e111aed6e",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_gwo_deployer",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "8fa3b6e2-8297-4fd7-9bda-960976ca2963": {
+    "ship_id": "8fa3b6e2-8297-4fd7-9bda-960976ca2963",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_off_deployer",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 250,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "a4b8b3a8-46e7-4126-9548-c3c5d010738f": {
+    "ship_id": "a4b8b3a8-46e7-4126-9548-c3c5d010738f",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 1,
+    "owner_type": "character",
+    "owner_id": "test_char_2",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 276,
+      "shields": 139,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 297,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "c5e20cd1-5ab4-4cb8-9002-a0636d768585": {
+    "ship_id": "c5e20cd1-5ab4-4cb8-9002-a0636d768585",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 1,
+    "owner_type": "character",
+    "owner_id": "test_garrison_target",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 296,
+      "shields": 148,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 297,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "7e8b84c0-4f1a-4925-a9c7-9addd00c7d62": {
+    "ship_id": "7e8b84c0-4f1a-4925-a9c7-9addd00c7d62",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_def_deployer",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "2d5fff40-f13d-49e6-91f3-be812bfcfef4": {
+    "ship_id": "2d5fff40-f13d-49e6-91f3-be812bfcfef4",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_salv_observer",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "043e37c1-422f-41c9-b310-8ed5563875da": {
+    "ship_id": "043e37c1-422f-41c9-b310-8ed5563875da",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_gwo_victim",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "32760689-d1b8-4844-bbb0-d45391e836a2": {
+    "ship_id": "32760689-d1b8-4844-bbb0-d45391e836a2",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_dest_attacker",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "77199b94-e809-4dbb-9360-97b76b724239": {
+    "ship_id": "77199b94-e809-4dbb-9360-97b76b724239",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_2p_player2",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "3e955a3b-0950-4fea-9007-0502b3880d29": {
+    "ship_id": "3e955a3b-0950-4fea-9007-0502b3880d29",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_2p_player1",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 298,
+      "shields": 149,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "1f15ee28-1ec6-4e1e-aa0f-e93ebf71f4fe": {
+    "ship_id": "1f15ee28-1ec6-4e1e-aa0f-e93ebf71f4fe",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_toll_payer",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "7cc894e0-12e0-489b-87a9-2c3d2d33ca4c": {
+    "ship_id": "7cc894e0-12e0-489b-87a9-2c3d2d33ca4c",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_def_victim",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "4d404799-a298-43b7-8c29-ae2659202a77": {
+    "ship_id": "4d404799-a298-43b7-8c29-ae2659202a77",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_abf_defender",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  },
+  "d6bcdeb4-f907-4996-90fd-43f213c18923": {
+    "ship_id": "d6bcdeb4-f907-4996-90fd-43f213c18923",
+    "ship_type": "kestrel_courier",
+    "name": null,
+    "sector": 0,
+    "owner_type": "character",
+    "owner_id": "test_gow_owner",
+    "acquired": "2025-11-01T05:53:27.995815+00:00",
+    "state": {
+      "fighters": 300,
+      "shields": 150,
+      "cargo": {
+        "quantum_foam": 0,
+        "retro_organics": 0,
+        "neuro_symbolics": 0
+      },
+      "cargo_holds": 30,
+      "warp_power": 300,
+      "warp_power_capacity": 300,
+      "modules": []
+    },
+    "became_unowned": null,
+    "former_owner_name": null
+  }
+}

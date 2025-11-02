@@ -864,9 +864,9 @@ class SimpleTUI(App):
 
         garrisons: Sequence[Mapping[str, Any]] = []
         if isinstance(snapshot, Mapping):
-            raw = snapshot.get("garrisons") or []
-            if isinstance(raw, Sequence):
-                garrisons = [g for g in raw if isinstance(g, Mapping)]
+            garrison = snapshot.get("garrison")
+            if garrison and isinstance(garrison, Mapping):
+                garrisons = [garrison]
 
         opponent_labels = self._build_opponent_labels(players, garrisons)
         labels_tuple = tuple(opponent_labels)
@@ -1416,7 +1416,8 @@ class SimpleTUI(App):
         if isinstance(snapshot, Mapping):
             other_players_list = snapshot.get("other_players") or []
             if not garrisons_list:
-                garrisons_list = snapshot.get("garrisons") or []
+                garrison = snapshot.get("garrison")
+                garrisons_list = [garrison] if garrison else []
             port_info = snapshot.get("port")
 
         self._update_occupant_display(players_map, other_players_list, garrisons_list)
@@ -2420,9 +2421,8 @@ class SimpleTUI(App):
     def _sector_has_hostiles(self) -> bool:
         snapshot = self.session.sector_snapshot() if self.session else None
         if isinstance(snapshot, Mapping):
-            for garrison in snapshot.get("garrisons") or []:
-                if not isinstance(garrison, Mapping):
-                    continue
+            garrison = snapshot.get("garrison")
+            if garrison and isinstance(garrison, Mapping):
                 if (
                     not garrison.get("is_friendly")
                     and int(garrison.get("fighters", 0)) > 0

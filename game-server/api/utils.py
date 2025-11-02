@@ -62,11 +62,27 @@ def build_public_player_data(world, character_id: str) -> Dict[str, Any]:
 
     display_name = resolve_character_name(world, character_id)
 
+    corp_info: Dict[str, Any] | None = None
+    corp_cache = getattr(world, "character_to_corp", None)
+    corp_id = None
+    if isinstance(corp_cache, dict):
+        corp_id = corp_cache.get(character_id)
+    if corp_id:
+        corp_manager = getattr(world, "corporation_manager", None)
+        if corp_manager is not None:
+            try:
+                corp = corp_manager.load(corp_id)
+            except FileNotFoundError:
+                corp = None
+            if corp and corp.get("name"):
+                corp_info = {"name": corp.get("name")}
+
     return {
         "created_at": character.first_visit.isoformat(),
         "id": character.id,
         "name": display_name,
         "player_type": character.player_type,
+        "corporation": corp_info,
         "ship": {
             "ship_type": ship_type_value,
             "ship_name": ship_name,
@@ -408,7 +424,6 @@ async def sector_contents(
     garrison = await serialize_sector_garrison(
         world, sector_id, current_character_id=current_character_id
     )
-    garrisons_list = [deepcopy(garrison)] if garrison else []
 
     # Salvage containers
     salvage = []
@@ -416,16 +431,31 @@ async def sector_contents(
         for container in world.salvage_manager.list_sector(sector_id):
             salvage.append(container.to_dict())
 
+    # Unowned ships in sector
+    unowned_ships: List[Dict[str, Any]] = []
+    ships_manager = getattr(world, "ships_manager", None)
+    if ships_manager is not None:
+        for ship in ships_manager.list_unowned_ships_in_sector(sector_id):
+            unowned_ships.append(
+                {
+                    "ship_id": ship.get("ship_id"),
+                    "ship_type": ship.get("ship_type"),
+                    "name": ship.get("name"),
+                    "became_unowned": ship.get("became_unowned"),
+                    "former_owner_name": ship.get("former_owner_name"),
+                }
+            )
+
     # Scene config
-    # @TODO: we should be storing / retrieving this from the game world 
+    # @TODO: we should be storing / retrieving this from the game world
     return {
         "id": sector_id,
         "adjacent_sectors": adjacent_sectors,
         "port": port,
         "players": players,
         "garrison": garrison,
-        "garrisons": garrisons_list,
         "salvage": salvage,
+        "unowned_ships": unowned_ships,
         "scene_config": generate_scene_variant(sector_id),
     }
 
@@ -436,11 +466,33 @@ async def build_status_payload(
 ) -> Dict[str, Any]:
     """Assemble the canonical status payload for a character."""
     character = world.characters[character_id]
+    knowledge = world.knowledge_manager.load_knowledge(character_id)
+
+    corp_payload = None
+    corp_membership = getattr(knowledge, "corporation", None)
+    corp_id = None
+    if isinstance(corp_membership, dict):
+        corp_id = corp_membership.get("corp_id")
+    if corp_id:
+        corp_manager = getattr(world, "corporation_manager", None)
+        if corp_manager is not None:
+            try:
+                corp = corp_manager.load(corp_id)
+            except FileNotFoundError:
+                corp = None
+            if corp:
+                corp_payload = {
+                    "corp_id": corp_id,
+                    "name": corp.get("name"),
+                    "member_count": len(corp.get("members", []) or []),
+                    "joined_at": corp_membership.get("joined_at"),
+                }
 
     return {
         "player": player_self(world, character_id),
         "ship": ship_self(world, character_id),
         "sector": await sector_contents(world, character.sector, character_id),
+        "corporation": corp_payload,
     }
 
 
@@ -476,15 +528,44 @@ def _build_corp_ship_summaries(world, corp: dict) -> List[Dict[str, Any]]:
         ship = ships_manager.get_ship(ship_id)
         if not ship:
             continue
-        summaries.append(
-            {
-                "ship_id": ship_id,
-                "ship_type": ship.get("ship_type"),
-                "name": ship.get("name"),
-                "sector": ship.get("sector"),
-                "owner_type": ship.get("owner_type"),
-            }
-        )
+
+        # Get ship stats for defaults
+        ship_type_value = ship.get("ship_type")
+        try:
+            ship_stats = get_ship_stats(ShipType(ship_type_value))
+        except (ValueError, KeyError):
+            ship_stats = None
+
+        # Extract state
+        state = ship.get("state", {})
+        cargo = state.get("cargo", {})
+
+        summary = {
+            "ship_id": ship_id,
+            "ship_type": ship_type_value,
+            "name": ship.get("name") or (ship_stats.name if ship_stats else ship_type_value),
+            "sector": ship.get("sector"),
+            "owner_type": ship.get("owner_type"),
+        }
+
+        # Add detailed stats if available
+        if ship_stats:
+            summary.update({
+                "cargo": {
+                    "quantum_foam": int(cargo.get("quantum_foam", 0)),
+                    "retro_organics": int(cargo.get("retro_organics", 0)),
+                    "neuro_symbolics": int(cargo.get("neuro_symbolics", 0)),
+                },
+                "cargo_capacity": state.get("cargo_holds", ship_stats.cargo_holds),
+                "warp_power": state.get("warp_power", ship_stats.warp_power_capacity),
+                "warp_power_capacity": ship_stats.warp_power_capacity,
+                "shields": state.get("shields", ship_stats.shields),
+                "max_shields": ship_stats.shields,
+                "fighters": state.get("fighters", ship_stats.fighters),
+                "max_fighters": ship_stats.fighters,
+            })
+
+        summaries.append(summary)
     return summaries
 
 
@@ -598,7 +679,15 @@ def serialize_garrison_for_client(
         "deployed_at": garrison_state.deployed_at,
     }
     if current_character_id is not None:
-        payload["is_friendly"] = garrison_state.owner_id == current_character_id
+        corp_cache = getattr(world, "character_to_corp", None)
+        owner_corp_id = None
+        viewer_corp_id = None
+        if isinstance(corp_cache, dict):
+            owner_corp_id = corp_cache.get(garrison_state.owner_id)
+            viewer_corp_id = corp_cache.get(current_character_id)
+        is_owner = garrison_state.owner_id == current_character_id
+        is_corp_ally = bool(viewer_corp_id and viewer_corp_id == owner_corp_id)
+        payload["is_friendly"] = bool(is_owner or is_corp_ally)
     return payload
 
 

@@ -60,12 +60,22 @@ async def handle(payload: dict, world) -> dict:
         except (TypeError, ValueError):
             raise HTTPException(status_code=400, detail="sector must be an integer")
 
+    corporation_id = payload.get("corporation_id")
+    if corporation_id is not None and not isinstance(corporation_id, str):
+        raise HTTPException(status_code=400, detail="corporation_id must be a string")
+
     # Query the event log with filters
     # If character_id provided: returns events where sender=character_id OR receiver=character_id
     # If sector provided: additionally filters to events in that sector
     log_path = get_world_data_path() / "event-log.jsonl"
     logger = EventLogger(log_path)
-    events = logger.query(start, end, character_id=character_id, sector=sector)
+    events = logger.query(
+        start,
+        end,
+        character_id=character_id,
+        sector=sector,
+        corporation_id=corporation_id,
+    )
     truncated = len(events) >= MAX_QUERY_RESULTS
 
     return {

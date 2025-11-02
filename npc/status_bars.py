@@ -206,12 +206,7 @@ class StatusBarUpdater:
             self.state.ships = ships
 
         garrison_data = sector_data.get("garrison")
-        if not garrison_data:
-            garrisons_list = sector_data.get("garrisons")
-            if isinstance(garrisons_list, list) and garrisons_list:
-                garrison_data = garrisons_list[0]
-
-        if "garrison" in sector_data or "garrisons" in sector_data:
+        if garrison_data:
             self._set_garrison_info(garrison_data)
 
         if "port" in sector_data:

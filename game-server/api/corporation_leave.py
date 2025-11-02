@@ -81,6 +81,7 @@ async def handle(request: dict, world) -> dict:
             log_context=EventLogContext(
                 sender=character_id,
                 sector=character.sector,
+                corporation_id=corp_id,
             ),
         )
 
@@ -97,6 +98,7 @@ async def handle(request: dict, world) -> dict:
                 log_context=EventLogContext(
                     sender=character_id,
                     sector=character.sector,
+                    corporation_id=corp_id,
                 ),
             )
     else:
@@ -116,6 +118,7 @@ async def handle(request: dict, world) -> dict:
             log_context=EventLogContext(
                 sender=character_id,
                 sector=character.sector,
+                corporation_id=corp_id,
             ),
         )
 

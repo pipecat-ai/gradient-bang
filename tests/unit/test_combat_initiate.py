@@ -20,7 +20,10 @@ def _make_character(sector: int = 5, fighters: int = 10):
 async def test_combat_initiate_returns_minimal_success(monkeypatch):
     character_id = "initiator"
     world = SimpleNamespace(
-        characters={character_id: _make_character()},
+        characters={
+            character_id: _make_character(),
+            "opponent": _make_character(),
+        },
         knowledge_manager=SimpleNamespace(
             load_knowledge=MagicMock(
                 return_value=SimpleNamespace(
@@ -35,6 +38,7 @@ async def test_combat_initiate_returns_minimal_success(monkeypatch):
                 }
             ),
         ),
+        character_to_corp={},
     )
 
     start_mock = AsyncMock(return_value={"combat_id": "combat-xyz"})

@@ -240,7 +240,7 @@ def test_sector_update_summary_includes_port_and_players() -> None:
         "adjacent_sectors": [115, 285, 376],
         "port": {"code": "BBB"},
         "players": [{"name": "khk-j"}],
-        "garrisons": [],
+        "garrison": None,
         "salvage": [],
     }
 

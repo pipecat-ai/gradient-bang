@@ -60,6 +60,7 @@ async def handle(request: dict, world) -> dict:
         log_context=EventLogContext(
             sender=character_id,
             sector=character.sector,
+            corporation_id=corp["corp_id"],
         ),
     )
 

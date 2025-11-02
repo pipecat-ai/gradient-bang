@@ -36,7 +36,7 @@ async def test_combat_session_tracks_opponents():
         "sector": 10,
         "sector_contents": {
             "other_players": [{"name": "raider"}],
-            "garrisons": [],
+            "garrison": None,
             "salvage": [],
         },
     }

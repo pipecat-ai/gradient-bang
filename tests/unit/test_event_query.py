@@ -27,18 +27,19 @@ async def test_event_query_filters_and_truncation(tmp_path, monkeypatch):
     logger = EventLogger(log_path)
     now = datetime.now(timezone.utc)
     for i in range(3):
-        logger.append(
-            EventRecord(
-                timestamp=(now + timedelta(seconds=i)).isoformat(),
-                direction="sent",
-                event="status.update",
-                payload={"sector": {"id": 42 + i}},
-                sender="pilot-1",
-                receiver=None,
-                sector=42 + i,
-                meta=None,
+            logger.append(
+                EventRecord(
+                    timestamp=(now + timedelta(seconds=i)).isoformat(),
+                    direction="sent",
+                    event="status.update",
+                    payload={"sector": {"id": 42 + i}},
+                    sender="pilot-1",
+                    receiver=None,
+                    sector=42 + i,
+                    corporation_id=None,
+                    meta=None,
+                )
             )
-        )
 
     payload = {
         "admin_password": "secret",
@@ -87,6 +88,7 @@ async def test_event_query_rejects_bad_password(tmp_path, monkeypatch):
             sender="pilot-1",
             receiver=None,
             sector=None,
+            corporation_id=None,
             meta=None,
         )
     )

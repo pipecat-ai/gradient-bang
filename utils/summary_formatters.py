@@ -129,7 +129,10 @@ def _format_players(players: List[Dict[str, Any]]) -> List[str]:
         ship = player.get("ship", {})
         ship_name = ship.get("ship_name", "unknown")
         ship_type = ship.get("ship_type", "unknown")
-        lines.append(f"  - {name} in {ship_name} ({ship_type})")
+        corp = player.get("corporation")
+        corp_name = corp.get("name") if isinstance(corp, dict) else None
+        corp_suffix = f" [{corp_name}]" if corp_name else ""
+        lines.append(f"  - {name} in {ship_name} ({ship_type}){corp_suffix}")
 
     return lines
 
@@ -185,9 +188,17 @@ def _status_summary(result: Dict[str, Any], first_line: str) -> str:
     sector = result.get("sector", {})
     ship = result.get("ship", {})
     player = result.get("player", {})
+    corp = result.get("corporation") if isinstance(result, dict) else None
 
     # Build summary sections
     lines = [first_line]
+
+    if isinstance(corp, dict) and corp.get("name"):
+        corp_line = f"Corporation: {corp['name']}"
+        member_count = corp.get("member_count")
+        if isinstance(member_count, int):
+            corp_line += f" (members: {member_count})"
+        lines.append(corp_line)
 
     # Adjacent sectors
     adjacent = sector.get("adjacent_sectors", [])
@@ -298,6 +309,13 @@ def status_update_summary(result: Dict[str, Any]) -> str:
         parts.append(f"Shields {int(shields)}/{int(shields_max)}")
     if isinstance(fighters, (int, float)):
         parts.append(f"Fighters {int(fighters)}")
+    corp = result.get("corporation") if isinstance(result, dict) else None
+    if isinstance(corp, dict) and corp.get("name"):
+        corp_part = f"Corp {corp['name']}"
+        member_count = corp.get("member_count")
+        if isinstance(member_count, int):
+            corp_part += f" ({member_count})"
+        parts.append(corp_part)
     if port_code:
         parts.append(f"Port {port_code}")
 
@@ -609,20 +627,27 @@ def sector_update_summary(event: Dict[str, Any]) -> str:
             if not isinstance(entry, dict):
                 continue
             name = entry.get("name")
-            if name:
-                player_names.append(str(name))
+            if not name:
+                continue
+            display = str(name)
+            corp_obj = entry.get("corporation")
+            corp_name = corp_obj.get("name") if isinstance(corp_obj, dict) else None
+            if corp_name:
+                display += f" ({corp_name})"
+            player_names.append(display)
     players_part = ", ".join(player_names) if player_names else "none"
 
-    garrisons = event.get("garrisons") or event.get("garrison")
-    if isinstance(garrisons, list):
-        garrison_part = f"{len(garrisons)}"
-    elif garrisons:
+    garrison = event.get("garrison")
+    if garrison:
         garrison_part = "1"
     else:
         garrison_part = "0"
 
     salvage = event.get("salvage")
     salvage_part = str(len(salvage)) if isinstance(salvage, list) else "0"
+
+    unowned = event.get("unowned_ships")
+    unowned_part = str(len(unowned)) if isinstance(unowned, list) else "0"
 
     parts = [
         f"Sector {sector_id}",
@@ -631,6 +656,7 @@ def sector_update_summary(event: Dict[str, Any]) -> str:
         f"players {players_part}",
         f"garrisons {garrison_part}",
         f"salvage {salvage_part}",
+        f"derelicts {unowned_part}",
     ]
 
     return "Sector update: " + "; ".join(parts) + "."

@@ -38,14 +38,52 @@ async def handle(request: dict, world) -> dict:
 
     garrisons = await world.garrisons.list_sector(sector)
     garrison = next((g for g in garrisons if g.owner_id == character_id), None)
+
+    corp_cache = getattr(world, "character_to_corp", None)
+    collector_corp = None
+    if not garrison and isinstance(corp_cache, dict):
+        collector_corp = corp_cache.get(character_id)
+        if collector_corp:
+            garrison = next(
+                (
+                    g
+                    for g in garrisons
+                    if corp_cache.get(getattr(g, "owner_id", None)) == collector_corp
+                ),
+                None,
+            )
+    else:
+        collector_corp = (
+            corp_cache.get(character_id)
+            if isinstance(corp_cache, dict)
+            else None
+        )
+
     if not garrison:
         raise HTTPException(
-            status_code=404, detail="No garrison found for character in this sector"
+            status_code=404,
+            detail="No friendly garrison found in this sector",
         )
 
     if quantity > garrison.fighters:
         raise HTTPException(
             status_code=400, detail="Cannot collect more fighters than stationed"
+        )
+
+    owner_id = garrison.owner_id
+    owner_corp = (
+        corp_cache.get(owner_id)
+        if isinstance(corp_cache, dict) and owner_id
+        else None
+    )
+
+    is_owner = owner_id == character_id
+    is_corp_member = bool(collector_corp and collector_corp == owner_corp)
+
+    if not (is_owner or is_corp_member):
+        raise HTTPException(
+            status_code=403,
+            detail="Not your garrison or corporation member's garrison",
         )
 
     remaining_fighters = garrison.fighters - quantity
@@ -66,14 +104,14 @@ async def handle(request: dict, world) -> dict:
     if remaining_fighters > 0:
         updated_garrison = await world.garrisons.deploy(
             sector_id=sector,
-            owner_id=character_id,
+            owner_id=owner_id,
             fighters=remaining_fighters,
             mode=garrison.mode,
             toll_amount=garrison.toll_amount,
             toll_balance=0,
         )
     else:
-        await world.garrisons.remove(sector, character_id)
+        await world.garrisons.remove(sector, owner_id)
 
     world.knowledge_manager.adjust_fighters(character_id, quantity)
     updated_ship = world.knowledge_manager.get_ship(character_id)

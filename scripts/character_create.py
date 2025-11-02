@@ -169,6 +169,11 @@ async def _execute_create_request(
 async def main() -> int:
     parser = argparse.ArgumentParser(description="Create a character via admin RPC.")
     parser.add_argument(
+        "name",
+        nargs="?",
+        help="Display name for the new character (required for non-interactive mode)",
+    )
+    parser.add_argument(
         "--server",
         default="http://localhost:8000",
         help="Server base URL (default: %(default)s)",
@@ -179,32 +184,115 @@ async def main() -> int:
         help="Identifier for this admin client (default: %(default)s)",
     )
     parser.add_argument(
-        "--name",
-        help="Display name for the new character (prompted if omitted)",
-    )
-    parser.add_argument(
         "--admin-password",
         help="Admin password (prompted if required and not provided)",
     )
+
+    # Player fields
+    parser.add_argument(
+        "--credits",
+        type=int,
+        help="Starting credits (optional)",
+    )
+    parser.add_argument(
+        "--player-type",
+        help="Player type (optional)",
+    )
+
+    # Ship fields
+    parser.add_argument(
+        "--ship-name",
+        help="Ship name (optional)",
+    )
+    parser.add_argument(
+        "--ship-type",
+        choices=[st.value for st in ShipType],
+        help="Ship type (optional)",
+    )
+    parser.add_argument(
+        "--warp-power",
+        type=int,
+        help="Current warp power (optional)",
+    )
+    parser.add_argument(
+        "--shields",
+        type=int,
+        help="Current shields (optional)",
+    )
+    parser.add_argument(
+        "--fighters",
+        type=int,
+        help="Current fighters (optional)",
+    )
+    parser.add_argument(
+        "--cargo",
+        help="Cargo manifest as comma-separated name=qty pairs (e.g., 'quantum_foam=10,retro_organics=5')",
+    )
+
     args = parser.parse_args()
 
+    # Determine if we're in interactive or non-interactive mode
+    non_interactive = args.name is not None
+
+    # Get character name
     name = args.name or _prompt("Display name: ")
     if not name:
         print("Character name is required.")
         return 1
 
+    # Handle admin password
     password_required = _admin_password_required()
     admin_password = args.admin_password
-    if password_required:
+    if password_required and not non_interactive:
         admin_password = admin_password or getpass.getpass("Admin password: ")
         if not admin_password:
             print("Admin password is required.")
             return 1
+    elif password_required and non_interactive and not admin_password:
+        print("Error: Admin password is required. Use --admin-password in non-interactive mode.")
+        return 1
 
-    print("Collecting optional player fields (press Enter to skip each).")
-    player_payload = _collect_player_payload()
-    print("Collecting optional ship fields (press Enter to skip each).")
-    ship_payload = _collect_ship_payload()
+    # Collect player and ship payloads
+    if non_interactive:
+        # Non-interactive mode: use CLI arguments only
+        player_payload = {}
+        if args.credits is not None:
+            player_payload["credits"] = args.credits
+        if args.player_type:
+            player_payload["player_type"] = args.player_type
+
+        ship_payload = {}
+        if args.ship_name:
+            ship_payload["ship_name"] = args.ship_name
+        if args.ship_type:
+            ship_payload["ship_type"] = args.ship_type
+        if args.warp_power is not None:
+            ship_payload["current_warp_power"] = args.warp_power
+        if args.shields is not None:
+            ship_payload["current_shields"] = args.shields
+        if args.fighters is not None:
+            ship_payload["current_fighters"] = args.fighters
+        if args.cargo:
+            # Parse cargo string
+            cargo_manifest = {}
+            try:
+                for part in args.cargo.split(","):
+                    part = part.strip()
+                    if "=" not in part:
+                        print(f"Error: Invalid cargo format '{part}'. Use name=qty")
+                        return 1
+                    commodity, qty = part.split("=", 1)
+                    cargo_manifest[commodity.strip()] = int(qty.strip())
+                ship_payload["cargo"] = cargo_manifest
+            except ValueError as e:
+                print(f"Error parsing cargo: {e}")
+                return 1
+    else:
+        # Interactive mode: prompt for values
+        print("Collecting optional player fields (press Enter to skip each).")
+        player_payload = _collect_player_payload()
+        print("Collecting optional ship fields (press Enter to skip each).")
+        ship_payload = _collect_ship_payload()
 
     try:
         async with AsyncGameClient(

@@ -9,6 +9,8 @@ import json
 from pathlib import Path
 from typing import Dict, Any
 
+from .combat_helpers import create_test_character_knowledge
+
 
 # All test character IDs found in integration tests
 TEST_CHARACTER_IDS = [
@@ -25,6 +27,43 @@ TEST_CHARACTER_IDS = [
     "test_clean1",
     "test_clean2",
     "test_client_char",
+    "test_corp_ui_founder",
+    "test_corp_ui_member",
+    "test_corp_ui_founder_sector",
+    "test_corp_ui_member_sector",
+    "test_corp_ui_outsider",
+    # Phase 5 corporation event tests
+    "corp_events_founder_create",
+    "corp_events_founder_log",
+    "corp_events_founder_join",
+    "corp_events_joiner",
+    "corp_events_founder_leave",
+    "corp_events_member_a",
+    "corp_events_member_b",
+    "corp_events_founder_kick",
+    "corp_events_target",
+    "corp_events_founder_disband",
+    "corp_events_founder_ship",
+    "corp_events_founder_abandon",
+    "corp_events_founder_logcheck",
+    "corp_events_log_joiner",
+    "corp_filter_garrison_member",
+    "corp_filter_garrison_solo",
+    "corp_filter_founder",
+    "corp_filter_joiner",
+    "corp_filter_sector_founder",
+    "corp_filter_field_founder",
+    "corp_filter_field_member",
+    "corp_filter_ship_founder",
+    "test_ff_attacker",
+    "test_ff_attacker_leave",
+    "test_ff_defender",
+    "test_ff_defender_leave",
+    "test_ff_garrison_member",
+    "test_ff_garrison_member_block",
+    "test_ff_garrison_outsider",
+    "test_ff_garrison_owner",
+    "test_ff_garrison_owner_block",
     "test_conc1a",
     "test_conc1b",
     "test_conc2a",
@@ -424,9 +463,31 @@ TEST_CHARACTER_IDS = [
     "test_leave_member",
     "test_disband_founder",
     "test_kick_founder",
-    "test_kick_member",
-    "test_kick_self",
+"test_kick_member",
+"test_kick_self",
+# Phase 6 corporation expansion tests
+"test_corp_founder",
+"test_corp_member_1",
+"test_corp_member_2",
+"test_corp_member_3",
+"test_corp_outsider",
+"test_corp_poor_player",
+"test_corp_invitee",
+"test_corp_rival_founder",
 ]
+
+
+def create_poor_corporation_player(sector: int = 1) -> Path:
+    """Create a low-credit character used in corporation affordability tests."""
+
+    return create_test_character_knowledge(
+        "test_corp_poor_player",
+        sector=sector,
+        fighters=100,
+        shields=100,
+        credits=5_000,
+        ship_type="kestrel_courier",
+    )
 
 
 def register_all_test_characters(world_data_dir: str = "tests/test-world-data") -> None:

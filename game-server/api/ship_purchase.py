@@ -44,14 +44,18 @@ async def handle(request: dict, world, credit_locks) -> dict:
 
     character = world.characters[character_id]
     if getattr(character, "in_hyperspace", False):
-        raise HTTPException(status_code=400, detail="Cannot purchase ships in hyperspace")
+        raise HTTPException(
+            status_code=400, detail="Cannot purchase ships in hyperspace"
+        )
 
     await ensure_not_in_combat(world, character_id)
 
     try:
         ship_type = ShipType(ship_type_value)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=f"Unknown ship type: {ship_type_value}") from exc
+        raise HTTPException(
+            status_code=400, detail=f"Unknown ship type: {ship_type_value}"
+        ) from exc
 
     ship_stats = get_ship_stats(ship_type)
     now_dt = datetime.now(timezone.utc)
@@ -102,7 +106,9 @@ async def _purchase_for_personal_use(
         current_ship_id = knowledge.current_ship_id
 
         explicit_trade_in = trade_in_ship_id is not None
-        candidate_ship_id = trade_in_ship_id if trade_in_ship_id is not None else current_ship_id
+        candidate_ship_id = (
+            trade_in_ship_id if trade_in_ship_id is not None else current_ship_id
+        )
 
         if candidate_ship_id and candidate_ship_id != current_ship_id:
             raise HTTPException(
@@ -210,8 +216,6 @@ async def _purchase_for_personal_use(
                     "trade_in_value": trade_in_value,
                     "price": price,
                     "net_cost": net_cost,
-                    "credits_before": credits_before,
-                    "credits_after": knowledge.credits,
                     "timestamp": timestamp,
                 },
                 character_filter=[character_id],
@@ -247,6 +251,12 @@ async def _purchase_for_corporation(
     corp_id = request.get("corp_id") or world.character_to_corp.get(character_id)
     if not corp_id:
         raise HTTPException(status_code=400, detail="Not in a corporation")
+
+    if request.get("trade_in_ship_id"):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot trade in a corporation-owned ship",
+        )
 
     try:
         corp = world.corporation_manager.load(corp_id)
@@ -289,6 +299,7 @@ async def _purchase_for_corporation(
                 sender=character_id,
                 sector=getattr(character, "sector", None),
                 timestamp=timestamp,
+                corporation_id=corp_id,
                 meta={"corporation_id": corp_id},
             ),
         )
@@ -305,11 +316,8 @@ async def _purchase_for_corporation(
             "ship_type": ship_type.value,
             "ship_name": ship_name,
             "purchase_price": ship_stats.price,
-            "bank_before": bank_before,
-            "bank_after": bank_after,
             "buyer_id": character_id,
             "buyer_name": buyer_name,
-            "member_count": len(members),
             "sector": getattr(character, "sector", None),
             "timestamp": timestamp.isoformat(),
         },
@@ -318,6 +326,7 @@ async def _purchase_for_corporation(
             sender=character_id,
             sector=getattr(character, "sector", None),
             timestamp=timestamp,
+            corporation_id=corp_id,
             meta={"corporation_id": corp_id},
         ),
     )

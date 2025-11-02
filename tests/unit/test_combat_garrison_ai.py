@@ -1,6 +1,7 @@
 """Tests for combat.garrison_ai module."""
 
 import pytest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from combat.garrison_ai import (
@@ -99,6 +100,7 @@ class TestAutoSubmitGarrisonActions:
             fighters=50,
             shields=10,
         )
+        weak_char.is_escape_pod = False
 
         strong_char = MagicMock(
             combatant_id="char2",
@@ -107,6 +109,7 @@ class TestAutoSubmitGarrisonActions:
             fighters=150,
             shields=20,
         )
+        strong_char.is_escape_pod = False
 
         encounter = MagicMock()
         encounter.combat_id = "combat1"
@@ -150,6 +153,7 @@ class TestAutoSubmitGarrisonActions:
             fighters=100,
             shields=10,
         )
+        enemy.is_escape_pod = False
 
         encounter = MagicMock()
         encounter.combat_id = "combat1"
@@ -197,6 +201,98 @@ class TestAutoSubmitGarrisonActions:
         await auto_submit_garrison_actions(encounter, manager)
 
         # No valid targets, no action submitted
+        manager.submit_action.assert_not_called()
+
+    async def test_garrison_skips_corporation_members(self):
+        """Test garrison prefers enemies over corporation allies."""
+        garrison = MagicMock(
+            combatant_id="garrison1",
+            combatant_type="garrison",
+            owner_character_id="owner1",
+            fighters=120,
+        )
+
+        corp_ally = MagicMock(
+            combatant_id="char1",
+            combatant_type="character",
+            owner_character_id="ally1",
+            fighters=200,
+            shields=50,
+        )
+        corp_ally.is_escape_pod = False
+
+        enemy = MagicMock(
+            combatant_id="char2",
+            combatant_type="character",
+            owner_character_id="enemy1",
+            fighters=80,
+            shields=20,
+        )
+        enemy.is_escape_pod = False
+
+        encounter = MagicMock()
+        encounter.combat_id = "combat1"
+        encounter.participants = {
+            "garrison1": garrison,
+            "char1": corp_ally,
+            "char2": enemy,
+        }
+        encounter.context = {
+            "garrison_sources": [
+                {"owner_id": "owner1", "mode": "offensive"}
+            ]
+        }
+
+        manager = AsyncMock()
+        world = SimpleNamespace(character_to_corp={
+            "owner1": "corp-alpha",
+            "ally1": "corp-alpha",
+            "enemy1": "corp-beta",
+        })
+
+        await auto_submit_garrison_actions(encounter, manager, world)
+
+        manager.submit_action.assert_called_once()
+        kwargs = manager.submit_action.call_args.kwargs
+        assert kwargs["target_id"] == "char2"
+
+    async def test_garrison_with_only_corp_members_stands_down(self):
+        """Test garrison does nothing when only corporation allies are present."""
+        garrison = MagicMock(
+            combatant_id="garrison1",
+            combatant_type="garrison",
+            owner_character_id="owner1",
+            fighters=90,
+        )
+
+        corp_ally = MagicMock(
+            combatant_id="char1",
+            combatant_type="character",
+            owner_character_id="ally1",
+            fighters=75,
+            shields=30,
+        )
+        corp_ally.is_escape_pod = False
+
+        encounter = MagicMock()
+        encounter.participants = {
+            "garrison1": garrison,
+            "char1": corp_ally,
+        }
+        encounter.context = {
+            "garrison_sources": [
+                {"owner_id": "owner1", "mode": "offensive"}
+            ]
+        }
+
+        manager = AsyncMock()
+        world = SimpleNamespace(character_to_corp={
+            "owner1": "corp-gamma",
+            "ally1": "corp-gamma",
+        })
+
+        await auto_submit_garrison_actions(encounter, manager, world)
+
         manager.submit_action.assert_not_called()
 
     async def test_toll_garrison_braces_first_round(self):

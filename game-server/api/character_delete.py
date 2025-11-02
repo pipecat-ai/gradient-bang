@@ -26,8 +26,45 @@ async def handle(payload: Dict[str, Any], world) -> dict:
     if profile is None:
         raise HTTPException(status_code=404, detail="Character not found")
 
+    knowledge_manager = getattr(world, "knowledge_manager", None)
+    corporation_manager = getattr(world, "corporation_manager", None)
+    ships_manager = getattr(world, "ships_manager", None)
+    character_to_corp = getattr(world, "character_to_corp", None)
+
+    corp_id = None
+    if knowledge_manager is not None:
+        knowledge = knowledge_manager.load_knowledge(character_id)
+        corp_membership = knowledge.corporation if isinstance(knowledge.corporation, dict) else None
+        if corp_membership:
+            corp_id = corp_membership.get("corp_id")
+
+    if corp_id and corporation_manager is not None:
+        ships_to_release: list[str] = []
+        corp_name = corp_id
+        try:
+            corp_record = corporation_manager.load(corp_id)
+            corp_name = corp_record.get("name", corp_id)
+            ships_to_release = list(corp_record.get("ships", []))
+        except FileNotFoundError:
+            corp_record = None
+
+        if corp_record is not None:
+            became_empty = corporation_manager.remove_member(corp_id, character_id)
+            if became_empty:
+                if ships_manager is not None:
+                    for ship_id in ships_to_release:
+                        try:
+                            ships_manager.mark_as_unowned(ship_id, corp_name)
+                        except KeyError:
+                            continue
+                corporation_manager.delete(corp_id)
+
+    if isinstance(character_to_corp, dict):
+        character_to_corp.pop(character_id, None)
+
     registry.delete(character_id)
-    world.knowledge_manager.delete_knowledge(character_id)
+    if knowledge_manager is not None:
+        knowledge_manager.delete_knowledge(character_id)
     world.characters.pop(character_id, None)
 
     return rpc_success({"character_id": character_id, "deleted": True})

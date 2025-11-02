@@ -106,7 +106,7 @@ async def on_round_waiting(encounter, world, event_dispatcher) -> None:
         )
 
     # Auto-submit garrison actions
-    await auto_submit_garrison_actions(encounter, world.combat_manager)
+    await auto_submit_garrison_actions(encounter, world.combat_manager, world)
 
 
 async def on_round_resolved(encounter, outcome, world, event_dispatcher) -> None:

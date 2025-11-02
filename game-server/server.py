@@ -81,6 +81,7 @@ async def app_lifespan(app: FastAPI):
     async with world_lifespan(app):
         log_path = get_world_data_path() / "event-log.jsonl"
         event_dispatcher.set_event_logger(EventLogger(log_path))
+        event_dispatcher.set_world(world)
         if world.combat_manager:
             # Configure combat callbacks with dependencies
             world.combat_manager.configure_callbacks(

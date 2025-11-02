@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
 import traceback
-from typing import Protocol, Sequence
+from typing import Any, Protocol, Sequence
 
 from server_logging.event_log import EventLogger, EventRecord
 
@@ -89,12 +89,55 @@ def _infer_sender(payload: dict) -> str | None:
     return None
 
 
+def _infer_corporation(payload: dict, sender: str | None, world: Any) -> str | None:
+    """Best-effort corporation inference using payload details and world state."""
+
+    if not isinstance(payload, dict):
+        return None
+
+    corp_id = payload.get("corp_id") or payload.get("corporation_id")
+    if isinstance(corp_id, str) and corp_id:
+        return corp_id
+
+    if world is None:
+        return None
+
+    character_to_corp = getattr(world, "character_to_corp", None)
+    if sender and isinstance(character_to_corp, dict):
+        corp_id = character_to_corp.get(sender)
+        if isinstance(corp_id, str) and corp_id:
+            return corp_id
+
+    ship_id = payload.get("ship_id")
+    if ship_id and hasattr(world, "ships_manager"):
+        try:
+            ship = world.ships_manager.get_ship(ship_id)
+        except Exception:  # pragma: no cover - defensive guard
+            ship = None
+        if isinstance(ship, dict):
+            if ship.get("owner_type") == "corporation":
+                owner_id = ship.get("owner_id")
+                if isinstance(owner_id, str) and owner_id:
+                    return owner_id
+
+    garrison = payload.get("garrison")
+    if isinstance(garrison, dict) and isinstance(character_to_corp, dict):
+        owner_id = garrison.get("owner_id")
+        if isinstance(owner_id, str) and owner_id:
+            corp_id = character_to_corp.get(owner_id)
+            if isinstance(corp_id, str) and corp_id:
+                return corp_id
+
+    return None
+
+
 @dataclass(slots=True)
 class EventLogContext:
     """Optional metadata describing an emitted event for logging."""
 
     sender: str | None = None
     sector: int | None = None
+    corporation_id: str | None = None
     meta: dict | None = None
     payload_override: dict | None = None
     timestamp: datetime | None = None
@@ -107,10 +150,15 @@ class EventDispatcher:
         self._sinks: set[EventSink] = set()
         self._lock = asyncio.Lock()
         self._event_logger: EventLogger | None = None
+        self._world: Any | None = None
 
     def set_event_logger(self, event_logger: EventLogger | None) -> None:
         """Attach an EventLogger instance for structured logging."""
         self._event_logger = event_logger
+
+    def set_world(self, world: Any) -> None:
+        """Attach the world instance for corporation inference."""
+        self._world = world
 
     async def register(self, sink: EventSink) -> None:
         async with self._lock:
@@ -302,6 +350,10 @@ class EventDispatcher:
         elif meta:
             combined_meta = dict(meta)
 
+        corporation_id = log_context.corporation_id if log_context else None
+        if corporation_id is None:
+            corporation_id = _infer_corporation(payload_for_log, sender, self._world)
+
         try:
             sent_record = EventRecord(
                 timestamp=timestamp_str,
@@ -311,6 +363,7 @@ class EventDispatcher:
                 sender=sender,
                 receiver=None,
                 sector=sector,
+                corporation_id=corporation_id,
                 meta=combined_meta,
             )
             self._event_logger.append(sent_record)
@@ -328,6 +381,7 @@ class EventDispatcher:
                         sender=sender,
                         receiver=receiver,
                         sector=sector,
+                        corporation_id=corporation_id,
                         meta=delivery_meta or None,
                     )
                     self._event_logger.append(record)
