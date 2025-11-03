@@ -260,10 +260,14 @@ async def emit_garrison_character_moved_event(
             if character_to_corp.get(character_id) == corp_id:
                 recipients.append(character_id)
 
-        if not recipients:
-            continue
-
         recipients = list(dict.fromkeys(recipients))
+
+        if not recipients:
+            # Ensure the event is still recorded in the event log even if no
+            # corporation members currently have active connections. Route it
+            # nominally to the garrison owner so the dispatcher logs the event
+            # under the correct corporation.
+            recipients = [owner_id]
 
         fighters = getattr(garrison, "fighters", None)
         if fighters is None and isinstance(garrison, dict):

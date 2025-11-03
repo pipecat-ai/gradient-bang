@@ -909,6 +909,154 @@ class AsyncGameClient:
             payload["corporation_id"] = corporation_id
         return await self._request("event.query", payload)
 
+    async def create_corporation(
+        self,
+        *,
+        name: str,
+        character_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create a new corporation for the bound character."""
+
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("name must be a non-empty string")
+
+        if character_id is None:
+            character_id = self._character_id
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        payload: Dict[str, Any] = {
+            "character_id": character_id,
+            "name": name,
+        }
+        return await self._request("corporation.create", payload)
+
+    async def join_corporation(
+        self,
+        *,
+        corp_id: str,
+        invite_code: str,
+        character_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Join an existing corporation using an invite code."""
+
+        if not isinstance(corp_id, str) or not corp_id.strip():
+            raise ValueError("corp_id must be a non-empty string")
+        if not isinstance(invite_code, str) or not invite_code.strip():
+            raise ValueError("invite_code must be a non-empty string")
+
+        if character_id is None:
+            character_id = self._character_id
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        payload: Dict[str, Any] = {
+            "character_id": character_id,
+            "corp_id": corp_id,
+            "invite_code": invite_code,
+        }
+        return await self._request("corporation.join", payload)
+
+    async def leave_corporation(
+        self,
+        *,
+        character_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Leave the current corporation."""
+
+        if character_id is None:
+            character_id = self._character_id
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        payload: Dict[str, Any] = {"character_id": character_id}
+        return await self._request("corporation.leave", payload)
+
+    async def kick_corporation_member(
+        self,
+        *,
+        target_id: str,
+        character_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Remove another member from the corporation."""
+
+        if not isinstance(target_id, str) or not target_id.strip():
+            raise ValueError("target_id must be a non-empty string")
+
+        if character_id is None:
+            character_id = self._character_id
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        payload: Dict[str, Any] = {
+            "character_id": character_id,
+            "target_id": target_id,
+        }
+        return await self._request("corporation.kick", payload)
+
+    async def list_corporations(self) -> List[Dict[str, Any]]:
+        """Return summaries of all corporations."""
+
+        result = await self._request("corporation.list", {})
+        corps = result.get("corporations")
+        if isinstance(corps, list):
+            return corps
+        return []
+
+    async def purchase_ship(
+        self,
+        *,
+        ship_type: str,
+        character_id: Optional[str] = None,
+        purchase_type: Optional[str] = None,
+        ship_name: Optional[str] = None,
+        trade_in_ship_id: Optional[str] = None,
+        corp_id: Optional[str] = None,
+        initial_ship_credits: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Purchase a ship for personal use or on behalf of a corporation."""
+
+        if not isinstance(ship_type, str) or not ship_type:
+            raise ValueError("ship_type must be a non-empty string")
+
+        if character_id is None:
+            character_id = self._character_id
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        payload: Dict[str, Any] = {
+            "character_id": character_id,
+            "ship_type": ship_type,
+        }
+
+        if purchase_type is not None:
+            payload["purchase_type"] = purchase_type
+        if ship_name is not None:
+            payload["ship_name"] = ship_name
+        if trade_in_ship_id is not None:
+            payload["trade_in_ship_id"] = trade_in_ship_id
+        if corp_id is not None:
+            payload["corp_id"] = corp_id
+        if initial_ship_credits is not None:
+            payload["initial_ship_credits"] = int(initial_ship_credits)
+
+        return await self._request("ship.purchase", payload)
+
     # DEPRECATED
     async def my_map(self, character_id: str) -> Dict[str, Any]:
         """Request cached map knowledge for the character.

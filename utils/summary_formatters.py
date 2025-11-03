@@ -138,27 +138,28 @@ def _format_port(port: Dict[str, Any]) -> List[str]:
     return lines
 
 
+def _friendly_ship_type(raw_type: Optional[str]) -> str:
+    """Return a human-friendly ship type name."""
+    if not isinstance(raw_type, str) or not raw_type:
+        return "unknown"
+    if " " in raw_type and raw_type[0].isupper():
+        return raw_type
+    if "ShipType" in globals() and ShipType is not None and get_ship_stats is not None:  # type: ignore[truthy-function]
+        try:
+            enum_value = ShipType(raw_type)  # type: ignore[call-arg]
+            stats = get_ship_stats(enum_value)  # type: ignore[misc]
+            friendly = getattr(stats, "name", None)
+            if isinstance(friendly, str) and friendly:
+                return friendly
+        except Exception:
+            pass
+    return raw_type.replace("_", " ").title()
+
+
 def _format_players(players: List[Dict[str, Any]]) -> List[str]:
     """Format player list with names and ships."""
     if not players:
         return []
-
-    def _friendly_ship_type(raw_type: Optional[str]) -> str:
-        if not isinstance(raw_type, str) or not raw_type:
-            return "unknown"
-        if ' ' in raw_type and raw_type[0].isupper():
-            # Already a nice display string
-            return raw_type
-        if 'ShipType' in globals() and ShipType is not None and get_ship_stats is not None:  # type: ignore[truthy-function]
-            try:
-                enum_value = ShipType(raw_type)  # type: ignore[call-arg]
-                stats = get_ship_stats(enum_value)  # type: ignore[misc]
-                friendly = getattr(stats, "name", None)
-                if isinstance(friendly, str) and friendly:
-                    return friendly
-            except Exception:
-                pass
-        return raw_type.replace("_", " ").title()
 
     lines = ["Players:"]
     for player in players:
@@ -238,21 +239,23 @@ def _status_summary(result: Dict[str, Any], first_line: str) -> str:
     corp = result.get("corporation") if isinstance(result, dict) else None
 
     # Build summary sections
-    lines = [first_line]
+    player_name = player.get("name") or player.get("display_name") or "Unknown player"
+    lines = [f"Player: {player_name}", first_line]
 
-    ship_id = ship.get("ship_id")
     if isinstance(corp, dict) and corp.get("name"):
         corp_line = f"Corporation: {corp['name']}"
         member_count = corp.get("member_count")
         if isinstance(member_count, int):
             corp_line += f" (members: {member_count})"
         lines.append(corp_line)
-    if isinstance(ship_id, str) and ship_id.strip():
-        lines.append(f"Ship ID: {ship_id}")
 
     # Adjacent sectors
     adjacent = sector.get("adjacent_sectors", [])
     lines.append(f"Adjacent sectors: {adjacent}")
+    ship_name = ship.get("ship_name") or ship.get("name") or "unknown ship"
+    ship_type_raw = ship.get("ship_type") or ship.get("ship_type_name")
+    ship_type = _friendly_ship_type(ship_type_raw)
+    lines.append(f"Ship: {ship_name} ({ship_type})")
 
     # Credits and cargo
     ship_credits = ship.get("credits")
