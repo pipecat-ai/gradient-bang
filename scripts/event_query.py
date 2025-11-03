@@ -162,6 +162,9 @@ Examples:
   # Filter by sector and event type
   %(prog)s <character_id> --last 24h --sector 5 --event-type "combat.*"
 
+  # Corporation-wide activity (requires membership)
+  %(prog)s <character_id> --last 2h --corporation-id <corp_uuid>
+
   # Summary view
   %(prog)s --admin-password <pass> --last 1h --summary
         """,

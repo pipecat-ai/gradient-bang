@@ -16,7 +16,7 @@ from combat.utils import (
     new_combat_id,
     serialize_encounter,
 )
-from .utils import rpc_success
+from .utils import rpc_success, enforce_actor_authorization
 
 logger = logging.getLogger("gradient-bang.api.combat_initiate")
 
@@ -166,6 +166,13 @@ async def handle(request: dict, world) -> dict:
     character_id = request.get("character_id")
     if not character_id:
         raise HTTPException(status_code=400, detail="Missing character_id")
+
+    enforce_actor_authorization(
+        world,
+        target_character_id=character_id,
+        actor_character_id=request.get("actor_character_id"),
+        admin_override=bool(request.get("admin_override")),
+    )
 
     if character_id not in world.characters:
         raise HTTPException(

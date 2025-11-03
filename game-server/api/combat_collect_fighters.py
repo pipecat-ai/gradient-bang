@@ -9,6 +9,8 @@ from .utils import (
     build_event_source,
     rpc_success,
     build_status_payload,
+    enforce_actor_authorization,
+    build_log_context,
 )
 
 
@@ -19,6 +21,13 @@ async def handle(request: dict, world) -> dict:
 
     if not character_id or sector is None:
         raise HTTPException(status_code=400, detail="Missing character_id or sector")
+
+    enforce_actor_authorization(
+        world,
+        target_character_id=character_id,
+        actor_character_id=request.get("actor_character_id"),
+        admin_override=bool(request.get("admin_override")),
+    )
 
     if quantity <= 0:
         raise HTTPException(status_code=400, detail="Quantity must be positive")
@@ -89,15 +98,21 @@ async def handle(request: dict, world) -> dict:
     remaining_fighters = garrison.fighters - quantity
     toll_payout = garrison.toll_balance if garrison.mode == "toll" else 0
     if toll_payout > 0:
-        current_credits = world.knowledge_manager.get_credits(character_id)
-        world.knowledge_manager.update_credits(
+        current_credits = world.knowledge_manager.get_ship_credits(character_id)
+        world.knowledge_manager.update_ship_credits(
             character_id, current_credits + toll_payout
         )
         status_payload = await build_status_payload(world, character_id)
+        payout_context = build_log_context(
+            character_id=character_id,
+            world=world,
+            sector=sector,
+        )
         await event_dispatcher.emit(
             "status.update",
             status_payload,
             character_filter=[character_id],
+            log_context=payout_context,
         )
 
     updated_garrison = None
@@ -135,6 +150,12 @@ async def handle(request: dict, world) -> dict:
         else None
     )
 
+    base_context = build_log_context(
+        character_id=character_id,
+        world=world,
+        sector=sector,
+    )
+
     await event_dispatcher.emit(
         "garrison.collected",
         {
@@ -145,6 +166,7 @@ async def handle(request: dict, world) -> dict:
             "fighters_on_ship": ship_state.get("fighters", 0),
         },
         character_filter=[character_id],
+        log_context=base_context,
     )
 
     characters_in_sector = [
@@ -159,6 +181,7 @@ async def handle(request: dict, world) -> dict:
             "sector.update",
             sector_payload,
             character_filter=[cid],
+            log_context=build_log_context(character_id=cid, world=world, sector=sector),
         )
 
     return rpc_success()

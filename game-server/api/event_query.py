@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
@@ -39,17 +40,41 @@ async def handle(payload: dict, world) -> dict:
     if start > end:
         raise HTTPException(status_code=400, detail="start must be before end")
 
-    # Parse optional character_id filter (required for non-admin queries)
+    # Parse optional character_id field. In character mode it identifies the actor
+    # issuing the query (still required for permission checks).
     character_id = payload.get("character_id")
     if character_id is not None and not isinstance(character_id, str):
         raise HTTPException(status_code=400, detail="character_id must be a string")
 
-    # In character mode (non-admin), character_id is required
-    if not is_admin and not character_id:
+    actor_character_id = payload.get("actor_character_id")
+    if actor_character_id is not None and not isinstance(actor_character_id, str):
+        raise HTTPException(status_code=400, detail="actor_character_id must be a string")
+
+    # Parse optional corporation filter before we enforce actor requirements.
+    corporation_id = payload.get("corporation_id")
+    if corporation_id is not None and not isinstance(corporation_id, str):
+        raise HTTPException(status_code=400, detail="corporation_id must be a string")
+
+    # In character mode we always require an actor so we can validate permissions.
+    if not is_admin and not (character_id or actor_character_id):
         raise HTTPException(
             status_code=403,
-            detail="character_id required for non-admin queries"
+            detail="character_id or actor_character_id required for non-admin queries",
         )
+
+    if corporation_id and not is_admin:
+        # Ensure the actor is part of the requested corporation before exposing
+        # potentially sensitive fleet activity.
+        character_to_corp = getattr(world, "character_to_corp", None)
+        actor_corp_id = None
+        if isinstance(character_to_corp, dict):
+            membership_candidate = actor_character_id or character_id
+            actor_corp_id = character_to_corp.get(membership_candidate)
+        if actor_corp_id != corporation_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Actor is not authorized to view this corporation's events",
+            )
 
     # Parse optional sector filter
     sector_value = payload.get("sector")
@@ -60,9 +85,11 @@ async def handle(payload: dict, world) -> dict:
         except (TypeError, ValueError):
             raise HTTPException(status_code=400, detail="sector must be an integer")
 
-    corporation_id = payload.get("corporation_id")
-    if corporation_id is not None and not isinstance(corporation_id, str):
-        raise HTTPException(status_code=400, detail="corporation_id must be a string")
+    # Character-scoped queries should still only surface events for that actor.
+    # Corporation-scoped queries ignore the per-character filter so the caller can
+    # review fleet-wide activity while remaining in non-admin mode.
+    resolved_character_id = character_id or actor_character_id
+    query_character_id = resolved_character_id if corporation_id is None else None
 
     # Query the event log with filters
     # If character_id provided: returns events where sender=character_id OR receiver=character_id
@@ -72,7 +99,7 @@ async def handle(payload: dict, world) -> dict:
     events = logger.query(
         start,
         end,
-        character_id=character_id,
+        character_id=query_character_id,
         sector=sector,
         corporation_id=corporation_id,
     )

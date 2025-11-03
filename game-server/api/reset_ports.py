@@ -2,6 +2,7 @@ from fastapi import HTTPException
 from datetime import datetime, timezone
 
 from rpc.events import event_dispatcher
+from .utils import build_log_context
 
 
 async def handle(request: dict, world) -> dict:
@@ -13,6 +14,7 @@ async def handle(request: dict, world) -> dict:
                 "ports_reset": count,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },
+            log_context=build_log_context(),
         )
         return {"success": True, "message": f"Reset {count} ports to initial state", "ports_reset": count}
     except Exception as e:

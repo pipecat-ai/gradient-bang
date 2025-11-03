@@ -10,14 +10,28 @@ from core.corporation_manager import CorporationManager
 
 
 class StubKnowledgeManager:
-    def __init__(self, knowledge_map):
+    def __init__(self, knowledge_map, ship_credits):
         self._knowledge_map = knowledge_map
+        self._ship_credits = ship_credits
 
     def load_knowledge(self, character_id: str) -> MapKnowledge:
-        return self._knowledge_map[character_id]
+        knowledge = self._knowledge_map[character_id]
+        if hasattr(knowledge, "credits"):
+            knowledge.credits = self._ship_credits.get(character_id, 0)
+        return knowledge
 
     def save_knowledge(self, knowledge: MapKnowledge) -> None:
         self._knowledge_map[knowledge.character_id] = knowledge
+
+    def get_ship_credits(self, character_id: str) -> int:
+        return self._ship_credits.get(character_id, 0)
+
+    def update_ship_credits(self, character_id: str, credits: int) -> None:
+        value = max(0, int(credits))
+        self._ship_credits[character_id] = value
+        knowledge = self._knowledge_map.get(character_id)
+        if knowledge is not None and hasattr(knowledge, "credits"):
+            knowledge.credits = value
 
 
 @pytest.fixture
@@ -28,6 +42,7 @@ def make_world(tmp_path):
         corp_manager = CorporationManager(world_dir)
 
         knowledge_map = {}
+        ship_credits = {}
         characters = {}
         for profile in character_profiles:
             char_id = profile["id"]
@@ -37,11 +52,12 @@ def make_world(tmp_path):
                 credits_in_bank=profile.get("credits_in_bank", 0),
                 current_sector=profile.get("sector", 0),
             )
+            ship_credits[char_id] = profile.get("credits", 0)
             characters[char_id] = SimpleNamespace(sector=profile.get("sector", 0))
 
         world = SimpleNamespace(
             corporation_manager=corp_manager,
-            knowledge_manager=StubKnowledgeManager(knowledge_map),
+            knowledge_manager=StubKnowledgeManager(knowledge_map, ship_credits),
             characters=characters,
             character_to_corp={},
         )
@@ -67,9 +83,8 @@ async def test_corporation_create_success(make_world, monkeypatch):
     assert response["success"] is True
     corp_id = response["corp_id"]
     assert world.character_to_corp["founder"] == corp_id
-
     knowledge = knowledge_map["founder"]
-    assert knowledge.credits == 10000
+    assert world.knowledge_manager.get_ship_credits("founder") == 10000
     corp_record = world.corporation_manager.load(corp_id)
     assert knowledge.corporation == {
         "corp_id": corp_id,
@@ -121,7 +136,7 @@ async def test_corporation_create_duplicate_name(make_world, monkeypatch):
         await corporation_create.handle({"character_id": "beta", "name": "Duplicate"}, world)
     assert excinfo.value.status_code == 400
     assert "already taken" in excinfo.value.detail
-    assert knowledge_map["beta"].credits == 20000
+    assert world.knowledge_manager.get_ship_credits("beta") == 20000
 
 
 @pytest.mark.asyncio

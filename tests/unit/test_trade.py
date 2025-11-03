@@ -45,6 +45,7 @@ class DummyKnowledge:
                 "warp_power": 20,
                 "warp_power_capacity": 20,
                 "modules": [],
+                "credits": credits,
             },
             "became_unowned": None,
             "former_owner_name": None,
@@ -58,8 +59,19 @@ class DummyKnowledgeManager:
     def load_knowledge(self, character_id: str) -> DummyKnowledge:
         return self._knowledge_map[character_id]
 
+    # Ship credit helpers -----------------------------------------------------------------
+    def update_ship_credits(self, character_id: str, new_credits: int) -> None:
+        knowledge = self._knowledge_map[character_id]
+        knowledge.credits = new_credits
+        knowledge.ship_record.setdefault("state", {})["credits"] = new_credits
+
+    def get_ship_credits(self, character_id: str) -> int:
+        knowledge = self._knowledge_map[character_id]
+        return int(knowledge.ship_record.get("state", {}).get("credits", knowledge.credits))
+
+    # Legacy shims maintained for older call sites
     def update_credits(self, character_id: str, new_credits: int) -> None:
-        self._knowledge_map[character_id].credits = new_credits
+        self.update_ship_credits(character_id, new_credits)
 
     def update_cargo(self, character_id: str, commodity: str, delta: int) -> None:
         record = self._knowledge_map[character_id].ship_record
@@ -72,7 +84,7 @@ class DummyKnowledgeManager:
         return dict(record.get("state", {}).get("cargo", {}))
 
     def get_credits(self, character_id: str) -> int:
-        return self._knowledge_map[character_id].credits
+        return self.get_ship_credits(character_id)
 
     def get_bank_credits(self, character_id: str) -> int:
         """Return bank balance (always 0 for test dummy)."""
@@ -132,6 +144,9 @@ class DummyShipsManager:
                     state["shields"] = updates["shields"]
                 if "warp_power" in updates:
                     state["warp_power"] = updates["warp_power"]
+                if "credits" in updates:
+                    state["credits"] = updates["credits"]
+                    knowledge.credits = updates["credits"]
                 break
 
 

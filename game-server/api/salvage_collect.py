@@ -3,12 +3,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from rpc.events import event_dispatcher, EventLogContext
+from rpc.events import event_dispatcher
 from api.utils import (
     build_event_source,
     build_status_payload,
     rpc_success,
     sector_contents,
+    enforce_actor_authorization,
+    build_log_context,
 )
 from ships import ShipType
 
@@ -23,6 +25,13 @@ async def handle(request: dict, world) -> dict:
         raise HTTPException(
             status_code=400, detail="Missing character_id or salvage_id"
         )
+
+    enforce_actor_authorization(
+        world,
+        target_character_id=character_id,
+        actor_character_id=request.get("actor_character_id"),
+        admin_override=bool(request.get("admin_override")),
+    )
 
     if character_id not in world.characters:
         raise HTTPException(status_code=404, detail="Character not found")
@@ -67,8 +76,8 @@ async def handle(request: dict, world) -> dict:
     # Always collect credits (no cargo space needed)
     if container.credits:
         collected_credits = container.credits
-        existing = world.knowledge_manager.get_credits(character_id)
-        world.knowledge_manager.update_credits(
+        existing = world.knowledge_manager.get_ship_credits(character_id)
+        world.knowledge_manager.update_ship_credits(
             character_id, existing + container.credits
         )
 
@@ -139,7 +148,11 @@ async def handle(request: dict, world) -> dict:
     # Emit standardized salvage.collected event (private - only collector sees it)
     sector_id = character.sector
     request_id = request.get("request_id") or "missing-request-id"
-    log_context = EventLogContext(sender=character_id, sector=sector_id)
+    log_context = build_log_context(
+        character_id=character_id,
+        world=world,
+        sector=sector_id,
+    )
     timestamp = datetime.now(timezone.utc).isoformat()
 
     await event_dispatcher.emit(

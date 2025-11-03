@@ -6,7 +6,8 @@ import pytest
 from fastapi import HTTPException
 
 from api import ship_purchase
-from character_knowledge import CharacterKnowledgeManager, MapKnowledge
+from api.utils import _build_corp_ship_summaries
+from character_knowledge import CharacterKnowledgeManager
 from core.corporation_manager import CorporationManager
 from core.locks.credit_locks import CreditLockManager
 from core.ships_manager import ShipsManager
@@ -32,15 +33,13 @@ def _create_world(tmp_path, *, character_id: str, credits: int, bank: int = 0, s
         name=None,
     )
 
-    knowledge = MapKnowledge(
-        character_id=character_id,
-        credits=credits,
-        credits_in_bank=bank,
-        current_sector=sector,
-        current_ship_id=ship_id,
-        last_update=datetime.now(timezone.utc).isoformat(),
-    )
+    knowledge = knowledge_manager.load_knowledge(character_id)
+    knowledge.current_sector = sector
+    knowledge.current_ship_id = ship_id
+    knowledge.last_update = datetime.now(timezone.utc).isoformat()
     knowledge_manager.save_knowledge(knowledge)
+    knowledge_manager.update_ship_credits(character_id, credits)
+    knowledge_manager.update_bank_credits(character_id, bank)
 
     character = Character(
         character_id,
@@ -108,7 +107,7 @@ async def test_personal_trade_in_creates_new_ship_and_marks_old_unowned(tmp_path
 
     knowledge = world.knowledge_manager.load_knowledge("pilot")
     assert knowledge.current_ship_id == new_ship_id
-    assert knowledge.credits == 30_000  # 50k - (35k - 15k)
+    assert world.knowledge_manager.get_ship_credits("pilot") == 30_000  # 50k - (35k - 15k)
 
     old_ship = world.ships_manager.get_ship(old_ship_id)
     assert old_ship["owner_type"] == "unowned"
@@ -155,7 +154,7 @@ async def test_personal_trade_in_insufficient_funds(tmp_path, monkeypatch):
 
     knowledge = world.knowledge_manager.load_knowledge("cashlight")
     assert knowledge.current_ship_id is not None
-    assert knowledge.credits == 10_000
+    assert world.knowledge_manager.get_ship_credits("cashlight") == 10_000
 
 
 @pytest.mark.asyncio
@@ -197,12 +196,19 @@ async def test_corporation_purchase_succeeds(tmp_path, monkeypatch):
 
     assert response["success"] is True
     corp_ship_id = response["ship_id"]
+    assert response["initial_ship_credits"] == 0
 
     updated_bank = world.knowledge_manager.get_bank_credits("founder")
     assert updated_bank == 500_000 - get_ship_stats(ShipType.PIKE_FRIGATE).price
 
     corp_record = world.corporation_manager.load(corp["corp_id"])
     assert corp_ship_id in corp_record["ships"]
+
+    assert world.knowledge_manager.has_knowledge(corp_ship_id)
+    corp_knowledge = world.knowledge_manager.load_knowledge(corp_ship_id)
+    assert corp_knowledge.current_ship_id == corp_ship_id
+    assert corp_knowledge.corporation["corp_id"] == corp["corp_id"]
+    assert world.character_to_corp[corp_ship_id] == corp["corp_id"]
 
     corp_ship = world.ships_manager.get_ship(corp_ship_id)
     assert corp_ship["owner_type"] == "corporation"
@@ -248,6 +254,104 @@ async def test_corporation_purchase_insufficient_bank(tmp_path, monkeypatch):
             credit_locks,
         )
     assert "Insufficient bank balance" in excinfo.value.detail
+
+    updated_corp = world.corporation_manager.load(corp["corp_id"])
+    assert updated_corp["ships"] == []
+
+
+def test_corporation_ship_summary_includes_control_ready(tmp_path):
+    world, _ = _create_world(
+        tmp_path,
+        character_id="founder",
+        credits=200_000,
+        bank=400_000,
+        sector=2,
+        ship_type="kestrel_courier",
+    )
+
+    corp = world.corporation_manager.create("Control Ready Inc", "founder")
+    world.character_to_corp["founder"] = corp["corp_id"]
+    knowledge = world.knowledge_manager.load_knowledge("founder")
+    knowledge.corporation = {
+        "corp_id": corp["corp_id"],
+        "joined_at": datetime.now(timezone.utc).isoformat(),
+    }
+    world.knowledge_manager.save_knowledge(knowledge)
+
+    ship_id = world.ships_manager.create_ship(
+        ship_type=ShipType.ATLAS_HAULER.value,
+        sector=2,
+        owner_type="corporation",
+        owner_id=corp["corp_id"],
+        name="Control Ship",
+    )
+    world.corporation_manager.add_ship(corp["corp_id"], ship_id)
+
+    corp_record = world.corporation_manager.load(corp["corp_id"])
+    summaries = _build_corp_ship_summaries(world, corp_record)
+    assert summaries
+    assert summaries[0]["control_ready"] is False
+
+    world.knowledge_manager.create_corp_ship_character(
+        ship_id=ship_id,
+        corp_id=corp["corp_id"],
+        sector=2,
+    )
+
+    corp_record = world.corporation_manager.load(corp["corp_id"])
+    summaries = _build_corp_ship_summaries(world, corp_record)
+    assert summaries[0]["control_ready"] is True
+
+
+@pytest.mark.asyncio
+async def test_corporation_purchase_with_initial_ship_credits(tmp_path, monkeypatch):
+    world, _ = _create_world(
+        tmp_path,
+        character_id="treasurer",
+        credits=2_000,
+        bank=100_000,
+        sector=5,
+        ship_type="sparrow_scout",
+    )
+
+    corp = world.corporation_manager.create("Astro", "treasurer")
+    world.character_to_corp["treasurer"] = corp["corp_id"]
+
+    knowledge = world.knowledge_manager.load_knowledge("treasurer")
+    knowledge.corporation = {
+        "corp_id": corp["corp_id"],
+        "joined_at": datetime.now(timezone.utc).isoformat(),
+    }
+    world.knowledge_manager.save_knowledge(knowledge)
+
+    credit_locks = CreditLockManager()
+
+    response = await ship_purchase.handle(
+        {
+            "character_id": "treasurer",
+            "ship_type": "autonomous_light_hauler",
+            "purchase_type": "corporation",
+            "initial_ship_credits": 5_000,
+        },
+        world,
+        credit_locks,
+    )
+
+    assert response["success"] is True
+    corp_ship_id = response["ship_id"]
+    assert response["initial_ship_credits"] == 5_000
+
+    stats = get_ship_stats(ShipType.AUTONOMOUS_LIGHT_HAULER)
+    expected_bank = 100_000 - (stats.price + 5_000)
+    assert world.knowledge_manager.get_bank_credits("treasurer") == expected_bank
+
+    corp_ship = world.ships_manager.get_ship(corp_ship_id)
+    assert corp_ship["owner_type"] == "corporation"
+    assert corp_ship["owner_id"] == corp["corp_id"]
+    assert corp_ship["state"]["credits"] == 5_000
+
+    ship_knowledge = world.knowledge_manager.load_knowledge(corp_ship_id)
+    assert ship_knowledge.credits == 5_000
 
 
 @pytest.mark.asyncio

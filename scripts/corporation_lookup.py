@@ -8,12 +8,127 @@ import asyncio
 import json
 import sys
 from pathlib import Path
+from typing import Any, Dict, Iterable, List, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "game-server"))
 
 from utils.api_client import AsyncGameClient, RPCError
+
+
+COMMODITY_KEYS: Tuple[Tuple[str, str], ...] = (
+    ("quantum_foam", "QF"),
+    ("retro_organics", "RO"),
+    ("neuro_symbolics", "NS"),
+)
+
+
+def _coerce_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _format_cargo(summary: Dict[str, Any]) -> str:
+    cargo: Dict[str, Any] = summary.get("cargo") or {}
+    capacity = summary.get("cargo_capacity")
+    capacity_int = _coerce_int(capacity)
+
+    amounts: List[str] = []
+    used = 0
+    for key, label in COMMODITY_KEYS:
+        amount = _coerce_int(cargo.get(key))
+        used += max(amount, 0)
+        amounts.append(f"{label}:{amount}")
+
+    fragments: List[str] = []
+    if capacity_int > 0:
+        empty = max(capacity_int - used, 0)
+        fragments.append(f"{used}/{capacity_int} holds used (empty {empty})")
+    else:
+        fragments.append(f"{used} holds used")
+
+    fragments.append(" ".join(amounts))
+    return " | ".join(fragments)
+
+
+def _format_combat(summary: Dict[str, Any]) -> str:
+    fighters = _coerce_int(summary.get("fighters"))
+    max_fighters = _coerce_int(summary.get("max_fighters"))
+    shields = _coerce_int(summary.get("shields"))
+    max_shields = _coerce_int(summary.get("max_shields"))
+    warp = _coerce_int(summary.get("warp_power"))
+    warp_max = _coerce_int(summary.get("warp_power_capacity"))
+
+    parts: List[str] = []
+    if max_fighters:
+        parts.append(f"fighters {fighters}/{max_fighters}")
+    elif fighters:
+        parts.append(f"fighters {fighters}")
+
+    if max_shields:
+        parts.append(f"shields {shields}/{max_shields}")
+    elif shields:
+        parts.append(f"shields {shields}")
+
+    if warp_max:
+        parts.append(f"warp {warp}/{warp_max}")
+    elif warp:
+        parts.append(f"warp {warp}")
+
+    return " | ".join(parts) if parts else "no combat stats reported"
+
+
+def _print_ship_inventory(
+    ships: Iterable[Dict[str, Any]],
+    *,
+    indent: str = "  ",
+    show_header: bool = True,
+) -> None:
+    ships_list = sorted(
+        [
+            ship
+            for ship in ships
+            if isinstance(ship, dict) and ship.get("ship_id")
+        ],
+        key=lambda item: (
+            str(item.get("name") or "").lower(),
+            str(item.get("ship_id")),
+        ),
+    )
+
+    if show_header:
+        ready_count = sum(1 for ship in ships_list if ship.get("control_ready"))
+        print(f"Ships: {len(ships_list)} total ({ready_count} control-ready)")
+        if not ships_list:
+            return
+        print()
+
+    for ship in ships_list:
+        name = ship.get("name") or "Unnamed Vessel"
+        ship_type = ship.get("ship_type") or "unknown_type"
+        ship_id = ship.get("ship_id")
+        sector = ship.get("sector")
+        sector_display = f"Sector {sector}" if sector is not None else "Sector ?"
+
+        print(f"{indent}- {name} [{ship_type}] — {sector_display}")
+        print(f"{indent}  Character ID: {ship_id}")
+        print(f"{indent}  Cargo: {_format_cargo(ship)}")
+        print(f"{indent}  Combat: {_format_combat(ship)}")
+
+        control_ready = ship.get("control_ready")
+        if control_ready is True:
+            print(f"{indent}  Control: READY (character knowledge present)")
+        elif control_ready is False:
+            print(
+                f"{indent}  Control: BLOCKED — create character knowledge for {ship_id}"
+            )
+        else:
+            print(f"{indent}  Control: UNKNOWN")
+
+        print()
 
 
 async def main() -> int:
@@ -35,6 +150,11 @@ async def main() -> int:
         help="List all corporations (sorted by member count)",
     )
     parser.add_argument(
+        "--ships",
+        action="store_true",
+        help="Show a detailed ship inventory for the target corporation",
+    )
+    parser.add_argument(
         "--server",
         default="http://localhost:8000",
         help="Server base URL (default: %(default)s)",
@@ -45,6 +165,9 @@ async def main() -> int:
         help="Show full JSON payload",
     )
     args = parser.parse_args()
+
+    if args.list and args.ships:
+        parser.error("--ships cannot be combined with --list")
 
     if args.list:
         # List all corporations
@@ -143,6 +266,14 @@ async def main() -> int:
                 print(json.dumps(result, indent=2))
                 print()
 
+            ships = result.get("ships", [])
+
+            if args.ships:
+                print(f"{result.get('name')} (Corp ID: {result.get('corp_id')})")
+                print()
+                _print_ship_inventory(ships, indent="")
+                return 0
+
             # Display formatted output
             print(f"Corporation: {result.get('name')}")
             print(f"Corp ID: {result.get('corp_id')}")
@@ -153,13 +284,13 @@ async def main() -> int:
             if result.get("invite_code"):
                 print(f"Invite Code: {result.get('invite_code')}")
             if result.get("members"):
-                members = result.get('members', [])
+                members = result.get("members", [])
                 # Handle both string IDs and dict objects
                 member_strs = []
                 for m in members:
                     if isinstance(m, dict):
-                        name = m.get('name', m.get('character_id', 'unknown'))
-                        char_id = m.get('character_id', '')
+                        name = m.get("name", m.get("character_id", "unknown"))
+                        char_id = m.get("character_id", "")
                         if name and char_id:
                             member_strs.append(f"{name} ({char_id[:8]}...)")
                         else:
@@ -168,45 +299,9 @@ async def main() -> int:
                         member_strs.append(str(m))
                 print(f"Members: {', '.join(member_strs)}")
 
-            # Display ships with full details
-            if result.get("ships"):
-                ships = result.get('ships', [])
-                print(f"\nShips: {len(ships)}")
-                if ships:
-                    for i, ship in enumerate(ships, 1):
-                        if isinstance(ship, dict):
-                            print(f"\n  Ship {i}: {ship.get('name', 'Unnamed')}")
-                            print(f"    Type: {ship.get('ship_type', 'unknown')}")
-                            print(f"    Location: Sector {ship.get('sector', '?')}")
-                            print(f"    Ship ID: {ship.get('ship_id', 'unknown')}")
-
-                            # Show detailed stats if available
-                            if 'cargo' in ship:
-                                cargo = ship.get('cargo', {})
-                                qf = cargo.get('quantum_foam', 0)
-                                ro = cargo.get('retro_organics', 0)
-                                ns = cargo.get('neuro_symbolics', 0)
-                                cargo_capacity = ship.get('cargo_capacity', 0)
-                                cargo_used = qf + ro + ns
-                                empty_holds = cargo_capacity - cargo_used
-                                print(f"    Cargo: {qf} QF | {ro} RO | {ns} NS. Empty holds: {empty_holds}")
-
-                            if 'warp_power' in ship:
-                                warp = ship.get('warp_power', 0)
-                                warp_max = ship.get('warp_power_capacity', 0)
-                                print(f"    Warp: {warp}/{warp_max}")
-
-                            if 'shields' in ship:
-                                shields = ship.get('shields', 0)
-                                shields_max = ship.get('max_shields', 0)
-                                print(f"    Shields: {shields}/{shields_max}")
-
-                            if 'fighters' in ship:
-                                fighters = ship.get('fighters', 0)
-                                fighters_max = ship.get('max_fighters', 0)
-                                print(f"    Fighters: {fighters}/{fighters_max}")
-                        else:
-                            print(f"  - {ship}")
+            if ships:
+                print()
+                _print_ship_inventory(ships)
 
             return 0
 

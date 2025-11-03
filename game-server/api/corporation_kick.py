@@ -4,18 +4,29 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
-from .utils import rpc_success
-from rpc.events import event_dispatcher, EventLogContext
+from .utils import rpc_success, build_log_context
+from rpc.events import event_dispatcher
 
 
 async def handle(request: dict, world) -> dict:
     character_id = request.get("character_id")
     target_id = request.get("target_id")
+    actor_character_id = request.get("actor_character_id")
 
     if not character_id or not target_id:
         raise HTTPException(status_code=400, detail="Missing character_id or target_id")
     if character_id == target_id:
         raise HTTPException(status_code=400, detail="Use leave to exit your corporation")
+
+    if actor_character_id is not None:
+        if not isinstance(actor_character_id, str):
+            raise HTTPException(status_code=400, detail="actor_character_id must be a string")
+        if actor_character_id != character_id:
+            raise HTTPException(
+                status_code=400,
+                detail="actor_character_id must match character_id for corporation.kick",
+            )
+
     if character_id not in world.characters:
         raise HTTPException(status_code=404, detail="Character not found")
     if target_id not in world.characters:
@@ -78,8 +89,9 @@ async def handle(request: dict, world) -> dict:
             "timestamp": timestamp,
         },
         character_filter=list(set(remaining_members + [target_id])),
-        log_context=EventLogContext(
-            sender=character_id,
+        log_context=build_log_context(
+            character_id=character_id,
+            world=world,
             sector=kicker_character.sector,
             corporation_id=corp_id,
         ),

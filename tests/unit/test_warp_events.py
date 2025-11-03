@@ -46,6 +46,7 @@ class DummyKnowledge:
                 "warp_power": warp_power,
                 "warp_power_capacity": warp_power if ship_type == "escape_pod" else 300,
                 "modules": [],
+                "credits": credits,
             },
             "became_unowned": None,
             "former_owner_name": None,
@@ -57,7 +58,10 @@ class DummyKnowledgeManager:
         self._mapping = mapping
 
     def load_knowledge(self, character_id: str) -> DummyKnowledge:
-        return self._mapping[character_id]
+        knowledge = self._mapping[character_id]
+        state = knowledge.ship_record.get("state", {})
+        knowledge.credits = int(state.get("credits", knowledge.credits))
+        return knowledge
 
     def save_knowledge(self, knowledge: DummyKnowledge) -> None:  # noqa: D401 - simple no-op
         """Persist updated knowledge (no-op for tests)."""
@@ -65,6 +69,16 @@ class DummyKnowledgeManager:
 
     def get_ship(self, character_id: str) -> dict:
         return json.loads(json.dumps(self._mapping[character_id].ship_record))
+
+    def update_ship_credits(self, character_id: str, credits: int) -> None:
+        knowledge = self._mapping[character_id]
+        value = max(0, int(credits))
+        knowledge.credits = value
+        knowledge.ship_record.setdefault("state", {})["credits"] = value
+
+    def get_ship_credits(self, character_id: str) -> int:
+        knowledge = self._mapping[character_id]
+        return int(knowledge.ship_record.get("state", {}).get("credits", 0))
 
 
 class DummyShipsManager:
@@ -89,6 +103,9 @@ class DummyShipsManager:
                     state["shields"] = updates["shields"]
                 if "cargo" in updates:
                     state["cargo"] = dict(updates["cargo"])
+                if "credits" in updates:
+                    state["credits"] = updates["credits"]
+                    knowledge.credits = updates["credits"]
                 break
 
 
@@ -135,7 +152,7 @@ async def test_recharge_warp_power_emits_enhanced_event(monkeypatch):
     assert payload["source"]["request_id"] == "req-warp-123"
     assert payload["new_warp_power"] == knowledge.ship_record["state"]["warp_power"]
     assert payload["warp_power_capacity"] >= payload["new_warp_power"]
-    assert payload["new_credits"] == knowledge.credits
+    assert payload["new_credits"] == world.knowledge_manager.get_ship_credits(character_id)
     assert payload["units"] == 25
     assert payload["total_cost"] == payload["price_per_unit"] * 25
 

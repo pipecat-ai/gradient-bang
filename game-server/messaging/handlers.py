@@ -3,6 +3,7 @@
 from typing import Any, Dict, List, Optional
 
 from api import send_message as api_send_message
+from api.utils import build_log_context
 from messaging.store import MessageStore
 from rpc.events import EventDispatcher
 
@@ -42,18 +43,29 @@ async def handle_send_message(
         if k not in ("from_character_id", "to_character_id")
     }
 
+    from_id = record.get("from_character_id")
+
     # For direct messages, only notify sender and recipient by character ID
     character_filter: Optional[List[str]] = None
     if record.get("type") == "direct":
-        from_id = record.get("from_character_id")
         to_id = record.get("to_character_id")
         character_filter = [cid for cid in (from_id, to_id) if cid]
+
+    log_context = (
+        build_log_context(
+            character_id=from_id,
+            world=world,
+        )
+        if from_id
+        else None
+    )
 
     # Emit chat.message event
     await event_dispatcher.emit(
         "chat.message",
         public_record,
         character_filter=character_filter,
+        log_context=log_context,
     )
 
     return {"id": record["id"]}

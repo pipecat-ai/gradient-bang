@@ -7,6 +7,8 @@ from .utils import (
     rpc_success,
     build_event_source,
     emit_error_event,
+    enforce_actor_authorization,
+    build_log_context,
 )
 from ships import ShipType, get_ship_stats
 from rpc.events import event_dispatcher
@@ -36,6 +38,14 @@ async def handle(request: dict, world) -> dict:
     request_id = request.get("request_id") or "missing-request-id"
     if not character_id or units is None:
         raise HTTPException(status_code=400, detail="Missing character_id or units")
+
+    enforce_actor_authorization(
+        world,
+        target_character_id=character_id,
+        actor_character_id=request.get("actor_character_id"),
+        admin_override=bool(request.get("admin_override")),
+    )
+
     if character_id not in world.characters:
         raise HTTPException(status_code=404, detail=f"Character not found: {character_id}")
 
@@ -65,17 +75,19 @@ async def handle(request: dict, world) -> dict:
     units_to_buy = min(units, max_units)
     price_per_unit = 2
     total_cost = units_to_buy * price_per_unit
-    if knowledge.credits < total_cost:
+    ship_credits = int(ship_state.get("credits", 0))
+    if ship_credits < total_cost:
         await _fail(
             character_id,
             request_id,
-            f"Insufficient credits. Need {total_cost} but only have {knowledge.credits}",
+            f"Insufficient credits. Need {total_cost} but only have {ship_credits}",
     )
 
-    new_credits = knowledge.credits - total_cost
+    new_credits = ship_credits - total_cost
     new_warp_power = current_warp_power + units_to_buy
-    knowledge.credits = new_credits
     world.ships_manager.update_ship_state(ship_id, warp_power=new_warp_power)
+    world.knowledge_manager.update_ship_credits(character_id, new_credits)
+    knowledge.credits = new_credits
     world.knowledge_manager.save_knowledge(knowledge)
     character.update_activity()
 
@@ -92,6 +104,12 @@ async def handle(request: dict, world) -> dict:
 
     character.update_activity()
     timestamp = character.last_active.isoformat()
+    log_context = build_log_context(
+        character_id=character_id,
+        world=world,
+        sector=character.sector,
+    )
+
     await event_dispatcher.emit(
         "warp.purchase",
         {
@@ -107,9 +125,15 @@ async def handle(request: dict, world) -> dict:
             "new_credits": new_credits,
         },
         character_filter=[character_id],
+        log_context=log_context,
     )
 
     status_payload = await build_status_payload(world, character_id)
-    await event_dispatcher.emit("status.update", status_payload, character_filter=[character_id])
+    await event_dispatcher.emit(
+        "status.update",
+        status_payload,
+        character_filter=[character_id],
+        log_context=log_context,
+    )
 
     return rpc_success()

@@ -72,7 +72,7 @@ def sanitize_ship_payload(payload: Any) -> dict[str, Any]:
 
 def apply_player_overrides(world, character_id: str, player_data: dict[str, Any]) -> None:
     if "credits" in player_data:
-        world.knowledge_manager.update_credits(character_id, player_data["credits"])
+        world.knowledge_manager.update_ship_credits(character_id, player_data["credits"])
     character = world.characters.get(character_id)
     if character and "player_type" in player_data:
         character.player_type = player_data["player_type"]
@@ -142,6 +142,7 @@ async def handle(payload: Dict[str, Any], world) -> dict:
         shields=ship_data.get("current_shields"),
         warp_power=ship_data.get("current_warp_power"),
         cargo=ship_data.get("cargo"),
+        credits=player_data.get("credits"),
     )
     apply_player_overrides(world, character_id, player_data)
     apply_ship_overrides(world, character_id, ship_data)

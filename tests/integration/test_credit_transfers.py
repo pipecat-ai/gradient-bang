@@ -90,8 +90,8 @@ class TestCreditTransfers:
             sender_status_before = await get_status(sender_client, sender_id)
             receiver_status_before = await get_status(receiver_client, receiver_id)
 
-            sender_credits_before = sender_status_before["player"]["credits_on_hand"]
-            receiver_credits_before = receiver_status_before["player"]["credits_on_hand"]
+            sender_credits_before = sender_status_before["ship"]["credits"]
+            receiver_credits_before = receiver_status_before["ship"]["credits"]
 
             assert sender_credits_before == 1000
             assert receiver_credits_before == 500
@@ -154,8 +154,8 @@ class TestCreditTransfers:
             sender_status_after = await get_status(sender_client, sender_id)
             receiver_status_after = await get_status(receiver_client, receiver_id)
 
-            assert sender_status_after["player"]["credits_on_hand"] == 700
-            assert receiver_status_after["player"]["credits_on_hand"] == 800
+            assert sender_status_after["ship"]["credits"] == 700
+            assert receiver_status_after["ship"]["credits"] == 800
 
         finally:
             await sender_client.close()
@@ -188,7 +188,7 @@ class TestCreditTransfers:
 
             # Verify transfer completed
             status = await get_status(client, sender_id)
-            assert status["player"]["credits_on_hand"] == 900
+            assert status["ship"]["credits"] == 900
 
             await receiver_client.close()
 

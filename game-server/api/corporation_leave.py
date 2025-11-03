@@ -4,14 +4,25 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
-from .utils import rpc_success
-from rpc.events import event_dispatcher, EventLogContext
+from .utils import rpc_success, build_log_context
+from rpc.events import event_dispatcher
 
 
 async def handle(request: dict, world) -> dict:
     character_id = request.get("character_id")
+    actor_character_id = request.get("actor_character_id")
     if not character_id:
         raise HTTPException(status_code=400, detail="Missing character_id")
+
+    if actor_character_id is not None:
+        if not isinstance(actor_character_id, str):
+            raise HTTPException(status_code=400, detail="actor_character_id must be a string")
+        if actor_character_id != character_id:
+            raise HTTPException(
+                status_code=400,
+                detail="actor_character_id must match character_id for corporation.leave",
+            )
+
     if character_id not in world.characters:
         raise HTTPException(status_code=404, detail="Character not found")
 
@@ -66,8 +77,23 @@ async def handle(request: dict, world) -> dict:
                     }
                 )
                 world.ships_manager.mark_as_unowned(ship_id, corp_name)
+                world.character_to_corp.pop(ship_id, None)
+                registry = getattr(world, "character_registry", None)
+                if registry is not None:
+                    registry.delete(ship_id)
+                    delete_knowledge = getattr(world.knowledge_manager, "delete_knowledge", None)
+                    if callable(delete_knowledge):
+                        delete_knowledge(ship_id)
+                world.characters.pop(ship_id, None)
 
         world.corporation_manager.delete(corp_id)
+
+        disband_context = build_log_context(
+            character_id=character_id,
+            world=world,
+            sector=character.sector,
+            corporation_id=corp_id,
+        )
 
         await event_dispatcher.emit(
             "corporation.disbanded",
@@ -78,11 +104,7 @@ async def handle(request: dict, world) -> dict:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },
             character_filter=[character_id],
-            log_context=EventLogContext(
-                sender=character_id,
-                sector=character.sector,
-                corporation_id=corp_id,
-            ),
+            log_context=disband_context,
         )
 
         if ship_details:
@@ -95,15 +117,17 @@ async def handle(request: dict, world) -> dict:
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 },
                 character_filter=[character_id],
-                log_context=EventLogContext(
-                    sender=character_id,
-                    sector=character.sector,
-                    corporation_id=corp_id,
-                ),
+                log_context=disband_context,
             )
     else:
         updated_corp = world.corporation_manager.load(corp_id)
         updated_members = list(updated_corp.get("members", []))
+        leave_context = build_log_context(
+            character_id=character_id,
+            world=world,
+            sector=character.sector,
+            corporation_id=corp_id,
+        )
         await event_dispatcher.emit(
             "corporation.member_left",
             {
@@ -115,11 +139,7 @@ async def handle(request: dict, world) -> dict:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },
             character_filter=updated_members,
-            log_context=EventLogContext(
-                sender=character_id,
-                sector=character.sector,
-                corporation_id=corp_id,
-            ),
+            log_context=leave_context,
         )
 
     return rpc_success({"success": True})

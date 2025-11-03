@@ -395,6 +395,10 @@ TEST_CHARACTER_IDS = [
     "test_bank_withdraw_wrong_sector",
     "test_bank_in_combat",
     "test_bank_opponent",
+    "test_bank_corp_founder",
+    "test_bank_corp_member",
+    "test_bank_corp_ship_founder",
+    "test_bank_corp_ship_member",
     # Credit transfer test characters (test_credit_transfers.py)
     "test_credit_sender",
     "test_credit_receiver",

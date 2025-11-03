@@ -154,11 +154,13 @@ class TestFinalizeCombat:
             },
         }
         world.knowledge_manager.load_knowledge.return_value = MagicMock()
+        loser_ship["state"]["credits"] = 1000
         world.knowledge_manager.get_ship.return_value = loser_ship
-        world.knowledge_manager.get_credits.side_effect = lambda char_id: (
+        world.knowledge_manager.get_ship_credits.side_effect = lambda char_id: (
             1000 if char_id == "loser1" else 500
         )
         world.knowledge_manager.create_ship_for_character = MagicMock()
+        world.knowledge_manager.update_ship_credits = MagicMock()
 
         # Mock salvage creation
         salvage_container = MagicMock()
@@ -189,7 +191,7 @@ class TestFinalizeCombat:
         assert convert_args.kwargs.get("abandon_existing") is True
 
         # Verify loser's credits cleared (went to salvage)
-        world.knowledge_manager.update_credits.assert_any_call("loser1", 0)
+        world.knowledge_manager.update_ship_credits.assert_any_call("loser1", 0)
 
         # Verify status updates emitted (loser and winner)
         assert emit_status_update.call_count >= 2
@@ -365,7 +367,8 @@ class TestFinalizeCombat:
         world = MagicMock()
         world.garrisons = AsyncMock()
         world.garrisons.list_sector = AsyncMock(return_value=[])
-        world.knowledge_manager.get_credits.return_value = 1000
+        world.knowledge_manager.get_ship_credits.return_value = 1000
+        world.knowledge_manager.update_ship_credits = MagicMock()
 
         emit_status_update = AsyncMock()
         event_dispatcher = AsyncMock()
@@ -375,4 +378,4 @@ class TestFinalizeCombat:
         )
 
         # Verify toll winnings distributed to winner
-        world.knowledge_manager.update_credits.assert_any_call("winner1", 1500)  # 1000 + 500
+        world.knowledge_manager.update_ship_credits.assert_any_call("winner1", 1500)  # 1000 + 500

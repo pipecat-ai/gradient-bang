@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "game-server"))
 
-from ships import ShipType
+from ships import ShipType, get_ship_stats
 from utils.api_client import AsyncGameClient, RPCError
 
 
@@ -38,6 +38,12 @@ async def main() -> int:
         help="Corporation ID (defaults to character's current corporation)",
     )
     parser.add_argument(
+        "--initial-credits",
+        type=int,
+        default=0,
+        help="Seed the new ship with this many onboard credits (deducted from bank)",
+    )
+    parser.add_argument(
         "--server",
         default="http://localhost:8000",
         help="Server base URL (default: %(default)s)",
@@ -48,6 +54,11 @@ async def main() -> int:
     ship_type = args.ship_type
     ship_name = args.ship_name
     corp_id = args.corp_id
+    initial_ship_credits = max(0, int(args.initial_credits))
+
+    stats = get_ship_stats(ShipType(ship_type))
+    ship_price = stats.price
+    total_cost = ship_price + initial_ship_credits
 
     try:
         async with AsyncGameClient(
@@ -68,26 +79,30 @@ async def main() -> int:
 
             # Extract bank balance
             bank_balance = 0
-            on_hand_credits = 0
+            ship_credits = 0
             if status_data:
                 payload = status_data.get('payload', status_data)
                 player = payload.get('player', {})
+                ship_payload = payload.get('ship', {})
                 bank_balance = player.get('credits_in_bank', 0)
-                on_hand_credits = player.get('credits_on_hand', 0)
+                ship_credits = ship_payload.get('credits', 0)
 
             print(f"Current balance:")
-            print(f"  On-hand credits: {on_hand_credits:,}")
+            print(f"  Ship credits: {ship_credits:,}")
             print(f"  Bank balance: {bank_balance:,}")
-            print(f"  Ship cost: 35,000 (from bank)")
+            print(f"  Ship cost: {ship_price:,} (from bank)")
+            if initial_ship_credits:
+                print(f"  Initial ship credits: {initial_ship_credits:,} (additional bank cost)")
+            print(f"  Total cost: {total_cost:,}")
             print()
 
-            if bank_balance < 35000:
+            if bank_balance < total_cost:
                 print(f"⚠ Warning: Insufficient bank balance!")
-                print(f"  Need: 35,000 credits in bank")
-                print(f"  Have: {bank_balance:,} in bank, {on_hand_credits:,} on hand")
+                print(f"  Need: {total_cost:,} credits in bank")
+                print(f"  Have: {bank_balance:,} in bank, {ship_credits:,} on ship")
                 print()
                 print(f"To deposit to bank:")
-                print(f"  uv run scripts/bank_deposit.py {character_id} 50000")
+                print(f"  uv run scripts/bank_deposit.py {character_id} {total_cost}")
                 print()
 
             # Build request payload
@@ -101,6 +116,8 @@ async def main() -> int:
                 request_payload["ship_name"] = ship_name
             if corp_id:
                 request_payload["corp_id"] = corp_id
+            if initial_ship_credits:
+                request_payload["initial_ship_credits"] = initial_ship_credits
 
             # Call ship.purchase endpoint
             result = await client._request("ship.purchase", request_payload)
@@ -110,7 +127,9 @@ async def main() -> int:
             print(f"  Ship Type: {result.get('ship_type')}")
             print(f"  Corporation ID: {result.get('corp_id')}")
             print(f"  Bank Balance After: {result.get('bank_after'):,}")
-            return 0
+            if initial_ship_credits:
+                print(f"  Ship Credits Seeded: {initial_ship_credits:,}")
+        return 0
 
     except RPCError as exc:
         print(f"Ship purchase failed: {exc}", file=sys.stderr)

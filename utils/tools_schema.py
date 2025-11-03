@@ -411,32 +411,80 @@ class TransferCredits(GameClientTool):
         )
 
 
-class BankTransfer(GameClientTool):
-    def __call__(self, direction, amount):
-        return self.game_client.bank_transfer(
-            direction=direction,
+class BankDeposit(GameClientTool):
+    def __call__(self, amount, target_player_name, ship_id=None, character_id=None):
+        payload = {
+            "amount": amount,
+            "target_player_name": target_player_name,
+        }
+        if ship_id is not None:
+            payload["ship_id"] = ship_id
+        if character_id is not None:
+            payload["character_id"] = character_id
+        elif ship_id is None:
+            payload["character_id"] = self.game_client.character_id
+
+        return self.game_client.deposit_to_bank(**payload)
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="bank_deposit",
+            description=(
+                "Deposit ship credits into a megaport bank account. "
+                "Provide your active ship automatically or specify a corporation ship. "
+                "You may only deposit to yourself or (when in the same corporation) to another member."
+            ),
+            properties={
+                "amount": {
+                    "type": "integer",
+                    "description": "Number of credits to deposit",
+                    "minimum": 1,
+                },
+                "ship_id": {
+                    "type": "string",
+                    "description": "ID of the ship funding the deposit (omit to use your active ship)",
+                },
+                "character_id": {
+                    "type": "string",
+                    "description": "Character initiating the deposit (defaults to the authenticated pilot)",
+                },
+                "target_player_name": {
+                    "type": "string",
+                    "description": "Display name of the bank account owner receiving the deposit",
+                    "minLength": 1,
+                },
+            },
+            required=["amount", "target_player_name"],
+        )
+
+
+class BankWithdraw(GameClientTool):
+    def __call__(self, amount, character_id=None):
+        if character_id is None:
+            character_id = self.game_client.character_id
+        return self.game_client.withdraw_from_bank(
             amount=amount,
-            character_id=self.game_client.character_id
+            character_id=character_id,
         )
 
     @classmethod
     def schema(cls):
         return FunctionSchema(
-            name="bank_transfer",
-            description="Move credits between your ship and the mega-port bank account in sector 0.",
+            name="bank_withdraw",
+            description="Withdraw credits from your own megaport bank account back onto your ship.",
             properties={
-                "direction": {
-                    "type": "string",
-                    "enum": ["deposit", "withdraw"],
-                    "description": "'deposit' to move ship credits into the bank, 'withdraw' to pull savings back aboard",
-                },
                 "amount": {
                     "type": "integer",
-                    "description": "Number of credits to move",
+                    "description": "Number of credits to withdraw",
                     "minimum": 1,
                 },
+                "character_id": {
+                    "type": "string",
+                    "description": "Character withdrawing funds (defaults to the authenticated pilot)",
+                },
             },
-            required=["direction", "amount"],
+            required=["amount"],
         )
 
 

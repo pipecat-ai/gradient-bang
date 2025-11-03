@@ -196,3 +196,108 @@ async def test_move_without_combat_does_not_emit(monkeypatch):
         call for call in emit_mock.await_args_list if call.args[0] == "combat.round_waiting"
     ]
     assert not combat_calls
+
+
+@pytest.mark.asyncio
+async def test_move_emits_garrison_character_moved_event(monkeypatch):
+    character_id = "pilot"
+    world = _build_world(character_id, encounter=None)
+
+    world.character_to_corp = {
+        "garrison-owner": "corp-123",
+        "corp-mate": "corp-123",
+    }
+
+    owner = Character("garrison-owner", sector=1, name="Corsair Pilot", connected=True)
+    corp_mate = Character("corp-mate", sector=3, name="Fleet Wing", connected=True)
+    world.characters.update({
+        owner.id: owner,
+        corp_mate.id: corp_mate,
+    })
+
+    class DummyGarrison:
+        def __init__(self):
+            self.owner_id = "garrison-owner"
+            self.mode = "defensive"
+            self.fighters = 18
+            self.toll_amount = 0
+            self.deployed_at = "2025-11-03T00:00:00Z"
+
+    garrison = DummyGarrison()
+
+    class DummyGarrisonStore:
+        async def list_sector(self, sector_id: int):
+            return [garrison] if sector_id == 1 else []
+
+    world.garrisons = DummyGarrisonStore()
+
+    monkeypatch.setattr(move, "ensure_not_in_combat", AsyncMock())
+    monkeypatch.setattr(
+        move,
+        "sector_contents",
+        AsyncMock(side_effect=[{"port": None}, {"port": None}]),
+    )
+    monkeypatch.setattr(move, "player_self", lambda _world, cid: {"player_id": cid})
+    monkeypatch.setattr(move, "ship_self", lambda _world, cid: {"ship_id": cid})
+    monkeypatch.setattr(move, "build_local_map_region", AsyncMock(return_value={"map": True}))
+    monkeypatch.setattr(move, "build_character_combatant", MagicMock())
+    monkeypatch.setattr(move, "serialize_round_waiting_event", AsyncMock())
+    monkeypatch.setattr(move, "start_sector_combat", AsyncMock())
+
+    def fake_build_character_moved_payload(
+        _world,
+        cid,
+        *,
+        move_type,
+        movement=None,
+        timestamp=None,
+        knowledge=None,
+        extra_fields=None,
+    ):
+        payload = {
+            "player": {"id": cid},
+            "ship": {"ship_name": "Test Ship"},
+        }
+        if movement is not None:
+            payload["movement"] = movement
+        if extra_fields:
+            payload.update(extra_fields)
+        return payload
+
+    monkeypatch.setattr(move, "build_character_moved_payload", fake_build_character_moved_payload)
+
+    emit_mock = AsyncMock()
+    monkeypatch.setattr(move.event_dispatcher, "emit", emit_mock)
+    monkeypatch.setattr(move.asyncio, "sleep", AsyncMock())
+
+    request = {
+        "character_id": character_id,
+        "to_sector": 1,
+    }
+
+    result = await move.handle(request, world)
+
+    assert result == {"success": True}
+
+    garrison_calls = [
+        recorded_call
+        for recorded_call in emit_mock.await_args_list
+        if recorded_call.args and recorded_call.args[0] == "garrison.character_moved"
+    ]
+    assert len(garrison_calls) == 1, "Expected garrison.character_moved emission"
+
+    event_name, payload = garrison_calls[0].args
+    assert event_name == "garrison.character_moved"
+    recipients = garrison_calls[0].kwargs.get("character_filter")
+    assert recipients == ["garrison-owner", "corp-mate"]
+    assert payload["movement"] == "arrive"
+    assert payload["player"]["id"] == character_id
+    assert payload["garrison"] == {
+        "owner_id": "garrison-owner",
+        "owner_name": "Corsair Pilot",
+        "corporation_id": "corp-123",
+        "fighters": 18,
+        "mode": "defensive",
+        "toll_amount": 0,
+        "deployed_at": "2025-11-03T00:00:00Z",
+    }

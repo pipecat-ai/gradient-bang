@@ -1,7 +1,36 @@
-  - ❌ Ship Purchase (personal or corporation)
-  - ❌ Corporation management (create, join, leave)
-  - ❌ MyMap (defined but not imported)
-  - ❌ StartTask/StopTask (defined but not imported)
+khkramer@boule:~/src/gradient-bang$ uv run scripts/character_create.py "Joe Player" --credits 100000
+✓ Character created successfully.
+  Name: Joe Player
+  Character ID: 297dee08-284c-4dd2-b46b-3504344a0df9
+
+export JOE=`uv run scripts/character_lookup.py "Joe Player"`
+
+uv run npc/run_npc.py $JOE "Where am I?"
+
+khkramer@boule:~/src/gradient-bang$ uv run scripts/corporation_create.py $JOE "Joe's Crew"
+✓ Corporation created successfully.
+  Name: Joe's Crew
+  Corp ID: 1d2e47c6-997c-46c7-b1e0-187b89b17812
+  Invite Code: d93d937a
+  Founder ID: 297dee08-284c-4dd2-b46b-3504344a0df9
+  Member Count: 1
+
+
+----
+
+1. Add credits to a corp ship when you purchase it. This is optional but highly recommended when you purchase a corp ship.
+2. FUNCTION wiring below
+3. Add corporation to ship payload for corp-owned ships.
+4. Add new ship types.
+
+----
+
+  - ADD - Ship Purchase (personal or corporation)
+  - ADD - Corporation management (create, join, leave)
+  - REMOVE - MyMap (defined but not imported)
+  - INVESTIGATE - StartTask/StopTask (defined but not imported)
+
+----
 
 khkramer@boule:~/src/gradient-bang$ uv run scripts/corporation_create.py `uv run scripts/character_lookup.py "Joe Player"` "Joe House"
 ✓ Corporation created successfully.

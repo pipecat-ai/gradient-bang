@@ -78,7 +78,7 @@ async def test_create_corporation_costs_credits(server_url, check_server_availab
         )
 
         status = await _status_snapshot(client, founder_id)
-        assert status["player"]["credits_on_hand"] == 15_000
+        assert status["ship"]["credits"] == 15_000
 
 
 @pytest.mark.asyncio

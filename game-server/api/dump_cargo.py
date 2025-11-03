@@ -14,8 +14,10 @@ from .utils import (
     ensure_not_in_combat,
     rpc_success,
     sector_contents,
+    enforce_actor_authorization,
+    build_log_context,
 )
-from rpc.events import event_dispatcher, EventLogContext
+from rpc.events import event_dispatcher
 
 VALID_COMMODITIES = {"quantum_foam", "retro_organics", "neuro_symbolics"}
 
@@ -78,6 +80,13 @@ async def handle(request: dict, world) -> dict:
             status_code=400, detail="Missing character_id or cargo manifest"
         )
 
+    enforce_actor_authorization(
+        world,
+        target_character_id=character_id,
+        actor_character_id=request.get("actor_character_id"),
+        admin_override=bool(request.get("admin_override")),
+    )
+
     if character_id not in world.characters:
         raise HTTPException(status_code=404, detail="Character not found")
 
@@ -126,7 +135,11 @@ async def handle(request: dict, world) -> dict:
         metadata=metadata,
     )
 
-    log_context = EventLogContext(sender=character_id, sector=character.sector)
+    log_context = build_log_context(
+        character_id=character_id,
+        world=world,
+        sector=character.sector,
+    )
     timestamp = datetime.now(timezone.utc).isoformat()
 
     # Build standardized salvage.created event (private - only dumper sees it)

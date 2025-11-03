@@ -350,10 +350,12 @@ class StatusBarUpdater:
 
     def update_from_bank_transaction(self, payload: dict) -> None:
         """Update credits based on bank.transaction event payload."""
-        on_hand = payload.get("credits_on_hand_after")
+        ship_credits = payload.get("ship_credits_after")
+        if not isinstance(ship_credits, int):
+            ship_credits = payload.get("credits_on_hand_after")
         bank_balance = payload.get("credits_in_bank_after")
-        if isinstance(on_hand, int):
-            self.state.credits = on_hand
+        if isinstance(ship_credits, int):
+            self.state.credits = ship_credits
         if isinstance(bank_balance, int):
             self.state.bank_credits = bank_balance
 
@@ -495,11 +497,15 @@ class StatusBarUpdater:
         player_data = payload.get("player", {})
         ship_data = payload.get("ship", {})
 
-        # Update credits from player
-        if "credits_on_hand" in player_data:
-            self.state.credits = player_data["credits_on_hand"]
-        if "credits_in_bank" in player_data:
-            self.state.bank_credits = player_data["credits_in_bank"]
+        # Update credits from payload
+        ship_credits = ship_data.get("credits")
+        if not isinstance(ship_credits, int):
+            ship_credits = player_data.get("credits_on_hand")
+        if isinstance(ship_credits, int):
+            self.state.credits = ship_credits
+        bank_credits = player_data.get("credits_in_bank")
+        if isinstance(bank_credits, int):
+            self.state.bank_credits = bank_credits
 
         # Update ship stats
         if "fighters" in ship_data:

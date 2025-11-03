@@ -88,6 +88,7 @@ class CharacterKnowledgeManager:
         warp_power: Optional[int] = None,
         cargo: Optional[Dict[str, int]] = None,
         modules: Optional[List[str]] = None,
+        credits: Optional[int] = None,
     ) -> str:
         self._require_ships_manager()
         ship_id = self._ships_manager.create_ship(
@@ -98,6 +99,10 @@ class CharacterKnowledgeManager:
             name=name,
         )
         state_updates: Dict[str, Any] = {}
+        initial_credits: Optional[int] = None
+        if credits is not None:
+            initial_credits = self._ships_manager.validate_ship_credits(ship_id, credits)
+            state_updates["credits"] = initial_credits
         stats = get_ship_stats(ship_type)
         if fighters is not None:
             state_updates["fighters"] = max(0, min(int(fighters), stats.fighters))
@@ -116,8 +121,57 @@ class CharacterKnowledgeManager:
             state_updates["modules"] = list(modules)
         if state_updates:
             self._ships_manager.update_ship_state(ship_id, **state_updates)
+        if hasattr(knowledge, "credits"):
+            if initial_credits is not None:
+                knowledge.credits = initial_credits
+            else:
+                ship_record = self._ships_manager.get_ship(ship_id)
+                if ship_record is not None:
+                    state = ship_record.get("state", {})
+                    knowledge.credits = int(state.get("credits", getattr(knowledge, "credits", 0)))
         knowledge.current_ship_id = ship_id
         return ship_id
+
+    def create_corp_ship_character(
+        self,
+        *,
+        ship_id: str,
+        corp_id: str,
+        sector: Optional[int] = None,
+        joined_at: Optional[str] = None,
+    ) -> MapKnowledge:
+        """Create or overwrite knowledge for a corporation-owned autonomous ship."""
+
+        self._require_ships_manager()
+        lock = self._locks.setdefault(ship_id, threading.Lock())
+        with lock:
+            ship = self._ships_manager.get_ship(ship_id)
+            if ship is None:
+                raise KeyError(f"Ship not found when creating corp character: {ship_id}")
+
+            now = datetime.now(timezone.utc).isoformat()
+            ship_sector = ship.get("sector", 0)
+            resolved_sector = ship_sector if sector is None else sector
+            ship_state = ship.get("state", {}) or {}
+            ship_credits = int(ship_state.get("credits", 0))
+
+            knowledge = MapKnowledge(
+                character_id=ship_id,
+                current_ship_id=ship_id,
+                current_sector=resolved_sector,
+                first_visit=now,
+                last_update=now,
+                credits=ship_credits,
+                credits_in_bank=0,
+                corporation={
+                    "corp_id": corp_id,
+                    "joined_at": joined_at or now,
+                },
+            )
+
+            self.cache[ship_id] = knowledge
+            self.save_knowledge(knowledge)
+            return knowledge
 
     def _ensure_ship(
         self,
@@ -151,6 +205,7 @@ class CharacterKnowledgeManager:
                     warp_power=warp_power,
                     cargo=cargo,
                     modules=modules,
+                    credits=getattr(knowledge, "credits", None),
                 )
             else:
                 state_updates: Dict[str, Any] = {}
@@ -181,8 +236,48 @@ class CharacterKnowledgeManager:
             return ship_id
 
         if ship is None:
-            ship_id = self._create_ship(knowledge, ShipType.KESTREL_COURIER)
+            ship_id = self._create_ship(
+                knowledge,
+                ShipType.KESTREL_COURIER,
+                credits=getattr(knowledge, "credits", None),
+            )
             return ship_id
+
+        # Short circuit for corporation-owned autonomous ships
+        if ship is not None:
+            is_corp_ship = (
+                ship.get("owner_type") == "corporation"
+                and ship.get("ship_id") == knowledge.character_id
+            )
+            if is_corp_ship:
+                save_required = False
+                knowledge.current_ship_id = ship["ship_id"]
+                sector = ship.get("sector")
+                if sector is not None and knowledge.current_sector != sector:
+                    knowledge.current_sector = sector
+                    save_required = True
+                owner_corp = ship.get("owner_id")
+                if owner_corp and (
+                    not isinstance(knowledge.corporation, dict)
+                    or knowledge.corporation.get("corp_id") != owner_corp
+                ):
+                    joined_at = None
+                    if isinstance(knowledge.corporation, dict):
+                        joined_at = knowledge.corporation.get("joined_at")
+                    knowledge.corporation = {
+                        "corp_id": owner_corp,
+                        "joined_at": joined_at or datetime.now(timezone.utc).isoformat(),
+                    }
+                    save_required = True
+                if hasattr(knowledge, "credits"):
+                    ship_state = ship.get("state", {}) or {}
+                    ship_credits = int(ship_state.get("credits", 0))
+                    if knowledge.credits != ship_credits:
+                        knowledge.credits = ship_credits
+                        save_required = True
+                if save_required:
+                    self.save_knowledge(knowledge)
+                return ship["ship_id"]
 
         # Update owner/sector if missing or stale
         owner_changed = False
@@ -193,13 +288,30 @@ class CharacterKnowledgeManager:
         if ship.get("sector") != self._default_sector(knowledge):
             self._ships_manager.move_ship(ship_id, self._default_sector(knowledge))
         knowledge.current_ship_id = ship_id
+        if hasattr(knowledge, "credits"):
+            ship_state = ship.get("state", {}) if ship else {}
+            ship_credits = int(ship_state.get("credits", 0))
+            legacy_credits = int(getattr(knowledge, "credits", 0))
+            if ship_credits == 0 and legacy_credits > 0:
+                try:
+                    validated = self._ships_manager.validate_ship_credits(ship_id, legacy_credits)
+                except ValueError:
+                    validated = 0
+                if validated != ship_credits:
+                    self._ships_manager.update_ship_state(ship_id, credits=validated)
+                    ship_credits = validated
+            knowledge.credits = ship_credits
         return ship_id
 
     def _get_ship(self, knowledge: MapKnowledge) -> dict:
         ship_id = self._ensure_ship(knowledge)
         ship = self._ships_manager.get_ship(ship_id)
         if ship is None:  # Should not happen, but guard
-            ship_id = self._create_ship(knowledge, ShipType.KESTREL_COURIER)
+            ship_id = self._create_ship(
+                knowledge,
+                ShipType.KESTREL_COURIER,
+                credits=getattr(knowledge, "credits", None),
+            )
             ship = self._ships_manager.get_ship(ship_id)
         return ship
 
@@ -221,6 +333,7 @@ class CharacterKnowledgeManager:
         sector: Optional[int] = None,
         abandon_existing: bool = False,
         former_owner_name: Optional[str] = None,
+        credits: Optional[int] = None,
     ) -> str:
         lock = self._locks.setdefault(character_id, threading.Lock())
         with lock:
@@ -245,6 +358,7 @@ class CharacterKnowledgeManager:
                 warp_power=warp_power,
                 cargo=cargo,
                 modules=modules,
+                credits=credits if credits is not None else getattr(knowledge, "credits", None),
             )
             self.save_knowledge(knowledge)
             return ship_id
@@ -421,15 +535,30 @@ class CharacterKnowledgeManager:
     # Credit helpers
     # ------------------------------------------------------------------
     def update_credits(self, character_id: str, credits: int) -> None:
+        self.update_ship_credits(character_id, credits)
+
+    def get_credits(self, character_id: str) -> int:
+        return self.get_ship_credits(character_id)
+
+    def update_ship_credits(self, character_id: str, credits: int) -> None:
         lock = self._locks.setdefault(character_id, threading.Lock())
         with lock:
             knowledge = self.load_knowledge(character_id)
-            knowledge.credits = max(0, credits)
+            ship = self._get_ship(knowledge)
+            ship_id = ship["ship_id"]
+            validated = self._ships_manager.validate_ship_credits(ship_id, credits)
+            self._ships_manager.update_ship_state(ship_id, credits=validated)
+            if hasattr(knowledge, "credits"):
+                knowledge.credits = validated
             self.save_knowledge(knowledge)
 
-    def get_credits(self, character_id: str) -> int:
+    def get_ship_credits(self, character_id: str) -> int:
         knowledge = self.load_knowledge(character_id)
-        return knowledge.credits
+        ship = self._get_ship(knowledge)
+        credits = int(ship.get("state", {}).get("credits", 0))
+        if hasattr(knowledge, "credits"):
+            knowledge.credits = credits
+        return credits
 
     def update_bank_credits(self, character_id: str, credits: int) -> None:
         lock = self._locks.setdefault(character_id, threading.Lock())

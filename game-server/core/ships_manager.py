@@ -103,6 +103,7 @@ class ShipsManager:
             "state": {
                 "fighters": stats.fighters,
                 "shields": stats.shields,
+                "credits": 0,
                 "cargo": {key: 0 for key in _CARGO_KEYS},
                 "cargo_holds": stats.cargo_holds,
                 "warp_power": stats.warp_power_capacity,
@@ -125,6 +126,7 @@ class ShipsManager:
         warp_power: Optional[int] = None,
         cargo: Optional[Dict[str, int]] = None,
         modules: Optional[List[str]] = None,
+        credits: Optional[int] = None,
     ) -> None:
         """Update mutable ship state fields with clamping."""
         ship_lock = self._get_ship_lock(ship_id)
@@ -154,8 +156,56 @@ class ShipsManager:
                             current_cargo[key] = max(0, int(cargo[key]))
                 if modules is not None:
                     state["modules"] = list(modules)
+                if credits is not None:
+                    clamped = max(0, int(credits))
+                    ship_type = ShipType(ship["ship_type"])
+                    if ship_type == ShipType.ESCAPE_POD and clamped > 0:
+                        raise ValueError("Escape pods cannot hold credits")
+                    state["credits"] = clamped
 
                 self._flush_locked()
+
+    def validate_ship_credits(self, ship_id: str, credits: int) -> int:
+        """Validate a prospective credit balance for a ship."""
+        ship = self.get_ship(ship_id)
+        if ship is None:
+            raise KeyError(f"Ship not found: {ship_id}")
+        ship_type = ShipType(ship["ship_type"])
+        value = max(0, int(credits))
+        if ship_type == ShipType.ESCAPE_POD and value > 0:
+            raise ValueError("Escape pods cannot hold credits")
+        return value
+
+    def transfer_credits_between_ships(self, from_ship_id: str, to_ship_id: str, amount: int) -> None:
+        """Transfer credits from one ship to another with validation."""
+        if amount <= 0:
+            raise ValueError("Transfer amount must be positive")
+
+        from_ship = self.get_ship(from_ship_id)
+        if from_ship is None:
+            raise KeyError(f"Ship not found: {from_ship_id}")
+
+        to_ship = self.get_ship(to_ship_id)
+        if to_ship is None:
+            raise KeyError(f"Ship not found: {to_ship_id}")
+
+        from_state = from_ship.get("state", {})
+        to_state = to_ship.get("state", {})
+
+        from_credits = int(from_state.get("credits", 0))
+        to_credits = int(to_state.get("credits", 0))
+
+        if from_credits < amount:
+            raise ValueError(f"Insufficient credits: have {from_credits}, need {amount}")
+
+        if ShipType(to_ship["ship_type"]) == ShipType.ESCAPE_POD and amount > 0:
+            raise ValueError("Cannot transfer credits to an escape pod")
+
+        new_from = from_credits - amount
+        new_to = to_credits + amount
+
+        self.update_ship_state(from_ship_id, credits=new_from)
+        self.update_ship_state(to_ship_id, credits=new_to)
 
     def move_ship(self, ship_id: str, to_sector: int) -> None:
         ship_lock = self._get_ship_lock(ship_id)

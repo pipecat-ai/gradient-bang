@@ -5,6 +5,8 @@
 
 Background: planning-files/test-suite-rewrite-plan.md
 
+**Legacy Note (2025-11-03):** The `tests/integration-old/` suite is now out of scope and should not be executed. Focus remaining work on `tests/integration/` plus unit coverage.
+
 ---
 
 ## Initial Problem Statement - Trading Tests
@@ -432,7 +434,7 @@ SAVE_KNOWLEDGE DEBUG: Saving test_trader_at_port with 5 sectors
        client.remove_event_handler(token)
    ```
 
-4. **Fixed field name** (replaced all `["player"]["credits"]` with `["player"]["credits_on_hand"]`)
+4. **Updated credit assertions** (now rely on `status["ship"]["credits"]`)
 
 ### Step 13: RESULTS ✅
 
@@ -1070,11 +1072,11 @@ status = {
 }
 ```
 
-**Correct Field Access**:
-- ✅ Credits: `status["player"]["credits_on_hand"]`
-- ❌ NOT: `status["player"]["credits"]`
+**Correct Field Access** (post ship-credit migration):
+- ✅ Ship credits: `status["ship"]["credits"]`
+- ✅ Bank balance: `status["player"]["credits_in_bank"]`
 - ✅ Cargo: `status["ship"]["cargo"]`
-- ❌ NOT: `status["player"]["cargo"]`
+- ❌ NOT: `status["player"]["credits"]` or `status["player"]["cargo"]`
 
 **Trade Event Structure**:
 ```python

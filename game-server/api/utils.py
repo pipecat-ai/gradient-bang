@@ -1,3 +1,4 @@
+import inspect
 import json
 from copy import deepcopy
 from collections import deque
@@ -27,6 +28,63 @@ def rpc_success(data: Dict[str, Any] | None = None) -> Dict[str, Any]:
     if data:
         response.update(data)
     return response
+
+
+def enforce_actor_authorization(
+    world,
+    *,
+    target_character_id: str,
+    actor_character_id: Optional[str],
+    admin_override: bool = False,
+) -> None:
+    """Ensure the actor is authorized to control the target entity.
+
+    For corporation-owned autonomous ships we require that the actor be a
+    member of the owning corporation unless an explicit admin override is set.
+    """
+
+    ships_manager = getattr(world, "ships_manager", None)
+    if ships_manager is None:
+        return
+
+    try:
+        ship = ships_manager.get_ship(target_character_id)
+    except KeyError:
+        ship = None
+
+    if not ship or ship.get("ship_id") != target_character_id:
+        # Target is not a ship; nothing to enforce
+        return
+
+    if ship.get("owner_type") != "corporation":
+        return
+
+    if admin_override:
+        return
+
+    if not actor_character_id:
+        raise HTTPException(
+            status_code=400,
+            detail="actor_character_id is required when controlling a corporation ship",
+        )
+
+    corp_id = ship.get("owner_id")
+    if not corp_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Corporation ship is missing ownership data",
+        )
+
+    corp_cache = getattr(world, "character_to_corp", None)
+    actor_corp_id = None
+    if isinstance(corp_cache, dict):
+        actor_corp_id = corp_cache.get(actor_character_id)
+
+    if actor_corp_id != corp_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Actor is not authorized to control this corporation ship",
+        )
 
 
 def _get_character_ship(world, character_id: str):
@@ -75,7 +133,14 @@ def build_public_player_data(world, character_id: str) -> Dict[str, Any]:
             except FileNotFoundError:
                 corp = None
             if corp and corp.get("name"):
-                corp_info = {"name": corp.get("name")}
+                corp_info = {
+                    "corp_id": corp_id,
+                    "name": corp.get("name"),
+                }
+                if character.player_type != "corporation_ship":
+                    corp_info["member_count"] = len(corp.get("members", []) or [])
+        if corp_info is None:
+            corp_info = {"corp_id": corp_id}
 
     return {
         "created_at": character.first_visit.isoformat(),
@@ -142,6 +207,108 @@ def build_character_moved_payload(
     return payload
 
 
+async def emit_garrison_character_moved_event(
+    world,
+    dispatcher,
+    *,
+    sector_id: int,
+    payload: Dict[str, Any],
+) -> None:
+    """Emit garrison.character_moved to connected corp members when applicable."""
+
+    garrison_store = getattr(world, "garrisons", None)
+    if not garrison_store:
+        return
+
+    list_sector = getattr(garrison_store, "list_sector", None)
+    if list_sector is None:
+        return
+
+    garrisons = list_sector(sector_id)
+    if inspect.isawaitable(garrisons):
+        garrisons = await garrisons
+    if not garrisons:
+        return
+
+    character_to_corp = getattr(world, "character_to_corp", None)
+    if not isinstance(character_to_corp, dict):
+        return
+
+    characters = getattr(world, "characters", {})
+
+    for garrison in garrisons or []:
+        owner_id = getattr(garrison, "owner_id", None)
+        if owner_id is None and isinstance(garrison, dict):
+            owner_id = garrison.get("owner_id")
+        if not owner_id:
+            continue
+
+        corp_id = character_to_corp.get(owner_id)
+        if not corp_id:
+            continue
+
+        recipients: list[str] = []
+        owner_state = characters.get(owner_id)
+        if owner_state and getattr(owner_state, "connected", False):
+            recipients.append(owner_id)
+
+        for character_id, character in characters.items():
+            if character_id == owner_id:
+                continue
+            if not getattr(character, "connected", False):
+                continue
+            if character_to_corp.get(character_id) == corp_id:
+                recipients.append(character_id)
+
+        if not recipients:
+            continue
+
+        recipients = list(dict.fromkeys(recipients))
+
+        fighters = getattr(garrison, "fighters", None)
+        if fighters is None and isinstance(garrison, dict):
+            fighters = garrison.get("fighters")
+
+        toll_amount = getattr(garrison, "toll_amount", None)
+        if toll_amount is None and isinstance(garrison, dict):
+            toll_amount = garrison.get("toll_amount")
+
+        deployed_at = getattr(garrison, "deployed_at", None)
+        if deployed_at is None and isinstance(garrison, dict):
+            deployed_at = garrison.get("deployed_at")
+
+        mode = getattr(garrison, "mode", None)
+        if mode is None and isinstance(garrison, dict):
+            mode = garrison.get("mode")
+
+        garrison_payload = {
+            "owner_id": owner_id,
+            "owner_name": resolve_character_name(world, owner_id),
+            "corporation_id": corp_id,
+            "fighters": fighters,
+            "mode": mode,
+            "toll_amount": toll_amount,
+            "deployed_at": deployed_at,
+        }
+
+        event_payload = deepcopy(payload)
+        event_payload["garrison"] = garrison_payload
+
+        log_context = build_log_context(
+            character_id=owner_id,
+            world=world,
+            sector=sector_id,
+            corporation_id=corp_id,
+        )
+
+        await dispatcher.emit(
+            "garrison.character_moved",
+            event_payload,
+            character_filter=recipients,
+            log_context=log_context,
+        )
+
+
 def build_event_source(
     endpoint: str,
     request_id: str,
@@ -189,6 +356,7 @@ def build_log_context(
     meta: dict | None = None,
     payload_override: dict | None = None,
     timestamp: datetime | None = None,
+    corporation_id: str | None = None,
 ) -> EventLogContext:
     """Create a reusable EventLogContext with optional sector inference."""
 
@@ -198,9 +366,16 @@ def build_log_context(
         if character:
             resolved_sector = getattr(character, "sector", None)
 
+    resolved_corp = corporation_id
+    if resolved_corp is None and world and character_id:
+        corp_cache = getattr(world, "character_to_corp", None)
+        if isinstance(corp_cache, dict):
+            resolved_corp = corp_cache.get(character_id)
+
     return EventLogContext(
         sender=character_id,
         sector=resolved_sector,
+        corporation_id=resolved_corp,
         meta=meta,
         payload_override=payload_override,
         timestamp=timestamp,
@@ -267,14 +442,21 @@ def log_trade(
 def player_self(world, character_id: str) -> Dict[str, Any]:
     """Build player status for player's own character."""
     character = world.characters[character_id]
-    return {
-        "created_at": character.first_visit.isoformat(),
-        "last_active": character.last_active.isoformat(),
+    player_type = getattr(character, "player_type", "human")
+    payload = {
         "id": character.id,
         "name": getattr(character, "name", character.id),
-        "credits_on_hand": world.knowledge_manager.get_credits(character_id),
+        "player_type": player_type,
         "credits_in_bank": world.knowledge_manager.get_bank_credits(character_id),
     }
+    if player_type != "corporation_ship":
+        payload.update(
+            {
+                "created_at": character.first_visit.isoformat(),
+                "last_active": character.last_active.isoformat(),
+            }
+        )
+    return payload
 
 
 def ship_self(world, character_id: str) -> Dict[str, Any]:
@@ -298,8 +480,10 @@ def ship_self(world, character_id: str) -> Dict[str, Any]:
     empty_holds = cargo_capacity - cargo_used
 
     return {
+        "ship_id": ship.get("ship_id"),
         "ship_type": ship_type_value,
         "ship_name": display_name,
+        "credits": int(state.get("credits", 0)),
         "cargo": cargo,
         "cargo_capacity": cargo_capacity,
         "empty_holds": empty_holds,
@@ -484,9 +668,20 @@ async def build_status_payload(
                 corp_payload = {
                     "corp_id": corp_id,
                     "name": corp.get("name"),
-                    "member_count": len(corp.get("members", []) or []),
-                    "joined_at": corp_membership.get("joined_at"),
                 }
+                player_type = getattr(character, "player_type", "human")
+                if player_type != "corporation_ship":
+                    corp_payload.update(
+                        {
+                            "member_count": len(corp.get("members", []) or []),
+                            "joined_at": corp_membership.get("joined_at"),
+                        }
+                    )
+        else:
+            # Even if the corporation manager cannot load the corp (e.g., data
+            # mutation in progress), surface the identifier so clients can fall
+            # back to corp-level queries.
+            corp_payload = {"corp_id": corp_id}
 
     return {
         "player": player_self(world, character_id),
@@ -540,12 +735,21 @@ def _build_corp_ship_summaries(world, corp: dict) -> List[Dict[str, Any]]:
         state = ship.get("state", {})
         cargo = state.get("cargo", {})
 
+        control_ready = False
+        knowledge_manager = getattr(world, "knowledge_manager", None)
+        if knowledge_manager is not None:
+            try:
+                control_ready = knowledge_manager.has_knowledge(ship_id)
+            except Exception:  # noqa: BLE001
+                control_ready = False
+
         summary = {
             "ship_id": ship_id,
             "ship_type": ship_type_value,
             "name": ship.get("name") or (ship_stats.name if ship_stats else ship_type_value),
             "sector": ship.get("sector"),
             "owner_type": ship.get("owner_type"),
+            "control_ready": control_ready,
         }
 
         # Add detailed stats if available

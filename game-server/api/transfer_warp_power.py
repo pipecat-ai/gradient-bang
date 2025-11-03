@@ -11,8 +11,10 @@ from .utils import (
     emit_error_event,
     resolve_sector_character_id,
     ensure_not_in_combat,
+    enforce_actor_authorization,
+    build_log_context,
 )
-from rpc.events import event_dispatcher, EventLogContext
+from rpc.events import event_dispatcher
 
 
 async def _fail(
@@ -41,6 +43,13 @@ async def handle(request: dict, world) -> dict:
 
     if not all([from_character_id, units]):
         raise HTTPException(status_code=400, detail="Missing required parameters")
+
+    enforce_actor_authorization(
+        world,
+        target_character_id=from_character_id,
+        actor_character_id=request.get("actor_character_id"),
+        admin_override=bool(request.get("admin_override")),
+    )
     if not isinstance(to_player_name, str) or not to_player_name.strip():
         raise HTTPException(
             status_code=400,
@@ -113,7 +122,16 @@ async def handle(request: dict, world) -> dict:
     )
 
     timestamp = datetime.now(timezone.utc).isoformat()
-    log_context = EventLogContext(sender=from_character_id, sector=from_character.sector)
+    sender_context = build_log_context(
+        character_id=from_character_id,
+        world=world,
+        sector=from_character.sector,
+    )
+    receiver_context = build_log_context(
+        character_id=to_character_id,
+        world=world,
+        sector=from_character.sector,
+    )
 
     # Build reusable data for new unified transfer payload
     source = build_event_source("transfer_warp_power", request_id)
@@ -135,7 +153,7 @@ async def handle(request: dict, world) -> dict:
             "source": source,
         },
         character_filter=[from_character_id],
-        log_context=log_context,
+        log_context=sender_context,
     )
 
     # Emit to receiver with direction="received"
@@ -151,10 +169,15 @@ async def handle(request: dict, world) -> dict:
             "source": source,
         },
         character_filter=[to_character_id],
-        log_context=log_context,
+        log_context=receiver_context,
     )
     for cid in (from_character_id, to_character_id):
         payload = await build_status_payload(world, cid)
-        await event_dispatcher.emit("status.update", payload, character_filter=[cid], log_context=log_context)
+        await event_dispatcher.emit(
+            "status.update",
+            payload,
+            character_filter=[cid],
+            log_context=(sender_context if cid == from_character_id else receiver_context),
+        )
 
     return rpc_success()

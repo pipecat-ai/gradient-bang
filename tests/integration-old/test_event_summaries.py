@@ -31,8 +31,9 @@ def test_movement_complete_summary_applied() -> None:
     client = _make_client()
 
     payload = {
-        "player": {"name": "test_char", "credits_on_hand": 100},
+        "player": {"name": "test_char"},
         "ship": {
+            "credits": 100,
             "cargo": {"quantum_foam": 1, "retro_organics": 2, "neuro_symbolics": 3},
             "cargo_capacity": 10,
             "warp_power": 50,
@@ -82,8 +83,8 @@ def test_trade_executed_summary_embeds_player_info() -> None:
     client = _make_client()
 
     payload = {
-        "player": {"name": "Trader", "credits_on_hand": 1500},
-        "ship": {"cargo": {"quantum_foam": 5}, "fighters": 20},
+        "player": {"name": "Trader"},
+        "ship": {"credits": 1500, "cargo": {"quantum_foam": 5}, "fighters": 20},
     }
 
     event = client._format_event("trade.executed", payload)
@@ -100,11 +101,11 @@ def test_status_snapshot_summary_present() -> None:
     payload = {
         "player": {
             "name": "Explorer",
-            "credits_on_hand": 900,
         },
         "ship": {
             "ship_name": "Kestrel Courier",
             "ship_type": "kestrel_courier",
+            "credits": 900,
             "cargo": {"quantum_foam": 1, "retro_organics": 0, "neuro_symbolics": 0},
             "cargo_capacity": 30,
             "warp_power": 290,
@@ -132,8 +133,8 @@ def test_status_update_summary_is_concise() -> None:
     client = _make_client()
 
     payload = {
-        "player": {"credits_on_hand": 1234},
         "ship": {
+            "credits": 1234,
             "warp_power": 90,
             "warp_power_capacity": 300,
             "shields": 140,

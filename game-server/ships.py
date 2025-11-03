@@ -18,6 +18,8 @@ class ShipType(str, Enum):
     PIONEER_LIFTER = "pioneer_lifter"
     SOVEREIGN_STARCRUISER = "sovereign_starcruiser"
     ESCAPE_POD = "escape_pod"
+    AUTONOMOUS_PROBE = "autonomous_probe"
+    AUTONOMOUS_LIGHT_HAULER = "autonomous_light_hauler"
 
 
 @dataclass
@@ -180,6 +182,32 @@ SHIP_REGISTRY = {
         warp_power_capacity=800,
         equipment_slots=0,
         built_in_features=["indestructible"]
+    ),
+    ShipType.AUTONOMOUS_PROBE: ShipStats(
+        name="Autonomous Probe",
+        role="autonomous",
+        price=1000,
+        trade_in_value=0,
+        cargo_holds=0,
+        fighters=10,
+        shields=0,
+        turns_per_warp=1,
+        warp_power_capacity=500,
+        equipment_slots=0,
+        built_in_features=[],
+    ),
+    ShipType.AUTONOMOUS_LIGHT_HAULER: ShipStats(
+        name="Autonomous Light Hauler",
+        role="autonomous",
+        price=5000,
+        trade_in_value=0,
+        cargo_holds=20,
+        fighters=10,
+        shields=0,
+        turns_per_warp=5,
+        warp_power_capacity=500,
+        equipment_slots=0,
+        built_in_features=[],
     ),
 }
 

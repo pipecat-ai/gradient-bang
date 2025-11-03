@@ -27,7 +27,8 @@ from utils.tools_schema import (
     RechargeWarpPower,
     TransferWarpPower,
     TransferCredits,
-    BankTransfer,
+    BankDeposit,
+    BankWithdraw,
     DumpCargo,
     SendMessage,
     CombatInitiate,
@@ -179,7 +180,10 @@ class VoiceTaskManager:
             "transfer_credits": lambda **kwargs: self.game_client.transfer_credits(
                 character_id=self.character_id, **kwargs
             ),
-            "bank_transfer": lambda **kwargs: self.game_client.bank_transfer(
+            "bank_deposit": lambda **kwargs: self.game_client.deposit_to_bank(
+                character_id=self.character_id, **kwargs
+            ),
+            "bank_withdraw": lambda **kwargs: self.game_client.withdraw_from_bank(
                 character_id=self.character_id, **kwargs
             ),
             "combat_initiate": lambda **kwargs: self.game_client.combat_initiate(
@@ -499,7 +503,8 @@ class VoiceTaskManager:
                 RechargeWarpPower.schema(),
                 TransferWarpPower.schema(),
                 TransferCredits.schema(),
-                BankTransfer.schema(),
+                BankDeposit.schema(),
+                BankWithdraw.schema(),
                 SendMessage.schema(),
                 CombatInitiate.schema(),
                 CombatAction.schema(),

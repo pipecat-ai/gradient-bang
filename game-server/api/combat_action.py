@@ -4,7 +4,12 @@ from fastapi import HTTPException
 
 from combat.models import CombatantAction
 from api.move import parse_move_destination, validate_move_destination
-from .utils import rpc_success, build_event_source
+from .utils import (
+    rpc_success,
+    build_event_source,
+    enforce_actor_authorization,
+    build_log_context,
+)
 from rpc.events import event_dispatcher
 
 
@@ -18,6 +23,13 @@ async def handle(request: dict, world) -> dict:
 
     if not character_id or not combat_id or not action_raw:
         raise HTTPException(status_code=400, detail="Missing required fields")
+
+    enforce_actor_authorization(
+        world,
+        target_character_id=character_id,
+        actor_character_id=request.get("actor_character_id"),
+        admin_override=bool(request.get("admin_override")),
+    )
 
     if character_id in world.characters:
         character = world.characters[character_id]
@@ -118,6 +130,7 @@ async def handle(request: dict, world) -> dict:
         "combat.action_accepted",
         event_payload,
         character_filter=[character_id],
+        log_context=build_log_context(character_id=character_id, world=world),
     )
 
     return rpc_success({"combat_id": combat_id})

@@ -13,6 +13,9 @@ from .utils import (
     build_event_source,
     rpc_success,
     build_character_moved_payload,
+    enforce_actor_authorization,
+    build_log_context,
+    emit_garrison_character_moved_event,
 )
 from ships import ShipType, get_ship_stats, ShipStats
 from rpc.events import event_dispatcher
@@ -104,6 +107,13 @@ async def handle(request: dict, world) -> dict:
     if not character_id:
         raise HTTPException(status_code=400, detail="Missing character_id")
 
+    enforce_actor_authorization(
+        world,
+        target_character_id=character_id,
+        actor_character_id=request.get("actor_character_id"),
+        admin_override=bool(request.get("admin_override")),
+    )
+
     request_id = request.get("request_id")
     await ensure_not_in_combat(world, character_id)
 
@@ -153,16 +163,24 @@ async def handle(request: dict, world) -> dict:
             if info.sector == old_sector and cid != character_id
         ]
         if departing_observers:
-            from rpc.events import EventLogContext
+            depart_context = build_log_context(
+                character_id=character_id,
+                world=world,
+                sector=old_sector,
+            )
             await event_dispatcher.emit(
                 "character.moved",
                 observer_payload,
                 character_filter=departing_observers,
-                log_context=EventLogContext(
-                    sender=character_id,
-                    sector=old_sector,
-                ),
+                log_context=depart_context,
             )
+
+        await emit_garrison_character_moved_event(
+            world,
+            event_dispatcher,
+            sector_id=old_sector,
+            payload=observer_payload,
+        )
 
         logger.info(
             "Character %s entering hyperspace to sector %s (ETA: %.2fs)",
@@ -175,6 +193,11 @@ async def handle(request: dict, world) -> dict:
         destination_sector_contents = await sector_contents(
             world, to_sector, character_id
         )
+        move_start_context = build_log_context(
+            character_id=character_id,
+            world=world,
+            sector=character.sector,
+        )
         await event_dispatcher.emit(
             "movement.start",
             {
@@ -182,6 +205,7 @@ async def handle(request: dict, world) -> dict:
                 "hyperspace_time": delay_seconds,
             },
             character_filter=[character_id],
+            log_context=move_start_context,
         )
 
         # Wait for hyperspace transit
@@ -201,6 +225,11 @@ async def handle(request: dict, world) -> dict:
         # Send movement.complete and map.local events to the character
         # get sector contents again in case things changed
         new_sector_contents = await sector_contents(world, to_sector, character_id)
+        move_complete_context = build_log_context(
+            character_id=character_id,
+            world=world,
+            sector=character.sector,
+        )
         await event_dispatcher.emit(
             "movement.complete",
             {
@@ -209,6 +238,7 @@ async def handle(request: dict, world) -> dict:
                 "sector": new_sector_contents,
             },
             character_filter=[character_id],
+            log_context=move_complete_context,
         )
 
         # Update sector visit in knowledge manager before sending map data so the
@@ -232,6 +262,7 @@ async def handle(request: dict, world) -> dict:
             "map.local",
             map_data,
             character_filter=[character_id],
+            log_context=move_complete_context,
         )
 
         # Check/join combat encounters (if any exist in destination)
@@ -304,6 +335,7 @@ async def handle(request: dict, world) -> dict:
                     "combat.round_waiting",
                     round_waiting_payload,
                     character_filter=[character_id],
+                    log_context=move_complete_context,
                 )
 
         # Send character.moved with movement: "arrive" to new sector observers
@@ -323,16 +355,24 @@ async def handle(request: dict, world) -> dict:
             and not info.in_hyperspace
         ]
         if arriving_observers:
-            from rpc.events import EventLogContext
+            arrival_context = build_log_context(
+                character_id=character_id,
+                world=world,
+                sector=to_sector,
+            )
             await event_dispatcher.emit(
                 "character.moved",
                 observer_payload,
                 character_filter=arriving_observers,
-                log_context=EventLogContext(
-                    sender=character_id,
-                    sector=to_sector,
-                ),
+                log_context=arrival_context,
             )
+
+        await emit_garrison_character_moved_event(
+            world,
+            event_dispatcher,
+            sector_id=to_sector,
+            payload=observer_payload,
+        )
 
         # Return minimal RPC acknowledgment; movement.complete carries status payload
         return rpc_success()

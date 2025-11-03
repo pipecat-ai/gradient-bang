@@ -4,14 +4,24 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
-from .utils import rpc_success
-from rpc.events import event_dispatcher, EventLogContext
+from .utils import rpc_success, build_log_context
+from rpc.events import event_dispatcher
 
 
 async def handle(request: dict, world) -> dict:
     character_id = request.get("character_id")
     corp_id = request.get("corp_id")
     invite_code = request.get("invite_code", "")
+    actor_character_id = request.get("actor_character_id")
+
+    if actor_character_id is not None:
+        if not isinstance(actor_character_id, str):
+            raise HTTPException(status_code=400, detail="actor_character_id must be a string")
+        if actor_character_id != character_id:
+            raise HTTPException(
+                status_code=400,
+                detail="actor_character_id must match character_id for corporation.join",
+            )
 
     if not character_id or not corp_id or not invite_code:
         raise HTTPException(status_code=400, detail="Missing character_id, corp_id, or invite_code")
@@ -53,8 +63,9 @@ async def handle(request: dict, world) -> dict:
             "timestamp": now,
         },
         character_filter=members,
-        log_context=EventLogContext(
-            sender=character_id,
+        log_context=build_log_context(
+            character_id=character_id,
+            world=world,
             sector=character.sector,
             corporation_id=corp_id,
         ),

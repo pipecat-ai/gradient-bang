@@ -318,8 +318,8 @@ class TestTradeEvents:
         assert "request_id" in payload["source"]
         assert payload["player"]["id"] == "test_char_events"
         assert payload["player"]["name"] == "test_char_events"
-        assert "credits_on_hand" in payload["player"]
-        assert payload["player"]["credits_on_hand"] == payload["trade"]["new_credits"]
+        assert "credits" in payload["ship"]
+        assert payload["ship"]["credits"] == payload["trade"]["new_credits"]
 
         ship_data = payload["ship"]
         assert "cargo" in ship_data

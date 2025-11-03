@@ -95,6 +95,7 @@ def _ensure_ship_record(
     cargo: Optional[Dict[str, int]] = None,
     ship_name: Optional[str] = None,
     modules: Optional[list[str]] = None,
+    credits: Optional[int] = None,
 ) -> str:
     ships = _load_ships()
     ship_id = _ship_id(character_id)
@@ -172,6 +173,11 @@ def _ensure_ship_record(
     if modules is not None:
         state["modules"] = list(modules)
 
+    if credits is not None:
+        state["credits"] = max(0, int(credits))
+    else:
+        state.setdefault("credits", state.get("credits", 0))
+
     ships[ship_id] = record
     _save_ships(ships)
     return ship_id
@@ -246,6 +252,7 @@ def create_test_character_knowledge(
         cargo=cargo,
         ship_name=ship_name,
         modules=modules,
+        credits=credits,
     )
 
     knowledge = {

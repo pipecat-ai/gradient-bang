@@ -30,8 +30,8 @@ async def reset_corporation_test_state(server_url: str) -> None:
         await client.close()
 
     ships_path = Path("tests/test-world-data/ships.json")
-    if ships_path.exists():
-        ships_path.unlink()
+    ships_path.parent.mkdir(parents=True, exist_ok=True)
+    ships_path.write_text("{}\n", encoding="utf-8")
 
 
 @asynccontextmanager

@@ -148,14 +148,15 @@ async def test_credits_stay_with_character(world_factory):
     world, _ = world_factory(character_id)
 
     await _join(world, character_id)
-    world.knowledge_manager.update_credits(character_id, 2500)
+    world.knowledge_manager.update_ship_credits(character_id, 2500)
 
     knowledge = world.knowledge_manager.load_knowledge(character_id)
     ship = world.knowledge_manager.get_ship(character_id)
 
-    assert knowledge.credits == 2500
-    assert "credits" not in ship
-    assert "credits" not in ship.get("state", {})
+    assert world.knowledge_manager.get_ship_credits(character_id) == 2500
+    assert ship.get("state", {}).get("credits") == 2500
+    if hasattr(knowledge, "credits"):
+        assert knowledge.credits == 2500
 
 
 @pytest.mark.asyncio

@@ -12,8 +12,10 @@ from .utils import (
     build_event_source,
     build_status_payload,
     rpc_success,
+    enforce_actor_authorization,
+    build_log_context,
 )
-from rpc.events import event_dispatcher, EventLogContext
+from rpc.events import event_dispatcher
 from trading import TradingError
 from ships import ShipType, get_ship_stats
 
@@ -27,6 +29,14 @@ async def handle(request: dict, world, port_locks=None) -> dict:
 
     if not all([character_id, commodity, quantity, trade_type]):
         raise HTTPException(status_code=400, detail="Missing required parameters")
+
+    enforce_actor_authorization(
+        world,
+        target_character_id=character_id,
+        actor_character_id=request.get("actor_character_id"),
+        admin_override=bool(request.get("admin_override")),
+    )
+
     if character_id not in world.characters:
         raise HTTPException(status_code=404, detail="Character not found")
 
@@ -108,13 +118,18 @@ async def _execute_trade(
     )
 
     commodities = [("QF", "quantum_foam"), ("RO", "retro_organics"), ("NS", "neuro_symbolics")]
-    log_context = EventLogContext(sender=character_id, sector=character.sector)
+    log_context = build_log_context(
+        character_id=character_id,
+        world=world,
+        sector=character.sector,
+    )
 
     ship_id = getattr(knowledge, "current_ship_id", None)
     ship = world.ships_manager.get_ship(ship_id) if ship_id else None
     if ship is None:
         raise HTTPException(status_code=500, detail="Ship data unavailable")
     ship_state = ship.get("state", {})
+    ship_credits = int(ship_state.get("credits", 0))
     cargo_state = dict(ship_state.get("cargo", {}))
     for key in ("quantum_foam", "retro_organics", "neuro_symbolics"):
         cargo_state.setdefault(key, 0)
@@ -171,6 +186,11 @@ async def _execute_trade(
                 "updated_at": observation_time,
             },
             character_filter=characters_in_sector,
+            log_context=build_log_context(
+                character_id=character_id,
+                world=world,
+                sector=character.sector,
+            ),
         )
 
     if trade_type == "buy":
@@ -186,7 +206,7 @@ async def _execute_trade(
         )
         try:
             validate_buy_transaction(
-                knowledge.credits,
+                ship_credits,
                 sum(cargo_state.values()),
                 ship_stats.cargo_holds,
                 commodity,
@@ -197,8 +217,8 @@ async def _execute_trade(
         except TradingError as e:
             raise HTTPException(status_code=400, detail=str(e))
         total_price = price_per_unit * quantity
-        new_credits = knowledge.credits - total_price
-        world.knowledge_manager.update_credits(character_id, new_credits)
+        new_ship_credits = ship_credits - total_price
+        world.knowledge_manager.update_ship_credits(character_id, new_ship_credits)
         cargo_state[commodity] += quantity
         world.ships_manager.update_ship_state(ship_id, cargo=cargo_state)
         world.port_manager.update_port_inventory(
@@ -216,7 +236,7 @@ async def _execute_trade(
             quantity=quantity,
             price_per_unit=price_per_unit,
             total_price=total_price,
-            credits_after=new_credits,
+            credits_after=new_ship_credits,
         )
 
         # Emit trade.executed event to the trader
@@ -232,7 +252,7 @@ async def _execute_trade(
                     "units": quantity,
                     "price_per_unit": price_per_unit,
                     "total_price": total_price,
-                    "new_credits": new_credits,
+                    "new_credits": new_ship_credits,
                     "new_cargo": cargo_state,
                     "new_prices": new_prices,
                 },
@@ -275,8 +295,8 @@ async def _execute_trade(
         except TradingError as e:
             raise HTTPException(status_code=400, detail=str(e))
         total_price = price_per_unit * quantity
-        new_credits = knowledge.credits + total_price
-        world.knowledge_manager.update_credits(character_id, new_credits)
+        new_ship_credits = ship_credits + total_price
+        world.knowledge_manager.update_ship_credits(character_id, new_ship_credits)
         cargo_state[commodity] = max(0, cargo_state.get(commodity, 0) - quantity)
         world.ships_manager.update_ship_state(ship_id, cargo=cargo_state)
         world.port_manager.update_port_inventory(
@@ -294,7 +314,7 @@ async def _execute_trade(
             quantity=quantity,
             price_per_unit=price_per_unit,
             total_price=total_price,
-            credits_after=new_credits,
+            credits_after=new_ship_credits,
         )
 
         # Emit trade.executed event to the trader
@@ -310,7 +330,7 @@ async def _execute_trade(
                     "units": quantity,
                     "price_per_unit": price_per_unit,
                     "total_price": total_price,
-                    "new_credits": new_credits,
+                    "new_credits": new_ship_credits,
                     "new_cargo": cargo_state,
                     "new_prices": new_prices,
                 },

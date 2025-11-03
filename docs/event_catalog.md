@@ -7,6 +7,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 - Every event written to the audit log includes the standard envelope fields (`timestamp`, `direction`, `event`, `payload`, `sender`, `receiver`, `sector`, `meta`).
 - Starting with the corporation integration (Phase 5), events also record an optional `corporation_id`. The event dispatcher infers this automatically for corp-specific activity, and the value is surfaced both in `event-log.jsonl` and through the `event.query` API filter.
 - Earlier log entries (pre-Phase 5) simply omit `corporation_id`; consumers should treat the field as optional.
+- **Ship credits vs. player credits:** As of November 2025, liquid credits live on the ship record. Historical payload examples that reference `player.credits_on_hand` have been updated in production to use `ship.credits`. When reviewing legacy logs you may still encounter the older field name.
 
 ## System Events
 
@@ -533,14 +534,6 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 **Payload example:**
 ```json
 {
-  "player": {
-    "created_at": "2025-10-07T12:00:00.000Z",
-    "last_active": "2025-10-07T14:25:30.000Z",
-    "id": "trader",
-    "name": "trader",
-    "credits_on_hand": 15000,
-    "credits_in_bank": 0
-  },
   "ship": {
     "ship_type": "kestrel_courier",
     "ship_name": "Kestrel Courier",
@@ -556,7 +549,15 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "shields": 85,
     "max_shields": 100,
     "fighters": 45,
-    "max_fighters": 50
+    "max_fighters": 50,
+    "credits": 15000
+  },
+  "player": {
+    "created_at": "2025-10-07T12:00:00.000Z",
+    "last_active": "2025-10-07T14:25:30.000Z",
+    "id": "trader",
+    "name": "trader",
+    "credits_in_bank": 0
   },
   "sector": {
     "id": 43,
@@ -798,14 +799,6 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "request_id": "req-trade-42",
     "timestamp": "2025-10-16T15:45:12.345678+00:00"
   },
-  "player": {
-    "created_at": "2025-10-07T12:00:00.000Z",
-    "last_active": "2025-10-07T14:26:00.000Z",
-    "id": "trader",
-    "name": "trader",
-    "credits_on_hand": 7500,
-    "credits_in_bank": 0
-  },
   "ship": {
     "ship_type": "kestrel_courier",
     "ship_name": "Kestrel Courier",
@@ -821,7 +814,15 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "shields": 85,
     "max_shields": 100,
     "fighters": 45,
-    "max_fighters": 50
+    "max_fighters": 50,
+    "credits": 7500
+  },
+  "player": {
+    "created_at": "2025-10-07T12:00:00.000Z",
+    "last_active": "2025-10-07T14:26:00.000Z",
+    "id": "trader",
+    "name": "trader",
+    "credits_in_bank": 0
   },
   "trade": {
     "trade_type": "buy",
@@ -1044,8 +1045,8 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
   "direction": "deposit",
   "amount": 2000,
   "timestamp": "2025-10-19T05:44:00.000Z",
-  "credits_on_hand_before": 5600,
-  "credits_on_hand_after": 3600,
+  "ship_credits_before": 5600,
+  "ship_credits_after": 3600,
   "credits_in_bank_before": 0,
   "credits_in_bank_after": 2000
 }
@@ -1183,7 +1184,6 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "last_active": "2025-10-16T15:32:18.000Z",
     "id": "explorer",
     "name": "explorer",
-    "credits_on_hand": 1200,
     "credits_in_bank": 0
   },
   "ship": {
@@ -1201,7 +1201,8 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "shields": 120,
     "max_shields": 150,
     "fighters": 45,
-    "max_fighters": 50
+    "max_fighters": 50,
+    "credits": 1200
   },
   "sector": {
     "id": 17,
@@ -1244,7 +1245,6 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "last_active": "2025-10-07T14:28:30.000Z",
     "id": "trader",
     "name": "trader",
-    "credits_on_hand": 14350,
     "credits_in_bank": 0
   },
   "ship": {
@@ -1262,7 +1262,8 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "shields": 85,
     "max_shields": 100,
     "fighters": 45,
-    "max_fighters": 50
+    "max_fighters": 50,
+    "credits": 14350
   },
   "sector": {
     "id": 43,

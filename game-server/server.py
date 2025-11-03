@@ -154,10 +154,12 @@ def _with_rate_limit(endpoint: str, handler: RPCHandler) -> RPCHandler:
         if endpoint == "send_message":
             message_type = payload.get("type")  # "broadcast" or "direct"
 
+        rate_limiter_id = payload.get("actor_character_id") or character_id
+
         # Enqueue request with rate limiting
         return await rate_limiter.enqueue_request(
             endpoint=endpoint,
-            character_id=character_id,
+            character_id=rate_limiter_id,
             handler=lambda: handler(payload),
             message_type=message_type,
         )

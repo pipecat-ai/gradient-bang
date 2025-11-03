@@ -883,7 +883,7 @@ class TestGarrisonModes:
 
             # Get initial credits
             status = await client_payer.my_status(character_id="test_toll_payer")
-            initial_credits = status["player"]["credits_on_hand"]
+            initial_credits = status["ship"]["credits"]
 
             # Use sector 1284 - UNIQUE FOR THIS TEST
             await client_deployer.move(to_sector=581, character_id="test_toll_deployer")
@@ -935,7 +935,7 @@ class TestGarrisonModes:
 
             # Verify payment succeeded by checking credits
             status = await client_payer.my_status(character_id="test_toll_payer")
-            new_credits = status["player"]["credits_on_hand"]
+            new_credits = status["ship"]["credits"]
 
             # Credits should be reduced by toll_amount
             assert new_credits == initial_credits - 100, \

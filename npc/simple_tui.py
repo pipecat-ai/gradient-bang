@@ -44,6 +44,101 @@ from utils.api_client import AsyncGameClient, RPCError
 from utils.task_agent import TaskAgent, TaskOutputType
 
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SESSION_LOCK_DIR = REPO_ROOT / "logs" / "ship-sessions"
+KNOWLEDGE_DIR = REPO_ROOT / "world-data" / "character-map-knowledge"
+
+
+class SessionLockError(RuntimeError):
+    """Raised when a corp ship already has an active session."""
+
+
+def _pid_is_active(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _acquire_ship_session_lock(
+    ship_id: str,
+    *,
+    actor_id: str,
+    server: str,
+) -> Callable[[], None]:
+    SESSION_LOCK_DIR.mkdir(parents=True, exist_ok=True)
+    lock_path = SESSION_LOCK_DIR / f"{ship_id}.lock"
+    metadata = {
+        "ship_id": ship_id,
+        "actor_id": actor_id,
+        "server": server,
+        "pid": os.getpid(),
+        "started_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    while True:
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            existing: Dict[str, Any] = {}
+            try:
+                with lock_path.open("r", encoding="utf-8") as handle:
+                    existing = json.load(handle)
+            except Exception:  # noqa: BLE001
+                existing = {}
+            pid = existing.get("pid")
+            if isinstance(pid, int) and _pid_is_active(pid):
+                actor = existing.get("actor_id", "unknown actor")
+                started = existing.get("started_at", "unknown time")
+                raise SessionLockError(
+                    f"ship {ship_id} already has an active session (pid {pid}, actor {actor}, started {started})"
+                )
+            try:
+                lock_path.unlink()
+            except FileNotFoundError:
+                pass
+            continue
+        else:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(metadata, handle)
+            break
+
+    def release() -> None:
+        try:
+            lock_path.unlink()
+        except FileNotFoundError:
+            pass
+
+    return release
+
+
+def _require_ship_knowledge(ship_id: str) -> None:
+    if not KNOWLEDGE_DIR.parent.exists():
+        raise RuntimeError(
+            "world-data directory not found. Generate the universe before controlling corporation ships."
+        )
+    knowledge_path = KNOWLEDGE_DIR / f"{ship_id}.json"
+    if not knowledge_path.exists():
+        raise RuntimeError(
+            f"Missing character knowledge for {ship_id}. Create {knowledge_path} before launching the session."
+        )
+
+
+COMMODITY_KEYS: Tuple[Tuple[str, str], ...] = (
+    ("quantum_foam", "QF"),
+    ("retro_organics", "RO"),
+    ("neuro_symbolics", "NS"),
+)
+
+
+def _coerce_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 ALT_SCREEN_ENTER = "\x1b[?1049h"
 ALT_SCREEN_EXIT = "\x1b[?1049l"
@@ -69,6 +164,7 @@ EVENT_NAMES: Tuple[str, ...] = (
     "garrison.deployed",
     "garrison.collected",
     "garrison.mode_changed",
+    "garrison.combat_alert",
     "salvage.collected",
     "combat.round_waiting",
     "combat.round_resolved",
@@ -443,6 +539,7 @@ class SimpleTUI(App):
         *,
         server: str,
         character_id: str,
+        actor_character_id: Optional[str] = None,
         sector: Optional[int] = None,
         verbose: bool = False,
         log_path: Optional[str] = None,
@@ -455,6 +552,7 @@ class SimpleTUI(App):
         super().__init__()
         self.server = server.rstrip("/")
         self.character_id = character_id
+        self.actor_character_id = actor_character_id
         self.display_name: str = character_id
         self.target_sector = sector
         self.verbose = verbose
@@ -516,6 +614,7 @@ class SimpleTUI(App):
         self.log_panel_label: Optional[Static] = None
         self._last_status_payload: Optional[Dict[str, Any]] = None
         self._status_snapshot_ready: Optional[asyncio.Event] = None
+        self._session_lock_release: Optional[Callable[[], None]] = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -541,6 +640,48 @@ class SimpleTUI(App):
             yield self.prompt_label
             yield self.input
 
+    def _is_corp_ship_control(self) -> bool:
+        return (
+            self.actor_character_id is not None
+            and self.actor_character_id != self.character_id
+        )
+
+    def _corp_request_character_id(self) -> str:
+        return self.actor_character_id or self.character_id
+
+    def _prepare_corp_ship_control(self) -> None:
+        if not self._is_corp_ship_control():
+            return
+        _require_ship_knowledge(self.character_id)
+        self._session_lock_release = _acquire_ship_session_lock(
+            self.character_id,
+            actor_id=self.actor_character_id,
+            server=self.server,
+        )
+
+    async def _handle_join_failure(self, exc: RPCError) -> None:
+        detail = (getattr(exc, "detail", "") or str(exc)).strip()
+        status = getattr(exc, "status", "unknown")
+        await self._append_log(
+            f"Join failed (status {status}): {detail}"
+        )
+        lower_detail = detail.lower()
+        if "actor_character_id is required" in lower_detail:
+            await self._append_log(
+                "Provide --actor-id with a corporation member when launching this UI."
+            )
+        elif "not authorized" in lower_detail:
+            await self._append_log(
+                f"Actor {self.actor_character_id} is not authorised to control {self.character_id}."
+            )
+        elif "knowledge" in lower_detail:
+            path = KNOWLEDGE_DIR / f"{self.character_id}.json"
+            await self._append_log(f"Create {path} before retrying.")
+        elif "active session" in lower_detail:
+            await self._append_log(
+                f"Another session is controlling {self.character_id}. Remove stale locks in {SESSION_LOCK_DIR} if needed."
+            )
+
     async def on_mount(self) -> None:
         self._loop = asyncio.get_running_loop()
         self._start_stderr_capture()
@@ -549,6 +690,22 @@ class SimpleTUI(App):
         self._update_status_bar(in_combat=False, fighters=0, shields=0)
         self._update_task_banner("Connecting to server…")
         self.set_focus(self.input)
+        try:
+            self._prepare_corp_ship_control()
+        except RuntimeError as exc:
+            await self._append_log(str(exc))
+            await self._append_log(
+                "Run 'uv run scripts/corporation_lookup.py <member_id> --ships' to inspect knowledge files."
+            )
+            self.exit(1)
+            return
+        except SessionLockError as exc:
+            await self._append_log(str(exc))
+            await self._append_log(
+                f"If this is stale, remove the lock file in {SESSION_LOCK_DIR}"
+            )
+            self.exit(1)
+            return
         asyncio.create_task(self._initialize_client())
 
     async def _initialize_client(self) -> None:
@@ -560,20 +717,28 @@ class SimpleTUI(App):
             if self.target_sector is not None
             else "stay in current sector"
         )
+        actor_desc = self.actor_character_id or "self"
         await self._append_log(
             f"Configuration: server={self.server} character_id={self.character_id} "
-            f"target={target_desc} log_file={self.log_path}"
+            f"actor={actor_desc} target={target_desc} log_file={self.log_path}"
         )
 
-        await self._append_log("Creating AsyncGameClient...")
+        await self._append_log("Creating AsyncGameClient...") 
 
         async def log_frame(direction: str, frame: Mapping[str, Any]) -> None:
             text = json.dumps(frame, sort_keys=True, ensure_ascii=False)
             await self._append_log(f"{direction.upper()}: {text}")
 
+        entity_type = (
+            "corporation_ship"
+            if self.actor_character_id and self.actor_character_id != self.character_id
+            else "character"
+        )
         self.client = AsyncGameClient(
             base_url=self.server,
             character_id=self.character_id,
+            actor_character_id=self.actor_character_id,
+            entity_type=entity_type,
             websocket_frame_callback=log_frame,
         )
 
@@ -600,8 +765,14 @@ class SimpleTUI(App):
             self._status_snapshot_ready = asyncio.Event()
             self._last_status_payload = None
 
-            join_ack = await self.client.join(self.character_id)
+            await self.client.join(self.character_id)
+        except RPCError as exc:
+            await self._handle_join_failure(exc)
+            await self._graceful_shutdown()
+            self.exit(1)
+            return
 
+        try:
             initial_status: Optional[Mapping[str, Any]] = None
             if self._status_snapshot_ready is not None:
                 try:
@@ -772,6 +943,7 @@ class SimpleTUI(App):
             "garrison.deployed": self._on_garrison_event,
             "garrison.collected": self._on_garrison_event,
             "garrison.mode_changed": self._on_garrison_event,
+            "garrison.combat_alert": self._on_garrison_combat_alert,
             "salvage.collected": self._on_salvage_collected,
             "bank.transaction": self._on_bank_transaction,
         }
@@ -989,9 +1161,12 @@ class SimpleTUI(App):
         summary = self._event_summary(event)
         # Log the trade
         player_data = payload.get("player", {})
+        ship_data = payload.get("ship", {})
 
         player_name = player_data.get("name", "?")
-        credits = player_data.get("credits_on_hand")
+        credits = ship_data.get("credits")
+        if credits is None:
+            credits = player_data.get("credits_on_hand")
 
         # Try to extract trade details from ship cargo changes
         await self._append_log(
@@ -1051,6 +1226,23 @@ class SimpleTUI(App):
                 f"{event_name.replace('garrison.', 'garrison ')} in sector {sector_id}"
             )
 
+    async def _on_garrison_combat_alert(self, event: Dict[str, Any]) -> None:
+        """Handle garrison.combat_alert events emitted for corp awareness."""
+
+        payload = self._event_payload(event)
+        summary = self._event_summary(event)
+
+        if summary:
+            await self._append_log(summary)
+            return
+
+        sector_id = _extract_sector_id(payload.get("sector")) or "?"
+        garrison = payload.get("garrison", {})
+        owner_name = garrison.get("owner_name") or garrison.get("owner_id") or "Unknown"
+        await self._append_log(
+            f"Corp alert: garrison for {owner_name} is in combat at sector {sector_id}."
+        )
+
     async def _on_salvage_collected(self, event: Dict[str, Any]) -> None:
         """Handle salvage.collected event."""
         payload = self._event_payload(event)
@@ -1076,7 +1268,9 @@ class SimpleTUI(App):
 
         direction = payload.get("direction", "?")
         amount = payload.get("amount")
-        on_hand = payload.get("credits_on_hand_after")
+        on_hand = payload.get("ship_credits_after")
+        if on_hand is None:
+            on_hand = payload.get("credits_on_hand_after")
         bank_balance = payload.get("credits_in_bank_after")
         amount_text = f"{amount}" if amount is not None else "?"
         await self._append_log(
@@ -1526,6 +1720,143 @@ class SimpleTUI(App):
         asyncio.create_task(self._append_event_line(display, level=level))
         if message_type == TaskOutputType.ERROR.value:
             asyncio.create_task(self._append_debug_line(display, level="ERROR"))
+
+    async def _handle_command(self, raw: str) -> None:
+        text = raw.lstrip("/").strip()
+        if not text:
+            await self._append_log("Empty command; nothing to do.")
+            return
+
+        parts = text.split()
+        command = parts[0].lower()
+        args = parts[1:]
+
+        if command in {"ships", "fleet"}:
+            await self._show_corp_ship_dashboard()
+        elif command in {"shipcopy", "copyship"}:
+            if not args:
+                await self._append_log("Usage: /shipcopy <ship_id>")
+                return
+            await self._copy_ship_id(args[0])
+        elif command == "help":
+            await self._append_log("Commands: /ships, /shipcopy <ship_id>")
+        else:
+            await self._append_log(f"Unknown command '{command}'. Try /help.")
+
+    @staticmethod
+    def _format_ship_cargo(summary: Mapping[str, Any]) -> str:
+        cargo = summary.get("cargo") or {}
+        capacity = _coerce_int(summary.get("cargo_capacity"))
+        used = 0
+        parts: List[str] = []
+        for key, label in COMMODITY_KEYS:
+            amount = _coerce_int(cargo.get(key))
+            used += max(amount, 0)
+            parts.append(f"{label}:{amount}")
+        if capacity > 0:
+            empty = max(capacity - used, 0)
+            prefix = f"{used}/{capacity} holds (empty {empty})"
+        else:
+            prefix = f"{used} holds"
+        return f"{prefix} | {' '.join(parts)}"
+
+    @staticmethod
+    def _format_ship_combat(summary: Mapping[str, Any]) -> str:
+        fighters = _coerce_int(summary.get("fighters"))
+        max_fighters = _coerce_int(summary.get("max_fighters"))
+        shields = _coerce_int(summary.get("shields"))
+        max_shields = _coerce_int(summary.get("max_shields"))
+        warp = _coerce_int(summary.get("warp_power"))
+        warp_max = _coerce_int(summary.get("warp_power_capacity"))
+
+        parts: List[str] = []
+        if max_fighters:
+            parts.append(f"fighters {fighters}/{max_fighters}")
+        elif fighters:
+            parts.append(f"fighters {fighters}")
+
+        if max_shields:
+            parts.append(f"shields {shields}/{max_shields}")
+        elif shields:
+            parts.append(f"shields {shields}")
+
+        if warp_max:
+            parts.append(f"warp {warp}/{warp_max}")
+        elif warp:
+            parts.append(f"warp {warp}")
+
+        return " | ".join(parts) if parts else "no combat stats reported"
+
+    async def _copy_ship_id(self, ship_id: str) -> None:
+        normalized = ship_id.strip()
+        if not normalized:
+            await self._append_log("Provide a ship ID to copy.")
+            return
+        success, error = copy_to_system_clipboard(normalized)
+        if success:
+            await self._append_log(f"Copied {normalized} to clipboard.")
+        else:
+            await self._append_log(f"Copy failed: {error}")
+
+    async def _show_corp_ship_dashboard(self) -> None:
+        if self.client is None:
+            await self._append_log("Client not ready yet; try again after join completes.")
+            return
+
+        request_character_id = self._corp_request_character_id()
+        try:
+            response = await self.client._request(
+                "my_corporation",
+                {"character_id": request_character_id},
+            )
+        except RPCError as exc:
+            await self._append_log(f"Failed to load corporation data: {exc.detail}")
+            return
+
+        corp = response.get("corporation")
+        if not corp:
+            await self._append_log(
+                f"No corporation membership found for {request_character_id}."
+            )
+            return
+
+        ships = corp.get("ships") or []
+        ready_count = sum(1 for ship in ships if ship.get("control_ready"))
+        await self._append_log(
+            f"Corporation ships ({len(ships)} total, {ready_count} control-ready):"
+        )
+        if not ships:
+            return
+
+        ships_sorted = sorted(
+            ships,
+            key=lambda item: (
+                str(item.get("name") or "").lower(),
+                str(item.get("ship_id") or ""),
+            ),
+        )
+
+        for ship in ships_sorted:
+            name = ship.get("name") or "Unnamed Vessel"
+            ship_type = ship.get("ship_type") or "unknown"
+            ship_id = ship.get("ship_id") or "unknown-id"
+            sector = ship.get("sector")
+            sector_display = f"sector {sector}" if sector is not None else "sector ?"
+            await self._append_log(f"- {name} [{ship_type}] {sector_display}")
+            await self._append_log(f"  Character ID: {ship_id}")
+            await self._append_log(f"  Cargo: {self._format_ship_cargo(ship)}")
+            await self._append_log(f"  Combat: {self._format_ship_combat(ship)}")
+            control_ready = ship.get("control_ready")
+            if control_ready is True:
+                await self._append_log("  Control: READY (knowledge present)")
+            elif control_ready is False:
+                knowledge_path = KNOWLEDGE_DIR / f"{ship_id}.json"
+                await self._append_log(
+                    f"  Control: BLOCKED (missing knowledge file at {knowledge_path})"
+                )
+            else:
+                await self._append_log("  Control: UNKNOWN")
+            await self._append_log(f"  Quick copy: /shipcopy {ship_id}")
 
     async def _start_task(self, prompt: str) -> Optional[asyncio.Task]:
         prompt = prompt.strip()
@@ -2105,6 +2436,9 @@ class SimpleTUI(App):
         if self._log_file:
             self._log_file.close()
             self._log_file = None
+        if self._session_lock_release:
+            self._session_lock_release()
+            self._session_lock_release = None
 
     def _restore_stderr(self) -> None:
         if self._stderr_interceptor is None:
@@ -2134,7 +2468,10 @@ class SimpleTUI(App):
         if self.pending_input and not self.pending_input.done():
             self.pending_input.set_result(value)
         else:
-            if self.mode is InteractionMode.TASK:
+            stripped = value.strip()
+            if self.mode is InteractionMode.TASK and stripped.startswith("/"):
+                asyncio.create_task(self._handle_command(stripped))
+            elif self.mode is InteractionMode.TASK:
                 asyncio.create_task(self._start_task(value))
             else:
                 asyncio.create_task(self._append_log(f"(ignored input) {value}"))
@@ -2509,6 +2846,7 @@ class ProgrammaticSimpleRunner:
         *,
         server: str,
         character_id: str,
+        actor_character_id: Optional[str] = None,
         tasks: Sequence[str],
         max_iterations: int,
         log_level: str = "INFO",
@@ -2518,6 +2856,7 @@ class ProgrammaticSimpleRunner:
     ) -> None:
         self.server = server.rstrip("/")
         self.character_id = character_id
+        self.actor_character_id = actor_character_id
         self.display_name: str = character_id
         self.tasks = [task.strip() for task in tasks if task and task.strip()]
         self.max_iterations = max(1, max_iterations)
@@ -2539,16 +2878,39 @@ class ProgrammaticSimpleRunner:
         self.task_agent: Optional[TaskAgent] = None
         self._log_file: Optional[TextIO] = None
         self._all_tasks_successful = True
+        self._session_lock_release: Optional[Callable[[], None]] = None
 
     def _update_display_name(self, payload: Mapping[str, Any]) -> None:
         candidate = _extract_player_display_name(payload)
         if isinstance(candidate, str) and candidate and candidate != self.display_name:
             self.display_name = candidate
 
+    def _is_corp_ship_control(self) -> bool:
+        return (
+            self.actor_character_id is not None
+            and self.actor_character_id != self.character_id
+        )
+
     async def run(self) -> int:
         if not self.tasks:
             logger.warning("Programmatic runner received no tasks; exiting")
             return 0
+
+        try:
+            if self._is_corp_ship_control():
+                _require_ship_knowledge(self.character_id)
+                self._session_lock_release = _acquire_ship_session_lock(
+                    self.character_id,
+                    actor_id=self.actor_character_id,
+                    server=self.server,
+                )
+        except RuntimeError as exc:
+            logger.error(str(exc))
+            return 1
+        except SessionLockError as exc:
+            logger.error(str(exc))
+            logger.info("If this is stale, remove the lock file in %s", SESSION_LOCK_DIR)
+            return 1
 
         if self.log_path is not None:
             self.log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2559,9 +2921,12 @@ class ProgrammaticSimpleRunner:
                 "WS %s: %s", direction.upper(), json.dumps(frame, sort_keys=True)
             )
 
+        entity_type = "corporation_ship" if self._is_corp_ship_control() else "character"
         self.client = AsyncGameClient(
             base_url=self.server,
             character_id=self.character_id,
+            actor_character_id=self.actor_character_id,
+            entity_type=entity_type,
             websocket_frame_callback=log_frame,
         )
         self._register_event_handlers()
@@ -2579,7 +2944,21 @@ class ProgrammaticSimpleRunner:
         )
 
         try:
-            status = await self.client.join(self.character_id)
+            try:
+                status = await self.client.join(self.character_id)
+            except RPCError as exc:
+                detail = (getattr(exc, "detail", "") or str(exc)).strip()
+                logger.error("Join failed: %s", detail)
+                lower_detail = detail.lower()
+                if "actor_character_id is required" in lower_detail:
+                    logger.info("Provide --actor-id with a corporation member when running headless.")
+                elif "knowledge" in lower_detail:
+                    path = KNOWLEDGE_DIR / f"{self.character_id}.json"
+                    logger.info("Create %s before retrying.", path)
+                elif "active session" in lower_detail:
+                    logger.info("Another session is controlling %s. Clear locks in %s if stale.", self.character_id, SESSION_LOCK_DIR)
+                return 1
+
             await self.client.subscribe_my_messages()
             self._update_display_name(status)
             self._log_line(
@@ -2600,6 +2979,9 @@ class ProgrammaticSimpleRunner:
             return 0 if self._all_tasks_successful else 1
         finally:
             await self._shutdown()
+            if self._session_lock_release:
+                self._session_lock_release()
+                self._session_lock_release = None
 
     async def _execute_task(self, prompt: str) -> bool:
         assert self.client is not None
@@ -2724,6 +3106,12 @@ def parse_args() -> argparse.Namespace:
         help="Character UUID (defaults to NPC_CHARACTER_ID env var)",
     )
     parser.add_argument(
+        "--actor-id",
+        dest="actor_id",
+        default=None,
+        help="Corporation member ID when controlling a corporation ship",
+    )
+    parser.add_argument(
         "--server",
         default="http://localhost:8000",
         help="Game server URL",
@@ -2820,6 +3208,7 @@ def main() -> None:
         runner = ProgrammaticSimpleRunner(
             server=args.server,
             character_id=args.character_id,
+            actor_character_id=args.actor_id,
             tasks=tasks,
             max_iterations=args.max_iterations,
             log_level=args.log_level,
@@ -2833,6 +3222,7 @@ def main() -> None:
     app = SimpleTUI(
         server=args.server,
         character_id=args.character_id,
+        actor_character_id=args.actor_id,
         sector=args.sector,
         verbose=args.verbose,
         log_path=args.log_file,

@@ -2769,7 +2769,7 @@ class TestAdminQueryMode:
                 })
 
             assert exc_info.value.status == 403
-            assert "character_id required" in exc_info.value.detail
+            assert "character_id or actor_character_id required" in exc_info.value.detail
 
         finally:
             await client.close()
@@ -2969,7 +2969,7 @@ class TestCharacterQueryMode:
                 })
 
             assert exc_info.value.status == 403
-            assert "character_id required" in exc_info.value.detail
+            assert "character_id or actor_character_id required" in exc_info.value.detail
 
         finally:
             await client.close()
@@ -3435,4 +3435,3 @@ class TestEventEdgeCases:
 
             # Should have received multiple events
             assert len(listener.events) >= 5, "Some events may have been lost"
-

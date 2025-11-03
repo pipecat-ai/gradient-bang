@@ -216,6 +216,9 @@ class GameWorld:
                 profile = self.character_registry.get_profile(knowledge.character_id)
                 if profile:
                     display_name = profile.name
+            player_type = "human"
+            if ship.get("owner_type") == "corporation" and ship.get("ship_id") == knowledge.character_id:
+                player_type = "corporation_ship"
             character = Character(
                 knowledge.character_id,
                 sector=knowledge.current_sector,
@@ -226,6 +229,7 @@ class GameWorld:
                 max_shields=stats.shields,
                 last_active=last_active,
                 connected=False,
+                player_type=player_type,
             )
             self.characters[knowledge.character_id] = character
 
@@ -248,6 +252,9 @@ class GameWorld:
             for member_id in members:
                 if isinstance(member_id, str) and member_id:
                     self.character_to_corp[member_id] = corp_id
+            for ship_id in corp.get("ships", []) or []:
+                if isinstance(ship_id, str) and ship_id:
+                    self.character_to_corp[ship_id] = corp_id
 
 
 world = GameWorld()

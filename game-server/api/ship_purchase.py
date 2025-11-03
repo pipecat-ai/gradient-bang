@@ -5,13 +5,15 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 
 from ships import ShipType, get_ship_stats
+from core.character_registry import CharacterProfile
 from .utils import (
     rpc_success,
     build_status_payload,
     ensure_not_in_combat,
     resolve_character_name,
+    build_log_context,
 )
-from rpc.events import event_dispatcher, EventLogContext
+from rpc.events import event_dispatcher
 
 
 PERSONAL_PURCHASE = "personal"
@@ -29,6 +31,16 @@ async def handle(request: dict, world, credit_locks) -> dict:
     )
     ship_name = request.get("ship_name")
     trade_in_ship_id = request.get("trade_in_ship_id")
+    actor_character_id = request.get("actor_character_id")
+
+    if actor_character_id is not None:
+        if not isinstance(actor_character_id, str):
+            raise HTTPException(status_code=400, detail="actor_character_id must be a string")
+        if actor_character_id != character_id:
+            raise HTTPException(
+                status_code=400,
+                detail="actor_character_id must match character_id for ship.purchase",
+            )
 
     if not character_id or not ship_type_value:
         raise HTTPException(status_code=400, detail="Missing character_id or ship_type")
@@ -101,6 +113,12 @@ async def _purchase_for_personal_use(
     trade_in_ship_id: str | None,
     timestamp: str,
 ) -> dict:
+    if ship_type in {ShipType.AUTONOMOUS_PROBE, ShipType.AUTONOMOUS_LIGHT_HAULER}:
+        raise HTTPException(
+            status_code=400,
+            detail="Autonomous ship types may only be purchased for corporations",
+        )
+
     async with credit_locks.lock(character_id):
         knowledge = world.knowledge_manager.load_knowledge(character_id)
         current_ship_id = knowledge.current_ship_id
@@ -157,14 +175,17 @@ async def _purchase_for_personal_use(
         price = ship_stats.price
         net_cost = max(0, price - trade_in_value)
 
-        credits_before = knowledge.credits
+        current_ship = world.knowledge_manager.get_ship(character_id)
+        current_ship_id = current_ship.get("ship_id")
+        ship_state = current_ship.get("state", {})
+        credits_before = int(ship_state.get("credits", 0))
         if credits_before < net_cost:
             raise HTTPException(
                 status_code=400,
                 detail=f"Insufficient credits (need {net_cost:,})",
             )
 
-        knowledge.credits = credits_before - net_cost
+        remaining_credits = credits_before - net_cost
         knowledge.last_update = timestamp
 
         new_ship_id = world.ships_manager.create_ship(
@@ -176,7 +197,12 @@ async def _purchase_for_personal_use(
         )
 
         knowledge.current_ship_id = new_ship_id
+        if hasattr(knowledge, "credits"):
+            knowledge.credits = remaining_credits
         world.knowledge_manager.save_knowledge(knowledge)
+        world.knowledge_manager.update_ship_credits(character_id, remaining_credits)
+        if current_ship_id:
+            world.ships_manager.update_ship_state(current_ship_id, credits=0)
 
         if should_mark_unowned and old_ship_id:
             display_name = resolve_character_name(world, character_id)
@@ -192,16 +218,20 @@ async def _purchase_for_personal_use(
             max_shields=ship_stats.shields,
         )
 
+        log_timestamp = datetime.fromisoformat(timestamp)
+        status_context = build_log_context(
+            character_id=character_id,
+            world=world,
+            sector=getattr(character, "sector", None),
+            timestamp=log_timestamp,
+        )
+
         status_payload = await build_status_payload(world, character_id)
         await event_dispatcher.emit(
             "status.update",
             status_payload,
             character_filter=[character_id],
-            log_context=EventLogContext(
-                sender=character_id,
-                sector=getattr(character, "sector", None),
-                timestamp=datetime.fromisoformat(timestamp),
-            ),
+            log_context=status_context,
         )
 
         if should_mark_unowned and old_ship_id and old_ship_type is not None:
@@ -219,11 +249,7 @@ async def _purchase_for_personal_use(
                     "timestamp": timestamp,
                 },
                 character_filter=[character_id],
-                log_context=EventLogContext(
-                    sender=character_id,
-                    sector=getattr(character, "sector", None),
-                    timestamp=datetime.fromisoformat(timestamp),
-                ),
+                log_context=status_context,
             )
 
     return rpc_success(
@@ -231,7 +257,7 @@ async def _purchase_for_personal_use(
             "ship_id": new_ship_id,
             "ship_type": ship_type.value,
             "net_cost": net_cost,
-            "credits_after": knowledge.credits,
+            "credits_after": remaining_credits,
         }
     )
 
@@ -268,16 +294,25 @@ async def _purchase_for_corporation(
             status_code=403, detail="Not authorized to purchase for this corporation"
         )
 
+    initial_ship_credits_raw = request.get("initial_ship_credits", 0)
+    try:
+        initial_ship_credits = int(initial_ship_credits_raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="initial_ship_credits must be an integer")
+    if initial_ship_credits < 0:
+        raise HTTPException(status_code=400, detail="initial_ship_credits must be non-negative")
+
     async with credit_locks.lock(character_id):
         bank_before = world.knowledge_manager.get_bank_credits(character_id)
         price = ship_stats.price
-        if bank_before < price:
+        total_cost = price + initial_ship_credits
+        if bank_before < total_cost:
             raise HTTPException(
                 status_code=400,
-                detail=f"Insufficient bank balance (need {price:,})",
+                detail=f"Insufficient bank balance (need {total_cost:,})",
             )
 
-        bank_after = bank_before - price
+        bank_after = bank_before - total_cost
         world.knowledge_manager.update_bank_credits(character_id, bank_after)
 
         new_ship_id = world.ships_manager.create_ship(
@@ -288,20 +323,51 @@ async def _purchase_for_corporation(
             name=ship_name,
         )
 
+        if initial_ship_credits:
+            world.ships_manager.update_ship_state(new_ship_id, credits=initial_ship_credits)
+
         world.corporation_manager.add_ship(corp_id, new_ship_id)
 
+        world.knowledge_manager.create_corp_ship_character(
+            ship_id=new_ship_id,
+            corp_id=corp_id,
+            sector=getattr(character, "sector", 0),
+            joined_at=timestamp.isoformat(),
+        )
+
+        registry = getattr(world, "character_registry", None)
+        if registry is not None:
+            display_name = ship_name or ship_stats.name
+            profile = CharacterProfile(
+                character_id=new_ship_id,
+                name=display_name,
+                player={
+                    "type": "corporation_ship",
+                    "owner_corp_id": corp_id,
+                },
+                ship={
+                    "ship_type": ship_type.value,
+                    "name": ship_name,
+                },
+            )
+            registry.add_or_update(profile)
+
+        world.character_to_corp[new_ship_id] = corp_id
+
+        status_context = build_log_context(
+            character_id=character_id,
+            world=world,
+            sector=getattr(character, "sector", None),
+            timestamp=timestamp,
+            corporation_id=corp_id,
+            meta={"corporation_id": corp_id},
+        )
         status_payload = await build_status_payload(world, character_id)
         await event_dispatcher.emit(
             "status.update",
             status_payload,
             character_filter=[character_id],
-            log_context=EventLogContext(
-                sender=character_id,
-                sector=getattr(character, "sector", None),
-                timestamp=timestamp,
-                corporation_id=corp_id,
-                meta={"corporation_id": corp_id},
-            ),
+            log_context=status_context,
         )
 
     updated_corp = world.corporation_manager.load(corp_id)
@@ -322,13 +388,7 @@ async def _purchase_for_corporation(
             "timestamp": timestamp.isoformat(),
         },
         character_filter=members,
-        log_context=EventLogContext(
-            sender=character_id,
-            sector=getattr(character, "sector", None),
-            timestamp=timestamp,
-            corporation_id=corp_id,
-            meta={"corporation_id": corp_id},
-        ),
+        log_context=status_context,
     )
 
     return rpc_success(
@@ -336,6 +396,7 @@ async def _purchase_for_corporation(
             "corp_id": corp_id,
             "ship_id": new_ship_id,
             "ship_type": ship_type.value,
+            "initial_ship_credits": initial_ship_credits,
             "bank_after": bank_after,
         }
     )

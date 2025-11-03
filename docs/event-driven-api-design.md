@@ -2712,16 +2712,10 @@ async def test_trade_flow_event_driven(test_server, mock_dispatcher):
   "player": {
     "id": "character_id",
     "name": "Character Name",
-    "credits_on_hand": 10000,
     "credits_in_bank": 0
   },
-  "source": {
-    "type": "rpc",
-    "method": "my_status",
-    "request_id": "abc123",
-    "timestamp": "2024-01-01T00:00:00Z"
-  },
   "ship": {
+    "credits": 10000,
     "ship_type": "kestrel_courier",
     "ship_name": "SS Enterprise",
     "cargo": {"quantum_foam": 50},
@@ -2732,6 +2726,12 @@ async def test_trade_flow_event_driven(test_server, mock_dispatcher):
     "max_shields": 50,
     "fighters": 100,
     "max_fighters": 100
+  },
+  "source": {
+    "type": "rpc",
+    "method": "my_status",
+    "request_id": "abc123",
+    "timestamp": "2024-01-01T00:00:00Z"
   },
   "sector": {
     "id": 42,

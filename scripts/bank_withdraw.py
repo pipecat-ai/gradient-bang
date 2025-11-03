@@ -44,12 +44,7 @@ async def main() -> int:
         ) as client:
             await client.identify(character_id=character_id)
 
-            # Withdraw from bank
-            result = await client._request("bank_transfer", {
-                "character_id": character_id,
-                "direction": "withdraw",
-                "amount": amount,
-            })
+            await client.withdraw_from_bank(amount=amount, character_id=character_id)
 
             print(f"✓ Withdrew {amount:,} credits from bank")
             return 0
