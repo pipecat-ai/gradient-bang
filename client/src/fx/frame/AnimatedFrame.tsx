@@ -118,7 +118,7 @@ const DEFAULTS: InternalDiamondFXConfig = {
     morph: 280,
     blink: 260,
     spin: 0,
-    split: 320,
+    split: 260,
     refresh: 220,
   },
   onComplete: () => {},

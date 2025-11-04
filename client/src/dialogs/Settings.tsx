@@ -1,11 +1,6 @@
+import { Card } from "@/components/primitives/Card";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import useGameStore from "@/stores/game";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  PanelTitle,
-} from "@pipecat-ai/voice-ui-kit";
 import { Dialog } from "radix-ui";
 
 export const Settings = () => {
@@ -23,25 +18,20 @@ export const Settings = () => {
     >
       <Dialog.Portal>
         <Dialog.Title>Settings</Dialog.Title>
-        <Dialog.Overlay className="DialogOverlay animate-in fade-in-0" />
-        <Dialog.Content
-          aria-describedby={undefined}
-          className="DialogContent min-w-md bg-black/50"
-        >
-          <Card
-            size="xl"
-            background="scanlines"
-            withElbows={true}
-            className="w-full animate-in fade-in-0 zoom-in origin-center"
+        <Dialog.Overlay className="DialogOverlay bg-muted/80 motion-safe:bg-muted/30 motion-safe:backdrop-blur-sm bg-dotted-lg bg-dotted-white/10 bg-center animate-in fade-in-0 duration-300">
+          <Dialog.Content
+            aria-describedby={undefined}
+            className="DialogContent max-w-xl"
           >
-            <CardHeader>
-              <CardTitle>
-                <PanelTitle>Settings</PanelTitle>
-              </CardTitle>
-            </CardHeader>
-            <SettingsPanel onSave={handleSave} />
-          </Card>
-        </Dialog.Content>
+            <Card
+              elbow={true}
+              size="default"
+              className="w-full h-full max-h-max bg-black animate-in fade-in-0 zoom-in origin-center shadow-2xl"
+            >
+              <SettingsPanel onSave={handleSave} />
+            </Card>
+          </Dialog.Content>
+        </Dialog.Overlay>
       </Dialog.Portal>
     </Dialog.Root>
   );

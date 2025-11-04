@@ -1,4 +1,13 @@
 @layer components {
+  .focus-outline {
+    outline: none;
+    &:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 3px;
+      outline-style: solid;
+    }
+  }
+
   .mono-upper {
     font-family: var(--font-mono);
     font-weight: var(--font-weight-bold);
@@ -27,5 +36,53 @@
     animation: scroll var(--loader-stripe-speed) linear infinite;
     overflow: hidden;
     background-clip: padding-box;
+  }
+
+  .screen {
+    position: relative;
+    --feather-size: var(--screen-bg-feather);
+    --border-radius: calc(var(--feather-size) / 2);
+    color: var(--color-screen-foreground);
+
+    &:before {
+      content: "";
+      position: absolute;
+      inset: calc(-1 * var(--feather-size));
+      pointer-events: none;
+      border-radius: var(--border-radius);
+      background: var(--color-screen-background);
+
+      -webkit-mask-image: linear-gradient(
+          180deg,
+          transparent 0,
+          #000 var(--feather-size),
+          #000 calc(100% - var(--feather-size)),
+          transparent 100%
+        ),
+        linear-gradient(
+          90deg,
+          transparent 0,
+          #000 var(--feather-size),
+          #000 calc(100% - var(--feather-size)),
+          transparent 100%
+        );
+      -webkit-mask-composite: source-in;
+
+      mask-image: linear-gradient(
+          180deg,
+          transparent 0,
+          #000 var(--feather-size),
+          #000 calc(100% - var(--feather-size)),
+          transparent 100%
+        ),
+        linear-gradient(
+          90deg,
+          transparent 0,
+          #000 var(--feather-size),
+          #000 calc(100% - var(--feather-size)),
+          transparent 100%
+        );
+      mask-composite: intersect;
+    }
   }
 }

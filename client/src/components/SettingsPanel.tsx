@@ -1,93 +1,122 @@
-import { SliderControl } from "@/components/primitives/SliderControl";
-import { ToggleControl } from "@/components/primitives/ToggleControl";
-import useGameStore from "@/stores/game";
-import type { SettingsSlice } from "@/stores/settingsSlice";
+import { Button } from "@/components/primitives/Button";
+import { ScrollArea } from "@/components/primitives/ScrollArea";
 import {
-  Button,
-  CardContent,
-  CardFooter,
-  Divider,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@pipecat-ai/voice-ui-kit";
+} from "@/components/primitives/Select";
+import { SliderControl } from "@/components/primitives/SliderControl";
+import { ToggleControl } from "@/components/primitives/ToggleControl";
+import useGameStore from "@/stores/game";
+import type { SettingsSlice } from "@/stores/settingsSlice";
+import { CardContent, CardFooter, Divider } from "@pipecat-ai/voice-ui-kit";
 import { useEffect, useState } from "react";
+import {
+  Field,
+  FieldContent,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+  FieldValue,
+} from "./primitives/Field";
+import { Separator } from "./primitives/Separator";
 
 const SettingSelect = ({
+  label,
+  id,
   options,
   value,
+  placeholder = "Please select",
   onChange,
 }: {
+  label: string;
+  id: string;
   options: string[];
   value: string;
+  placeholder?: string;
   onChange: (value: string) => void;
 }) => {
   return (
-    <Select value={value} onValueChange={onChange}>
-      <SelectTrigger
-        className="w-full bg-black dark:bg-black"
-        variant="secondary"
-      >
-        <SelectValue placeholder="Please select" />
-      </SelectTrigger>
-      <SelectContent>
-        {options.map((option) => (
-          <SelectItem key={option} value={option}>
-            {option}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <Field orientation="vertical">
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="w-full" size="sm">
+          <SelectValue placeholder={placeholder} />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((option) => (
+            <SelectItem key={option} value={option}>
+              {option}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </Field>
   );
 };
 
 const SettingSlider = ({
+  id,
   label,
   value,
   min = 0,
   max = 1,
   step = 0.1,
   onChange,
+  disabled,
 }: {
+  id: string;
   label: string;
   value: number;
   min?: number;
   max?: number;
   step?: number;
   onChange: (value: number) => void;
+  disabled?: boolean;
 }) => {
   return (
-    <div className="flex items-center gap-4">
-      <label className="w-44 text-sm opacity-80">{label}</label>
-      <SliderControl
-        min={min}
-        max={max}
-        step={step}
-        value={[value]}
-        onValueChange={(values) => onChange(values[0])}
-        className="flex-1"
-      />
-      <span className="w-10 text-right text-sm">{value.toFixed(1)}</span>
-    </div>
+    <Field orientation="horizontal" variant={disabled ? "disabled" : "default"}>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <FieldContent className="min-w-48">
+        <FieldValue>{value.toFixed(1)}</FieldValue>
+        <SliderControl
+          id={id}
+          min={min}
+          max={max}
+          step={step}
+          value={[value]}
+          onValueChange={(values) => onChange(values[0])}
+          className="flex-1"
+          disabled={disabled}
+        />
+      </FieldContent>
+    </Field>
   );
 };
 
 const SettingSwitch = ({
+  id,
   label,
   checked,
   onChange,
 }: {
+  id: string;
   label: string;
   checked: boolean;
   onChange: (value: boolean) => void;
 }) => {
   return (
-    <div className="flex items-center justify-between gap-4">
-      <label className="text-sm opacity-80">{label}</label>
-      <ToggleControl checked={checked} onCheckedChange={onChange} />
-    </div>
+    <Field orientation="horizontal">
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+
+      <FieldContent>
+        <FieldValue>{checked ? "On" : "Off"}</FieldValue>
+        <ToggleControl id={id} checked={checked} onCheckedChange={onChange} />
+      </FieldContent>
+    </Field>
   );
 };
 
@@ -112,18 +141,34 @@ export const SettingsPanel = ({ onSave }: SettingsPanelProps) => {
 
   return (
     <>
-      <CardContent>
-        <div className="flex flex-col gap-6">
-          {/* Audio */}
-          <div>
-            <div className="text-xs uppercase tracking-wider opacity-70 mb-2">
-              Audio
-            </div>
-            <div className="flex flex-col gap-4">
+      <div className="flex-1 overflow-y-auto">
+        <ScrollArea className="w-full h-full dotted-mask-32 dotted-mask-black">
+          <CardContent className="flex flex-col gap-6 pb-6">
+            {/* AI */}
+            <FieldSet>
+              <FieldLegend>AI Personality</FieldLegend>
+              <FieldGroup>
+                <SettingSelect
+                  label="Voice"
+                  id="voice"
+                  value=""
+                  options={["male", "female"]}
+                  placeholder="Select a voice"
+                  onChange={() => null}
+                />
+              </FieldGroup>
+            </FieldSet>
+
+            <Separator decorative variant="dashed" />
+
+            {/* Audio */}
+            <FieldSet>
+              <FieldLegend>Audio</FieldLegend>
               {/* Remote Audio */}
-              <div className="flex flex-col gap-2">
+              <FieldGroup>
                 <SettingSwitch
-                  label="Enable Remote Audio"
+                  label="AI Speech Enabled"
+                  id="enable-remote-audio"
                   checked={!formSettings.disableRemoteAudio}
                   onChange={(enabled) =>
                     setFormSettings((prev) => ({
@@ -132,24 +177,23 @@ export const SettingsPanel = ({ onSave }: SettingsPanelProps) => {
                     }))
                   }
                 />
-                {!formSettings.disableRemoteAudio && (
-                  <SettingSlider
-                    label="Remote Audio"
-                    value={formSettings.remoteAudioVolume}
-                    onChange={(value) =>
-                      setFormSettings((prev) => ({
-                        ...prev,
-                        remoteAudioVolume: value,
-                      }))
-                    }
-                  />
-                )}
-              </div>
+                <SettingSlider
+                  id="remote-audio"
+                  label="AI Speech Volume"
+                  value={formSettings.remoteAudioVolume}
+                  disabled={formSettings.disableRemoteAudio}
+                  onChange={(value) =>
+                    setFormSettings((prev) => ({
+                      ...prev,
+                      remoteAudioVolume: value,
+                    }))
+                  }
+                />
 
-              {/* Music */}
-              <div className="flex flex-col gap-2">
+                {/* Music */}
                 <SettingSwitch
-                  label="Enable Music"
+                  label="Music Enabled"
+                  id="enable-music"
                   checked={!formSettings.disableMusic}
                   onChange={(enabled) =>
                     setFormSettings((prev) => ({
@@ -158,24 +202,23 @@ export const SettingsPanel = ({ onSave }: SettingsPanelProps) => {
                     }))
                   }
                 />
-                {!formSettings.disableMusic && (
-                  <SettingSlider
-                    label="Music"
-                    value={formSettings.musicVolume}
-                    onChange={(value) =>
-                      setFormSettings((prev) => ({
-                        ...prev,
-                        musicVolume: value,
-                      }))
-                    }
-                  />
-                )}
-              </div>
+                <SettingSlider
+                  id="music"
+                  label="Music Volume"
+                  disabled={formSettings.disableMusic}
+                  value={formSettings.musicVolume}
+                  onChange={(value) =>
+                    setFormSettings((prev) => ({
+                      ...prev,
+                      musicVolume: value,
+                    }))
+                  }
+                />
 
-              {/* Ambience */}
-              <div className="flex flex-col gap-2">
+                {/* Ambience */}
                 <SettingSwitch
-                  label="Enable Ambience"
+                  label="Ambience Enabled"
+                  id="enable-ambience"
                   checked={!formSettings.disabledAmbience}
                   onChange={(enabled) =>
                     setFormSettings((prev) => ({
@@ -184,24 +227,23 @@ export const SettingsPanel = ({ onSave }: SettingsPanelProps) => {
                     }))
                   }
                 />
-                {!formSettings.disabledAmbience && (
-                  <SettingSlider
-                    label="Ambience"
-                    value={formSettings.ambienceVolume}
-                    onChange={(value) =>
-                      setFormSettings((prev) => ({
-                        ...prev,
-                        ambienceVolume: value,
-                      }))
-                    }
-                  />
-                )}
-              </div>
+                <SettingSlider
+                  id="ambience"
+                  label="Ambience Volume"
+                  disabled={formSettings.disabledAmbience}
+                  value={formSettings.ambienceVolume}
+                  onChange={(value) =>
+                    setFormSettings((prev) => ({
+                      ...prev,
+                      ambienceVolume: value,
+                    }))
+                  }
+                />
 
-              {/* Sound FX */}
-              <div className="flex flex-col gap-2">
+                {/* Sound FX */}
                 <SettingSwitch
-                  label="Enable Sound FX"
+                  label="Sound FX Enabled"
+                  id="enable-sound-fx"
                   checked={!formSettings.disabledSoundFX}
                   onChange={(enabled) =>
                     setFormSettings((prev) => ({
@@ -210,32 +252,30 @@ export const SettingsPanel = ({ onSave }: SettingsPanelProps) => {
                     }))
                   }
                 />
-                {!formSettings.disabledSoundFX && (
-                  <SettingSlider
-                    label="Sound FX"
-                    value={formSettings.soundFXVolume}
-                    onChange={(value) =>
-                      setFormSettings((prev) => ({
-                        ...prev,
-                        soundFXVolume: value,
-                      }))
-                    }
-                  />
-                )}
-              </div>
-            </div>
-          </div>
+                <SettingSlider
+                  id="sound-fx"
+                  label="Sound FX Volume"
+                  disabled={formSettings.disabledSoundFX}
+                  value={formSettings.soundFXVolume}
+                  onChange={(value) =>
+                    setFormSettings((prev) => ({
+                      ...prev,
+                      soundFXVolume: value,
+                    }))
+                  }
+                />
+              </FieldGroup>
+            </FieldSet>
 
-          <Divider variant="dashed" />
+            <Separator decorative variant="dashed" />
 
-          {/* Visuals */}
-          <div>
-            <div className="text-xs uppercase tracking-wider opacity-70 mb-2">
-              Visuals
-            </div>
-            <div className="flex flex-col gap-4">
-              <div>
+            {/* Visuals */}
+            <FieldSet>
+              <FieldLegend>Visuals</FieldLegend>
+              <FieldGroup>
                 <SettingSelect
+                  label="Quality Preset"
+                  id="quality-preset"
                   options={["text", "low", "high"]}
                   value={formSettings.qualityPreset}
                   onChange={(value) =>
@@ -246,81 +286,85 @@ export const SettingsPanel = ({ onSave }: SettingsPanelProps) => {
                     }))
                   }
                 />
-              </div>
-              <SettingSwitch
-                label="Bypass Flash Effects"
-                checked={formSettings.fxBypassFlash}
-                onChange={(value) =>
-                  setFormSettings((prev) => ({
-                    ...prev,
-                    fxBypassFlash: value,
-                  }))
-                }
-              />
-              <SettingSwitch
-                label="Render Starfield"
-                checked={formSettings.renderStarfield}
-                onChange={(value) =>
-                  setFormSettings((prev) => ({
-                    ...prev,
-                    renderStarfield: value,
-                  }))
-                }
-              />
-            </div>
-          </div>
+                <SettingSwitch
+                  label="Render 3D Starfield"
+                  id="render-starfield"
+                  checked={formSettings.renderStarfield}
+                  onChange={(value) =>
+                    setFormSettings((prev) => ({
+                      ...prev,
+                      renderStarfield: value,
+                    }))
+                  }
+                />
 
-          <Divider variant="dashed" />
+                <SettingSwitch
+                  label="Bypass Flashing Effects"
+                  id="bypass-flash-effects"
+                  checked={formSettings.fxBypassFlash}
+                  onChange={(value) =>
+                    setFormSettings((prev) => ({
+                      ...prev,
+                      fxBypassFlash: value,
+                    }))
+                  }
+                />
+              </FieldGroup>
+            </FieldSet>
 
-          {/* Input */}
-          <div>
-            <div className="text-xs uppercase tracking-wider opacity-70 mb-2">
-              Input
-            </div>
+            <Separator decorative variant="dashed" />
+
+            {/* Input */}
+            <FieldSet>
+              <FieldLegend>User Input</FieldLegend>
+              <FieldGroup>
+                <SettingSwitch
+                  label="Enable Microphone"
+                  id="enable-microphone"
+                  checked={formSettings.enableMic}
+                  onChange={(value) =>
+                    setFormSettings((prev) => ({
+                      ...prev,
+                      enableMic: value,
+                    }))
+                  }
+                />
+                <SettingSwitch
+                  label="Start Audio Muted"
+                  id="start-muted"
+                  checked={formSettings.startMuted}
+                  onChange={(value) =>
+                    setFormSettings((prev) => ({
+                      ...prev,
+                      startMuted: value,
+                    }))
+                  }
+                />
+              </FieldGroup>
+            </FieldSet>
+
+            <Separator decorative variant="dashed" />
+
+            {/* Persistence */}
             <div className="flex flex-col gap-3">
               <SettingSwitch
-                label="Enable Microphone"
-                checked={formSettings.enableMic}
+                label="Use Local Storage"
+                id="save-settings-to-device"
+                checked={formSettings.saveSettings}
                 onChange={(value) =>
                   setFormSettings((prev) => ({
                     ...prev,
-                    enableMic: value,
-                  }))
-                }
-              />
-              <SettingSwitch
-                label="Start Muted"
-                checked={formSettings.startMuted}
-                onChange={(value) =>
-                  setFormSettings((prev) => ({
-                    ...prev,
-                    startMuted: value,
+                    saveSettings: value,
                   }))
                 }
               />
             </div>
-          </div>
-
-          <Divider variant="dashed" />
-
-          {/* Persistence */}
-          <div className="flex flex-col gap-3">
-            <SettingSwitch
-              label="Save Settings to Device"
-              checked={formSettings.saveSettings}
-              onChange={(value) =>
-                setFormSettings((prev) => ({
-                  ...prev,
-                  saveSettings: value,
-                }))
-              }
-            />
-          </div>
-        </div>
-      </CardContent>
+          </CardContent>
+        </ScrollArea>
+      </div>
       <CardFooter className="flex flex-col gap-6">
         <Divider decoration="plus" />
-        <Button onClick={handleSave} isFullWidth>
+        <Button onClick={handleSave} className="w-full">
           Save & Close
         </Button>
       </CardFooter>

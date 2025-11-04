@@ -137,7 +137,7 @@ const LogEntryRow = React.memo(
 );
 
 const StackCountBubble = ({ count }: { count: number }) => (
-  <span className="inline-flex min-w-[1.75rem] items-center justify-center rounded-full bg-blue-500/20 px-2 py-0.5 text-xs font-semibold text-blue-300">
+  <span className="inline-flex min-w-7 items-center justify-center rounded-full bg-blue-500/20 px-2 py-0.5 text-xs font-semibold text-blue-300">
     {count}
   </span>
 );

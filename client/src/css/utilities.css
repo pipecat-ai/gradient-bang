@@ -60,11 +60,55 @@
 
   background-image: radial-gradient(
     circle,
-    var(--dot-color) var(--dot-size),
+    color-mix(in srgb, var(--dot-color) var(--dot-opacity), transparent)
+      var(--dot-size),
     transparent var(--dot-size)
   );
   background-size: var(--dot-gap) var(--dot-gap);
   background-position: 0 0;
   background-repeat: repeat;
-  opacity: var(--dot-opacity);
+}
+
+@utility heading-* {
+  font-size: --value(--text-heading- *);
+  font-weight: var(--font-weight-extrabold);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+}
+
+@utility bg-stripes-* {
+  --stripe-color: --value(--color- *);
+  --stripe-width: 1.5px;
+  --stripe-gap: 8px;
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--stripe-color),
+    var(--stripe-color) var(--stripe-width),
+    currentColor var(--stripe-width),
+    currentColor calc(var(--stripe-width) + var(--stripe-gap))
+  );
+}
+
+@utility dotted-mask-* {
+  --dot-mask-size: calc(--value(integer) * 1px);
+  --dot-mask-color: --value(--color- *);
+  &:after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: var(--dot-mask-size);
+    background-image: radial-gradient(
+      circle,
+      var(--dot-mask-color) 2px,
+      transparent 1px
+    );
+    background-size: 4px 4px;
+    background-position: 0 0;
+    background-repeat: repeat;
+    mask-image: linear-gradient(to top, black 0%, black 30%, transparent 100%);
+    z-index: 10;
+    pointer-events: none;
+  }
 }

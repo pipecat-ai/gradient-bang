@@ -619,6 +619,17 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               break;
             }
 
+            //@TODO: remove this
+            case "ui-action": {
+              console.debug("[GAME EVENT] UI action", gameEvent.payload);
+
+              const starfield = gameStore.starfieldInstance;
+              if (starfield) {
+                starfield.selectGameObject("port");
+              }
+              break;
+            }
+
             // ----- UNHANDLED :(
             default:
               console.warn(

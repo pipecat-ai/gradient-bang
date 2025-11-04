@@ -5,9 +5,9 @@ import { useEffect } from "react";
 const variants = {
   enter: {
     opacity: 1,
-    transition: { delay: 0.35, duration: 0.5, easing: "ease-in-out" },
+    transition: { delay: 0.4, duration: 0.3, easing: "ease-in-out" },
   },
-  exit: { opacity: 0, transition: { duration: 0.35, easing: "ease-in-out" } },
+  exit: { opacity: 0, transition: { duration: 0.2, easing: "ease-in-out" } },
 };
 
 const ScreenBase = ({ children }: { children: React.ReactNode }) => {

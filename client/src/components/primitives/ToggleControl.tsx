@@ -13,7 +13,7 @@ function ToggleControl({
     <SwitchPrimitive.Root
       data-slot="switch"
       className={cn(
-        "peer data-[state=checked]:bg-active/20 data-[state=unchecked]:bg-black focus-visible:border-ring data-[state=checked]:focus-visible:border-active focus-visible:ring-ring/50 data-[state=checked]:focus-visible:ring-active/50 inline-flex h-[25px] w-[46px] shrink-0 items-center border border-border data-[state=checked]:border-active transition-all outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50",
+        "peer data-[state=checked]:bg-input/10 data-[state=unchecked]:bg-background focus-visible:border-input inline-flex h-[25px] w-[46px] shrink-0 items-center border border-input transition-all disabled:cursor-not-allowed disabled:opacity-50 focus-outline",
         className
       )}
       {...props}

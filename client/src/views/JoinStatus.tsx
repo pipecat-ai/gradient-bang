@@ -25,43 +25,8 @@ export const JoinStatus = ({ handleStart }: { handleStart: () => void }) => {
     diamondFXInstance?.clear(true);
   }, [gameState, diamondFXInstance]);
 
-  /*
-  // Update connection string when connected
-  useEffect(() => {
-    if (isConnected) {
-      setConnectionString("Configuring game UI...");
-    }
-  }, [isConnected]);
-
-  // When game state becomes ready, trigger fade out
-  useEffect(() => {
-    if (gameState === "ready") {
-      setShouldFadeOut(true);
-    }
-  }, [gameState]);
-
-  // Initialize connection
-  useEffect(() => {
-    const fx = useGameStore.getState().diamondFXInstance;
-    fx?.start("status-panel");
-  }, []);
-
-  // Handle fade out complete: clear FX and hide entire element
-  const handleFadeComplete = () => {
-    if (shouldFadeOut) {
-      const fx = useGameStore.getState().diamondFXInstance;
-      fx?.update({
-        onComplete: () => {
-          setShowConnectScreen(false);
-        },
-      });
-      fx?.clear(true);
-    }
-  };
-*/
-
   return (
-    <div className="absolute inset-0 z-999 h-full w-full flex items-center justify-center bg-white/20 backdrop-blur-sm pointer-events-none user-select-none">
+    <div className="absolute inset-0 z-90 h-full w-full flex items-center justify-center bg-gray-800/20 backdrop-blur-lg bg-dotted-lg bg-dotted-white/10 bg-center pointer-events-none user-select-none">
       <motion.div
         animate={{ opacity: showPanel ? 1 : 0 }}
         initial={{ opacity: 0 }}
@@ -81,7 +46,7 @@ export const JoinStatus = ({ handleStart }: { handleStart: () => void }) => {
                 transition: { duration: 0.3, delay: 0.2 },
               }}
               exit={{ opacity: 0, y: 10, transition: { duration: 0.3 } }}
-              className="uppercase relative animate-pulse"
+              className="uppercase relative animate-pulse text-center tracking-widest"
             >
               {gameStateMessage}
             </motion.span>

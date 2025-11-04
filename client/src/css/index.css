@@ -25,15 +25,16 @@
   --destructive: oklch(0.396 0.141 25.723);
   --destructive-foreground: oklch(0.637 0.237 25.331);
   --border: var(--color-neutral-600);
-  --input: oklch(0.269 0 0);
+  --input: oklch(0.708 0 0);
   --ring: oklch(0.439 0 0);
+  --popover: var(--background);
 
   --grid-opacity: 0.25;
   --screen-bg-feather: 18px;
   --hud-center: 330px;
 
   --elbow-size: 1rem;
-  --elbow-offset: 5px;
+  --elbow-offset: 6px;
   --elbow-width: 2px;
   --elbow-opacity: 1;
   --elbow-color: white;
@@ -44,6 +45,8 @@
   --z-starfield: 1;
   --z-visor: 2;
   --z-hud: 3;
+
+  --scrollbar-offset: 3px;
 }
 
 @theme inline {
@@ -73,21 +76,38 @@
   --color-subtle: var(--color-foreground);
 
   /** UI **/
+  --spacing-ui-md: calc(var(--spacing) * 6);
+  --spacing-ui-lg: calc(var(--spacing) * 10);
+  --spacing-ui-xl: calc(var(--spacing) * 12);
+
+  --spacing-scrollbar: calc(var(--spacing) * 3);
+
   --spacing-panel: calc(var(--spacing) * 2);
+  --spacing-screen-border-y: calc(var(--spacing) * 8);
+  --spacing-screen-border-x: calc(var(--spacing) * 4);
   --height-ui: 460px;
   --width-ui: 400px;
 
   --text-shadow-hud: 0 0 12px rgba(0, 0, 0, 0.6);
 
-  --color-screen-background: rgba(0, 0, 0, 0.5);
+  --color-screen-background: rgba(0, 0, 0, 0.6);
   --color-screen-foreground: rgba(255, 255, 255, 1);
 
-  --dot-gap-md: 10px;
+  --dot-gap-lg: 24px;
+  --dot-size-lg: 1.5px;
+  --dot-gap-md: 12px;
   --dot-size-md: 1.5px;
   --dot-gap-sm: 6px;
   --dot-size-sm: 1.2px;
   --dot-gap-xs: 4px;
   --dot-size-xs: 1px;
+
+  /** Typography **/
+  --text-heading-1: var(--text-xl);
+  --text-heading-2: var(--text-lg);
+  --text-heading-3: var(--text-base);
+  --text-heading-4: var(--text-sm);
+  --text-heading-5: var(--text-xs);
 
   /* Outline Pulse Animation */
   --animate-outline-pulse: outline-pulse 1s cubic-bezier(0.4, 0, 0.6, 1)
@@ -130,6 +150,20 @@ body {
   }
   body {
     @apply bg-background text-foreground;
+  }
+
+  .low-perf,
+  .low-perf * {
+    --tw-backdrop-blur: blur(0px) !important;
+    backdrop-filter: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    --tw-backdrop-blur: blur(0px) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
   }
 }
 
@@ -569,20 +603,28 @@ button {
 @import "./starfield.css";
 
 .DialogOverlay {
-  background-color: rgba(0, 0, 0, 0.5);
   position: fixed;
-  inset: 0;
-  backdrop-filter: blur(5px);
-  z-index: 1000;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  place-items: center;
+  overflow-y: auto;
+  z-index: 50;
 }
 
 .DialogContent {
   position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  transform-origin: center center;
-  z-index: 1001;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-block: var(--spacing-screen-border-y);
+  padding-inline: var(--spacing-screen-border-x);
+  margin: auto;
+  z-index: 50;
 
   > * {
     --color-elbow: white;
@@ -604,53 +646,6 @@ button {
   color: var(--mauve-11);
   font-size: 15px;
   line-height: 1.5;
-}
-
-.screen {
-  position: relative;
-  --feather-size: var(--screen-bg-feather);
-  --border-radius: calc(var(--feather-size) / 2);
-
-  &:before {
-    content: "";
-    position: absolute;
-    inset: calc(-1 * var(--feather-size));
-    pointer-events: none;
-    border-radius: var(--border-radius);
-    background: var(--color-screen-background);
-
-    -webkit-mask-image: linear-gradient(
-        180deg,
-        transparent 0,
-        #000 var(--feather-size),
-        #000 calc(100% - var(--feather-size)),
-        transparent 100%
-      ),
-      linear-gradient(
-        90deg,
-        transparent 0,
-        #000 var(--feather-size),
-        #000 calc(100% - var(--feather-size)),
-        transparent 100%
-      );
-    -webkit-mask-composite: source-in;
-
-    mask-image: linear-gradient(
-        180deg,
-        transparent 0,
-        #000 var(--feather-size),
-        #000 calc(100% - var(--feather-size)),
-        transparent 100%
-      ),
-      linear-gradient(
-        90deg,
-        transparent 0,
-        #000 var(--feather-size),
-        #000 calc(100% - var(--feather-size)),
-        transparent 100%
-      );
-    mask-composite: intersect;
-  }
 }
 
 #visor.open {
