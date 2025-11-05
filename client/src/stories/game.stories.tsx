@@ -107,6 +107,10 @@ export const Init: Story = () => {
 
         <div className="story-card bg-card">
           <h3 className="story-heading">Local Area Map:</h3>
+          <ul className="story-value-list">
+            <li>Sectors visited: {player?.sectors_visited}</li>
+            <li>Universe size: {player?.universe_size}</li>
+          </ul>
           {sector && localMapData && (
             <MiniMap
               current_sector_id={sector.id}

@@ -10,6 +10,8 @@ declare global {
 
   interface PlayerSelf extends PlayerBase {
     credits_in_bank: number;
+    sectors_visited: number;
+    universe_size: number;
   }
 
   interface Player extends PlayerBase {
