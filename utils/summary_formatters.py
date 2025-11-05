@@ -252,6 +252,17 @@ def _status_summary(result: Dict[str, Any], first_line: str) -> str:
     # Adjacent sectors
     adjacent = sector.get("adjacent_sectors", [])
     lines.append(f"Adjacent sectors: {adjacent}")
+
+    visited = player.get("sectors_visited") if isinstance(player, dict) else None
+    universe_size = player.get("universe_size") if isinstance(player, dict) else None
+    if (
+        isinstance(visited, int)
+        and visited >= 0
+        and isinstance(universe_size, int)
+        and universe_size > 0
+    ):
+        percentage = round((visited / universe_size) * 100)
+        lines.append(f"Visited {visited} sectors ({percentage}%).")
     ship_name = ship.get("ship_name") or ship.get("name") or "unknown ship"
     ship_type_raw = ship.get("ship_type") or ship.get("ship_type_name")
     ship_type = _friendly_ship_type(ship_type_raw)
@@ -379,6 +390,20 @@ def status_update_summary(result: Dict[str, Any]) -> str:
         parts.append(corp_part)
     if port_code:
         parts.append(f"Port {port_code}")
+
+    player_block = result.get("player") if isinstance(result, dict) else None
+    visited = player_block.get("sectors_visited") if isinstance(player_block, dict) else None
+    universe_size = (
+        player_block.get("universe_size") if isinstance(player_block, dict) else None
+    )
+    if (
+        isinstance(visited, int)
+        and visited >= 0
+        and isinstance(universe_size, int)
+        and universe_size > 0
+    ):
+        percentage = round((visited / universe_size) * 100)
+        parts.append(f"Visited {visited} sectors ({percentage}%)")
 
     return "Status update: " + "; ".join(parts) + "."
 

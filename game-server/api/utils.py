@@ -443,15 +443,45 @@ def log_trade(
         print(f"Failed to log trade: {e}")
 
 
+def _resolve_universe_size(world) -> int:
+    universe_graph = getattr(world, "universe_graph", None)
+    if universe_graph is not None:
+        sector_count = getattr(universe_graph, "sector_count", None)
+        if isinstance(sector_count, int) and sector_count > 0:
+            return sector_count
+    contents = getattr(world, "sector_contents", None)
+    if isinstance(contents, dict):
+        sectors = contents.get("sectors")
+        if isinstance(sectors, list):
+            return len(sectors)
+    return 0
+
+
 def player_self(world, character_id: str) -> Dict[str, Any]:
     """Build player status for player's own character."""
     character = world.characters[character_id]
     player_type = getattr(character, "player_type", "human")
+    knowledge_manager = getattr(world, "knowledge_manager", None)
+    knowledge = None
+    if knowledge_manager is not None:
+        try:
+            knowledge = knowledge_manager.load_knowledge(character_id)
+        except Exception:  # noqa: BLE001 - knowledge loading best effort
+            knowledge = None
+
+    sectors_visited = 0
+    if knowledge is not None:
+        sectors_visited = getattr(knowledge, "total_sectors_visited", 0) or 0
+        if sectors_visited <= 0:
+            sectors_visited = len(getattr(knowledge, "sectors_visited", {}) or {})
+
     payload = {
         "id": character.id,
         "name": getattr(character, "name", character.id),
         "player_type": player_type,
         "credits_in_bank": world.knowledge_manager.get_bank_credits(character_id),
+        "sectors_visited": sectors_visited,
+        "universe_size": _resolve_universe_size(world),
     }
     if player_type != "corporation_ship":
         payload.update(
