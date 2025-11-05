@@ -5,16 +5,23 @@ to handle combat events (round waiting, round resolved, combat ended, toll payme
 """
 
 import logging
+import uuid
 from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
 from api import move as api_move
-from api.utils import build_status_payload, build_log_context
+from api.utils import (
+    build_status_payload,
+    build_log_context,
+    build_event_source,
+    resolve_character_name,
+)
 from combat.utils import (
     serialize_round_waiting_event,
     serialize_round_resolved_event,
     serialize_combat_ended_event,
+    _list_sector_garrisons,
 )
 from combat.garrison_ai import auto_submit_garrison_actions
 from combat.finalization import finalize_combat
@@ -88,6 +95,8 @@ async def on_round_waiting(encounter, world, event_dispatcher) -> None:
         unique_recipients,
     )
 
+    await _emit_garrison_combat_alert(encounter, world, event_dispatcher)
+
     for recipient in unique_recipients:
         payload = await serialize_round_waiting_event(
             world,
@@ -106,7 +115,7 @@ async def on_round_waiting(encounter, world, event_dispatcher) -> None:
         )
 
     # Auto-submit garrison actions
-    await auto_submit_garrison_actions(encounter, world.combat_manager)
+    await auto_submit_garrison_actions(encounter, world.combat_manager, world)
 
 
 async def on_round_resolved(encounter, outcome, world, event_dispatcher) -> None:
@@ -435,6 +444,107 @@ async def on_combat_ended(encounter, outcome, world, event_dispatcher) -> None:
         )
 
     logger.debug("on_combat_ended complete: combat_id=%s", encounter.combat_id)
+
+
+async def _emit_garrison_combat_alert(encounter, world, event_dispatcher) -> None:
+    """Send a combat alert to garrison owners and connected corp mates."""
+
+    if not isinstance(encounter.context, dict):
+        encounter.context = {}
+
+    context = encounter.context
+    alerted = context.setdefault("garrison_alerted_owners", [])
+    alerted_set = set(alerted)
+
+    garrisons_in_sector = await _list_sector_garrisons(world, encounter.sector_id)
+    garrison_by_owner = {
+        getattr(garrison, "owner_id", None): garrison for garrison in garrisons_in_sector
+    }
+
+    for participant in encounter.participants.values():
+        if participant.combatant_type != "garrison":
+            continue
+
+        owner_id = participant.owner_character_id
+        if not owner_id or owner_id in alerted_set:
+            continue
+
+        corp_id = None
+        if isinstance(getattr(world, "character_to_corp", None), dict):
+            corp_id = world.character_to_corp.get(owner_id)
+
+        recipients: list[str] = []
+        owner_character = world.characters.get(owner_id)
+        if owner_character and owner_character.connected:
+            recipients.append(owner_id)
+
+        if corp_id:
+            for cid, character in world.characters.items():
+                if cid == owner_id or not character.connected:
+                    continue
+                if world.character_to_corp.get(cid) == corp_id:
+                    recipients.append(cid)
+
+        if not recipients:
+            continue
+
+        recipients = list(dict.fromkeys(recipients))
+
+        owner_name = resolve_character_name(world, owner_id)
+        garrison_state = garrison_by_owner.get(owner_id)
+        fighters = getattr(garrison_state, "fighters", None)
+        mode = getattr(garrison_state, "mode", None)
+        toll_amount = getattr(garrison_state, "toll_amount", None)
+        deployed_at = getattr(garrison_state, "deployed_at", None)
+
+        initiator_id = context.get("initiator") if isinstance(context, dict) else None
+        initiator_name = (
+            resolve_character_name(world, initiator_id) if initiator_id else None
+        )
+
+        payload = {
+            "source": build_event_source(
+                "garrison_auto_engage", str(uuid.uuid4())
+            ),
+            "sector": {"id": encounter.sector_id},
+            "combat": {
+                "combat_id": encounter.combat_id,
+                "round": encounter.round_number,
+                "initiator_id": initiator_id,
+                "initiator_name": initiator_name,
+                "reason": context.get("reason") if isinstance(context, dict) else None,
+            },
+            "garrison": {
+                "owner_id": owner_id,
+                "owner_name": owner_name,
+                "corporation_id": corp_id,
+                "mode": mode,
+                "fighters": fighters,
+                "toll_amount": toll_amount,
+                "deployed_at": deployed_at,
+            },
+            "summary": (
+                f"Garrison owned by {owner_name} engaged attackers in "
+                f"sector {encounter.sector_id}."
+            ),
+            "meta": {"alert_type": "combat_start"},
+        }
+
+        log_context = build_log_context(
+            character_id=owner_id,
+            world=world,
+            sector=encounter.sector_id,
+            corporation_id=corp_id,
+        )
+
+        await event_dispatcher.emit(
+            "garrison.combat_alert",
+            payload,
+            character_filter=recipients,
+            log_context=log_context,
+        )
+
+        alerted.append(owner_id)
 
 
 async def on_toll_payment(

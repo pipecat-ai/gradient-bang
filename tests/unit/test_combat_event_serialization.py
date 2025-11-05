@@ -15,6 +15,43 @@ from combat.models import CombatantState, GarrisonState
 from combat.salvage import SalvageContainer
 
 
+def _make_ship_record(
+    character_id: str,
+    *,
+    ship_type: str = "kestrel_courier",
+    name: str | None = None,
+    fighters: int = 300,
+    shields: int = 150,
+    warp_power: int = 300,
+    warp_power_capacity: int = 300,
+    cargo: dict | None = None,
+    cargo_holds: int = 30,
+):
+    state_cargo = {"quantum_foam": 0, "retro_organics": 0, "neuro_symbolics": 0}
+    if cargo:
+        state_cargo.update({k: int(v) for k, v in cargo.items()})
+    return {
+        "ship_id": f"{character_id}-ship",
+        "ship_type": ship_type,
+        "name": name,
+        "sector": 0,
+        "owner_type": "character",
+        "owner_id": character_id,
+        "acquired": datetime.now(timezone.utc).isoformat(),
+        "state": {
+            "fighters": fighters,
+            "shields": shields,
+            "cargo": state_cargo,
+            "cargo_holds": cargo_holds,
+            "warp_power": warp_power,
+            "warp_power_capacity": warp_power_capacity,
+            "modules": [],
+        },
+        "became_unowned": None,
+        "former_owner_name": None,
+    }
+
+
 class TestSerializeParticipantForEvent:
     """Tests for serialize_participant_for_event function."""
 
@@ -22,14 +59,15 @@ class TestSerializeParticipantForEvent:
         """Test serializing character with 100% shields."""
         # Mock world and dependencies
         world = MagicMock()
-        knowledge = MagicMock()
-        knowledge.ship_config.ship_name = "Star Runner"
-        knowledge.ship_config.ship_type = "kestrel_courier"
-        knowledge.ship_config.cargo = {}
-        knowledge.ship_config.current_warp_power = 0
-        knowledge.ship_config.current_shields = 131
-        knowledge.ship_config.current_fighters = 300
-        world.knowledge_manager.load_knowledge.return_value = knowledge
+        ship_record = _make_ship_record(
+            "char1",
+            name="Star Runner",
+            fighters=300,
+            shields=131,
+            warp_power=0,
+        )
+        world.knowledge_manager.get_ship.return_value = ship_record
+        world.knowledge_manager.load_knowledge.return_value = MagicMock()
 
         character = MagicMock()
         character.first_visit = datetime(2025, 10, 6, 1, 0, 0, tzinfo=timezone.utc)
@@ -66,10 +104,14 @@ class TestSerializeParticipantForEvent:
     def test_character_participant_with_damage(self):
         """Test serializing character with shield damage and fighter loss."""
         world = MagicMock()
-        knowledge = MagicMock()
-        knowledge.ship_config.ship_name = None
-        knowledge.ship_config.ship_type = "kestrel_courier"
-        world.knowledge_manager.load_knowledge.return_value = knowledge
+        ship_record = _make_ship_record(
+            "char1",
+            fighters=285,
+            shields=120,
+            warp_power=200,
+        )
+        world.knowledge_manager.get_ship.return_value = ship_record
+        world.knowledge_manager.load_knowledge.return_value = MagicMock()
 
         character = MagicMock()
         character.first_visit = datetime(2025, 10, 6, 1, 0, 0, tzinfo=timezone.utc)
@@ -203,14 +245,15 @@ class TestSerializeRoundWaitingEvent:
         )
         world.garrisons.list_sector = AsyncMock(return_value=[garrison])
 
-        knowledge = MagicMock()
-        knowledge.ship_config.ship_name = "Star Runner"
-        knowledge.ship_config.ship_type = "kestrel_courier"
-        knowledge.ship_config.cargo = {}
-        knowledge.ship_config.current_warp_power = 0
-        knowledge.ship_config.current_shields = 120
-        knowledge.ship_config.current_fighters = 285
-        world.knowledge_manager.load_knowledge.return_value = knowledge
+        ship_record = _make_ship_record(
+            "char1",
+            name="Star Runner",
+            fighters=285,
+            shields=120,
+            warp_power=0,
+        )
+        world.knowledge_manager.get_ship.side_effect = lambda cid: ship_record
+        world.knowledge_manager.load_knowledge.side_effect = lambda cid: MagicMock()
 
         character = MagicMock()
         character.first_visit = datetime(2025, 10, 6, 1, 0, 0, tzinfo=timezone.utc)
@@ -305,10 +348,14 @@ class TestSerializeRoundResolvedEvent:
         )
         world.garrisons.list_sector = AsyncMock(return_value=[garrison])
 
-        knowledge = MagicMock()
-        knowledge.ship_config.ship_name = "Star Runner"
-        knowledge.ship_config.ship_type = "kestrel_courier"
-        world.knowledge_manager.load_knowledge.return_value = knowledge
+        ship_record = _make_ship_record(
+            "char1",
+            name="Star Runner",
+            fighters=285,
+            shields=120,
+        )
+        world.knowledge_manager.get_ship.side_effect = lambda cid: ship_record
+        world.knowledge_manager.load_knowledge.side_effect = lambda cid: MagicMock()
 
         character = MagicMock()
         character.first_visit = datetime(2025, 10, 6, 1, 0, 0, tzinfo=timezone.utc)
@@ -474,14 +521,15 @@ class TestSerializeCombatEndedEvent:
         outcome.participant_deltas = {}
         outcome.effective_actions = {}
 
-        knowledge = MagicMock()
-        knowledge.ship_config.ship_name = "Star Runner"
-        knowledge.ship_config.ship_type = "kestrel_courier"
-        knowledge.ship_config.cargo = {}
-        knowledge.ship_config.current_warp_power = 0
-        knowledge.ship_config.current_shields = 120
-        knowledge.ship_config.current_fighters = 280
-        world.knowledge_manager.load_knowledge.return_value = knowledge
+        ship_record = _make_ship_record(
+            "char1",
+            name="Star Runner",
+            fighters=280,
+            shields=120,
+            warp_power=0,
+        )
+        world.knowledge_manager.get_ship.side_effect = lambda cid: ship_record
+        world.knowledge_manager.load_knowledge.side_effect = lambda cid: MagicMock()
 
         now = datetime(2025, 10, 6, 12, 0, tzinfo=timezone.utc)
         salvage1 = SalvageContainer(
@@ -590,14 +638,15 @@ class TestSerializeCombatEndedEvent:
         outcome.participant_deltas = {}
         outcome.effective_actions = {}
 
-        knowledge = MagicMock()
-        knowledge.ship_config.ship_name = "Star Runner"
-        knowledge.ship_config.ship_type = "kestrel_courier"
-        knowledge.ship_config.cargo = {}
-        knowledge.ship_config.current_warp_power = 0
-        knowledge.ship_config.current_shields = 100
-        knowledge.ship_config.current_fighters = 200
-        world.knowledge_manager.load_knowledge.return_value = knowledge
+        ship_record = _make_ship_record(
+            "char1",
+            name="Star Runner",
+            fighters=200,
+            shields=100,
+            warp_power=0,
+        )
+        world.knowledge_manager.get_ship.side_effect = lambda cid: ship_record
+        world.knowledge_manager.load_knowledge.side_effect = lambda cid: MagicMock()
 
         result = await serialize_combat_ended_event(world, encounter, [], [], outcome, viewer_id="char1")
 

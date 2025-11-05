@@ -20,6 +20,7 @@ def test_event_logger_append_and_query(tmp_path):
         sender="alpha",
         receiver=None,
         sector=42,
+        corporation_id=None,
         meta={"note": "sample"},
     )
     logger.append(record)

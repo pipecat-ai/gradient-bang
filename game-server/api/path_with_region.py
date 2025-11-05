@@ -11,6 +11,8 @@ from .utils import (
     rpc_success,
     build_event_source,
     emit_error_event,
+    enforce_actor_authorization,
+    build_log_context,
 )
 from rpc.events import event_dispatcher
 
@@ -48,6 +50,13 @@ async def handle(request: Dict[str, Any], world) -> Dict[str, Any]:
         await _fail(None, request_id, "Missing character_id")
     if to_sector is None:
         await _fail(character_id, request_id, "Missing to_sector")
+
+    enforce_actor_authorization(
+        world,
+        target_character_id=character_id,
+        actor_character_id=request.get("actor_character_id"),
+        admin_override=bool(request.get("admin_override")),
+    )
 
     character = world.characters.get(character_id)
     if not character:
@@ -197,6 +206,7 @@ async def handle(request: Dict[str, Any], world) -> Dict[str, Any]:
         "path.region",
         payload,
         character_filter=[character_id],
+        log_context=build_log_context(character_id=character_id, world=world),
     )
 
     return rpc_success()

@@ -93,8 +93,8 @@ async def finalize_combat(
     # Distribute toll winnings to victor
     if toll_winnings and winner_owner:
         for recipient, amount in toll_winnings.items():
-            credits = world.knowledge_manager.get_credits(recipient)
-            world.knowledge_manager.update_credits(recipient, credits + amount)
+            credits = world.knowledge_manager.get_ship_credits(recipient)
+            world.knowledge_manager.update_ship_credits(recipient, credits + amount)
             logger.info(
                 "Awarded %s toll credits to victor %s from destroyed garrisons",
                 amount,
@@ -264,23 +264,24 @@ async def _process_defeated_characters(
         if not owner_id:
             continue
 
-        knowledge = world.knowledge_manager.load_knowledge(owner_id)
-        ship_type = ShipType(knowledge.ship_config.ship_type)
+        ship = world.knowledge_manager.get_ship(owner_id)
+        ship_type = ShipType(ship["ship_type"])
 
         # Skip if already in escape pod
         if ship_type == ShipType.ESCAPE_POD:
             continue
 
         stats = get_ship_stats(ship_type)
-        cargo = {k: v for k, v in knowledge.ship_config.cargo.items() if v > 0}
-        credits = world.knowledge_manager.get_credits(owner_id)
+        state = ship.get("state", {})
+        cargo = {k: v for k, v in state.get("cargo", {}).items() if v > 0}
+        credits = world.knowledge_manager.get_ship_credits(owner_id)
         scrap = max(5, stats.price // 1000)
 
         # Get ship name for metadata
-        ship_name = knowledge.ship_config.ship_name or stats.name
+        ship_name = ship.get("name") or stats.name
 
         salvage_credits = credits if isinstance(credits, int) and credits > 0 else 0
-        world.knowledge_manager.update_credits(owner_id, 0)
+        world.knowledge_manager.update_ship_credits(owner_id, 0)
 
         # Create salvage container
         if world.salvage_manager and (cargo or scrap or salvage_credits):
@@ -298,18 +299,51 @@ async def _process_defeated_characters(
                 )
             )
 
-        # Convert to escape pod
-        world.knowledge_manager.initialize_ship(owner_id, ShipType.ESCAPE_POD)
-        await emit_status_update(owner_id)
+        corp_owned = (
+            ship.get("owner_type") == "corporation"
+            and ship.get("ship_id") == owner_id
+        )
+
+        if corp_owned:
+            corp_id = ship.get("owner_id")
+            if corp_id:
+                try:
+                    world.corporation_manager.remove_ship(corp_id, owner_id)
+                except FileNotFoundError:
+                    pass
+            world.character_to_corp.pop(owner_id, None)
+            registry = getattr(world, "character_registry", None)
+            if registry is not None:
+                registry.delete(owner_id)
+            world.knowledge_manager.delete_knowledge(owner_id)
+            world.ships_manager.delete_ship(owner_id)
+            world.characters.pop(owner_id, None)
+            logger.info(
+                "Defeated corporation ship %s destroyed with no escape pod",
+                owner_id,
+            )
+        else:
+            # Convert to escape pod for personal ships
+            owner_character = world.characters.get(owner_id)
+            former_owner_name = owner_character.name if owner_character else owner_id
+            world.knowledge_manager.create_ship_for_character(
+                owner_id,
+                ShipType.ESCAPE_POD,
+                sector=encounter.sector_id,
+                abandon_existing=True,
+                former_owner_name=former_owner_name,
+            )
+            await emit_status_update(owner_id)
 
         # Update winner status
         if winner_owner:
             await emit_status_update(winner_owner)
 
-        logger.info(
-            "Defeated character %s converted to escape pod, salvage created in sector %s",
-            owner_id,
-            encounter.sector_id,
-        )
+        if not corp_owned:
+            logger.info(
+                "Defeated character %s converted to escape pod, salvage created in sector %s",
+                owner_id,
+                encounter.sector_id,
+            )
 
     return salvages

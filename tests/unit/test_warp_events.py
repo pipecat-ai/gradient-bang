@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -21,19 +22,35 @@ class DummyCharacter:
         self.last_active = datetime.now(timezone.utc)
 
 
-class DummyShipConfig:
-    def __init__(self, *, ship_type: str, current_warp_power: int) -> None:
-        self.ship_type = ship_type
-        self.current_warp_power = current_warp_power
-
-
 class DummyKnowledge:
-    def __init__(self, *, credits: int, ship_type: str, warp_power: int) -> None:
+    def __init__(self, character_id: str, *, credits: int, ship_type: str, warp_power: int) -> None:
         self.credits = credits
-        self.ship_config = DummyShipConfig(
-            ship_type=ship_type,
-            current_warp_power=warp_power,
-        )
+        self.current_ship_id = f"{character_id}-ship"
+        self.ship_record = {
+            "ship_id": self.current_ship_id,
+            "ship_type": ship_type,
+            "name": "Test Ship",
+            "sector": 0,
+            "owner_type": "character",
+            "owner_id": character_id,
+            "acquired": datetime.now(timezone.utc).isoformat(),
+            "state": {
+                "fighters": 0,
+                "shields": 0,
+                "cargo": {
+                    "quantum_foam": 0,
+                    "retro_organics": 0,
+                    "neuro_symbolics": 0,
+                },
+                "cargo_holds": 30,
+                "warp_power": warp_power,
+                "warp_power_capacity": warp_power if ship_type == "escape_pod" else 300,
+                "modules": [],
+                "credits": credits,
+            },
+            "became_unowned": None,
+            "former_owner_name": None,
+        }
 
 
 class DummyKnowledgeManager:
@@ -41,20 +58,65 @@ class DummyKnowledgeManager:
         self._mapping = mapping
 
     def load_knowledge(self, character_id: str) -> DummyKnowledge:
-        return self._mapping[character_id]
+        knowledge = self._mapping[character_id]
+        state = knowledge.ship_record.get("state", {})
+        knowledge.credits = int(state.get("credits", knowledge.credits))
+        return knowledge
 
     def save_knowledge(self, knowledge: DummyKnowledge) -> None:  # noqa: D401 - simple no-op
         """Persist updated knowledge (no-op for tests)."""
         return None
 
+    def get_ship(self, character_id: str) -> dict:
+        return json.loads(json.dumps(self._mapping[character_id].ship_record))
+
+    def update_ship_credits(self, character_id: str, credits: int) -> None:
+        knowledge = self._mapping[character_id]
+        value = max(0, int(credits))
+        knowledge.credits = value
+        knowledge.ship_record.setdefault("state", {})["credits"] = value
+
+    def get_ship_credits(self, character_id: str) -> int:
+        knowledge = self._mapping[character_id]
+        return int(knowledge.ship_record.get("state", {}).get("credits", 0))
+
+
+class DummyShipsManager:
+    def __init__(self, mapping: dict[str, DummyKnowledge]) -> None:
+        self._mapping = mapping
+
+    def get_ship(self, ship_id: str) -> dict | None:
+        for knowledge in self._mapping.values():
+            if knowledge.current_ship_id == ship_id:
+                return json.loads(json.dumps(knowledge.ship_record))
+        return None
+
+    def update_ship_state(self, ship_id: str, **updates) -> None:
+        for knowledge in self._mapping.values():
+            if knowledge.current_ship_id == ship_id:
+                state = knowledge.ship_record.setdefault("state", {})
+                if "warp_power" in updates:
+                    state["warp_power"] = updates["warp_power"]
+                if "fighters" in updates:
+                    state["fighters"] = updates["fighters"]
+                if "shields" in updates:
+                    state["shields"] = updates["shields"]
+                if "cargo" in updates:
+                    state["cargo"] = dict(updates["cargo"])
+                if "credits" in updates:
+                    state["credits"] = updates["credits"]
+                    knowledge.credits = updates["credits"]
+                break
+
 
 @pytest.mark.asyncio
 async def test_recharge_warp_power_emits_enhanced_event(monkeypatch):
     character_id = "pilot"
-    knowledge = DummyKnowledge(credits=1_000, ship_type="kestrel_courier", warp_power=50)
+    knowledge = DummyKnowledge(character_id, credits=1_000, ship_type="kestrel_courier", warp_power=50)
     world = SimpleNamespace(
         characters={character_id: DummyCharacter(sector=0)},
         knowledge_manager=DummyKnowledgeManager({character_id: knowledge}),
+        ships_manager=DummyShipsManager({character_id: knowledge}),
     )
 
     mock_emit = AsyncMock()
@@ -88,9 +150,9 @@ async def test_recharge_warp_power_emits_enhanced_event(monkeypatch):
     assert warp_calls[0].kwargs["character_filter"] == [character_id]
     assert payload["source"]["method"] == "recharge_warp_power"
     assert payload["source"]["request_id"] == "req-warp-123"
-    assert payload["new_warp_power"] == knowledge.ship_config.current_warp_power
+    assert payload["new_warp_power"] == knowledge.ship_record["state"]["warp_power"]
     assert payload["warp_power_capacity"] >= payload["new_warp_power"]
-    assert payload["new_credits"] == knowledge.credits
+    assert payload["new_credits"] == world.knowledge_manager.get_ship_credits(character_id)
     assert payload["units"] == 25
     assert payload["total_cost"] == payload["price_per_unit"] * 25
 
@@ -99,10 +161,11 @@ async def test_recharge_warp_power_emits_enhanced_event(monkeypatch):
 async def test_recharge_warp_power_returns_failure_when_full(monkeypatch):
     character_id = "pilot"
     # Set warp power to capacity to trigger failure
-    knowledge = DummyKnowledge(credits=1_000, ship_type="kestrel_courier", warp_power=300)
+    knowledge = DummyKnowledge(character_id, credits=1_000, ship_type="kestrel_courier", warp_power=300)
     world = SimpleNamespace(
         characters={character_id: DummyCharacter(sector=0)},
         knowledge_manager=DummyKnowledgeManager({character_id: knowledge}),
+        ships_manager=DummyShipsManager({character_id: knowledge}),
     )
 
     mock_emit = AsyncMock()
@@ -136,10 +199,10 @@ async def test_transfer_warp_power_emits_enhanced_event(monkeypatch):
     sender = "trader_a"
     receiver = "trader_b"
     sender_knowledge = DummyKnowledge(
-        credits=0, ship_type="kestrel_courier", warp_power=120
+        sender, credits=0, ship_type="kestrel_courier", warp_power=120
     )
     receiver_knowledge = DummyKnowledge(
-        credits=0, ship_type="kestrel_courier", warp_power=40
+        receiver, credits=0, ship_type="kestrel_courier", warp_power=40
     )
     world = SimpleNamespace(
         characters={
@@ -147,6 +210,12 @@ async def test_transfer_warp_power_emits_enhanced_event(monkeypatch):
             receiver: DummyCharacter(sector=19),
         },
         knowledge_manager=DummyKnowledgeManager(
+            {
+                sender: sender_knowledge,
+                receiver: receiver_knowledge,
+            }
+        ),
+        ships_manager=DummyShipsManager(
             {
                 sender: sender_knowledge,
                 receiver: receiver_knowledge,
@@ -236,10 +305,10 @@ async def test_transfer_warp_power_returns_failure_for_capacity(monkeypatch):
     sender = "trader_a"
     receiver = "trader_b"
     sender_knowledge = DummyKnowledge(
-        credits=0, ship_type="kestrel_courier", warp_power=30
+        sender, credits=0, ship_type="kestrel_courier", warp_power=30
     )
     receiver_knowledge = DummyKnowledge(
-        credits=0, ship_type="kestrel_courier", warp_power=300
+        receiver, credits=0, ship_type="kestrel_courier", warp_power=300
     )
     world = SimpleNamespace(
         characters={
@@ -247,6 +316,12 @@ async def test_transfer_warp_power_returns_failure_for_capacity(monkeypatch):
             receiver: DummyCharacter(sector=42),
         },
         knowledge_manager=DummyKnowledgeManager(
+            {
+                sender: sender_knowledge,
+                receiver: receiver_knowledge,
+            }
+        ),
+        ships_manager=DummyShipsManager(
             {
                 sender: sender_knowledge,
                 receiver: receiver_knowledge,

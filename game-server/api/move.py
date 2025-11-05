@@ -13,6 +13,9 @@ from .utils import (
     build_event_source,
     rpc_success,
     build_character_moved_payload,
+    enforce_actor_authorization,
+    build_log_context,
+    emit_garrison_character_moved_event,
 )
 from ships import ShipType, get_ship_stats, ShipStats
 from rpc.events import event_dispatcher
@@ -54,7 +57,7 @@ def parse_move_destination(request: dict) -> int:
 
 def validate_move_destination(
     world, character_id: str, to_sector: int
-) -> Tuple["Character", "MapKnowledge", ShipStats]:
+) -> Tuple["Character", "MapKnowledge", ShipStats, dict]:
     if not world.universe_graph:
         raise HTTPException(status_code=503, detail="Game world not loaded")
 
@@ -78,15 +81,25 @@ def validate_move_destination(
         )
 
     knowledge = world.knowledge_manager.load_knowledge(character_id)
-    ship_stats = get_ship_stats(ShipType(knowledge.ship_config.ship_type))
-    warp_cost = ship_stats.turns_per_warp
-    if knowledge.ship_config.current_warp_power < warp_cost:
+    ship_id = getattr(knowledge, "current_ship_id", None)
+    ship = world.ships_manager.get_ship(ship_id) if ship_id else None
+    if ship is None:
         raise HTTPException(
-            status_code=400,
-            detail=f"Insufficient warp power. Need {warp_cost} units but only have {knowledge.ship_config.current_warp_power}",
+            status_code=500,
+            detail="Ship data unavailable for character",
         )
 
-    return character, knowledge, ship_stats
+    ship_stats = get_ship_stats(ShipType(ship["ship_type"]))
+    ship_state = ship.get("state", {})
+    warp_cost = ship_stats.turns_per_warp
+    current_warp_power = ship_state.get("warp_power", ship_stats.warp_power_capacity)
+    if current_warp_power < warp_cost:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient warp power. Need {warp_cost} units but only have {current_warp_power}",
+        )
+
+    return character, knowledge, ship_stats, ship
 
 
 async def handle(request: dict, world) -> dict:
@@ -94,12 +107,19 @@ async def handle(request: dict, world) -> dict:
     if not character_id:
         raise HTTPException(status_code=400, detail="Missing character_id")
 
+    enforce_actor_authorization(
+        world,
+        target_character_id=character_id,
+        actor_character_id=request.get("actor_character_id"),
+        admin_override=bool(request.get("admin_override")),
+    )
+
     request_id = request.get("request_id")
     await ensure_not_in_combat(world, character_id)
 
     to_sector = parse_move_destination(request)
 
-    character, knowledge, ship_stats = validate_move_destination(
+    character, knowledge, ship_stats, ship = validate_move_destination(
         world, character_id, to_sector
     )
 
@@ -118,8 +138,10 @@ async def handle(request: dict, world) -> dict:
 
     try:
         # Deduct warp power (already validated, won't fail)
-        knowledge.ship_config.current_warp_power -= warp_cost
-        world.knowledge_manager.save_knowledge(knowledge)
+        ship_id = getattr(knowledge, "current_ship_id", None)
+        ship_state = ship.get("state", {})
+        remaining_warp = max(0, ship_state.get("warp_power", 0) - warp_cost)
+        world.ships_manager.update_ship_state(ship_id, warp_power=remaining_warp)
 
         # Store old sector and update to new sector
         old_sector = character.sector
@@ -141,16 +163,24 @@ async def handle(request: dict, world) -> dict:
             if info.sector == old_sector and cid != character_id
         ]
         if departing_observers:
-            from rpc.events import EventLogContext
+            depart_context = build_log_context(
+                character_id=character_id,
+                world=world,
+                sector=old_sector,
+            )
             await event_dispatcher.emit(
                 "character.moved",
                 observer_payload,
                 character_filter=departing_observers,
-                log_context=EventLogContext(
-                    sender=character_id,
-                    sector=old_sector,
-                ),
+                log_context=depart_context,
             )
+
+        await emit_garrison_character_moved_event(
+            world,
+            event_dispatcher,
+            sector_id=old_sector,
+            payload=observer_payload,
+        )
 
         logger.info(
             "Character %s entering hyperspace to sector %s (ETA: %.2fs)",
@@ -163,6 +193,11 @@ async def handle(request: dict, world) -> dict:
         destination_sector_contents = await sector_contents(
             world, to_sector, character_id
         )
+        move_start_context = build_log_context(
+            character_id=character_id,
+            world=world,
+            sector=character.sector,
+        )
         await event_dispatcher.emit(
             "movement.start",
             {
@@ -170,6 +205,7 @@ async def handle(request: dict, world) -> dict:
                 "hyperspace_time": delay_seconds,
             },
             character_filter=[character_id],
+            log_context=move_start_context,
         )
 
         # Wait for hyperspace transit
@@ -183,10 +219,17 @@ async def handle(request: dict, world) -> dict:
 
         # Update character activity timestamp after arrival
         character.update_activity()
+        if ship_id:
+            world.ships_manager.move_ship(ship_id, to_sector)
 
         # Send movement.complete and map.local events to the character
         # get sector contents again in case things changed
         new_sector_contents = await sector_contents(world, to_sector, character_id)
+        move_complete_context = build_log_context(
+            character_id=character_id,
+            world=world,
+            sector=character.sector,
+        )
         await event_dispatcher.emit(
             "movement.complete",
             {
@@ -195,6 +238,7 @@ async def handle(request: dict, world) -> dict:
                 "sector": new_sector_contents,
             },
             character_filter=[character_id],
+            log_context=move_complete_context,
         )
 
         # Update sector visit in knowledge manager before sending map data so the
@@ -218,6 +262,7 @@ async def handle(request: dict, world) -> dict:
             "map.local",
             map_data,
             character_filter=[character_id],
+            log_context=move_complete_context,
         )
 
         # Check/join combat encounters (if any exist in destination)
@@ -290,6 +335,7 @@ async def handle(request: dict, world) -> dict:
                     "combat.round_waiting",
                     round_waiting_payload,
                     character_filter=[character_id],
+                    log_context=move_complete_context,
                 )
 
         # Send character.moved with movement: "arrive" to new sector observers
@@ -309,16 +355,24 @@ async def handle(request: dict, world) -> dict:
             and not info.in_hyperspace
         ]
         if arriving_observers:
-            from rpc.events import EventLogContext
+            arrival_context = build_log_context(
+                character_id=character_id,
+                world=world,
+                sector=to_sector,
+            )
             await event_dispatcher.emit(
                 "character.moved",
                 observer_payload,
                 character_filter=arriving_observers,
-                log_context=EventLogContext(
-                    sender=character_id,
-                    sector=to_sector,
-                ),
+                log_context=arrival_context,
             )
+
+        await emit_garrison_character_moved_event(
+            world,
+            event_dispatcher,
+            sector_id=to_sector,
+            payload=observer_payload,
+        )
 
         # Return minimal RPC acknowledgment; movement.complete carries status payload
         return rpc_success()

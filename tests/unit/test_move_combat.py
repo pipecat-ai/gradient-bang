@@ -6,14 +6,26 @@ from core.world import Character
 from api import move
 
 
-def _make_ship_config():
-    return SimpleNamespace(
-        ship_type="kestrel_courier",
-        ship_name="Test Ship",
-        current_warp_power=10,
-        current_fighters=40,
-        current_shields=80,
-    )
+def _make_ship_record(character_id: str):
+    return {
+        "ship_id": f"{character_id}-ship",
+        "ship_type": "kestrel_courier",
+        "name": "Test Ship",
+        "sector": 0,
+        "owner_type": "character",
+        "owner_id": character_id,
+        "state": {
+            "warp_power": 10,
+            "warp_power_capacity": 300,
+            "fighters": 40,
+            "shields": 80,
+            "cargo": {
+                "quantum_foam": 0,
+                "retro_organics": 0,
+                "neuro_symbolics": 0,
+            },
+        },
+    }
 
 
 def _build_world(character_id: str, *, encounter=None):
@@ -25,15 +37,30 @@ def _build_world(character_id: str, *, encounter=None):
         sector_count=100,
     )
 
-    ship_config = _make_ship_config()
-    knowledge = SimpleNamespace(ship_config=ship_config)
+    ship_record = _make_ship_record(character_id)
+    knowledge = SimpleNamespace(current_ship_id=ship_record["ship_id"])
+
+    def get_ship(_character_id: str):
+        return {
+            "ship_id": ship_record["ship_id"],
+            "ship_type": ship_record["ship_type"],
+            "name": ship_record["name"],
+            "state": dict(ship_record["state"]),
+        }
+
     knowledge_manager = SimpleNamespace(
         load_knowledge=MagicMock(return_value=knowledge),
         save_knowledge=MagicMock(),
         update_sector_visit=MagicMock(),
         get_credits=MagicMock(return_value=0),
+        get_ship=MagicMock(side_effect=lambda cid: get_ship(cid)),
     )
     world.knowledge_manager = knowledge_manager
+    world.ships_manager = SimpleNamespace(
+        get_ship=lambda ship_id: get_ship(character_id) if ship_id == ship_record["ship_id"] else None,
+        update_ship_state=lambda ship_id, **updates: ship_record["state"].update(updates),
+        move_ship=lambda ship_id, to_sector: ship_record.__setitem__("sector", to_sector),
+    )
     world.garrisons = None
 
     if encounter is not None:
@@ -169,3 +196,108 @@ async def test_move_without_combat_does_not_emit(monkeypatch):
         call for call in emit_mock.await_args_list if call.args[0] == "combat.round_waiting"
     ]
     assert not combat_calls
+
+
+@pytest.mark.asyncio
+async def test_move_emits_garrison_character_moved_event(monkeypatch):
+    character_id = "pilot"
+    world = _build_world(character_id, encounter=None)
+
+    world.character_to_corp = {
+        "garrison-owner": "corp-123",
+        "corp-mate": "corp-123",
+    }
+
+    owner = Character("garrison-owner", sector=1, name="Corsair Pilot", connected=True)
+    corp_mate = Character("corp-mate", sector=3, name="Fleet Wing", connected=True)
+    world.characters.update({
+        owner.id: owner,
+        corp_mate.id: corp_mate,
+    })
+
+    class DummyGarrison:
+        def __init__(self):
+            self.owner_id = "garrison-owner"
+            self.mode = "defensive"
+            self.fighters = 18
+            self.toll_amount = 0
+            self.deployed_at = "2025-11-03T00:00:00Z"
+
+    garrison = DummyGarrison()
+
+    class DummyGarrisonStore:
+        async def list_sector(self, sector_id: int):
+            return [garrison] if sector_id == 1 else []
+
+    world.garrisons = DummyGarrisonStore()
+
+    monkeypatch.setattr(move, "ensure_not_in_combat", AsyncMock())
+    monkeypatch.setattr(
+        move,
+        "sector_contents",
+        AsyncMock(side_effect=[{"port": None}, {"port": None}]),
+    )
+    monkeypatch.setattr(move, "player_self", lambda _world, cid: {"player_id": cid})
+    monkeypatch.setattr(move, "ship_self", lambda _world, cid: {"ship_id": cid})
+    monkeypatch.setattr(move, "build_local_map_region", AsyncMock(return_value={"map": True}))
+    monkeypatch.setattr(move, "build_character_combatant", MagicMock())
+    monkeypatch.setattr(move, "serialize_round_waiting_event", AsyncMock())
+    monkeypatch.setattr(move, "start_sector_combat", AsyncMock())
+
+    def fake_build_character_moved_payload(
+        _world,
+        cid,
+        *,
+        move_type,
+        movement=None,
+        timestamp=None,
+        knowledge=None,
+        extra_fields=None,
+    ):
+        payload = {
+            "player": {"id": cid},
+            "ship": {"ship_name": "Test Ship"},
+        }
+        if movement is not None:
+            payload["movement"] = movement
+        if extra_fields:
+            payload.update(extra_fields)
+        return payload
+
+    monkeypatch.setattr(move, "build_character_moved_payload", fake_build_character_moved_payload)
+
+    emit_mock = AsyncMock()
+    monkeypatch.setattr(move.event_dispatcher, "emit", emit_mock)
+    monkeypatch.setattr(move.asyncio, "sleep", AsyncMock())
+
+    request = {
+        "character_id": character_id,
+        "to_sector": 1,
+    }
+
+    result = await move.handle(request, world)
+
+    assert result == {"success": True}
+
+    garrison_calls = [
+        recorded_call
+        for recorded_call in emit_mock.await_args_list
+        if recorded_call.args and recorded_call.args[0] == "garrison.character_moved"
+    ]
+    assert len(garrison_calls) == 1, "Expected garrison.character_moved emission"
+
+    event_name, payload = garrison_calls[0].args
+    assert event_name == "garrison.character_moved"
+    recipients = garrison_calls[0].kwargs.get("character_filter")
+    assert recipients == ["garrison-owner", "corp-mate"]
+    assert payload["movement"] == "arrive"
+    assert payload["player"]["id"] == character_id
+    assert payload["garrison"] == {
+        "owner_id": "garrison-owner",
+        "owner_name": "Corsair Pilot",
+        "corporation_id": "corp-123",
+        "fighters": 18,
+        "mode": "defensive",
+        "toll_amount": 0,
+        "deployed_at": "2025-11-03T00:00:00Z",
+    }

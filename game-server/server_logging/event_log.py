@@ -35,6 +35,7 @@ class EventRecord:
     sender: str | None
     receiver: str | None
     sector: int | None
+    corporation_id: str | None
     meta: dict[str, Any] | None
 
     def to_json(self) -> str:
@@ -50,6 +51,7 @@ class EventRecord:
                 "sender": self.sender,
                 "receiver": self.receiver,
                 "sector": self.sector,
+                "corporation_id": self.corporation_id,
                 "meta": self.meta,
                 "payload": str(self.payload),
             }
@@ -77,6 +79,7 @@ class EventLogger:
         *,
         character_id: str | None = None,
         sector: int | None = None,
+        corporation_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """Return log entries within a time window, optionally filtered."""
         if not self._path.exists():
@@ -120,6 +123,9 @@ class EventLogger:
                         continue
 
                 if sector is not None and entry.get("sector") != sector:
+                    continue
+
+                if corporation_id is not None and entry.get("corporation_id") != corporation_id:
                     continue
 
                 results.append(entry)

@@ -67,6 +67,12 @@ async def get_status(client, character_id):
         client.remove_event_handler(token)
 
 
+def get_ship_credits(status_payload):
+    """Helper to read ship credits from a status payload."""
+    ship_section = status_payload.get("ship") or {}
+    return ship_section.get("credits", 0)
+
+
 # =============================================================================
 # Test Fixtures
 # =============================================================================
@@ -214,7 +220,7 @@ class TestTradeOperations:
 
         # Get initial status
         status_before = await get_status(client, char_id)
-        credits_before = status_before["player"]["credits_on_hand"]
+        credits_before = get_ship_credits(status_before)
 
         # Capture events during trade
         async with create_firehose_listener(server_url, char_id) as listener:
@@ -236,7 +242,7 @@ class TestTradeOperations:
 
                     # Verify credits decreased
                     status_after = await get_status(client, char_id)
-                    credits_after = status_after["player"]["credits_on_hand"]
+                    credits_after = get_ship_credits(status_after)
                     assert credits_after < credits_before, "Credits should decrease after buying"
 
                     # Verify trade event was emitted
@@ -254,7 +260,7 @@ class TestTradeOperations:
 
         # Get initial status
         status_before = await get_status(client, char_id)
-        credits_before = status_before["player"]["credits_on_hand"]
+        credits_before = get_ship_credits(status_before)
 
         # Capture events during trade
         async with create_firehose_listener(server_url, char_id) as listener:
@@ -275,7 +281,7 @@ class TestTradeOperations:
 
                     # Verify credits increased
                     status_after = await get_status(client, char_id)
-                    credits_after = status_after["player"]["credits_on_hand"]
+                    credits_after = get_ship_credits(status_after)
                     assert credits_after > credits_before, "Credits should increase after selling"
 
                     # Verify trade event was emitted
@@ -416,7 +422,7 @@ class TestInventoryManagement:
 
         # Get initial state
         status_before = await get_status(client, char_id)
-        credits_before = status_before["player"]["credits_on_hand"]
+        credits_before = get_ship_credits(status_before)
         cargo_before = status_before["ship"]["cargo"]
 
         try:
@@ -431,7 +437,7 @@ class TestInventoryManagement:
             if result.get("success"):
                 # Get final state
                 status_after = await get_status(client, char_id)
-                credits_after = status_after["player"]["credits_on_hand"]
+                credits_after = get_ship_credits(status_after)
                 cargo_after = status_after["ship"]["cargo"]
 
                 # Verify credits decreased
@@ -452,7 +458,7 @@ class TestInventoryManagement:
 
         # Get initial state
         status_before = await get_status(client, char_id)
-        credits_before = status_before["player"]["credits_on_hand"]
+        credits_before = get_ship_credits(status_before)
         cargo_before = status_before["ship"]["cargo"]
 
         try:
@@ -468,7 +474,7 @@ class TestInventoryManagement:
 
                 # Get final state
                 status_after = await get_status(client, char_id)
-                credits_after = status_after["player"]["credits_on_hand"]
+                credits_after = get_ship_credits(status_after)
                 cargo_after = status_after["ship"]["cargo"]
 
                 # Verify credits increased
@@ -517,9 +523,9 @@ class TestInventoryManagement:
             status_after = await get_status(client, char_id)
 
             # Verify all fields are present and valid
-            assert "credits_on_hand" in status_after["player"]
+            assert "credits" in status_after["ship"]
             assert "cargo" in status_after["ship"]
-            assert status_after["player"]["credits_on_hand"] >= 0
+            assert get_ship_credits(status_after) >= 0
 
         except RPCError:
             pytest.skip("Trade not available")
@@ -558,7 +564,7 @@ class TestAtomicityAndConcurrency:
 
         # Get initial state
         status_before = await get_status(client, char_id)
-        credits_before = status_before["player"]["credits_on_hand"]
+        credits_before = get_ship_credits(status_before)
 
         # Try invalid trade that should fail
         try:
@@ -573,7 +579,7 @@ class TestAtomicityAndConcurrency:
 
         # Verify state unchanged
         status_after = await get_status(client, char_id)
-        credits_after = status_after["player"]["credits_on_hand"]
+        credits_after = get_ship_credits(status_after)
 
         assert credits_after == credits_before, "Credits should be unchanged after failed trade"
 

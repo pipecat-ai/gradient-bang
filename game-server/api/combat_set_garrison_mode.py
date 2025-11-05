@@ -8,6 +8,8 @@ from .utils import (
     sector_contents,
     build_event_source,
     rpc_success,
+    enforce_actor_authorization,
+    build_log_context,
 )
 
 
@@ -19,6 +21,13 @@ async def handle(request: dict, world) -> dict:
 
     if not character_id or sector is None:
         raise HTTPException(status_code=400, detail="Missing character_id or sector")
+
+    enforce_actor_authorization(
+        world,
+        target_character_id=character_id,
+        actor_character_id=request.get("actor_character_id"),
+        admin_override=bool(request.get("admin_override")),
+    )
 
     if mode not in {"offensive", "defensive", "toll"}:
         raise HTTPException(status_code=400, detail="Invalid garrison mode")
@@ -61,6 +70,12 @@ async def handle(request: dict, world) -> dict:
         else None
     )
 
+    base_context = build_log_context(
+        character_id=character_id,
+        world=world,
+        sector=sector,
+    )
+
     await event_dispatcher.emit(
         "garrison.mode_changed",
         {
@@ -69,6 +84,7 @@ async def handle(request: dict, world) -> dict:
             "garrison": garrison_payload,
         },
         character_filter=[character_id],
+        log_context=base_context,
     )
 
     characters_in_sector = [
@@ -82,6 +98,7 @@ async def handle(request: dict, world) -> dict:
             "sector.update",
             sector_payload,
             character_filter=[cid],
+            log_context=build_log_context(character_id=cid, world=world, sector=sector),
         )
 
     return rpc_success()

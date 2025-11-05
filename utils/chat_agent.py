@@ -22,7 +22,8 @@ from utils.tools_schema import (
     RechargeWarpPower,
     TransferWarpPower,
     TransferCredits,
-    BankTransfer,
+    BankDeposit,
+    BankWithdraw,
     DumpCargo,
 )
 
@@ -74,7 +75,8 @@ class ChatAgent(BaseLLMAgent):
                 RechargeWarpPower,
                 TransferWarpPower,
                 TransferCredits,
-                BankTransfer,
+                BankDeposit,
+                BankWithdraw,
                 StartTask,
                 StopTask,
             ]
@@ -151,7 +153,8 @@ class ChatAgent(BaseLLMAgent):
                     "recharge_warp_power",
                     "transfer_warp_power",
                     "transfer_credits",
-                    "bank_transfer",
+                    "bank_deposit",
+                    "bank_withdraw",
                     "my_status",
                 }
                 and self.status_callback

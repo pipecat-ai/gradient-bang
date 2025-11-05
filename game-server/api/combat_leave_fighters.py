@@ -10,6 +10,8 @@ from .utils import (
     sector_contents,
     build_event_source,
     rpc_success,
+    enforce_actor_authorization,
+    build_log_context,
 )
 from .combat_initiate import start_sector_combat
 
@@ -26,6 +28,13 @@ async def handle(request: dict, world) -> dict:
 
     if not character_id or sector is None:
         raise HTTPException(status_code=400, detail="Missing character_id or sector")
+
+    enforce_actor_authorization(
+        world,
+        target_character_id=character_id,
+        actor_character_id=request.get("actor_character_id"),
+        admin_override=bool(request.get("admin_override")),
+    )
 
     if quantity <= 0:
         raise HTTPException(status_code=400, detail="Quantity must be positive")
@@ -61,8 +70,8 @@ async def handle(request: dict, world) -> dict:
                 detail="Sector already contains another player's garrison; clear it before deploying your fighters.",
             )
 
-    knowledge = world.knowledge_manager.load_knowledge(character_id)
-    current_fighters = knowledge.ship_config.current_fighters
+    ship = world.knowledge_manager.get_ship(character_id)
+    current_fighters = ship.get("state", {}).get("fighters", 0)
     if quantity > current_fighters:
         raise HTTPException(status_code=400, detail="Insufficient fighters to deploy")
 
@@ -84,13 +93,19 @@ async def handle(request: dict, world) -> dict:
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    updated_knowledge = world.knowledge_manager.load_knowledge(character_id)
-    remaining = updated_knowledge.ship_config.current_fighters
+    updated_ship = world.knowledge_manager.get_ship(character_id)
+    remaining = updated_ship.get("state", {}).get("fighters", 0)
     character.update_ship_state(fighters=remaining, max_fighters=character.max_fighters)
 
     request_id = request.get("request_id") or "missing-request-id"
     garrison_payload = serialize_garrison_for_client(
         world, updated, sector, current_character_id=character_id
+    )
+
+    base_context = build_log_context(
+        character_id=character_id,
+        world=world,
+        sector=sector,
     )
 
     await event_dispatcher.emit(
@@ -102,6 +117,7 @@ async def handle(request: dict, world) -> dict:
             "fighters_remaining": remaining,
         },
         character_filter=[character_id],
+        log_context=base_context,
     )
 
     characters_in_sector = [
@@ -115,6 +131,7 @@ async def handle(request: dict, world) -> dict:
             "sector.update",
             sector_payload,
             character_filter=[cid],
+            log_context=build_log_context(character_id=cid, world=world, sector=sector),
         )
 
     if mode == "offensive":

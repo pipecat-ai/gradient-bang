@@ -153,6 +153,21 @@ uv run npc/run_npc.py 2b4ff0c2-1234-5678-90ab-1cd2ef345678 "Move to sector 10 an
 
 `<character_id>` must be the immutable UUID stored in the registry, not the display name shown in-game. Use `uv run scripts/character_lookup.py "Display Name"` (and `scripts/character_modify.py` for edits) to manage entries before launching NPCs or TUIs.
 
+### Corporation Ship Control
+
+Corporation vessels are addressed by their `ship_id`, which also serves as the `character_id` for every NPC or tool connection.
+
+- **Dual-ID requirement:** Always pair the ship's identifier with a valid corporation member acting as the controller. Provide that actor through the first positional argument to `npc/run_npc.py`, the `--actor-id` flag in `npc/simple_tui.py`, or `AsyncGameClient(actor_character_id=...)`. Server RPCs reject corp ship actions without an authorised actor.
+- **Inspect the fleet:** `uv run scripts/corporation_lookup.py <member_id> --ships` renders sector, cargo, combat readiness, and the `Character ID` for each vessel. The `Control` line reports whether map knowledge exists at `world-data/character-map-knowledge/<ship_id>.json`.
+- **Launch a TaskAgent run:** `uv run npc/run_npc.py <member_id> --ship-id ship-abc123 "Patrol sectors 5 through 9."` uses the corp member as the actor while the agent speaks as `ship-abc123`.
+- **Direct control via Simple TUI:** `uv run npc/simple_tui.py --character-id ship-abc123 --actor-id corp-member-01 --server http://localhost:8000`
+
+Troubleshooting tips:
+- `Control: BLOCKED` means there is no character knowledge entry. Create `world-data/character-map-knowledge/<ship_id>.json` (rerun the provisioning script or clone from another ship) before retrying.
+- Join failures citing "active session" indicate another operator already controls that ship. Wait for their TaskAgent to exit or coordinate a handoff.
+- Inside the TUI, `/ships` lists the corp fleet and `/shipcopy <ship_id>` copies an identifier to the clipboard.
+- Share the condensed operator checklist in `docs/operator_quick_ref.md` with new corp coordinators.
+
 ### Terminal Viewers
 ```bash
 # Watch real-time events

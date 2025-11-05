@@ -1,7 +1,7 @@
 from typing import Dict, Any, Optional
 from fastapi import HTTPException
 
-from api.utils import resolve_character_name
+from .utils import resolve_character_name, enforce_actor_authorization
 
 
 async def handle(payload: Dict[str, Any], world, store, *, rate_limit_check=None) -> Dict[str, Any]:
@@ -38,6 +38,13 @@ async def handle(payload: Dict[str, Any], world, store, *, rate_limit_check=None
 
     if rate_limit_check:
         rate_limit_check(from_id)
+
+    enforce_actor_authorization(
+        world,
+        target_character_id=from_id,
+        actor_character_id=payload.get("actor_character_id"),
+        admin_override=bool(payload.get("admin_override")),
+    )
 
     # Look up sender's display name
     from_name = resolve_character_name(world, from_id)

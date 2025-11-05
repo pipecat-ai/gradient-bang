@@ -1,22 +1,33 @@
 from types import SimpleNamespace
+from datetime import datetime, timezone
 
 import pytest
 
-from core.character_registry import CharacterRegistry
+from core.character_registry import CharacterRegistry, CharacterProfile
 from core.world import Character
+from core.ships_manager import ShipsManager
+from core.corporation_manager import CorporationManager
 from character_knowledge import CharacterKnowledgeManager
 from api import character_create, character_modify, character_delete
 
 
 @pytest.fixture
 def world(tmp_path):
+    world_data_dir = tmp_path / "world-data"
+    ships_manager = ShipsManager(world_data_dir)
+
     registry = CharacterRegistry(tmp_path / "characters.json")
     registry.load()
     registry.set_admin_password("secret")
-    knowledge_manager = CharacterKnowledgeManager(data_dir=tmp_path / "character-map-knowledge")
+    knowledge_manager = CharacterKnowledgeManager(data_dir=world_data_dir / "character-map-knowledge")
+    knowledge_manager.set_ships_manager(ships_manager)
+    corporation_manager = CorporationManager(world_data_dir)
     return SimpleNamespace(
         knowledge_manager=knowledge_manager,
+        ships_manager=ships_manager,
         character_registry=registry,
+        corporation_manager=corporation_manager,
+        character_to_corp={},
         characters={},
     )
 
@@ -79,3 +90,52 @@ async def test_character_delete(world):
 
     assert delete_result["success"] is True
     assert world.character_registry.get_profile(character_id) is None
+
+
+@pytest.mark.asyncio
+async def test_character_delete_cleans_corporation_membership(world):
+    character_id = "test-delete-member"
+
+    world.character_registry.add_or_update(
+        CharacterProfile(character_id=character_id, name="Corp Member", player={}, ship={})
+    )
+
+    world.characters[character_id] = Character(character_id, name="Corp Member")
+    knowledge = world.knowledge_manager.load_knowledge(character_id)
+
+    corp = world.corporation_manager.create("Unit Test Corp", character_id)
+    knowledge.corporation = {
+        "corp_id": corp["corp_id"],
+        "joined_at": datetime.now(timezone.utc).isoformat(),
+    }
+    world.knowledge_manager.save_knowledge(knowledge)
+    world.character_to_corp[character_id] = corp["corp_id"]
+
+    corp_ship_id = world.ships_manager.create_ship(
+        ship_type="kestrel_courier",
+        sector=0,
+        owner_type="corporation",
+        owner_id=corp["corp_id"],
+        name="Corp Ship",
+    )
+    world.corporation_manager.add_ship(corp["corp_id"], corp_ship_id)
+
+    delete_result = await character_delete.handle(
+        {
+            "admin_password": "secret",
+            "character_id": character_id,
+        },
+        world,
+    )
+
+    assert delete_result["success"] is True
+    assert world.character_registry.get_profile(character_id) is None
+    assert character_id not in world.character_to_corp
+    with pytest.raises(FileNotFoundError):
+        world.corporation_manager.load(corp["corp_id"])
+
+    ship_record = world.ships_manager.get_ship(corp_ship_id)
+    assert ship_record.get("owner_type") == "unowned"
+    assert ship_record.get("former_owner_name") == "Unit Test Corp"
+
+    assert not world.knowledge_manager.get_file_path(character_id).exists()

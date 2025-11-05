@@ -54,7 +54,20 @@ async def handle(payload: Dict[str, Any], world) -> dict:
         validated_ship_type = validate_ship_type(ship_type_value)
         if validated_ship_type is None:
             raise HTTPException(status_code=400, detail=f"Invalid ship type: {ship_type_value}")
-        world.knowledge_manager.initialize_ship(character_id, validated_ship_type)
+        sector_hint = world.characters.get(character_id).sector if character_id in world.characters else world.knowledge_manager.get_current_sector(character_id) or 0
+        display_name = new_name or character_id
+        world.knowledge_manager.create_ship_for_character(
+            character_id,
+            validated_ship_type,
+            sector=sector_hint,
+            name=ship_data.get("ship_name"),
+            fighters=ship_data.get("current_fighters"),
+            shields=ship_data.get("current_shields"),
+            warp_power=ship_data.get("current_warp_power"),
+            cargo=ship_data.get("cargo"),
+            abandon_existing=True,
+            former_owner_name=display_name,
+        )
 
     apply_player_overrides(world, character_id, player_data)
     apply_ship_overrides(world, character_id, ship_data)
@@ -67,6 +80,8 @@ async def handle(payload: Dict[str, Any], world) -> dict:
     combined_player.update(player_data)
     combined_ship = dict(profile.ship)
     combined_ship.update(ship_data)
+    if ship_type_value:
+        combined_ship["ship_type"] = ship_type_value
 
     registry.add_or_update(
         CharacterProfile(

@@ -13,13 +13,21 @@ class MockKnowledgeManager:
     def __init__(self):
         self._credits = {}
 
+    def get_ship_credits(self, character_id: str) -> int:
+        """Get ship credits for character."""
+        return self._credits.get(character_id, 0)
+
     def get_credits(self, character_id: str) -> int:
         """Get character credits."""
-        return self._credits.get(character_id, 0)
+        return self.get_ship_credits(character_id)
+
+    def update_ship_credits(self, character_id: str, amount: int) -> None:
+        """Update ship credits for character."""
+        self._credits[character_id] = amount
 
     def update_credits(self, character_id: str, amount: int) -> None:
         """Update character credits."""
-        self._credits[character_id] = amount
+        self.update_ship_credits(character_id, amount)
 
 
 class MockWorld:
