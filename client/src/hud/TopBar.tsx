@@ -1,7 +1,6 @@
-import { CargoCapacityBadge } from "@/components/CargoCapacityBadge";
 import { NumericalBadge } from "@/components/NumericalBadge";
-import { DotDivider } from "@/components/primitives/DotDivider";
 import { WarpBadge } from "@/components/WarpBadge";
+import { ScreenMenu } from "@/screens/ScreenMenu";
 import {
   CurrencyCircleDollarIcon,
   SlidersHorizontalIcon,
@@ -10,27 +9,16 @@ import { Button } from "@pipecat-ai/voice-ui-kit";
 import useGameStore from "@stores/game";
 
 export const TopBar = () => {
-  const ship = useGameStore.use.ship();
   const player = useGameStore.use.player();
   const setActiveModal = useGameStore.use.setActiveModal();
 
   return (
-    <header className="flex flex-row p-4 justify-between items-center ">
+    <header className="flex flex-row justify-between items-center px-ui-md">
       <div className="flex flex-row gap-4 flex-1">
         <WarpBadge />
       </div>
       <div className="flex flex-row gap-2 items-center">
-        <NumericalBadge value={ship?.cargo?.quantum_foam || 0}>
-          QF:
-        </NumericalBadge>
-        <NumericalBadge value={ship?.cargo?.retro_organics || 0}>
-          RO:
-        </NumericalBadge>
-        <NumericalBadge value={ship?.cargo?.neuro_symbolics || 0}>
-          NS:
-        </NumericalBadge>
-        <DotDivider />
-        <CargoCapacityBadge />
+        <ScreenMenu />
       </div>
       <div className="flex flex-row gap-4 flex-1 justify-end">
         <NumericalBadge value={player.credits_on_hand} formatAsCurrency={true}>

@@ -1,15 +1,16 @@
 declare global {
   // --- PLAYER
+
   interface PlayerBase {
     id: string;
     last_active?: string;
     name: string;
+    created_at?: string;
   }
 
   interface PlayerSelf extends PlayerBase {
     credits_in_bank: number;
     credits_on_hand: number;
-    created_at: string;
   }
 
   interface Player extends PlayerBase {
@@ -18,16 +19,17 @@ declare global {
   }
 
   // --- RESOURCE
+
   type Resource = "neuro_symbolics" | "quantum_foam" | "retro_organics";
   type ResourceList = Resource[];
 
   // --- SHIP
+
   interface Ship {
     fighters?: number;
     shields?: number;
     ship_name: string;
     ship_type: string;
-    // ship_type: ShipType;
   }
 
   interface ShipType {
@@ -41,10 +43,10 @@ declare global {
   }
 
   interface ShipSelf extends Ship {
+    credits: number;
     cargo: Record<Resource, number>;
-    cargo_used: number;
     cargo_capacity: number;
-    holds: number;
+    empty_holds: number;
     warp_power: number;
     warp_power_capacity: number;
   }
@@ -68,7 +70,7 @@ declare global {
     planets?: Planet[];
     players?: Player[];
     port?: Port;
-    region: Region;
+    region?: Region;
     scene_config?: unknown;
 
     // Not yet implemented
@@ -82,14 +84,37 @@ declare global {
     id: number;
   }
 
+  interface Salvage {
+    salvage_id: string;
+
+    cargo?: Record<Resource, number>;
+    credits?: number;
+    scrap?: number;
+
+    collected?: {
+      cargo: Record<Resource, number>;
+      scrap?: number;
+      credits?: number;
+    };
+    remaining?: {
+      cargo: Record<Resource, number>;
+      scrap?: number;
+      credits?: number;
+    };
+    expires_at?: string;
+    fully_collected?: boolean;
+  }
+
   // --- PORT
+
   interface PortBase {
     code: string;
   }
 
   interface Port extends PortBase {
-    max_capacity: Record<Resource, number>;
-    observed_at?: string;
+    // max_capacity: Record<Resource, number>;
+    code: string;
+    observed_at?: string | null;
     stock: Record<Resource, number>;
     prices: Record<Resource, number>;
     warp_power_depot?: PortWarpPowerDepot;
@@ -101,17 +126,20 @@ declare global {
   }
 
   // --- MAP
+
   type MapData = MapSectorNode[];
 
   interface MapSectorNode {
     id: number;
     hops_from_center?: number;
     position: [number, number];
-    visited?: string;
+    adjacent_sectors?: number[];
+    visited?: boolean;
     port?: string;
     region?: string;
     lanes: MapLane[];
     is_mega?: boolean;
+    last_visited?: string;
   }
 
   interface MapLane {
@@ -137,17 +165,62 @@ declare global {
   }
 
   // --- UI
+
   type UIState = "idle" | "moving" | "combat" | "paused";
   type UIScreen = "self" | "messaging" | "trading" | "map" | "tasks" | "combat";
   type UIModal = "settings" | undefined;
 
+  // --- COMBAT
+
+  interface CombatSession {
+    combat_id: string;
+    initiator: string;
+    participants: Player[];
+    round: number;
+    deadline: string;
+    current_time: string;
+  }
+
+  interface CombatAction {
+    combat_id: string;
+    action: "brace" | "attack" | "flee";
+    commit?: number;
+    round?: number;
+    target_id?: string;
+    to_sector?: number;
+  }
+
+  interface CombatRound {
+    combat_id: string;
+    sector: Sector;
+    round: number;
+
+    hits: Record<string, number>; // player_id -> number of hits
+    offensive_losses: Record<string, number>; // player_id -> number of offensive losses
+    defensive_losses: Record<string, number>; // player_id -> number of defensive losses
+    shield_loss: Record<string, number>; // player_id -> number of shield losses
+    flee_results: Record<string, boolean>; // player_id -> true if they fled successfully, false if they failed to flee
+    actions: Record<string, CombatAction>; // player_id -> CombatAction
+
+    end: string;
+    result: string;
+  }
+
   // --- MISC
+
+  interface Task {
+    id: string;
+    summary: string;
+    timestamp: string;
+  }
 
   interface LogEntry {
     type: string;
     message: string;
 
     timestamp?: string; // Note: set by the store
+    timestamp_client?: number; // Note: set by the store
+    signature?: string; // Note: derived via utility for stacking
     meta?: Record<string, unknown>; // Note: set by the store
   }
 

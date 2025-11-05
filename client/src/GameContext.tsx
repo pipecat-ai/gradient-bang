@@ -5,17 +5,30 @@ import { useCallback, useEffect, useRef, type ReactNode } from "react";
 import { checkForNewSectors, startMoveToSector } from "@/actions";
 import { GameContext } from "@/hooks/useGameContext";
 import { wait } from "@/utils/animation";
+import {
+  salvageCollectedSummaryString,
+  salvageCreatedSummaryString,
+  transferSummaryString,
+} from "@/utils/game";
 import useGameStore, { GameInitStateMessage } from "@stores/game";
 
 import {
+  type BankTransactionMessage,
   type CharacterMovedMessage,
+  type CombatActionResponseMessage,
+  type CombatRoundResolvedMessage,
+  type CombatRoundWaitingMessage,
   type CoursePlotMessage,
+  type CreditsTransferMessage,
   type ErrorMessage,
   type IncomingChatMessage,
   type MapLocalMessage,
   type MovementCompleteMessage,
   type MovementStartMessage,
   type PortUpdateMessage,
+  type SalvageCollectedMessage,
+  type SalvageCreatedMessage,
+  type SectorUpdateMessage,
   type ServerMessage,
   type StatusMessage,
   type WarpPurchaseMessage,
@@ -30,11 +43,7 @@ interface GameProviderProps {
 
 //@TODO: remove this method once game server changes
 const transformMessage = (e: ServerMessage): ServerMessage | undefined => {
-  if (
-    ["tool_result", "tool_call", "task_output", "task_complete"].includes(
-      e.event
-    )
-  ) {
+  if (["tool_result", "tool_call"].includes(e.event)) {
     console.debug(
       "[GAME EVENT] Transforming server message",
       e.event,
@@ -58,11 +67,6 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
     if (!instanceManagerRef.current) {
       instanceManagerRef.current = new GameInstanceManager();
     }
-
-    return () => {
-      instanceManagerRef.current?.destroy();
-      instanceManagerRef.current = null;
-    };
   }, [client]);
 
   /**
@@ -123,7 +127,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
    * Initialization method
    */
   const initialize = useCallback(async () => {
-    console.debug("[GAME CONTEXT] Initializing...", onConnect);
+    console.debug("[GAME CONTEXT] Initializing...");
 
     if (!instanceManagerRef.current) {
       console.error("[GAME CONTEXT] Game instance manager not found");
@@ -135,6 +139,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
     // 1. Construct and await heavier game instances
     await instanceManagerRef.current?.create_instances();
+    await wait(1000);
 
     // 2. Connect to agent
     gameStore.setGameStateMessage(GameInitStateMessage.CONNECTING);
@@ -199,7 +204,6 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               });
 
               // Initialize game client if this is the first status update
-
               if (status.source?.method === "join") {
                 gameStore.addActivityLogEntry({
                   type: "join",
@@ -283,7 +287,9 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
                 type: "movement",
                 message: `Moved from sector ${gameStore.sector?.id} to sector ${gameStore.sectorBuffer?.id}`,
               });
+
               // If this is our first time here, update log with discovery
+              // @TODO: implement
 
               // Swap in the buffered sector
               // Note: Starfield instance already in sync through animation sequencing
@@ -295,7 +301,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
               // Cleanup
 
-              // Remove any course plot data if we've reached out intended destination
+              // Remove any course plot data if we've reached our intended destination
               // @TODO: make this logic robust (plots should become stale after a certain time)
               if (
                 gameStore.course_plot?.to_sector === gameStore.sectorBuffer?.id
@@ -320,6 +326,76 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               break;
             }
 
+            case "bank.transaction": {
+              console.debug("[GAME EVENT] Deposit", gameEvent.payload);
+              const data = gameEvent.payload as BankTransactionMessage;
+
+              // Note: we do not need to update the player or ship state
+              // as status.update is dispatched immediately after
+
+              if (data.direction === "deposit") {
+                gameStore.addActivityLogEntry({
+                  type: "bank.transaction",
+                  message: `Deposited [${data.amount}] credits to bank`,
+                });
+              } else {
+                gameStore.addActivityLogEntry({
+                  type: "bank.transaction",
+                  message: `Withdrew [${data.amount}] credits from bank`,
+                });
+              }
+              break;
+            }
+
+            // ----- MAP
+
+            case "sector.update": {
+              console.debug("[GAME EVENT] Sector update", gameEvent.payload);
+              const data = gameEvent.payload as SectorUpdateMessage;
+
+              gameStore.setSector(data as Sector);
+
+              // Note: not updating activity log as redundant from other logs
+
+              //gameStore.addActivityLogEntry({
+              //  type: "sector.update",
+              //  message: `Sector ${data.id} updated`,
+              //});
+
+              break;
+            }
+
+            case "salvage.created": {
+              console.debug("[GAME EVENT] Salvage created", gameEvent.payload);
+              const data = gameEvent.payload as SalvageCreatedMessage;
+
+              // Note: we update sector contents in proceeding sector.update event
+
+              // @TODO: status update is missing, so we may need to update player state here
+
+              gameStore.addActivityLogEntry({
+                type: "salvage.created",
+                message: `Salvage created in [sector ${
+                  data.sector.id
+                }] ${salvageCreatedSummaryString(data.salvage_details)}`,
+              });
+              break;
+            }
+
+            case "salvage.collected": {
+              console.debug("[GAME EVENT] Salvage claimed", gameEvent.payload);
+              const data = gameEvent.payload as SalvageCollectedMessage;
+
+              gameStore.addActivityLogEntry({
+                type: "salvage.collected",
+                message: `Salvage collected in [sector ${
+                  data.sector.id
+                }] ${salvageCollectedSummaryString(data.salvage_details)}`,
+              });
+
+              break;
+            }
+
             case "course.plot": {
               console.debug("[GAME EVENT] Course plot", gameEvent.payload);
               const data = gameEvent.payload as CoursePlotMessage;
@@ -327,8 +403,6 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               gameStore.setCoursePlot(data);
               break;
             }
-
-            // ----- MAP
 
             case "map.region":
             case "map.local": {
@@ -368,9 +442,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               const data = gameEvent.payload as PortUpdateMessage;
 
               // If update is for current sector, update port payload
-              if (data.sector.id === gameStore.sector?.id) {
-                gameStore.setSectorPort(data.sector.id, data.port);
-              }
+              gameStore.updateSector(data.sector);
 
               break;
             }
@@ -392,29 +464,115 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
               gameStore.addActivityLogEntry({
                 type: "warp.purchase",
-                message: `Purchased ${data.units} warp units for ${data.price} credits`,
+                message: `Purchased [${data.units}] warp units for [${data.total_cost}] credits`,
               });
               break;
             }
 
-            case "warp.transfer": {
-              console.debug("[GAME EVENT] Warp transfer", gameEvent.payload);
-              const data = gameEvent.payload as WarpTransferMessage;
+            case "warp.transfer":
+            case "credits.transfer": {
+              const eventType = gameEvent.event as
+                | "warp.transfer"
+                | "credits.transfer";
+              const transferType =
+                eventType === "warp.transfer" ? "Warp" : "Credits";
 
-              let message = "";
-              if (data.from_character_id === gameStore.player?.id) {
-                message = `Transferred ${data.units} warp units to ${data.to_character_id}`;
-              } else {
-                message = `Received ${data.units} warp units from ${data.from_character_id}`;
+              console.debug(
+                `[GAME EVENT] ${transferType} transfer`,
+                gameEvent.payload
+              );
+
+              const data = gameEvent.payload as
+                | WarpTransferMessage
+                | CreditsTransferMessage;
+
+              // Note: we do not need to update the player or ship state
+              // as status.update is dispatched immediately after
+
+              if (data.transfer_direction === "received") {
+                gameStore.triggerAlert("transfer");
               }
 
               gameStore.addActivityLogEntry({
-                type: "warp.transfer",
-                message: message,
+                type: eventType,
+                message: transferSummaryString(data),
+              });
+
+              break;
+            }
+
+            // ----- COMBAT
+
+            case "combat.round_waiting": {
+              console.debug(
+                "[GAME EVENT] Combat round waiting",
+                gameEvent.payload
+              );
+              const data = gameEvent.payload as CombatRoundWaitingMessage;
+
+              // Immediately set the UI state to be "combat" for user feedback
+              gameStore.setUIState("combat");
+
+              // Do we have an active combat session?
+              if (!gameStore.activeCombatSession) {
+                gameStore.setActiveCombatSession(data as CombatSession);
+                gameStore.addActivityLogEntry({
+                  type: "combat.session.started",
+                  message: `Combat session started with ${data.participants.length} participants`,
+                });
+                break;
+              }
+              // Update combat session with new round details
+              break;
+            }
+
+            case "combat.round_resolved": {
+              console.debug(
+                "[GAME EVENT] Combat round resolved",
+                gameEvent.payload
+              );
+              const data = gameEvent.payload as CombatRoundResolvedMessage;
+              gameStore.addCombatRound(data as CombatRound);
+              gameStore.addActivityLogEntry({
+                type: "combat.round.resolved",
+                message: `Combat round ${data.round} resolved in sector ${data.sector.id}`,
               });
               break;
             }
-            // ----- COMBAT
+
+            case "combat.action_response": {
+              console.debug(
+                "[GAME EVENT] Combat action response",
+                gameEvent.payload
+              );
+              const data = gameEvent.payload as CombatActionResponseMessage;
+
+              // @TODO: update store to log action round action
+
+              gameStore.addActivityLogEntry({
+                type: "combat.action.response",
+                message: `Combat action response for round ${data.round}: [${data.action}]`,
+              });
+              break;
+            }
+
+            case "combat.ended": {
+              console.debug("[GAME EVENT] Combat ended", gameEvent.payload);
+              const data = gameEvent.payload as CombatRoundResolvedMessage;
+
+              // Return to idle UI state
+              gameStore.setUIState("idle");
+
+              gameStore.endActiveCombatSession();
+
+              // Update activity log with combat session details
+              gameStore.addActivityLogEntry({
+                type: "combat.session.ended",
+                message: `Combat session ended with result: [${data.result}]`,
+              });
+
+              break;
+            }
 
             // ----- MISC
 
@@ -422,8 +580,28 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               console.debug("[GAME EVENT] Chat message", gameEvent.payload);
               const data = gameEvent.payload as IncomingChatMessage;
 
-              gameStore.addMessage(data);
+              gameStore.addMessage(data as ChatMessage);
               gameStore.setNotifications({ newChatMessage: true });
+
+              const timestampClient = Date.now();
+
+              if (
+                data.type === "direct" &&
+                data.from_name &&
+                data.from_name !== gameStore.player?.name
+              ) {
+                gameStore.addActivityLogEntry({
+                  type: "chat.direct",
+                  message: `New direct message from [${data.from_name}]`,
+                  timestamp_client: timestampClient,
+                  meta: {
+                    from_name: data.from_name,
+                    signature_prefix: "chat.direct:",
+                    //@TODO: change this to from_id when available
+                    signature_keys: [data.from_name],
+                  },
+                });
+              }
               break;
             }
 
@@ -439,6 +617,17 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
                   data.endpoint ?? "Unknown"
                 } - ${data.error}`,
               });
+              break;
+            }
+
+            //@TODO: remove this
+            case "ui-action": {
+              console.debug("[GAME EVENT] UI action", gameEvent.payload);
+
+              const starfield = gameStore.starfieldInstance;
+              if (starfield) {
+                starfield.selectGameObject("port");
+              }
               break;
             }
 

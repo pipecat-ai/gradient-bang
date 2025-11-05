@@ -18,6 +18,7 @@ const SoundMap: Record<string, Sound> = {
   chime4: { src: "/sounds/chime-4.wav", type: "fx" },
   chime5: { src: "/sounds/chime-5.wav", type: "fx" },
   chime6: { src: "/sounds/chime-6.wav", type: "fx" },
+  text: { src: "/sounds/text.wav", type: "fx" },
   ambience: { src: "/sounds/ambience.wav", type: "ambience" },
 };
 
@@ -307,7 +308,6 @@ export const usePlaySound = () => {
     []
   );
 
-  // Expose a convenient preload method on the returned function for optional usage
   (
     playSound as unknown as { preloadSounds?: () => Promise<void> }
   ).preloadSounds = preloadAllSounds;

@@ -2,6 +2,7 @@ import useGameStore from "@stores/game";
 import { memo, useEffect } from "react";
 
 import type { StarfieldSceneConfig } from "@/fx/starfield/constants";
+import type { GalaxyStarfieldEvents, GameObjectInstance } from "@/fx/starfield/types";
 import { usePlaySound } from "@/hooks/usePlaySound";
 
 export const StarField = memo(() => {
@@ -47,52 +48,71 @@ export const StarField = memo(() => {
       return;
     }
 
-    console.debug("[STARFIELD] Assigning callbacks");
+    console.debug("[STARFIELD] Subscribing to starfield events");
 
-    starfieldInstance.callbacks = {
-      onSceneIsLoading: () => {
-        console.log("[STARFIELD] 🔄 Scene is loading...");
-      },
-      onSceneReady: (isInitialRender: boolean, sceneId: string | null) => {
-        console.log(
-          "[STARFIELD] ✅ Scene ready!",
-          isInitialRender ? "(initial)" : "(warp)",
-          `scene: ${sceneId || "unknown"}`
-        );
-      },
-      onWarpStart: () => {
-        console.log("[STARFIELD] 🚀 Warp started");
-        playSound("warp");
-      },
-      onWarpComplete(queueLength) {
-        console.log(`[STARFIELD] 🎉 Warp complete - ${queueLength} remaining`);
-        if (queueLength === 0) {
-          // state.setAutopilot(false);
-        }
-      },
-      onWarpQueue: () => {
-        // state.setAutopilot(true);
-      },
-      onGameObjectInView: (gameObject) => {
-        console.log("[STARFIELD] Game object in view:", gameObject.name);
-      },
-      onGameObjectSelected: (gameObject) => {
-        console.log("[STARFIELD] Game object selected:", gameObject.name);
-      },
-      onGameObjectCleared: () => {
-        console.log("[STARFIELD] Game object cleared");
-      },
+    const handleSceneLoading = () => {
+      console.log("[STARFIELD] 🔄 Scene is loading...");
     };
 
+    const handleSceneReady = ({
+      isInitialRender,
+      sceneId,
+    }: GalaxyStarfieldEvents["sceneReady"]) => {
+      console.log(
+        "[STARFIELD] ✅ Scene ready!",
+        isInitialRender ? "(initial)" : "(warp)",
+        `scene: ${sceneId || "unknown"}`
+      );
+    };
+
+    const handleWarpStart = () => {
+      console.log("[STARFIELD] 🚀 Warp started");
+      playSound("warp");
+    };
+
+    const handleWarpComplete = (queueLength: number) => {
+      console.log(`[STARFIELD] 🎉 Warp complete - ${queueLength} remaining`);
+      if (queueLength === 0) {
+        // state.setAutopilot(false);
+      }
+    };
+
+    const handleWarpQueue = (queueLength: number) => {
+      console.log(`[STARFIELD] Queue updated: ${queueLength}`);
+      // state.setAutopilot(true);
+    };
+
+    const handleGameObjectInView = (gameObject: GameObjectInstance) => {
+      console.log("[STARFIELD] Game object in view:", gameObject.name);
+    };
+
+    const handleGameObjectSelected = (gameObject: GameObjectInstance) => {
+      console.log("[STARFIELD] Game object selected:", gameObject.name);
+    };
+
+    const handleGameObjectCleared = () => {
+      console.log("[STARFIELD] Game object cleared");
+    };
+
+    starfieldInstance.on("sceneIsLoading", handleSceneLoading);
+    starfieldInstance.on("sceneReady", handleSceneReady);
+    starfieldInstance.on("warpStart", handleWarpStart);
+    starfieldInstance.on("warpComplete", handleWarpComplete);
+    starfieldInstance.on("warpQueue", handleWarpQueue);
+    starfieldInstance.on("gameObjectInView", handleGameObjectInView);
+    starfieldInstance.on("gameObjectSelected", handleGameObjectSelected);
+    starfieldInstance.on("gameObjectCleared", handleGameObjectCleared);
+
     return () => {
-      // Note: we don't unmount the Starfield instance as it's always
-      // rendered in the DOM and is not destroyed. We may want to revisit
-      // this later if the views change during gameplay.
-      //if (state.starfieldInstance) {
-      //  console.log("[STARFIELD RENDER] Unmounting Starfield instance");
-      //  state.starfieldInstance.destroy();
-      //  state.setStarfieldInstance(undefined);
-      //}
+      console.debug("[STARFIELD] Unsubscribing from starfield events");
+      starfieldInstance.off("sceneIsLoading", handleSceneLoading);
+      starfieldInstance.off("sceneReady", handleSceneReady);
+      starfieldInstance.off("warpStart", handleWarpStart);
+      starfieldInstance.off("warpComplete", handleWarpComplete);
+      starfieldInstance.off("warpQueue", handleWarpQueue);
+      starfieldInstance.off("gameObjectInView", handleGameObjectInView);
+      starfieldInstance.off("gameObjectSelected", handleGameObjectSelected);
+      starfieldInstance.off("gameObjectCleared", handleGameObjectCleared);
     };
   }, [playSound, ready, settings.renderStarfield, starfieldInstance]);
 

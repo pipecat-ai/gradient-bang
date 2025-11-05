@@ -1,6 +1,7 @@
 import { cn } from "@/utils/tailwind";
 import { cva, type VariantProps } from "class-variance-authority";
 import * as React from "react";
+import { ScrollArea } from "./ScrollArea";
 
 const cardVariants = cva("bg-card text-card-foreground flex flex-col", {
   variants: {
@@ -9,35 +10,78 @@ const cardVariants = cva("bg-card text-card-foreground flex flex-col", {
       secondary: "bg-secondary/80 backdrop-blur-sm text-secondary-foreground",
     },
     size: {
+      none: "",
       default:
-        "gap-6 py-6 [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-6",
-      lg: "gap-10 py-10 [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-10",
-      xl: "gap-12 py-12 [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-12",
+        "gap-ui-md py-ui-md [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-ui-md",
+      lg: "gap-ui-lg py-ui-lg [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-ui-lg",
+      xl: "gap-ui-xl py-ui-xl [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-ui-xl",
     },
     elbow: {
       true: "elbow",
       false: "",
     },
+    scrollable: {
+      true: "",
+      false: "",
+    },
   },
+  compoundVariants: [
+    {
+      scrollable: true,
+      size: ["none", "default", "lg", "xl"],
+      class: "py-0",
+    },
+    {
+      scrollable: true,
+      size: "default",
+      class: "[&_*[data-slot^=scroll-area-viewport]]:py-ui-md",
+    },
+    {
+      scrollable: true,
+      size: "lg",
+      class: "[&_*[data-slot^=scroll-area-viewport]]:py-ui-lg",
+    },
+    {
+      scrollable: true,
+      size: "xl",
+      class: "[&_*[data-slot^=scroll-area-viewport]]:py-ui-xl",
+    },
+  ],
   defaultVariants: {
     variant: "default",
     elbow: false,
     size: "default",
+    scrollable: false,
   },
 });
+
 function Card({
   className,
   variant,
   elbow,
   size,
+  scrollable,
   ...props
 }: React.ComponentProps<"div"> & VariantProps<typeof cardVariants>) {
   return (
     <div
       data-slot="card"
-      className={cn(cardVariants({ variant, elbow, size }), className)}
+      className={cn(
+        cardVariants({ variant, elbow, size, scrollable }),
+        className
+      )}
       {...props}
     />
+  );
+}
+
+function CardScrollable({ ...props }: React.ComponentProps<typeof Card>) {
+  return (
+    <Card {...props} scrollable={true}>
+      <ScrollArea className="w-full h-full max-h-max">
+        {props.children}
+      </ScrollArea>
+    </Card>
   );
 }
 
@@ -110,5 +154,6 @@ export {
   CardDescription,
   CardFooter,
   CardHeader,
+  CardScrollable,
   CardTitle,
 };

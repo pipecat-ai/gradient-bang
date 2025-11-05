@@ -1,11 +1,11 @@
 import { useGameContext } from "@/hooks/useGameContext";
 import useGameStore from "@stores/game";
 import Error from "@views/Error";
-import Game from "@views/Game";
 import JoinStatus from "@views/JoinStatus";
 import Title from "@views/Title";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
+import Game from "./Game";
 
 export const ViewContainer = ({ error }: { error?: string | null }) => {
   const settings = useGameStore.use.settings();

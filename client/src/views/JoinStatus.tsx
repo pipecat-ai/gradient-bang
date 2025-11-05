@@ -1,22 +1,22 @@
 import useGameStore from "@/stores/game";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 
 export const JoinStatus = ({ handleStart }: { handleStart: () => void }) => {
-  const [showPanel, setShowPanel] = useState(false);
   const gameState = useGameStore.use.gameState();
   const gameStateMessage = useGameStore.use.gameStateMessage?.();
   const diamondFXInstance = useGameStore.use.diamondFXInstance?.();
+  const statusPanelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (gameState !== "not_ready" || !diamondFXInstance) return;
+    if (
+      gameState !== "not_ready" ||
+      !diamondFXInstance ||
+      !statusPanelRef.current
+    )
+      return;
 
-    diamondFXInstance.update({
-      onComplete: () => {
-        setShowPanel(true);
-      },
-    });
-    diamondFXInstance.start("status-panel");
+    diamondFXInstance.start(statusPanelRef.current.id);
   }, [gameState, diamondFXInstance]);
 
   useEffect(() => {
@@ -25,53 +25,18 @@ export const JoinStatus = ({ handleStart }: { handleStart: () => void }) => {
     diamondFXInstance?.clear(true);
   }, [gameState, diamondFXInstance]);
 
-  /*
-  // Update connection string when connected
-  useEffect(() => {
-    if (isConnected) {
-      setConnectionString("Configuring game UI...");
-    }
-  }, [isConnected]);
-
-  // When game state becomes ready, trigger fade out
-  useEffect(() => {
-    if (gameState === "ready") {
-      setShouldFadeOut(true);
-    }
-  }, [gameState]);
-
-  // Initialize connection
-  useEffect(() => {
-    const fx = useGameStore.getState().diamondFXInstance;
-    fx?.start("status-panel");
-  }, []);
-
-  // Handle fade out complete: clear FX and hide entire element
-  const handleFadeComplete = () => {
-    if (shouldFadeOut) {
-      const fx = useGameStore.getState().diamondFXInstance;
-      fx?.update({
-        onComplete: () => {
-          setShowConnectScreen(false);
-        },
-      });
-      fx?.clear(true);
-    }
-  };
-*/
-
   return (
-    <div className="absolute inset-0 z-999 h-full w-full flex items-center justify-center bg-white/20 backdrop-blur-sm pointer-events-none user-select-none">
+    <div className="absolute inset-0 z-90 h-full w-full flex items-center justify-center bg-gray-800/20 backdrop-blur-lg bg-dotted-lg bg-dotted-white/10 bg-center pointer-events-none user-select-none">
       <motion.div
-        animate={{ opacity: showPanel ? 1 : 0 }}
+        animate={{ opacity: 1 }}
         initial={{ opacity: 0 }}
-        transition={{ duration: 1 }}
+        transition={{ duration: 1, delay: 1 }}
         onAnimationComplete={() => {
           if (gameState !== "not_ready") return;
           handleStart();
         }}
       >
-        <div id="status-panel" className="screen p-4">
+        <div id="status-panel" className="screen p-4" ref={statusPanelRef}>
           <AnimatePresence mode="wait">
             <motion.span
               key={gameStateMessage}
@@ -81,7 +46,7 @@ export const JoinStatus = ({ handleStart }: { handleStart: () => void }) => {
                 transition: { duration: 0.3, delay: 0.2 },
               }}
               exit={{ opacity: 0, y: 10, transition: { duration: 0.3 } }}
-              className="uppercase relative animate-pulse"
+              className="uppercase relative animate-pulse text-center font-medium tracking-widest"
             >
               {gameStateMessage}
             </motion.span>

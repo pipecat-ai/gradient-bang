@@ -2,15 +2,9 @@ import { Button } from "@/components/primitives/Button";
 import { Card, CardContent, CardHeader } from "@/components/primitives/Card";
 import { Settings } from "@/dialogs/Settings";
 import useGameStore from "@/stores/game";
-import { useEffect } from "react";
 
 export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
   const setActiveModal = useGameStore.use.setActiveModal();
-
-  useEffect(() => {
-    const fx = useGameStore.getState().diamondFXInstance;
-    fx?.start("title-screen");
-  }, []);
 
   return (
     <div className="relative h-screen w-screen overflow-hidden">

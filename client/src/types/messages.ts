@@ -20,6 +20,17 @@ export interface ErrorMessage extends ServerMessagePayload {
   endpoint?: string;
 }
 
+export interface TaskOutputMessage extends ServerMessagePayload {
+  text: string;
+  task_message_type:
+    | "STEP"
+    | "ACTION"
+    | "EVENT"
+    | "MESSAGE"
+    | "ERROR"
+    | "FINISHED";
+}
+
 export interface IncomingChatMessage
   extends ServerMessagePayload,
     ChatMessage {}
@@ -67,19 +78,8 @@ export interface WarpPurchaseMessage extends ServerMessagePayload {
   new_credits: number;
 }
 
-export interface WarpTransferMessage extends ServerMessagePayload {
-  from_character_id: string;
-  to_character_id: string;
-  sector: Sector;
-  units: number;
-  timestamp: string;
-  from_warp_power_remaining: number;
-  to_warp_power_current: number;
-}
-
 export interface PortUpdateMessage extends ServerMessagePayload {
   sector: Sector;
-  port: Port;
 }
 
 export interface CharacterMovedMessage extends ServerMessagePayload {
@@ -97,3 +97,72 @@ export interface KnownPortListMessage extends ServerMessagePayload {
   total_ports_found: number;
   searched_sectors: number;
 }
+
+export interface BankTransactionMessage extends ServerMessagePayload {
+  character_id: string;
+  sector: Sector;
+  direction: "deposit" | "withdraw";
+  amount: number;
+  timestamp: string;
+  credits_on_hand_before: number;
+  credits_on_hand_after: number;
+  credits_in_bank_before: number;
+  credits_in_bank_after: number;
+}
+
+export interface SectorUpdateMessage extends ServerMessagePayload, Sector {}
+
+export interface SalvageCreatedMessage extends ServerMessagePayload {
+  action?: string;
+  sector: Sector;
+  salvage_details: Salvage;
+  dumped_cargo?: Record<Resource, number>;
+}
+
+export interface SalvageCollectedMessage extends ServerMessagePayload {
+  sector: Sector;
+  salvage_details: Salvage;
+  timestamp: string;
+}
+
+export interface TransferMessageBase extends ServerMessagePayload {
+  transfer_direction: "received" | "sent";
+  from: Player;
+  to: Player;
+  sector: Sector;
+  timestamp: string;
+}
+
+export interface CreditsTransferMessage extends TransferMessageBase {
+  transfer_details: {
+    credits: number;
+  };
+}
+
+export interface WarpTransferMessage extends TransferMessageBase {
+  transfer_details: {
+    warp_power: number;
+  };
+}
+
+export interface CombatActionResponseMessage extends ServerMessagePayload {
+  combat_id: string;
+  round: number;
+  action: "attack" | "brace" | "flee";
+  round_resolved: boolean;
+  target_id: string;
+}
+
+export interface CombatRoundWaitingMessage extends ServerMessagePayload {
+  combat_id: string;
+  sector: Sector;
+  participants: Player[];
+  round: number;
+  deadline: string;
+  current_time: string;
+  initiator?: string;
+}
+
+export interface CombatRoundResolvedMessage
+  extends ServerMessagePayload,
+    CombatRound {}

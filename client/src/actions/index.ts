@@ -30,6 +30,9 @@ export const startMoveToSector = (
 
   starfield.warpToSector({
     id: newSector.id.toString(),
+    gameObjects: newSector.port
+      ? [{ id: "port", type: "port", name: "Port" }]
+      : undefined,
     bypassAnimation: options.bypassAnimation,
     bypassFlash: options.bypassFlash,
   });

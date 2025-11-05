@@ -356,6 +356,25 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 )
             return
 
+        if msg_type == "salvage_collect":
+            await task_manager.game_client.salvage_collect(
+                character_id=task_manager.character_id,
+                salvage_id=msg_data.get("salvage_id"),
+            )
+            return
+
+        if msg_type == "combat-action":
+            await task_manager.game_client.combat_action(
+                character_id=task_manager.character_id,
+                combat_id=msg_data.get("combat_id"),
+                action=msg_data.get("action"),
+                commit=msg_data.get("commit"),
+                round_number=msg_data.get("round"),
+                target_id=msg_data.get("target_id"),
+                to_sector=msg_data.get("to_sector"),
+            )
+            return
+
         # Handle user text input messages
         if msg_type == "user-text-input":
             text = msg_data.get("text", "") if isinstance(msg_data, dict) else ""

@@ -1,9 +1,11 @@
 import type { GalaxyStarfieldConfig } from "../constants";
+import type { GameObjectBaseConfig } from "../types";
 import type { SceneManager } from "../managers/SceneManager";
 
 interface SceneControllerHost {
   reloadConfig: (
-    config: Partial<GalaxyStarfieldConfig> | null
+    config: Partial<GalaxyStarfieldConfig> | null,
+    gameObjects?: GameObjectBaseConfig[]
   ) => Promise<void>;
   onSceneLoading: () => void;
   onSceneReady: (isFirstRender: boolean, sceneId: string | null) => void;
@@ -16,8 +18,9 @@ interface SceneControllerHost {
 }
 
 interface LoadOptions {
-  triggerCallbacks?: boolean;
+  emitEvents?: boolean;
   transition?: boolean;
+  gameObjects?: GameObjectBaseConfig[];
 }
 
 interface TransitionOptions extends LoadOptions {
@@ -35,13 +38,18 @@ export interface FlashHoldStatus {
   remainingToMinimum: number;
 }
 
+interface LockedSceneData {
+  config: Partial<GalaxyStarfieldConfig> | null;
+  gameObjects: GameObjectBaseConfig[];
+}
+
 export class SceneController {
   private readonly host: SceneControllerHost;
   private sceneReady: boolean = false;
   private flashHoldStartMs: number | null = null;
   private sceneSettleStartMs?: number;
   private isFirstRender: boolean = true;
-  private lockedConfig: Partial<GalaxyStarfieldConfig> | null = null;
+  private lockedConfig: LockedSceneData | null = null;
 
   private readonly SCENE_SETTLE_DURATION = 150;
   private readonly MIN_FLASH_HOLD_TIME = 300;
@@ -51,8 +59,18 @@ export class SceneController {
     this.host = host;
   }
 
-  public setLockedConfig(config: Partial<GalaxyStarfieldConfig> | null): void {
-    this.lockedConfig = config ? { ...config } : null;
+  public setLockedConfig(
+    config: Partial<GalaxyStarfieldConfig> | null,
+    gameObjects: GameObjectBaseConfig[] = []
+  ): void {
+    if (config || gameObjects.length > 0) {
+      this.lockedConfig = {
+        config: config ? { ...config } : null,
+        gameObjects: [...gameObjects],
+      };
+      return;
+    }
+    this.lockedConfig = null;
   }
 
   public isSceneReady(): boolean {
@@ -70,20 +88,22 @@ export class SceneController {
     const { schedule = "immediate", ...loadOptions } = options;
     const operation = () => this.performSceneLoad(newConfig, loadOptions);
 
-    return schedule === "defer"
-      ? this.runDeferred(operation)
-      : operation();
+    return schedule === "defer" ? this.runDeferred(operation) : operation();
   }
 
   private async performSceneLoad(
     newConfig: Partial<GalaxyStarfieldConfig> | null,
     options: LoadOptions = {}
   ): Promise<void> {
-    const { triggerCallbacks = true, transition = false } = options;
+    const {
+      emitEvents = true,
+      transition = false,
+      gameObjects = undefined,
+    } = options;
 
     this.sceneReady = false;
 
-    if (triggerCallbacks) {
+    if (emitEvents) {
       this.host.onSceneLoading();
     }
 
@@ -102,7 +122,7 @@ export class SceneController {
         whiteFlash.style.opacity = "1.0";
         const flashStartTime = performance.now();
 
-        await this.host.reloadConfig(newConfig);
+        await this.host.reloadConfig(newConfig, gameObjects);
         await this.waitForSceneReadyState();
         resumeRendering();
 
@@ -119,12 +139,12 @@ export class SceneController {
 
         await this.fadeOutWhiteFlash(whiteFlash, 200);
       } else {
-        await this.host.reloadConfig(newConfig);
+        await this.host.reloadConfig(newConfig, gameObjects);
         await this.waitForSceneReadyState();
         resumeRendering();
       }
 
-      if (triggerCallbacks) {
+      if (emitEvents) {
         this.host.onSceneReady(
           this.isFirstRender,
           this.host.getCurrentSceneId()
@@ -136,9 +156,7 @@ export class SceneController {
     }
   }
 
-  public async enterFlashPhase(
-    options: FlashPhaseOptions = {}
-  ): Promise<void> {
+  public async enterFlashPhase(options: FlashPhaseOptions = {}): Promise<void> {
     const { skipFlash = false } = options;
     this.flashHoldStartMs = performance.now();
     this.sceneReady = false;
@@ -170,17 +188,22 @@ export class SceneController {
     }
     let newConfig: Partial<GalaxyStarfieldConfig> | null = null;
 
+    let pendingGameObjects: GameObjectBaseConfig[] | undefined;
+
     if (this.lockedConfig) {
-      newConfig = this.lockedConfig;
+      newConfig = this.lockedConfig.config;
+      pendingGameObjects = this.lockedConfig.gameObjects;
       this.lockedConfig = null;
     } else {
       newConfig = sceneManager.create(this.host.getCurrentConfig());
+      pendingGameObjects = undefined;
     }
 
     await this.transitionToScene(newConfig, {
-      triggerCallbacks: false,
+      emitEvents: false,
       transition: false,
       schedule,
+      gameObjects: pendingGameObjects,
     });
   }
 
@@ -211,10 +234,7 @@ export class SceneController {
       elapsedMs,
       meetsMinimumHold: elapsedMs >= this.MIN_FLASH_HOLD_TIME,
       timedOut: elapsedMs >= this.MAX_FLASH_HOLD_TIME,
-      remainingToMinimum: Math.max(
-        0,
-        this.MIN_FLASH_HOLD_TIME - elapsedMs
-      ),
+      remainingToMinimum: Math.max(0, this.MIN_FLASH_HOLD_TIME - elapsedMs),
     };
   }
 

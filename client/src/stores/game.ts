@@ -9,6 +9,7 @@ import { subscribeWithSelector } from "zustand/middleware";
 
 import type { DiamondFXController } from "@fx/frame";
 import { GalaxyStarfield } from "@fx/starfield";
+import { createCombatSlice, type CombatSlice } from "./combatSlice";
 import { createHistorySlice, type HistorySlice } from "./historySlice";
 import { createSettingsSlice, type SettingsSlice } from "./settingsSlice";
 import { createTaskSlice, type TaskSlice } from "./taskSlice";
@@ -32,6 +33,7 @@ const createSelectors = <S extends UseBoundStore<StoreApi<object>>>(
 };
 
 type GameInitState = "not_ready" | "initializing" | "ready" | "error";
+type AlertTypes = "transfer";
 
 export const GameInitStateMessage = {
   INIT: "Initializing game instances...",
@@ -52,8 +54,9 @@ export interface GameState {
   starfieldInstance?: GalaxyStarfield;
   diamondFXInstance?: DiamondFXController;
 
-  /* Buffers & Caches */
+  /* Buffers & Caches & Miscs */
   sectorBuffer?: Sector;
+  alertTransfer: number;
 
   /* Game State */
   gameState: GameInitState;
@@ -63,8 +66,9 @@ export interface GameState {
 export interface GameSlice extends GameState {
   setState: (newState: Partial<GameState>) => void;
   addMessage: (message: ChatMessage) => void;
+  setPlayer: (player: Partial<PlayerSelf>) => void;
   setSector: (sector: Sector) => void;
-  setSectorPort: (sectorId: number, port: Port) => void;
+  updateSector: (sector: Partial<Sector>) => void;
   addSectorPlayer: (player: Player) => void;
   removeSectorPlayer: (player: Player) => void;
   setSectorBuffer: (sector: Sector) => void;
@@ -78,12 +82,15 @@ export interface GameSlice extends GameState {
   setDiamondFXInstance: (
     diamondFXInstance: DiamondFXController | undefined
   ) => void;
+  getIncomingMessageLength: () => number;
+
+  triggerAlert: (_ype: AlertTypes) => void;
   setGameState: (gameState: GameInitState) => void;
   setGameStateMessage: (gameStateMessage: string) => void;
 }
 
 const createGameSlice: StateCreator<
-  GameSlice & HistorySlice & TaskSlice & UISlice & SettingsSlice,
+  GameSlice & CombatSlice & HistorySlice & TaskSlice & UISlice & SettingsSlice,
   [],
   [],
   GameSlice
@@ -97,12 +104,27 @@ const createGameSlice: StateCreator<
 
   starfieldInstance: undefined,
   diamondFXInstance: undefined,
+
+  alertTransfer: 0,
   gameState: "not_ready",
   gameStateMessage: GameInitStateMessage.INIT,
 
   setGameStateMessage: (gameStateMessage: string) => set({ gameStateMessage }),
   setState: (newState: Partial<GameState>) =>
     set({ ...get(), ...newState }, true),
+
+  setPlayer: (player: Partial<PlayerSelf>) =>
+    set(
+      produce((state) => {
+        state.player = { ...state.player, ...player };
+      })
+    ),
+
+  // TODO: implement this properly
+  // @ts-expect-error - we don't care about the type here, just want to trigger the alert
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  triggerAlert: (type: AlertTypes) =>
+    set({ alertTransfer: Math.random() * 100 }),
 
   addMessage: (message: ChatMessage) =>
     set(
@@ -120,11 +142,14 @@ const createGameSlice: StateCreator<
       })
     ),
 
-  setSectorPort: (sectorId: number, port: Port) =>
+  updateSector: (sectorUpdate: Partial<Sector>) =>
     set(
       produce((state) => {
-        if (state.sector?.id === sectorId) {
-          state.sector.port = port;
+        if (
+          state.sector?.id !== undefined &&
+          sectorUpdate.id === state.sector.id
+        ) {
+          state.sector = { ...state.sector, ...sectorUpdate };
         }
       })
     ),
@@ -201,14 +226,21 @@ const createGameSlice: StateCreator<
   setDiamondFXInstance: (diamondFXInstance: DiamondFXController | undefined) =>
     set({ diamondFXInstance }),
 
+  getIncomingMessageLength: () =>
+    get().messages.filter(
+      (message) =>
+        message.type === "direct" && message.from_name !== get().player.name
+    ).length,
+
   setGameState: (gameState: GameInitState) => set({ gameState }),
 });
 
 const useGameStoreBase = create<
-  GameSlice & HistorySlice & TaskSlice & SettingsSlice & UISlice
+  GameSlice & CombatSlice & HistorySlice & TaskSlice & SettingsSlice & UISlice
 >()(
   subscribeWithSelector((...a) => ({
     ...createGameSlice(...a),
+    ...createCombatSlice(...a),
     ...createHistorySlice(...a),
     ...createTaskSlice(...a),
     ...createSettingsSlice(...a),

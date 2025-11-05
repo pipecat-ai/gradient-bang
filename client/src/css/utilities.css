@@ -51,3 +51,103 @@
 @utility -elbow-offset-* {
   --elbow-offset: calc(--value(integer) * var(--spacing) * -1);
 }
+
+@utility bg-dotted-* {
+  --dot-gap: --value(--dot-gap- *);
+  --dot-size: --value(--dot-size- *);
+  --dot-color: --value(--color- *, [color], --dot-color);
+  --dot-opacity: calc(--modifier(integer) * 1%);
+
+  background-image: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--dot-color) var(--dot-opacity), transparent)
+      var(--dot-size),
+    transparent var(--dot-size)
+  );
+  background-size: var(--dot-gap) var(--dot-gap);
+  background-position: 0 0;
+  background-repeat: repeat;
+}
+
+@utility heading-* {
+  font-size: --value(--text-heading- *);
+  font-weight: var(--font-weight-extrabold);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+}
+
+@utility bg-stripes-* {
+  --stripe-color: --value(--color- *);
+  --stripe-width: 1.5px;
+  --stripe-gap: 8px;
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--stripe-color),
+    var(--stripe-color) var(--stripe-width),
+    currentColor var(--stripe-width),
+    currentColor calc(var(--stripe-width) + var(--stripe-gap))
+  );
+}
+
+@utility dotted-mask-* {
+  --dot-mask-size: calc(--value(integer) * 1px);
+  --dot-mask-color: --value(--color- *);
+  &:after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: var(--dot-mask-size);
+    background-image: radial-gradient(
+      circle,
+      var(--dot-mask-color) 2px,
+      transparent 1px
+    );
+    background-size: 4px 4px;
+    background-position: 0 0;
+    background-repeat: repeat;
+    mask-image: linear-gradient(to top, black 0%, black 30%, transparent 100%);
+    z-index: 10;
+    pointer-events: none;
+  }
+}
+
+@utility cross-lines-* {
+  position: relative;
+  --cross-color: --value(--color- *);
+  --cross-opacity: calc(--modifier(integer) * 1%);
+  --cross-offset: 1px;
+  --cross-width: 1px;
+
+  &:before,
+  &:after {
+    content: "";
+    position: absolute;
+    inset: var(--cross-offset);
+    background: var(--cross-color);
+    opacity: var(--cross-opacity);
+  }
+
+  &::before {
+    clip-path: polygon(
+      0 0,
+      var(--cross-width) 0,
+      100% calc(100% - var(--cross-width)),
+      100% 100%,
+      calc(100% - var(--cross-width)) 100%,
+      0 var(--cross-width)
+    );
+  }
+
+  &::after {
+    clip-path: polygon(
+      100% 0,
+      100% var(--cross-width),
+      var(--cross-width) 100%,
+      0 100%,
+      0 calc(100% - var(--cross-width)),
+      calc(100% - var(--cross-width)) 0
+    );
+  }
+}

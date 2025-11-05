@@ -1,9 +1,15 @@
 import { ConversationPanel } from "@/components/ConversationPanel";
 import { ShipOSDPanel } from "@/components/ShipOSDPanel";
-import { TaskStatusBadge } from "@/components/TaskStatusBadge";
-import { CardContent, Divider } from "@pipecat-ai/voice-ui-kit";
+import { useGameContext } from "@/hooks/useGameContext";
+import {
+  CardContent,
+  Divider,
+  TextInput,
+  UserAudioControl,
+} from "@pipecat-ai/voice-ui-kit";
 
 export const RHS = () => {
+  const { sendUserTextInput } = useGameContext();
   return (
     <div className="w-full rhs-perspective">
       <div className="flex flex-col gap-2 w-full h-full ml-auto max-w-[800px]">
@@ -18,7 +24,12 @@ export const RHS = () => {
           >
             Task status
           </Divider>
-          <TaskStatusBadge />
+          <UserAudioControl size="lg" variant="outline" />
+          <TextInput
+            onSend={(text) => {
+              sendUserTextInput?.(text);
+            }}
+          />
         </CardContent>
       </div>
     </div>
