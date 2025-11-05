@@ -1,4 +1,4 @@
-import { Badge, Progress } from "@pipecat-ai/voice-ui-kit";
+import { Badge, cn, Progress } from "@pipecat-ai/voice-ui-kit";
 import { useMemo } from "react";
 import useGameStore from "../stores/game";
 
@@ -8,7 +8,10 @@ export const CargoCapacityBadge = () => {
   const progressProps = useMemo(() => {
     if (!ship) return { color: "primary", percent: 0 };
 
-    const cargoPercentage = (ship.empty_holds / ship.cargo_capacity) * 100;
+    const cargoPercentage =
+      (Math.max(0, (ship.cargo_capacity ?? 0) - (ship.empty_holds ?? 0)) /
+        (ship.cargo_capacity ?? 0)) *
+      100;
 
     let color = "agent";
     if (cargoPercentage >= 100) {
@@ -25,11 +28,19 @@ export const CargoCapacityBadge = () => {
   }, [ship]);
 
   return (
-    <Badge buttonSizing variant="elbow" color={progressProps.variant}>
+    <Badge
+      buttonSizing
+      variant="elbow"
+      color={progressProps.variant}
+      className={cn(
+        progressProps.color === "warning" && "text-warning-foreground",
+        progressProps.color === "destructive" && "text-destructive-foreground"
+      )}
+    >
       Cargo:
       <Progress {...progressProps} size="xl" className="h-[8px]" />
       <div>
-        {ship?.empty_holds ?? 0}
+        {Math.max(0, (ship?.cargo_capacity ?? 0) - (ship?.empty_holds ?? 0))}
         <span className="opacity-30"> / </span>
         {ship?.cargo_capacity ?? 0}
       </div>

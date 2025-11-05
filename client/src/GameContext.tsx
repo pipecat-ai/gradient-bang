@@ -437,6 +437,14 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
             // ----- TRADING & COMMERCE
 
+            case "trade.executed": {
+              console.debug("[GAME EVENT] Trade executed", gameEvent.payload);
+
+              // @TODO: implement
+              // Note: status.update is dispatched immediately after
+
+              break;
+            }
             case "port.update": {
               console.debug("[GAME EVENT] Port update", gameEvent.payload);
               const data = gameEvent.payload as PortUpdateMessage;
