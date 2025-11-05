@@ -9,7 +9,7 @@ import { ShipHUD } from "@hud/ShipHUD";
 import { StarField } from "@hud/StarField";
 import { TopBar } from "@hud/TopBar";
 
-import { AnimatedFrame } from "@/fx/frame";
+import { ScreenContainer } from "@/screens/ScreenContainer";
 import { useEffect } from "react";
 
 export const Game = () => {
@@ -39,11 +39,13 @@ export const Game = () => {
         <ShipHUD />
       </div>
 
+      {/* Sub-screens (trading, ship, messaging, etc..) */}
+      <ScreenContainer />
+
       {/* Other Renderables */}
       <ShipVisor />
       <StarField />
       <Settings />
-      <AnimatedFrame />
     </>
   );
 };

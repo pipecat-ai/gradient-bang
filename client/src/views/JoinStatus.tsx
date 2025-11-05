@@ -1,22 +1,22 @@
 import useGameStore from "@/stores/game";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 
 export const JoinStatus = ({ handleStart }: { handleStart: () => void }) => {
-  const [showPanel, setShowPanel] = useState(false);
   const gameState = useGameStore.use.gameState();
   const gameStateMessage = useGameStore.use.gameStateMessage?.();
   const diamondFXInstance = useGameStore.use.diamondFXInstance?.();
+  const statusPanelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (gameState !== "not_ready" || !diamondFXInstance) return;
+    if (
+      gameState !== "not_ready" ||
+      !diamondFXInstance ||
+      !statusPanelRef.current
+    )
+      return;
 
-    diamondFXInstance.update({
-      onComplete: () => {
-        setShowPanel(true);
-      },
-    });
-    diamondFXInstance.start("status-panel");
+    diamondFXInstance.start(statusPanelRef.current.id);
   }, [gameState, diamondFXInstance]);
 
   useEffect(() => {
@@ -28,15 +28,15 @@ export const JoinStatus = ({ handleStart }: { handleStart: () => void }) => {
   return (
     <div className="absolute inset-0 z-90 h-full w-full flex items-center justify-center bg-gray-800/20 backdrop-blur-lg bg-dotted-lg bg-dotted-white/10 bg-center pointer-events-none user-select-none">
       <motion.div
-        animate={{ opacity: showPanel ? 1 : 0 }}
+        animate={{ opacity: 1 }}
         initial={{ opacity: 0 }}
-        transition={{ duration: 1 }}
+        transition={{ duration: 1, delay: 1 }}
         onAnimationComplete={() => {
           if (gameState !== "not_ready") return;
           handleStart();
         }}
       >
-        <div id="status-panel" className="screen p-4">
+        <div id="status-panel" className="screen p-4" ref={statusPanelRef}>
           <AnimatePresence mode="wait">
             <motion.span
               key={gameStateMessage}
@@ -46,7 +46,7 @@ export const JoinStatus = ({ handleStart }: { handleStart: () => void }) => {
                 transition: { duration: 0.3, delay: 0.2 },
               }}
               exit={{ opacity: 0, y: 10, transition: { duration: 0.3 } }}
-              className="uppercase relative animate-pulse text-center tracking-widest"
+              className="uppercase relative animate-pulse text-center font-medium tracking-widest"
             >
               {gameStateMessage}
             </motion.span>

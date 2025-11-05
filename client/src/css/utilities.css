@@ -55,7 +55,7 @@
 @utility bg-dotted-* {
   --dot-gap: --value(--dot-gap- *);
   --dot-size: --value(--dot-size- *);
-  --dot-color: --value(--color- *);
+  --dot-color: --value(--color- *, [color], --dot-color);
   --dot-opacity: calc(--modifier(integer) * 1%);
 
   background-image: radial-gradient(
@@ -110,5 +110,44 @@
     mask-image: linear-gradient(to top, black 0%, black 30%, transparent 100%);
     z-index: 10;
     pointer-events: none;
+  }
+}
+
+@utility cross-lines-* {
+  position: relative;
+  --cross-color: --value(--color- *);
+  --cross-opacity: calc(--modifier(integer) * 1%);
+  --cross-offset: 1px;
+  --cross-width: 1px;
+
+  &:before,
+  &:after {
+    content: "";
+    position: absolute;
+    inset: var(--cross-offset);
+    background: var(--cross-color);
+    opacity: var(--cross-opacity);
+  }
+
+  &::before {
+    clip-path: polygon(
+      0 0,
+      var(--cross-width) 0,
+      100% calc(100% - var(--cross-width)),
+      100% 100%,
+      calc(100% - var(--cross-width)) 100%,
+      0 var(--cross-width)
+    );
+  }
+
+  &::after {
+    clip-path: polygon(
+      100% 0,
+      100% var(--cross-width),
+      var(--cross-width) 100%,
+      0 100%,
+      0 calc(100% - var(--cross-width)),
+      calc(100% - var(--cross-width)) 0
+    );
   }
 }

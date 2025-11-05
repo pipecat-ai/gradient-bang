@@ -308,7 +308,6 @@ export const usePlaySound = () => {
     []
   );
 
-  // Expose a convenient preload method on the returned function for optional usage
   (
     playSound as unknown as { preloadSounds?: () => Promise<void> }
   ).preloadSounds = preloadAllSounds;

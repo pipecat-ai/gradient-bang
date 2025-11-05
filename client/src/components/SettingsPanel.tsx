@@ -11,8 +11,9 @@ import { SliderControl } from "@/components/primitives/SliderControl";
 import { ToggleControl } from "@/components/primitives/ToggleControl";
 import useGameStore from "@/stores/game";
 import type { SettingsSlice } from "@/stores/settingsSlice";
-import { CardContent, CardFooter, Divider } from "@pipecat-ai/voice-ui-kit";
+import { CardContent, CardFooter } from "@pipecat-ai/voice-ui-kit";
 import { useEffect, useState } from "react";
+import { Divider } from "./primitives/Divider";
 import {
   Field,
   FieldContent,
@@ -122,9 +123,10 @@ const SettingSwitch = ({
 
 interface SettingsPanelProps {
   onSave?: () => void;
+  onCancel?: () => void;
 }
 
-export const SettingsPanel = ({ onSave }: SettingsPanelProps) => {
+export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
   const storeSettings = useGameStore.use.settings();
 
   const [formSettings, setFormSettings] =
@@ -364,9 +366,14 @@ export const SettingsPanel = ({ onSave }: SettingsPanelProps) => {
       </div>
       <CardFooter className="flex flex-col gap-6">
         <Divider decoration="plus" />
-        <Button onClick={handleSave} className="w-full">
-          Save & Close
-        </Button>
+        <div className="flex flex-row gap-3">
+          <Button onClick={onCancel} variant="secondary" className="flex-1">
+            Cancel
+          </Button>
+          <Button onClick={handleSave} className="flex-1">
+            Save & Close
+          </Button>
+        </div>
       </CardFooter>
     </>
   );

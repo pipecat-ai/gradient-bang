@@ -21,7 +21,6 @@ export class GameInstanceManager {
     // Construct and set instances
     this._constructStarfield();
     this._constructMiniMap();
-    this._constructFrame();
 
     await preloadAllSounds();
 
@@ -85,6 +84,8 @@ export class GameInstanceManager {
     }
 
     await this.initializeStarfield();
+
+    console.debug("[GAME INSTANCE MANAGER] Initialization complete");
   }
 
   // ----- STARFIELD
@@ -134,13 +135,6 @@ export class GameInstanceManager {
 
   private _constructMiniMap(): void {
     console.debug("[GAME INSTANCE MANAGER] Constructing minimap");
-    // @TODO: implement
-  }
-
-  // ----- FRAME
-
-  private _constructFrame(): void {
-    console.debug("[GAME INSTANCE MANAGER] Constructing frame");
     // @TODO: implement
   }
 }

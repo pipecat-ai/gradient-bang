@@ -1,6 +1,9 @@
-import { usePlaySound } from "@/hooks/usePlaySound";
-import useGameStore from "@stores/game";
+import { deepmergeCustom } from "deepmerge-ts";
+import mitt, { type Emitter, type Handler, type WildcardHandler } from "mitt";
 import { useEffect, useRef } from "react";
+
+import usePlaySound from "@/hooks/usePlaySound";
+import useGameStore from "@stores/game";
 
 /**
  * Configuration interface for DiamondFX animation
@@ -54,12 +57,6 @@ export interface DiamondFXConfig {
     split: number;
     refresh?: number; // optional override for refresh duration (defaults to split)
   };
-  /** Callback when animation finishes. exit=false for animate-in, exit=true for animate-out */
-  onComplete?: (exit: boolean) => void;
-  /** Callback after each phase */
-  onPhaseComplete?: (phase: string) => void;
-  /** Callback when target element removed from DOM */
-  onTargetRemoved?: (targetId: string) => void;
 }
 
 /**
@@ -67,7 +64,12 @@ export interface DiamondFXConfig {
  */
 export interface DiamondFXController {
   /** Start animation targeting element by ID */
-  start: (targetId: string, wait?: boolean, refresh?: boolean) => void;
+  start: (
+    targetId: string,
+    wait?: boolean,
+    refresh?: boolean,
+    config?: DiamondFXConfig
+  ) => void;
   /** Continue from blink phase (when started with wait=true) */
   resume: () => void;
   /** Stop animation if playing, or fade out docked dashes. If animateOut=true, animates dashes back to corners */
@@ -80,7 +82,17 @@ export interface DiamondFXController {
   readonly isDocked: boolean;
   /** True while any animation is active (play, refresh, fade/animate out) */
   readonly isAnimating: boolean;
+  /** Register an event listener */
+  on: Emitter<DiamondFXEvents>["on"];
+  /** Remove an event listener */
+  off: Emitter<DiamondFXEvents>["off"];
 }
+
+export type DiamondFXEvents = {
+  phaseComplete: string;
+  complete: boolean;
+  targetRemoved: string;
+};
 
 interface AnimatedFrameProps {
   config?: DiamondFXConfig;
@@ -121,10 +133,11 @@ const DEFAULTS: InternalDiamondFXConfig = {
     split: 260,
     refresh: 220,
   },
-  onComplete: () => {},
-  onPhaseComplete: () => {},
-  onTargetRemoved: () => {},
 };
+
+const mergeDiamondConfig = deepmergeCustom({
+  mergeArrays: false,
+});
 
 /**
  * AnimatedFrame Component
@@ -144,6 +157,9 @@ const DEFAULTS: InternalDiamondFXConfig = {
  *
  * // Later, to start animation:
  * const fx = useGameStore.getState().diamondFXInstance;
+ * fx?.on("complete", (exit) => {
+ *   console.log("Animation finished, exit:", exit);
+ * });
  * fx?.start('targetElementId');
  */
 export const AnimatedFrame = ({ config = {} }: AnimatedFrameProps) => {
@@ -151,31 +167,30 @@ export const AnimatedFrame = ({ config = {} }: AnimatedFrameProps) => {
   const playSound = usePlaySound();
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
     const state = useGameStore.getState();
+    if (!canvasRef.current || state.diamondFXInstance) return;
 
-    console.log("[GAME] AnimatedFrame initialized");
-    if (!state.diamondFXInstance) {
-      const fx = createDiamondFX(canvas, {
-        onPhaseComplete(phase) {
-          if (phase === "start" || phase === "exit-start") {
-            playSound("chime6");
-          }
-          if (phase === "split" || phase === "refresh-end") {
-            playSound("chime3");
-          }
-        },
-      });
-      state.setDiamondFXInstance(fx);
-    }
+    console.debug("[GAME] AnimatedFrame initialized");
+    const fx = createDiamondFX(canvasRef.current);
+
+    const handlePhaseComplete = (phase: string) => {
+      if (phase === "start" || phase === "exit-start") {
+        playSound("chime6");
+      }
+      if (phase === "split" || phase === "refresh-end") {
+        playSound("chime3");
+      }
+    };
+
+    fx.on("phaseComplete", handlePhaseComplete);
+    state.setDiamondFXInstance(fx);
 
     return () => {
-      const state = useGameStore.getState();
-      if (state.diamondFXInstance) {
-        state.diamondFXInstance.destroy();
-        state.setDiamondFXInstance(undefined);
+      console.debug("[GAME] AnimatedFrame destroyed");
+      fx.destroy();
+      const cleanupState = useGameStore.getState();
+      if (cleanupState.diamondFXInstance === fx) {
+        cleanupState.setDiamondFXInstance(undefined);
       }
     };
   }, [playSound]);
@@ -204,7 +219,7 @@ function createDiamondFX(
   if (!ctx) throw new Error("Could not get 2d context");
 
   // Clone DEFAULTS manually to avoid structuredClone issues with functions
-  const cfg = deepMerge(
+  let cfg = mergeDiamondConfig(
     {
       ...DEFAULTS,
       spin: { ...DEFAULTS.spin },
@@ -212,6 +227,21 @@ function createDiamondFX(
     },
     userCfg
   ) as InternalDiamondFXConfig;
+  const emitter: Emitter<DiamondFXEvents> = mitt<DiamondFXEvents>();
+  const removeAllListeners = () => {
+    emitter.all.forEach((handlers, type) => {
+      handlers.slice().forEach((handler) => {
+        if (type === "*") {
+          emitter.off("*", handler as WildcardHandler<DiamondFXEvents>);
+        } else {
+          emitter.off(
+            type as keyof DiamondFXEvents,
+            handler as Handler<DiamondFXEvents[keyof DiamondFXEvents]>
+          );
+        }
+      });
+    });
+  };
 
   let W = 0,
     H = 0,
@@ -271,16 +301,16 @@ function createDiamondFX(
       !isRefreshing
     );
 
-  const safeInvoke = <Args extends unknown[]>(
-    fn: ((...args: Args) => void) | undefined,
-    ...args: Args
-  ) => {
-    if (!fn) return;
-    try {
-      fn(...args);
-    } catch {
-      // Ignore callback errors
-    }
+  const emitPhaseComplete = (phase: string) => {
+    emitter.emit("phaseComplete", phase);
+  };
+
+  const emitComplete = (exit: boolean) => {
+    emitter.emit("complete", exit);
+  };
+
+  const emitTargetRemoved = (targetId: string) => {
+    emitter.emit("targetRemoved", targetId);
   };
 
   function refreshTargetRect(id: string | null = currentTargetId) {
@@ -491,7 +521,7 @@ function createDiamondFX(
               playing = false;
             }
             ctx!.clearRect(0, 0, W, H);
-            safeInvoke(cfg.onTargetRemoved, targetId);
+            emitTargetRemoved(targetId);
             cleanupObservers();
             return;
           }
@@ -937,8 +967,8 @@ function createDiamondFX(
     targetRect = null;
     cleanupObservers();
 
-    // Fire onComplete callback with exit=true
-    safeInvoke(cfg.onComplete, true);
+    // Emit complete event for animate-out path
+    emitComplete(true);
   }
 
   // Refresh loop: unsplit (old dock -> center square), split (center square -> new dock)
@@ -988,14 +1018,14 @@ function createDiamondFX(
     refreshFromDockCenters = null;
     rafId = null;
 
-    safeInvoke(cfg.onComplete, false);
+    emitComplete(false);
   }
 
   function maybeFirePhase(elapsed: number, phases: Phase[]) {
     for (const p of phases) {
       if (!fired[p.name as keyof typeof fired] && elapsed >= p.end) {
         fired[p.name as keyof typeof fired] = true;
-        safeInvoke(cfg.onPhaseComplete, p.name);
+        emitPhaseComplete(p.name);
       }
     }
   }
@@ -1068,7 +1098,7 @@ function createDiamondFX(
     const initialFlip = pauseMs === 0 ? 1 : 0;
 
     if (holdBlink && elapsed >= tPause) {
-      // Only fire callbacks up to and including blink when holding
+      // Only allow events up to and including blink when holding
       maybeFirePhase(elapsed, [
         { name: "in", end: tIn, dur: inMs },
         { name: "morph", end: tMorph, dur: morphMs },
@@ -1147,7 +1177,7 @@ function createDiamondFX(
 
       drawDockedTicks();
       if (!completeFired) {
-        safeInvoke(cfg.onComplete, false);
+        emitComplete(false);
         completeFired = true;
       }
       playing = false;
@@ -1155,11 +1185,21 @@ function createDiamondFX(
     }
   }
 
-  function start(targetId: string, wait = false, refresh = true) {
+  function start(
+    targetId: string,
+    wait = false,
+    refresh = true,
+    config?: DiamondFXConfig
+  ) {
     if (!targetId) return;
 
     const targetEl = document.getElementById(targetId);
     if (!targetEl) return;
+
+    // Apply config update if provided
+    if (config) {
+      update(config);
+    }
 
     if (playing && currentTargetId && currentTargetId !== targetId) {
       const elapsed = performance.now() - t0;
@@ -1258,7 +1298,7 @@ function createDiamondFX(
     t0 = performance.now() - tBlink;
     if (!fired.blink) {
       fired.blink = true;
-      safeInvoke(cfg.onPhaseComplete, "blink");
+      emitPhaseComplete("blink");
     }
     if (!playing) {
       playing = true;
@@ -1307,7 +1347,7 @@ function createDiamondFX(
   }
 
   function update(next: DiamondFXConfig = {}) {
-    deepMerge(cfg, next);
+    cfg = mergeDiamondConfig(cfg, next) as InternalDiamondFXConfig;
 
     if ("lineStartColor" in next || "lineColor" in next) {
       updateParsedColors();
@@ -1323,6 +1363,8 @@ function createDiamondFX(
     if (rafId) cancelAnimationFrame(rafId);
     cleanupObservers();
     removeEventListener("resize", resize);
+    removeAllListeners();
+    emitter.all.clear();
     if (containerRO) {
       try {
         containerRO.disconnect();
@@ -1339,6 +1381,8 @@ function createDiamondFX(
     update,
     clear,
     destroy,
+    on: emitter.on,
+    off: emitter.off,
     get isDocked() {
       return !!(
         currentTargetId &&
@@ -1352,25 +1396,6 @@ function createDiamondFX(
       return !!(playing || isRefreshing || isFadingOut || isAnimatingOut);
     },
   };
-}
-
-function deepMerge<T extends Record<string, unknown>>(
-  target: T,
-  src: Partial<T>
-): T {
-  for (const k in src) {
-    const v = src[k];
-    if (v && typeof v === "object" && !Array.isArray(v)) {
-      if (!target[k]) target[k] = {} as T[Extract<keyof T, string>];
-      deepMerge(
-        target[k] as Record<string, unknown>,
-        v as Record<string, unknown>
-      );
-    } else {
-      target[k] = v as T[Extract<keyof T, string>];
-    }
-  }
-  return target;
 }
 
 // Type definitions

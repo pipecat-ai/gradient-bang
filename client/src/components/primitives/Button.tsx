@@ -5,7 +5,7 @@ import * as React from "react";
 import { cn } from "@/utils/tailwind";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap duration-300 ease-in-out text-sm font-medium disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive outline-offset-2 outline-1.5 outline-hidden",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap duration-300 ease-in-out text-sm font-medium disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
   {
     variants: {
       variant: {
@@ -16,6 +16,11 @@ const buttonVariants = cva(
         ghost:
           "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
         link: "text-primary underline-offset-4 hover:underline",
+        tab: "relative bg-muted/40 text-primary hover:text-muted-foreground hover:bg-subtle/10 hover:text-primary border-1 border-subtle/40 hover:border-subtle/50 before:content-[''] before:absolute before:inset-x-px before:h-0 before:bottom-px before:bg-white/40 hover:before:h-1 before:transition-all before:duration-200 before:ease-in-out focus-outline",
+      },
+      active: {
+        true: "",
+        false: "",
       },
       size: {
         default: "h-9 px-4 py-2 has-[>svg]:px-3",
@@ -25,11 +30,21 @@ const buttonVariants = cva(
         icon: "size-9",
         "icon-sm": "size-8",
         "icon-lg": "size-10",
+        tab: "size-16 [&_svg:not([class*='size-'])]:size-6 [&_svg:not([class*='z-'])]:z-20",
       },
     },
+    compoundVariants: [
+      {
+        variant: "tab",
+        active: true,
+        class:
+          "hover:bg-subtle/10 bg-subtle/20 border-subtle/60 text-muted-foreground/40 hover:text-muted-foreground/40 before:bg-primary before:shadow-glow-sm before:h-1",
+      },
+    ],
     defaultVariants: {
       variant: "default",
       size: "default",
+      active: false,
     },
   }
 );
@@ -38,6 +53,7 @@ function Button({
   className,
   variant,
   size,
+  active = false,
   asChild = false,
   ...props
 }: React.ComponentProps<"button"> &
@@ -49,7 +65,7 @@ function Button({
   return (
     <Comp
       data-slot="button"
-      className={cn(buttonVariants({ variant, size, className }))}
+      className={cn(buttonVariants({ variant, size, active, className }))}
       {...props}
     />
   );

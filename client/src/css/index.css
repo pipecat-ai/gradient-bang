@@ -28,6 +28,8 @@
   --input: oklch(0.708 0 0);
   --ring: oklch(0.439 0 0);
   --popover: var(--background);
+  --terminal: #dcfd38;
+  --terminal-foreground: oklch(0.985 0 0);
 
   --grid-opacity: 0.25;
   --screen-bg-feather: 18px;
@@ -40,13 +42,14 @@
   --elbow-color: white;
 
   --dot-color: white;
-  --dot-opacity: 0.5;
+  --dot-opacity: 50%;
+
+  --scrollbar-offset: 3px;
 
   --z-starfield: 1;
   --z-visor: 2;
   --z-hud: 3;
-
-  --scrollbar-offset: 3px;
+  --z-screens: 20;
 }
 
 @theme inline {
@@ -75,19 +78,23 @@
   --color-ring: var(--ring);
   --color-subtle: var(--color-foreground);
 
+  --color-terminal: var(--terminal);
+  --color-terminal-foreground: var(--terminal-foreground);
+
   /** UI **/
+  --spacing-ui-sm: calc(var(--spacing) * 4);
   --spacing-ui-md: calc(var(--spacing) * 6);
   --spacing-ui-lg: calc(var(--spacing) * 10);
   --spacing-ui-xl: calc(var(--spacing) * 12);
-
   --spacing-scrollbar: calc(var(--spacing) * 3);
-
   --spacing-panel: calc(var(--spacing) * 2);
   --spacing-screen-border-y: calc(var(--spacing) * 8);
   --spacing-screen-border-x: calc(var(--spacing) * 4);
+
   --height-ui: 460px;
   --width-ui: 400px;
 
+  --shadow-glow-sm: 0 0 10px 1px var(--color-primary);
   --text-shadow-hud: 0 0 12px rgba(0, 0, 0, 0.6);
 
   --color-screen-background: rgba(0, 0, 0, 0.6);

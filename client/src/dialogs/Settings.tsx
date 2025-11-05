@@ -28,7 +28,10 @@ export const Settings = () => {
               size="default"
               className="w-full h-full max-h-max bg-black animate-in fade-in-0 zoom-in origin-center shadow-2xl"
             >
-              <SettingsPanel onSave={handleSave} />
+              <SettingsPanel
+                onSave={handleSave}
+                onCancel={() => setActiveModal(undefined)}
+              />
             </Card>
           </Dialog.Content>
         </Dialog.Overlay>

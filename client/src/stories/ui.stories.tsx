@@ -10,7 +10,7 @@ import {
 import { ScrollArea } from "@/components/primitives/ScrollArea";
 import { Separator } from "@/components/primitives/Separator";
 import { ScreenContainer } from "@/screens/ScreenContainer";
-import useGameStore from "@/stores/game";
+import { ScreenMenu } from "@/screens/ScreenMenu";
 import Game from "@/views/Game";
 import JoinStatus from "@/views/JoinStatus";
 import ViewContainer from "@/views/ViewContainer";
@@ -19,41 +19,35 @@ import type { Story } from "@ladle/react";
 import { Dialog } from "radix-ui";
 import React from "react";
 
+export const DotStory: Story = () => (
+  <div className="relative w-full h-screen">
+    <div className="w-full h-full bg-dotted-sm bg-center">aa</div>
+  </div>
+);
+
+DotStory.meta = {
+  disconnectedStory: true,
+};
+
 export const ScreenUI: Story = () => (
   <div className="relative w-full h-screen flex flex-col items-center justify-center bg-slate-800">
+    <ScreenMenu />
     <ScreenContainer />
-    <footer className="absolute bottom-0 left-0 right-0 flex flex-row gap-2">
-      <button onClick={() => useGameStore.getState().setActiveScreen("self")}>
-        Self
-      </button>
-      <button
-        onClick={() => useGameStore.getState().setActiveScreen("messaging")}
-      >
-        Messaging
-      </button>
-      <button
-        onClick={() => useGameStore.getState().setActiveScreen("trading")}
-      >
-        Trading
-      </button>
-      <button onClick={() => useGameStore.getState().setActiveScreen("map")}>
-        Map
-      </button>
-      <button onClick={() => useGameStore.getState().setActiveScreen("tasks")}>
-        Tasks
-      </button>
-      <button onClick={() => useGameStore.getState().setActiveScreen("combat")}>
-        Combat
-      </button>
-      <button onClick={() => useGameStore.getState().setActiveScreen()}>
-        None
-      </button>
-    </footer>
     <AnimatedFrame />
   </div>
 );
 
 ScreenUI.meta = {
+  disconnectedStory: true,
+};
+
+export const ScreenMenuUI: Story = () => (
+  <div className="relative w-full h-screen">
+    <ScreenMenu />
+  </div>
+);
+
+ScreenMenuUI.meta = {
   disconnectedStory: true,
 };
 
@@ -80,6 +74,7 @@ ViewContainerUI.meta = {
 export const JoinStatusStory: Story = () => (
   <div className="relative w-full h-screen">
     <JoinStatus handleStart={() => {}} />
+    <AnimatedFrame />
   </div>
 );
 

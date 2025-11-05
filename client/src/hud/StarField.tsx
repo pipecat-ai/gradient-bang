@@ -67,7 +67,11 @@ export const StarField = memo(() => {
   ]);
 
   return (
-    <div id="starfield-container" className="relative">
+    <div
+      id="starfield-container"
+      className="relative user-select-none pointer-events-none"
+      tabIndex={-1}
+    >
       <SectorTitleBanner />
       <div id="whiteFlash"></div>
       <div id="vignette"></div>

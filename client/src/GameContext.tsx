@@ -139,6 +139,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
     // 1. Construct and await heavier game instances
     await instanceManagerRef.current?.create_instances();
+    await wait(1000);
 
     // 2. Connect to agent
     gameStore.setGameStateMessage(GameInitStateMessage.CONNECTING);

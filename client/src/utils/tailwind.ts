@@ -3,7 +3,13 @@ import { extendTailwindMerge } from "tailwind-merge";
 
 const customTwMerge = extendTailwindMerge({
   extend: {
-    classGroups: {},
+    classGroups: {
+      shadow: [
+        {
+          shadow: ["glow-sm"],
+        },
+      ],
+    },
     theme: {
       spacing: ["ui-xs", "ui-md", "ui-sm", "ui-lg", "ui-xl", "ui-2xl"],
     },
