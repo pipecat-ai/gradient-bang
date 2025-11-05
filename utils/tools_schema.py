@@ -411,32 +411,360 @@ class TransferCredits(GameClientTool):
         )
 
 
-class BankTransfer(GameClientTool):
-    def __call__(self, direction, amount):
-        return self.game_client.bank_transfer(
-            direction=direction,
-            amount=amount,
-            character_id=self.game_client.character_id
+class CreateCorporation(GameClientTool):
+    def __call__(self, name, character_id=None):
+        payload = {"name": name}
+        if character_id is not None:
+            payload["character_id"] = character_id
+        else:
+            payload["character_id"] = self.game_client.character_id
+        return self.game_client.create_corporation(**payload)
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="create_corporation",
+            description="Create a new corporation. Requires sufficient ship credits for the founding fee.",
+            properties={
+                "name": {
+                    "type": "string",
+                    "description": "Corporation name (3-50 characters)",
+                    "minLength": 3,
+                    "maxLength": 50,
+                },
+                "character_id": {
+                    "type": "string",
+                    "description": "Character founding the corporation (defaults to the authenticated pilot)",
+                },
+            },
+            required=["name"],
+        )
+
+
+class JoinCorporation(GameClientTool):
+    async def __call__(
+        self,
+        invite_code,
+        corp_id=None,
+        corp_name=None,
+        character_id=None,
+    ):
+        resolved_corp_id = (corp_id or "").strip() if corp_id else ""
+        if not resolved_corp_id:
+            if not corp_name:
+                raise ValueError("join_corporation requires either corp_id or corp_name.")
+            corps = await self.game_client.list_corporations()
+            match_name = corp_name.strip().lower()
+            resolved_corp_id = ""
+            for corp in corps:
+                name = str(corp.get("name", "")).strip().lower()
+                if name == match_name:
+                    resolved_corp_id = corp.get("corp_id", "")
+                    break
+            if not resolved_corp_id:
+                raise ValueError(f"Corporation named '{corp_name}' not found.")
+
+        payload = {
+            "corp_id": resolved_corp_id,
+            "invite_code": invite_code,
+        }
+        if character_id is not None:
+            payload["character_id"] = character_id
+        else:
+            payload["character_id"] = self.game_client.character_id
+        return await self.game_client.join_corporation(**payload)
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="join_corporation",
+            description="Join an existing corporation using an invite code.",
+            properties={
+                "corp_id": {
+                    "type": "string",
+                    "description": "Corporation identifier to join",
+                    "minLength": 1,
+                },
+                "corp_name": {
+                    "type": "string",
+                    "description": "Corporation display name to join (case-insensitive). Ignored if corp_id is provided.",
+                    "minLength": 1,
+                },
+                "invite_code": {
+                    "type": "string",
+                    "description": "Invite code provided by the corporation",
+                    "minLength": 1,
+                },
+                "character_id": {
+                    "type": "string",
+                    "description": "Character joining the corporation (defaults to the authenticated pilot)",
+                },
+            },
+            required=["invite_code"],
+        )
+
+
+class LeaveCorporation(GameClientTool):
+    def __call__(self, character_id=None):
+        payload = {}
+        if character_id is not None:
+            payload["character_id"] = character_id
+        else:
+            payload["character_id"] = self.game_client.character_id
+        return self.game_client.leave_corporation(**payload)
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="leave_corporation",
+            description="Leave your current corporation.",
+            properties={
+                "character_id": {
+                    "type": "string",
+                    "description": "Character leaving the corporation (defaults to the authenticated pilot)",
+                },
+            },
+            required=[],
+        )
+
+
+class KickCorporationMember(GameClientTool):
+    def __call__(self, target_id, character_id=None):
+        payload = {
+            "target_id": target_id,
+        }
+        if character_id is not None:
+            payload["character_id"] = character_id
+        else:
+            payload["character_id"] = self.game_client.character_id
+        return self.game_client.kick_corporation_member(**payload)
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="kick_corporation_member",
+            description="Remove another member from your corporation.",
+            properties={
+                "target_id": {
+                    "type": "string",
+                    "description": "Character ID of the member to remove",
+                    "minLength": 1,
+                },
+                "character_id": {
+                    "type": "string",
+                    "description": "Character executing the kick (defaults to the authenticated pilot)",
+                },
+            },
+            required=["target_id"],
+        )
+
+
+class PurchaseShip(GameClientTool):
+    def __call__(
+        self,
+        ship_type,
+        purchase_type=None,
+        ship_name=None,
+        trade_in_ship_id=None,
+        corp_id=None,
+        initial_ship_credits=None,
+        character_id=None,
+    ):
+        if ship_name is None or not str(ship_name).strip():
+            raise ValueError("ship_name is required when purchasing a ship.")
+
+        payload = {
+            "ship_type": ship_type,
+            "ship_name": ship_name,
+        }
+        if purchase_type is not None:
+            payload["purchase_type"] = purchase_type
+        if trade_in_ship_id is not None:
+            payload["trade_in_ship_id"] = trade_in_ship_id
+        if corp_id is not None:
+            payload["corp_id"] = corp_id
+        if initial_ship_credits is not None:
+            payload["initial_ship_credits"] = initial_ship_credits
+        if character_id is not None:
+            payload["character_id"] = character_id
+        else:
+            payload["character_id"] = self.game_client.character_id
+        return self.game_client.purchase_ship(**payload)
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="purchase_ship",
+            description=(
+                "Purchase a ship for personal use or on behalf of your corporation. "
+                "Corporation purchases draw from bank credits and may seed initial ship credits."
+            ),
+            properties={
+                "ship_type": {
+                    "type": "string",
+                    "description": "Ship type identifier (e.g., 'kestrel_courier', 'atlas_hauler')",
+                },
+                "purchase_type": {
+                    "type": "string",
+                    "enum": ["personal", "corporation"],
+                    "description": "Whether this purchase is personal or for the corporation (default personal).",
+                },
+                "ship_name": {
+                    "type": "string",
+                    "description": "Display name for the new ship",
+                    "minLength": 1,
+                },
+                "trade_in_ship_id": {
+                    "type": "string",
+                    "description": "Ship ID to trade in when making a personal purchase",
+                },
+                "corp_id": {
+                    "type": "string",
+                    "description": "Corporation ID when purchasing for a corporation (defaults to your membership)",
+                },
+                "initial_ship_credits": {
+                    "type": "integer",
+                    "description": "Credits to seed into the ship when purchasing for a corporation",
+                    "minimum": 0,
+                },
+                "character_id": {
+                    "type": "string",
+                    "description": "Character executing the purchase (defaults to the authenticated pilot)",
+                },
+            },
+            required=["ship_type", "ship_name"],
+        )
+
+
+class EventQuery(GameClientTool):
+    def __call__(
+        self,
+        start,
+        end,
+        admin_password=None,
+        character_id=None,
+        sector=None,
+        corporation_id=None,
+    ):
+        return self.game_client.event_query(
+            start=start,
+            end=end,
+            admin_password=admin_password,
+            character_id=character_id,
+            sector=sector,
+            corporation_id=corporation_id,
         )
 
     @classmethod
     def schema(cls):
         return FunctionSchema(
-            name="bank_transfer",
-            description="Move credits between your ship and the mega-port bank account in sector 0.",
+            name="event_query",
+            description="Query the event log for a time range. Useful for diagnostics or summarizing recent activity.",
             properties={
-                "direction": {
+                "start": {
                     "type": "string",
-                    "enum": ["deposit", "withdraw"],
-                    "description": "'deposit' to move ship credits into the bank, 'withdraw' to pull savings back aboard",
+                    "description": "ISO8601 timestamp (inclusive start of range)",
                 },
-                "amount": {
+                "end": {
+                    "type": "string",
+                    "description": "ISO8601 timestamp (exclusive end of range)",
+                },
+                "admin_password": {
+                    "type": "string",
+                    "description": "Optional admin password when required for wider queries",
+                },
+                "character_id": {
+                    "type": "string",
+                    "description": "Filter to a specific character's events",
+                },
+                "sector": {
                     "type": "integer",
-                    "description": "Number of credits to move",
-                    "minimum": 1,
+                    "description": "Filter to events within a sector",
+                    "minimum": 0,
+                },
+                "corporation_id": {
+                    "type": "string",
+                    "description": "Filter to events involving the given corporation",
                 },
             },
-            required=["direction", "amount"],
+            required=["start", "end"],
+        )
+
+
+class BankDeposit(GameClientTool):
+    def __call__(self, amount, target_player_name, ship_id=None, character_id=None):
+        payload = {
+            "amount": amount,
+            "target_player_name": target_player_name,
+        }
+        if ship_id is not None:
+            payload["ship_id"] = ship_id
+        if character_id is not None:
+            payload["character_id"] = character_id
+        elif ship_id is None:
+            payload["character_id"] = self.game_client.character_id
+
+        return self.game_client.deposit_to_bank(**payload)
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="bank_deposit",
+            description=(
+                "Deposit ship credits into a megaport bank account. "
+                "Provide your active ship automatically or specify a corporation ship. "
+                "You may only deposit to yourself or (when in the same corporation) to another member."
+            ),
+            properties={
+                "amount": {
+                    "type": "integer",
+                    "description": "Number of credits to deposit",
+                    "minimum": 1,
+                },
+                "ship_id": {
+                    "type": "string",
+                    "description": "ID of the ship funding the deposit (omit to use your active ship)",
+                },
+                "character_id": {
+                    "type": "string",
+                    "description": "Character initiating the deposit (defaults to the authenticated pilot)",
+                },
+                "target_player_name": {
+                    "type": "string",
+                    "description": "Display name of the bank account owner receiving the deposit",
+                    "minLength": 1,
+                },
+            },
+            required=["amount", "target_player_name"],
+        )
+
+
+class BankWithdraw(GameClientTool):
+    def __call__(self, amount, character_id=None):
+        if character_id is None:
+            character_id = self.game_client.character_id
+        return self.game_client.withdraw_from_bank(
+            amount=amount,
+            character_id=character_id,
+        )
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="bank_withdraw",
+            description="Withdraw credits from your own megaport bank account back onto your ship.",
+            properties={
+                "amount": {
+                    "type": "integer",
+                    "description": "Number of credits to withdraw",
+                    "minimum": 1,
+                },
+                "character_id": {
+                    "type": "string",
+                    "description": "Character withdrawing funds (defaults to the authenticated pilot)",
+                },
+            },
+            required=["amount"],
         )
 
 

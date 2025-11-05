@@ -7,6 +7,26 @@ reducing token usage when sending tool results to the LLM.
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Tuple
 from collections import defaultdict
+import importlib.util
+import sys
+from pathlib import Path
+
+try:
+    from ships import ShipType, get_ship_stats
+except ModuleNotFoundError:  # pragma: no cover - fallback when running outside game server package
+    _repo_root = Path(__file__).resolve().parent.parent
+    _ships_path = _repo_root / "game-server" / "ships.py"
+    if _ships_path.exists():
+        spec = importlib.util.spec_from_file_location("game_server.ships", _ships_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)  # type: ignore[call-arg]
+        sys.modules.setdefault("game_server.ships", module)
+        sys.modules.setdefault("ships", module)
+        ShipType = module.ShipType  # type: ignore[attr-defined]
+        get_ship_stats = module.get_ship_stats  # type: ignore[attr-defined]
+    else:  # pragma: no cover - extremely unlikely
+        ShipType = None  # type: ignore[assignment]
+        get_ship_stats = None  # type: ignore[assignment]
 
 
 def _format_relative_time(timestamp_str: str) -> str:
@@ -118,6 +138,24 @@ def _format_port(port: Dict[str, Any]) -> List[str]:
     return lines
 
 
+def _friendly_ship_type(raw_type: Optional[str]) -> str:
+    """Return a human-friendly ship type name."""
+    if not isinstance(raw_type, str) or not raw_type:
+        return "unknown"
+    if " " in raw_type and raw_type[0].isupper():
+        return raw_type
+    if "ShipType" in globals() and ShipType is not None and get_ship_stats is not None:  # type: ignore[truthy-function]
+        try:
+            enum_value = ShipType(raw_type)  # type: ignore[call-arg]
+            stats = get_ship_stats(enum_value)  # type: ignore[misc]
+            friendly = getattr(stats, "name", None)
+            if isinstance(friendly, str) and friendly:
+                return friendly
+        except Exception:
+            pass
+    return raw_type.replace("_", " ").title()
+
+
 def _format_players(players: List[Dict[str, Any]]) -> List[str]:
     """Format player list with names and ships."""
     if not players:
@@ -128,8 +166,21 @@ def _format_players(players: List[Dict[str, Any]]) -> List[str]:
         name = player.get("name", "unknown")
         ship = player.get("ship", {})
         ship_name = ship.get("ship_name", "unknown")
-        ship_type = ship.get("ship_type", "unknown")
-        lines.append(f"  - {name} in {ship_name} ({ship_type})")
+        ship_type_raw = ship.get("ship_type")
+        ship_type = _friendly_ship_type(ship_type_raw)
+        corp = player.get("corporation")
+        corp_name = corp.get("name") if isinstance(corp, dict) else None
+        corp_suffix = f" [{corp_name}]" if corp_name else ""
+        player_type = player.get("player_type")
+        if player_type == "corporation_ship":
+            display_name = ship_name or name
+            lines.append(
+                f"  - Corp ship {display_name} ({ship_type}){corp_suffix}"
+            )
+        else:
+            lines.append(
+                f"  - {name} in {ship_name} ({ship_type}){corp_suffix}"
+            )
 
     return lines
 
@@ -185,16 +236,31 @@ def _status_summary(result: Dict[str, Any], first_line: str) -> str:
     sector = result.get("sector", {})
     ship = result.get("ship", {})
     player = result.get("player", {})
+    corp = result.get("corporation") if isinstance(result, dict) else None
 
     # Build summary sections
-    lines = [first_line]
+    player_name = player.get("name") or player.get("display_name") or "Unknown player"
+    lines = [f"Player: {player_name}", first_line]
+
+    if isinstance(corp, dict) and corp.get("name"):
+        corp_line = f"Corporation: {corp['name']}"
+        member_count = corp.get("member_count")
+        if isinstance(member_count, int):
+            corp_line += f" (members: {member_count})"
+        lines.append(corp_line)
 
     # Adjacent sectors
     adjacent = sector.get("adjacent_sectors", [])
     lines.append(f"Adjacent sectors: {adjacent}")
+    ship_name = ship.get("ship_name") or ship.get("name") or "unknown ship"
+    ship_type_raw = ship.get("ship_type") or ship.get("ship_type_name")
+    ship_type = _friendly_ship_type(ship_type_raw)
+    lines.append(f"Ship: {ship_name} ({ship_type})")
 
     # Credits and cargo
-    credits = player.get("credits_on_hand", 0)
+    ship_credits = ship.get("credits")
+    if not isinstance(ship_credits, (int, float)):
+        ship_credits = player.get("credits_on_hand", 0)
     bank_credits = player.get("credits_in_bank")
     cargo = ship.get("cargo", {})
     cargo_str = _format_cargo(cargo)
@@ -204,8 +270,9 @@ def _status_summary(result: Dict[str, Any], first_line: str) -> str:
     bank_suffix = ""
     if isinstance(bank_credits, (int, float)):
         bank_suffix = f" (bank: {int(bank_credits)})"
+    credit_value = int(ship_credits) if isinstance(ship_credits, (int, float)) else 0
     lines.append(
-        f"Credits: {credits}{bank_suffix}. Cargo: {cargo_str}. Empty holds: {empty_holds}."
+        f"Credits: {credit_value}{bank_suffix}. Cargo: {cargo_str}. Empty holds: {empty_holds}."
     )
 
     # Warp power and shields
@@ -276,7 +343,9 @@ def status_update_summary(result: Dict[str, Any]) -> str:
     ship = result.get("ship", {}) if isinstance(result, dict) else {}
 
     sector_id = sector.get("id", "unknown")
-    credits = player.get("credits_on_hand")
+    ship_credits = ship.get("credits")
+    if not isinstance(ship_credits, (int, float)):
+        ship_credits = player.get("credits_on_hand")
     bank_credits = player.get("credits_in_bank")
     warp = ship.get("warp_power")
     warp_max = ship.get("warp_power_capacity")
@@ -287,17 +356,27 @@ def status_update_summary(result: Dict[str, Any]) -> str:
     port_code = port.get("code") if isinstance(port, dict) else None
 
     parts: List[str] = [f"Sector {sector_id}"]
-    if isinstance(credits, (int, float)):
-        credit_part = f"Credits {int(credits)}"
+    if isinstance(ship_credits, (int, float)):
+        credit_part = f"Credits {int(ship_credits)}"
         if isinstance(bank_credits, (int, float)):
             credit_part += f" (bank {int(bank_credits)})"
         parts.append(credit_part)
+    ship_id = ship.get("ship_id")
+    if isinstance(ship_id, str) and ship_id.strip():
+        parts.append(f"Ship ID {ship_id}")
     if isinstance(warp, (int, float)) and isinstance(warp_max, (int, float)):
         parts.append(f"Warp {int(warp)}/{int(warp_max)}")
     if isinstance(shields, (int, float)) and isinstance(shields_max, (int, float)):
         parts.append(f"Shields {int(shields)}/{int(shields_max)}")
     if isinstance(fighters, (int, float)):
         parts.append(f"Fighters {int(fighters)}")
+    corp = result.get("corporation") if isinstance(result, dict) else None
+    if isinstance(corp, dict) and corp.get("name"):
+        corp_part = f"Corp {corp['name']}"
+        member_count = corp.get("member_count")
+        if isinstance(member_count, int):
+            corp_part += f" ({member_count})"
+        parts.append(corp_part)
     if port_code:
         parts.append(f"Port {port_code}")
 
@@ -594,6 +673,31 @@ def combat_ended_summary(event: Dict[str, Any]) -> str:
     return header + " " + "; ".join(details) + "."
 
 
+def garrison_combat_alert_summary(event: Dict[str, Any]) -> str:
+    """Summarize garrison.combat_alert events for corp operators."""
+
+    sector = event.get("sector", {}) if isinstance(event, dict) else {}
+    sector_id = sector.get("id", "unknown")
+    garrison = event.get("garrison") if isinstance(event, dict) else {}
+    owner_name = None
+    if isinstance(garrison, dict):
+        owner_name = garrison.get("owner_name") or garrison.get("owner_id")
+    if not owner_name:
+        owner_name = "unknown owner"
+
+    combat = event.get("combat") if isinstance(event, dict) else {}
+    combat_id = combat.get("combat_id") if isinstance(combat, dict) else None
+    initiator = combat.get("initiator_name") if isinstance(combat, dict) else None
+
+    parts = [f"Garrison alert in sector {sector_id} for {owner_name}."]
+    if combat_id:
+        parts.append(f"Combat ID: {combat_id}.")
+    if initiator:
+        parts.append(f"Initiated by {initiator}.")
+
+    return " ".join(parts)
+
+
 def sector_update_summary(event: Dict[str, Any]) -> str:
     """Summarize sector.update snapshots."""
 
@@ -609,20 +713,27 @@ def sector_update_summary(event: Dict[str, Any]) -> str:
             if not isinstance(entry, dict):
                 continue
             name = entry.get("name")
-            if name:
-                player_names.append(str(name))
+            if not name:
+                continue
+            display = str(name)
+            corp_obj = entry.get("corporation")
+            corp_name = corp_obj.get("name") if isinstance(corp_obj, dict) else None
+            if corp_name:
+                display += f" ({corp_name})"
+            player_names.append(display)
     players_part = ", ".join(player_names) if player_names else "none"
 
-    garrisons = event.get("garrisons") or event.get("garrison")
-    if isinstance(garrisons, list):
-        garrison_part = f"{len(garrisons)}"
-    elif garrisons:
+    garrison = event.get("garrison")
+    if garrison:
         garrison_part = "1"
     else:
         garrison_part = "0"
 
     salvage = event.get("salvage")
     salvage_part = str(len(salvage)) if isinstance(salvage, list) else "0"
+
+    unowned = event.get("unowned_ships")
+    unowned_part = str(len(unowned)) if isinstance(unowned, list) else "0"
 
     parts = [
         f"Sector {sector_id}",
@@ -631,6 +742,7 @@ def sector_update_summary(event: Dict[str, Any]) -> str:
         f"players {players_part}",
         f"garrisons {garrison_part}",
         f"salvage {salvage_part}",
+        f"derelicts {unowned_part}",
     ]
 
     return "Sector update: " + "; ".join(parts) + "."
@@ -777,6 +889,30 @@ def character_moved_summary(event: Dict[str, Any]) -> str:
     if move_type:
         return f"{name} in {ship_descriptor} movement update [{move_type}]."
     return f"{name} in {ship_descriptor} movement update."
+
+
+def garrison_character_moved_summary(event: Dict[str, Any]) -> str:
+    """Summarize garrison.character_moved events for corporation members."""
+
+    base = character_moved_summary(event)
+    if not isinstance(event, dict):
+        return base
+
+    garrison = event.get("garrison") or {}
+    if not isinstance(garrison, dict):
+        return base
+
+    owner_name = garrison.get("owner_name") or garrison.get("owner_id") or "corp member"
+    mode = garrison.get("mode")
+    fighters = garrison.get("fighters")
+
+    details: list[str] = [f"Detected by {owner_name}'s garrison"]
+    if mode:
+        details.append(f"mode={mode}")
+    if isinstance(fighters, int):
+        details.append(f"{fighters} fighters")
+
+    return f"{base} ({', '.join(details)})."
 
 
 def transfer_summary(event: Dict[str, Any]) -> str:

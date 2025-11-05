@@ -72,7 +72,7 @@ def sanitize_ship_payload(payload: Any) -> dict[str, Any]:
 
 def apply_player_overrides(world, character_id: str, player_data: dict[str, Any]) -> None:
     if "credits" in player_data:
-        world.knowledge_manager.update_credits(character_id, player_data["credits"])
+        world.knowledge_manager.update_ship_credits(character_id, player_data["credits"])
     character = world.characters.get(character_id)
     if character and "player_type" in player_data:
         character.player_type = player_data["player_type"]
@@ -81,19 +81,28 @@ def apply_player_overrides(world, character_id: str, player_data: dict[str, Any]
 def apply_ship_overrides(world, character_id: str, ship_data: dict[str, Any]) -> None:
     if not ship_data:
         return
-    knowledge = world.knowledge_manager.load_knowledge(character_id)
-    ship_config = knowledge.ship_config
-    if "ship_name" in ship_data:
-        ship_config.ship_name = ship_data["ship_name"]
+    ship = world.knowledge_manager.get_ship(character_id)
+    state_updates: dict[str, Any] = {}
     if "cargo" in ship_data:
-        ship_config.cargo.update(ship_data["cargo"])
+        cargo = {
+            "quantum_foam": int(ship_data["cargo"].get("quantum_foam", 0)),
+            "retro_organics": int(ship_data["cargo"].get("retro_organics", 0)),
+            "neuro_symbolics": int(ship_data["cargo"].get("neuro_symbolics", 0)),
+        }
+        state_updates["cargo"] = cargo
     if "current_warp_power" in ship_data:
-        ship_config.current_warp_power = ship_data["current_warp_power"]
+        state_updates["warp_power"] = ship_data["current_warp_power"]
     if "current_shields" in ship_data:
-        ship_config.current_shields = ship_data["current_shields"]
+        state_updates["shields"] = ship_data["current_shields"]
     if "current_fighters" in ship_data:
-        ship_config.current_fighters = ship_data["current_fighters"]
-    world.knowledge_manager.save_knowledge(knowledge)
+        state_updates["fighters"] = ship_data["current_fighters"]
+    if state_updates:
+        world.ships_manager.update_ship_state(ship["ship_id"], **state_updates)
+    if "ship_name" in ship_data:
+        updated = world.ships_manager.get_ship(ship["ship_id"])
+        if updated is not None:
+            updated["name"] = ship_data["ship_name"]
+            world.ships_manager.save_ship(ship["ship_id"], updated)
 
 
 async def handle(payload: Dict[str, Any], world) -> dict:
@@ -116,7 +125,6 @@ async def handle(payload: Dict[str, Any], world) -> dict:
     ship_data = sanitize_ship_payload(payload.get("ship"))
 
     ship_type_value = ship_data.get("ship_type")
-    validated_ship_type: ShipType | None = None
     if ship_type_value:
         validated_ship_type = validate_ship_type(ship_type_value)
         if validated_ship_type is None:
@@ -125,7 +133,17 @@ async def handle(payload: Dict[str, Any], world) -> dict:
         validated_ship_type = ShipType.KESTREL_COURIER
 
     character_id = str(uuid.uuid4())
-    world.knowledge_manager.initialize_ship(character_id, validated_ship_type)
+    world.knowledge_manager.create_ship_for_character(
+        character_id,
+        validated_ship_type,
+        sector=0,
+        name=ship_data.get("ship_name"),
+        fighters=ship_data.get("current_fighters"),
+        shields=ship_data.get("current_shields"),
+        warp_power=ship_data.get("current_warp_power"),
+        cargo=ship_data.get("cargo"),
+        credits=player_data.get("credits"),
+    )
     apply_player_overrides(world, character_id, player_data)
     apply_ship_overrides(world, character_id, ship_data)
 
@@ -143,6 +161,6 @@ async def handle(payload: Dict[str, Any], world) -> dict:
             "character_id": character_id,
             "name": sanitized_name,
             "player": player_data,
-            "ship": ship_data,
+            "ship": {**ship_data, "ship_type": validated_ship_type.value},
         }
     )

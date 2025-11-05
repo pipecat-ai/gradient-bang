@@ -11,8 +11,10 @@ from .utils import (
     emit_error_event,
     resolve_sector_character_id,
     ensure_not_in_combat,
+    enforce_actor_authorization,
+    build_log_context,
 )
-from rpc.events import event_dispatcher, EventLogContext
+from rpc.events import event_dispatcher
 
 
 async def _fail(
@@ -41,6 +43,13 @@ async def handle(request: dict, world) -> dict:
 
     if not all([from_character_id, units]):
         raise HTTPException(status_code=400, detail="Missing required parameters")
+
+    enforce_actor_authorization(
+        world,
+        target_character_id=from_character_id,
+        actor_character_id=request.get("actor_character_id"),
+        admin_override=bool(request.get("admin_override")),
+    )
     if not isinstance(to_player_name, str) or not to_player_name.strip():
         raise HTTPException(
             status_code=400,
@@ -79,20 +88,22 @@ async def handle(request: dict, world) -> dict:
     if from_character.sector != to_character.sector:
         raise HTTPException(status_code=400, detail="Characters must be in the same sector")
 
-    from_knowledge = world.knowledge_manager.load_knowledge(from_character_id)
-    to_knowledge = world.knowledge_manager.load_knowledge(to_character_id)
+    from_ship = world.knowledge_manager.get_ship(from_character_id)
+    to_ship = world.knowledge_manager.get_ship(to_character_id)
+    from_state = from_ship.get("state", {})
+    to_state = to_ship.get("state", {})
 
-    if from_knowledge.ship_config.current_warp_power < units:
+    if from_state.get("warp_power", 0) < units:
         await _fail(
             from_character_id,
             request_id,
-            f"Insufficient warp power. {from_character_id} only has {from_knowledge.ship_config.current_warp_power} units",
+            f"Insufficient warp power. {from_character_id} only has {from_state.get('warp_power', 0)} units",
         )
 
     # Capacity limit for receiver
     from ships import ShipType, get_ship_stats
-    to_ship_stats = get_ship_stats(ShipType(to_knowledge.ship_config.ship_type))
-    receiver_capacity = to_ship_stats.warp_power_capacity - to_knowledge.ship_config.current_warp_power
+    to_ship_stats = get_ship_stats(ShipType(to_ship["ship_type"]))
+    receiver_capacity = to_ship_stats.warp_power_capacity - to_state.get("warp_power", 0)
     units_to_transfer = min(units, receiver_capacity)
     if units_to_transfer <= 0:
         await _fail(
@@ -101,13 +112,26 @@ async def handle(request: dict, world) -> dict:
             f"{to_character_id}'s warp power is already at maximum",
         )
 
-    from_knowledge.ship_config.current_warp_power -= units_to_transfer
-    to_knowledge.ship_config.current_warp_power += units_to_transfer
-    world.knowledge_manager.save_knowledge(from_knowledge)
-    world.knowledge_manager.save_knowledge(to_knowledge)
+    world.ships_manager.update_ship_state(
+        from_ship["ship_id"],
+        warp_power=from_state.get("warp_power", 0) - units_to_transfer,
+    )
+    world.ships_manager.update_ship_state(
+        to_ship["ship_id"],
+        warp_power=to_state.get("warp_power", 0) + units_to_transfer,
+    )
 
     timestamp = datetime.now(timezone.utc).isoformat()
-    log_context = EventLogContext(sender=from_character_id, sector=from_character.sector)
+    sender_context = build_log_context(
+        character_id=from_character_id,
+        world=world,
+        sector=from_character.sector,
+    )
+    receiver_context = build_log_context(
+        character_id=to_character_id,
+        world=world,
+        sector=from_character.sector,
+    )
 
     # Build reusable data for new unified transfer payload
     source = build_event_source("transfer_warp_power", request_id)
@@ -129,7 +153,7 @@ async def handle(request: dict, world) -> dict:
             "source": source,
         },
         character_filter=[from_character_id],
-        log_context=log_context,
+        log_context=sender_context,
     )
 
     # Emit to receiver with direction="received"
@@ -145,10 +169,15 @@ async def handle(request: dict, world) -> dict:
             "source": source,
         },
         character_filter=[to_character_id],
-        log_context=log_context,
+        log_context=receiver_context,
     )
     for cid in (from_character_id, to_character_id):
         payload = await build_status_payload(world, cid)
-        await event_dispatcher.emit("status.update", payload, character_filter=[cid], log_context=log_context)
+        await event_dispatcher.emit(
+            "status.update",
+            payload,
+            character_filter=[cid],
+            log_context=(sender_context if cid == from_character_id else receiver_context),
+        )
 
     return rpc_success()

@@ -724,10 +724,16 @@ class TestCacheCoherence:
             with open(knowledge_path, "r") as f:
                 disk_data = json.load(f)
 
+            ships_path = Path("tests/test-world-data/ships.json")
+            assert ships_path.exists()
+            ships = json.loads(ships_path.read_text())
+            ship = ships[disk_data["current_ship_id"]]
+            ship_state = ship.get("state", {})
+
             # Verify consistency between in-memory and disk
             assert status["sector"]["id"] == disk_data["current_sector"]
-            assert status["ship"]["fighters"] == disk_data["ship_config"]["current_fighters"]
-            assert status["ship"]["shields"] == disk_data["ship_config"]["current_shields"]
+            assert status["ship"]["fighters"] == ship_state.get("fighters")
+            assert status["ship"]["shields"] == ship_state.get("shields")
 
         finally:
             await client.close()

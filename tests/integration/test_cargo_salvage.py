@@ -86,8 +86,11 @@ class TestCargoSalvage:
             status_before = await get_status(client, char_id)
             cargo_before = status_before["ship"]["cargo"]
 
-            assert cargo_before.get("quantum_foam", 0) == 10
-            assert cargo_before.get("retro_organics", 0) == 5
+            initial_quantum = cargo_before.get("quantum_foam", 0)
+            initial_retro = cargo_before.get("retro_organics", 0)
+            assert (
+                initial_quantum >= 3
+            ), f"Fixture requires at least 3 quantum_foam, got {initial_quantum}"
 
             # Dump some cargo
             result = await client.dump_cargo(
@@ -127,8 +130,8 @@ class TestCargoSalvage:
             status_after = await get_status(client, char_id)
             cargo_after = status_after["ship"]["cargo"]
 
-            assert cargo_after.get("quantum_foam", 0) == 7  # 10 - 3
-            assert cargo_after.get("retro_organics", 0) == 5  # Unchanged
+            assert cargo_after.get("quantum_foam", 0) == initial_quantum - 3
+            assert cargo_after.get("retro_organics", 0) == initial_retro
 
     async def test_retrieve_own_dumped_cargo(self, server_url, check_server_available):
         """Test retrieving own dumped cargo."""
@@ -143,6 +146,10 @@ class TestCargoSalvage:
 
         async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
             await client.join(character_id=char_id)
+
+            status_before = await get_status(client, char_id)
+            initial_quantum = status_before["ship"]["cargo"].get("quantum_foam", 0)
+            assert initial_quantum >= 5, f"Fixture requires at least 5 quantum_foam, got {initial_quantum}"
 
             # Dump cargo
             await client.dump_cargo(
@@ -172,7 +179,7 @@ class TestCargoSalvage:
             status_after = await get_status(client, char_id)
             cargo_after = status_after["ship"]["cargo"]
 
-            assert cargo_after.get("quantum_foam", 0) == 10  # Back to original
+            assert cargo_after.get("quantum_foam", 0) == initial_quantum  # Back to original
 
     async def test_another_player_retrieve_salvage(self, server_url, check_server_available):
         """Test another player collecting salvage."""
@@ -196,6 +203,13 @@ class TestCargoSalvage:
 
             dumper_client.on("sector.update")(lambda p: dumper_events.append(p))
             collector_client.on("sector.update")(lambda p: collector_events.append(p))
+
+            dumper_status_before = await get_status(dumper_client, dumper_id)
+            initial_retro = dumper_status_before["ship"]["cargo"].get("retro_organics", 0)
+            assert initial_retro >= 5, f"Fixture requires at least 5 retro_organics, got {initial_retro}"
+
+            collector_status_before = await get_status(collector_client, collector_id)
+            collector_initial_retro = collector_status_before["ship"]["cargo"].get("retro_organics", 0)
 
             # Dumper dumps cargo
             await dumper_client.dump_cargo(
@@ -239,13 +253,16 @@ class TestCargoSalvage:
             collector_status_after = await get_status(collector_client, collector_id)
             collector_cargo = collector_status_after["ship"]["cargo"]
 
-            assert collector_cargo.get("retro_organics", 0) == 5, f"Expected 5 retro_organics, got: {collector_cargo}"
+            assert (
+                collector_cargo.get("retro_organics", 0)
+                == collector_initial_retro + 5
+            ), f"Expected collector to gain 5 retro_organics, got: {collector_cargo}"
 
             # Verify dumper's cargo still reduced
             dumper_status_after = await get_status(dumper_client, dumper_id)
             dumper_cargo = dumper_status_after["ship"]["cargo"]
 
-            assert dumper_cargo.get("retro_organics", 0) == 5  # Still 5 (dumped)
+            assert dumper_cargo.get("retro_organics", 0) == initial_retro - 5
 
         finally:
             await dumper_client.close()
@@ -266,6 +283,10 @@ class TestCargoSalvage:
         try:
             await dumper_client.join(character_id=dumper_id)
             await arrival_client.join(character_id=late_arrival_id)
+
+            dumper_status_before = await get_status(dumper_client, dumper_id)
+            initial_neuro = dumper_status_before["ship"]["cargo"].get("neuro_symbolics", 0)
+            assert initial_neuro >= 3, f"Fixture requires at least 3 neuro_symbolics, got {initial_neuro}"
 
             # Dumper dumps cargo
             await dumper_client.dump_cargo(
@@ -326,9 +347,13 @@ class TestCargoSalvageValidation:
         async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
             await client.join(character_id=char_id)
 
+            status_before = await get_status(client, char_id)
+            available = status_before["ship"]["cargo"].get("quantum_foam", 0)
+            assert available > 0, "Fixture requires at least 1 unit of quantum_foam"
+
             # Request to dump 10 units when only 5 available (partial dump)
             result = await client.dump_cargo(
-                items=[{"commodity": "quantum_foam", "units": 10}],
+                items=[{"commodity": "quantum_foam", "units": available + 5}],
                 character_id=char_id
             )
 
@@ -343,7 +368,7 @@ class TestCargoSalvageValidation:
             # Verify salvage contains 5 units (not 10)
             sector_salvage = status["sector"].get("salvage", [])
             assert len(sector_salvage) > 0, "Should have salvage in sector"
-            assert sector_salvage[0]["cargo"]["quantum_foam"] == 5
+            assert sector_salvage[0]["cargo"]["quantum_foam"] == available
 
     async def test_dump_cargo_while_in_combat(self, server_url, check_server_available):
         """Test dumping cargo while in combat fails."""

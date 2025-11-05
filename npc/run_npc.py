@@ -1,68 +1,175 @@
 #!/usr/bin/env python3
-"""
-NPC Command-Line Interface for Gradient Bang.
+"""Command-line entrypoint for the experimental Pipecat-based task agent."""
 
-Usage:
-    python run_npc.py <character_id> "<task>"
+from __future__ import annotations
 
-Examples:
-    python run_npc.py npc_trader "Move to sector 10"
-    python run_npc.py npc_explorer "Find the nearest port and report what it trades"
-    python run_npc.py npc_scout "Move to sector 5 and wait there for 10 seconds"
-"""
-
-import sys
-import os
 import argparse
 import asyncio
-from datetime import datetime
-from pathlib import Path
 import json
+import os
+import sys
+from contextlib import suppress
+from datetime import datetime, timezone
+from pathlib import Path
+
 from loguru import logger
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
 
-from utils.api_client import AsyncGameClient
-from utils.task_agent import TaskAgent
-from utils.base_llm_agent import LLMConfig
+from utils.api_client import AsyncGameClient, RPCError  # noqa: E402
+from utils.task_agent import TaskAgent  # noqa: E402
 
+DEFAULT_MODEL = "gemini-2.5-flash-preview-09-2025"
 
-VERBOSE = os.getenv("NPC_VERBOSE", "true").lower() == "true"
+logger.enable("pipecat")
+_log_level = os.getenv("LOGURU_LEVEL", "INFO").upper()
+logger.configure(handlers=[{"sink": sys.stderr, "level": _log_level}])
 
-# Configure loguru
-logger.remove()  # Remove default handler
-if VERBOSE:
-    logger.add(sys.stderr, format="{time:HH:mm:ss} {message}", level="INFO")
-else:
-    logger.add(sys.stderr, format="{time:HH:mm:ss} {message}", level="WARNING")
+SESSION_LOCK_DIR = REPO_ROOT / "logs" / "ship-sessions"
+KNOWLEDGE_DIR = REPO_ROOT / "world-data" / "character-map-knowledge"
 
 
-async def main():
-    """Main entry point for the NPC CLI."""
+class SessionLockError(RuntimeError):
+    """Raised when a ship already has an active TaskAgent session."""
+
+
+def _pid_is_active(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _acquire_ship_session_lock(
+    ship_id: str,
+    *,
+    actor_id: str,
+    server: str,
+) -> callable:
+    SESSION_LOCK_DIR.mkdir(parents=True, exist_ok=True)
+    lock_path = SESSION_LOCK_DIR / f"{ship_id}.lock"
+    metadata = {
+        "ship_id": ship_id,
+        "actor_id": actor_id,
+        "server": server,
+        "pid": os.getpid(),
+        "started_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    while True:
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            existing: dict[str, str] = {}
+            with suppress(Exception):
+                with lock_path.open("r", encoding="utf-8") as handle:
+                    existing = json.load(handle)
+            pid = existing.get("pid")
+            if isinstance(pid, int) and _pid_is_active(pid):
+                actor = existing.get("actor_id", "unknown actor")
+                started = existing.get("started_at", "unknown time")
+                raise SessionLockError(
+                    f"ship {ship_id} already has an active TaskAgent session "
+                    f"(pid {pid}, actor {actor}, started {started})"
+                )
+            with suppress(FileNotFoundError):
+                lock_path.unlink()
+            continue
+        else:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(metadata, handle)
+            break
+
+    def release() -> None:
+        with suppress(FileNotFoundError):
+            lock_path.unlink()
+
+    return release
+
+
+def _require_ship_knowledge(ship_id: str) -> None:
+    world_root = KNOWLEDGE_DIR.parent
+    if not world_root.exists():
+        raise RuntimeError(
+            "world-data directory not found. Generate the universe before launching "
+            "corporation ships."
+        )
+    knowledge_path = KNOWLEDGE_DIR / f"{ship_id}.json"
+    if not knowledge_path.exists():
+        raise RuntimeError(
+            f"Missing character knowledge for {ship_id}. "
+            f"Create {knowledge_path} before launching the agent."
+        )
+
+
+def _log_join_error(
+    exc: RPCError,
+    *,
+    actor_id: str | None,
+    target_id: str,
+) -> None:
+    detail = (getattr(exc, "detail", "") or str(exc)).strip()
+    status = getattr(exc, "status", "unknown")
+    logger.error(
+        "JOIN failed status=%s detail=%s actor=%s target=%s",
+        status,
+        detail,
+        actor_id or target_id,
+        target_id,
+    )
+
+    lower_detail = detail.lower()
+    if "actor_character_id is required" in lower_detail:
+        logger.info(
+            "Provide a corporation member with --ship-id. "
+            "Example: uv run npc/run_npc.py corp-member --ship-id %s \"<task>\"",
+            target_id,
+        )
+    elif "not authorized" in lower_detail:
+        logger.info(
+            "Actor %s is not in the owning corporation for ship %s.",
+            actor_id,
+            target_id,
+        )
+    elif "not registered" in lower_detail:
+        logger.info(
+            "Register ship %s in the character registry before launching the agent.",
+            target_id,
+        )
+    elif "has an active session" in lower_detail:
+        logger.info(
+            "Wait for the existing TaskAgent run on ship %s to finish or clear the lock.",
+            target_id,
+        )
+    elif "knowledge" in lower_detail:
+        logger.info(
+            "Create world-data/character-map-knowledge/%s.json before retrying.",
+            target_id,
+        )
+
+
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run an AI-controlled NPC in Gradient Bang",
+        description="Run the experimental Pipecat-based task agent (supports corporation ships via --ship-id)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s npc_trader "Move to sector 10"
-  %(prog)s npc_explorer "Find the nearest port and report what it trades"
-  %(prog)s npc_scout "Move to sector 5 and wait there for 10 seconds"
-  
-Environment Variables:
-  OPENAI_API_KEY       - Required: Your OpenAI API key
-  GAME_SERVER_URL      - Optional: Game server URL (default: http://localhost:8000)
-  NPC_MODEL            - Optional: OpenAI model to use (default: gpt-5)
-  NPC_VERBOSE          - Optional: Set to 'false' to reduce log output (default: true)
-  NPC_VERBOSE_PROMPTS  - Optional: Set to 'true' to show full prompts and responses
-        """,
-    )
+  %(prog)s npc-02 "Where am I?"
+  %(prog)s corp-member-01 --ship-id ship-123 "Move to sector 5 and scan"
 
-    parser.add_argument("character_id", help="Unique identifier for the NPC character")
+Environment Variables:
+  GOOGLE_API_KEY             Required. Google Generative AI key.
+  GAME_SERVER_URL            Optional. Defaults to http://localhost:8000.
+""",
+    )
 
     parser.add_argument(
-        "task", help="Natural language description of the task to complete"
+        "actor_id",
+        help="Character issuing the task (use this character directly unless controlling a corporation ship)",
     )
+    parser.add_argument("task", help="Task description to execute")
 
     parser.add_argument(
         "--server",
@@ -71,111 +178,128 @@ Environment Variables:
     )
 
     parser.add_argument(
-        "--transport",
-        choices=["http", "websocket"],
-        default=os.getenv("NPC_TRANSPORT", "http"),
-        help="Transport protocol: http or websocket (default: %(default)s)",
-    )
-
-    parser.add_argument(
         "--model",
-        default=os.getenv("NPC_MODEL", "gpt-5"),
-        help="OpenAI model to use (default: %(default)s)",
+        default=os.getenv("AGENT_MODEL", DEFAULT_MODEL),
+        help="Gemini model name (default: %(default)s)",
     )
-
     parser.add_argument(
-        "--max-iterations",
-        type=int,
-        default=25,
-        help="Maximum OODA loop iterations (default: %(default)s)",
-    )
-
-    parser.add_argument(
-        "--verbose-prompts",
-        action="store_true",
-        help="Show full prompts and responses sent to/from the LLM (or set NPC_VERBOSE_PROMPTS=true)",
+        "--ship-id",
+        dest="ship_id",
+        help="Corporation ship ID (character_id) to control; cannot equal actor_id",
     )
 
     args = parser.parse_args()
 
-    if args.transport and args.transport != "websocket":
-        logger.warning(
-            "AsyncGameClient now supports only websocket transport; overriding provided transport value."
+    if args.ship_id and args.ship_id == args.actor_id:
+        parser.error(
+            "--ship-id must differ from actor_id. Omit --ship-id to control the actor directly."
         )
-        args.transport = "websocket"
 
-    # Check for API key
-    if not os.getenv("OPENAI_API_KEY"):
-        logger.error("OPENAI_API_KEY environment variable not set")
-        print("Please set it with: export OPENAI_API_KEY='your-key-here'")
+    return args
+
+
+def ensure_api_key() -> str:
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        logger.error("GOOGLE_API_KEY environment variable not set")
+        logger.info("Export it with: export GOOGLE_API_KEY=your-key")
         sys.exit(1)
+    return api_key
 
-    # Determine verbosity levels
-    verbose_prompts = args.verbose_prompts
 
+async def run_task(args: argparse.Namespace) -> int:
+    _ = ensure_api_key()
+    target_character_id = args.ship_id or args.actor_id
+    actor_character_id = args.actor_id if args.ship_id else None
+
+    success = False
+    async with AsyncGameClient(
+        base_url=args.server,
+        character_id=target_character_id,
+        actor_character_id=actor_character_id,
+        entity_type="corporation_ship" if args.ship_id else "character",
+    ) as game_client:
+        logger.info(
+            "CONNECT server={server} target={target} actor={actor}",
+            server=args.server,
+            target=target_character_id,
+            actor=actor_character_id or target_character_id,
+        )
+        await game_client.pause_event_delivery()
+
+        try:
+            await game_client.join(target_character_id)
+        except RPCError as exc:
+            _log_join_error(
+                exc,
+                actor_id=actor_character_id,
+                target_id=target_character_id,
+            )
+            return 1
+
+        logger.info("JOINED target={}", target_character_id)
+
+        agent = TaskAgent(
+            game_client=game_client,
+            character_id=target_character_id,
+        )
+
+        logger.info('TASK_START task="%s"', args.task)
+        success = await agent.run_task(task=args.task)
+
+        if success:
+            logger.info("TASK_COMPLETE status=success")
+        else:
+            logger.warning("TASK_INCOMPLETE")
+
+        with suppress(Exception):
+            final_status = await game_client.my_status(target_character_id)
+            summary = final_status.get("summary")
+            if summary:
+                logger.info("FINAL_STATUS %s", summary)
+
+    return 0 if success else 1
+
+
+def main() -> int:
+    args = parse_args()
+    release_lock = None
     try:
-        # Create async game client
-        logger.info(f"CONNECT server={args.server}")
-        async with AsyncGameClient(
-            base_url=args.server, character_id=args.character_id
-        ) as game_client:
-            # Join the game
-            logger.info(f"JOIN character={args.character_id}")
-            status = await game_client.join(args.character_id)
+        if args.ship_id:
+            try:
+                _require_ship_knowledge(args.ship_id)
+            except RuntimeError as exc:
+                logger.error(str(exc))
+                logger.info(
+                    "Use uv run scripts/corporation_lookup.py %s --ships to inspect the fleet.",
+                    args.actor_id,
+                )
+                return 1
+            try:
+                release_lock = _acquire_ship_session_lock(
+                    args.ship_id,
+                    actor_id=args.actor_id,
+                    server=args.server,
+                )
+            except SessionLockError as exc:
+                logger.error(str(exc))
+                logger.info(
+                    "If this is stale, remove the lock file in %s",
+                    SESSION_LOCK_DIR,
+                )
+                return 1
 
-            logger.info(f"JOINED sector={status['sector']} transport=websocket")
-
-            llm_config = LLMConfig(
-                api_key=os.getenv("OPENAI_API_KEY"), model=args.model
-            )
-
-            # Create LLM agent
-            logger.info(f"INIT_AGENT model={args.model}")
-            agent = TaskAgent(
-                config=llm_config,
-                verbose_prompts=verbose_prompts,
-                game_client=game_client,
-                character_id=args.character_id,
-            )
-
-            # Prepare initial state
-            initial_state = {
-                "status": status,
-                "time": datetime.now().isoformat(),
-            }
-
-            logger.info(f"TASK_START task='{args.task}'")
-            success = await agent.run_task(
-                task=args.task,
-                initial_state=initial_state,
-                max_iterations=args.max_iterations,
-            )
-
-            # Report results
-            if success:
-                logger.info("TASK_COMPLETE status=success")
-            else:
-                logger.warning(f"TASK_INCOMPLETE max_iterations={args.max_iterations}")
-
-            # Get final status
-            final_status = await game_client.my_status(args.character_id)
-            logger.info(f"FINAL_POSITION sector={final_status['sector']}")
-
+        return asyncio.run(run_task(args))
     except KeyboardInterrupt:
-        logger.info("INTERRUPTED reason=user_abort")
-        sys.exit(130)
-
-    except Exception as e:
-        logger.error(f"ERROR: {str(e)} (type={type(e).__name__})")
-        if verbose_prompts:
-            import traceback
-
-            traceback.print_exc()
-        sys.exit(1)
-
-    logger.info("SESSION_END")
-    return 0
+        logger.info("INTERRUPTED by user")
+        return 130
+    except Exception as exc:  # pragma: no cover - diagnostic path
+        logger.exception("ERROR: %s", exc)
+        return 1
+    finally:
+        if release_lock:
+            release_lock()
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    sys.exit(main())

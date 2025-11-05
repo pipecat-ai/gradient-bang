@@ -802,7 +802,7 @@ async def test_recharge_warp_power_at_sector_zero(server_url, check_server_avail
             # Get initial state
             status_before = await get_status(client, char_id)
             warp_before = status_before["ship"]["warp_power"]
-            credits_before = status_before["player"]["credits_on_hand"]
+            credits_before = status_before["ship"]["credits"]
 
             # Verify warp power was depleted
             assert warp_before < 300, "Warp power should be depleted after movement"
@@ -827,7 +827,7 @@ async def test_recharge_warp_power_at_sector_zero(server_url, check_server_avail
             # Verify warp power increased and credits decreased
             status_after = await get_status(client, char_id)
             warp_after = status_after["ship"]["warp_power"]
-            credits_after = status_after["player"]["credits_on_hand"]
+            credits_after = status_after["ship"]["credits"]
 
             assert warp_after > warp_before, "Warp power should increase after recharge"
             assert credits_after < credits_before, "Credits should decrease after recharge"

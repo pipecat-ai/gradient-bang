@@ -8,6 +8,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 
+from ships import ShipType
 from .utils import (
     build_event_source,
     build_public_player_data,
@@ -16,8 +17,10 @@ from .utils import (
     ensure_not_in_combat,
     resolve_sector_character_id,
     rpc_success,
+    enforce_actor_authorization,
+    build_log_context,
 )
-from rpc.events import event_dispatcher, EventLogContext
+from rpc.events import event_dispatcher
 
 
 async def _fail(
@@ -51,6 +54,13 @@ async def handle(request: dict, world, credit_locks) -> dict:  # noqa: D401
 
     if not all([from_character_id, amount]):
         raise HTTPException(status_code=400, detail="Missing required parameters")
+
+    enforce_actor_authorization(
+        world,
+        target_character_id=from_character_id,
+        actor_character_id=request.get("actor_character_id"),
+        admin_override=bool(request.get("admin_override")),
+    )
 
     if not isinstance(to_player_name, str) or not to_player_name.strip():
         raise HTTPException(
@@ -95,7 +105,13 @@ async def handle(request: dict, world, credit_locks) -> dict:  # noqa: D401
         for cid in lock_order:
             await stack.enter_async_context(credit_locks.lock(cid))
 
-        from_balance_before = world.knowledge_manager.get_credits(from_character_id)
+        from_ship = world.knowledge_manager.get_ship(from_character_id)
+        to_ship = world.knowledge_manager.get_ship(to_character_id)
+
+        from_ship_id = from_ship["ship_id"]
+        to_ship_id = to_ship["ship_id"]
+
+        from_balance_before = int(from_ship.get("state", {}).get("credits", 0))
         if from_balance_before < amount:
             await _fail(
                 from_character_id,
@@ -103,14 +119,29 @@ async def handle(request: dict, world, credit_locks) -> dict:  # noqa: D401
                 f"Insufficient credits. {from_character_id} only has {from_balance_before}",
             )
 
-        to_balance_before = world.knowledge_manager.get_credits(to_character_id)
+        if ShipType(to_ship["ship_type"]) == ShipType.ESCAPE_POD:
+            await _fail(
+                to_character_id,
+                request_id,
+                "Cannot transfer credits to an escape pod",
+            )
 
-        world.knowledge_manager.update_credits(from_character_id, from_balance_before - amount)
-        world.knowledge_manager.update_credits(to_character_id, to_balance_before + amount)
+        to_balance_before = int(to_ship.get("state", {}).get("credits", 0))
+
+        world.ships_manager.transfer_credits_between_ships(from_ship_id, to_ship_id, amount)
 
     timestamp = datetime.now(timezone.utc).isoformat()
 
-    log_context = EventLogContext(sender=from_character_id, sector=from_character.sector)
+    sender_context = build_log_context(
+        character_id=from_character_id,
+        world=world,
+        sector=from_character.sector,
+    )
+    receiver_context = build_log_context(
+        character_id=to_character_id,
+        world=world,
+        sector=from_character.sector,
+    )
 
     # Build reusable data for new unified transfer payload
     source = build_event_source("transfer_credits", request_id)
@@ -132,7 +163,7 @@ async def handle(request: dict, world, credit_locks) -> dict:  # noqa: D401
             "source": source,
         },
         character_filter=[from_character_id],
-        log_context=log_context,
+        log_context=sender_context,
     )
 
     # Emit to receiver with direction="received"
@@ -148,11 +179,16 @@ async def handle(request: dict, world, credit_locks) -> dict:  # noqa: D401
             "source": source,
         },
         character_filter=[to_character_id],
-        log_context=log_context,
+        log_context=receiver_context,
     )
 
     for cid in (from_character_id, to_character_id):
         payload = await build_status_payload(world, cid)
-        await event_dispatcher.emit("status.update", payload, character_filter=[cid], log_context=log_context)
+        await event_dispatcher.emit(
+            "status.update",
+            payload,
+            character_filter=[cid],
+            log_context=(sender_context if cid == from_character_id else receiver_context),
+        )
 
     return rpc_success()

@@ -1072,7 +1072,7 @@ class TestAutoGarrisonCombat:
 
             status_a_initial = await get_status(client_a, char_a_id)
             initial_fighters_a = status_a_initial["ship"]["fighters"]
-            initial_credits_a = status_a_initial["player"]["credits_on_hand"]
+            initial_credits_a = status_a_initial["ship"]["credits"]
 
             await deploy_garrison(
                 client=client_a,
@@ -1092,7 +1092,7 @@ class TestAutoGarrisonCombat:
             await client_b.join(character_id=char_b_id)
 
             status_b_initial = await get_status(client_b, char_b_id)
-            initial_credits_b = status_b_initial["player"]["credits_on_hand"]
+            initial_credits_b = status_b_initial["ship"]["credits"]
 
             # Enter sector 1 (triggers toll combat)
             await client_b.move(to_sector=1, character_id=char_b_id)
@@ -1126,7 +1126,7 @@ class TestAutoGarrisonCombat:
 
             # 3. Verify payer's credits decreased
             status_b_after_pay = await get_status(client_b, char_b_id)
-            credits_b_after = status_b_after_pay["player"]["credits_on_hand"]
+            credits_b_after = status_b_after_pay["ship"]["credits"]
             assert credits_b_after == initial_credits_b - 100, \
                 f"Payer credits should decrease by 100, expected {initial_credits_b - 100}, got {credits_b_after}"
 
@@ -1144,7 +1144,7 @@ class TestAutoGarrisonCombat:
             # 5. Verify owner received fighters back + toll balance as credits
             status_a_after = await get_status(client_a, char_a_id)
             fighters_a_after = status_a_after["ship"]["fighters"]
-            credits_a_after = status_a_after["player"]["credits_on_hand"]
+            credits_a_after = status_a_after["ship"]["credits"]
 
             assert fighters_a_after == initial_fighters_a, \
                 f"Owner should get fighters back, expected {initial_fighters_a}, got {fighters_a_after}"

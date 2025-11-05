@@ -2,7 +2,13 @@ from typing import Optional
 
 from fastapi import HTTPException
 
-from .utils import rpc_success, build_event_source, emit_error_event
+from .utils import (
+    rpc_success,
+    build_event_source,
+    emit_error_event,
+    enforce_actor_authorization,
+    build_log_context,
+)
 from rpc.events import event_dispatcher
 
 
@@ -38,6 +44,13 @@ async def handle(request: dict, world) -> dict:
     if to_sector is None:
         await _fail(character_id, request_id, "Missing to_sector")
 
+    enforce_actor_authorization(
+        world,
+        target_character_id=character_id,
+        actor_character_id=request.get("actor_character_id"),
+        admin_override=bool(request.get("admin_override")),
+    )
+
     # Get character's current sector
     character = world.characters.get(character_id)
     if not character:
@@ -69,6 +82,7 @@ async def handle(request: dict, world) -> dict:
             "distance": len(path) - 1,
         },
         character_filter=[character_id],
+        log_context=build_log_context(character_id=character_id, world=world),
     )
 
     return rpc_success()

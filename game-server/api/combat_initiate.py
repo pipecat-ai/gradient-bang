@@ -8,13 +8,15 @@ from fastapi import HTTPException
 import logging
 
 from combat import CombatEncounter
+
+from ships import ShipType
 from combat.utils import (
     build_character_combatant,
     build_garrison_combatant,
     new_combat_id,
     serialize_encounter,
 )
-from .utils import rpc_success
+from .utils import rpc_success, enforce_actor_authorization
 
 logger = logging.getLogger("gradient-bang.api.combat_initiate")
 
@@ -165,15 +167,24 @@ async def handle(request: dict, world) -> dict:
     if not character_id:
         raise HTTPException(status_code=400, detail="Missing character_id")
 
+    enforce_actor_authorization(
+        world,
+        target_character_id=character_id,
+        actor_character_id=request.get("actor_character_id"),
+        admin_override=bool(request.get("admin_override")),
+    )
+
     if character_id not in world.characters:
-        raise HTTPException(status_code=404, detail=f"Character '{character_id}' not found")
+        raise HTTPException(
+            status_code=404, detail=f"Character '{character_id}' not found"
+        )
 
     initiator = world.characters[character_id]
 
     fighters = getattr(initiator, "fighters", 0) or 0
     if fighters <= 0:
-        knowledge = world.knowledge_manager.load_knowledge(character_id)
-        fighters = getattr(knowledge.ship_config, "current_fighters", 0)
+        ship = world.knowledge_manager.get_ship(character_id)
+        fighters = ship.get("state", {}).get("fighters", 0)
     if fighters <= 0:
         raise HTTPException(
             status_code=400,
@@ -181,6 +192,65 @@ async def handle(request: dict, world) -> dict:
         )
 
     sector_id = initiator.sector
+
+    corp_cache = getattr(world, "character_to_corp", None)
+    initiator_corp = None
+    if isinstance(corp_cache, dict):
+        initiator_corp = corp_cache.get(character_id)
+
+    targetable_found = False
+    for other_id, other_char in world.characters.items():
+        if other_id == character_id:
+            continue
+        if other_char.sector != sector_id or other_char.in_hyperspace:
+            continue
+
+        same_corp = False
+        if initiator_corp and isinstance(corp_cache, dict):
+            other_corp = corp_cache.get(other_id)
+            same_corp = bool(other_corp and initiator_corp == other_corp)
+        if same_corp:
+            continue
+
+        ship = world.knowledge_manager.get_ship(other_id)
+        ship_type_value = ship.get("ship_type")
+        try:
+            ship_type = ShipType(ship_type_value)
+        except ValueError:
+            ship_type = None
+        if ship_type == ShipType.ESCAPE_POD:
+            continue
+
+        fighters_available = ship.get("state", {}).get("fighters", 0)
+        if fighters_available <= 0:
+            continue
+
+        targetable_found = True
+        break
+
+    if not targetable_found:
+        garrison_store = getattr(world, "garrisons", None)
+        if garrison_store is not None:
+            garrisons = await garrison_store.list_sector(sector_id)
+            for garrison in garrisons:
+                owner_id = getattr(garrison, "owner_id", None)
+                if not owner_id or owner_id == character_id:
+                    continue
+                if garrison.fighters <= 0:
+                    continue
+                if initiator_corp and isinstance(corp_cache, dict):
+                    owner_corp = corp_cache.get(owner_id)
+                    if owner_corp and owner_corp == initiator_corp:
+                        continue
+                targetable_found = True
+                break
+
+    if not targetable_found:
+        raise HTTPException(
+            status_code=409,
+            detail="No targetable opponents available to engage",
+        )
+
     payload = await start_sector_combat(
         world,
         sector_id=sector_id,

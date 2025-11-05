@@ -27,6 +27,8 @@ class TestHandleSendMessage:
 
         # Mock dependencies
         world = MagicMock()
+        world.characters = {"alice": MagicMock(sector=5)}
+        world.character_to_corp = {}
         message_store = MagicMock()
         event_dispatcher = AsyncMock()
 
@@ -56,7 +58,13 @@ class TestHandleSendMessage:
         assert "message" in public_record
 
         # Verify no character filter for broadcast
-        assert call_args[1]["character_filter"] is None
+        kwargs = call_args[1]
+        assert kwargs["character_filter"] is None
+
+        log_context = kwargs["log_context"]
+        assert log_context is not None
+        assert log_context.sender == "alice"
+        assert log_context.sector == 5
 
     @patch("messaging.handlers.api_send_message")
     async def test_direct_message_emits_to_sender_and_recipient(self, mock_api):
@@ -77,6 +85,8 @@ class TestHandleSendMessage:
 
         # Mock dependencies
         world = MagicMock()
+        world.characters = {"alice": MagicMock(sector=7), "bob": MagicMock(sector=11)}
+        world.character_to_corp = {"alice": "corp-1", "bob": "corp-1"}
         message_store = MagicMock()
         event_dispatcher = AsyncMock()
 
@@ -104,8 +114,14 @@ class TestHandleSendMessage:
         assert "to_character_id" not in public_record
 
         # Verify character filter includes only sender and recipient
-        character_filter = call_args[1]["character_filter"]
+        kwargs = call_args[1]
+        character_filter = kwargs["character_filter"]
         assert set(character_filter) == {"alice", "bob"}
+
+        log_context = kwargs["log_context"]
+        assert log_context is not None
+        assert log_context.sender == "alice"
+        assert log_context.corporation_id == "corp-1"
 
     @patch("messaging.handlers.api_send_message")
     async def test_direct_message_handles_missing_character_ids(self, mock_api):
@@ -126,6 +142,8 @@ class TestHandleSendMessage:
 
         # Mock dependencies
         world = MagicMock()
+        world.characters = {"alice": MagicMock(sector=None)}
+        world.character_to_corp = {}
         message_store = MagicMock()
         event_dispatcher = AsyncMock()
 
@@ -135,9 +153,14 @@ class TestHandleSendMessage:
 
         # Verify character filter excludes None values
         call_args = event_dispatcher.emit.call_args
-        character_filter = call_args[1]["character_filter"]
+        kwargs = call_args[1]
+        character_filter = kwargs["character_filter"]
         assert character_filter == ["alice"]
         assert None not in character_filter
+
+        log_context = kwargs["log_context"]
+        assert log_context is not None
+        assert log_context.sender == "alice"
 
     @patch("messaging.handlers.api_send_message")
     async def test_api_exception_propagates(self, mock_api):

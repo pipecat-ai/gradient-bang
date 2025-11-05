@@ -9,7 +9,8 @@ SYNOPSIS
 --------
 *simple_tui* [*sector*]
 
-*uv run -m npc.simple_tui* [*-h*] [*--character* *ID*] [*--server* *URL*]
+*uv run -m npc.simple_tui* [*-h*] [*--character* *ID*] [*--actor-id* *ID*]
+[*--server* *URL*]
 [*--verbose*] [*--log-file* *PATH*] [*--log-level* *LEVEL*]
 [*--max-iterations* *N*] [*--thinking-budget* *TOKENS*]
 [*--idle-timeout* *SECONDS*] [*--task* *TEXT*]...
@@ -46,6 +47,11 @@ OPTIONS
 
 *--character* *ID*
 :   Character identifier.  Defaults to the value of `NPC_CHARACTER_ID`.
+
+*--actor-id* *ID*
+:   When piloting a corporation ship, supply the controlling corporation
+    member's character ID.  Required whenever *--character* points at a ship
+    (the ship's `ship_id` equals its `character_id`).
 
 *--server* *URL*
 :   Game server base URL.  Defaults to `http://localhost:8000`.
@@ -123,6 +129,9 @@ EXAMPLES
 ```
 # Launch the interactive UI controlling codex-1.
 uv run -m npc.simple_tui --character codex-1
+
+# Control a corporation ship by pairing the ship's ID with an authorised actor.
+uv run -m npc.simple_tui --character ship-abc123 --actor-id corp-member-01
 
 # Run two scripted tasks without the Textual dashboard and log to a custom file.
 uv run -m npc.simple_tui --headless --character codex-1 \

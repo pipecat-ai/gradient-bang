@@ -44,8 +44,8 @@ class CreditLockManager:
         Usage:
             async with credit_locks.lock(character_id):
                 # Perform credit operations
-                credits = world.knowledge_manager.get_credits(character_id)
-                world.knowledge_manager.update_credits(character_id, credits - amount)
+                credits = world.knowledge_manager.get_ship_credits(character_id)
+                world.knowledge_manager.update_ship_credits(character_id, credits - amount)
 
         Args:
             character_id: Character ID to lock credits for
@@ -80,7 +80,7 @@ class CreditLockManager:
             raise ValueError(f"Cannot deduct negative credits: {amount}")
 
         async with self.lock(character_id):
-            current_credits = world.knowledge_manager.get_credits(character_id)
+            current_credits = world.knowledge_manager.get_ship_credits(character_id)
             if current_credits < amount:
                 logger.debug(
                     "Insufficient credits for %s: has %d, needs %d",
@@ -91,7 +91,7 @@ class CreditLockManager:
                 return False
 
             new_credits = current_credits - amount
-            world.knowledge_manager.update_credits(character_id, new_credits)
+            world.knowledge_manager.update_ship_credits(character_id, new_credits)
             logger.debug(
                 "Deducted %d credits from %s (%d -> %d)",
                 amount,
@@ -124,9 +124,9 @@ class CreditLockManager:
             raise ValueError(f"Cannot add negative credits: {amount}")
 
         async with self.lock(character_id):
-            current_credits = world.knowledge_manager.get_credits(character_id)
+            current_credits = world.knowledge_manager.get_ship_credits(character_id)
             new_credits = current_credits + amount
-            world.knowledge_manager.update_credits(character_id, new_credits)
+            world.knowledge_manager.update_ship_credits(character_id, new_credits)
             logger.debug(
                 "Added %d credits to %s (%d -> %d)",
                 amount,

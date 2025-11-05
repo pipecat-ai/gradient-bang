@@ -222,7 +222,8 @@ class CombatSession:
 
     def sector_garrisons(self) -> List[Dict[str, Any]]:
         entries: Dict[str, Dict[str, Any]] = {}
-        base_entries = self._sector_state.get("garrisons") or []
+        garrison = self._sector_state.get("garrison")
+        base_entries = [garrison] if garrison else []
         for raw in base_entries:
             if not isinstance(raw, Mapping):
                 continue
@@ -310,13 +311,11 @@ class CombatSession:
             if participant.fighters <= 0:
                 continue
             # Check sector state to verify it's a toll garrison and not friendly
-            garrisons = self._sector_state.get("garrisons") or []
-            for entry in garrisons:
-                if not isinstance(entry, Mapping):
+            garrison = self._sector_state.get("garrison")
+            if garrison and isinstance(garrison, Mapping):
+                if str(garrison.get("mode")) != "toll":
                     continue
-                if str(entry.get("mode")) != "toll":
-                    continue
-                if entry.get("is_friendly"):
+                if garrison.get("is_friendly"):
                     continue
                 # Found a toll garrison in sector - this is it (only one per sector)
                 targets.add(gid)
@@ -485,19 +484,10 @@ class CombatSession:
             if isinstance(payload, Mapping):
                 garrison_entry = payload.get("garrison")
 
-            if garrison_entry is not None:
-                if garrison_entry:
-                    garrison_list = [deepcopy(garrison_entry)]
-                else:
-                    garrison_list = []
+            if garrison_entry:
+                self._sector_state["garrison"] = deepcopy(garrison_entry)
             else:
-                raw = payload.get("garrisons") or []
-                if isinstance(raw, Mapping):
-                    raw = [raw]
-                garrison_list = [deepcopy(item) for item in raw if isinstance(item, Mapping)]
-
-            self._sector_state.setdefault("garrisons", [])
-            self._sector_state["garrisons"] = garrison_list
+                self._sector_state["garrison"] = None
             self._current_sector = sector_id
 
         async with self._occupant_condition:
@@ -611,7 +601,7 @@ class CombatSession:
                 self._sector_state = {
                     "sector": self._current_sector,
                     "other_players": [deepcopy(entry) for entry in other_players],
-                    "garrisons": [deepcopy(sector_data.get("garrison"))] if sector_data.get("garrison") else [],
+                    "garrison": deepcopy(sector_data.get("garrison")),
                     "salvage": deepcopy(sector_data.get("salvage") or []),
                     "port": deepcopy(sector_data.get("port")),
                     "planets": deepcopy(sector_data.get("planets") or []),
@@ -624,7 +614,7 @@ class CombatSession:
                 self._sector_state = {
                     "sector": self._current_sector,
                     "other_players": [],
-                    "garrisons": [],
+                    "garrison": None,
                     "salvage": [],
                     "port": None,
                     "planets": [],
@@ -640,7 +630,7 @@ class CombatSession:
             self._sector_state = {
                 "sector": self._current_sector,
                 "other_players": [deepcopy(entry) for entry in other_players],
-                "garrisons": deepcopy(contents.get("garrisons") or []),
+                "garrison": deepcopy(contents.get("garrison")),
                 "salvage": deepcopy(contents.get("salvage") or []),
                 "port": deepcopy(contents.get("port")),
                 "planets": deepcopy(contents.get("planets") or []),

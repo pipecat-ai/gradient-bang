@@ -9,6 +9,8 @@ from .utils import (
     build_event_source,
     rpc_success,
     build_status_payload,
+    enforce_actor_authorization,
+    build_log_context,
 )
 
 
@@ -19,6 +21,13 @@ async def handle(request: dict, world) -> dict:
 
     if not character_id or sector is None:
         raise HTTPException(status_code=400, detail="Missing character_id or sector")
+
+    enforce_actor_authorization(
+        world,
+        target_character_id=character_id,
+        actor_character_id=request.get("actor_character_id"),
+        admin_override=bool(request.get("admin_override")),
+    )
 
     if quantity <= 0:
         raise HTTPException(status_code=400, detail="Quantity must be positive")
@@ -38,9 +47,31 @@ async def handle(request: dict, world) -> dict:
 
     garrisons = await world.garrisons.list_sector(sector)
     garrison = next((g for g in garrisons if g.owner_id == character_id), None)
+
+    corp_cache = getattr(world, "character_to_corp", None)
+    collector_corp = None
+    if not garrison and isinstance(corp_cache, dict):
+        collector_corp = corp_cache.get(character_id)
+        if collector_corp:
+            garrison = next(
+                (
+                    g
+                    for g in garrisons
+                    if corp_cache.get(getattr(g, "owner_id", None)) == collector_corp
+                ),
+                None,
+            )
+    else:
+        collector_corp = (
+            corp_cache.get(character_id)
+            if isinstance(corp_cache, dict)
+            else None
+        )
+
     if not garrison:
         raise HTTPException(
-            status_code=404, detail="No garrison found for character in this sector"
+            status_code=404,
+            detail="No friendly garrison found in this sector",
         )
 
     if quantity > garrison.fighters:
@@ -48,39 +79,62 @@ async def handle(request: dict, world) -> dict:
             status_code=400, detail="Cannot collect more fighters than stationed"
         )
 
+    owner_id = garrison.owner_id
+    owner_corp = (
+        corp_cache.get(owner_id)
+        if isinstance(corp_cache, dict) and owner_id
+        else None
+    )
+
+    is_owner = owner_id == character_id
+    is_corp_member = bool(collector_corp and collector_corp == owner_corp)
+
+    if not (is_owner or is_corp_member):
+        raise HTTPException(
+            status_code=403,
+            detail="Not your garrison or corporation member's garrison",
+        )
+
     remaining_fighters = garrison.fighters - quantity
     toll_payout = garrison.toll_balance if garrison.mode == "toll" else 0
     if toll_payout > 0:
-        current_credits = world.knowledge_manager.get_credits(character_id)
-        world.knowledge_manager.update_credits(
+        current_credits = world.knowledge_manager.get_ship_credits(character_id)
+        world.knowledge_manager.update_ship_credits(
             character_id, current_credits + toll_payout
         )
         status_payload = await build_status_payload(world, character_id)
+        payout_context = build_log_context(
+            character_id=character_id,
+            world=world,
+            sector=sector,
+        )
         await event_dispatcher.emit(
             "status.update",
             status_payload,
             character_filter=[character_id],
+            log_context=payout_context,
         )
 
     updated_garrison = None
     if remaining_fighters > 0:
         updated_garrison = await world.garrisons.deploy(
             sector_id=sector,
-            owner_id=character_id,
+            owner_id=owner_id,
             fighters=remaining_fighters,
             mode=garrison.mode,
             toll_amount=garrison.toll_amount,
             toll_balance=0,
         )
     else:
-        await world.garrisons.remove(sector, character_id)
+        await world.garrisons.remove(sector, owner_id)
 
     world.knowledge_manager.adjust_fighters(character_id, quantity)
-    updated_knowledge = world.knowledge_manager.load_knowledge(character_id)
+    updated_ship = world.knowledge_manager.get_ship(character_id)
+    ship_state = updated_ship.get("state", {})
     character = world.characters.get(character_id)
     if character:
         character.update_ship_state(
-            fighters=updated_knowledge.ship_config.current_fighters,
+            fighters=ship_state.get("fighters", character.max_fighters),
             max_fighters=character.max_fighters,
         )
 
@@ -96,6 +150,12 @@ async def handle(request: dict, world) -> dict:
         else None
     )
 
+    base_context = build_log_context(
+        character_id=character_id,
+        world=world,
+        sector=sector,
+    )
+
     await event_dispatcher.emit(
         "garrison.collected",
         {
@@ -103,9 +163,10 @@ async def handle(request: dict, world) -> dict:
             "sector": {"id": sector},
             "credits_collected": toll_payout,
             "garrison": garrison_payload,
-            "fighters_on_ship": updated_knowledge.ship_config.current_fighters,
+            "fighters_on_ship": ship_state.get("fighters", 0),
         },
         character_filter=[character_id],
+        log_context=base_context,
     )
 
     characters_in_sector = [
@@ -120,6 +181,7 @@ async def handle(request: dict, world) -> dict:
             "sector.update",
             sector_payload,
             character_filter=[cid],
+            log_context=build_log_context(character_id=cid, world=world, sector=sector),
         )
 
     return rpc_success()

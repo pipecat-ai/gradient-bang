@@ -31,6 +31,20 @@ LOGURU_LEVEL=DEBUG uv run npc/run_experimental_task.py `uv run -m scripts.charac
 - Use `uv run scripts/character_modify.py` to adjust registry fields (name, credits, ship stats). The script prompts for the admin password and desired changes before issuing `character.modify`.
 - Any automation (NPC TaskAgent, Simple TUI, Pipecat voice bot, etc.) must authenticate with the UUID, even though the UI copy will use the display name.
 
+## Corporation ship control
+
+- All corp ship automation must supply two IDs: the **actor** (a corporation member controlling the ship) and the **target ship** (whose `ship_id` equals its `character_id`). Every CLI helper below enforces this pairing, and the server will reject requests that omit or mismatch the actor.
+- List fleet status and copy a ship ID:  
+  `uv run scripts/corporation_lookup.py <member_id> --ships`
+- Run the TaskAgent against a corp vessel:  
+  `uv run npc/run_npc.py <member_id> --ship-id ship-abc123 "Scan nearby sectors"`
+- The first positional argument in `run_npc.py` is the actor; when `--ship-id` is present it must be a corp member allowed to command the vessel.
+- Join from the Simple TUI with the ship's `character_id`:  
+  `uv run npc/simple_tui.py --character-id ship-abc123 --actor-id corp-member-01 --server http://localhost:8000`
+- If `Control: BLOCKED` appears in the lookup output, create `world-data/character-map-knowledge/ship-abc123.json` (rerun the provisioning step or copy from another ship) before launching agents.
+- In the TUI, use `/ships` to list the fleet and `/shipcopy <ship_id>` to copy an identifier.
+- See `docs/operator_quick_ref.md` for a compact checklist covering the core operator flows.
+
 ## Create a universe
 
 ```

@@ -13,6 +13,8 @@ from .config import get_world_data_path
 from combat import CombatManager, GarrisonStore, SalvageManager
 from ships import ShipType, get_ship_stats
 from .character_registry import CharacterRegistry
+from .ships_manager import ShipsManager
+from .corporation_manager import CorporationManager
 
 
 class UniverseGraph:
@@ -151,6 +153,7 @@ class Character:
 
 class GameWorld:
     def __init__(self):
+        self.world_data_dir = get_world_data_path()
         self.universe_graph: Optional[UniverseGraph] = None
         self.sector_contents: Optional[dict] = None
         self.characters: Dict[str, Character] = {}
@@ -160,9 +163,13 @@ class GameWorld:
         self.garrisons: Optional[GarrisonStore] = None
         self.salvage_manager: Optional[SalvageManager] = None
         self.character_registry: Optional[CharacterRegistry] = None
+        self.ships_manager = ShipsManager(self.world_data_dir)
+        self.knowledge_manager.set_ships_manager(self.ships_manager)
+        self.corporation_manager = CorporationManager(self.world_data_dir)
+        self.character_to_corp: Dict[str, str] = {}
 
     def load_data(self):
-        world_data_path = get_world_data_path()
+        world_data_path = self.world_data_dir
 
         universe_path = world_data_path / "universe_structure.json"
         if not universe_path.exists():
@@ -189,34 +196,65 @@ class GameWorld:
         self.garrisons = GarrisonStore(garrison_path)
         self.combat_manager = CombatManager()
         self.salvage_manager = SalvageManager()
+        self.ships_manager.load_all_ships()
+        self._rebuild_character_to_corp_cache()
 
         # Hydrate characters from persisted knowledge so they appear immediately.
         for knowledge in self.knowledge_manager.iter_saved_knowledge():
             if knowledge.current_sector is None:
                 continue
+            ship = self.knowledge_manager.get_ship(knowledge.character_id)
             try:
-                ship_type = ShipType(knowledge.ship_config.ship_type)
+                ship_type = ShipType(ship["ship_type"])
             except ValueError:
-                continue
+                ship_type = ShipType.KESTREL_COURIER
             stats = get_ship_stats(ship_type)
+            state = ship.get("state", {})
             last_active = _parse_timestamp(knowledge.last_update)
             display_name = knowledge.character_id
             if self.character_registry:
                 profile = self.character_registry.get_profile(knowledge.character_id)
                 if profile:
                     display_name = profile.name
+            player_type = "human"
+            if ship.get("owner_type") == "corporation" and ship.get("ship_id") == knowledge.character_id:
+                player_type = "corporation_ship"
             character = Character(
                 knowledge.character_id,
                 sector=knowledge.current_sector,
                 name=display_name,
-                fighters=knowledge.ship_config.current_fighters,
-                shields=knowledge.ship_config.current_shields,
+                fighters=state.get("fighters", stats.fighters),
+                shields=state.get("shields", stats.shields),
                 max_fighters=stats.fighters,
                 max_shields=stats.shields,
                 last_active=last_active,
                 connected=False,
+                player_type=player_type,
             )
             self.characters[knowledge.character_id] = character
+
+    def _rebuild_character_to_corp_cache(self) -> None:
+        """Populate in-memory character -> corporation cache."""
+        self.character_to_corp.clear()
+        try:
+            corp_summaries = self.corporation_manager.list_all()
+        except Exception:  # noqa: BLE001
+            return
+        for summary in corp_summaries:
+            corp_id = summary.get("corp_id")
+            if not corp_id:
+                continue
+            try:
+                corp = self.corporation_manager.load(corp_id)
+            except FileNotFoundError:
+                continue
+            members = corp.get("members", [])
+            for member_id in members:
+                if isinstance(member_id, str) and member_id:
+                    self.character_to_corp[member_id] = corp_id
+            for ship_id in corp.get("ships", []) or []:
+                if isinstance(ship_id, str) and ship_id:
+                    self.character_to_corp[ship_id] = corp_id
 
 
 world = GameWorld()

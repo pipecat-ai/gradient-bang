@@ -2,6 +2,7 @@ from fastapi import HTTPException
 from datetime import datetime, timezone
 
 from rpc.events import event_dispatcher
+from .utils import build_log_context
 
 
 async def handle(request: dict, world) -> dict:
@@ -17,6 +18,7 @@ async def handle(request: dict, world) -> dict:
                 "fraction": fraction,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },
+            log_context=build_log_context(),
         )
         return {
             "success": True,

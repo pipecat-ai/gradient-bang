@@ -39,7 +39,20 @@ def calculate_garrison_commit(mode: str, fighters: int) -> int:
     return max(1, min(fighters, max(50, fighters // 2)))
 
 
-async def auto_submit_garrison_actions(encounter, manager) -> None:
+def _share_corporation(world, char1_id: Optional[str], char2_id: Optional[str]) -> bool:
+    """Return True when both characters belong to the same corporation."""
+    if not world or not char1_id or not char2_id:
+        return False
+    corp_cache = getattr(world, "character_to_corp", None)
+    if not isinstance(corp_cache, dict):
+        return False
+    corp1 = corp_cache.get(char1_id)
+    if not corp1:
+        return False
+    return corp1 == corp_cache.get(char2_id)
+
+
+async def auto_submit_garrison_actions(encounter, manager, world=None) -> None:
     """Auto-submit actions for all garrison participants.
 
     Handles:
@@ -89,18 +102,18 @@ async def auto_submit_garrison_actions(encounter, manager) -> None:
         # Handle offensive/defensive modes
         if mode != "toll":
             await _handle_offensive_defensive_garrison(
-                encounter, state, mode, manager
+                encounter, state, mode, manager, world
             )
             continue
 
         # Handle toll mode
         await _handle_toll_garrison(
-            encounter, state, source, toll_registry, manager
+            encounter, state, source, toll_registry, manager, world
         )
 
 
 async def _handle_offensive_defensive_garrison(
-    encounter, state, mode: str, manager
+    encounter, state, mode: str, manager, world
 ) -> None:
     """Handle offensive or defensive garrison behavior.
 
@@ -124,6 +137,12 @@ async def _handle_offensive_defensive_garrison(
         and participant.combatant_id != state.combatant_id
         and participant.fighters > 0
         and participant.owner_character_id != state.owner_character_id
+        and not _share_corporation(
+            world,
+            state.owner_character_id,
+            participant.owner_character_id,
+        )
+        and not getattr(participant, "is_escape_pod", False)
     ]
 
     if not target_candidates:
@@ -163,7 +182,7 @@ async def _handle_offensive_defensive_garrison(
 
 
 async def _handle_toll_garrison(
-    encounter, state, source: dict, toll_registry: dict, manager
+    encounter, state, source: dict, toll_registry: dict, manager, world
 ) -> None:
     """Handle toll mode garrison behavior.
 
@@ -204,6 +223,12 @@ async def _handle_toll_garrison(
             and encounter.participants[initiator_id].combatant_type == "character"
             and encounter.participants[initiator_id].owner_character_id != state.owner_character_id
             and encounter.participants[initiator_id].fighters > 0
+            and not _share_corporation(
+                world,
+                state.owner_character_id,
+                encounter.participants[initiator_id].owner_character_id,
+            )
+            and not getattr(encounter.participants[initiator_id], "is_escape_pod", False)
         ):
             entry["target_id"] = initiator_id
 
@@ -215,6 +240,12 @@ async def _handle_toll_garrison(
                 if participant.combatant_type == "character"
                 and participant.owner_character_id != state.owner_character_id
                 and participant.fighters > 0
+                and not _share_corporation(
+                    world,
+                    state.owner_character_id,
+                    participant.owner_character_id,
+                )
+                and not getattr(participant, "is_escape_pod", False)
             ]
             target_candidates.sort(
                 key=lambda participant: (

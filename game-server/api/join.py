@@ -9,6 +9,8 @@ from .utils import (
     build_character_moved_payload,
     build_local_map_region,
     build_log_context,
+    enforce_actor_authorization,
+    emit_garrison_character_moved_event,
 )
 from ships import ShipType, get_ship_stats, validate_ship_type
 from rpc.events import event_dispatcher
@@ -30,6 +32,15 @@ async def handle(request: dict, world) -> dict:
     ship_type = request.get("ship_type")
     credits = request.get("credits")
     sector = request.get("sector")
+    actor_character_id = request.get("actor_character_id")
+    admin_override = bool(request.get("admin_override"))
+
+    enforce_actor_authorization(
+        world,
+        target_character_id=character_id,
+        actor_character_id=actor_character_id,
+        admin_override=admin_override,
+    )
 
     registry = getattr(world, "character_registry", None)
     if registry is None:
@@ -66,36 +77,48 @@ async def handle(request: dict, world) -> dict:
         from core.world import Character
 
         if not has_saved:
-            validated_ship_type = None
+            ship_type_enum = ShipType.KESTREL_COURIER
             if ship_type:
                 validated_ship_type = validate_ship_type(ship_type)
                 if not validated_ship_type:
                     raise HTTPException(
                         status_code=400, detail=f"Invalid ship type: {ship_type}"
                     )
-            world.knowledge_manager.initialize_ship(character_id, validated_ship_type)
+                ship_type_enum = validated_ship_type
+            world.knowledge_manager.create_ship_for_character(
+                character_id,
+                ship_type_enum,
+                sector=start_sector,
+                credits=credits,
+            )
             knowledge = world.knowledge_manager.load_knowledge(character_id)
         else:
             knowledge = knowledge or world.knowledge_manager.load_knowledge(
                 character_id
             )
 
-        ship_stats = get_ship_stats(ShipType(knowledge.ship_config.ship_type))
+        ship = world.knowledge_manager.get_ship(character_id)
+        player_type = "human"
+        if ship and ship.get("ship_id") == character_id and ship.get("owner_type") == "corporation":
+            player_type = "corporation_ship"
+        ship_stats = get_ship_stats(ShipType(ship["ship_type"]))
+        ship_state = ship.get("state", {})
         character = Character(
             character_id,
             sector=start_sector,
             name=display_name,
-            fighters=knowledge.ship_config.current_fighters,
-            shields=knowledge.ship_config.current_shields,
+            fighters=ship_state.get("fighters", ship_stats.fighters),
+            shields=ship_state.get("shields", ship_stats.shields),
             max_fighters=ship_stats.fighters,
             max_shields=ship_stats.shields,
+            player_type=player_type,
             connected=True,
             in_hyperspace=False,  # Ensure character is not in hyperspace on join
         )
         world.characters[character_id] = character
         character.update_activity()
         if credits is not None:
-            world.knowledge_manager.update_credits(character_id, credits)
+            world.knowledge_manager.update_ship_credits(character_id, credits)
 
     else:
         # special admin path to skip normal move and put a player in a new sector
@@ -104,13 +127,19 @@ async def handle(request: dict, world) -> dict:
         character.update_activity()
         character.name = display_name
         knowledge = world.knowledge_manager.load_knowledge(character_id)
-        ship_stats = get_ship_stats(ShipType(knowledge.ship_config.ship_type))
+        ship = world.knowledge_manager.get_ship(character_id)
+        ship_stats = get_ship_stats(ShipType(ship["ship_type"]))
+        ship_state = ship.get("state", {})
+        player_type = "human"
+        if ship and ship.get("ship_id") == character_id and ship.get("owner_type") == "corporation":
+            player_type = "corporation_ship"
         character.update_ship_state(
-            fighters=knowledge.ship_config.current_fighters,
-            shields=knowledge.ship_config.current_shields,
+            fighters=ship_state.get("fighters", ship_stats.fighters),
+            shields=ship_state.get("shields", ship_stats.shields),
             max_fighters=ship_stats.fighters,
             max_shields=ship_stats.shields,
         )
+        character.player_type = player_type
         character.connected = True
         character.in_hyperspace = (
             False  # Clear hyperspace on rejoin (e.g., after disconnect)
@@ -168,28 +197,59 @@ async def handle(request: dict, world) -> dict:
                     for cid, info in world.characters.items()
                     if info.sector == old_sector and cid != character_id
                 ]
+                arriving_payload = {
+                    **observer_payload,
+                    "movement": "arrive",
+                    "to_sector": sector,
+                }
                 if arriving_observers:
                     await event_dispatcher.emit(
                         "character.moved",
-                        {**observer_payload, "movement": "arrive", "to_sector": sector},
+                        arriving_payload,
                         character_filter=arriving_observers,
                         log_context=arrival_context,
                     )
+                await emit_garrison_character_moved_event(
+                    world,
+                    event_dispatcher,
+                    sector_id=sector,
+                    payload=arriving_payload,
+                )
+
+                departing_payload = {
+                    **observer_payload,
+                    "movement": "depart",
+                    "from_sector": old_sector,
+                }
                 if departing_observers:
                     await event_dispatcher.emit(
                         "character.moved",
-                        {
-                            **observer_payload,
-                            "movement": "depart",
-                            "from_sector": old_sector,
-                        },
+                        departing_payload,
                         character_filter=departing_observers,
                         log_context=depart_context,
                     )
+                await emit_garrison_character_moved_event(
+                    world,
+                    event_dispatcher,
+                    sector_id=old_sector,
+                    payload=departing_payload,
+                )
             else:
                 character.sector = sector
         if credits is not None:
-            world.knowledge_manager.update_credits(character_id, credits)
+            world.knowledge_manager.update_ship_credits(character_id, credits)
+
+    corp_cache = getattr(world, "character_to_corp", None)
+    if isinstance(corp_cache, dict):
+        corp_membership = getattr(knowledge, "corporation", None)
+        if corp_membership and isinstance(corp_membership, dict):
+            corp_id = corp_membership.get("corp_id")
+            if corp_id:
+                corp_cache[character_id] = corp_id
+            else:
+                corp_cache.pop(character_id, None)
+        else:
+            corp_cache.pop(character_id, None)
 
     contents = await sector_contents(world, character.sector, character_id)
     world.knowledge_manager.update_sector_visit(

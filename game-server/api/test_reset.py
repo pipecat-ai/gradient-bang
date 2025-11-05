@@ -115,6 +115,16 @@ async def handle(request: dict, world) -> dict:
             event_log.write_text("")
             logger.info("Truncated event-log.jsonl")
 
+        # Clear corporation files and registry for deterministic corp tests
+        corps_dir = world_data_dir / "corporations"
+        if corps_dir.exists():
+            for corp_file in corps_dir.glob("*.json"):
+                corp_file.unlink()
+        registry_path = world_data_dir / "corporation_registry.json"
+        registry_payload = {"by_name": {}}
+        registry_path.write_text(json.dumps(registry_payload, indent=2))
+        logger.info("Reset corporation registry and cleared corp files")
+
     return {
         "cleared_characters": cleared_characters,
         "cleared_combats": cleared_combats,

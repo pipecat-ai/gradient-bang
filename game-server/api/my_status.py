@@ -8,6 +8,7 @@ from .utils import (
     build_event_source,
     build_log_context,
     emit_error_event,
+    enforce_actor_authorization,
 )
 from rpc.events import event_dispatcher
 
@@ -37,6 +38,14 @@ async def handle(request: dict, world) -> dict:
     character_id = request.get("character_id")
     if not character_id:
         await _fail(None, request_id, "Missing character_id", world=world)
+
+    enforce_actor_authorization(
+        world,
+        target_character_id=character_id,
+        actor_character_id=request.get("actor_character_id"),
+        admin_override=bool(request.get("admin_override")),
+    )
+
     if character_id not in world.characters:
         await _fail(
             character_id,
