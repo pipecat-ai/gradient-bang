@@ -20,7 +20,6 @@ const ScreenBase = ({ children }: { children: React.ReactNode }) => {
 
 export const ScreenContainer = () => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const gameState = useGameStore.use.gameState();
 
   const activeScreen = useGameStore.use.activeScreen?.();
   const prevActiveScreenRef = useRef<UIScreen | undefined>(activeScreen);
@@ -43,11 +42,12 @@ export const ScreenContainer = () => {
 
   useEffect(() => {
     // Only clear if we HAD a screen before and now we don't
-    if (prevActiveScreenRef.current && !activeScreen && gameState === "ready") {
+    if (prevActiveScreenRef.current && !activeScreen) {
+      console.log("EW");
       diamondFXInstance?.clear(true);
     }
     prevActiveScreenRef.current = activeScreen;
-  }, [activeScreen, diamondFXInstance, gameState]);
+  }, [activeScreen, diamondFXInstance]);
 
   useEffect(() => {
     if (activeScreen && containerRef.current) {

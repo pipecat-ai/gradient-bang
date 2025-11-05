@@ -29,10 +29,10 @@
   --ring: oklch(0.439 0 0);
   --popover: var(--background);
   --terminal: #dcfd38;
-  --terminal-foreground: oklch(0.985 0 0);
+  --terminal-foreground: #f5ffc6;
 
   --grid-opacity: 0.25;
-  --screen-bg-feather: 18px;
+  --screen-bg-feather: 20px;
   --hud-center: 330px;
 
   --elbow-size: 1rem;
@@ -80,6 +80,8 @@
 
   --color-terminal: var(--terminal);
   --color-terminal-foreground: var(--terminal-foreground);
+  --color-screen-background: rgba(0, 0, 0, 0.8);
+  --color-screen-foreground: rgba(255, 255, 255, 1);
 
   /** UI **/
   --spacing-ui-sm: calc(var(--spacing) * 4);
@@ -96,9 +98,6 @@
 
   --shadow-glow-sm: 0 0 10px 1px var(--color-primary);
   --text-shadow-hud: 0 0 12px rgba(0, 0, 0, 0.6);
-
-  --color-screen-background: rgba(0, 0, 0, 0.6);
-  --color-screen-foreground: rgba(255, 255, 255, 1);
 
   --dot-gap-lg: 24px;
   --dot-size-lg: 1.5px;

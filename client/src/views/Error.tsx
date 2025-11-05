@@ -1,10 +1,10 @@
+import { Button } from "@/components/primitives/Button";
 import {
-  Button,
   Card,
   CardContent,
   CardHeader,
   CardTitle,
-} from "@pipecat-ai/voice-ui-kit";
+} from "@/components/primitives/Card";
 
 export const Error = ({
   children,
@@ -15,13 +15,12 @@ export const Error = ({
 }) => {
   return (
     <Card
-      background="stripes"
-      variant="destructive"
-      className="h-screen"
+      variant="stripes"
+      className="h-screen stripe-frame-destructive-foreground bg-destructive/10"
       size="lg"
     >
       <CardHeader>
-        <CardTitle className="text-4xl animate-pulse">
+        <CardTitle className="text-5xl animate-pulse">
           Connection Error
         </CardTitle>
       </CardHeader>
@@ -29,7 +28,9 @@ export const Error = ({
         <p className="normal-case">{children}</p>
       </CardContent>
       <CardContent className="mt-auto">
-        <Button onClick={onRetry}>Try again</Button>
+        <Button size="xl" onClick={onRetry}>
+          Try again
+        </Button>
       </CardContent>
     </Card>
   );

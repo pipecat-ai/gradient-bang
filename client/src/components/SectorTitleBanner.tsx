@@ -147,7 +147,7 @@ export const SectorTitleBanner = () => {
           }
           className="w-full absolute left-0 top-1/2 -translate-y-1/2 z-20"
         >
-          <div className="flex flex-row gap-5 text-center justify-center items-center mx-auto w-max bg-black/20 p-2">
+          <div className="flex flex-row gap-5 text-center justify-center items-center mx-auto w-max bg-background/30 p-2">
             <div className="bg-dotted-sm self-stretch w-[160px]" />
             <p className="text-white text-xl font-bold uppercase tracking-wider leading-tight">
               <ScrambleText ref={scrambleRef}>{sectorText}</ScrambleText>

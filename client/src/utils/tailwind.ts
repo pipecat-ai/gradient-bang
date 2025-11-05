@@ -9,6 +9,18 @@ const customTwMerge = extendTailwindMerge({
           shadow: ["glow-sm"],
         },
       ],
+      "stripe-frame": [
+        {
+          "stripe-frame": [
+            "ui-xs",
+            "ui-sm",
+            "ui-md",
+            "ui-lg",
+            "ui-xl",
+            "ui-2xl",
+          ],
+        },
+      ],
     },
     theme: {
       spacing: ["ui-xs", "ui-md", "ui-sm", "ui-lg", "ui-xl", "ui-2xl"],
