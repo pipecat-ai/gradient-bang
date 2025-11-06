@@ -76,10 +76,3 @@ export const checkForNewSectors = (
 
   return newlyDiscovered;
 };
-
-export const getLastVisitForSector = (sectorId: number) => {
-  const gameStore = useGameStore.getState();
-  const mapData = gameStore.local_map_data;
-  const sector = mapData?.find((s) => s.id === sectorId);
-  return sector?.last_visited;
-};

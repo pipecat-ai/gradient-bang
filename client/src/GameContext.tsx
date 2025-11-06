@@ -2,11 +2,7 @@ import { RTVIEvent } from "@pipecat-ai/client-js";
 import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react";
 import { useCallback, useEffect, useRef, type ReactNode } from "react";
 
-import {
-  checkForNewSectors,
-  getLastVisitForSector,
-  startMoveToSector,
-} from "@/actions";
+import { startMoveToSector } from "@/actions";
 import { GameContext } from "@/hooks/useGameContext";
 import { wait } from "@/utils/animation";
 import {
@@ -279,24 +275,31 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               });
 
               // Add entry to movement history
-              // @TODO: data should come from game-server in this event
-              const lastVisit = getLastVisitForSector(
-                gameStore.sectorBuffer?.id ?? 0
-              );
-
               gameStore.addMovementHistory({
                 from: gameStore.sector?.id ?? 0,
                 to: gameStore.sectorBuffer?.id ?? 0,
                 port: !!gameStore.sectorBuffer?.port,
-                last_visited: lastVisit,
+                last_visited: data.first_visit
+                  ? undefined
+                  : new Date().toISOString(),
               });
 
               // Update activity log
               // @TODO: optimize but having movement history and activity log index same data
               gameStore.addActivityLogEntry({
                 type: "movement",
-                message: `Moved from sector ${gameStore.sector?.id} to sector ${gameStore.sectorBuffer?.id}`,
+                message: `Moved from [sector ${gameStore.sector?.id}] to [sector ${gameStore.sectorBuffer?.id}]`,
               });
+
+              if (data.first_visit) {
+                console.debug(
+                  `[GAME EVENT] Discovered sector for first time: ${gameStore.sectorBuffer?.id}`
+                );
+                gameStore.addActivityLogEntry({
+                  type: "map.sector.discovered",
+                  message: `Discovered [sector ${gameStore.sectorBuffer?.id}]`,
+                });
+              }
 
               // Swap in the buffered sector
               // Note: Starfield instance already in sync through animation sequencing
@@ -414,27 +417,6 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             case "map.region":
             case "map.local": {
               console.debug("[GAME EVENT] Local map data", gameEvent.payload);
-
-              // Compare new and current map data to "discover" and newly visited sector
-              // @TODO: better handled by game-server, so placeholder for now
-              const newSectors = checkForNewSectors(
-                gameStore.local_map_data ?? null,
-                (gameEvent.payload as MapLocalMessage).sectors
-              );
-
-              if (newSectors.length > 0) {
-                console.debug(
-                  `[GAME EVENT] Discovered ${newSectors.length} new sectors!`,
-                  newSectors
-                );
-
-                newSectors.forEach((sector) => {
-                  gameStore.addActivityLogEntry({
-                    type: "map.sector.discovered",
-                    message: `Discovered sector ${sector.id}`,
-                  });
-                });
-              }
 
               gameStore.setLocalMapData(
                 (gameEvent.payload as MapLocalMessage).sectors

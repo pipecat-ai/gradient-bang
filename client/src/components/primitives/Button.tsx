@@ -10,9 +10,9 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-[length:100%_200%] bg-[position:0_0%] bg-gradient-to-t from-primary-foreground from-50% to-primary to-50% text-primary-foreground hover:bg-[position:0_100%] hover:text-primary transition-[background-position,color] outline-primary hover:outline-solid hover:animate-outline-pulse",
+          "bg-primary text-primary-foreground hover:bg-accent/80 hover:text-primary transition-[color] focus-hover hover:animate-outline-pulse",
         secondary:
-          "bg-primary/[.05] text-secondary-foreground hover:bg-primary hover:text-primary-foreground border-1 border-border hover:border-transparent outline-primary hover:outline-solid transition-[border,background,color] hover:animate-outline-pulse",
+          "bg-primary/[.05] text-secondary-foreground hover:bg-primary hover:text-primary-foreground border-1 border-border hover:border-transparent outline-primary hover:outline-solid transition-[color] focus-hover hover:animate-outline-pulse",
         ghost:
           "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
         link: "text-primary underline-offset-4 hover:underline",
