@@ -119,7 +119,7 @@ const storyData: MapData = [
     id: 126,
     visited: false,
     hops_from_center: 2,
-    position: [128, 133],
+    position: [128, 128],
     port: "",
     lanes: [
       {

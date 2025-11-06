@@ -1,14 +1,43 @@
-import type { MiniMapConfigBase, MiniMapController } from "@fx/map/MiniMap";
+import type {
+  LabelStyles,
+  LaneStyles,
+  MiniMapConfigBase,
+  MiniMapController,
+  NodeStyles,
+  PortStyles,
+  UIStyles,
+} from "@fx/map/MiniMap";
 import {
   createMiniMapController,
   DEFAULT_MINIMAP_CONFIG,
 } from "@fx/map/MiniMap";
+import { deepmerge } from "deepmerge-ts";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 export type MiniMapConfig = Partial<
-  Omit<MiniMapConfigBase, "current_sector_id" | "colors">
+  Omit<
+    MiniMapConfigBase,
+    | "current_sector_id"
+    | "nodeStyles"
+    | "laneStyles"
+    | "labelStyles"
+    | "portStyles"
+    | "uiStyles"
+  >
 > & {
-  colors?: Partial<MiniMapConfigBase["colors"]>;
+  nodeStyles?: {
+    [K in keyof NodeStyles]?: Partial<NodeStyles[K]>;
+  };
+  laneStyles?: {
+    [K in keyof LaneStyles]?: Partial<LaneStyles[K]>;
+  };
+  labelStyles?: {
+    [K in keyof LabelStyles]?: Partial<LabelStyles[K]>;
+  };
+  portStyles?: {
+    [K in keyof PortStyles]?: Partial<PortStyles[K]>;
+  };
+  uiStyles?: Partial<UIStyles>;
 };
 
 const RESIZE_DELAY = 300;
@@ -87,15 +116,11 @@ export const MiniMap = ({
   });
 
   const mergedConfig = useMemo<MiniMapConfigBase>(
-    () => ({
-      ...DEFAULT_MINIMAP_CONFIG,
-      ...config,
-      current_sector_id,
-      colors: {
-        ...DEFAULT_MINIMAP_CONFIG.colors,
-        ...config?.colors,
-      },
-    }),
+    () =>
+      deepmerge(DEFAULT_MINIMAP_CONFIG, {
+        ...config,
+        current_sector_id,
+      }) as MiniMapConfigBase,
     [current_sector_id, config]
   );
 
@@ -254,8 +279,8 @@ export const MiniMap = ({
               style={{
                 width: 14,
                 height: 14,
-                background: mergedConfig.colors.visited,
-                border: "1px solid #4caf50",
+                background: mergedConfig.nodeStyles.visited.fill,
+                border: `${mergedConfig.nodeStyles.visited.borderWidth}px solid ${mergedConfig.nodeStyles.visited.border}`,
               }}
             />
             Visited
@@ -267,8 +292,8 @@ export const MiniMap = ({
               style={{
                 width: 14,
                 height: 14,
-                background: mergedConfig.colors.empty,
-                border: "1px solid #666",
+                background: mergedConfig.nodeStyles.unvisited.fill,
+                border: `${mergedConfig.nodeStyles.unvisited.borderWidth}px solid ${mergedConfig.nodeStyles.unvisited.border}`,
               }}
             />
             Unvisited
@@ -280,7 +305,7 @@ export const MiniMap = ({
               style={{
                 width: 14,
                 height: 14,
-                background: mergedConfig.colors.port,
+                background: mergedConfig.portStyles.regular.color,
                 borderRadius: 7,
               }}
             />
@@ -293,7 +318,7 @@ export const MiniMap = ({
               style={{
                 width: 14,
                 height: 14,
-                background: mergedConfig.colors.mega_port,
+                background: mergedConfig.portStyles.mega.color,
                 borderRadius: 7,
               }}
             />
@@ -306,7 +331,7 @@ export const MiniMap = ({
               style={{
                 width: 16,
                 height: 2,
-                background: mergedConfig.colors.lane,
+                background: mergedConfig.laneStyles.normal.color,
               }}
             />
             Lane
@@ -318,8 +343,8 @@ export const MiniMap = ({
               style={{
                 width: 14,
                 height: 14,
-                border: "2px solid rgba(255,120,120,0.9)",
-                background: "transparent",
+                border: `${mergedConfig.nodeStyles.crossRegion.borderWidth}px solid ${mergedConfig.nodeStyles.crossRegion.border}`,
+                background: mergedConfig.nodeStyles.crossRegion.fill,
               }}
             />
             Cross-region sector (vs current)
@@ -335,7 +360,7 @@ export const MiniMap = ({
                   left: 0,
                   width: 12,
                   height: 2,
-                  background: mergedConfig.colors.lane_one_way,
+                  background: mergedConfig.laneStyles.oneWay.color,
                 }}
               />
               <span
@@ -347,7 +372,7 @@ export const MiniMap = ({
                   height: 0,
                   borderTop: "4px solid transparent",
                   borderBottom: "4px solid transparent",
-                  borderLeft: `6px solid ${mergedConfig.colors.lane_one_way}`,
+                  borderLeft: `6px solid ${mergedConfig.laneStyles.oneWay.arrowColor}`,
                 }}
               />
             </span>
@@ -361,7 +386,7 @@ export const MiniMap = ({
                 style={{
                   width: 16,
                   height: 2,
-                  background: `linear-gradient(90deg, transparent, ${mergedConfig.colors.hyperlane}, transparent)`,
+                  background: `linear-gradient(90deg, transparent, ${mergedConfig.laneStyles.hyperlane.color}, transparent)`,
                 }}
               />
               Hyperlane

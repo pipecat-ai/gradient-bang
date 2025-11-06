@@ -1,38 +1,9 @@
 export interface MiniMapConfigBase {
   current_sector_id: number;
-  colors: {
-    empty: string;
-    port: string;
-    mega_port: string;
-    visited: string;
-    lane: string;
-    hyperlane: string;
-    lane_one_way: string;
-    sector_border: string;
-    sector_border_current: string;
-    cross_region_outline: string;
-    sector_id_text: string;
-    label: string;
-    label_bg: string;
-    grid: string;
-    background: string;
-    current: string;
-    current_outline: string;
-    muted: string;
-    muted_lane: string;
-    course_plot_start: string;
-    course_plot_end: string;
-    course_plot_mid: string;
-  };
   grid_spacing: number;
   hex_size: number;
   sector_label_offset: number;
-  label_font_size: number;
-  label_font_weight: number | string;
-  label_padding: number;
   frame_padding: number;
-  edge_feather_size?: number;
-  current_sector_outer_border: number;
   animation_duration_pan: number;
   animation_duration_zoom: number;
   bypass_animation: boolean;
@@ -45,49 +16,287 @@ export interface MiniMapConfigBase {
   show_partial_lanes: boolean;
   /** Maximum distance in hex tiles from current sector to include in bounds calculation. Sectors beyond this distance are ignored for framing but still rendered if within maxDistance hops. */
   max_bounds_distance?: number;
-  /** Opacity for sectors/lanes not in the course plot (0-1) */
-  muted_opacity: number;
-  course_plot_sector_border: number;
-  course_plot_lane_width: number;
+  nodeStyles: NodeStyles;
+  laneStyles: LaneStyles;
+  labelStyles: LabelStyles;
+  portStyles: PortStyles;
+  uiStyles: UIStyles;
 }
+
+export interface NodeStyle {
+  fill: string;
+  border: string;
+  borderWidth: number;
+  outline: string; // "none" to skip outline
+  outlineWidth: number;
+}
+
+export interface NodeStyles {
+  current: NodeStyle;
+  visited: NodeStyle;
+  unvisited: NodeStyle;
+  muted: NodeStyle;
+  coursePlotStart: NodeStyle;
+  coursePlotEnd: NodeStyle;
+  coursePlotMid: NodeStyle;
+  crossRegion: NodeStyle;
+}
+
+export const DEFAULT_NODE_STYLES: NodeStyles = {
+  current: {
+    fill: "rgba(74,144,226,0.4)",
+    border: "rgba(74,144,226,0.6)",
+    borderWidth: 2,
+    outline: "rgba(74,144,226,0.6)",
+    outlineWidth: 5,
+  },
+  visited: {
+    fill: "rgba(0,255,0,0.25)",
+    border: "rgba(200,200,200,0.7)",
+    borderWidth: 1,
+    outline: "none",
+    outlineWidth: 0,
+  },
+  unvisited: {
+    fill: "rgba(0,0,0,0.35)",
+    border: "rgba(200,200,200,0.7)",
+    borderWidth: 1,
+    outline: "none",
+    outlineWidth: 0,
+  },
+  muted: {
+    fill: "rgba(40,40,40,0.5)",
+    border: "rgba(40,40,40,0.5)",
+    borderWidth: 1,
+    outline: "none",
+    outlineWidth: 0,
+  },
+  coursePlotStart: {
+    fill: "rgba(0,255,0,0.25)",
+    border: "rgba(200,200,200,0.7)",
+    borderWidth: 3,
+    outline: "rgba(50,200,50,0.9)",
+    outlineWidth: 4,
+  },
+  coursePlotEnd: {
+    fill: "rgba(0,255,0,0.25)",
+    border: "rgba(200,200,200,0.7)",
+    borderWidth: 3,
+    outline: "rgba(220,50,50,0.9)",
+    outlineWidth: 4,
+  },
+  coursePlotMid: {
+    fill: "rgba(190,160,255,1)",
+    border: "rgba(200,200,200,0.7)",
+    borderWidth: 3,
+    outline: "none",
+    outlineWidth: 0,
+  },
+  crossRegion: {
+    fill: "rgba(0,255,0,0.25)",
+    border: "rgba(255,120,120,0.9)",
+    borderWidth: 2,
+    outline: "none",
+    outlineWidth: 0,
+  },
+};
+
+export interface LaneStyle {
+  color: string;
+  width: number;
+  dashPattern: string; // "none" or "4,4" or "12,8"
+  arrowColor: string; // "none" or color for directional arrows
+  arrowSize: number;
+  shadowBlur: number;
+  shadowColor: string; // "none" if no shadow
+}
+
+export interface LaneStyles {
+  normal: LaneStyle;
+  oneWay: LaneStyle;
+  hyperlane: LaneStyle;
+  hyperlaneStub: LaneStyle;
+  partial: LaneStyle;
+  muted: LaneStyle;
+  coursePlot: LaneStyle;
+  coursePlotAnimation: LaneStyle;
+}
+
+export const DEFAULT_LANE_STYLES: LaneStyles = {
+  normal: {
+    color: "rgba(120,230,160,1)",
+    width: 1.5,
+    dashPattern: "none",
+    arrowColor: "none",
+    arrowSize: 0,
+    shadowBlur: 0,
+    shadowColor: "none",
+  },
+  oneWay: {
+    color: "#4a90e2",
+    width: 1.5,
+    dashPattern: "none",
+    arrowColor: "#4a90e2",
+    arrowSize: 8,
+    shadowBlur: 0,
+    shadowColor: "none",
+  },
+  hyperlane: {
+    color: "rgba(190,160,255,1)",
+    width: 2,
+    dashPattern: "none",
+    arrowColor: "none",
+    arrowSize: 0,
+    shadowBlur: 0,
+    shadowColor: "none",
+  },
+  hyperlaneStub: {
+    color: "rgba(190,160,255,1)",
+    width: 2,
+    dashPattern: "4,4",
+    arrowColor: "rgba(190,160,255,1)",
+    arrowSize: 6,
+    shadowBlur: 0,
+    shadowColor: "none",
+  },
+  partial: {
+    color: "rgba(120,230,160,1)",
+    width: 1.5,
+    dashPattern: "3,3",
+    arrowColor: "rgba(120,230,160,1)",
+    arrowSize: 8,
+    shadowBlur: 0,
+    shadowColor: "none",
+  },
+  muted: {
+    color: "rgba(80,80,80,0.4)",
+    width: 1.5,
+    dashPattern: "none",
+    arrowColor: "rgba(80,80,80,0.4)",
+    arrowSize: 8,
+    shadowBlur: 0,
+    shadowColor: "none",
+  },
+  coursePlot: {
+    color: "rgba(120,230,160,1)",
+    width: 3,
+    dashPattern: "none",
+    arrowColor: "rgba(120,230,160,1)",
+    arrowSize: 8,
+    shadowBlur: 0,
+    shadowColor: "none",
+  },
+  coursePlotAnimation: {
+    color: "rgba(255,255,255,0.9)",
+    width: 4,
+    dashPattern: "12,8",
+    arrowColor: "none",
+    arrowSize: 0,
+    shadowBlur: 8,
+    shadowColor: "rgba(255,255,255,0.8)",
+  },
+};
+
+export interface LabelStyle {
+  textColor: string;
+  backgroundColor: string;
+  padding: number;
+  fontSize: number;
+  fontWeight: number | string;
+  mutedOpacity: number;
+}
+
+export interface LabelStyles {
+  sectorId: LabelStyle;
+  portCode: LabelStyle;
+  hyperlane: LabelStyle;
+}
+
+export const DEFAULT_LABEL_STYLES: LabelStyles = {
+  sectorId: {
+    textColor: "#000000",
+    backgroundColor: "#ffffff",
+    padding: 2,
+    fontSize: 10,
+    fontWeight: 800,
+    mutedOpacity: 0.3,
+  },
+  portCode: {
+    textColor: "#000000",
+    backgroundColor: "#ffffff",
+    padding: 2,
+    fontSize: 10,
+    fontWeight: 800,
+    mutedOpacity: 0.3,
+  },
+  hyperlane: {
+    textColor: "#000000",
+    backgroundColor: "#ffffff",
+    padding: 2,
+    fontSize: 10,
+    fontWeight: 800,
+    mutedOpacity: 1,
+  },
+};
+
+export interface PortStyle {
+  color: string;
+  radius: number;
+  mutedColor: string;
+}
+
+export interface PortStyles {
+  regular: PortStyle;
+  mega: PortStyle;
+}
+
+export const DEFAULT_PORT_STYLES: PortStyles = {
+  regular: {
+    color: "#4a90e2",
+    radius: 5,
+    mutedColor: "rgba(40,40,40,0.5)",
+  },
+  mega: {
+    color: "#ffd700",
+    radius: 5,
+    mutedColor: "rgba(40,40,40,0.5)",
+  },
+};
+
+export interface UIStyles {
+  grid: {
+    color: string;
+    lineWidth: number;
+  };
+  background: {
+    color: string;
+  };
+  edgeFeather: {
+    size: number;
+  };
+}
+
+export const DEFAULT_UI_STYLES: UIStyles = {
+  grid: {
+    color: "rgba(255,255,255,0.3)",
+    lineWidth: 1,
+  },
+  background: {
+    color: "#000000",
+  },
+  edgeFeather: {
+    size: 220,
+  },
+};
 
 export const DEFAULT_MINIMAP_CONFIG: Omit<
   MiniMapConfigBase,
   "current_sector_id"
 > = {
-  colors: {
-    empty: "rgba(0,0,0,0.35)",
-    visited: "rgba(0,255,0,0.25)",
-    port: "#4a90e2",
-    mega_port: "#ffd700",
-    lane: "rgba(120,230,160,1)",
-    hyperlane: "rgba(190,160,255,1)",
-    lane_one_way: "#4a90e2",
-    sector_border: "rgba(200,200,200,0.7)",
-    sector_border_current: "#4a90e2",
-    cross_region_outline: "rgba(255,120,120,0.9)",
-    sector_id_text: "#dddddd",
-    grid: "rgba(255,255,255,0.3)",
-    background: "#000000",
-    label: "#000000",
-    label_bg: "#ffffff",
-    current: "rgba(74,144,226,0.4)",
-    current_outline: "rgba(74,144,226,0.6)",
-    muted: "rgba(40,40,40,0.5)",
-    muted_lane: "rgba(80,80,80,0.4)",
-    course_plot_start: "rgba(50,200,50,0.9)",
-    course_plot_end: "rgba(220,50,50,0.9)",
-    course_plot_mid: "rgba(190,160,255,1)",
-  },
   grid_spacing: 30,
   hex_size: 20,
   sector_label_offset: 5,
-  label_font_size: 10,
-  label_font_weight: 800,
-  label_padding: 2,
   frame_padding: 40,
-  edge_feather_size: 220,
-  current_sector_outer_border: 5,
   animation_duration_pan: 500,
   animation_duration_zoom: 800,
   bypass_animation: false,
@@ -99,9 +308,11 @@ export const DEFAULT_MINIMAP_CONFIG: Omit<
   show_hyperlanes: false,
   show_partial_lanes: true,
   max_bounds_distance: 7,
-  muted_opacity: 0.3,
-  course_plot_sector_border: 3,
-  course_plot_lane_width: 3,
+  nodeStyles: DEFAULT_NODE_STYLES,
+  laneStyles: DEFAULT_LANE_STYLES,
+  labelStyles: DEFAULT_LABEL_STYLES,
+  portStyles: DEFAULT_PORT_STYLES,
+  uiStyles: DEFAULT_UI_STYLES,
 };
 
 export interface MiniMapProps {
@@ -409,31 +620,31 @@ function renderLane(
   const from = getHexEdgePoint(fromCenter, toCenter, hexSize);
   const to = getHexEdgePoint(toCenter, fromCenter, hexSize);
 
-  // Apply course plot logic
-  let laneWidth = 1.5;
-  let isInPlot = true;
+  // Determine lane type priority
+  const isInPlot = coursePlotLanes
+    ? coursePlotLanes.has(getUndirectedLaneKey(fromNode.id, toNode.id))
+    : true;
 
-  if (coursePlotLanes) {
-    const laneKey = getUndirectedLaneKey(fromNode.id, toNode.id);
-    isInPlot = coursePlotLanes.has(laneKey);
-    if (isInPlot) {
-      laneWidth = config.course_plot_lane_width;
-    }
+  let laneStyle: LaneStyle;
+  if (coursePlotLanes && !isInPlot) {
+    laneStyle = config.laneStyles.muted;
+  } else if (coursePlot && isInPlot) {
+    laneStyle = config.laneStyles.coursePlot;
+  } else if (lane.hyperlane && config.show_hyperlanes) {
+    laneStyle = config.laneStyles.hyperlane;
+  } else if (isBidirectional) {
+    laneStyle = config.laneStyles.normal;
+  } else {
+    laneStyle = config.laneStyles.oneWay;
   }
 
-  // Use muted_lane color for lanes not in course plot
-  if (coursePlotLanes && !isInPlot) {
-    ctx.strokeStyle = config.colors.muted_lane;
-    ctx.lineWidth = 1.5;
-  } else if (lane.hyperlane && config.show_hyperlanes) {
-    ctx.strokeStyle = config.colors.hyperlane;
-    ctx.lineWidth = isInPlot ? laneWidth : 2;
-  } else if (isBidirectional) {
-    ctx.strokeStyle = config.colors.lane;
-    ctx.lineWidth = laneWidth;
+  // Apply lane style
+  ctx.strokeStyle = laneStyle.color;
+  ctx.lineWidth = laneStyle.width;
+  if (laneStyle.dashPattern !== "none") {
+    ctx.setLineDash(laneStyle.dashPattern.split(",").map((n) => parseFloat(n)));
   } else {
-    ctx.strokeStyle = config.colors.lane_one_way;
-    ctx.lineWidth = laneWidth;
+    ctx.setLineDash([]);
   }
 
   ctx.beginPath();
@@ -441,13 +652,12 @@ function renderLane(
   ctx.lineTo(to.x, to.y);
   ctx.stroke();
 
-  // Check if this lane is in the course plot and needs a directional arrow
-  let needsArrow = !isBidirectional;
+  // Determine if arrow is needed
+  let needsArrow = laneStyle.arrowColor !== "none" && laneStyle.arrowSize > 0;
   let arrowFrom = from;
   let arrowTo = to;
 
   if (coursePlot && isInPlot) {
-    // Find the direction of travel in the course plot
     const fromIndex = coursePlot.path.indexOf(fromNode.id);
     const toIndex = coursePlot.path.indexOf(toNode.id);
 
@@ -457,13 +667,10 @@ function renderLane(
       Math.abs(fromIndex - toIndex) === 1
     ) {
       needsArrow = true;
-      // Determine the correct direction based on path order
       if (fromIndex < toIndex) {
-        // fromNode -> toNode is the correct direction
         arrowFrom = from;
         arrowTo = to;
       } else {
-        // toNode -> fromNode is the correct direction
         arrowFrom = to;
         arrowTo = from;
       }
@@ -471,6 +678,7 @@ function renderLane(
   }
 
   if (needsArrow) {
+    ctx.strokeStyle = laneStyle.arrowColor;
     renderArrow(ctx, arrowFrom, arrowTo);
   }
 }
@@ -548,34 +756,40 @@ function renderHyperlaneStub(
     y: startEdge.y + stubLength * Math.sin(direction),
   };
 
+  const stubStyle = config.laneStyles.hyperlaneStub;
+
   ctx.save();
-  ctx.strokeStyle = config.colors.hyperlane;
-  ctx.lineWidth = 2;
-  ctx.setLineDash([4, 4]);
+  ctx.strokeStyle = stubStyle.color;
+  ctx.lineWidth = stubStyle.width;
+  if (stubStyle.dashPattern !== "none") {
+    ctx.setLineDash(stubStyle.dashPattern.split(",").map((n) => parseFloat(n)));
+  }
   ctx.beginPath();
   ctx.moveTo(startEdge.x, startEdge.y);
   ctx.lineTo(endPoint.x, endPoint.y);
   ctx.stroke();
   ctx.restore();
 
-  ctx.save();
-  ctx.strokeStyle = config.colors.hyperlane;
-  ctx.fillStyle = config.colors.hyperlane;
-  ctx.lineWidth = 2;
-  const arrowSize = 6;
-  ctx.beginPath();
-  ctx.moveTo(endPoint.x, endPoint.y);
-  ctx.lineTo(
-    endPoint.x - arrowSize * Math.cos(direction - Math.PI / 6),
-    endPoint.y - arrowSize * Math.sin(direction - Math.PI / 6)
-  );
-  ctx.lineTo(
-    endPoint.x - arrowSize * Math.cos(direction + Math.PI / 6),
-    endPoint.y - arrowSize * Math.sin(direction + Math.PI / 6)
-  );
-  ctx.closePath();
-  ctx.fill();
-  ctx.restore();
+  if (stubStyle.arrowColor !== "none" && stubStyle.arrowSize > 0) {
+    ctx.save();
+    ctx.strokeStyle = stubStyle.arrowColor;
+    ctx.fillStyle = stubStyle.arrowColor;
+    ctx.lineWidth = stubStyle.width;
+    const arrowSize = stubStyle.arrowSize;
+    ctx.beginPath();
+    ctx.moveTo(endPoint.x, endPoint.y);
+    ctx.lineTo(
+      endPoint.x - arrowSize * Math.cos(direction - Math.PI / 6),
+      endPoint.y - arrowSize * Math.sin(direction - Math.PI / 6)
+    );
+    ctx.lineTo(
+      endPoint.x - arrowSize * Math.cos(direction + Math.PI / 6),
+      endPoint.y - arrowSize * Math.sin(direction + Math.PI / 6)
+    );
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
 
   return {
     x: endPoint.x + 4,
@@ -620,35 +834,44 @@ function renderPartialLane(
   const from = getHexEdgePoint(fromCenter, toCenter, hexSize);
   const to = getHexEdgePoint(toCenter, fromCenter, hexSize);
 
-  // Apply course plot logic
-  let laneWidth = 1.5;
-  let isInPlot = true;
+  // Determine which style to use
+  const isInPlot = coursePlotLanes
+    ? coursePlotLanes.has(getUndirectedLaneKey(fromNode.id, culledToNode.id))
+    : true;
 
-  if (coursePlotLanes) {
-    const laneKey = getUndirectedLaneKey(fromNode.id, culledToNode.id);
-    isInPlot = coursePlotLanes.has(laneKey);
-    if (isInPlot) {
-      laneWidth = config.course_plot_lane_width;
-    }
-  }
+  const laneStyle =
+    coursePlotLanes && !isInPlot
+      ? config.laneStyles.muted
+      : coursePlot && isInPlot
+      ? config.laneStyles.coursePlot
+      : config.laneStyles.partial;
 
   ctx.save();
-  // Use muted_lane color for partial lanes not in course plot
-  if (coursePlotLanes && !isInPlot) {
-    ctx.strokeStyle = config.colors.muted_lane;
-  } else {
-    ctx.strokeStyle = config.colors.lane;
+
+  // Create gradient that fades out towards the end
+  const gradient = ctx.createLinearGradient(from.x, from.y, to.x, to.y);
+  gradient.addColorStop(0, laneStyle.color);
+  gradient.addColorStop(0.7, laneStyle.color);
+  gradient.addColorStop(1, applyAlpha(laneStyle.color, 0));
+
+  ctx.strokeStyle = gradient;
+  ctx.lineWidth = laneStyle.width;
+  if (laneStyle.dashPattern !== "none") {
+    ctx.setLineDash(laneStyle.dashPattern.split(",").map((n) => parseFloat(n)));
   }
-  ctx.lineWidth = laneWidth;
-  ctx.setLineDash([3, 3]); // Dashed to indicate it leads to culled sector
 
   ctx.beginPath();
   ctx.moveTo(from.x, from.y);
   ctx.lineTo(to.x, to.y);
   ctx.stroke();
 
-  // Add arrow for partial lanes in course plot
-  if (coursePlot && isInPlot) {
+  // Add arrow for partial lanes if style specifies
+  if (
+    laneStyle.arrowColor !== "none" &&
+    laneStyle.arrowSize > 0 &&
+    coursePlot &&
+    isInPlot
+  ) {
     const fromIndex = coursePlot.path.indexOf(fromNode.id);
     const toIndex = coursePlot.path.indexOf(culledToNode.id);
 
@@ -659,6 +882,7 @@ function renderPartialLane(
     ) {
       const arrowFrom = fromIndex < toIndex ? from : to;
       const arrowTo = fromIndex < toIndex ? to : from;
+      ctx.strokeStyle = laneStyle.arrowColor;
       renderArrow(ctx, arrowFrom, arrowTo);
     }
   }
@@ -820,101 +1044,68 @@ function renderSector(
   const isCrossRegion =
     currentRegion && node.region && node.region !== currentRegion;
 
-  // Apply course plot logic
   const finalOpacity = opacity;
-  let baseLineWidth = 1;
-  let isInPlot = true;
+  const isInPlot = coursePlotSectors ? coursePlotSectors.has(node.id) : true;
 
-  if (coursePlotSectors) {
-    isInPlot = coursePlotSectors.has(node.id);
-    if (isInPlot) {
-      baseLineWidth = config.course_plot_sector_border;
-    }
+  // Determine node type priority
+  let nodeStyle: NodeStyle;
+  if (coursePlot && coursePlot.from_sector === node.id) {
+    nodeStyle = config.nodeStyles.coursePlotStart;
+  } else if (coursePlot && coursePlot.to_sector === node.id) {
+    nodeStyle = config.nodeStyles.coursePlotEnd;
+  } else if (coursePlot && isInPlot && coursePlot.path.includes(node.id)) {
+    nodeStyle = config.nodeStyles.coursePlotMid;
+  } else if (coursePlotSectors && !isInPlot) {
+    nodeStyle = config.nodeStyles.muted;
+  } else if (isCurrent) {
+    nodeStyle = config.nodeStyles.current;
+  } else if (isCrossRegion) {
+    nodeStyle = config.nodeStyles.crossRegion;
+  } else if (isVisited) {
+    nodeStyle = config.nodeStyles.visited;
+  } else {
+    nodeStyle = config.nodeStyles.unvisited;
   }
 
-  if (isCurrent && config.current_sector_outer_border) {
-    const outerBorderSize = config.current_sector_outer_border;
+  // Render outline if specified
+  if (nodeStyle.outline !== "none" && nodeStyle.outlineWidth > 0) {
     ctx.save();
-    ctx.strokeStyle = applyAlpha(config.colors.current_outline, finalOpacity);
-    ctx.lineWidth = outerBorderSize;
-    drawHex(ctx, world.x, world.y, hexSize + outerBorderSize / 2 + 2, false);
+    ctx.strokeStyle = applyAlpha(nodeStyle.outline, finalOpacity);
+    ctx.lineWidth = nodeStyle.outlineWidth;
+    drawHex(
+      ctx,
+      world.x,
+      world.y,
+      hexSize + nodeStyle.outlineWidth / 2 + 2,
+      false
+    );
     ctx.restore();
   }
 
-  // Add special outline for start/end sectors in course plot
-  if (coursePlot) {
-    const isStart = node.id === coursePlot.from_sector;
-    const isEnd = node.id === coursePlot.to_sector;
-
-    if (isStart || isEnd) {
-      const outlineSize = 4;
-      ctx.save();
-      ctx.strokeStyle = isStart
-        ? config.colors.course_plot_start
-        : config.colors.course_plot_end;
-      ctx.lineWidth = outlineSize;
-      drawHex(ctx, world.x, world.y, hexSize + outlineSize / 2 + 1, false);
-      ctx.restore();
-    }
-  }
-
-  // Use muted color for sectors not in course plot, special colors for plot sectors
-  let fillColor: string;
-  if (coursePlotSectors && !isInPlot) {
-    fillColor = config.colors.muted;
-  } else if (coursePlot && isInPlot) {
-    // Apply special colors to course plot sectors
-    const isStart = node.id === coursePlot.from_sector;
-    const isEnd = node.id === coursePlot.to_sector;
-
-    if (isCurrent) {
-      fillColor = config.colors.current;
-    } else if (isStart || isEnd) {
-      // Start and end sectors keep their normal visited/empty colors
-      fillColor = isVisited ? config.colors.visited : config.colors.empty;
-    } else {
-      // Middle sectors get the special course_plot_mid color
-      fillColor = config.colors.course_plot_mid;
-    }
-  } else {
-    fillColor = isCurrent
-      ? config.colors.current
-      : isVisited
-      ? config.colors.visited
-      : config.colors.empty;
-  }
-  ctx.fillStyle = applyAlpha(fillColor, finalOpacity);
-
-  let strokeColor: string;
-  if (coursePlotSectors && !isInPlot) {
-    strokeColor = config.colors.muted;
-    ctx.lineWidth = baseLineWidth;
-  } else if (isCurrent) {
-    strokeColor = config.colors.current;
-    ctx.lineWidth = Math.max(2, baseLineWidth);
-  } else if (isCrossRegion) {
-    strokeColor = config.colors.cross_region_outline;
-    ctx.lineWidth = Math.max(2, baseLineWidth);
-  } else {
-    strokeColor = config.colors.sector_border;
-    ctx.lineWidth = baseLineWidth;
-  }
-  ctx.strokeStyle = applyAlpha(strokeColor, finalOpacity);
+  // Render fill and border
+  ctx.fillStyle = applyAlpha(nodeStyle.fill, finalOpacity);
+  ctx.strokeStyle = applyAlpha(nodeStyle.border, finalOpacity);
+  ctx.lineWidth = nodeStyle.borderWidth;
 
   drawHex(ctx, world.x, world.y, hexSize, true);
 
   if (config.show_ports && node.port) {
     const isMegaPort = node.is_mega || node.id === 0;
+    const portStyle = isMegaPort
+      ? config.portStyles.mega
+      : config.portStyles.regular;
+
     // Use muted color for ports not in course plot
     let portColor: string;
     if (coursePlotSectors && !isInPlot) {
-      portColor = config.colors.muted;
+      portColor = portStyle.mutedColor;
     } else {
-      portColor = isMegaPort ? config.colors.mega_port : config.colors.port;
+      portColor = portStyle.color;
     }
+
     ctx.fillStyle = applyAlpha(portColor, finalOpacity);
     ctx.beginPath();
-    ctx.arc(world.x, world.y, 5, 0, Math.PI * 2);
+    ctx.arc(world.x, world.y, portStyle.radius, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -947,7 +1138,7 @@ function renderHexGrid(
   cameraOffsetY: number,
   scale: number,
   hexSize: number,
-  gridColor: string
+  gridStyle: { color: string; lineWidth: number }
 ) {
   const stepX = scale * 1.5;
   const invScale = 1 / scale;
@@ -966,8 +1157,8 @@ function renderHexGrid(
   }
 
   ctx.save();
-  ctx.strokeStyle = gridColor;
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = gridStyle.color;
+  ctx.lineWidth = gridStyle.lineWidth;
 
   for (let hx = minHexX; hx <= maxHexX; hx++) {
     const yOffset = 0.5 * (hx & 1);
@@ -1123,15 +1314,17 @@ function renderSectorLabels(
 ) {
   if (!config.show_sector_ids) return;
 
+  const labelStyle = config.labelStyles.sectorId;
+
   ctx.save();
-  ctx.font = `${config.label_font_weight} ${
-    config.label_font_size
+  ctx.font = `${labelStyle.fontWeight} ${
+    labelStyle.fontSize
   }px ${getCanvasFontFamily(ctx)}`;
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
 
   const labelOffset = config.sector_label_offset ?? 2;
-  const padding = config.label_padding ?? 2;
+  const padding = labelStyle.padding;
 
   data.forEach((node) => {
     const worldPos = hexToWorld(node.position[0], node.position[1], scale);
@@ -1156,7 +1349,7 @@ function renderSectorLabels(
     const ascent =
       metrics.fontBoundingBoxAscent ??
       metrics.actualBoundingBoxAscent ??
-      config.label_font_size;
+      labelStyle.fontSize;
     const descent =
       metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent ?? 0;
     const textHeight = ascent + descent;
@@ -1164,10 +1357,10 @@ function renderSectorLabels(
     // Apply muted opacity to labels for sectors not in course plot
     const labelOpacity =
       coursePlotSectors && !coursePlotSectors.has(node.id)
-        ? config.muted_opacity
+        ? labelStyle.mutedOpacity
         : 1;
 
-    ctx.fillStyle = applyAlpha(config.colors.label_bg, labelOpacity);
+    ctx.fillStyle = applyAlpha(labelStyle.backgroundColor, labelOpacity);
     ctx.fillRect(
       textX - padding,
       textY - ascent - padding,
@@ -1175,7 +1368,7 @@ function renderSectorLabels(
       textHeight + padding * 2
     );
 
-    ctx.fillStyle = applyAlpha(config.colors.label, labelOpacity);
+    ctx.fillStyle = applyAlpha(labelStyle.textColor, labelOpacity);
     ctx.fillText(text, textX, textY);
   });
 
@@ -1196,15 +1389,17 @@ function renderPortLabels(
 ) {
   if (!config.show_ports) return;
 
+  const labelStyle = config.labelStyles.portCode;
+
   ctx.save();
-  ctx.font = `${config.label_font_weight} ${
-    config.label_font_size
+  ctx.font = `${labelStyle.fontWeight} ${
+    labelStyle.fontSize
   }px ${getCanvasFontFamily(ctx)}`;
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
 
   const labelOffset = config.sector_label_offset ?? 2;
-  const padding = config.label_padding ?? 2;
+  const padding = labelStyle.padding;
 
   data.forEach((node) => {
     if (!node.port) return;
@@ -1231,7 +1426,7 @@ function renderPortLabels(
     const ascent =
       metrics.fontBoundingBoxAscent ??
       metrics.actualBoundingBoxAscent ??
-      config.label_font_size;
+      labelStyle.fontSize;
     const descent =
       metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent ?? 0;
     const textHeight = ascent + descent;
@@ -1239,10 +1434,10 @@ function renderPortLabels(
     // Apply muted opacity to labels for sectors not in course plot
     const labelOpacity =
       coursePlotSectors && !coursePlotSectors.has(node.id)
-        ? config.muted_opacity
+        ? labelStyle.mutedOpacity
         : 1;
 
-    ctx.fillStyle = applyAlpha(config.colors.label_bg, labelOpacity);
+    ctx.fillStyle = applyAlpha(labelStyle.backgroundColor, labelOpacity);
     ctx.fillRect(
       textX - padding,
       textY - ascent - padding,
@@ -1250,7 +1445,7 @@ function renderPortLabels(
       textHeight + padding * 2
     );
 
-    ctx.fillStyle = applyAlpha(config.colors.label, labelOpacity);
+    ctx.fillStyle = applyAlpha(labelStyle.textColor, labelOpacity);
     ctx.fillText(text, textX, textY);
   });
 
@@ -1272,7 +1467,7 @@ function renderWithCameraState(
   canvas.height = height * dpr;
   ctx.scale(dpr, dpr);
 
-  ctx.fillStyle = config.colors.background;
+  ctx.fillStyle = config.uiStyles.background.color;
   ctx.fillRect(0, 0, width, height);
 
   const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
@@ -1306,14 +1501,14 @@ function renderWithCameraState(
       cameraState.offsetY,
       scale,
       hexSize,
-      config.colors.grid
+      config.uiStyles.grid
     );
   }
   ctx.restore();
 
   // 2) Apply rectangular feather mask to background + grid (screen space)
   const featherSize = Math.min(
-    config.edge_feather_size ?? 40,
+    config.uiStyles.edgeFeather.size,
     Math.min(width, height) / 2
   );
   applyRectangularFeatherMask(ctx, width, height, featherSize);
@@ -1410,9 +1605,11 @@ function renderWithCameraState(
   );
 
   if (hyperlaneLabels.length > 0) {
+    const labelStyle = config.labelStyles.hyperlane;
+
     ctx.save();
-    ctx.font = `${config.label_font_weight} ${
-      config.label_font_size
+    ctx.font = `${labelStyle.fontWeight} ${
+      labelStyle.fontSize
     }px ${getCanvasFontFamily(ctx)}`;
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
@@ -1425,12 +1622,12 @@ function renderWithCameraState(
         cameraState
       );
       const metrics = ctx.measureText(label.text);
-      const ascent = metrics.actualBoundingBoxAscent ?? config.label_font_size;
+      const ascent = metrics.actualBoundingBoxAscent ?? labelStyle.fontSize;
       const descent = metrics.actualBoundingBoxDescent ?? 0;
       const textHeight = ascent + descent;
 
-      const padding = config.label_padding ?? 2;
-      ctx.fillStyle = config.colors.label_bg;
+      const padding = labelStyle.padding;
+      ctx.fillStyle = labelStyle.backgroundColor;
       ctx.fillRect(
         screenPos.x - padding,
         screenPos.y - ascent - padding,
@@ -1438,7 +1635,7 @@ function renderWithCameraState(
         textHeight + padding * 2
       );
 
-      ctx.fillStyle = config.colors.label;
+      ctx.fillStyle = labelStyle.textColor;
       ctx.fillText(label.text, screenPos.x, screenPos.y);
     });
     ctx.restore();
@@ -1464,19 +1661,25 @@ function renderCoursePlotAnimation(
 
   const sectorIndex = createSectorIndex(cameraState.filteredData);
 
+  const animStyle = config.laneStyles.coursePlotAnimation;
+
   ctx.save();
   ctx.translate(width / 2, height / 2);
   ctx.scale(cameraState.zoom, cameraState.zoom);
   ctx.translate(cameraState.offsetX, cameraState.offsetY);
 
-  // Draw animated dashes on course plot lanes with glow effect
-  ctx.shadowBlur = 8;
-  ctx.shadowColor = "rgba(255,255,255,0.8)";
-  ctx.strokeStyle = "rgba(255,255,255,0.9)";
-  ctx.lineWidth = config.course_plot_lane_width + 1;
+  // Draw animated dashes on course plot lanes
+  if (animStyle.shadowBlur > 0 && animStyle.shadowColor !== "none") {
+    ctx.shadowBlur = animStyle.shadowBlur;
+    ctx.shadowColor = animStyle.shadowColor;
+  }
+  ctx.strokeStyle = animStyle.color;
+  ctx.lineWidth = animStyle.width;
   ctx.lineCap = "round";
-  ctx.setLineDash([12, 8]);
-  ctx.lineDashOffset = -animationOffset; // Animate by changing offset
+  if (animStyle.dashPattern !== "none") {
+    ctx.setLineDash(animStyle.dashPattern.split(",").map((n) => parseFloat(n)));
+  }
+  ctx.lineDashOffset = -animationOffset;
 
   for (let i = 0; i < coursePlot.path.length - 1; i++) {
     const fromId = coursePlot.path[i];
@@ -1558,10 +1761,10 @@ export function createMiniMapController(
         canvas.width = width * dpr;
         canvas.height = height * dpr;
         ctx.scale(dpr, dpr);
-        ctx.fillStyle = config.colors.background;
+        ctx.fillStyle = config.uiStyles.background.color;
         ctx.fillRect(0, 0, width, height);
         const feather = Math.min(
-          config.edge_feather_size ?? 40,
+          config.uiStyles.edgeFeather.size,
           Math.min(width, height) / 2
         );
         applyRectangularFeatherMask(ctx, width, height, feather);
@@ -1727,10 +1930,10 @@ export function renderMiniMapCanvas(
       canvas.width = width * dpr;
       canvas.height = height * dpr;
       ctx.scale(dpr, dpr);
-      ctx.fillStyle = config.colors.background;
+      ctx.fillStyle = config.uiStyles.background.color;
       ctx.fillRect(0, 0, width, height);
       const feather = Math.min(
-        config.edge_feather_size ?? 40,
+        config.uiStyles.edgeFeather.size,
         Math.min(width, height) / 2
       );
       applyRectangularFeatherMask(ctx, width, height, feather);
@@ -1792,10 +1995,10 @@ export function updateCurrentSector(
       canvas.width = width * dpr;
       canvas.height = height * dpr;
       ctx.scale(dpr, dpr);
-      ctx.fillStyle = config.colors.background;
+      ctx.fillStyle = config.uiStyles.background.color;
       ctx.fillRect(0, 0, width, height);
       const feather = Math.min(
-        config.edge_feather_size ?? 40,
+        config.uiStyles.edgeFeather.size,
         Math.min(width, height) / 2
       );
       applyRectangularFeatherMask(ctx, width, height, feather);
