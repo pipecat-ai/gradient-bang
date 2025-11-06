@@ -126,15 +126,18 @@ export class SceneManager {
     id: string,
     sceneConfig: Partial<StarfieldSceneConfig> | undefined
   ): StarfieldSceneConfig {
+    // Map planetImageIndex to planetImageUrl if provided
+    const mappedConfig = this._mapPlanetIndex(sceneConfig);
+
     if (this.hasNamedConfig(id)) {
       const stored = this.getNamedConfig(id) as StarfieldSceneConfig;
 
       return {
         ...stored,
-        ...(sceneConfig || {}),
+        ...mappedConfig,
       };
     } else {
-      const variant = this.createVariant(sceneConfig || {});
+      const variant = this.createVariant(mappedConfig);
       this.storeSceneVariant(id, variant);
       return variant;
     }
@@ -209,6 +212,37 @@ export class SceneManager {
     }
 
     return finalConfig;
+  }
+
+  /**
+   * Map planetImageIndex to planetImageUrl using PLANET_IMAGES array
+   * Only maps if planetImageUrl is not already provided (URL takes precedence)
+   * @private
+   */
+  private _mapPlanetIndex(
+    config: Partial<StarfieldSceneConfig> | undefined
+  ): Partial<StarfieldSceneConfig> {
+    if (!config) return {};
+
+    const mapped = { ...config };
+
+    // If planetImageUrl is already provided, use it directly (no mapping needed)
+    if (mapped.planetImageUrl) {
+      delete mapped.planetImageIndex; // Clean up index if both are present
+      return mapped;
+    }
+
+    // Otherwise, map planetImageIndex to planetImageUrl
+    if (
+      mapped.planetImageIndex !== undefined &&
+      mapped.planetImageIndex >= 0 &&
+      mapped.planetImageIndex < PLANET_IMAGES.length
+    ) {
+      mapped.planetImageUrl = PLANET_IMAGES[mapped.planetImageIndex];
+      delete mapped.planetImageIndex; // Remove index from final config
+    }
+
+    return mapped;
   }
 
   /**

@@ -8,7 +8,7 @@ import {
 import { subscribeWithSelector } from "zustand/middleware";
 
 import type { DiamondFXController } from "@fx/frame";
-import { GalaxyStarfield } from "@fx/starfield";
+import type { GalaxyStarfield } from "@fx/starfield";
 import { createCombatSlice, type CombatSlice } from "./combatSlice";
 import { createHistorySlice, type HistorySlice } from "./historySlice";
 import { createSettingsSlice, type SettingsSlice } from "./settingsSlice";

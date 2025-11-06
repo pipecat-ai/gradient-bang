@@ -3,6 +3,8 @@ import { Card, CardContent, CardHeader } from "@/components/primitives/Card";
 import { Settings } from "@/dialogs/Settings";
 import useGameStore from "@/stores/game";
 
+import TitleVideo from "@assets/videos/title.mp4";
+
 export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
   const setActiveModal = useGameStore.use.setActiveModal();
 
@@ -10,7 +12,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
     <div className="relative h-screen w-screen overflow-hidden">
       <div className="absolute inset-0">
         <video
-          src="/videos/title.mp4"
+          src={TitleVideo}
           autoPlay
           muted
           loop
