@@ -1,33 +1,10 @@
-Let's create a semi-manual test of the new corporation system. We want to perform these actions in sequence and record the results, rather than write a test script.
 
-Character, corp, and ship names to use:
-  - Character: Admiral Jones | Corp: Admiral's Fleet | Ship: Admiral's Ship
-  - Character: Corporal Smith | Corp: Admiral's Fleet | Ship: Corporal's Ship
-  - Character: Hiro Protaganist | No corporation | Ship: Hiro's Ship
-  - Corp ship: Admiral's Fleet | Ship: Fleet Explorer
+- Rate limits in a database table? What about supabase rate limits?
+- Look at SQL tables (1.3)
+  - And "Complete Implementation Checklist" 
+- Examine tests/ -- what tests can we use unchanged?  
 
-First, create the three characters using the character_create.py script. Give them each 100,000 credits during creation. GOOGLE_API_KEY is loaded automatically from .env.
-
-From now on we should be able to use `scripts/run_npc.py` for all actions. This is part of what we're testing.
-
-Let's create a summaries file `test-actions.md` and record the results of each action as we perform them. For each of the following, perform the action as the character specified and record a summary of what you see in the task output, plus the final task message. Make a new section in the doc for each action. If any action fails, stop and show me the failure. Otherwise, perform all of these actions.
-
-- As Admiral Jones: Deposit 80,000 credits in the bank.
-- As Admiral Jones: Create the corp Admiral's Fleet.
-- As Corporal Smith: Join Admiral's Fleet.
-- As Admiral Jones: Purchase Fleet Explorer for the Admiral's Fleet corp, with 20,000 credits on board.
-- As Admiral Jones: Explore to find a sector three sectors away from sector 0. Go to that sector.
-- As Admiral Jones: Task Fleet Explorer to come to your sector.
-- As Admiral Jones: Go to a different, adjacent, sector.
-- As Admiral Jones: Deposit 10 defensive fighters in the sector.
-- As Admiral Jones: Go to sector 0.
-- As Hiro Protaganist: Go to the sector where Fleet Explorer is located, then to the sector where Admiral Jones left the fighters, then back to sector 0.
-- As Corporal Smith: Query all corp-visible events that happened in the past hour and summarize the sequence of events.
-
-
-
-
-
+----
 
 khkramer@boule:~/src/gradient-bang$ uv run scripts/character_create.py "Joe Player" --credits 100000
 ✓ Character created successfully.
