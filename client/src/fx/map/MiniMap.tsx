@@ -77,7 +77,7 @@ export const DEFAULT_MINIMAP_CONFIG: Omit<
     muted_lane: "rgba(80,80,80,0.4)",
     course_plot_start: "rgba(50,200,50,0.9)",
     course_plot_end: "rgba(220,50,50,0.9)",
-    course_plot_mid: "rgba(100,150,255,0.5)",
+    course_plot_mid: "rgba(190,160,255,1)",
   },
   grid_spacing: 30,
   hex_size: 20,
@@ -1445,11 +1445,74 @@ function renderWithCameraState(
   }
 }
 
+/** Render animated arrows on course plot lanes only */
+function renderCoursePlotAnimation(
+  canvas: HTMLCanvasElement,
+  props: MiniMapProps,
+  cameraState: CameraState,
+  animationOffset: number
+) {
+  const { width, height, config, coursePlot } = props;
+  if (!coursePlot) return;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
+  const hexSize = config.hex_size ?? gridSpacing * 0.85;
+  const scale = gridSpacing;
+
+  const sectorIndex = createSectorIndex(cameraState.filteredData);
+
+  ctx.save();
+  ctx.translate(width / 2, height / 2);
+  ctx.scale(cameraState.zoom, cameraState.zoom);
+  ctx.translate(cameraState.offsetX, cameraState.offsetY);
+
+  // Draw animated dashes on course plot lanes with glow effect
+  ctx.shadowBlur = 8;
+  ctx.shadowColor = "rgba(255,255,255,0.8)";
+  ctx.strokeStyle = "rgba(255,255,255,0.9)";
+  ctx.lineWidth = config.course_plot_lane_width + 1;
+  ctx.lineCap = "round";
+  ctx.setLineDash([12, 8]);
+  ctx.lineDashOffset = -animationOffset; // Animate by changing offset
+
+  for (let i = 0; i < coursePlot.path.length - 1; i++) {
+    const fromId = coursePlot.path[i];
+    const toId = coursePlot.path[i + 1];
+
+    const fromNode = sectorIndex.get(fromId);
+    const toNode = sectorIndex.get(toId);
+
+    if (!fromNode || !toNode) continue;
+
+    const fromCenter = hexToWorld(
+      fromNode.position[0],
+      fromNode.position[1],
+      scale
+    );
+    const toCenter = hexToWorld(toNode.position[0], toNode.position[1], scale);
+
+    const from = getHexEdgePoint(fromCenter, toCenter, hexSize);
+    const to = getHexEdgePoint(toCenter, fromCenter, hexSize);
+
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
 export interface MiniMapController {
   render: () => void;
   moveToSector: (newSectorId: number, newMapData?: MapData) => void;
   getCurrentState: () => CameraState | null;
   updateProps: (newProps: Partial<MiniMapProps>) => void;
+  startCourseAnimation: () => void;
+  stopCourseAnimation: () => void;
 }
 
 /** Create minimap controller with imperative API */
@@ -1461,6 +1524,8 @@ export function createMiniMapController(
   let currentProps = { ...props };
   let animationCleanup: (() => void) | null = null;
   let animationCompletionTimeout: number | null = null;
+  let courseAnimationFrameId: number | null = null;
+  let courseAnimationOffset = 0;
 
   const render = () => {
     const {
@@ -1518,6 +1583,12 @@ export function createMiniMapController(
       animationCompletionTimeout = null;
     }
 
+    // Temporarily stop course animation during transition
+    const wasAnimating = courseAnimationFrameId !== null;
+    if (wasAnimating) {
+      stopCourseAnimation();
+    }
+
     const updatedProps = {
       ...currentProps,
       data: newMapData ?? currentProps.data,
@@ -1542,24 +1613,89 @@ export function createMiniMapController(
         currentCameraState = getCurrentCameraState(updatedProps);
         animationCleanup = null;
         animationCompletionTimeout = null;
+        // Restart course animation if it was running
+        if (wasAnimating && updatedProps.coursePlot) {
+          startCourseAnimation();
+        }
       }, animDuration);
     } else {
       render();
+      // Restart course animation immediately if no camera animation
+      if (wasAnimating && updatedProps.coursePlot) {
+        startCourseAnimation();
+      }
     }
   };
 
   const getCurrentState = () => currentCameraState;
 
   const updateProps = (newProps: Partial<MiniMapProps>) => {
+    const hadCoursePlot =
+      currentProps.coursePlot !== undefined && currentProps.coursePlot !== null;
+    const hasCoursePlot =
+      newProps.coursePlot !== undefined && newProps.coursePlot !== null;
+
     Object.assign(currentProps, newProps);
     if (newProps.config) {
       Object.assign(currentProps.config, newProps.config);
+    }
+
+    // Start or stop animation based on coursePlot presence
+    if (hasCoursePlot && !hadCoursePlot) {
+      startCourseAnimation();
+    } else if (!hasCoursePlot && hadCoursePlot) {
+      stopCourseAnimation();
+    }
+  };
+
+  const startCourseAnimation = () => {
+    if (courseAnimationFrameId !== null) return; // Already running
+    if (!currentProps.coursePlot || !currentCameraState) return;
+
+    const animate = () => {
+      courseAnimationOffset = (courseAnimationOffset + 0.5) % 20; // Cycle through dash pattern smoothly
+
+      if (currentCameraState && currentProps.coursePlot) {
+        // Re-render the base map first to clear previous animation frame
+        render();
+        // Then draw animated dashes on top
+        renderCoursePlotAnimation(
+          canvas,
+          currentProps,
+          currentCameraState,
+          courseAnimationOffset
+        );
+      }
+
+      courseAnimationFrameId = requestAnimationFrame(animate);
+    };
+
+    courseAnimationFrameId = requestAnimationFrame(animate);
+  };
+
+  const stopCourseAnimation = () => {
+    if (courseAnimationFrameId !== null) {
+      cancelAnimationFrame(courseAnimationFrameId);
+      courseAnimationFrameId = null;
+      courseAnimationOffset = 0;
     }
   };
 
   render();
 
-  return { render, moveToSector, getCurrentState, updateProps };
+  // Start animation if coursePlot is already active
+  if (props.coursePlot) {
+    startCourseAnimation();
+  }
+
+  return {
+    render,
+    moveToSector,
+    getCurrentState,
+    updateProps,
+    startCourseAnimation,
+    stopCourseAnimation,
+  };
 }
 
 /** Render minimap canvas (stateless) */
