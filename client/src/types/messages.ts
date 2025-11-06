@@ -49,6 +49,7 @@ export interface MovementStartMessage extends ServerMessagePayload {
 export interface MovementCompleteMessage extends ServerMessagePayload {
   ship: ShipSelf;
   player: PlayerSelf;
+  first_visit?: boolean;
 }
 
 export interface MapLocalMessage extends ServerMessagePayload {

@@ -1,6 +1,62 @@
-# Quickstart (VSCode)
+<img width="640" src="docs/image.png" style="margin-bottom:20px;" />
 
-`CMD+SHIFT+B` (Run the build task `Dev Environment`)
+
+# Quickstart
+
+#### 1. Run Universe Bang to generate a world
+
+```bash
+mkdir world-data
+uv run scripts/universe-bang.py 5000 1234
+```
+
+#### 1. Start the game server
+
+```bash
+uv run game-server/server.py
+```
+
+#### 3. Create your character (note: game server must be running!)
+
+```bash
+uv run scripts/character_create.py
+```
+
+#### 4. Optional: Create a `.env` file and restart game server:
+
+```bash
+mv env.example .env
+# Set all fields
+# Get character_id from world-data/characters.json
+uv run game-server/server.py
+```
+
+#### 5. Run the Pipecat agent
+
+```bash
+uv run pipecat_server/bot.py
+```
+
+#### 6. Run the web client
+
+```bash
+cd client/
+pnpm i
+pnpm run dev
+```
+
+#### 7. Spawn NPCs to interact with
+
+```bash
+# Create a new player
+uv run scripts/character_create.py 
+
+# Test alle is gud by looking up the character
+uv run -m scripts.character_lookup "TestPlayer"
+
+# Run the NPC and tell it what to do
+uv run npc/run_npc.py <character_id> "Travel to sector 0 and send a message to player TraderP saying hello!"
+```
 
 # Notes
 

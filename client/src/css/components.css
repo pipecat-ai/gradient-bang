@@ -8,6 +8,18 @@
     }
   }
 
+  .focus-hover {
+    outline-style: none;
+    outline-width: 2px;
+    outline-color: var(--color-primary);
+    outline-offset: 3px;
+
+    &:focus-visible,
+    &:hover {
+      outline-style: solid;
+    }
+  }
+
   .mono-upper {
     font-family: var(--font-mono);
     font-weight: var(--font-weight-bold);

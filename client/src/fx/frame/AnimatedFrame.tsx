@@ -128,10 +128,10 @@ const DEFAULTS: InternalDiamondFXConfig = {
   timings: {
     in: 420,
     morph: 280,
-    blink: 260,
+    blink: 200,
     spin: 0,
-    split: 260,
-    refresh: 220,
+    split: 200,
+    refresh: 120,
   },
 };
 

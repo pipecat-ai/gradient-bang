@@ -10,13 +10,13 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-[length:100%_200%] bg-[position:0_0%] bg-gradient-to-t from-primary-foreground from-50% to-primary to-50% text-primary-foreground hover:bg-[position:0_100%] hover:text-primary transition-[background-position,color] outline-primary hover:outline-solid hover:animate-outline-pulse",
+          "bg-primary text-primary-foreground hover:bg-accent/80 hover:text-primary transition-[color] focus-hover hover:animate-outline-pulse",
         secondary:
-          "bg-primary/[.05] text-secondary-foreground hover:bg-primary hover:text-primary-foreground border-1 border-border hover:border-transparent outline-primary hover:outline-solid transition-[border,background,color] hover:animate-outline-pulse",
+          "bg-primary/[.05] text-secondary-foreground hover:bg-primary hover:text-primary-foreground border-1 border-border hover:border-transparent outline-primary hover:outline-solid transition-[color] focus-hover hover:animate-outline-pulse",
         ghost:
           "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
         link: "text-primary underline-offset-4 hover:underline",
-        tab: "relative bg-muted/40 text-primary hover:text-muted-foreground hover:bg-subtle/10 hover:text-primary border-1 border-subtle/40 hover:border-subtle/50 before:content-[''] before:absolute before:inset-x-px before:h-0 before:bottom-px before:bg-white/40 hover:before:h-1 before:transition-all before:duration-200 before:ease-in-out focus-outline",
+        tab: "relative bg-muted/40 text-primary hover:text-muted-foreground hover:bg-subtle/10 hover:text-primary border-1 border-subtle/40 hover:border-subtle/50 before:content-[''] before:absolute before:inset-x-px before:h-0 before:bottom-px before:bg-white/30 hover:before:h-1 before:transition-all before:duration-200 before:ease-in-out focus-outline",
       },
       active: {
         true: "",
@@ -38,7 +38,7 @@ const buttonVariants = cva(
         variant: "tab",
         active: true,
         class:
-          "hover:bg-subtle/10 bg-subtle/20 border-subtle/60 text-muted-foreground/40 hover:text-muted-foreground/40 before:bg-primary before:shadow-glow-sm before:h-1",
+          "hover:bg-terminal/10 bg-terminal/20 border-terminal/60 hover:border-terminal/60 text-terminal-foreground/20 hover:text-terminal-foreground/40 before:bg-terminal-foreground before:shadow-glow-sm before:shadow-terminal-foreground before:h-1",
       },
     ],
     defaultVariants: {

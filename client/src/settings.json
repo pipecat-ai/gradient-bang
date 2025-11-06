@@ -3,5 +3,6 @@
     "enableMic": true,
     "disableRemoteAudio": false,
     "saveSettings": true,
-    "bypassTitleScreen": false
+    "bypassTitleScreen": false,
+    "showMobileWarning": true
 }

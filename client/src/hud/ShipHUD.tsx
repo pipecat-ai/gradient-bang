@@ -1,6 +1,3 @@
-import { ConnectionStatusBadge } from "@/components/ConnectionStatusBadge";
-import { SectorPlayersBadge } from "@/components/SectorPlayersBadge";
-import { TaskStatusBadge } from "@/components/TaskStatusBadge";
 import useGameStore from "@/stores/game";
 import MiniMap from "@hud/MiniMap";
 import { RHS } from "@hud/RHS";
@@ -23,11 +20,6 @@ export const ShipHUD = () => {
               height={400}
             />
           )}
-        </div>
-        <div className="flex flex-row gap-2 mt-2">
-          <TaskStatusBadge />
-          <SectorPlayersBadge />
-          <ConnectionStatusBadge />
         </div>
       </div>
       <RHS />

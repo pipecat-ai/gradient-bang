@@ -19,20 +19,22 @@
   --secondary: var(--color-neutral-800);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --muted-foreground: oklch(87% 0 0);
+  --accent: oklch(37.1% 0 0);
+  --accent-foreground: oklch(43.9% 0 0);
   --destructive: oklch(0.396 0.141 25.723);
   --destructive-foreground: oklch(0.637 0.237 25.331);
+  --warning: oklch(82.8% 0.189 84.429);
+  --warning-foreground: oklch(82.8% 0.189 84.429);
   --border: var(--color-neutral-600);
   --input: oklch(0.708 0 0);
   --ring: oklch(0.439 0 0);
   --popover: var(--background);
   --terminal: #dcfd38;
-  --terminal-foreground: oklch(0.985 0 0);
+  --terminal-foreground: #f5ffc6;
 
   --grid-opacity: 0.25;
-  --screen-bg-feather: 18px;
+  --screen-bg-feather: 20px;
   --hud-center: 330px;
 
   --elbow-size: 1rem;
@@ -73,6 +75,8 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -80,6 +84,8 @@
 
   --color-terminal: var(--terminal);
   --color-terminal-foreground: var(--terminal-foreground);
+  --color-screen-background: rgba(0, 0, 0, 0.8);
+  --color-screen-foreground: rgba(255, 255, 255, 1);
 
   /** UI **/
   --spacing-ui-sm: calc(var(--spacing) * 4);
@@ -96,9 +102,6 @@
 
   --shadow-glow-sm: 0 0 10px 1px var(--color-primary);
   --text-shadow-hud: 0 0 12px rgba(0, 0, 0, 0.6);
-
-  --color-screen-background: rgba(0, 0, 0, 0.6);
-  --color-screen-foreground: rgba(255, 255, 255, 1);
 
   --dot-gap-lg: 24px;
   --dot-size-lg: 1.5px;

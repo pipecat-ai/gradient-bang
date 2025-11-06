@@ -3,11 +3,12 @@ import { cva, type VariantProps } from "class-variance-authority";
 import * as React from "react";
 import { ScrollArea } from "./ScrollArea";
 
-const cardVariants = cva("bg-card text-card-foreground flex flex-col", {
+const cardVariants = cva("text-card-foreground flex flex-col", {
   variants: {
     variant: {
       default: "bg-card text-card-foreground border",
       secondary: "bg-secondary/80 backdrop-blur-sm text-secondary-foreground",
+      stripes: "bg-card shrink-0 stripe-frame",
     },
     size: {
       none: "",
@@ -26,6 +27,21 @@ const cardVariants = cva("bg-card text-card-foreground flex flex-col", {
     },
   },
   compoundVariants: [
+    {
+      variant: "stripes",
+      size: "default",
+      class: "stripe-frame-ui-md",
+    },
+    {
+      variant: "stripes",
+      size: "lg",
+      class: "stripe-frame-ui-lg",
+    },
+    {
+      variant: "stripes",
+      size: "xl",
+      class: "stripe-frame-ui-xl",
+    },
     {
       scrollable: true,
       size: ["none", "default", "lg", "xl"],

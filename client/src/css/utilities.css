@@ -115,7 +115,7 @@
 
 @utility cross-lines-* {
   position: relative;
-  --cross-color: --value(--color- *);
+  --cross-color: --value(--color- *, [color], --cross-color);
   --cross-opacity: calc(--modifier(integer) * 1%);
   --cross-offset: 1px;
   --cross-width: 1px;
@@ -150,4 +150,69 @@
       calc(100% - var(--cross-width)) 0
     );
   }
+}
+
+@utility stripe-frame {
+  --stripe-inset: 12px;
+  --stripe-border: var(--stripe-inset);
+  --stripe-size: 20px;
+  --stripe-gap: calc(var(--stripe-size) / 2);
+  --stripe-color: var(--color-foreground);
+  --stripe-opacity: 100%;
+
+  position: relative;
+  overflow: hidden;
+
+  & > [data-slot^="card-"] {
+    margin-inline: var(--stripe-inset);
+  }
+
+  & > [data-slot^="card-"]:first-child {
+    margin-top: var(--stripe-inset);
+  }
+
+  & > [data-slot^="card-"]:last-child {
+    margin-bottom: var(--stripe-inset);
+  }
+
+  &:before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent var(--stripe-gap),
+      var(--stripe-color) var(--stripe-gap),
+      var(--stripe-color) var(--stripe-size)
+    );
+    mask-image: linear-gradient(
+        to right,
+        black 0,
+        black var(--stripe-border),
+        transparent var(--stripe-border),
+        transparent calc(100% - var(--stripe-border)),
+        black calc(100% - var(--stripe-border))
+      ),
+      linear-gradient(
+        to bottom,
+        black 0,
+        black var(--stripe-border),
+        transparent var(--stripe-border),
+        transparent calc(100% - var(--stripe-border)),
+        black calc(100% - var(--stripe-border))
+      );
+    mask-composite: add;
+    -webkit-mask-composite: source-over;
+    pointer-events: none;
+    opacity: var(--stripe-opacity);
+    z-index: 0;
+  }
+}
+
+@utility stripe-frame-* {
+  --stripe-inset: --value(--spacing- *);
+  --stripe-inset: --spacing(--value(integer));
+  --stripe-color: --value(--color- *);
+  --stripe-opacity: calc(--modifier(integer) * 1%);
 }

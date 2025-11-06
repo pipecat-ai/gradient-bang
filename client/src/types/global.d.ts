@@ -10,7 +10,8 @@ declare global {
 
   interface PlayerSelf extends PlayerBase {
     credits_in_bank: number;
-    credits_on_hand: number;
+    sectors_visited: number;
+    universe_size: number;
   }
 
   interface Player extends PlayerBase {
@@ -26,29 +27,45 @@ declare global {
   // --- SHIP
 
   interface Ship {
-    fighters?: number;
-    shields?: number;
     ship_name: string;
     ship_type: string;
+    fighters?: number;
+    shields?: number;
+
+    // Combat-related (Player / NPC)
+    shield_integrity?: number;
+    shield_damage?: number;
+    fighter_loss?: number;
   }
 
   interface ShipType {
     id: string;
+    name: string;
     max_cargo: number;
     max_fighters: number;
     max_holds: number;
     max_shields: number;
     max_warp_power: number;
-    name: string;
   }
 
   interface ShipSelf extends Ship {
-    credits: number;
     cargo: Record<Resource, number>;
     cargo_capacity: number;
     empty_holds: number;
     warp_power: number;
     warp_power_capacity: number;
+    credits: number;
+  }
+
+  // --- GARRISON
+
+  interface Garrison {
+    id: string;
+    fighters: number;
+    fighter_loss: number;
+    mode: "offensive" | "defensive" | "toll";
+    toll_amount: number;
+    deployed_at?: string;
   }
 
   // --- REGION AND SECTOR
@@ -74,8 +91,8 @@ declare global {
     scene_config?: unknown;
 
     // Not yet implemented
-    garrisons?: [];
-    salvage?: [];
+    garrisons?: Garrison[];
+    salvage?: Salvage[];
   }
 
   interface Planet {
@@ -86,6 +103,7 @@ declare global {
 
   interface Salvage {
     salvage_id: string;
+    source?: Ship;
 
     cargo?: Record<Resource, number>;
     credits?: number;
@@ -162,6 +180,7 @@ declare global {
     from: number;
     to: number;
     port: boolean;
+    last_visited?: string;
   }
 
   // --- UI

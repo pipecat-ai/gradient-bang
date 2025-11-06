@@ -11,6 +11,7 @@ import { ScrollArea } from "@/components/primitives/ScrollArea";
 import { Separator } from "@/components/primitives/Separator";
 import { ScreenContainer } from "@/screens/ScreenContainer";
 import { ScreenMenu } from "@/screens/ScreenMenu";
+import Error from "@/views/Error";
 import Game from "@/views/Game";
 import JoinStatus from "@/views/JoinStatus";
 import ViewContainer from "@/views/ViewContainer";
@@ -21,7 +22,7 @@ import React from "react";
 
 export const DotStory: Story = () => (
   <div className="relative w-full h-screen">
-    <div className="w-full h-full bg-dotted-sm bg-center">aa</div>
+    <div className="w-full h-full bg-dotted-sm bg-center">DOTS</div>
   </div>
 );
 
@@ -54,6 +55,7 @@ ScreenMenuUI.meta = {
 export const GameUI: Story = () => (
   <div className="relative w-full h-screen">
     <Game />
+    <AnimatedFrame />
   </div>
 );
 
@@ -188,5 +190,58 @@ export const ScrollableFooterDialog: Story = () => {
 };
 
 ScrollableFooterDialog.meta = {
+  disconnectedStory: true,
+};
+
+export const CardStory: Story = () => (
+  <div className="flex flex-col gap-4">
+    <Card variant="stripes">
+      <CardContent>Hello</CardContent>
+    </Card>
+
+    <Card variant="stripes" className="stripe-frame-destructive-foreground">
+      <CardContent>Hello</CardContent>
+    </Card>
+
+    <Card variant="stripes" size="lg">
+      <CardContent>Hello</CardContent>
+    </Card>
+
+    <Card variant="stripes" className="stripe-frame-blue-500/20">
+      <CardContent>Hello</CardContent>
+    </Card>
+
+    <Card
+      variant="stripes"
+      className="stripe-frame-white/50 border border-white bg-white/10 stripe-frame-ui-sm"
+    >
+      <CardContent>Custom stripe size override</CardContent>
+    </Card>
+  </div>
+);
+
+CardStory.meta = {
+  disconnectedStory: true,
+};
+
+export const ErrorCardStory: Story = () => <Error>Connection Error</Error>;
+
+ErrorCardStory.meta = {
+  disconnectedStory: true,
+};
+
+export const ButtonStory: Story = () => (
+  <div className="flex flex-col gap-4">
+    <Button>Primary</Button>
+    <Button variant="secondary">Secondary</Button>
+    <Button variant="ghost">Ghost</Button>
+
+    <Button size="sm">Small</Button>
+    <Button size="lg">Large</Button>
+    <Button size="xl">XLarge</Button>
+  </div>
+);
+
+ButtonStory.meta = {
   disconnectedStory: true,
 };

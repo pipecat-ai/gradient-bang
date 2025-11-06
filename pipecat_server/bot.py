@@ -331,8 +331,8 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 max_hops_raw = msg_data.get("max_hops")
 
                 max_hops = int(max_hops_raw) if max_hops_raw is not None else 3
-                if max_hops < 0 or max_hops > 12:
-                    raise ValueError("max_hops must be between 0 and 12")
+                if max_hops < 0 or max_hops > 100:
+                    raise ValueError("max_hops must be between 0 and 100")
 
                 max_sectors = (
                     int(max_sectors_raw) if max_sectors_raw is not None else 1000

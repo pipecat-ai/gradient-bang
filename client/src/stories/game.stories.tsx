@@ -6,6 +6,7 @@ import {
 import { CaptainsLogPanel } from "@/components/CaptainsLogPanel";
 import { CargoCapacityBadge } from "@/components/CargoCapacityBadge";
 import { CoursePlotPanel } from "@/components/CoursePlotPanel";
+import { MovementHistoryPanel } from "@/components/MovementHistoryPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { WarpBadge } from "@/components/WarpBadge";
 import { useGameContext } from "@/hooks/useGameContext";
@@ -107,18 +108,26 @@ export const Init: Story = () => {
 
         <div className="story-card bg-card">
           <h3 className="story-heading">Local Area Map:</h3>
+          <ul className="story-value-list">
+            <li>Sectors visited: {player?.sectors_visited}</li>
+            <li>Universe size: {player?.universe_size}</li>
+          </ul>
           {sector && localMapData && (
-            <MiniMap
-              current_sector_id={sector.id}
-              map_data={localMapData}
-              width={440}
-              height={440}
-              maxDistance={2}
-              config={{ debug: true }}
-            />
+            <div className="w-[440px] h-[520px]">
+              <MiniMap
+                current_sector_id={sector.id}
+                map_data={localMapData}
+                width={440}
+                height={440}
+                maxDistance={2}
+                config={{ debug: true }}
+              />
+            </div>
           )}
           <Divider />
           <CoursePlotPanel />
+          <Divider />
+          <MovementHistoryPanel />
         </div>
 
         <div className="story-card bg-card">

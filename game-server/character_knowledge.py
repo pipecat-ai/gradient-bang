@@ -582,7 +582,7 @@ class CharacterKnowledgeManager:
         position: Tuple[int, int] = (0, 0),
         planets: Optional[List[dict]] = None,
         adjacent_sectors: Optional[List[int]] = None,
-    ) -> None:
+    ) -> bool:
         lock = self._locks.setdefault(character_id, threading.Lock())
         with lock:
             knowledge = self.load_knowledge(character_id)
@@ -593,7 +593,8 @@ class CharacterKnowledgeManager:
         if knowledge.first_visit is None:
             knowledge.first_visit = now
 
-        if sector_key not in knowledge.sectors_visited:
+        is_first_visit = sector_key not in knowledge.sectors_visited
+        if is_first_visit:
             knowledge.total_sectors_visited += 1
 
         sector_knowledge = SectorKnowledge(
@@ -615,6 +616,7 @@ class CharacterKnowledgeManager:
         knowledge.last_update = now
         knowledge.current_sector = sector_id
         self.save_knowledge(knowledge)
+        return is_first_visit
 
     def update_port_observation(
         self,

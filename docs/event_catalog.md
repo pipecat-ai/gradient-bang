@@ -559,6 +559,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "name": "trader",
     "credits_in_bank": 0
   },
+  "first_visit": true,
   "sector": {
     "id": 43,
     "adjacent_sectors": [42, 44, 50, 51],
@@ -592,6 +593,9 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
   }
 }
 ```
+
+**Notes:**
+- `first_visit` is `true` the first time the mover enters a sector and `false` on revisits.
 
 ### map.knowledge
 **When emitted:** When a character invokes the `my_map` RPC to retrieve their stored map knowledge

@@ -29,7 +29,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
           </CardHeader>
           <CardContent className="flex flex-col items-center justify-center gap-5">
             <Button onClick={onViewNext} className="w-full" size="xl">
-              Start
+              Join
             </Button>
             <Button
               onClick={() => setActiveModal("settings")}

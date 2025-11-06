@@ -22,7 +22,7 @@ export const RHS = () => {
             size="md"
             childrenClassName="text-xs shrink-0 w-fit opacity-50 uppercase"
           >
-            Task status
+            Input controls
           </Divider>
           <UserAudioControl size="lg" variant="outline" />
           <TextInput

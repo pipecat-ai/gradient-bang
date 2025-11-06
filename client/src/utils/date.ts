@@ -24,6 +24,13 @@ export function formatTimeAgoOrDate(
   return format(date, "MMM d, h:mm a");
 }
 
+export function formatDate(value: string | Date | undefined | null): string {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (isNaN(date.getTime())) return "";
+  return format(date, "MMM d, h:mm a");
+}
+
 export function combatRoundTimeRemaining(
   deadline: string,
   currentTime: string
