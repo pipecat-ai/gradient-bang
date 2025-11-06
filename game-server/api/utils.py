@@ -11,7 +11,6 @@ from fastapi import HTTPException
 from ships import ShipType, get_ship_stats
 from trading import get_port_prices, get_port_stock
 
-from sector import generate_scene_variant
 from rpc.events import EventLogContext
 
 if TYPE_CHECKING:
@@ -665,7 +664,14 @@ async def sector_contents(
             )
 
     # Scene config
-    # @TODO: we should be storing / retrieving this from the game world
+    scene_config = None
+    if hasattr(world, "sector_contents") and isinstance(world.sector_contents, dict):
+        sectors = world.sector_contents.get("sectors")
+        if sectors and isinstance(sectors, list) and 0 <= sector_id < len(sectors):
+            sector_data = sectors[sector_id]
+            if isinstance(sector_data, dict):
+                scene_config = sector_data.get("scene_config")
+
     return {
         "id": sector_id,
         "adjacent_sectors": adjacent_sectors,
@@ -674,7 +680,7 @@ async def sector_contents(
         "garrison": garrison,
         "salvage": salvage,
         "unowned_ships": unowned_ships,
-        "scene_config": generate_scene_variant(sector_id),
+        "scene_config": scene_config,
     }
 
 

@@ -3,7 +3,6 @@ Starfield Scene Generator
 Generates random scene configurations compatible with the TypeScript SceneManager
 """
 
-import json
 import copy
 import random
 from dataclasses import dataclass, asdict
@@ -46,7 +45,7 @@ class StarfieldSceneConfig:
     cloudsIterSecondary: Optional[int] = None
     cloudsDomainScale: Optional[float] = None
     cloudsSpeed: Optional[float] = None
-    planetImageUrl: Optional[str] = None
+    planetImageIndex: Optional[int] = None  # Index (0-8) for client to map to bundled asset
     planetScale: Optional[float] = None
     planetPositionX: Optional[float] = None
     planetPositionY: Optional[float] = None
@@ -64,11 +63,9 @@ NEBULA_PALETTES = [
     NebulaPalette("mintCoral", RGBColor(0.5, 0.95, 0.8), RGBColor(1.0, 0.45, 0.45), RGBColor(0.85, 0.8, 0.8)),
 ]
 
-PLANET_IMAGES = [
-    "/images/skybox-1.png", "/images/skybox-2.png", "/images/skybox-3.png",
-    "/images/skybox-4.png", "/images/skybox-5.png", "/images/skybox-6.png",
-    "/images/skybox-7.png", "/images/skybox-8.png", "/images/skybox-9.png",
-]
+# Number of planet images available on client (skybox-1 through skybox-9)
+PLANET_IMAGE_COUNT = 9
+
 
 
 # Example scene to test with
@@ -90,7 +87,7 @@ DEFAULT_SCENE_VARIANT = StarfieldSceneConfig(
     cloudsIterSecondary=5,
     cloudsDomainScale=1.1171601050299351,
     cloudsSpeed=0.0018857592386780921,
-    planetImageUrl="/images/skybox-5.png",
+    planetImageIndex=4,  # skybox-5 (0-based index)
     planetScale=2.455725807687239,
     planetPositionX=-108.8674861508628,
     planetPositionY=-19.475426289700927,
@@ -120,7 +117,7 @@ def generate_scene_variant(sector_id: int, overrides: Optional[Dict[str, Any]] =
 
     rng = random.Random(sector_id)
     random_nebula = rng.choice(NEBULA_PALETTES)
-    random_planet = rng.choice(PLANET_IMAGES)
+    random_planet_index = rng.randint(0, PLANET_IMAGE_COUNT - 1)
     
     config = StarfieldSceneConfig(
         nebulaColor1=random_nebula.c1,
@@ -139,7 +136,7 @@ def generate_scene_variant(sector_id: int, overrides: Optional[Dict[str, Any]] =
         cloudsIterSecondary=rng.randint(1, 10),
         cloudsDomainScale=rng.uniform(0.5, 1.49),
         cloudsSpeed=rng.uniform(0.001, 0.006),
-        planetImageUrl=random_planet,
+        planetImageIndex=random_planet_index,
         planetScale=rng.uniform(2.0, 6.0),
         planetPositionX=(rng.random() - 0.5) * 400,
         planetPositionY=(rng.random() - 0.5) * 400,
