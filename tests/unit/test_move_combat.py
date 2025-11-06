@@ -51,7 +51,7 @@ def _build_world(character_id: str, *, encounter=None):
     knowledge_manager = SimpleNamespace(
         load_knowledge=MagicMock(return_value=knowledge),
         save_knowledge=MagicMock(),
-        update_sector_visit=MagicMock(),
+        update_sector_visit=MagicMock(return_value=False),
         get_credits=MagicMock(return_value=0),
         get_ship=MagicMock(side_effect=lambda cid: get_ship(cid)),
     )
@@ -301,3 +301,63 @@ async def test_move_emits_garrison_character_moved_event(monkeypatch):
         "toll_amount": 0,
         "deployed_at": "2025-11-03T00:00:00Z",
     }
+
+
+@pytest.mark.asyncio
+async def test_move_updates_sector_before_movement_complete(monkeypatch):
+    character_id = "scout"
+    world = _build_world(character_id, encounter=None)
+
+    call_order: list[str] = []
+
+    def _record_update(**kwargs):
+        call_order.append("update")
+        return True
+
+    world.knowledge_manager.update_sector_visit = MagicMock(side_effect=_record_update)
+
+    monkeypatch.setattr(move, "ensure_not_in_combat", AsyncMock())
+    monkeypatch.setattr(
+        move,
+        "sector_contents",
+        AsyncMock(
+            side_effect=[
+                {"port": None, "adjacent_sectors": [], "planets": []},
+                {"port": None, "adjacent_sectors": [], "planets": []},
+            ]
+        ),
+    )
+
+    def _player_self(_world, cid):
+        call_order.append("player_self")
+        return {"player_id": cid}
+
+    def _ship_self(_world, cid):
+        call_order.append("ship_self")
+        return {"ship_id": cid}
+
+    monkeypatch.setattr(move, "player_self", _player_self)
+    monkeypatch.setattr(move, "ship_self", _ship_self)
+    monkeypatch.setattr(move, "build_local_map_region", AsyncMock(return_value={"map": True}))
+    monkeypatch.setattr(move, "build_character_combatant", MagicMock())
+    emit_mock = AsyncMock()
+    monkeypatch.setattr(move.event_dispatcher, "emit", emit_mock)
+    monkeypatch.setattr(move.asyncio, "sleep", AsyncMock())
+
+    request = {
+        "character_id": character_id,
+        "to_sector": 1,
+        "request_id": "req-first-visit",
+    }
+
+    await move.handle(request, world)
+
+    movement_calls = [
+        recorded_call
+        for recorded_call in emit_mock.await_args_list
+        if recorded_call.args and recorded_call.args[0] == "movement.complete"
+    ]
+    assert movement_calls, "Expected movement.complete emission"
+    payload = movement_calls[0].args[1]
+    assert payload["first_visit"] is True
+    assert call_order[:3] == ["update", "player_self", "ship_self"]

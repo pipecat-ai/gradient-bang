@@ -225,6 +225,15 @@ async def handle(request: dict, world) -> dict:
         # Send movement.complete and map.local events to the character
         # get sector contents again in case things changed
         new_sector_contents = await sector_contents(world, to_sector, character_id)
+
+        is_first_visit = world.knowledge_manager.update_sector_visit(
+            character_id=character_id,
+            sector_id=character.sector,
+            port=new_sector_contents.get("port"),
+            planets=new_sector_contents.get("planets", []),
+            adjacent_sectors=new_sector_contents.get("adjacent_sectors", []),
+        )
+
         move_complete_context = build_log_context(
             character_id=character_id,
             world=world,
@@ -236,19 +245,10 @@ async def handle(request: dict, world) -> dict:
                 "player": player_self(world, character_id),
                 "ship": ship_self(world, character_id),
                 "sector": new_sector_contents,
+                "first_visit": bool(is_first_visit),
             },
             character_filter=[character_id],
             log_context=move_complete_context,
-        )
-
-        # Update sector visit in knowledge manager before sending map data so the
-        # newly discovered sector is included in the BFS expansion.
-        world.knowledge_manager.update_sector_visit(
-            character_id=character_id,
-            sector_id=character.sector,
-            port=new_sector_contents.get("port"),
-            planets=new_sector_contents.get("planets", []),
-            adjacent_sectors=new_sector_contents.get("adjacent_sectors", []),
         )
 
         map_data = await build_local_map_region(
