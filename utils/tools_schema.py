@@ -66,6 +66,7 @@ class LeaderboardResources(GameClientTool):
                 "includes players (with exploration percentage) and corporations, "
                 "sorted by total resources."
             ),
+            properties={},
             required=[],
         )
 
