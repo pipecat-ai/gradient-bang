@@ -65,7 +65,7 @@ from utils.tools_schema import (
     LeaveCorporation,
     KickCorporationMember,
     PurchaseShip,
-    # EventQuery,
+    EventQuery,
     SalvageCollect,
     SendMessage,
     RechargeWarpPower,
@@ -287,7 +287,7 @@ class TaskAgent:
             LeaveCorporation,
             KickCorporationMember,
             PurchaseShip,
-            # EventQuery,
+            EventQuery,
             DumpCargo,
             SalvageCollect,
             SendMessage,
@@ -335,6 +335,7 @@ class TaskAgent:
             "combat.action_accepted",
             "chat.message",
             "idle.complete",
+            "event.query",
             "error",
         ]
         for event_name in self._event_names:
