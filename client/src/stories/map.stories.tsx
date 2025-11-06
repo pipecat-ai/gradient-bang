@@ -1,9 +1,71 @@
 import type { Story } from "@ladle/react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { DiscoveredPortsPanel } from "@/components/DiscoveredPortsPanel";
 import { MiniMap as MiniMapComponent, type MiniMapConfig } from "@hud/MiniMap";
 import { Button } from "@pipecat-ai/voice-ui-kit";
+
+import { GET_MAP_REGION } from "@/actions/dispatch";
+import { useGameContext } from "@/hooks/useGameContext";
+import useGameStore from "@/stores/game";
+import { MapScreen } from "@screens/MapScreen";
+
+export const MapPanelStory: Story = () => {
+  const { dispatchEvent } = useGameContext();
+  const [maxHops, setMaxHops] = useState(50);
+  const [fromSectorId, setFromSectorId] = useState(0);
+  const sector = useGameStore.use.sector?.();
+
+  useEffect(() => {
+    setFromSectorId(sector?.id ?? 0);
+  }, [sector]);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3">
+        {sector && (
+          <div className="flex flex-row w-full gap-3">
+            <input
+              type="number"
+              value={sector?.id ?? 0}
+              onChange={(e) => setFromSectorId(Number(e.target.value))}
+            />
+            <input
+              type="range"
+              min={1}
+              max={100}
+              value={maxHops ?? 50}
+              onChange={(e) => setMaxHops(Number(e.target.value))}
+              className="w-full"
+            />
+            <span className="text-sm font-medium min-w-max">
+              Sectors to hop: {maxHops}
+            </span>
+          </div>
+        )}
+        <Button
+          onClick={() =>
+            dispatchEvent({
+              ...GET_MAP_REGION,
+              payload: {
+                center_sector: fromSectorId,
+                max_hops: maxHops,
+              },
+            })
+          }
+        >
+          Get regional map
+        </Button>
+      </div>
+      <MapScreen />
+    </div>
+  );
+};
+
+MapPanelStory.meta = {
+  enableMic: false,
+  disableAudioOutput: true,
+};
 
 const storyData: MapData = [
   {
@@ -36,7 +98,7 @@ const storyData: MapData = [
     id: 126,
     visited: false,
     hops_from_center: 2,
-    position: [128, 129],
+    position: [128, 133],
     port: "",
     lanes: [
       {
@@ -345,6 +407,7 @@ export const MiniMapMock: Story = () => {
 
   const config: MiniMapConfig = {
     bypass_animation: bypassAnimation,
+    debug: true,
   };
 
   return (

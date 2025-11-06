@@ -38,6 +38,8 @@ export interface MiniMapConfigBase {
   show_ports: boolean;
   show_hyperlanes: boolean;
   show_partial_lanes: boolean;
+  /** Maximum distance in hex tiles from current sector to include in bounds calculation. Sectors beyond this distance are ignored for framing but still rendered if within maxDistance hops. */
+  max_bounds_distance?: number;
 }
 
 export const DEFAULT_MINIMAP_CONFIG: Omit<
@@ -82,6 +84,7 @@ export const DEFAULT_MINIMAP_CONFIG: Omit<
   show_ports: true,
   show_hyperlanes: false,
   show_partial_lanes: true,
+  max_bounds_distance: 7,
 };
 
 export interface MiniMapProps {
@@ -255,20 +258,49 @@ function calculateSectorBounds(
 /** Calculate camera transform to optimally frame all connected sectors */
 function calculateCameraTransform(
   data: MapData,
-  _currentSectorId: number,
+  currentSectorId: number,
   width: number,
   height: number,
   scale: number,
   hexSize: number,
-  framePadding = 0
+  framePadding = 0,
+  maxBoundsDistanceHexes?: number
 ): { offsetX: number; offsetY: number; zoom: number } {
-  const bounds = calculateSectorBounds(data, scale, hexSize);
+  // Filter data for bounds calculation if maxBoundsDistanceHexes is set
+  let boundsData = data;
+  if (maxBoundsDistanceHexes !== undefined) {
+    const currentSector = data.find((s) => s.id === currentSectorId);
+    if (currentSector) {
+      // Convert hex tile units to world-space distance
+      // Using vertical spacing (scale * sqrt(3)) as the base unit for hex distance
+      const maxWorldDistance = maxBoundsDistanceHexes * scale * Math.sqrt(3);
+
+      const currentWorld = hexToWorld(
+        currentSector.position[0],
+        currentSector.position[1],
+        scale
+      );
+      boundsData = data.filter((node) => {
+        const world = hexToWorld(node.position[0], node.position[1], scale);
+        const dx = world.x - currentWorld.x;
+        const dy = world.y - currentWorld.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        return distance <= maxWorldDistance;
+      });
+      // Ensure we have at least the current sector
+      if (boundsData.length === 0) {
+        boundsData = [currentSector];
+      }
+    }
+  }
+
+  const bounds = calculateSectorBounds(boundsData, scale, hexSize);
   const boundsWidth = Math.max(bounds.maxX - bounds.minX, hexSize);
   const boundsHeight = Math.max(bounds.maxY - bounds.minY, hexSize);
 
   const scaleX = (width - framePadding * 2) / boundsWidth;
   const scaleY = (height - framePadding * 2) / boundsHeight;
-  const zoom = Math.min(scaleX, scaleY, 1.5);
+  const zoom = Math.max(0.3, Math.min(scaleX, scaleY, 1.5));
 
   const centerX = (bounds.minX + bounds.maxX) / 2;
   const centerY = (bounds.minY + bounds.maxY) / 2;
@@ -837,7 +869,8 @@ function calculateCameraState(
     height,
     scale,
     hexSize,
-    config.frame_padding ?? 0
+    config.frame_padding ?? 0,
+    config.max_bounds_distance
   );
 
   return {

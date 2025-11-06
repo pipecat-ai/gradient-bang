@@ -180,6 +180,7 @@ declare global {
     from: number;
     to: number;
     port: boolean;
+    last_visited?: string;
   }
 
   // --- UI

@@ -3,6 +3,8 @@ import type { StateCreator } from "zustand";
 
 import { createLogEntrySignature } from "@/utils/game";
 
+const MAX_MOVEMENT_HISTORY = 50;
+
 export interface HistorySlice {
   activity_log: LogEntry[];
   addActivityLogEntry: (entry: LogEntry) => void;
@@ -47,15 +49,20 @@ export const createHistorySlice: StateCreator<HistorySlice> = (set) => ({
       })
     ),
   movement_history: [],
-  addMovementHistory: (history: Omit<MovementHistory, "timestamp">) =>
-    set(
+  addMovementHistory: (history: Omit<MovementHistory, "timestamp">) => {
+    return set(
       produce((state) => {
         state.movement_history.push({
           ...history,
           timestamp: new Date().toISOString(),
         });
+        // Keep only the last MAX_MOVEMENT_HISTORY entries
+        if (state.movement_history.length > MAX_MOVEMENT_HISTORY) {
+          state.movement_history.shift(); // Remove oldest entry
+        }
       })
-    ),
+    );
+  },
 
   setKnownPorts: (ports: Sector[]) =>
     set(

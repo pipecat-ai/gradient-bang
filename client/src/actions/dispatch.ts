@@ -10,5 +10,5 @@ export const GET_KNOWN_PORT_LIST = {
 
 export const GET_MAP_REGION = {
   type: "get-my-map",
-  payload: { center_sector: 0, max_hops: 8 },
+  payload: { center_sector: 0, max_hops: 3, max_sectors: 1000 },
 };

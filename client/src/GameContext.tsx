@@ -2,7 +2,11 @@ import { RTVIEvent } from "@pipecat-ai/client-js";
 import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react";
 import { useCallback, useEffect, useRef, type ReactNode } from "react";
 
-import { checkForNewSectors, startMoveToSector } from "@/actions";
+import {
+  checkForNewSectors,
+  getLastVisitForSector,
+  startMoveToSector,
+} from "@/actions";
 import { GameContext } from "@/hooks/useGameContext";
 import { wait } from "@/utils/animation";
 import {
@@ -275,10 +279,16 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               });
 
               // Add entry to movement history
+              // @TODO: data should come from game-server in this event
+              const lastVisit = getLastVisitForSector(
+                gameStore.sectorBuffer?.id ?? 0
+              );
+
               gameStore.addMovementHistory({
                 from: gameStore.sector?.id ?? 0,
                 to: gameStore.sectorBuffer?.id ?? 0,
                 port: !!gameStore.sectorBuffer?.port,
+                last_visited: lastVisit,
               });
 
               // Update activity log
@@ -287,9 +297,6 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
                 type: "movement",
                 message: `Moved from sector ${gameStore.sector?.id} to sector ${gameStore.sectorBuffer?.id}`,
               });
-
-              // If this is our first time here, update log with discovery
-              // @TODO: implement
 
               // Swap in the buffered sector
               // Note: Starfield instance already in sync through animation sequencing
@@ -416,7 +423,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               );
 
               if (newSectors.length > 0) {
-                console.log(
+                console.debug(
                   `[GAME EVENT] Discovered ${newSectors.length} new sectors!`,
                   newSectors
                 );
