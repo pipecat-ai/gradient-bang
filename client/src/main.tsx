@@ -7,6 +7,7 @@ import { GameProvider } from "@/GameContext";
 import { getLocalSettings } from "@/utils/settings";
 import { ViewContainer } from "@/views/ViewContainer";
 
+import { TempMobileBlock } from "@/components/TempMobileBlock";
 import "./css/index.css";
 
 // @TODO: Rather than apply during instantiation, we should
@@ -36,6 +37,7 @@ createRoot(document.getElementById("root")!).render(
 
         {/* HOC renderables */}
         <AnimatedFrame />
+        {Settings.showMobileWarning && <TempMobileBlock />}
       </GameProvider>
     )}
   </PipecatAppBase>
