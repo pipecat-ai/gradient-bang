@@ -922,6 +922,42 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 }
 ```
 
+## Fighter Events
+
+### fighter.purchase
+**When emitted:** When a character buys fighters at the sector 0 armory via `/api/purchase_fighters`.
+**Who receives it:** Only the purchasing character (character_filter).
+**Source:** `/game-server/api/purchase_fighters.py`
+
+**Payload example:**
+```json
+{
+  "source": {
+    "type": "rpc",
+    "method": "purchase_fighters",
+    "request_id": "req-fighters-007",
+    "timestamp": "2025-11-06T02:10:00.000Z"
+  },
+  "character_id": "pilot-alpha",
+  "timestamp": "2025-11-06T02:10:00.000Z",
+  "sector": {"id": 0},
+  "units": 75,
+  "price_per_unit": 50,
+  "total_cost": 3750,
+  "fighters_before": 120,
+  "fighters_after": 195,
+  "max_fighters": 300,
+  "credits_before": 10000,
+  "credits_after": 6250,
+  "ship": {"id": "ship-uuid", "ship_type": "kestrel_courier"},
+  "player": {"id": "pilot-alpha", "name": "Pilot Alpha"}
+}
+```
+
+**Notes:**
+- Purchase succeeds only in sector 0, outside hyperspace, and when hangar capacity and credits permit.
+- A `status.update` event follows immediately with refreshed ship stats/credits.
+
 ## Warp Power Events
 
 ### warp.purchase
@@ -1118,9 +1154,9 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
   "old_ship_type": "kestrel_courier",
   "new_ship_id": "uuid-new-ship",
   "new_ship_type": "atlas_hauler",
-  "trade_in_value": 15000,
+  "trade_in_value": 25000,
   "price": 50000,
-  "net_cost": 35000,
+  "net_cost": 25000,
   "timestamp": "2025-11-01T16:00:00.000Z"
 }
 ```
@@ -1130,6 +1166,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 - **Trade-in required:** Cannot own multiple personal ships; must trade in current ship
 - Old ship is marked as `unowned` and becomes a derelict
 - Character receives `status.update` immediately after with new ship and credits
+- `trade_in_value` is dynamic: hull price + (remaining fighters × 50 credits). Missing fighters reduce the value automatically.
 - `net_cost` = price - trade_in_value (can be negative if downgrading)
 - Balance information not included; clients receive updated balances via `status.update`
 

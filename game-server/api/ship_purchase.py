@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
-from ships import ShipType, get_ship_stats
+from ships import ShipType, get_ship_stats, calculate_trade_in_value
 from core.character_registry import CharacterProfile
 from .utils import (
     rpc_success,
@@ -164,8 +164,8 @@ async def _purchase_for_personal_use(
                 should_mark_unowned = True
                 try:
                     old_ship_type = ShipType(trade_in_ship["ship_type"])
-                    trade_in_value = get_ship_stats(old_ship_type).trade_in_value
-                except (KeyError, ValueError):
+                    trade_in_value = calculate_trade_in_value(trade_in_ship)
+                except (KeyError, ValueError, TypeError):
                     trade_in_value = 0
                 old_ship_id = trade_in_ship.get("ship_id")
         elif knowledge.current_ship_id:

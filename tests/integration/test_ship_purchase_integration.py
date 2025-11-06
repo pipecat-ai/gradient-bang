@@ -42,8 +42,8 @@ async def test_personal_trade_in_reduces_price(server_url, check_server_availabl
             },
         )
 
-        assert result["net_cost"] == 245_000  # 260,000 - 15,000 trade-in
-        assert result["credits_after"] == 55_000
+        assert result["net_cost"] == 235_000  # 260,000 - 25,000 dynamic trade-in
+        assert result["credits_after"] == 65_000
 
 
 @pytest.mark.asyncio
@@ -123,5 +123,5 @@ async def test_personal_purchase_updates_events(server_url, check_server_availab
         trade_in_event = await trade_in_task
         payload = trade_in_event["payload"]
         assert payload["new_ship_id"] == result["ship_id"]
-        assert payload["trade_in_value"] == 15_000
-        assert payload["net_cost"] == 245_000
+        assert payload["trade_in_value"] == 25_000
+        assert payload["net_cost"] == 235_000

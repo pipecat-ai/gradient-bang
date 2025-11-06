@@ -17,6 +17,7 @@
   - `plot_course`: `from_sector`, `to_sector`
   - `move`: `to_sector`
   - `trade`: `commodity`, `quantity`, `trade_type`
+  - `purchase_fighters`: `units`
 - Commodity names are strict: `quantum_foam`, `retro_organics`, `neuro_symbolics`.
 
 ## Build, Test, and Development Commands

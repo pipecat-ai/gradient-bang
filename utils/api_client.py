@@ -1259,6 +1259,26 @@ class AsyncGameClient:
         )
         return ack
 
+    async def purchase_fighters(
+        self,
+        *,
+        units: int,
+        character_id: str,
+    ) -> Dict[str, Any]:
+        """Purchase fighters at the sector 0 armory (50 credits each)."""
+
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        if not isinstance(units, int) or units <= 0:
+            raise ValueError("units must be a positive integer")
+
+        payload = {"character_id": character_id, "units": units}
+        return await self._request("purchase_fighters", payload)
+
     async def recharge_warp_power(
         self, units: int, character_id: str
     ) -> Dict[str, Any]:

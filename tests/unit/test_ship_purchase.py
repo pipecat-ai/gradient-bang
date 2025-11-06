@@ -107,7 +107,7 @@ async def test_personal_trade_in_creates_new_ship_and_marks_old_unowned(tmp_path
 
     knowledge = world.knowledge_manager.load_knowledge("pilot")
     assert knowledge.current_ship_id == new_ship_id
-    assert world.knowledge_manager.get_ship_credits("pilot") == 30_000  # 50k - (35k - 15k)
+    assert world.knowledge_manager.get_ship_credits("pilot") == 40_000  # 50k - (35k - 25k)
 
     old_ship = world.ships_manager.get_ship(old_ship_id)
     assert old_ship["owner_type"] == "unowned"
@@ -124,7 +124,7 @@ async def test_personal_trade_in_creates_new_ship_and_marks_old_unowned(tmp_path
     traded_event = next(payload for event, payload, _ in events if event == "ship.traded_in")
     assert traded_event["old_ship_id"] == old_ship_id
     assert traded_event["new_ship_id"] == new_ship_id
-    assert traded_event["net_cost"] == 20_000
+    assert traded_event["net_cost"] == 10_000
 
 
 @pytest.mark.asyncio

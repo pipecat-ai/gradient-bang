@@ -377,6 +377,29 @@ class RechargeWarpPower(GameClientTool):
         )
 
 
+class PurchaseFighters(GameClientTool):
+    def __call__(self, units: int):
+        return self.game_client.purchase_fighters(
+            units=units,
+            character_id=self.game_client.character_id,
+        )
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="purchase_fighters",
+            description="Buy fighters at the sector 0 armory (50 credits each; requires available fighter capacity).",
+            properties={
+                "units": {
+                    "type": "integer",
+                    "description": "Number of fighters to purchase",
+                    "minimum": 1,
+                }
+            },
+            required=["units"],
+        )
+
+
 class TransferWarpPower(GameClientTool):
     def __call__(self, to_player_name, units):
         return self.game_client.transfer_warp_power(

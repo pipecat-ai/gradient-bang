@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Mapping, MutableMapping, Optional
 
-from ships import ShipType, get_ship_stats, FIGHTER_PRICE
+from ships import FIGHTER_PRICE, calculate_trade_in_value
 
 
 LEADERBOARD_FILENAME = "leaderboard_resources.json"
@@ -96,9 +96,8 @@ async def compute_leaderboard_snapshot(world) -> Dict[str, Any]:  # pragma: no c
             ship_type = ship.get("ship_type")
             if ship_type:
                 try:
-                    stats = get_ship_stats(ShipType(ship_type))
-                    ship_trade_in_value += stats.trade_in_value
-                except ValueError:
+                    ship_trade_in_value += calculate_trade_in_value(ship)
+                except (ValueError, TypeError):
                     pass
 
         garrison_fighters = fighters_by_owner.get(character_id, 0)
@@ -170,9 +169,8 @@ async def compute_leaderboard_snapshot(world) -> Dict[str, Any]:  # pragma: no c
                 ship_type = ship.get("ship_type")
                 if ship_type:
                     try:
-                        stats = get_ship_stats(ShipType(ship_type))
-                        corp_ship_trade_in += stats.trade_in_value
-                    except ValueError:
+                        corp_ship_trade_in += calculate_trade_in_value(ship)
+                    except (ValueError, TypeError):
                         continue
 
             total_resources = member_total + corp_ship_credits + corp_ship_trade_in

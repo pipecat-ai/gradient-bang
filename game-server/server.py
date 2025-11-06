@@ -52,6 +52,7 @@ from api import (
     test_reset as api_test_reset,
     event_query as api_event_query,
     leaderboard_resources as api_leaderboard_resources,
+    purchase_fighters as api_purchase_fighters,
 )
 from core.config import get_world_data_path
 from messaging.store import MessageStore
@@ -188,6 +189,10 @@ RPC_HANDLERS: Dict[str, RPCHandler] = {
     ),
     "trade": _with_rate_limit(
         "trade", lambda payload: api_trade.handle(payload, world, port_locks)
+    ),
+    "purchase_fighters": _with_rate_limit(
+        "purchase_fighters",
+        lambda payload: api_purchase_fighters.handle(payload, world, credit_locks),
     ),
     "dump_cargo": _with_rate_limit(
         "dump_cargo", lambda payload: api_dump_cargo.handle(payload, world)
