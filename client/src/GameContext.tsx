@@ -414,7 +414,18 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               break;
             }
 
-            case "map.region":
+            case "map.region": {
+              console.debug(
+                "[GAME EVENT] Regional map data",
+                gameEvent.payload
+              );
+
+              gameStore.setRegionalMapData(
+                (gameEvent.payload as MapLocalMessage).sectors
+              );
+              break;
+            }
+
             case "map.local": {
               console.debug("[GAME EVENT] Local map data", gameEvent.payload);
 

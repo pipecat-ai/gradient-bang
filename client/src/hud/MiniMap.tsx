@@ -46,6 +46,7 @@ export const MiniMap = ({
   height = 440,
   maxDistance = 2,
   showLegend = true,
+  coursePlot,
 }: {
   current_sector_id: number;
   config?: MiniMapConfig;
@@ -55,6 +56,7 @@ export const MiniMap = ({
   maxDistance?: number;
   showLegend?: boolean;
   debug?: boolean;
+  coursePlot?: CoursePlot | null;
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const controllerRef = useRef<MiniMapController | null>(null);
@@ -66,6 +68,7 @@ export const MiniMap = ({
   });
   const lastMaxDistanceRef = useRef<number | undefined>(maxDistance);
   const lastConfigInputRef = useRef<MiniMapConfig | undefined>(config);
+  const lastCoursePlotRef = useRef<CoursePlot | null | undefined>(coursePlot);
 
   const mergedConfig = useMemo<MiniMapConfigBase>(
     () => ({
@@ -93,6 +96,7 @@ export const MiniMap = ({
         data: map_data,
         config: mergedConfig,
         maxDistance,
+        coursePlot,
       });
       controllerRef.current = controller;
       prevSectorIdRef.current = current_sector_id;
@@ -100,6 +104,7 @@ export const MiniMap = ({
       lastDimensionsRef.current = { width, height };
       lastMaxDistanceRef.current = maxDistance;
       lastConfigInputRef.current = config;
+      lastCoursePlotRef.current = coursePlot;
       return;
     }
 
@@ -113,6 +118,7 @@ export const MiniMap = ({
       lastDimensionsRef.current.height !== height;
     const maxDistanceChanged = lastMaxDistanceRef.current !== maxDistance;
     const configChanged = lastConfigInputRef.current !== config;
+    const coursePlotChanged = lastCoursePlotRef.current !== coursePlot;
 
     controller.updateProps({
       width,
@@ -120,9 +126,15 @@ export const MiniMap = ({
       maxDistance,
       config: mergedConfig,
       data: map_data,
+      coursePlot,
     });
 
-    if (sectorChanged || topologyChanged || maxDistanceChanged) {
+    if (
+      sectorChanged ||
+      topologyChanged ||
+      maxDistanceChanged ||
+      coursePlotChanged
+    ) {
       controller.moveToSector(current_sector_id, map_data);
       if (sectorChanged) {
         prevSectorIdRef.current = current_sector_id;
@@ -135,6 +147,7 @@ export const MiniMap = ({
     lastDimensionsRef.current = { width, height };
     lastMaxDistanceRef.current = maxDistance;
     lastConfigInputRef.current = config;
+    lastCoursePlotRef.current = coursePlot;
   }, [
     current_sector_id,
     height,
@@ -143,6 +156,7 @@ export const MiniMap = ({
     mergedConfig,
     config,
     width,
+    coursePlot,
   ]);
 
   useEffect(() => {

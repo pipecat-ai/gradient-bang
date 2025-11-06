@@ -18,6 +18,11 @@ export interface MiniMapConfigBase {
     background: string;
     current: string;
     current_outline: string;
+    muted: string;
+    muted_lane: string;
+    course_plot_start: string;
+    course_plot_end: string;
+    course_plot_mid: string;
   };
   grid_spacing: number;
   hex_size: number;
@@ -40,6 +45,10 @@ export interface MiniMapConfigBase {
   show_partial_lanes: boolean;
   /** Maximum distance in hex tiles from current sector to include in bounds calculation. Sectors beyond this distance are ignored for framing but still rendered if within maxDistance hops. */
   max_bounds_distance?: number;
+  /** Opacity for sectors/lanes not in the course plot (0-1) */
+  muted_opacity: number;
+  course_plot_sector_border: number;
+  course_plot_lane_width: number;
 }
 
 export const DEFAULT_MINIMAP_CONFIG: Omit<
@@ -64,6 +73,11 @@ export const DEFAULT_MINIMAP_CONFIG: Omit<
     label_bg: "#ffffff",
     current: "rgba(74,144,226,0.4)",
     current_outline: "rgba(74,144,226,0.6)",
+    muted: "rgba(40,40,40,0.5)",
+    muted_lane: "rgba(80,80,80,0.4)",
+    course_plot_start: "rgba(50,200,50,0.9)",
+    course_plot_end: "rgba(220,50,50,0.9)",
+    course_plot_mid: "rgba(100,150,255,0.5)",
   },
   grid_spacing: 30,
   hex_size: 20,
@@ -85,6 +99,9 @@ export const DEFAULT_MINIMAP_CONFIG: Omit<
   show_hyperlanes: false,
   show_partial_lanes: true,
   max_bounds_distance: 7,
+  muted_opacity: 0.3,
+  course_plot_sector_border: 3,
+  course_plot_lane_width: 3,
 };
 
 export interface MiniMapProps {
@@ -93,6 +110,7 @@ export interface MiniMapProps {
   data: MapData;
   config: MiniMapConfigBase;
   maxDistance?: number;
+  coursePlot?: CoursePlot | null;
 }
 
 export interface CameraState {
@@ -377,7 +395,9 @@ function renderLane(
   scale: number,
   hexSize: number,
   config: MiniMapConfigBase,
-  isBidirectional: boolean
+  isBidirectional: boolean,
+  coursePlotLanes: Set<string> | null = null,
+  coursePlot: CoursePlot | null = null
 ) {
   const fromCenter = hexToWorld(
     fromNode.position[0],
@@ -389,15 +409,31 @@ function renderLane(
   const from = getHexEdgePoint(fromCenter, toCenter, hexSize);
   const to = getHexEdgePoint(toCenter, fromCenter, hexSize);
 
-  if (lane.hyperlane && config.show_hyperlanes) {
+  // Apply course plot logic
+  let laneWidth = 1.5;
+  let isInPlot = true;
+
+  if (coursePlotLanes) {
+    const laneKey = getUndirectedLaneKey(fromNode.id, toNode.id);
+    isInPlot = coursePlotLanes.has(laneKey);
+    if (isInPlot) {
+      laneWidth = config.course_plot_lane_width;
+    }
+  }
+
+  // Use muted_lane color for lanes not in course plot
+  if (coursePlotLanes && !isInPlot) {
+    ctx.strokeStyle = config.colors.muted_lane;
+    ctx.lineWidth = 1.5;
+  } else if (lane.hyperlane && config.show_hyperlanes) {
     ctx.strokeStyle = config.colors.hyperlane;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = isInPlot ? laneWidth : 2;
   } else if (isBidirectional) {
     ctx.strokeStyle = config.colors.lane;
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = laneWidth;
   } else {
     ctx.strokeStyle = config.colors.lane_one_way;
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = laneWidth;
   }
 
   ctx.beginPath();
@@ -405,8 +441,37 @@ function renderLane(
   ctx.lineTo(to.x, to.y);
   ctx.stroke();
 
-  if (!isBidirectional) {
-    renderArrow(ctx, from, to);
+  // Check if this lane is in the course plot and needs a directional arrow
+  let needsArrow = !isBidirectional;
+  let arrowFrom = from;
+  let arrowTo = to;
+
+  if (coursePlot && isInPlot) {
+    // Find the direction of travel in the course plot
+    const fromIndex = coursePlot.path.indexOf(fromNode.id);
+    const toIndex = coursePlot.path.indexOf(toNode.id);
+
+    if (
+      fromIndex !== -1 &&
+      toIndex !== -1 &&
+      Math.abs(fromIndex - toIndex) === 1
+    ) {
+      needsArrow = true;
+      // Determine the correct direction based on path order
+      if (fromIndex < toIndex) {
+        // fromNode -> toNode is the correct direction
+        arrowFrom = from;
+        arrowTo = to;
+      } else {
+        // toNode -> fromNode is the correct direction
+        arrowFrom = to;
+        arrowTo = from;
+      }
+    }
+  }
+
+  if (needsArrow) {
+    renderArrow(ctx, arrowFrom, arrowTo);
   }
 }
 
@@ -537,7 +602,9 @@ function renderPartialLane(
   culledToNode: MapSectorNode,
   scale: number,
   hexSize: number,
-  config: MiniMapConfigBase
+  config: MiniMapConfigBase,
+  coursePlotLanes: Set<string> | null = null,
+  coursePlot: CoursePlot | null = null
 ) {
   const fromCenter = hexToWorld(
     fromNode.position[0],
@@ -553,15 +620,48 @@ function renderPartialLane(
   const from = getHexEdgePoint(fromCenter, toCenter, hexSize);
   const to = getHexEdgePoint(toCenter, fromCenter, hexSize);
 
+  // Apply course plot logic
+  let laneWidth = 1.5;
+  let isInPlot = true;
+
+  if (coursePlotLanes) {
+    const laneKey = getUndirectedLaneKey(fromNode.id, culledToNode.id);
+    isInPlot = coursePlotLanes.has(laneKey);
+    if (isInPlot) {
+      laneWidth = config.course_plot_lane_width;
+    }
+  }
+
   ctx.save();
-  ctx.strokeStyle = applyAlpha(config.colors.lane, 0.5); // Dimmer to indicate it leads off-map
-  ctx.lineWidth = 1.5;
+  // Use muted_lane color for partial lanes not in course plot
+  if (coursePlotLanes && !isInPlot) {
+    ctx.strokeStyle = config.colors.muted_lane;
+  } else {
+    ctx.strokeStyle = config.colors.lane;
+  }
+  ctx.lineWidth = laneWidth;
   ctx.setLineDash([3, 3]); // Dashed to indicate it leads to culled sector
 
   ctx.beginPath();
   ctx.moveTo(from.x, from.y);
   ctx.lineTo(to.x, to.y);
   ctx.stroke();
+
+  // Add arrow for partial lanes in course plot
+  if (coursePlot && isInPlot) {
+    const fromIndex = coursePlot.path.indexOf(fromNode.id);
+    const toIndex = coursePlot.path.indexOf(culledToNode.id);
+
+    if (
+      fromIndex !== -1 &&
+      toIndex !== -1 &&
+      Math.abs(fromIndex - toIndex) === 1
+    ) {
+      const arrowFrom = fromIndex < toIndex ? from : to;
+      const arrowTo = fromIndex < toIndex ? to : from;
+      renderArrow(ctx, arrowFrom, arrowTo);
+    }
+  }
 
   ctx.restore();
 }
@@ -573,7 +673,9 @@ function renderAllLanes(
   fullData: MapData,
   scale: number,
   hexSize: number,
-  config: MiniMapConfigBase
+  config: MiniMapConfigBase,
+  coursePlotLanes: Set<string> | null = null,
+  coursePlot: CoursePlot | null = null
 ): Array<{ x: number; y: number; text: string }> {
   const renderedLanes = new Set<string>();
   const hyperlaneLabels: Array<{ x: number; y: number; text: string }> = [];
@@ -596,7 +698,9 @@ function renderAllLanes(
               culledToNode,
               scale,
               hexSize,
-              config
+              config,
+              coursePlotLanes,
+              coursePlot
             );
             return;
           }
@@ -642,7 +746,9 @@ function renderAllLanes(
         scale,
         hexSize,
         config,
-        isBidirectional
+        isBidirectional,
+        coursePlotLanes,
+        coursePlot
       );
     });
   });
@@ -704,7 +810,9 @@ function renderSector(
   hexSize: number,
   config: MiniMapConfigBase,
   currentRegion?: string,
-  opacity = 1
+  opacity = 1,
+  coursePlotSectors: Set<number> | null = null,
+  coursePlot: CoursePlot | null = null
 ) {
   const world = hexToWorld(node.position[0], node.position[1], scale);
   const isCurrent = node.id === config.current_sector_id;
@@ -712,44 +820,120 @@ function renderSector(
   const isCrossRegion =
     currentRegion && node.region && node.region !== currentRegion;
 
+  // Apply course plot logic
+  const finalOpacity = opacity;
+  let baseLineWidth = 1;
+  let isInPlot = true;
+
+  if (coursePlotSectors) {
+    isInPlot = coursePlotSectors.has(node.id);
+    if (isInPlot) {
+      baseLineWidth = config.course_plot_sector_border;
+    }
+  }
+
   if (isCurrent && config.current_sector_outer_border) {
     const outerBorderSize = config.current_sector_outer_border;
     ctx.save();
-    ctx.strokeStyle = applyAlpha(config.colors.current_outline, opacity);
+    ctx.strokeStyle = applyAlpha(config.colors.current_outline, finalOpacity);
     ctx.lineWidth = outerBorderSize;
     drawHex(ctx, world.x, world.y, hexSize + outerBorderSize / 2 + 2, false);
     ctx.restore();
   }
 
-  const fillColor = isCurrent
-    ? config.colors.current
-    : isVisited
-    ? config.colors.visited
-    : config.colors.empty;
-  ctx.fillStyle = applyAlpha(fillColor, opacity);
+  // Add special outline for start/end sectors in course plot
+  if (coursePlot) {
+    const isStart = node.id === coursePlot.from_sector;
+    const isEnd = node.id === coursePlot.to_sector;
+
+    if (isStart || isEnd) {
+      const outlineSize = 4;
+      ctx.save();
+      ctx.strokeStyle = isStart
+        ? config.colors.course_plot_start
+        : config.colors.course_plot_end;
+      ctx.lineWidth = outlineSize;
+      drawHex(ctx, world.x, world.y, hexSize + outlineSize / 2 + 1, false);
+      ctx.restore();
+    }
+  }
+
+  // Use muted color for sectors not in course plot, special colors for plot sectors
+  let fillColor: string;
+  if (coursePlotSectors && !isInPlot) {
+    fillColor = config.colors.muted;
+  } else if (coursePlot && isInPlot) {
+    // Apply special colors to course plot sectors
+    const isStart = node.id === coursePlot.from_sector;
+    const isEnd = node.id === coursePlot.to_sector;
+
+    if (isCurrent) {
+      fillColor = config.colors.current;
+    } else if (isStart || isEnd) {
+      // Start and end sectors keep their normal visited/empty colors
+      fillColor = isVisited ? config.colors.visited : config.colors.empty;
+    } else {
+      // Middle sectors get the special course_plot_mid color
+      fillColor = config.colors.course_plot_mid;
+    }
+  } else {
+    fillColor = isCurrent
+      ? config.colors.current
+      : isVisited
+      ? config.colors.visited
+      : config.colors.empty;
+  }
+  ctx.fillStyle = applyAlpha(fillColor, finalOpacity);
 
   let strokeColor: string;
-  if (isCurrent) {
+  if (coursePlotSectors && !isInPlot) {
+    strokeColor = config.colors.muted;
+    ctx.lineWidth = baseLineWidth;
+  } else if (isCurrent) {
     strokeColor = config.colors.current;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = Math.max(2, baseLineWidth);
   } else if (isCrossRegion) {
     strokeColor = config.colors.cross_region_outline;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = Math.max(2, baseLineWidth);
   } else {
     strokeColor = config.colors.sector_border;
-    ctx.lineWidth = 1;
+    ctx.lineWidth = baseLineWidth;
   }
-  ctx.strokeStyle = applyAlpha(strokeColor, opacity);
+  ctx.strokeStyle = applyAlpha(strokeColor, finalOpacity);
 
   drawHex(ctx, world.x, world.y, hexSize, true);
 
   if (config.show_ports && node.port) {
     const isMegaPort = node.is_mega || node.id === 0;
-    const portColor = isMegaPort ? config.colors.mega_port : config.colors.port;
-    ctx.fillStyle = applyAlpha(portColor, opacity);
+    // Use muted color for ports not in course plot
+    let portColor: string;
+    if (coursePlotSectors && !isInPlot) {
+      portColor = config.colors.muted;
+    } else {
+      portColor = isMegaPort ? config.colors.mega_port : config.colors.port;
+    }
+    ctx.fillStyle = applyAlpha(portColor, finalOpacity);
     ctx.beginPath();
     ctx.arc(world.x, world.y, 5, 0, Math.PI * 2);
     ctx.fill();
+  }
+
+  // Render hop number for sectors in course plot
+  if (coursePlot && isInPlot) {
+    const hopIndex = coursePlot.path.indexOf(node.id);
+    if (hopIndex !== -1) {
+      const hopNumber = hopIndex + 1;
+      ctx.save();
+      ctx.font = `bold ${hexSize * 0.8}px ${getCanvasFontFamily(ctx)}`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = applyAlpha("#ffffff", finalOpacity * 0.9);
+      ctx.strokeStyle = applyAlpha("#000000", finalOpacity * 0.8);
+      ctx.lineWidth = 3;
+      ctx.strokeText(hopNumber.toString(), world.x, world.y);
+      ctx.fillText(hopNumber.toString(), world.x, world.y);
+      ctx.restore();
+    }
   }
 }
 
@@ -849,21 +1033,51 @@ function calculateCameraState(
   height: number,
   scale: number,
   hexSize: number,
-  maxDistance: number
+  maxDistance: number,
+  coursePlot?: CoursePlot | null
 ): CameraState | null {
   const reachableMap = calculateReachableSectors(
     data,
     config.current_sector_id,
     maxDistance
   );
-  const filteredData = filterReachableSectors(data, reachableMap);
+  let filteredData = filterReachableSectors(data, reachableMap);
+
+  // If course plot exists, include all sectors from the path
+  let framingData = filteredData; // Data used for camera framing
+  if (coursePlot) {
+    const coursePlotSectorIds = new Set(coursePlot.path);
+    const sectorIndex = createSectorIndex(data);
+    const coursePlotSectors: MapData = [];
+    const additionalSectors: MapData = [];
+
+    coursePlotSectorIds.forEach((sectorId) => {
+      const sector = sectorIndex.get(sectorId);
+      if (sector) {
+        coursePlotSectors.push(sector);
+        // Only add to filtered if not already there
+        if (!filteredData.some((s) => s.id === sectorId)) {
+          additionalSectors.push(sector);
+        }
+      }
+    });
+
+    if (additionalSectors.length > 0) {
+      filteredData = [...filteredData, ...additionalSectors];
+    }
+
+    // Frame around only the course plot sectors
+    if (coursePlotSectors.length > 0) {
+      framingData = coursePlotSectors;
+    }
+  }
 
   if (filteredData.length === 0) {
     return null;
   }
 
   const camera = calculateCameraTransform(
-    filteredData,
+    framingData,
     config.current_sector_id,
     width,
     height,
@@ -904,7 +1118,8 @@ function renderSectorLabels(
   width: number,
   height: number,
   cameraState: CameraState,
-  config: MiniMapConfigBase
+  config: MiniMapConfigBase,
+  coursePlotSectors: Set<number> | null = null
 ) {
   if (!config.show_sector_ids) return;
 
@@ -946,7 +1161,13 @@ function renderSectorLabels(
       metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent ?? 0;
     const textHeight = ascent + descent;
 
-    ctx.fillStyle = config.colors.label_bg;
+    // Apply muted opacity to labels for sectors not in course plot
+    const labelOpacity =
+      coursePlotSectors && !coursePlotSectors.has(node.id)
+        ? config.muted_opacity
+        : 1;
+
+    ctx.fillStyle = applyAlpha(config.colors.label_bg, labelOpacity);
     ctx.fillRect(
       textX - padding,
       textY - ascent - padding,
@@ -954,7 +1175,7 @@ function renderSectorLabels(
       textHeight + padding * 2
     );
 
-    ctx.fillStyle = config.colors.label;
+    ctx.fillStyle = applyAlpha(config.colors.label, labelOpacity);
     ctx.fillText(text, textX, textY);
   });
 
@@ -970,7 +1191,8 @@ function renderPortLabels(
   width: number,
   height: number,
   cameraState: CameraState,
-  config: MiniMapConfigBase
+  config: MiniMapConfigBase,
+  coursePlotSectors: Set<number> | null = null
 ) {
   if (!config.show_ports) return;
 
@@ -1014,7 +1236,13 @@ function renderPortLabels(
       metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent ?? 0;
     const textHeight = ascent + descent;
 
-    ctx.fillStyle = config.colors.label_bg;
+    // Apply muted opacity to labels for sectors not in course plot
+    const labelOpacity =
+      coursePlotSectors && !coursePlotSectors.has(node.id)
+        ? config.muted_opacity
+        : 1;
+
+    ctx.fillStyle = applyAlpha(config.colors.label_bg, labelOpacity);
     ctx.fillRect(
       textX - padding,
       textY - ascent - padding,
@@ -1022,7 +1250,7 @@ function renderPortLabels(
       textHeight + padding * 2
     );
 
-    ctx.fillStyle = config.colors.label;
+    ctx.fillStyle = applyAlpha(config.colors.label, labelOpacity);
     ctx.fillText(text, textX, textY);
   });
 
@@ -1035,7 +1263,7 @@ function renderWithCameraState(
   props: MiniMapProps,
   cameraState: CameraState
 ) {
-  const { width, height, config } = props;
+  const { width, height, config, coursePlot } = props;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
@@ -1050,6 +1278,17 @@ function renderWithCameraState(
   const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
   const hexSize = config.hex_size ?? gridSpacing * 0.85;
   const scale = gridSpacing;
+
+  // Pre-compute course plot Sets for O(1) lookups
+  const coursePlotSectors = coursePlot ? new Set(coursePlot.path) : null;
+  const coursePlotLanes = coursePlot
+    ? new Set(
+        coursePlot.path.slice(0, -1).map((from, i) => {
+          const to = coursePlot.path[i + 1];
+          return getUndirectedLaneKey(from, to);
+        })
+      )
+    : null;
 
   // 1) Draw grid in world space
   ctx.save();
@@ -1092,7 +1331,9 @@ function renderWithCameraState(
         props.data,
         scale,
         hexSize,
-        config
+        config,
+        coursePlotLanes,
+        coursePlot
       )
     : [];
 
@@ -1114,7 +1355,9 @@ function renderWithCameraState(
         hexSize,
         config,
         currentRegion,
-        fadeOpacity
+        fadeOpacity,
+        coursePlotSectors,
+        coursePlot
       );
     });
   }
@@ -1124,7 +1367,17 @@ function renderWithCameraState(
       fadingInIds.has(node.id) && cameraState.fadeProgress !== undefined
         ? cameraState.fadeProgress
         : 1;
-    renderSector(ctx, node, scale, hexSize, config, currentRegion, opacity);
+    renderSector(
+      ctx,
+      node,
+      scale,
+      hexSize,
+      config,
+      currentRegion,
+      opacity,
+      coursePlotSectors,
+      coursePlot
+    );
   });
 
   if (config.debug) {
@@ -1141,7 +1394,8 @@ function renderWithCameraState(
     width,
     height,
     cameraState,
-    config
+    config,
+    coursePlotSectors
   );
   renderPortLabels(
     ctx,
@@ -1151,7 +1405,8 @@ function renderWithCameraState(
     width,
     height,
     cameraState,
-    config
+    config,
+    coursePlotSectors
   );
 
   if (hyperlaneLabels.length > 0) {
@@ -1208,7 +1463,14 @@ export function createMiniMapController(
   let animationCompletionTimeout: number | null = null;
 
   const render = () => {
-    const { width, height, data, config, maxDistance = 3 } = currentProps;
+    const {
+      width,
+      height,
+      data,
+      config,
+      maxDistance = 3,
+      coursePlot,
+    } = currentProps;
     const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
     const hexSize = config.hex_size ?? gridSpacing * 0.85;
     const scale = gridSpacing;
@@ -1220,7 +1482,8 @@ export function createMiniMapController(
       height,
       scale,
       hexSize,
-      maxDistance
+      maxDistance,
+      coursePlot
     );
 
     if (!cameraState) {
@@ -1304,7 +1567,7 @@ export function renderMiniMapCanvas(
   canvas: HTMLCanvasElement,
   props: MiniMapProps
 ) {
-  const { width, height, data, config, maxDistance = 3 } = props;
+  const { width, height, data, config, maxDistance = 3, coursePlot } = props;
 
   const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
   const hexSize = config.hex_size ?? gridSpacing * 0.85;
@@ -1317,7 +1580,8 @@ export function renderMiniMapCanvas(
     height,
     scale,
     hexSize,
-    maxDistance
+    maxDistance,
+    coursePlot
   );
 
   if (!cameraState) {
@@ -1343,7 +1607,7 @@ export function renderMiniMapCanvas(
 
 /** Get current camera state for tracking between renders */
 export function getCurrentCameraState(props: MiniMapProps): CameraState | null {
-  const { width, height, data, config, maxDistance = 3 } = props;
+  const { width, height, data, config, maxDistance = 3, coursePlot } = props;
   const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
   const hexSize = config.hex_size ?? gridSpacing * 0.85;
   const scale = gridSpacing;
@@ -1354,7 +1618,8 @@ export function getCurrentCameraState(props: MiniMapProps): CameraState | null {
     height,
     scale,
     hexSize,
-    maxDistance
+    maxDistance,
+    coursePlot
   );
 }
 
@@ -1365,7 +1630,7 @@ export function updateCurrentSector(
   newSectorId: number,
   currentCameraState: CameraState | null
 ): () => void {
-  const { width, height, data, config, maxDistance = 3 } = props;
+  const { width, height, data, config, maxDistance = 3, coursePlot } = props;
 
   const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
   const hexSize = config.hex_size ?? gridSpacing * 0.85;
@@ -1380,7 +1645,8 @@ export function updateCurrentSector(
     height,
     scale,
     hexSize,
-    maxDistance
+    maxDistance,
+    coursePlot
   );
 
   if (!targetCameraState) {

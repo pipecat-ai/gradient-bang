@@ -1,10 +1,21 @@
+import { CoursePlotPanel } from "@/components/CoursePlotPanel";
 import { MovementHistoryPanel } from "@/components/MovementHistoryPanel";
 import { Separator } from "@/components/primitives/Separator";
+import MiniMap, { type MiniMapConfig } from "@/hud/MiniMap";
 import useGameStore from "@/stores/game";
+
+const MAP_CONFIG: MiniMapConfig = {
+  debug: true,
+  max_bounds_distance: undefined,
+  show_sector_ids: true,
+  show_ports: true,
+};
 
 export const MapScreen = () => {
   const player = useGameStore((state) => state.player);
   const sector = useGameStore.use.sector?.();
+  const mapData = useGameStore.use.regional_map_data?.();
+  const coursePlot = useGameStore.use.course_plot?.();
 
   return (
     <div>
@@ -19,6 +30,23 @@ export const MapScreen = () => {
           <span className="text-sm font-medium">
             Current sector: {sector?.id ?? "unknown"}
           </span>
+        </div>
+        <Separator />
+        <CoursePlotPanel />
+        <Separator />
+        <div className="flex flex-row gap-3">
+          {mapData && (
+            <MiniMap
+              config={MAP_CONFIG}
+              current_sector_id={sector?.id ?? 0}
+              map_data={mapData}
+              maxDistance={100}
+              showLegend={false}
+              width={500}
+              height={500}
+              coursePlot={coursePlot}
+            />
+          )}
         </div>
         <Separator />
         <MovementHistoryPanel />
