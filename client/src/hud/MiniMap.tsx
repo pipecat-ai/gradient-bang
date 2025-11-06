@@ -3,13 +3,15 @@ import {
   createMiniMapController,
   DEFAULT_MINIMAP_CONFIG,
 } from "@fx/map/MiniMap";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export type MiniMapConfig = Partial<
   Omit<MiniMapConfigBase, "current_sector_id" | "colors">
 > & {
   colors?: Partial<MiniMapConfigBase["colors"]>;
 };
+
+const RESIZE_DELAY = 300;
 
 const mapTopologyChanged = (
   previous: MapData | null,
@@ -42,8 +44,8 @@ export const MiniMap = ({
   current_sector_id,
   config,
   map_data,
-  width = 440,
-  height = 440,
+  width,
+  height,
   maxDistance = 2,
   showLegend = true,
   coursePlot,
@@ -58,17 +60,31 @@ export const MiniMap = ({
   debug?: boolean;
   coursePlot?: CoursePlot | null;
 }) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const controllerRef = useRef<MiniMapController | null>(null);
   const prevSectorIdRef = useRef<number>(current_sector_id);
   const previousMapRef = useRef<MapData | null>(null);
-  const lastDimensionsRef = useRef<{ width: number; height: number }>({
-    width,
-    height,
-  });
   const lastMaxDistanceRef = useRef<number | undefined>(maxDistance);
   const lastConfigInputRef = useRef<MiniMapConfig | undefined>(config);
   const lastCoursePlotRef = useRef<CoursePlot | null | undefined>(coursePlot);
+
+  const [measuredSize, setMeasuredSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+
+  // Determine if we're auto-sizing (no width/height provided)
+  const isAutoSizing = width === undefined && height === undefined;
+
+  // Calculate effective dimensions
+  const effectiveWidth = width ?? measuredSize?.width ?? 440;
+  const effectiveHeight = height ?? measuredSize?.height ?? 440;
+
+  const lastDimensionsRef = useRef<{ width: number; height: number }>({
+    width: effectiveWidth,
+    height: effectiveHeight,
+  });
 
   const mergedConfig = useMemo<MiniMapConfigBase>(
     () => ({
@@ -83,6 +99,35 @@ export const MiniMap = ({
     [current_sector_id, config]
   );
 
+  // ResizeObserver effect for auto-sizing
+  useEffect(() => {
+    if (!isAutoSizing || !containerRef.current) return;
+
+    let timeoutId: number | null = null;
+    const observer = new ResizeObserver((entries) => {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
+      timeoutId = window.setTimeout(() => {
+        const entry = entries[0];
+        if (entry) {
+          const { width, height } = entry.contentRect;
+          console.debug("[MAP] Resizing", { width, height });
+          setMeasuredSize({ width, height });
+        }
+      }, RESIZE_DELAY);
+    });
+
+    observer.observe(containerRef.current);
+
+    return () => {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
+      observer.disconnect();
+    };
+  }, [isAutoSizing]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -91,8 +136,8 @@ export const MiniMap = ({
 
     if (!controller) {
       controller = createMiniMapController(canvas, {
-        width,
-        height,
+        width: effectiveWidth,
+        height: effectiveHeight,
         data: map_data,
         config: mergedConfig,
         maxDistance,
@@ -101,7 +146,10 @@ export const MiniMap = ({
       controllerRef.current = controller;
       prevSectorIdRef.current = current_sector_id;
       previousMapRef.current = map_data;
-      lastDimensionsRef.current = { width, height };
+      lastDimensionsRef.current = {
+        width: effectiveWidth,
+        height: effectiveHeight,
+      };
       lastMaxDistanceRef.current = maxDistance;
       lastConfigInputRef.current = config;
       lastCoursePlotRef.current = coursePlot;
@@ -114,15 +162,15 @@ export const MiniMap = ({
     );
     const sectorChanged = current_sector_id !== prevSectorIdRef.current;
     const dimensionsChanged =
-      lastDimensionsRef.current.width !== width ||
-      lastDimensionsRef.current.height !== height;
+      lastDimensionsRef.current.width !== effectiveWidth ||
+      lastDimensionsRef.current.height !== effectiveHeight;
     const maxDistanceChanged = lastMaxDistanceRef.current !== maxDistance;
     const configChanged = lastConfigInputRef.current !== config;
     const coursePlotChanged = lastCoursePlotRef.current !== coursePlot;
 
     controller.updateProps({
-      width,
-      height,
+      width: effectiveWidth,
+      height: effectiveHeight,
       maxDistance,
       config: mergedConfig,
       data: map_data,
@@ -144,18 +192,21 @@ export const MiniMap = ({
     }
 
     previousMapRef.current = map_data;
-    lastDimensionsRef.current = { width, height };
+    lastDimensionsRef.current = {
+      width: effectiveWidth,
+      height: effectiveHeight,
+    };
     lastMaxDistanceRef.current = maxDistance;
     lastConfigInputRef.current = config;
     lastCoursePlotRef.current = coursePlot;
   }, [
     current_sector_id,
-    height,
+    effectiveHeight,
+    effectiveWidth,
     map_data,
     maxDistance,
     mergedConfig,
     config,
-    width,
     coursePlot,
   ]);
 
@@ -166,12 +217,20 @@ export const MiniMap = ({
   }, []);
 
   return (
-    <div style={{ display: "grid", gap: 8, overflow: "hidden" }}>
+    <div
+      ref={containerRef}
+      style={{
+        display: "grid",
+        gap: 8,
+        overflow: "hidden",
+        ...(isAutoSizing && { width: "100%", height: "100%" }),
+      }}
+    >
       <canvas
         ref={canvasRef}
         style={{
-          width: `${width}px`,
-          height: `${height}px`,
+          width: `${effectiveWidth}px`,
+          height: `${effectiveHeight}px`,
           maxWidth: "100%",
           maxHeight: "100%",
           display: "block",

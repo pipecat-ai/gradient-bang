@@ -34,7 +34,7 @@ export const MapScreen = () => {
         <Separator />
         <CoursePlotPanel />
         <Separator />
-        <div className="flex flex-row gap-3">
+        <div className="w-full h-[500px] bg-black">
           {mapData && (
             <MiniMap
               config={MAP_CONFIG}
@@ -42,8 +42,6 @@ export const MapScreen = () => {
               map_data={mapData}
               maxDistance={100}
               showLegend={false}
-              width={500}
-              height={500}
               coursePlot={coursePlot}
             />
           )}
