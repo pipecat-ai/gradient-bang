@@ -16,6 +16,7 @@ from utils.api_client import AsyncGameClient
 from utils.task_agent import TaskAgent, TaskOutputType
 from utils.tools_schema import (
     MyStatus,
+    LeaderboardResources,
     PlotCourse,
     LocalMapRegion,
     ListKnownPorts,
@@ -146,6 +147,9 @@ class VoiceTaskManager:
         self._tool_dispatch = {
             "my_status": lambda: self.game_client.my_status(
                 character_id=self.character_id
+            ),
+            "leaderboard_resources": lambda **kwargs: self.game_client.leaderboard_resources(
+                character_id=self.character_id, **kwargs
             ),
             "plot_course": lambda to_sector: self.game_client.plot_course(
                 to_sector=to_sector, character_id=self.character_id
@@ -493,6 +497,7 @@ class VoiceTaskManager:
         return ToolsSchema(
             standard_tools=[
                 MyStatus.schema(),
+                LeaderboardResources.schema(),
                 PlotCourse.schema(),
                 LocalMapRegion.schema(),
                 ListKnownPorts.schema(),

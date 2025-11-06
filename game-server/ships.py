@@ -38,6 +38,10 @@ class ShipStats:
     built_in_features: List[str]
 
 
+# Credit cost per fighter at the armory/shipyard
+FIGHTER_PRICE = 50
+
+
 # Ship registry with all ship definitions
 SHIP_REGISTRY = {
     ShipType.KESTREL_COURIER: ShipStats(

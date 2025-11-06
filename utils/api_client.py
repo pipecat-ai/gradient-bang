@@ -829,6 +829,22 @@ class AsyncGameClient:
         """
         return await self._request("server_status", {})
 
+    async def leaderboard_resources(
+        self,
+        *,
+        character_id: Optional[str] = None,
+        force_refresh: bool = False,
+    ) -> Dict[str, Any]:
+        """Fetch the latest leaderboard snapshot (players + corporations)."""
+
+        payload: Dict[str, Any] = {}
+        target_character = character_id or self._character_id
+        if target_character:
+            payload["character_id"] = target_character
+        if force_refresh:
+            payload["force_refresh"] = True
+        return await self._request("leaderboard.resources", payload)
+
     async def character_create(
         self,
         *,

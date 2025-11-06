@@ -50,6 +50,26 @@ class MyStatus(GameClientTool):
         )
 
 
+class LeaderboardResources(GameClientTool):
+    def __call__(self, force_refresh: bool = False):
+        return self.game_client.leaderboard_resources(
+            character_id=self.game_client.character_id,
+            force_refresh=force_refresh,
+        )
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="leaderboard_resources",
+            description=(
+                "Fetch the latest wealth leaderboard snapshot. The response "
+                "includes players (with exploration percentage) and corporations, "
+                "sorted by total resources."
+            ),
+            required=[],
+        )
+
+
 class MyMap(GameClientTool):
     def __call__(self):
         return self.game_client.my_map(character_id=self.game_client.character_id)
@@ -67,8 +87,7 @@ class MyMap(GameClientTool):
 class PlotCourse(GameClientTool):
     def __call__(self, to_sector):
         return self.game_client.plot_course(
-            to_sector=to_sector,
-            character_id=self.game_client.character_id
+            to_sector=to_sector, character_id=self.game_client.character_id
         )
 
     @classmethod
@@ -126,7 +145,14 @@ class LocalMapRegion(GameClientTool):
 
 
 class ListKnownPorts(GameClientTool):
-    def __call__(self, from_sector=None, max_hops=5, port_type=None, commodity=None, trade_type=None):
+    def __call__(
+        self,
+        from_sector=None,
+        max_hops=5,
+        port_type=None,
+        commodity=None,
+        trade_type=None,
+    ):
         return self.game_client.list_known_ports(
             character_id=self.game_client.character_id,
             from_sector=from_sector,
@@ -214,8 +240,7 @@ class PathWithRegion(GameClientTool):
 class Move(GameClientTool):
     def __call__(self, to_sector):
         return self.game_client.move(
-            to_sector=to_sector,
-            character_id=self.game_client.character_id
+            to_sector=to_sector, character_id=self.game_client.character_id
         )
 
     @classmethod
@@ -279,7 +304,7 @@ class Trade(GameClientTool):
             commodity=commodity,
             quantity=quantity,
             trade_type=trade_type,
-            character_id=self.game_client.character_id
+            character_id=self.game_client.character_id,
         )
 
     @classmethod
@@ -311,8 +336,7 @@ class Trade(GameClientTool):
 class SalvageCollect(GameClientTool):
     def __call__(self, salvage_id):
         return self.game_client.salvage_collect(
-            salvage_id=salvage_id,
-            character_id=self.game_client.character_id
+            salvage_id=salvage_id, character_id=self.game_client.character_id
         )
 
     @classmethod
@@ -333,8 +357,7 @@ class SalvageCollect(GameClientTool):
 class RechargeWarpPower(GameClientTool):
     def __call__(self, units):
         return self.game_client.recharge_warp_power(
-            units=units,
-            character_id=self.game_client.character_id
+            units=units, character_id=self.game_client.character_id
         )
 
     @classmethod
@@ -358,7 +381,7 @@ class TransferWarpPower(GameClientTool):
         return self.game_client.transfer_warp_power(
             to_player_name=to_player_name,
             units=units,
-            character_id=self.game_client.character_id
+            character_id=self.game_client.character_id,
         )
 
     @classmethod
@@ -387,7 +410,7 @@ class TransferCredits(GameClientTool):
         return self.game_client.transfer_credits(
             to_player_name=to_player_name,
             amount=amount,
-            character_id=self.game_client.character_id
+            character_id=self.game_client.character_id,
         )
 
     @classmethod
@@ -452,7 +475,9 @@ class JoinCorporation(GameClientTool):
         resolved_corp_id = (corp_id or "").strip() if corp_id else ""
         if not resolved_corp_id:
             if not corp_name:
-                raise ValueError("join_corporation requires either corp_id or corp_name.")
+                raise ValueError(
+                    "join_corporation requires either corp_id or corp_name."
+                )
             corps = await self.game_client.list_corporations()
             match_name = corp_name.strip().lower()
             resolved_corp_id = ""
@@ -771,8 +796,7 @@ class BankWithdraw(GameClientTool):
 class DumpCargo(GameClientTool):
     def __call__(self, items):
         return self.game_client.dump_cargo(
-            items=items,
-            character_id=self.game_client.character_id
+            items=items, character_id=self.game_client.character_id
         )
 
     @classmethod
@@ -789,7 +813,11 @@ class DumpCargo(GameClientTool):
                         "properties": {
                             "commodity": {
                                 "type": "string",
-                                "enum": ["quantum_foam", "retro_organics", "neuro_symbolics"],
+                                "enum": [
+                                    "quantum_foam",
+                                    "retro_organics",
+                                    "neuro_symbolics",
+                                ],
                             },
                             "units": {
                                 "type": "integer",
@@ -811,7 +839,7 @@ class SendMessage(GameClientTool):
             content=content,
             msg_type=msg_type,
             to_name=to_name,
-            character_id=self.game_client.character_id
+            character_id=self.game_client.character_id,
         )
 
     @classmethod
@@ -820,7 +848,10 @@ class SendMessage(GameClientTool):
             name="send_message",
             description="Send a chat message (broadcast or direct)",
             properties={
-                "content": {"type": "string", "description": "Message text (max 512 chars)"},
+                "content": {
+                    "type": "string",
+                    "description": "Message text (max 512 chars)",
+                },
                 "msg_type": {
                     "type": "string",
                     "enum": ["broadcast", "direct"],
@@ -834,6 +865,7 @@ class SendMessage(GameClientTool):
             },
             required=["content"],
         )
+
 
 ##
 
@@ -1003,7 +1035,7 @@ class PlaceFighters(GameClientTool):
             quantity=quantity,
             mode=mode,
             toll_amount=toll_amount,
-            character_id=self.game_client.character_id
+            character_id=self.game_client.character_id,
         )
 
     @classmethod
@@ -1042,9 +1074,7 @@ class PlaceFighters(GameClientTool):
 class CollectFighters(GameClientTool):
     def __call__(self, sector, quantity):
         return self.game_client.combat_collect_fighters(
-            sector=sector,
-            quantity=quantity,
-            character_id=self.game_client.character_id
+            sector=sector, quantity=quantity, character_id=self.game_client.character_id
         )
 
     @classmethod

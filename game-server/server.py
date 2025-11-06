@@ -51,6 +51,7 @@ from api import (
     salvage_collect as api_salvage_collect,
     test_reset as api_test_reset,
     event_query as api_event_query,
+    leaderboard_resources as api_leaderboard_resources,
 )
 from core.config import get_world_data_path
 from messaging.store import MessageStore
@@ -289,6 +290,10 @@ RPC_HANDLERS: Dict[str, RPCHandler] = {
     ),
     "salvage.collect": _with_rate_limit(
         "salvage.collect", lambda payload: api_salvage_collect.handle(payload, world)
+    ),
+    "leaderboard.resources": _with_rate_limit(
+        "leaderboard.resources",
+        lambda payload: api_leaderboard_resources.handle(payload, world),
     ),
     "server_status": _with_rate_limit("server_status", _rpc_server_status),
     # Test utilities - no rate limiting for test endpoints

@@ -54,6 +54,7 @@ from utils.base_llm_agent import LLMConfig
 
 from utils.tools_schema import (
     MyStatus,
+    LeaderboardResources,
     PlotCourse,
     LocalMapRegion,
     ListKnownPorts,
@@ -276,6 +277,7 @@ class TaskAgent:
 
         tools = tools_list or [
             MyStatus,
+            LeaderboardResources,
             PlotCourse,
             LocalMapRegion,
             ListKnownPorts,
