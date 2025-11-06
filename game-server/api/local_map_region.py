@@ -82,7 +82,7 @@ async def handle(request: Dict[str, Any], world) -> Dict[str, Any]:
 
     try:
         max_hops = int(max_hops)
-        if max_hops < 0 or max_hops > 10:
+        if max_hops < 0 or max_hops > 100:
             raise ValueError
     except (TypeError, ValueError):
         await _fail(
