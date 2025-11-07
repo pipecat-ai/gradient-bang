@@ -31,6 +31,7 @@ import {
   type SectorUpdateMessage,
   type ServerMessage,
   type StatusMessage,
+  type TaskOutputMessage,
   type WarpPurchaseMessage,
   type WarpTransferMessage,
 } from "@/types/messages";
@@ -635,6 +636,24 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               if (starfield) {
                 starfield.selectGameObject("port");
               }
+
+              gameStore.setActiveScreen("trading");
+
+              break;
+            }
+
+            //@TODO: improve this
+            case "task_output": {
+              console.debug("[GAME EVENT] Task output", gameEvent.payload);
+              const data = gameEvent.payload as TaskOutputMessage;
+              gameStore.setTaskInProgress(true);
+              gameStore.addTask(data.text);
+              break;
+            }
+
+            case "task_complete": {
+              console.debug("[GAME EVENT] Task complete", gameEvent.payload);
+              gameStore.setTaskInProgress(false);
               break;
             }
 

@@ -1,16 +1,7 @@
-import {
-  BugBeetleIcon,
-  HandshakeIcon,
-  MapPinLineIcon,
-  PathIcon,
-} from "@phosphor-icons/react";
-import { Button } from "@pipecat-ai/voice-ui-kit";
+import { Button } from "@/components/primitives/Button";
+import { ChatIcon, CheckSquareOffsetIcon } from "@phosphor-icons/react";
 
-export type PanelMenuItem =
-  | "movement_history"
-  | "task_output"
-  | "debug"
-  | "trade_history";
+export type PanelMenuItem = "conversation" | "task_output";
 
 export const PanelMenu = ({
   currentPanel,
@@ -22,42 +13,22 @@ export const PanelMenu = ({
   return (
     <div className="flex flex-col h-full gap-2">
       <Button
-        variant={currentPanel === "movement_history" ? "outline" : "ghost"}
-        isIcon={true}
-        size="lg"
-        onClick={() => setCurrentPanel("movement_history")}
-        className={currentPanel === "movement_history" ? "text-agent" : ""}
+        variant={currentPanel === "conversation" ? "secondary" : "ghost"}
+        size="icon-lg"
+        onClick={() => setCurrentPanel("conversation")}
+        className={currentPanel === "conversation" ? "text-agent" : ""}
       >
-        <MapPinLineIcon size={24} weight="duotone" />
+        <ChatIcon size={24} weight="duotone" className="size-5" />
       </Button>
       <Button
-        variant={currentPanel === "task_output" ? "outline" : "ghost"}
-        isIcon={true}
-        size="lg"
+        variant={currentPanel === "task_output" ? "secondary" : "ghost"}
+        size="icon-lg"
         onClick={() => setCurrentPanel("task_output")}
         className={currentPanel === "task_output" ? "text-agent" : ""}
       >
-        <PathIcon size={24} />
+        <CheckSquareOffsetIcon size={24} className="size-5" />
       </Button>
-      <Button
-        variant={currentPanel === "trade_history" ? "outline" : "ghost"}
-        isIcon={true}
-        size="lg"
-        onClick={() => setCurrentPanel("trade_history")}
-        className={currentPanel === "trade_history" ? "text-agent" : ""}
-      >
-        <HandshakeIcon size={24} weight="duotone" />
-      </Button>
-      <Button
-        variant={currentPanel === "debug" ? "outline" : "ghost"}
-        isIcon={true}
-        size="lg"
-        onClick={() => setCurrentPanel("debug")}
-        className={currentPanel === "debug" ? "text-agent" : "opacity-30"}
-      >
-        <BugBeetleIcon size={20} />
-      </Button>
-      <div className="flex-1 w-full h-full dotted-bg" />
+      <div className="flex-1 w-full h-full bg-dotted-sm bg-dotted-white/20" />
     </div>
   );
 };

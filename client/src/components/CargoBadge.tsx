@@ -36,12 +36,12 @@ export const CargoBadge = ({ className }: { className?: string }) => {
       className={cn("flex-col gap-2 w-full items-start", className)}
     >
       <div className="flex flex-row gap-2 items-center w-full justify-between">
-        <BadgeTitle>Cargo holds</BadgeTitle>
         <div className="text-xs">
           {ship?.empty_holds ?? 0}
           <span className="opacity-30"> / </span>
           {ship?.cargo_capacity ?? 0}
         </div>
+        <BadgeTitle>Cargo holds</BadgeTitle>
       </div>
       <div className="flex flex-row gap-3 items-center w-full">
         <Progress

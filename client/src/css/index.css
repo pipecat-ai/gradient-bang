@@ -101,6 +101,9 @@
   --color-fuel: var(--fuel);
   --color-fuel-foreground: var(--fuel-foreground);
 
+  --color-agent: var(--color-teal-300);
+  --color-client: var(--color-sky-300);
+
   /** UI **/
   --spacing-ui-sm: calc(var(--spacing) * 4);
   --spacing-ui-md: calc(var(--spacing) * 6);
@@ -132,6 +135,18 @@
   --text-heading-3: var(--text-base);
   --text-heading-4: var(--text-sm);
   --text-heading-5: var(--text-xs);
+
+  /** Shadows  **/
+  --shadow-xlong: 0px 89px 36px rgb(0 0 0 / 0.01),
+    0px 50px 30px rgb(0 0 0 / 0.03), 0px 22px 22px rgb(0 0 0 / 0.04),
+    0px 6px 12px rgb(0 0 0 / 0.05);
+  --shadow-long: 0 44px 18px 0 rgba(0, 0, 0, 0.01),
+    0 25px 15px 0 rgba(0, 0, 0, 0.05), 0 11px 11px 0 rgba(0, 0, 0, 0.09),
+    0 3px 6px 0 rgba(0, 0, 0, 0.1);
+  --shadow-short: 0px 10px 15px -3px rgb(0 0 0 / 0.05),
+    0px 4px 6px -2px rgb(0 0 0 / 0.02);
+  --shadow-xshort: 0px 7px 3px rgb(0 0 0 / 0.01), 0px 4px 2px rgb(0 0 0 / 0.03),
+    0px 2px 2px rgb(0 0 0 / 0.04), 0px 0px 1px rgb(0 0 0 / 0.05);
 
   /* Outline Pulse Animation */
   --animate-outline-pulse: outline-pulse 1s cubic-bezier(0.4, 0, 0.6, 1)
@@ -218,9 +233,24 @@ button {
   backface-visibility: hidden;
   transform-style: preserve-3d;
 }
+
 .rhs-perspective {
   transform: perspective(400px) rotateY(-6.5deg) scaleX(1.2);
   transform-origin: right center;
+  backface-visibility: hidden;
+  transform-style: preserve-3d;
+}
+
+.top-rhs-perspective {
+  transform: perspective(400px) rotateY(-6.5deg) scaleX(1.2);
+  transform-origin: right top;
+  backface-visibility: hidden;
+  transform-style: preserve-3d;
+}
+
+.top-lhs-perspective {
+  transform: perspective(400px) rotateY(6.5deg) scaleX(1.2);
+  transform-origin: left top;
   backface-visibility: hidden;
   transform-style: preserve-3d;
 }

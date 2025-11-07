@@ -326,3 +326,26 @@
   );
   animation-direction: reverse;
 }
+
+@utility bg-scanlines {
+  --scanlines-opacity: 100%;
+
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    color-mix(
+        in srgb,
+        currentColor calc(var(--scanlines-opacity) * 100%),
+        transparent
+      )
+      2px,
+    color-mix(
+        in srgb,
+        currentColor calc(var(--scanlines-opacity) * 100%),
+        transparent
+      )
+      4px
+  );
+  background-clip: padding-box;
+}

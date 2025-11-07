@@ -1,3 +1,4 @@
+import { Card, CardContent } from "@/components/primitives/Card";
 import { PlugsIcon } from "@phosphor-icons/react";
 import {
   RTVIEvent,
@@ -5,11 +6,7 @@ import {
   type TranscriptData,
 } from "@pipecat-ai/client-js";
 import { useRTVIClientEvent } from "@pipecat-ai/client-react";
-import {
-  Card,
-  CardContent,
-  usePipecatConnectionState,
-} from "@pipecat-ai/voice-ui-kit";
+import { usePipecatConnectionState } from "@pipecat-ai/voice-ui-kit";
 import { nanoid } from "nanoid";
 import { useCallback, useState } from "react";
 import Markdown from "react-markdown";
@@ -51,7 +48,7 @@ const ConversationRow = ({
     );
   };
   return (
-    <div className="flex flex-col gap-0.5 text-[11px]">
+    <div className="flex flex-col gap-1 text-[11px]">
       <div
         className={`${
           sender === Sender.AGENT
@@ -59,7 +56,7 @@ const ConversationRow = ({
             : sender === Sender.CLIENT
             ? "text-client"
             : "text-warning"
-        } font-extrabold text-[11px]`}
+        } font-extrabold text-[11px] uppercase`}
       >
         <span className="opacity-50">[{timestamp || "incoming"}]</span> {sender}
         :
@@ -116,12 +113,14 @@ export const ConversationPanel = () => {
     setBufferedClientText(event.text);
   });
 
-  const clxConnected = "flex-1 h-full bg-black/30 border-0";
-  const clxDisconnected = "flex-1 h-full opacity-40";
+  const clxConnected =
+    "flex-1 h-full bg-card/50 backdrop-blur-sm border border-border";
+  const clxDisconnected =
+    "flex-1 h-full opacity-40 stripe-frame-white/30 border border-border";
 
   return (
     <Card
-      background={isConnected ? "background" : "stripes"}
+      variant={isConnected ? "default" : "stripes"}
       className={isConnected ? clxConnected : clxDisconnected}
     >
       {!isConnected && (

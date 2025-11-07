@@ -8,12 +8,15 @@ export interface Task {
 }
 
 export interface TaskSlice {
+  taskInProgress: boolean;
   tasks: Task[];
   addTask: (summary: string) => void;
   getTasks: () => Task[];
+  setTaskInProgress: (taskInProgress: boolean) => void;
 }
 
 export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
+  taskInProgress: false,
   tasks: [],
   addTask: (summary: string) =>
     set((state) => ({
@@ -23,4 +26,5 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
       ],
     })),
   getTasks: () => get().tasks,
+  setTaskInProgress: (taskInProgress: boolean) => set({ taskInProgress }),
 });
