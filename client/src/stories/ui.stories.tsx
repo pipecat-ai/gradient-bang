@@ -288,6 +288,11 @@ BadgeStory.meta = {
 export const ProgressStory: Story = () => {
   const [progress, setProgress] = useState(0);
 
+  const incrementCx =
+    "bg-green-800 stripe-bar stripe-bar-green-500 stripe-bar-20 stripe-bar-animate-1";
+  const decrementCx =
+    "bg-red-900 stripe-bar stripe-bar-red-500 stripe-bar-20 stripe-bar-animate-1 stripe-bar-reverse";
+
   return (
     <div className="flex flex-col gap-4">
       <Progress value={progress} color="fuel" className="h-[80px]" />
@@ -297,8 +302,8 @@ export const ProgressStory: Story = () => {
         color="fuel"
         className="h-[80px] "
         classNames={{
-          increment: "bg-green-500",
-          decrement: "bg-red-500",
+          increment: incrementCx,
+          decrement: decrementCx,
         }}
         segmented={true}
       />

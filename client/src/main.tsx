@@ -15,12 +15,16 @@ import "./css/index.css";
 // Currently, the noAudioOutput setting is irreversible!
 const Settings = getLocalSettings();
 
+// Parse query string parameters
+const queryParams = new URLSearchParams(window.location.search);
+const customEndpoint = queryParams.get("endpoint") || "api/offer";
+
 createRoot(document.getElementById("root")!).render(
   <PipecatAppBase
     transportType="smallwebrtc"
     connectParams={{
       webrtcRequestParams: {
-        endpoint: "api/offer",
+        endpoint: customEndpoint,
         requestData: { start_on_join: false },
       },
     }}

@@ -241,7 +241,7 @@ function Progress({
         <span
           aria-hidden="true"
           className={cn(
-            "pointer-events-none absolute inset-y-0 z-10 opacity-80 transition-opacity",
+            "pointer-events-none absolute inset-y-0 z-10 transition-all",
             indicatorColorClass,
             segmentDirectionClassName
           )}
