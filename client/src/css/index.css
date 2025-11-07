@@ -32,6 +32,8 @@
   --popover: var(--background);
   --terminal: #dcfd38;
   --terminal-foreground: #f5ffc6;
+  --fuel: oklch(86.5% 0.127 207.078);
+  --fuel-foreground: oklch(98.4% 0.019 200.873);
 
   --grid-opacity: 0.25;
   --screen-bg-feather: 20px;
@@ -86,6 +88,8 @@
   --color-terminal-foreground: var(--terminal-foreground);
   --color-screen-background: rgba(0, 0, 0, 0.8);
   --color-screen-foreground: rgba(255, 255, 255, 1);
+  --color-fuel: var(--fuel);
+  --color-fuel-foreground: var(--fuel-foreground);
 
   /** UI **/
   --spacing-ui-sm: calc(var(--spacing) * 4);
@@ -130,6 +134,15 @@
     }
     50% {
       outline-color: rgba(255, 255, 255, 1);
+    }
+  }
+
+  @keyframes scroll {
+    0% {
+      background-position: 0 0;
+    }
+    100% {
+      background-position: calc(var(--stripe-bar-width) * 2.828427125) 0;
     }
   }
 }

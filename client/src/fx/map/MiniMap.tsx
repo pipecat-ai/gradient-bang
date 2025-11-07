@@ -45,22 +45,22 @@ export interface NodeStyles {
 export const DEFAULT_NODE_STYLES: NodeStyles = {
   current: {
     fill: "rgba(74,144,226,0.4)",
-    border: "rgba(74,144,226,0.6)",
+    border: "rgba(74,144,226,1)",
     borderWidth: 2,
     outline: "rgba(74,144,226,0.6)",
-    outlineWidth: 5,
+    outlineWidth: 4,
   },
   visited: {
     fill: "rgba(0,255,0,0.25)",
-    border: "rgba(200,200,200,0.7)",
-    borderWidth: 1,
+    border: "rgba(0,255,0,0.5)",
+    borderWidth: 2,
     outline: "none",
     outlineWidth: 0,
   },
   unvisited: {
     fill: "rgba(0,0,0,0.35)",
     border: "rgba(200,200,200,0.7)",
-    borderWidth: 1,
+    borderWidth: 2,
     outline: "none",
     outlineWidth: 0,
   },
@@ -252,7 +252,7 @@ export interface PortStyles {
 
 export const DEFAULT_PORT_STYLES: PortStyles = {
   regular: {
-    color: "#4a90e2",
+    color: "#FFFFFF",
     radius: 5,
     mutedColor: "rgba(40,40,40,0.5)",
   },
@@ -1327,6 +1327,9 @@ function renderSectorLabels(
   const padding = labelStyle.padding;
 
   data.forEach((node) => {
+    // Skip labels for current sector
+    if (node.id === config.current_sector_id) return;
+
     const worldPos = hexToWorld(node.position[0], node.position[1], scale);
     const angle = -Math.PI / 3;
     const edgeWorldX = worldPos.x + hexSize * Math.cos(angle);
@@ -1403,6 +1406,8 @@ function renderPortLabels(
 
   data.forEach((node) => {
     if (!node.port) return;
+    // Skip labels for current sector
+    if (node.id === config.current_sector_id) return;
 
     const worldPos = hexToWorld(node.position[0], node.position[1], scale);
     const angle = Math.PI / 3;
