@@ -45,6 +45,7 @@ from collections import deque
 from scipy.spatial import Delaunay
 import networkx as nx
 from typing import Dict, List, Set, Tuple, Optional
+from scene_gen import generate_scene_variant
 
 # ===================== Tunables / Defaults =====================
 
@@ -968,7 +969,8 @@ def main():
         sector_contents_list.append({
             "id": s,
             "port": port,
-            "planets": []  # No planets for now
+            "planets": [],  # No planets for now
+            "scene_config": generate_scene_variant(s),
         })
     
     universe_contents = {

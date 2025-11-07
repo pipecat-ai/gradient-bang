@@ -25,12 +25,13 @@ def test_event_logger_append_and_query(tmp_path):
     )
     logger.append(record)
 
-    results = logger.query(
+    results, truncated = logger.query(
         start=now - timedelta(minutes=1),
         end=now + timedelta(minutes=1),
         character_id="alpha",
     )
 
+    assert truncated is False
     assert len(results) == 1
     assert results[0]["event"] == "test.event"
     assert results[0]["payload"]["foo"] == "bar"
@@ -41,7 +42,7 @@ def test_event_logger_append_and_query(tmp_path):
             start=now + timedelta(minutes=1),
             end=now + timedelta(minutes=2),
         )
-        == []
+        == ([], False)
     )
 
 
@@ -95,6 +96,7 @@ async def test_event_dispatcher_logs_sent_and_received(tmp_path):
     logger = EventLogger(log_path)
     window_start = datetime.fromisoformat(sent["timestamp"]) - timedelta(minutes=1)
     window_end = datetime.fromisoformat(sent["timestamp"]) + timedelta(minutes=1)
-    queried = logger.query(window_start, window_end)
+    queried, truncated = logger.query(window_start, window_end)
     assert len(queried) == 2
+    assert truncated is False
     assert MAX_QUERY_RESULTS >= len(queried)

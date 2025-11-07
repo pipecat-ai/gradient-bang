@@ -176,6 +176,7 @@ class EventDispatcher:
         character_filter: Sequence[str] | None = None,
         meta: dict | None = None,
         log_context: EventLogContext | None = None,
+        log_event: bool = True,
     ) -> None:
         """Broadcast an event to all sinks that match the provided filters.
 
@@ -274,25 +275,27 @@ class EventDispatcher:
                     f"{cancelled_count} sink(s) cancelled for event={event}"
                 )
 
-            self._log_event_records(
-                event=event,
-                payload=payload,
-                meta=meta,
-                receivers=receivers,
-                outcomes=delivery_outcomes,
-                log_context=log_context,
-                character_filter=character_filter_list,
-            )
+            if log_event:
+                self._log_event_records(
+                    event=event,
+                    payload=payload,
+                    meta=meta,
+                    receivers=receivers,
+                    outcomes=delivery_outcomes,
+                    log_context=log_context,
+                    character_filter=character_filter_list,
+                )
         else:
-            self._log_event_records(
-                event=event,
-                payload=payload,
-                meta=meta,
-                receivers=[],
-                outcomes=[],
-                log_context=log_context,
-                character_filter=character_filter_list,
-            )
+            if log_event:
+                self._log_event_records(
+                    event=event,
+                    payload=payload,
+                    meta=meta,
+                    receivers=[],
+                    outcomes=[],
+                    log_context=log_context,
+                    character_filter=character_filter_list,
+                )
 
     # ------------------------------------------------------------------ #
     # Internal helpers

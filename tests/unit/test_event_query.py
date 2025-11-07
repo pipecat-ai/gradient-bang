@@ -6,7 +6,7 @@ from fastapi import HTTPException
 
 from api import event_query
 from core.character_registry import CharacterRegistry
-from server_logging.event_log import EventLogger, EventRecord
+from server_logging.event_log import EventLogger, EventRecord, MAX_QUERY_RESULTS
 
 
 class DummyWorld:
@@ -14,6 +14,32 @@ class DummyWorld:
         self.character_registry = registry
         self.character_to_corp = character_to_corp or {}
         self.garrisons = garrisons
+
+
+class DummyDispatcher:
+    def __init__(self):
+        self.calls = []
+
+    async def emit(
+        self,
+        event,
+        payload,
+        *,
+        character_filter=None,
+        meta=None,
+        log_context=None,
+        log_event=True,
+    ):
+        self.calls.append(
+            {
+                "event": event,
+                "payload": payload,
+                "character_filter": list(character_filter) if character_filter else None,
+                "meta": meta,
+                "log_context": log_context,
+                "log_event": log_event,
+            }
+        )
 
 
 @pytest.mark.asyncio
@@ -29,19 +55,19 @@ async def test_event_query_filters_and_truncation(tmp_path, monkeypatch):
     logger = EventLogger(log_path)
     now = datetime.now(timezone.utc)
     for i in range(3):
-            logger.append(
-                EventRecord(
-                    timestamp=(now + timedelta(seconds=i)).isoformat(),
-                    direction="sent",
-                    event="status.update",
-                    payload={"sector": {"id": 42 + i}},
-                    sender="pilot-1",
-                    receiver=None,
-                    sector=42 + i,
-                    corporation_id=None,
-                    meta=None,
-                )
+        logger.append(
+            EventRecord(
+                timestamp=(now + timedelta(seconds=i)).isoformat(),
+                direction="sent",
+                event="status.update",
+                payload={"sector": {"id": 42 + i}},
+                sender="pilot-1",
+                receiver=None,
+                sector=42 + i,
+                corporation_id=None,
+                meta=None,
             )
+        )
 
     payload = {
         "admin_password": "secret",
@@ -271,3 +297,278 @@ async def test_event_query_includes_garrison_sector_movements(tmp_path, monkeypa
     assert record["sector"] == 512
     assert record["corporation_id"] == corp_id
     assert record["payload"]["garrison"]["owner_id"] == "garrison-owner"
+
+
+@pytest.mark.asyncio
+async def test_event_query_accepts_actor_character_id_only(tmp_path, monkeypatch):
+    world_path = tmp_path
+    monkeypatch.setattr(event_query, "get_world_data_path", lambda: world_path)
+
+    registry = CharacterRegistry(world_path / "characters.json")
+    registry.load()
+
+    log_path = world_path / "event-log.jsonl"
+    logger = EventLogger(log_path)
+    now = datetime.now(timezone.utc)
+
+    logger.append(
+        EventRecord(
+            timestamp=now.isoformat(),
+            direction="sent",
+            event="status.update",
+            payload={"note": "ping"},
+            sender="pilot-actor",
+            receiver=None,
+            sector=5,
+            corporation_id=None,
+            meta=None,
+        )
+    )
+
+    payload = {
+        "actor_character_id": "pilot-actor",
+        "start": (now - timedelta(seconds=5)).isoformat(),
+        "end": (now + timedelta(seconds=5)).isoformat(),
+    }
+
+    result = await event_query.handle(payload, DummyWorld(registry))
+    assert result["success"] is True
+    assert result["count"] == 1
+    assert result["events"][0]["sender"] == "pilot-actor"
+
+
+@pytest.mark.asyncio
+async def test_event_query_string_match_filters_payload(tmp_path, monkeypatch):
+    world_path = tmp_path
+    monkeypatch.setattr(event_query, "get_world_data_path", lambda: world_path)
+
+    registry = CharacterRegistry(world_path / "characters.json")
+    registry.load()
+    registry.set_admin_password("secret")
+
+    log_path = world_path / "event-log.jsonl"
+    logger = EventLogger(log_path)
+    now = datetime.now(timezone.utc)
+
+    logger.append(
+        EventRecord(
+            timestamp=now.isoformat(),
+            direction="sent",
+            event="diagnostic.alert",
+            payload={"status": "engine_damaged"},
+            sender="pilot-1",
+            receiver=None,
+            sector=1,
+            corporation_id=None,
+            meta=None,
+        )
+    )
+    logger.append(
+        EventRecord(
+            timestamp=(now + timedelta(seconds=1)).isoformat(),
+            direction="sent",
+            event="diagnostic.alert",
+            payload={"status": "warp_ready"},
+            sender="pilot-1",
+            receiver=None,
+            sector=1,
+            corporation_id=None,
+            meta=None,
+        )
+    )
+
+    payload = {
+        "admin_password": "secret",
+        "start": (now - timedelta(seconds=5)).isoformat(),
+        "end": (now + timedelta(seconds=5)).isoformat(),
+        "string_match": "engine_",
+    }
+
+    result = await event_query.handle(payload, DummyWorld(registry))
+    assert result["count"] == 1
+    assert result["events"][0]["payload"]["status"] == "engine_damaged"
+
+
+@pytest.mark.asyncio
+async def test_event_query_reverse_sort_and_max_rows(tmp_path, monkeypatch):
+    world_path = tmp_path
+    monkeypatch.setattr(event_query, "get_world_data_path", lambda: world_path)
+
+    registry = CharacterRegistry(world_path / "characters.json")
+    registry.load()
+    registry.set_admin_password("secret")
+
+    log_path = world_path / "event-log.jsonl"
+    logger = EventLogger(log_path)
+    now = datetime.now(timezone.utc)
+
+    for idx in range(3):
+        logger.append(
+            EventRecord(
+                timestamp=(now + timedelta(seconds=idx)).isoformat(),
+                direction="sent",
+                event="status.update",
+                payload={"marker": f"event-{idx}"},
+                sender="pilot-1",
+                receiver=None,
+                sector=7,
+                corporation_id=None,
+                meta=None,
+            )
+        )
+
+    payload = {
+        "admin_password": "secret",
+        "start": (now - timedelta(seconds=5)).isoformat(),
+        "end": (now + timedelta(seconds=5)).isoformat(),
+        "max_rows": 2,
+        "sort_direction": "reverse",
+    }
+
+    result = await event_query.handle(payload, DummyWorld(registry))
+    assert result["count"] == 2
+    assert result["truncated"] is True
+    markers = [event["payload"]["marker"] for event in result["events"]]
+    assert markers == ["event-2", "event-1"]
+
+
+@pytest.mark.asyncio
+async def test_event_query_rejects_excessive_max_rows(tmp_path, monkeypatch):
+    world_path = tmp_path
+    monkeypatch.setattr(event_query, "get_world_data_path", lambda: world_path)
+
+    registry = CharacterRegistry(world_path / "characters.json")
+    registry.load()
+    registry.set_admin_password("secret")
+
+    now = datetime.now(timezone.utc)
+    payload = {
+        "admin_password": "secret",
+        "start": now.isoformat(),
+        "end": (now + timedelta(seconds=10)).isoformat(),
+        "max_rows": MAX_QUERY_RESULTS + 1,
+    }
+
+    with pytest.raises(HTTPException) as exc:
+        await event_query.handle(payload, DummyWorld(registry))
+
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_event_query_emits_event_when_no_results(tmp_path, monkeypatch):
+    world_path = tmp_path
+    monkeypatch.setattr(event_query, "get_world_data_path", lambda: world_path)
+
+    dispatcher = DummyDispatcher()
+    monkeypatch.setattr(event_query, "event_dispatcher", dispatcher)
+
+    registry = CharacterRegistry(world_path / "characters.json")
+    registry.load()
+
+    now = datetime.now(timezone.utc)
+    payload = {
+        "character_id": "pilot-empty",
+        "start": (now - timedelta(seconds=5)).isoformat(),
+        "end": (now + timedelta(seconds=5)).isoformat(),
+    }
+
+    result = await event_query.handle(payload, DummyWorld(registry))
+
+    assert result["success"] is True
+    assert result["count"] == 0
+    assert dispatcher.calls, "event.dispatcher was not invoked"
+
+    call = dispatcher.calls[0]
+    assert call["event"] == "event.query"
+    assert call["payload"]["events"] == []
+    assert call["payload"]["count"] == 0
+    assert call["payload"]["scope"] == "personal"
+    assert call["payload"]["filters"]["character_id"] == "pilot-empty"
+    assert call["character_filter"] == ["pilot-empty"]
+    assert call["log_event"] is False
+
+
+@pytest.mark.asyncio
+async def test_event_query_event_scope_corporation_auto(tmp_path, monkeypatch):
+    world_path = tmp_path
+    monkeypatch.setattr(event_query, "get_world_data_path", lambda: world_path)
+
+    registry = CharacterRegistry(world_path / "characters.json")
+    registry.load()
+
+    corp_map = {
+        "corp-member-a": "corp-123",
+        "corp-member-b": "corp-123",
+    }
+
+    log_path = world_path / "event-log.jsonl"
+    logger = EventLogger(log_path)
+    now = datetime.now(timezone.utc)
+
+    logger.append(
+        EventRecord(
+            timestamp=now.isoformat(),
+            direction="sent",
+            event="status.update",
+            payload={"note": "corp activity"},
+            sender="corp-member-b",
+            receiver=None,
+            sector=77,
+            corporation_id="corp-123",
+            meta=None,
+        )
+    )
+
+    payload = {
+        "actor_character_id": "corp-member-a",
+        "event_scope": "corporation",
+        "start": (now - timedelta(seconds=5)).isoformat(),
+        "end": (now + timedelta(seconds=5)).isoformat(),
+    }
+
+    result = await event_query.handle(payload, DummyWorld(registry, character_to_corp=corp_map))
+
+    assert result["scope"] == "corporation"
+    assert result["count"] == 1
+    assert result["events"][0]["sender"] == "corp-member-b"
+    assert result["events"][0]["corporation_id"] == "corp-123"
+
+
+@pytest.mark.asyncio
+async def test_event_query_event_scope_falls_back_without_membership(tmp_path, monkeypatch):
+    world_path = tmp_path
+    monkeypatch.setattr(event_query, "get_world_data_path", lambda: world_path)
+
+    registry = CharacterRegistry(world_path / "characters.json")
+    registry.load()
+
+    log_path = world_path / "event-log.jsonl"
+    logger = EventLogger(log_path)
+    now = datetime.now(timezone.utc)
+
+    logger.append(
+        EventRecord(
+            timestamp=now.isoformat(),
+            direction="sent",
+            event="status.update",
+            payload={"note": "solo activity"},
+            sender="loner",
+            receiver=None,
+            sector=55,
+            corporation_id=None,
+            meta=None,
+        )
+    )
+
+    payload = {
+        "actor_character_id": "loner",
+        "event_scope": "corporation",
+        "start": (now - timedelta(seconds=5)).isoformat(),
+        "end": (now + timedelta(seconds=5)).isoformat(),
+    }
+
+    result = await event_query.handle(payload, DummyWorld(registry))
+
+    assert result["scope"] == "personal"
+    assert result["count"] == 1
