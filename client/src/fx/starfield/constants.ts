@@ -355,7 +355,7 @@ export const DEFAULT_GALAXY_CONFIG: GalaxyStarfieldConfig = {
   nearFadeEndMultiplier: 2, // Multiplier for star near-fade distance
 
   // === CAMERA SWAY ===
-  cameraSwayIntensity: 2, // Spaceship sway intensity (0-2)
+  cameraSwayIntensity: 2.2, // Spaceship sway intensity (0-2)
   cameraSwaySpeed: 0.15, // Sway animation speed multiplier (slower = smoother)
   cameraSwayEnabled: true, // Enable/disable camera sway
   cameraZoomFactor: 0.5, // How much to zoom toward selected objects (0.1-0.5)

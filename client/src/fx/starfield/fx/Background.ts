@@ -166,6 +166,33 @@ export class Background extends FX {
 
   public resize(): void {}
 
+  public updateConfig(config: Partial<GalaxyStarfieldConfig>): void {
+    if (!this._config) return;
+
+    // Update internal config
+    Object.assign(this._config, config);
+
+    // Update planet position offset if provided
+    if (
+      config.planetPositionX !== undefined ||
+      config.planetPositionY !== undefined
+    ) {
+      if (this._planetRandomOffset) {
+        if (config.planetPositionX !== undefined) {
+          this._planetRandomOffset.x = config.planetPositionX;
+        }
+        if (config.planetPositionY !== undefined) {
+          this._planetRandomOffset.y = config.planetPositionY;
+        }
+      }
+    }
+
+    // Update planet scale if provided
+    if (config.planetScale !== undefined && this._planetGroup) {
+      this._planetGroup.scale.set(config.planetScale, config.planetScale, 1);
+    }
+  }
+
   public updatePlanetPosition(cameraPosition: THREE.Vector3): void {
     if (this._planetGroup && this._planetRandomOffset) {
       // Update planet position every frame to follow camera smoothly

@@ -86,8 +86,8 @@ export const ScreenMenu = () => {
 
   const tabs = [
     { id: "self", label: "Status", icon: <RocketLaunchIcon /> },
-    { id: "trading", label: "Trading", icon: <SwapIcon /> },
     { id: "map", label: "Map", icon: <PlanetIcon /> },
+    { id: "trading", label: "Trading", icon: <SwapIcon /> },
     { id: "tasks", label: "Tasks", icon: <CheckSquareOffsetIcon /> },
     { id: "combat", label: "Combat", icon: <CrosshairSimpleIcon /> },
     { id: "messaging", label: "Messaging", icon: <ChatTeardropDotsIcon /> },
