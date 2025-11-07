@@ -2,6 +2,7 @@ import { PortPanel } from "@/components/PortPanel";
 import useGameStore from "@/stores/game";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef } from "react";
+import { MapScreen } from "./MapScreen";
 
 const variants = {
   enter: {
@@ -42,9 +43,7 @@ export const ScreenContainer = () => {
   };
 
   useEffect(() => {
-    // Only clear if we HAD a screen before and now we don't
     if (prevActiveScreenRef.current && !activeScreen) {
-      console.log("EW");
       diamondFXInstance?.clear(true);
     }
     prevActiveScreenRef.current = activeScreen;
@@ -57,7 +56,7 @@ export const ScreenContainer = () => {
   }, [activeScreen]);
 
   return (
-    <div className="absolute inset-ui-lg z-(--z-screens) flex items-center justify-center pointer-events-none">
+    <div className="absolute inset-ui-lg z-(--z-screens) flex items-center justify-center">
       <div
         id="screen-container"
         className="relative max-h-min max-w-min focus:outline-none"
@@ -89,7 +88,11 @@ export const ScreenContainer = () => {
                 <PortPanel />
               </ScreenBase>
             )}
-            {activeScreen === "map" && <ScreenBase>Map</ScreenBase>}
+            {activeScreen === "map" && (
+              <ScreenBase>
+                <MapScreen />
+              </ScreenBase>
+            )}
             {activeScreen === "tasks" && <ScreenBase>Tasks</ScreenBase>}
             {activeScreen === "combat" && <ScreenBase>Combat</ScreenBase>}
           </motion.div>
