@@ -1,11 +1,15 @@
-import { Badge } from "@pipecat-ai/voice-ui-kit";
-import useGameStore from "../stores/game";
+import { Badge } from "@/components/primitives/Badge";
+import useGameStore from "@/stores/game";
 
 export const SectorBadge = () => {
-  const sector = useGameStore.use.sector();
+  const sector = useGameStore.use.sector?.();
 
   return (
-    <Badge variant="bracket" className="flex-1" size="lg">
+    <Badge
+      variant="secondary"
+      border="bracket"
+      className="flex-1 bracket-offset-0"
+    >
       Sector:
       <span
         className={

@@ -1,63 +1,40 @@
-import Cassette from "@/components/Cassette";
-import { DiscoveredPortsPanel } from "@/components/DiscoveredPortsPanel";
-import { MovementHistoryPanel } from "@/components/MovementHistoryPanel";
-import { PanelMenu } from "@/components/PanelMenu";
-import { TaskOutputPanel } from "@/components/TaskOutputPanel";
-import { TradeHistoryPanel } from "@/components/TradeHistoryPanel";
 import useGameStore from "@/stores/game";
-import { DotsSixVerticalIcon } from "@phosphor-icons/react";
-import {
-  Card,
-  CardContent,
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "@pipecat-ai/voice-ui-kit";
+import MiniMap from "@hud/MiniMap";
+
+import { PortBadge } from "@/components/PortBadge";
+import { Card } from "@/components/primitives/Card";
+import { Separator } from "@/components/primitives/Separator";
+import { SectorBadge } from "@/components/SectorBadge";
+import { SectorDetailBadges } from "@/components/SectorDetailBadges";
 
 export const LHS = () => {
-  const panel = useGameStore.use.activePanel?.() || "task_output";
-  const setActivePanel = useGameStore.use.setActivePanel();
+  const sector = useGameStore((state) => state.sector);
+  const localMapData = useGameStore((state) => state.local_map_data);
 
   return (
-    <div className="w-full lhs-perspective">
-      <div className="flex flex-row gap-2 max-w-[800px] h-full">
-        <PanelMenu currentPanel={panel} setCurrentPanel={setActivePanel} />
-        {panel === "task_output" ? (
-          <TaskOutputPanel />
-        ) : panel === "movement_history" ? (
-          <ResizablePanelGroup direction="horizontal" className="gap-2">
-            <ResizablePanel minSize={40} defaultSize={60}>
-              <MovementHistoryPanel />
-            </ResizablePanel>
-            <ResizableHandle
-              withHandle
-              noBorder={false}
-              size="md"
-              icon={
-                <DotsSixVerticalIcon weight="bold" className="text-white" />
-              }
-            />
-            <ResizablePanel minSize={30} defaultSize={40}>
-              <DiscoveredPortsPanel />
-            </ResizablePanel>
-          </ResizablePanelGroup>
-        ) : panel === "trade_history" ? (
-          <TradeHistoryPanel />
-        ) : panel === "debug" ? (
-          <Card
-            background="scanlines"
-            shadow="long"
-            withElbows={true}
-            className="flex flex-col items-center justify-center [--color-elbow:white] w-full h-full"
-          >
-            <CardContent>
-              <Cassette playing={true} />
-            </CardContent>
-          </Card>
-        ) : (
-          <></>
+    <div className="min-w-[400px] lhs-perspective flex flex-col gap-2 w-[700px]">
+      <Card
+        className="relative border-2 border-white/10 bg-transport p-0"
+        elbow={true}
+      >
+        {sector && localMapData && (
+          <MiniMap
+            current_sector_id={sector.id}
+            map_data={localMapData}
+            maxDistance={2}
+            showLegend={false}
+            width={600}
+            height={308}
+          />
         )}
+      </Card>
+      <Separator variant="dotted" className="w-full text-white/20 h-[12px]" />
+      <div className="flex flex-row gap-2">
+        <SectorBadge />
+        <PortBadge />
       </div>
+      <Separator variant="dotted" className="w-full text-white/20 h-[12px]" />
+      <SectorDetailBadges />
     </div>
   );
 };

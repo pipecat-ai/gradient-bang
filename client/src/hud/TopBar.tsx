@@ -11,7 +11,7 @@ import { ScreenMenu } from "@/screens/ScreenMenu";
 export const TopBar = () => {
   return (
     <header className="flex flex-row justify-between gap-5">
-      <div className="flex-1 p-ui-sm align-self max-w-100">
+      <div className="flex-1 p-ui-sm align-self max-w-100 top-lhs-perspective">
         <div className="elbow flex flex-col gap-1 p-2 backdrop-blur-sm bg-card/20">
           <WarpBadge />
           <Separator
@@ -27,7 +27,7 @@ export const TopBar = () => {
       <div className="flex flex-row gap-2 justify-center">
         <ScreenMenu />
       </div>
-      <div className="flex-1 p-ui-sm align-self max-w-100">
+      <div className="flex-1 p-ui-sm align-self max-w-100 top-rhs-perspective">
         <div className="elbow flex flex-col gap-1 p-2 backdrop-blur-sm bg-card/20">
           <CargoBadge />
           <Separator

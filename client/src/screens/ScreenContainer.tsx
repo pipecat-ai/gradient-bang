@@ -1,3 +1,4 @@
+import { PortPanel } from "@/components/PortPanel";
 import useGameStore from "@/stores/game";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef } from "react";
@@ -83,7 +84,11 @@ export const ScreenContainer = () => {
           >
             {activeScreen === "self" && <ScreenBase>Self</ScreenBase>}
             {activeScreen === "messaging" && <ScreenBase>Messaging</ScreenBase>}
-            {activeScreen === "trading" && <ScreenBase>Trading</ScreenBase>}
+            {activeScreen === "trading" && (
+              <ScreenBase>
+                <PortPanel />
+              </ScreenBase>
+            )}
             {activeScreen === "map" && <ScreenBase>Map</ScreenBase>}
             {activeScreen === "tasks" && <ScreenBase>Tasks</ScreenBase>}
             {activeScreen === "combat" && <ScreenBase>Combat</ScreenBase>}

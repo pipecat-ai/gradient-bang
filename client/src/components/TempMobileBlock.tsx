@@ -11,7 +11,7 @@ export const TempMobileBlock = () => {
     <div className="md:hidden bg-background fixed inset-0 z-9999 user-select-none pointer-events-none">
       <Card
         variant="stripes"
-        className="h-full w-full stripe-frame-destructive-foreground bg-destructive/10"
+        className="h-full w-full stripe-frame-destructive bg-destructive/10"
       >
         <CardHeader>
           <DeviceMobileSlashIcon
