@@ -1,150 +1,37 @@
-/**
- * Game Asset Manifest
- *
- * Import all game assets here to ensure they are:
- * 1. Content-hashed by Vite for cache busting
- * 2. Included in the production build
- * 3. Properly typed for TypeScript
- */
-
-// === IMAGES ===
-// UI Assets
-import uiButtonHover from "../assets/images/ui/button-hover.png";
-import uiButton from "../assets/images/ui/button.png";
-import uiLoadingScreen from "../assets/images/ui/loading-screen.png";
-
-// Sprites (preload these critical assets)
-import playerIdle from "../assets/images/sprites/player-idle.png";
-import playerSprite from "../assets/images/sprites/player.png";
-
-// Backgrounds
-import menuBackground from "../assets/images/backgrounds/menu.jpg";
-
-// === AUDIO ===
-// UI Sounds
-import uiClickSound from "../assets/audio/ui/click.mp3";
-import uiHoverSound from "../assets/audio/ui/hover.mp3";
-
-// Music
-import menuMusic from "../assets/audio/music/menu-theme.mp3";
-
-// === LAZY-LOADED ASSETS ===
-// Level 1 (load on demand)
-import level1Music from "../assets/audio/music/level-1-theme.mp3";
-import level1Background from "../assets/images/backgrounds/level-1.jpg";
-import level1Enemy from "../assets/images/sprites/enemy-1.png";
-
-// Level 2 (load on demand)
-import level2Music from "../assets/audio/music/level-2-theme.mp3";
-import level2Background from "../assets/images/backgrounds/level-2.jpg";
-import level2Enemy from "../assets/images/sprites/enemy-2.png";
-
-/**
- * Asset categories for organized loading
- */
-export interface AssetManifest {
-  preload: {
-    images: string[];
-    audio: string[];
-  };
-  lazy: {
-    [key: string]: {
-      images: string[];
-      audio: string[];
-    };
-  };
-}
-
-/**
- * Main asset manifest
- * - preload: Critical assets needed before game starts
- * - lazy: Assets loaded on-demand per level/scene
- */
-export const GAME_ASSETS: AssetManifest = {
-  // === PRELOAD (Critical - shown during loading screen) ===
-  preload: {
-    images: [
-      uiLoadingScreen,
-      uiButton,
-      uiButtonHover,
-      playerSprite,
-      playerIdle,
-      menuBackground,
-    ],
-    audio: [uiClickSound, uiHoverSound, menuMusic],
-  },
-
-  // === LAZY LOAD (On-demand per level/scene) ===
-  lazy: {
-    level1: {
-      images: [level1Background, level1Enemy],
-      audio: [level1Music],
-    },
-    level2: {
-      images: [level2Background, level2Enemy],
-      audio: [level2Music],
-    },
-  },
-};
-
-/**
- * Asset IDs for type-safe references throughout the game
- */
-export const ASSET_IDS = {
-  images: {
-    ui: {
-      loadingScreen: uiLoadingScreen,
-      button: uiButton,
-      buttonHover: uiButtonHover,
-    },
-    sprites: {
-      player: playerSprite,
-      playerIdle: playerIdle,
-    },
-    backgrounds: {
-      menu: menuBackground,
-      level1: level1Background,
-      level2: level2Background,
-    },
-    enemies: {
-      level1: level1Enemy,
-      level2: level2Enemy,
-    },
-  },
-  audio: {
-    ui: {
-      click: uiClickSound,
-      hover: uiHoverSound,
-    },
-    music: {
-      menu: menuMusic,
-      level1: level1Music,
-      level2: level2Music,
-    },
-  },
+// Images
+export const images = {
+  skybox1: new URL("./images/skybox-1.png", import.meta.url).href,
+  skybox2: new URL("./images/skybox-2.png", import.meta.url).href,
+  skybox3: new URL("./images/skybox-3.png", import.meta.url).href,
+  skybox4: new URL("./images/skybox-4.png", import.meta.url).href,
+  skybox5: new URL("./images/skybox-5.png", import.meta.url).href,
+  skybox6: new URL("./images/skybox-6.png", import.meta.url).href,
+  skybox7: new URL("./images/skybox-7.png", import.meta.url).href,
+  skybox8: new URL("./images/skybox-8.png", import.meta.url).href,
+  skybox9: new URL("./images/skybox-9.png", import.meta.url).href,
 } as const;
 
-/**
- * Get all asset paths from the manifest
- */
-export function getAllAssetPaths(manifest: AssetManifest): string[] {
-  const paths: string[] = [
-    ...manifest.preload.images,
-    ...manifest.preload.audio,
-  ];
+// Videos
+export const videos = {
+  title: new URL("./videos/title.mp4", import.meta.url).href,
+} as const;
 
-  Object.values(manifest.lazy).forEach((group) => {
-    paths.push(...group.images, ...group.audio);
-  });
+// Sounds
+export const sounds = {
+  warp: new URL("./sounds/warp.wav", import.meta.url).href,
+  start: new URL("./sounds/start.wav", import.meta.url).href,
+  message: new URL("./sounds/message.wav", import.meta.url).href,
+  chime1: new URL("./sounds/chime-1.wav", import.meta.url).href,
+  chime2: new URL("./sounds/chime-2.wav", import.meta.url).href,
+  chime3: new URL("./sounds/chime-3.wav", import.meta.url).href,
+  chime4: new URL("./sounds/chime-4.wav", import.meta.url).href,
+  chime5: new URL("./sounds/chime-5.wav", import.meta.url).href,
+  chime6: new URL("./sounds/chime-6.wav", import.meta.url).href,
+  text: new URL("./sounds/text.wav", import.meta.url).href,
+  ambience: new URL("./sounds/ambience.wav", import.meta.url).href,
+} as const;
 
-  return paths;
-}
-
-/**
- * Get total asset count for progress calculation
- */
-export function getAssetCount(manifest: AssetManifest): number {
-  return getAllAssetPaths(manifest).length;
-}
-
-export default GAME_ASSETS;
+// JS Chunks
+export const chunks = {
+  starfield: () => import("@/fx/starfield"),
+} as const;

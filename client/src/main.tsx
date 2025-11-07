@@ -2,12 +2,12 @@ import { createRoot } from "react-dom/client";
 
 import { PipecatAppBase } from "@pipecat-ai/voice-ui-kit";
 
+import { TempMobileBlock } from "@/components/TempMobileBlock";
 import { AnimatedFrame } from "@/fx/frame";
 import { GameProvider } from "@/GameContext";
 import { getLocalSettings } from "@/utils/settings";
 import { ViewContainer } from "@/views/ViewContainer";
 
-import { TempMobileBlock } from "@/components/TempMobileBlock";
 import "./css/index.css";
 
 // @TODO: Rather than apply during instantiation, we should

@@ -1,24 +1,42 @@
 import { useGameContext } from "@/hooks/useGameContext";
+import { checkAssetsAreCached } from "@/utils/cache";
 import useGameStore from "@stores/game";
-import Error from "@views/Error";
-import JoinStatus from "@views/JoinStatus";
-import Title from "@views/Title";
+import { Error } from "@views/Error";
+import { Game } from "@views/Game";
+import { JoinStatus } from "@views/JoinStatus";
+import { Preload } from "@views/Preload";
+import { Title } from "@views/Title";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useState } from "react";
-import Game from "./Game";
 
 export const ViewContainer = ({ error }: { error?: string | null }) => {
   const settings = useGameStore.use.settings();
   const gameState = useGameStore.use.gameState();
   const { initialize } = useGameContext();
 
-  const [viewState, setViewState] = useState<"title" | "game">(
-    settings.bypassTitleScreen ? "game" : "title"
+  const [viewState, setViewState] = useState<"title" | "preload" | "game">(
+    settings.bypassTitleScreen ? "preload" : "title"
   );
 
-  const handleViewStateChange = useCallback((state: "title" | "game") => {
-    setViewState(state);
-  }, []);
+  const handleViewStateChange = useCallback(
+    (state: "title" | "preload" | "game") => {
+      // If transitioning to preload, check if assets are already cached
+      if (state === "preload") {
+        const cached = checkAssetsAreCached();
+
+        if (cached) {
+          console.log("[GAME] Assets already cached, skipping preload screen");
+          setViewState("game");
+          return;
+        }
+
+        console.log("[GAME] Cache incomplete, showing preload screen");
+      }
+
+      setViewState(state);
+    },
+    []
+  );
 
   if (error || gameState === "error") {
     return <Error>{error}</Error>;
@@ -35,7 +53,10 @@ export const ViewContainer = ({ error }: { error?: string | null }) => {
         className="relative h-screen w-screen overflow-hidden"
       >
         {viewState === "title" && (
-          <Title onViewNext={() => handleViewStateChange("game")} />
+          <Title onViewNext={() => handleViewStateChange("preload")} />
+        )}
+        {viewState === "preload" && (
+          <Preload onComplete={() => handleViewStateChange("game")} />
         )}
         {viewState === "game" && (
           <>

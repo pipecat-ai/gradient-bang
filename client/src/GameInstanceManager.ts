@@ -1,7 +1,6 @@
-import { preloadAllSounds } from "@/hooks/usePlaySound";
 import { waitForStoreCondition } from "@/utils/store";
 import useGameStore from "@stores/game";
-import { GalaxyStarfield, type StarfieldSceneConfig } from "./fx/starfield";
+import type { StarfieldSceneConfig } from "./fx/starfield";
 
 export class GameInstanceManager {
   private _unsubscribe?: () => void;
@@ -19,10 +18,8 @@ export class GameInstanceManager {
     console.debug("[GAME INSTANCE MANAGER] Creating");
 
     // Construct and set instances
-    this._constructStarfield();
+    await this._constructStarfield();
     this._constructMiniMap();
-
-    await preloadAllSounds();
 
     // Setup state subscriber
     this._subscribeToSettings();
@@ -43,12 +40,12 @@ export class GameInstanceManager {
     // Subscribe only to renderStarfield changes - will only fire when this specific value changes
     this._unsubscribe = useGameStore.subscribe(
       (state) => state.settings.renderStarfield,
-      (renderStarfield) => {
+      async (renderStarfield) => {
         console.debug(
           `[GAME INSTANCE MANAGER] Starfield setting changed to ${renderStarfield}`
         );
         if (renderStarfield) {
-          this._constructStarfield();
+          await this._constructStarfield();
           this.initializeStarfield();
         } else {
           this._destroyStarfield();
@@ -90,13 +87,15 @@ export class GameInstanceManager {
 
   // ----- STARFIELD
 
-  private _constructStarfield(): void {
+  private async _constructStarfield(): Promise<void> {
     console.debug("[GAME INSTANCE MANAGER] Constructing starfield");
     const state = useGameStore.getState();
     if (state.starfieldInstance) {
       state.starfieldInstance.destroy();
     }
 
+    // Lazy load the GalaxyStarfield class
+    const { GalaxyStarfield } = await import("./fx/starfield");
     const starfield = new GalaxyStarfield();
     state.setStarfieldInstance(starfield);
   }
