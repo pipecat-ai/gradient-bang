@@ -52,7 +52,7 @@ export const Starfield: Story = () => {
 
         <button
           onClick={() => {
-            const starfield = new GalaxyStarfield();
+            const starfield = new GalaxyStarfield({ debugMode: true });
             useGameStore.setState({
               starfieldInstance: starfield,
               gameState: "ready",

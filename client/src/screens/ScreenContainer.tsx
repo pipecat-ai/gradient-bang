@@ -56,7 +56,7 @@ export const ScreenContainer = () => {
   }, [activeScreen]);
 
   return (
-    <div className="absolute inset-0 z-(--z-screens) flex items-center justify-center pointer-events-none">
+    <div className="absolute inset-ui-lg z-(--z-screens) flex items-center justify-center pointer-events-none">
       <div
         id="screen-container"
         className="relative max-h-min max-w-min focus:outline-none"

@@ -256,10 +256,7 @@ export class GalaxyStarfield {
   }
 
   private startCinematicWarp(task: WarpRequest): void {
-    this.sceneController.setLockedConfig(
-      task.preparedConfig,
-      task.gameObjects
-    );
+    this.sceneController.setLockedConfig(task.preparedConfig, task.gameObjects);
     this._warpBypassFlash = !!task.options.bypassFlash;
     this._currentSceneId = task.sceneId;
     this._sceneReadyPending = true;
@@ -483,6 +480,7 @@ export class GalaxyStarfield {
     this.configMapper = new ConfigUniformMapper(this.uniformManager);
     this.warpOverlay = new WarpOverlay();
     this.shadowManager = new ShadowManager(this.uniformManager);
+    this.shadowManager.updateShadowSettings(this.config);
 
     this.whiteFlash = document.getElementById("whiteFlash");
 
@@ -1531,6 +1529,10 @@ export class GalaxyStarfield {
       }
     }
 
+    if (this._background) {
+      this._background.updateConfig(newConfig);
+    }
+
     this.updateCachedConfig();
   }
 
@@ -2179,6 +2181,8 @@ export class GalaxyStarfield {
     if (this.config.cloudsEnabled) {
       this._clouds?.create(this.config);
     }
+
+    this.shadowManager?.updateShadowSettings(this.config);
 
     // Wait for all async operations (primarily Background texture loading)
     await Promise.all(promises);

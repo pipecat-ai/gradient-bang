@@ -2,8 +2,9 @@ import type { Story } from "@ladle/react";
 import { useCallback, useEffect, useState } from "react";
 
 import { DiscoveredPortsPanel } from "@/components/DiscoveredPortsPanel";
+import { Button } from "@/components/primitives/Button";
+import { Divider } from "@/components/primitives/Divider";
 import { MiniMap as MiniMapComponent, type MiniMapConfig } from "@hud/MiniMap";
-import { Button } from "@pipecat-ai/voice-ui-kit";
 
 import { GET_MAP_REGION } from "@/actions/dispatch";
 import { useGameContext } from "@/hooks/useGameContext";
@@ -11,10 +12,12 @@ import useGameStore from "@/stores/game";
 import { MapScreen } from "@screens/MapScreen";
 
 export const MapPanelStory: Story = () => {
-  const { dispatchEvent } = useGameContext();
+  const { dispatchEvent, sendUserTextInput } = useGameContext();
   const [maxHops, setMaxHops] = useState(50);
   const [fromSectorId, setFromSectorId] = useState(0);
+  const [targetSectorId, setTargetSectorId] = useState<number>(0);
   const sector = useGameStore.use.sector?.();
+  const clearCoursePlot = useGameStore.use.clearCoursePlot?.();
 
   useEffect(() => {
     setFromSectorId(sector?.id ?? 0);
@@ -25,9 +28,10 @@ export const MapPanelStory: Story = () => {
       <div className="flex flex-col gap-3">
         {sector && (
           <div className="flex flex-row w-full gap-3">
+            From:{" "}
             <input
               type="number"
-              value={sector?.id ?? 0}
+              defaultValue={sector?.id ?? 0}
               onChange={(e) => setFromSectorId(Number(e.target.value))}
             />
             <input
@@ -56,7 +60,24 @@ export const MapPanelStory: Story = () => {
         >
           Get regional map
         </Button>
+        Target sector:
+        <input
+          type="number"
+          defaultValue={targetSectorId ?? 0}
+          onChange={(e) => setTargetSectorId(Number(e.target.value))}
+        />
+        <Button
+          onClick={() =>
+            sendUserTextInput?.(
+              `Plot a course to sector ${targetSectorId} but do not move yet. Just plot the course. If you have already plotted the same course, do it again.`
+            )
+          }
+        >
+          Plot course to sector {targetSectorId}
+        </Button>
+        <Button onClick={() => clearCoursePlot?.()}>Clear course plot</Button>
       </div>
+      <Divider />
       <MapScreen />
     </div>
   );
@@ -98,7 +119,7 @@ const storyData: MapData = [
     id: 126,
     visited: false,
     hops_from_center: 2,
-    position: [128, 133],
+    position: [128, 128],
     port: "",
     lanes: [
       {

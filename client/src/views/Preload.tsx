@@ -1,3 +1,4 @@
+import { Progress } from "@/components/primitives/Progress";
 import { useAssetPreloader } from "@/hooks/useAssetPreloader";
 import { wait } from "@/utils/animation";
 import { useEffect } from "react";
@@ -26,17 +27,16 @@ export const Preload = ({ onComplete }: PreloadProps) => {
       <div className="max-w-md w-full px-8">
         {/* Title */}
         <div className="text-2xl mb-8 text-center animate-pulse">
-          GRADIENT BANG
+          DOWNLOADING GAME ASSETS
         </div>
 
         {/* Progress Bar */}
         <div className="mb-4">
-          <div className="w-full h-2 bg-gray-900 rounded overflow-hidden">
-            <div
-              className="h-full bg-green-500 transition-all duration-300 ease-out"
-              style={{ width: `${progress.percentage}%` }}
-            />
-          </div>
+          <Progress
+            value={progress.percentage}
+            color="fuel"
+            className="h-[20px] stripe-bar stripe-bar-fuel/20 stripe-bar-20 stripe-bar-animate-1"
+          />
         </div>
 
         {/* Stats */}

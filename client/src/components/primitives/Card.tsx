@@ -18,7 +18,7 @@ const cardVariants = cva("text-card-foreground flex flex-col", {
       xl: "gap-ui-xl py-ui-xl [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-ui-xl",
     },
     elbow: {
-      true: "elbow",
+      true: "elbow elbow-offset-6",
       false: "",
     },
     scrollable: {

@@ -8,6 +8,9 @@ import { GameProvider } from "@/GameContext";
 import { getLocalSettings } from "@/utils/settings";
 import { ViewContainer } from "@/views/ViewContainer";
 
+//@TODO: this fixes lazy loading issues, must fix!
+import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
+
 import "./css/index.css";
 
 // @TODO: Rather than apply during instantiation, we should
@@ -15,12 +18,18 @@ import "./css/index.css";
 // Currently, the noAudioOutput setting is irreversible!
 const Settings = getLocalSettings();
 
+// Parse query string parameters
+const queryParams = new URLSearchParams(window.location.search);
+const endpoint = queryParams.get("server") || "api/offer";
+
+console.debug("[MAIN] Custom endpoint:", endpoint, SmallWebRTCTransport);
+
 createRoot(document.getElementById("root")!).render(
   <PipecatAppBase
     transportType="smallwebrtc"
     connectParams={{
       webrtcRequestParams: {
-        endpoint: "api/offer",
+        endpoint: endpoint,
         requestData: { start_on_join: false },
       },
     }}
