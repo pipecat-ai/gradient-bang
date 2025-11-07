@@ -21,7 +21,7 @@ importers:
         specifier: ^1.7.0
         version: 1.7.0(@pipecat-ai/client-js@1.4.1)
       '@pipecat-ai/voice-ui-kit':
-        specifier: 0.5.0
+        specifier: ^0.5.0
         version: 0.5.0(@daily-co/daily-js@0.83.1)(@pipecat-ai/client-js@1.4.1)(@pipecat-ai/client-react@1.1.0(@babel/core@7.28.5)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.4.1)(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@pipecat-ai/small-webrtc-transport@1.7.0(@pipecat-ai/client-js@1.4.1))(@types/react-dom@19.2.2(@types/react@19.2.2))(@types/react@19.2.2)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(three@0.180.0)(use-sync-external-store@1.6.0(react@19.2.0))
       '@radix-ui/react-collapsible':
         specifier: ^1.1.12
