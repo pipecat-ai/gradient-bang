@@ -9,7 +9,7 @@ import { getLocalSettings } from "@/utils/settings";
 import { ViewContainer } from "@/views/ViewContainer";
 
 //@TODO: this fixes lazy loading issues, must fix!
-import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
+import { DailyTransport } from "@pipecat-ai/daily-transport";
 
 import "./css/index.css";
 
@@ -20,18 +20,30 @@ const Settings = getLocalSettings();
 
 // Parse query string parameters
 const queryParams = new URLSearchParams(window.location.search);
-const endpoint = queryParams.get("server") || "api/offer";
+const endpoint = queryParams.get("server") || "http://localhost:7860/start";
 
-console.debug("[MAIN] Custom endpoint:", endpoint, SmallWebRTCTransport);
+const requestBodyEntries = [...queryParams.entries()].filter(
+  ([key]) => key !== "server"
+);
+const requestBody = Object.fromEntries(requestBodyEntries) as Record<string, string>;
+
+const startRequestData = {
+  createDailyRoom: true,
+  dailyRoomProperties: {
+    start_video_off: true,
+    eject_at_room_exp: true,
+  },
+  body: requestBody,
+};
+
+console.debug("[MAIN] Daily start endpoint:", endpoint, DailyTransport);
 
 createRoot(document.getElementById("root")!).render(
   <PipecatAppBase
-    transportType="smallwebrtc"
-    connectParams={{
-      webrtcRequestParams: {
-        endpoint: endpoint,
-        requestData: { start_on_join: false },
-      },
+    transportType="daily"
+    startBotParams={{
+      endpoint,
+      requestData: startRequestData,
     }}
     clientOptions={{
       enableMic: Settings.enableMic,
