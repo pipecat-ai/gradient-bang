@@ -7,15 +7,16 @@ const badgeVariants = cva(
     variants: {
       variant: {
         default: "bg-muted border border-border text-foreground",
+        glass: "bg-muted/60 text-foreground",
       },
       border: {
         none: "",
-        bracket: "bracket bracket-offset-1",
-        elbow: "elbow elbow-1 elbow-offset-1",
+        bracket: "bracket",
+        elbow: "elbow elbow-1",
       },
       size: {
         sm: "text-xs px-2 py-1",
-        default: "text-sm px-4 py-2",
+        default: "text-sm px-3 py-3",
         lg: "text-base px-6 py-3",
       },
     },
@@ -65,6 +66,16 @@ const badgeVariants = cva(
         variant: "default",
         class: "bracket-muted-foreground/50",
       },
+      {
+        variant: "glass",
+        border: "elbow",
+        class: "elbow-white/30 -elbow-offset-2",
+      },
+      {
+        variant: "glass",
+        border: "bracket",
+        class: "bracket-white/30 -bracket-offset-2",
+      },
     ],
   }
 );
@@ -84,5 +95,21 @@ export const Badge = ({
     >
       {children}
     </div>
+  );
+};
+
+export const BadgeTitle = ({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) => {
+  return (
+    <span
+      className={cn("uppercase text-xs font-bold tracking-widest", className)}
+    >
+      {children}
+    </span>
   );
 };

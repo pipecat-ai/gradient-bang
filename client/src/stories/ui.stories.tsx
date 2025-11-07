@@ -201,7 +201,7 @@ export const CardStory: Story = () => (
       <CardContent>Hello</CardContent>
     </Card>
 
-    <Card variant="stripes" className="stripe-frame-destructive-foreground">
+    <Card variant="stripes" className="stripe-frame-destructive">
       <CardContent>Hello</CardContent>
     </Card>
 

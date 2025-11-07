@@ -32,10 +32,8 @@ declare global {
     fighters?: number;
     shields?: number;
 
-    // Combat-related (Player / NPC)
-    shield_integrity?: number;
-    shield_damage?: number;
-    fighter_loss?: number;
+    max_shields?: number;
+    max_fighters?: number;
   }
 
   interface ShipType {

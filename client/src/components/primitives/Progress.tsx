@@ -13,6 +13,7 @@ const progressVariants = cva("relative min-w-10 h-2 w-full overflow-hidden", {
       secondary: "bg-secondary/20",
       destructive: "bg-destructive/20",
       warning: "bg-warning/20",
+      success: "bg-success/20",
       fuel: "bg-fuel/20",
     },
   },
@@ -26,6 +27,7 @@ const indicatorColorVariants = {
   secondary: "bg-secondary",
   destructive: "bg-destructive",
   warning: "bg-warning",
+  success: "bg-success",
   fuel: "bg-fuel",
 } as const;
 
@@ -208,7 +210,7 @@ function Progress({
     segmented && segmentState && segmentState.start !== segmentState.end
       ? {
           start: Math.min(segmentState.start, segmentState.end),
-          width: Math.abs(segmentState.end - segmentState.start),
+          width: Math.ceil(Math.abs(segmentState.end - segmentState.start)),
           direction:
             segmentState.end > segmentState.start ? "increment" : "decrement",
         }

@@ -9,16 +9,20 @@ const incrementCx =
 const decrementCx =
   "stripe-bar stripe-bar-8 stripe-bar-animate-1 stripe-bar-reverse";
 
-export const WarpBadge = ({ className }: { className?: string }) => {
+export const CargoBadge = ({ className }: { className?: string }) => {
   const ship = useGameStore.use.ship();
 
-  const warpPercentage = (ship.warp_power / ship.warp_power_capacity) * 100;
+  const cargoPercentage =
+    (Math.max(0, (ship.cargo_capacity ?? 0) - (ship.empty_holds ?? 0)) /
+      (ship.cargo_capacity ?? 0)) *
+    100;
+
   const color =
-    warpPercentage <= 25
+    cargoPercentage >= 75
       ? "destructive"
-      : warpPercentage <= 50
+      : cargoPercentage >= 50
       ? "warning"
-      : "fuel";
+      : "primary";
 
   const dCX = `${decrementCx} ${
     color === "destructive"
@@ -32,17 +36,17 @@ export const WarpBadge = ({ className }: { className?: string }) => {
       className={cn("flex-col gap-2 w-full items-start", className)}
     >
       <div className="flex flex-row gap-2 items-center w-full justify-between">
-        <BadgeTitle>Warp fuel</BadgeTitle>
+        <BadgeTitle>Cargo holds</BadgeTitle>
         <div className="text-xs">
-          {ship?.warp_power ?? 0}
+          {ship?.empty_holds ?? 0}
           <span className="opacity-30"> / </span>
-          {ship?.warp_power_capacity ?? 0}
+          {ship?.cargo_capacity ?? 0}
         </div>
       </div>
       <div className="flex flex-row gap-3 items-center w-full">
         <Progress
           color={color}
-          value={warpPercentage}
+          value={100 - cargoPercentage}
           segmented={true}
           className="h-[16px] w-full"
           classNames={{

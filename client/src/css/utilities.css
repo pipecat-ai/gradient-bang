@@ -312,7 +312,7 @@
 }
 
 @utility stripe-bar-animate-* {
-  --stripe-bar-speed: calc(--value(integer) * 1s);
+  --stripe-bar-speed: calc(--value(integer) * 0.5s);
   animation: scroll var(--stripe-bar-speed) linear infinite;
 }
 
