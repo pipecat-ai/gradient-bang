@@ -27,6 +27,14 @@ This document outlines a 7-week plan (including Week 0 preparation) to move Grad
 - **Week 5:** Testing, performance benchmarking, and Python SDK integration
 - **Week 6:** Cutover preparation and deployment (in separate worktree)
 
+## Progress Snapshot (as of 2025-11-08)
+
+- ✅ Supabase CLI + VS Code config committed (`supabase/config.toml`, `.vscode` settings).
+- ✅ Initial migration captured (`supabase/migrations/20251108093000_initial_schema.sql`) and applied via `supabase db reset`.
+- ✅ Local seed data (`supabase/seed.sql`) loads a 7-sector dev universe with sample characters/ships/garrisons.
+- ✅ Edge function scaffolding in place: `_shared/{auth,client,constants,events,rate_limiting}.ts` plus the first `join` handler stub.
+- ⏳ Next up: flesh out `join` payload parity + add automated tests (Phase 2 DoD #4/#5), then scaffold `my_status`/`move`.
+
 ## Week 0: Preparation & Design (Week 0)
 
 ### Goals

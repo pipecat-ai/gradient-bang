@@ -1,0 +1,55 @@
+import os
+import secrets
+
+import httpx
+import pytest
+
+
+API_URL = os.environ.get('SUPABASE_URL', 'http://127.0.0.1:54321')
+EDGE_URL = os.environ.get('EDGE_FUNCTIONS_URL', f"{API_URL}/functions/v1")
+API_TOKEN = os.environ.get('SUPABASE_API_TOKEN', 'local-dev-token')
+
+
+def _call_join(character_id: str, token: str | None = None, json_body: dict | None = None) -> httpx.Response:
+    headers = {'Content-Type': 'application/json'}
+    if token is not None:
+        headers['x-api-token'] = token
+
+    payload = json_body or {'character_id': character_id}
+
+    return httpx.post(
+        f"{EDGE_URL}/join",
+        headers=headers,
+        json=payload,
+        timeout=10.0,
+    )
+
+
+@pytest.mark.edge
+def test_join_requires_token():
+    resp = _call_join('00000000-0000-0000-0000-000000000001', token='invalid')
+    assert resp.status_code == 401
+    data = resp.json()
+    assert data['success'] is False
+    assert data['error'] == 'unauthorized'
+
+
+@pytest.mark.edge
+def test_join_returns_character_snapshot():
+    resp = _call_join('00000000-0000-0000-0000-000000000001', token=API_TOKEN)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data['success'] is True
+    assert data['character']['name'] == 'Aurora-Test'
+    assert data['ship']['ship_name'] == 'Aurora Prime'
+
+
+@pytest.mark.edge
+def test_join_not_found():
+    missing_id = secrets.token_hex(16)
+    resp = _call_join(missing_id, token=API_TOKEN)
+    assert resp.status_code == 404
+    data = resp.json()
+    assert data['success'] is False
+    assert 'not found' in data['error']
+
