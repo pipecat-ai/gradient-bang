@@ -142,13 +142,22 @@
   --stripe-color: --value(--color- *);
   --stripe-width: 1.5px;
   --stripe-gap: 8px;
+  --stripe-bg: currentColor;
+  --stripe-opacity: 100%;
+  --stripe-opacity: calc(--modifier(integer) * 1%);
+
   background-image: repeating-linear-gradient(
     45deg,
-    var(--stripe-color),
-    var(--stripe-color) var(--stripe-width),
-    currentColor var(--stripe-width),
-    currentColor calc(var(--stripe-width) + var(--stripe-gap))
+    color-mix(in srgb, var(--stripe-color) var(--stripe-opacity), transparent),
+    color-mix(in srgb, var(--stripe-color) var(--stripe-opacity), transparent)
+      var(--stripe-width),
+    var(--stripe-bg) var(--stripe-width),
+    var(--stripe-bg) calc(var(--stripe-width) + var(--stripe-gap))
   );
+}
+
+@utility bg-stripes-overlay-* {
+  --stripe-bg: --value(--color- *);
 }
 
 @utility dotted-mask-* {

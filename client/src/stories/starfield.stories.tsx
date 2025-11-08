@@ -1,4 +1,4 @@
-import { Settings } from "@/dialogs/Settings";
+import { Settings } from "@/components/dialogs/Settings";
 import useGameStore from "@/stores/game";
 import { StarField } from "@hud/StarField";
 import type { Story } from "@ladle/react";

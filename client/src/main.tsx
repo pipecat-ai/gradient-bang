@@ -1,10 +1,10 @@
+import { PipecatAppBase } from "@pipecat-ai/voice-ui-kit";
+import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-import { PipecatAppBase } from "@pipecat-ai/voice-ui-kit";
-
 import { TempMobileBlock } from "@/components/TempMobileBlock";
+import { ViewContainer } from "@/components/views/ViewContainer";
 import { GameProvider } from "@/GameContext";
-import { ViewContainer } from "@/views/ViewContainer";
 import { AnimatedFrame } from "@fx/frame";
 import useGameStore from "@stores/game";
 
@@ -37,7 +37,7 @@ const startRequestData = {
 console.debug("[MAIN] Pipecat Configuration:", endpoint, transport);
 
 createRoot(document.getElementById("root")!).render(
-  <>
+  <StrictMode>
     <PipecatAppBase
       transportType={transport as "smallwebrtc" | "daily"}
       startBotParams={{
@@ -53,7 +53,6 @@ createRoot(document.getElementById("root")!).render(
     >
       {({ handleConnect, error }) => (
         <GameProvider onConnect={handleConnect}>
-          {/* Main View Container */}
           <ViewContainer error={error} />
         </GameProvider>
       )}
@@ -61,5 +60,5 @@ createRoot(document.getElementById("root")!).render(
     {/* HOC renderables */}
     <AnimatedFrame />
     {Settings.showMobileWarning && <TempMobileBlock />}
-  </>
+  </StrictMode>
 );

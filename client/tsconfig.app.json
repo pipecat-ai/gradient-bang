@@ -21,9 +21,9 @@
       "@/*": ["./src/*"],
       "@assets/*": ["./src/assets/*"],
       "@fx/*": ["./src/fx/*"],
-      "@hud/*": ["./src/hud/*"],
-      "@views/*": ["./src/views/*"],
-      "@screens/*": ["./src/screens/*"],
+      "@hud/*": ["./src/components/hud/*"],
+      "@views/*": ["./src/components/views/*"],
+      "@screens/*": ["./src/components/screens/*"],
       "@stores/*": ["./src/stores/*"],
     },
 

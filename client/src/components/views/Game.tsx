@@ -1,15 +1,15 @@
 import { AutoPilot } from "@/components/AutoPilot";
-import { Settings } from "@/dialogs/Settings";
+import { Settings } from "@/components/dialogs/Settings";
+import { ShipVisor } from "@/components/hud/ShipVisor";
 import { useNotificationSound } from "@/hooks/useNotificationSound";
 import { usePlaySound } from "@/hooks/usePlaySound";
-import { ShipVisor } from "@/hud/ShipVisor";
 import useGameStore from "@/stores/game";
 
 import { ShipHUD } from "@hud/ShipHUD";
 import { StarField } from "@hud/StarField";
 import { TopBar } from "@hud/TopBar";
 
-import { ScreenContainer } from "@/screens/ScreenContainer";
+import { ScreenContainer } from "@/components/screens/ScreenContainer";
 import { useEffect } from "react";
 
 export const Game = () => {

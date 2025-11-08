@@ -4,9 +4,9 @@ import { CreditsOnHandBadge } from "@/components/CreditsOnHandBadge";
 import { FightersBadge } from "@/components/FightersBadge";
 import { DotDivider } from "@/components/primitives/DotDivider";
 import { Separator } from "@/components/primitives/Separator";
+import { ScreenMenu } from "@/components/screens/ScreenMenu";
 import { ShieldsBadge } from "@/components/ShieldsBadge";
 import { WarpBadge } from "@/components/WarpBadge";
-import { ScreenMenu } from "@/screens/ScreenMenu";
 
 export const TopBar = () => {
   return (

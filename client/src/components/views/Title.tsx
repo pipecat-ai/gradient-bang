@@ -1,7 +1,7 @@
+import { Settings } from "@/components/dialogs/Settings";
 import { Button } from "@/components/primitives/Button";
 import { Card, CardContent, CardHeader } from "@/components/primitives/Card";
 import { Separator } from "@/components/primitives/Separator";
-import { Settings } from "@/dialogs/Settings";
 import useGameStore from "@/stores/game";
 
 import TitleVideo from "@assets/videos/title.mp4";
