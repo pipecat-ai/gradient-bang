@@ -316,6 +316,17 @@ async def root() -> Dict[str, Any]:
     }
 
 
+@app.get("/leaderboard/resources")
+async def http_leaderboard_resources(force_refresh: bool = False) -> Dict[str, Any]:
+    """Lightweight HTTP helper for fetching the leaderboard snapshot."""
+
+    payload: Dict[str, Any] = {}
+    if force_refresh:
+        payload["force_refresh"] = True
+
+    return await api_leaderboard_resources.handle(payload, world)
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
     await websocket.accept()
