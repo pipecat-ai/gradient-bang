@@ -111,7 +111,7 @@
   --spacing-ui-xl: calc(var(--spacing) * 12);
   --spacing-scrollbar: calc(var(--spacing) * 3);
   --spacing-panel: calc(var(--spacing) * 2);
-  --spacing-screen-border-y: calc(var(--spacing) * 8);
+  --spacing-screen-border-y: calc(var(--spacing) * 10);
   --spacing-screen-border-x: calc(var(--spacing) * 4);
 
   --height-ui: 460px;
@@ -140,7 +140,7 @@
   --shadow-xlong: 0px 89px 36px rgb(0 0 0 / 0.01),
     0px 50px 30px rgb(0 0 0 / 0.03), 0px 22px 22px rgb(0 0 0 / 0.04),
     0px 6px 12px rgb(0 0 0 / 0.05);
-  --shadow-long: 0 44px 18px 0 rgba(0, 0, 0, 0.01),
+  --shadow-long: 0 28px 28px 18px rgba(0, 0, 0, 0.25),
     0 25px 15px 0 rgba(0, 0, 0, 0.05), 0 11px 11px 0 rgba(0, 0, 0, 0.09),
     0 3px 6px 0 rgba(0, 0, 0, 0.1);
   --shadow-short: 0px 10px 15px -3px rgb(0 0 0 / 0.05),

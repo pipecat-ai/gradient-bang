@@ -7,7 +7,8 @@ const cardVariants = cva("text-card-foreground flex flex-col", {
   variants: {
     variant: {
       default: "bg-card text-card-foreground border",
-      secondary: "bg-secondary/80 backdrop-blur-sm text-secondary-foreground",
+      secondary:
+        "bg-secondary/80 motion-safe:backdrop-blur-sm text-secondary-foreground",
       stripes: "bg-card shrink-0 stripe-frame",
       scanlines: "border text-white bg-scanlines",
     },

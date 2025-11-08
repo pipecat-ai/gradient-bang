@@ -1,6 +1,7 @@
-import { Card } from "@/components/primitives/Card";
+import { Card, CardHeader, CardTitle } from "@/components/primitives/Card";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import useGameStore from "@/stores/game";
+import { AnimatePresence, motion } from "motion/react";
 import { Dialog } from "radix-ui";
 
 export const Settings = () => {
@@ -16,25 +17,49 @@ export const Settings = () => {
       open={activeModal === "settings"}
       onOpenChange={() => setActiveModal(undefined)}
     >
-      <Dialog.Portal>
-        <Dialog.Title>Settings</Dialog.Title>
-        <Dialog.Overlay className="DialogOverlay bg-muted/80 motion-safe:bg-muted/30 motion-safe:backdrop-blur-sm bg-dotted-lg bg-dotted-white/10 bg-center animate-in fade-in-0 duration-300">
-          <Dialog.Content
-            aria-describedby={undefined}
-            className="DialogContent max-w-xl"
-          >
-            <Card
-              elbow={true}
-              size="default"
-              className="w-full h-full max-h-max bg-black animate-in fade-in-0 zoom-in origin-center shadow-2xl"
-            >
-              <SettingsPanel
-                onSave={handleSave}
-                onCancel={() => setActiveModal(undefined)}
-              />
-            </Card>
-          </Dialog.Content>
-        </Dialog.Overlay>
+      <Dialog.Portal forceMount>
+        <AnimatePresence>
+          {activeModal === "settings" && (
+            <Dialog.Overlay asChild forceMount>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.3, ease: "easeInOut" }}
+                className="DialogOverlay bg-muted/80 motion-safe:bg-muted/30 motion-safe:backdrop-blur-sm bg-dotted-lg bg-dotted-white/10 bg-center"
+              >
+                <Dialog.Title>Settings</Dialog.Title>
+                <Dialog.Content
+                  asChild
+                  forceMount
+                  aria-describedby={undefined}
+                  className="DialogContent max-w-xl"
+                >
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    transition={{ duration: 0.3, ease: "easeInOut" }}
+                  >
+                    <Card
+                      elbow={true}
+                      size="default"
+                      className="w-full h-full max-h-max bg-black shadow-2xl"
+                    >
+                      <CardHeader>
+                        <CardTitle className="heading-2">Settings</CardTitle>
+                      </CardHeader>
+                      <SettingsPanel
+                        onSave={handleSave}
+                        onCancel={() => setActiveModal(undefined)}
+                      />
+                    </Card>
+                  </motion.div>
+                </Dialog.Content>
+              </motion.div>
+            </Dialog.Overlay>
+          )}
+        </AnimatePresence>
       </Dialog.Portal>
     </Dialog.Root>
   );

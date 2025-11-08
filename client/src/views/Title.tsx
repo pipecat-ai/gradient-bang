@@ -29,7 +29,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
           elbow={true}
           variant="secondary"
           size="xl"
-          className="min-w-lg border border-border pb-5 animate-in fade-in-0 duration-1000 shadow-xl"
+          className="min-w-lg border border-border pb-5 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-1000 shadow-long"
         >
           <CardHeader className="block">
             <h1 className="text-white text-3xl font-bold uppercase">
@@ -53,7 +53,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
           <div className="flex flex-row gap-5 text-center justify-center items-center px-6 border-t border-border pt-5">
             <div className="bg-dotted-sm bg-dotted-white/30 self-stretch flex-1" />
             <p className="text-muted-foreground text-sm font-bold uppercase tracking-wider leading-tight">
-              Dev Build 0.0.1
+              Dev Build {import.meta.env.VITE_APP_VERSION}
             </p>
             <div className="bg-dotted-sm bg-dotted-white/30 self-stretch flex-1" />
           </div>
