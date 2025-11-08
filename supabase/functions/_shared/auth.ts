@@ -1,5 +1,3 @@
-const API_TOKEN = Deno.env.get('SUPABASE_API_TOKEN');
-
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -10,14 +8,19 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+function getApiToken(): string | undefined {
+  return Deno.env.get('EDGE_API_TOKEN') ?? Deno.env.get('SUPABASE_API_TOKEN') ?? undefined;
+}
+
 export function validateApiToken(req: Request): boolean {
-  if (!API_TOKEN) {
+  const apiToken = getApiToken();
+  if (!apiToken) {
     // When the token is not configured we allow all requests (local dev convenience)
     return true;
   }
 
   const provided = req.headers.get('x-api-token') ?? req.headers.get('X-API-Token');
-  return provided === API_TOKEN;
+  return provided === apiToken;
 }
 
 export function unauthorizedResponse(): Response {

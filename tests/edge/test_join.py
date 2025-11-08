@@ -7,11 +7,18 @@ import pytest
 
 API_URL = os.environ.get('SUPABASE_URL', 'http://127.0.0.1:54321')
 EDGE_URL = os.environ.get('EDGE_FUNCTIONS_URL', f"{API_URL}/functions/v1")
-API_TOKEN = os.environ.get('SUPABASE_API_TOKEN', 'local-dev-token')
+
+
+def _expected_token() -> str:
+    return os.environ.get('EDGE_API_TOKEN') or os.environ.get('SUPABASE_API_TOKEN', 'local-dev-token')
 
 
 def _call_join(character_id: str, token: str | None = None, json_body: dict | None = None) -> httpx.Response:
-    headers = {'Content-Type': 'application/json'}
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': f"Bearer {os.environ.get('SUPABASE_ANON_KEY', 'anon-key')}",
+        'apikey': os.environ.get('SUPABASE_ANON_KEY', 'anon-key'),
+    }
     if token is not None:
         headers['x-api-token'] = token
 
@@ -36,7 +43,7 @@ def test_join_requires_token():
 
 @pytest.mark.edge
 def test_join_returns_character_snapshot():
-    resp = _call_join('00000000-0000-0000-0000-000000000001', token=API_TOKEN)
+    resp = _call_join('00000000-0000-0000-0000-000000000001', token=_expected_token())
     assert resp.status_code == 200
     data = resp.json()
     assert data['success'] is True
@@ -46,10 +53,9 @@ def test_join_returns_character_snapshot():
 
 @pytest.mark.edge
 def test_join_not_found():
-    missing_id = secrets.token_hex(16)
-    resp = _call_join(missing_id, token=API_TOKEN)
+    missing_id = '99999999-9999-9999-9999-999999999999'
+    resp = _call_join(missing_id, token=_expected_token())
     assert resp.status_code == 404
     data = resp.json()
     assert data['success'] is False
     assert 'not found' in data['error']
-

@@ -32,8 +32,10 @@ This document outlines a 7-week plan (including Week 0 preparation) to move Grad
 - ✅ Supabase CLI + VS Code config committed (`supabase/config.toml`, `.vscode` settings).
 - ✅ Initial migration captured (`supabase/migrations/20251108093000_initial_schema.sql`) and applied via `supabase db reset`.
 - ✅ Local seed data (`supabase/seed.sql`) loads a 7-sector dev universe with sample characters/ships/garrisons.
-- ✅ Edge function scaffolding in place: `_shared/{auth,client,constants,events,rate_limiting}.ts` plus the first `join` handler stub.
-- ⏳ Next up: flesh out `join` payload parity + add automated tests (Phase 2 DoD #4/#5), then scaffold `my_status`/`move`.
+- ✅ Edge function scaffolding in place: `_shared/{auth,client,constants,events,rate_limiting}.ts` plus the first `join` handler.
+- ✅ Edge-function coverage: new `tests/edge/` suite boots the Supabase stack automatically, injects `EDGE_API_TOKEN`, and runs HTTPX-based `join` smoke tests (token required + happy path + 404).
+- ✅ Rate-limit helper fixed via `20251108100000_fix_rate_limit_fn.sql` so RPCs can enforce limits safely.
+- ⏳ Next up: bring `join` to full parity (status/event payloads + AsyncGameClient contract) and implement the next critical endpoint (`my_status`) with matching edge tests, then wire both into the Supabase-backed client.
 
 ## Week 0: Preparation & Design (Week 0)
 
@@ -564,6 +566,8 @@ For every endpoint above:
 - Write/port the necessary unit tests (Category 2) in the same PR and ensure they exercise the Supabase-backed logic, not the deprecated in-memory world objects.
 - Re-run the matching integration files (Category 1) without editing the tests; success proves that events + RPC payloads match the legacy contract.
 - Create/update Supabase seed data needed for those tests (characters, ships, ports, corporations) as part of the implementation, rather than deferring to a later "data" phase.
+
+**Testing note (added 2025-11-08):** A new `tests/edge/` directory now houses Supabase-specific smoke tests. The session fixture spins up `supabase start`, launches `supabase functions serve --no-verify-jwt <fn>` with a sanitized env file (injecting `EDGE_API_TOKEN`), and captures logs under `logs/edge-*.log`. Every edge function we port should gain coverage here before we flip the AsyncGameClient to Supabase.
 
 #### 2.2a Leaderboard Snapshot RPC (Days 5-6)
 - Add the read-only `leaderboard.resources` RPC to the Supabase backlog so parity stays complete. The FastAPI server shells out to `scripts/rebuild_leaderboard.py`, which recalculates `core/leaderboard.py`'s JSON snapshot (`leaderboard_resources.json`) and caches it via `get_cached_leaderboard()`.

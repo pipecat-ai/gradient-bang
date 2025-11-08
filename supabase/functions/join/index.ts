@@ -5,7 +5,10 @@ import { createServiceRoleClient } from '../_shared/client.ts';
 import { logEvent } from '../_shared/events.ts';
 import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
 
+console.log('join module loaded; EDGE_API_TOKEN present?', Boolean(Deno.env.get('EDGE_API_TOKEN')));
+
 serve(async (req: Request): Promise<Response> => {
+  console.log('join env token present', Boolean(Deno.env.get('EDGE_API_TOKEN')));
   if (!validateApiToken(req)) {
     return unauthorizedResponse();
   }
@@ -19,19 +22,16 @@ serve(async (req: Request): Promise<Response> => {
     return errorResponse('invalid JSON payload', 400);
   }
 
+  if (payload.healthcheck === true) {
+    return successResponse({
+      status: 'ok',
+      token_present: Boolean(Deno.env.get('EDGE_API_TOKEN')),
+    });
+  }
+
   const characterId = typeof payload.character_id === 'string' ? payload.character_id : null;
   if (!characterId) {
     return errorResponse('character_id is required', 400);
-  }
-
-  try {
-    await enforceRateLimit(supabase, characterId, 'join');
-  } catch (err) {
-    if (err instanceof RateLimitError) {
-      return errorResponse('Too many join requests', 429);
-    }
-    console.error('rate limit check failed', err);
-    return errorResponse('rate limit error', 500);
   }
 
   const { data: character, error: characterError } = await supabase
@@ -47,6 +47,16 @@ serve(async (req: Request): Promise<Response> => {
 
   if (!character) {
     return errorResponse('character not found', 404);
+  }
+
+  try {
+    await enforceRateLimit(supabase, characterId, 'join');
+  } catch (err) {
+    if (err instanceof RateLimitError) {
+      return errorResponse('Too many join requests', 429);
+    }
+    console.error('rate limit check failed', err);
+    return errorResponse('rate limit error', 500);
   }
 
   let ship: Record<string, unknown> | null = null;
