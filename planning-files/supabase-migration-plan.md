@@ -1,6 +1,6 @@
 # Supabase Migration Plan - Server-Only Architecture
 
-**Last Updated:** 2025-10-24
+**Last Updated:** 2025-11-06
 
 ## Executive Summary
 
@@ -172,6 +172,10 @@ supabase db diff
 - corporation_ships (ownership + audit data)
 - events (event log)
 - rate_limits (request tracking)
+
+**Ship economics notes (new as of 2025-11-06):**
+- `game-server/ships.py` now defines a global `FIGHTER_PRICE = 50` constant that both ship purchases and the new fighter armory must honor. Store fighter costs in Supabase seed data (or a lookup table) so edge functions do not drift from the server constant.
+- Trade-ins no longer rely on static `trade_in_value` fields. The server calls `calculate_trade_in_value(ship_record)`, which subtracts fighter value using the hull-only price (`get_ship_hull_price`) plus whatever fighters remain on the specific ship. Supabase schemas must persist per-ship fighter counts and ship definition hull prices so we can compute this server-side without filesystem state.
 
 **Key Foreign Key Constraints:**
 ```sql
@@ -535,6 +539,7 @@ Implement and deploy core game mechanics:
 - `dump_cargo` - Flush ship cargo holds
 - `transfer_credits` - Real-time ship credit transfers
 - `bank_transfer` - Deposit/withdraw to Megaport bank
+- `purchase_fighters` - Sector 0 armory purchases (`units` param, 50 credits each, must respect fighter capacity + credit locks; covered by `tests/unit/test_purchase_fighters.py`)
 - `ship.purchase` - Acquire personal or corporation ships
 
 **Priority 4 (Day 6):**
@@ -551,6 +556,12 @@ For every endpoint above:
 - Write/port the necessary unit tests (Category 2) in the same PR and ensure they exercise the Supabase-backed logic, not the deprecated in-memory world objects.
 - Re-run the matching integration files (Category 1) without editing the tests; success proves that events + RPC payloads match the legacy contract.
 - Create/update Supabase seed data needed for those tests (characters, ships, ports, corporations) as part of the implementation, rather than deferring to a later "data" phase.
+
+#### 2.2a Leaderboard Snapshot RPC (Days 5-6)
+- Add the read-only `leaderboard.resources` RPC to the Supabase backlog so parity stays complete. The FastAPI server shells out to `scripts/rebuild_leaderboard.py`, which recalculates `core/leaderboard.py`'s JSON snapshot (`leaderboard_resources.json`) and caches it via `get_cached_leaderboard()`.
+- Until a Supabase-native materialization exists, the edge function should mirror this flow: kick off the rebuild script (or equivalent SQL procedure), clear any in-process cache, and serve the snapshot. This RPC is now exposed through `utils/api_client.AsyncGameClient.leaderboard_resources()` and must remain available for NPC/task agents.
+- Keep `tests/test_leaderboard_snapshot.py` passing by verifying cache invalidation, schema versioning, and error handling. Document how that test maps to the Supabase implementation once the snapshot lives in the database.
+- `utils/task_agent.py` already registers `LeaderboardResources` as a synchronous tool so LLM agents wait for the payload before continuing. Supabase must preserve that fast path (no queued tool calls) when swapping the backend.
 
 #### 2.3 Week 1.5 Proof of Concept (Day 7)
 - Deploy `join` plus shared utilities to the local Supabase stack.
@@ -584,7 +595,7 @@ Week 3 assumes every endpoint already emits events (Week 2 DoD). These tasks
 
 #### 3.1 Realtime Broadcast Setup (Days 1-2)
 - Enable/verify Realtime in Supabase project settings (already running from Week 2 but double-check secrets, anon keys, service role scope)
-- Lock down the canonical channel matrix: `character:{character_id}`, `sector:{sector_id}`, and `firehose` broadcast streams, documenting which endpoints publish where
+- Lock down the canonical channel matrix: `character:{character_id}`, `sector:{sector_id}`, and `firehose` broadcast streams, documenting which endpoints publish where (now includes the new `fighter.purchase` events emitted after `purchase_fighters` is executed)
 - Smoke-test channel subscription from Python SDK and from `AsyncGameClient`’s websocket shim so we know every consumer can attach without code changes
 
 **Python Client Example:**
@@ -605,34 +616,55 @@ channel.on_broadcast(event='*', callback=handle_event).subscribe()
 ```
 
 #### 3.2 Event Fidelity & Load Regression (Days 2-3)
-- Run an automated parity harness that replays the legacy FastAPI event logs for `join`, `move`, `trade`, `combat`, `garrison`, `bank`, and compares payloads against Supabase emissions (field-by-field, including ordering where applicable)
+- Run an automated parity harness that replays the legacy FastAPI event logs for `join`, `move`, `trade`, `combat`, `garrison`, `bank`, **and `fighter.purchase`**, comparing payloads against Supabase emissions (field-by-field, including ordering where applicable)
 - Execute multi-subscriber load tests (e.g., >50 `AsyncGameClient` listeners + firehose) to ensure broadcasts stay <200 ms p95 and no clients miss events under churn
 - Validate that every emission writes to the `events` table exactly once (idempotency) and that event replay over 24h windows matches historical counts
 
 #### 3.3 Event Query Endpoint (Day 4)
-Implement `event_query` edge function (replacement for today’s `event.query` RPC):
-- Query events table for character
-- Support filtering by event_type, time range
-- Paginate results (limit 100 per query)
+Implement `event_query` edge function (replacement for today’s `event.query` RPC) with the simplified FastAPI semantics now live in `game-server/api/event_query.py`:
+- Requests must provide an ISO8601 `start` and `end` timestamp; the handler filters `events` to that window and returns results in chronological order.
+- Optional filters: `character_id` (defaults to caller/actor), `corporation_id`, and `sector`. The legacy `event_scope`, `string_match`, `max_rows`, and `sort_direction` parameters were removed, so the Supabase version should not reintroduce them.
+- The response mirrors the Python handler: `{success, events, count, truncated}` where `truncated` becomes true if `len(events)` hits `MAX_QUERY_RESULTS` (currently 1000). The endpoint does **not** emit a follow-up `event.query` broadcast; it simply returns JSON.
 
 ```typescript
 // supabase/functions/event_query/index.ts
+import { MAX_QUERY_RESULTS } from '../_shared/constants.ts'
+
 serve(async (req) => {
-  const { character_id, event_type, since_timestamp, limit = 100 } = await req.json();
+  const { start, end, character_id, corporation_id, sector } = await req.json()
+
+  if (!start || !end) {
+    return errorResponse('start and end timestamps are required', 400)
+  }
 
   let query = supabase
     .from('events')
     .select('*')
-    .eq('character_id', character_id)
-    .order('timestamp', { ascending: false })
-    .limit(limit);
+    .gte('timestamp', start)
+    .lte('timestamp', end)
+    .order('timestamp', { ascending: true })
+    .limit(MAX_QUERY_RESULTS)
 
-  if (event_type) query = query.eq('event_type', event_type);
-  if (since_timestamp) query = query.gte('timestamp', since_timestamp);
+  if (character_id) {
+    query = query.eq('character_id', character_id)
+  }
+  if (corporation_id) {
+    query = query.eq('corporation_id', corporation_id)
+  }
+  if (Number.isInteger(sector)) {
+    query = query.eq('sector', sector)
+  }
 
-  const { data } = await query;
-  return successResponse({ events: data });
-});
+  const { data = [] } = await query
+  const truncated = data.length >= MAX_QUERY_RESULTS
+
+  return successResponse({
+    success: true,
+    events: data,
+    count: data.length,
+    truncated,
+  })
+})
 ```
 
 #### 3.4 Firehose Viewer Migration & Telemetry (Days 5-7)
@@ -663,6 +695,7 @@ serve(async (req) => {
 - Implement `scripts/seed_ships_and_characters.py` to create starter characters, ships, and ship state
 - Implement `scripts/seed_corporations.py` (optional) for baseline corp + corp ship data
 - Ensure scripts can target local Supabase via env vars and idempotently reset tables
+- Scene theming is no longer computed on the fly: `game-server/api/utils.sector_contents` now expects each `sector_contents.sectors[n].scene_config` object to exist (the procedural helper from `game-server/sector.py` was removed). Seeders must therefore serialize the exact `scene_config` payloads the clients need.
 
 #### 4.2 Seed Execution & Verification (Day 4)
 ```bash
@@ -676,6 +709,7 @@ uv run python scripts/seed_corporations.py
 - Verify row counts against seed expectations
 - Check foreign key integrity and ownership splits (character vs corporation)
 - Validate JSONB structures (sector contents, ship state, character map knowledge placeholders)
+- Confirm every `sector_contents` row carries a `scene_config` blob so UI-rendered scenes match the legacy generator.
 - Run representative queries required by edge functions (movement, corporations, trade)
 
 **Validation Queries:**
@@ -707,10 +741,16 @@ SELECT sector_id, owner_id, fighters, mode FROM garrisons ORDER BY sector_id;
 - Provide a `scripts/reset_supabase.py` helper to truncate and reseed tables
 - Capture validation results in docs/ or planning notes for future reference
 
+#### 4.5 Leaderboard Snapshot Storage (Days 6-7)
+- Move the wealth leaderboard snapshot from filesystem JSON (`leaderboard_resources.json`) into Supabase tables or a dedicated storage bucket so `leaderboard.resources` no longer depends on local disk.
+- Adapt `scripts/rebuild_leaderboard.py`/`core/leaderboard.py` to read from Supabase (or emit SQL) and update the cached snapshot rows atomically. Keep the cache helpers for now so FastAPI + Supabase share identical payloads during rollout.
+- Extend the seeding/reset scripts to generate representative leaderboard data for automated tests. `tests/test_leaderboard_snapshot.py` should continue validating cache invalidation and schema versioning against the new storage layer.
+
 **Deliverables:**
 - Seed scripts for universe, ships/characters, and optional corporations
 - Verified schema with sample data loaded from scratch
 - Reset/runbook documentation for recreating the environment
+- Supabase-backed leaderboard snapshot that the `leaderboard.resources` edge function can query without filesystem access
 
 ---
 
@@ -743,6 +783,8 @@ uv run pytest tests/ -v
 **Category 1 – tests that ONLY require `AsyncGameClient` and must run unchanged:**
 - All suites in `tests/integration/`, including: `test_async_game_client.py`, `test_bank_operations.py`, `test_cargo_salvage.py`, `test_cargo_salvage_capacity.py`, `test_combat_system.py`, `test_concurrency.py`, `test_corporation_events.py`, `test_corporation_errors.py`, `test_corporation_lifecycle.py`, `test_corporation_offline.py`, `test_corporation_queries_integration.py`, `test_corporation_ships.py`, `test_corporation_ui.py`, `test_corporation_validation.py`, `test_credit_transfers.py`, `test_event_corporation_filter.py`, `test_event_system.py`, `test_friendly_fire.py`, `test_game_server_api.py`, `test_knowledge_loading.py`, `test_movement_system.py`, `test_persistence.py`, `test_ship_purchase_integration.py`, `test_ship_refactor.py`, and `test_trading_system.py`. These suites will continue to target the drop-in Supabase-backed `AsyncGameClient` with no code changes beyond pointing to the new base URL.
 - Supporting helpers that also remain untouched: `tests/helpers/event_capture.py`, `tests/helpers/corporation_utils.py`, `tests/helpers/character_setup.py`, and `tests/helpers/server_fixture.py` (the latter only swaps out server boot logic for Supabase bootstrap scripts).
+
+**New surface area (2025-11-06):** The legacy client now exposes `leaderboard_resources()` and `purchase_fighters()` coroutines. The Supabase-backed client must ship those APIs at parity (same method signatures, validation, and event semantics), and the test pass must demonstrate coverage via `tests/test_leaderboard_snapshot.py` plus `tests/unit/test_purchase_fighters.py`.
 
 **Category 2 – tests that access world data/engine internals and need new adapters:**
 - Everything under `tests/unit/` (API handlers, combat math, locks, tooling CLIs) plus `tests/diagnostics/test_combat_event_payloads.py`. These suites currently import `game-server` modules directly or mutate the JSON world files, so they will be reworked to use in-memory fakes that mimic the Supabase schema.
@@ -780,6 +822,7 @@ Create **new, separate client** `utils/supabase_client.py` that implements `Asyn
 - This is a **new file**, not a modification of existing `api_client.py`.
 - Constructor signature, keyword-only args, and public methods MUST stay byte-for-byte compatible with the current `AsyncGameClient` so every caller (voice bot, NPCs, tests) keeps working.
 - Both clients can coexist during rollout; switch by changing a single import.
+- Include the recently added `leaderboard_resources()` and `purchase_fighters()` methods (plus any future RPCs surfaced by Week 2/3 work) so downstream tooling such as `utils/task_agent.py` keeps functioning without conditional imports.
 
 Create `utils/supabase_client.py`:
 ```python
