@@ -9,16 +9,18 @@ const cardVariants = cva("text-card-foreground flex flex-col", {
       default: "bg-card text-card-foreground border",
       secondary: "bg-secondary/80 backdrop-blur-sm text-secondary-foreground",
       stripes: "bg-card shrink-0 stripe-frame",
+      scanlines: "border text-white bg-scanlines",
     },
     size: {
       none: "",
+      sm: "gap-ui-sm py-ui-sm [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-ui-sm",
       default:
         "gap-ui-md py-ui-md [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-ui-md",
       lg: "gap-ui-lg py-ui-lg [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-ui-lg",
       xl: "gap-ui-xl py-ui-xl [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-ui-xl",
     },
     elbow: {
-      true: "elbow",
+      true: "elbow elbow-offset-6",
       false: "",
     },
     scrollable: {

@@ -1,14 +1,10 @@
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  PanelTitle,
-} from "@pipecat-ai/voice-ui-kit";
+import { PanelTitle } from "@/components/PanelTitle";
+import { Card, CardContent, CardHeader } from "@/components/primitives/Card";
 import { ShipOSDVisualizer } from "./ShipOSDVisualizer";
 
 export const ShipOSDPanel = () => {
   return (
-    <Card className="h-full bg-background w-[280px]" withElbows={true}>
+    <Card className="h-full bg-background w-[230px] border-2" elbow={true}>
       <CardHeader className="flex flex-row justify-between">
         <PanelTitle>Ship OSD</PanelTitle>
         <PanelTitle className="text-border">v12.1</PanelTitle>

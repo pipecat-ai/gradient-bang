@@ -80,7 +80,7 @@ export const Init: Story = () => {
                 <span className="flex-1">
                   {typeof value === "object"
                     ? JSON.stringify(value)
-                    : value.toString()}
+                    : value?.toString()}
                 </span>
               </li>
             ))}
@@ -99,7 +99,7 @@ export const Init: Story = () => {
                 <span className="flex-1">
                   {typeof value === "object"
                     ? JSON.stringify(value)
-                    : value.toString()}
+                    : value?.toString()}
                 </span>
               </li>
             ))}

@@ -1,37 +1,56 @@
-import { Badge, Progress } from "@pipecat-ai/voice-ui-kit";
-import { useMemo } from "react";
+import { Badge, BadgeTitle } from "@/components/primitives/Badge";
+import { Progress } from "@/components/primitives/Progress";
+
+import { cn } from "@/utils/tailwind";
 import useGameStore from "../stores/game";
 
-export const WarpBadge = () => {
+const incrementCx =
+  "bg-success-background stripe-bar stripe-bar-success stripe-bar-8 stripe-bar-animate-1";
+const decrementCx =
+  "stripe-bar stripe-bar-8 stripe-bar-animate-1 stripe-bar-reverse";
+
+export const WarpBadge = ({ className }: { className?: string }) => {
   const ship = useGameStore.use.ship();
 
-  const progressProps = useMemo(() => {
-    if (!ship) return { color: "primary", percent: 0 };
+  const warpPercentage = (ship.warp_power / ship.warp_power_capacity) * 100;
+  const color =
+    warpPercentage <= 25
+      ? "destructive"
+      : warpPercentage <= 50
+      ? "warning"
+      : "fuel";
 
-    const warpPercentage = (ship.warp_power / ship.warp_power_capacity) * 100;
-
-    let color = "agent";
-    if (warpPercentage <= 25) {
-      color = "destructive";
-    } else if (warpPercentage <= 50) {
-      color = "warning";
-    }
-
-    return {
-      color,
-      percent: warpPercentage,
-      variant: warpPercentage <= 25 ? "destructive" : "primary",
-    };
-  }, [ship]);
-
+  const dCX = `${decrementCx} ${
+    color === "destructive"
+      ? "bg-destructive-background stripe-bar-destructive"
+      : "bg-warning-background stripe-bar-warning"
+  }`;
   return (
-    <Badge buttonSizing variant="elbow" color={progressProps.variant}>
-      Warp:
-      <Progress {...progressProps} size="xl" className="h-[8px]" />
-      <div>
-        {ship?.warp_power ?? 0}
-        <span className="opacity-30"> / </span>
-        {ship?.warp_power_capacity ?? 0}
+    <Badge
+      variant="glass"
+      border="bracket"
+      className={cn("flex-col gap-2 w-full items-start", className)}
+    >
+      <div className="flex flex-row gap-2 items-center w-full justify-between">
+        <BadgeTitle>Warp fuel</BadgeTitle>
+        <div className="text-xs">
+          {ship?.warp_power ?? 0}
+          <span className="opacity-30"> / </span>
+          {ship?.warp_power_capacity ?? 0}
+        </div>
+      </div>
+      <div className="flex flex-row gap-3 items-center w-full">
+        <Progress
+          color={color}
+          value={warpPercentage}
+          segmented={true}
+          className="h-[16px] w-full"
+          classNames={{
+            increment: incrementCx,
+            decrement: dCX,
+          }}
+          segmentHoldMs={500}
+        />
       </div>
     </Badge>
   );

@@ -1,3 +1,4 @@
+import { images } from "@/assets";
 import * as THREE from "three";
 import {
   type GameObjectSpawnRules,
@@ -84,6 +85,7 @@ export interface StarfieldSceneConfig {
 
   // Planet variant (image, position, scale)
   planetImageUrl?: string;
+  planetImageIndex?: number;
   planetScale?: number;
   planetPositionX?: number;
   planetPositionY?: number;
@@ -287,15 +289,15 @@ export const RAND_NEB: NebulaPalette =
 // PLANET IMAGES
 // ============================================================================
 export const PLANET_IMAGES: readonly string[] = [
-  "/images/skybox-1.png",
-  "/images/skybox-2.png",
-  "/images/skybox-3.png",
-  "/images/skybox-4.png",
-  "/images/skybox-5.png",
-  "/images/skybox-6.png",
-  "/images/skybox-7.png",
-  "/images/skybox-8.png",
-  "/images/skybox-9.png",
+  images.skybox1,
+  images.skybox2,
+  images.skybox3,
+  images.skybox4,
+  images.skybox5,
+  images.skybox6,
+  images.skybox7,
+  images.skybox8,
+  images.skybox9,
 ] as const;
 
 // ============================================================================
@@ -353,7 +355,7 @@ export const DEFAULT_GALAXY_CONFIG: GalaxyStarfieldConfig = {
   nearFadeEndMultiplier: 2, // Multiplier for star near-fade distance
 
   // === CAMERA SWAY ===
-  cameraSwayIntensity: 2, // Spaceship sway intensity (0-2)
+  cameraSwayIntensity: 2.2, // Spaceship sway intensity (0-2)
   cameraSwaySpeed: 0.15, // Sway animation speed multiplier (slower = smoother)
   cameraSwayEnabled: true, // Enable/disable camera sway
   cameraZoomFactor: 0.5, // How much to zoom toward selected objects (0.1-0.5)

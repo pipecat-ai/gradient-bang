@@ -44,12 +44,74 @@
   --elbow-opacity: calc(--modifier(integer) * 1%);
 }
 
+@utility elbow-size-* {
+  --elbow-size: calc(--value(integer) * 1px);
+}
+
 @utility elbow-offset-* {
-  --elbow-offset: calc(--value(integer) * var(--spacing));
+  --elbow-offset: calc(--value(integer) * 1px);
 }
 
 @utility -elbow-offset-* {
-  --elbow-offset: calc(--value(integer) * var(--spacing) * -1);
+  --elbow-offset: calc(--value(integer) * 1px * -1);
+}
+
+@utility bracket {
+  position: relative;
+  overflow: visible;
+
+  --bracket-color: white;
+  --bracket-width: 1px;
+  --bracket-opacity: 1;
+  --bracket-size: 10px;
+  --bracket-offset: 6px;
+
+  &:after {
+    content: "";
+    position: absolute;
+    inset: calc(var(--bracket-offset) * -1);
+    background: 
+        /* Left vertical line (full height) */ linear-gradient(
+          var(--bracket-color),
+          var(--bracket-color)
+        )
+        top 0 left 0 / var(--bracket-width) 100% no-repeat,
+      /* Right vertical line (full height) */
+        linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 right
+        0 / var(--bracket-width) 100% no-repeat,
+      /* Top-left horizontal cap */
+        linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 left 0 /
+        var(--bracket-size) var(--bracket-width) no-repeat,
+      /* Top-right horizontal cap */
+        linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 right
+        0 / var(--bracket-size) var(--bracket-width) no-repeat,
+      /* Bottom-left horizontal cap */
+        linear-gradient(var(--bracket-color), var(--bracket-color)) bottom 0
+        left 0 / var(--bracket-size) var(--bracket-width) no-repeat,
+      /* Bottom-right horizontal cap */
+        linear-gradient(var(--bracket-color), var(--bracket-color)) bottom 0
+        right 0 / var(--bracket-size) var(--bracket-width) no-repeat;
+    pointer-events: none;
+    opacity: var(--bracket-opacity);
+  }
+}
+
+@utility bracket-* {
+  --bracket-color: --value(--color- *);
+  --bracket-width: calc(--value(integer) * 1px);
+  --bracket-opacity: calc(--modifier(integer) * 1%);
+}
+
+@utility bracket-size-* {
+  --bracket-size: calc(--value(integer) * 1px);
+}
+
+@utility bracket-offset-* {
+  --bracket-offset: calc(--value(integer) * 1px);
+}
+
+@utility -bracket-offset-* {
+  --bracket-offset: calc(--value(integer) * 1px * -1);
 }
 
 @utility bg-dotted-* {
@@ -215,4 +277,75 @@
   --stripe-inset: --spacing(--value(integer));
   --stripe-color: --value(--color- *);
   --stripe-opacity: calc(--modifier(integer) * 1%);
+}
+
+@utility stripe-bar {
+  --stripe-bar-color: currentColor;
+  --stripe-bar-width: 10px;
+  --stripe-bar-opacity: 100%;
+  background-image: repeating-linear-gradient(
+    45deg,
+    color-mix(
+      in srgb,
+      var(--stripe-bar-color) var(--stripe-bar-opacity),
+      transparent
+    ),
+    color-mix(
+        in srgb,
+        var(--stripe-bar-color) var(--stripe-bar-opacity),
+        transparent
+      )
+      var(--stripe-bar-width),
+    transparent var(--stripe-bar-width),
+    transparent calc(var(--stripe-bar-width) * 2)
+  );
+  background-size: calc(var(--stripe-bar-width) * 2.828427125)
+    calc(var(--stripe-bar-width) * 2.828427125);
+  overflow: hidden;
+  background-clip: padding-box;
+}
+
+@utility stripe-bar-* {
+  --stripe-bar-width: calc(--value(integer) * 1px);
+  --stripe-bar-color: --value(--color- *);
+  --stripe-bar-opacity: calc(--modifier(integer) * 1%);
+}
+
+@utility stripe-bar-animate-* {
+  --stripe-bar-speed: calc(--value(integer) * 0.5s);
+  animation: scroll var(--stripe-bar-speed) linear infinite;
+}
+
+@utility stripe-bar-reverse {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--stripe-bar-color),
+    var(--stripe-bar-color) var(--stripe-bar-width),
+    transparent var(--stripe-bar-width),
+    transparent calc(var(--stripe-bar-width) * 2)
+  );
+  animation-direction: reverse;
+}
+
+@utility bg-scanlines {
+  --scanlines-opacity: 100%;
+
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    color-mix(
+        in srgb,
+        currentColor calc(var(--scanlines-opacity) * 100%),
+        transparent
+      )
+      2px,
+    color-mix(
+        in srgb,
+        currentColor calc(var(--scanlines-opacity) * 100%),
+        transparent
+      )
+      4px
+  );
+  background-clip: padding-box;
 }

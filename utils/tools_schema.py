@@ -694,6 +694,10 @@ class EventQuery(GameClientTool):
         character_id=None,
         sector=None,
         corporation_id=None,
+        string_match=None,
+        max_rows=None,
+        sort_direction=None,
+        event_scope=None,
     ):
         return self.game_client.event_query(
             start=start,
@@ -702,6 +706,10 @@ class EventQuery(GameClientTool):
             character_id=character_id,
             sector=sector,
             corporation_id=corporation_id,
+            string_match=string_match,
+            max_rows=max_rows,
+            sort_direction=sort_direction,
+            event_scope=event_scope,
         )
 
     @classmethod
@@ -734,6 +742,25 @@ class EventQuery(GameClientTool):
                 "corporation_id": {
                     "type": "string",
                     "description": "Filter to events involving the given corporation",
+                },
+                "string_match": {
+                    "type": "string",
+                    "description": "Optional literal substring to search for within event payloads",
+                },
+                "max_rows": {
+                    "type": "integer",
+                    "description": "Maximum number of events to return (defaults to 1000, capped at server limit)",
+                    "minimum": 1,
+                },
+                "sort_direction": {
+                    "type": "string",
+                    "enum": ["forward", "reverse"],
+                    "description": "Return events in chronological order ('forward') or reverse chronological order ('reverse'). Defaults to forward.",
+                },
+                "event_scope": {
+                    "type": "string",
+                    "enum": ["personal", "corporation"],
+                    "description": "Set to 'corporation' to automatically include events for your corporation when you're a member (falls back to personal if not in a corp).",
                 },
             },
             required=["start", "end"],

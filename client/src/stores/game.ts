@@ -8,7 +8,7 @@ import {
 import { subscribeWithSelector } from "zustand/middleware";
 
 import type { DiamondFXController } from "@fx/frame";
-import { GalaxyStarfield } from "@fx/starfield";
+import type { GalaxyStarfield } from "@fx/starfield";
 import { createCombatSlice, type CombatSlice } from "./combatSlice";
 import { createHistorySlice, type HistorySlice } from "./historySlice";
 import { createSettingsSlice, type SettingsSlice } from "./settingsSlice";
@@ -47,6 +47,7 @@ export interface GameState {
   ship: ShipSelf;
   sector?: Sector;
   local_map_data?: MapData;
+  regional_map_data?: MapData;
   course_plot?: CoursePlot;
   messages: ChatMessage[];
 
@@ -74,6 +75,7 @@ export interface GameSlice extends GameState {
   setSectorBuffer: (sector: Sector) => void;
   setShip: (ship: Partial<ShipSelf>) => void;
   setLocalMapData: (localMapData: MapData) => void;
+  setRegionalMapData: (regionalMapData: MapData) => void;
   setCoursePlot: (coursePlot: CoursePlot) => void;
   clearCoursePlot: () => void;
   setStarfieldInstance: (
@@ -99,6 +101,7 @@ const createGameSlice: StateCreator<
   ship: {} as ShipSelf,
   sector: undefined,
   local_map_data: undefined, // @TODO: move to map slice
+  regional_map_data: undefined, // @TODO: move to map slice
   course_plot: undefined, // @TODO: move to map slice
   messages: [],
 
@@ -192,6 +195,13 @@ const createGameSlice: StateCreator<
     set(
       produce((state) => {
         state.local_map_data = localMapData;
+      })
+    ),
+
+  setRegionalMapData: (regionalMapData: MapData) =>
+    set(
+      produce((state) => {
+        state.regional_map_data = regionalMapData;
       })
     ),
 

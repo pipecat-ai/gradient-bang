@@ -1,3 +1,4 @@
+import { Badge } from "@/components/primitives/Badge";
 import { Button } from "@/components/primitives/Button";
 import {
   Card,
@@ -7,6 +8,7 @@ import {
   CardScrollable,
   CardTitle,
 } from "@/components/primitives/Card";
+import { Progress } from "@/components/primitives/Progress";
 import { ScrollArea } from "@/components/primitives/ScrollArea";
 import { Separator } from "@/components/primitives/Separator";
 import { ScreenContainer } from "@/screens/ScreenContainer";
@@ -18,7 +20,7 @@ import ViewContainer from "@/views/ViewContainer";
 import { AnimatedFrame } from "@fx/frame";
 import type { Story } from "@ladle/react";
 import { Dialog } from "radix-ui";
-import React from "react";
+import React, { useState } from "react";
 
 export const DotStory: Story = () => (
   <div className="relative w-full h-screen">
@@ -199,7 +201,7 @@ export const CardStory: Story = () => (
       <CardContent>Hello</CardContent>
     </Card>
 
-    <Card variant="stripes" className="stripe-frame-destructive-foreground">
+    <Card variant="stripes" className="stripe-frame-destructive">
       <CardContent>Hello</CardContent>
     </Card>
 
@@ -243,5 +245,75 @@ export const ButtonStory: Story = () => (
 );
 
 ButtonStory.meta = {
+  disconnectedStory: true,
+};
+
+export const BadgeStory: Story = () => (
+  <div className="flex flex-col gap-4">
+    <Badge>
+      Badge <span>0</span>
+    </Badge>
+    <div className="flex flex-row gap-4">
+      <Badge border="elbow" size="sm">
+        Badge
+      </Badge>
+      <Badge border="elbow">Badge</Badge>
+      <Badge border="elbow" size="lg">
+        Badge
+      </Badge>
+    </div>
+    <div className="flex flex-row gap-4">
+      <Badge border="bracket" size="sm">
+        Badge
+      </Badge>
+      <Badge border="bracket">Badge</Badge>
+      <Badge border="bracket" size="lg">
+        Badge
+      </Badge>
+      <Badge border="bracket" size="lg" className="elbow">
+        Badge
+      </Badge>
+    </div>
+
+    <Badge border="none">
+      Warp: <Progress value={50} color="fuel" />
+    </Badge>
+  </div>
+);
+
+BadgeStory.meta = {
+  disconnectedStory: true,
+};
+
+export const ProgressStory: Story = () => {
+  const [progress, setProgress] = useState(0);
+
+  const incrementCx =
+    "bg-green-800 stripe-bar stripe-bar-green-500 stripe-bar-20 stripe-bar-animate-1";
+  const decrementCx =
+    "bg-red-900 stripe-bar stripe-bar-red-500 stripe-bar-20 stripe-bar-animate-1 stripe-bar-reverse";
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Progress value={progress} color="fuel" className="h-[80px]" />
+      <Separator />
+      <Progress
+        value={progress}
+        color="fuel"
+        className="h-[80px] "
+        classNames={{
+          increment: incrementCx,
+          decrement: decrementCx,
+        }}
+        segmented={true}
+      />
+      <Separator />
+      <Button onClick={() => setProgress(progress + 10)}>Increment</Button>
+      <Button onClick={() => setProgress(progress - 10)}>Decrement</Button>
+    </div>
+  );
+};
+
+ProgressStory.meta = {
   disconnectedStory: true,
 };

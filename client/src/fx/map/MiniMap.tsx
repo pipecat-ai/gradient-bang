@@ -1,33 +1,9 @@
 export interface MiniMapConfigBase {
   current_sector_id: number;
-  colors: {
-    empty: string;
-    port: string;
-    mega_port: string;
-    visited: string;
-    lane: string;
-    hyperlane: string;
-    lane_one_way: string;
-    sector_border: string;
-    sector_border_current: string;
-    cross_region_outline: string;
-    sector_id_text: string;
-    label: string;
-    label_bg: string;
-    grid: string;
-    background: string;
-    current: string;
-    current_outline: string;
-  };
   grid_spacing: number;
   hex_size: number;
   sector_label_offset: number;
-  label_font_size: number;
-  label_font_weight: number | string;
-  label_padding: number;
   frame_padding: number;
-  edge_feather_size?: number;
-  current_sector_outer_border: number;
   animation_duration_pan: number;
   animation_duration_zoom: number;
   bypass_animation: boolean;
@@ -40,40 +16,287 @@ export interface MiniMapConfigBase {
   show_partial_lanes: boolean;
   /** Maximum distance in hex tiles from current sector to include in bounds calculation. Sectors beyond this distance are ignored for framing but still rendered if within maxDistance hops. */
   max_bounds_distance?: number;
+  nodeStyles: NodeStyles;
+  laneStyles: LaneStyles;
+  labelStyles: LabelStyles;
+  portStyles: PortStyles;
+  uiStyles: UIStyles;
 }
+
+export interface NodeStyle {
+  fill: string;
+  border: string;
+  borderWidth: number;
+  outline: string; // "none" to skip outline
+  outlineWidth: number;
+}
+
+export interface NodeStyles {
+  current: NodeStyle;
+  visited: NodeStyle;
+  unvisited: NodeStyle;
+  muted: NodeStyle;
+  coursePlotStart: NodeStyle;
+  coursePlotEnd: NodeStyle;
+  coursePlotMid: NodeStyle;
+  crossRegion: NodeStyle;
+}
+
+export const DEFAULT_NODE_STYLES: NodeStyles = {
+  current: {
+    fill: "rgba(74,144,226,0.4)",
+    border: "rgba(74,144,226,1)",
+    borderWidth: 2,
+    outline: "rgba(74,144,226,0.6)",
+    outlineWidth: 4,
+  },
+  visited: {
+    fill: "rgba(0,255,0,0.25)",
+    border: "rgba(0,255,0,0.5)",
+    borderWidth: 2,
+    outline: "none",
+    outlineWidth: 0,
+  },
+  unvisited: {
+    fill: "rgba(0,0,0,0.35)",
+    border: "rgba(200,200,200,0.7)",
+    borderWidth: 2,
+    outline: "none",
+    outlineWidth: 0,
+  },
+  muted: {
+    fill: "rgba(40,40,40,0.5)",
+    border: "rgba(40,40,40,0.5)",
+    borderWidth: 1,
+    outline: "none",
+    outlineWidth: 0,
+  },
+  coursePlotStart: {
+    fill: "rgba(0,255,0,0.25)",
+    border: "rgba(200,200,200,0.7)",
+    borderWidth: 3,
+    outline: "rgba(50,200,50,0.9)",
+    outlineWidth: 4,
+  },
+  coursePlotEnd: {
+    fill: "rgba(0,255,0,0.25)",
+    border: "rgba(200,200,200,0.7)",
+    borderWidth: 3,
+    outline: "rgba(220,50,50,0.9)",
+    outlineWidth: 4,
+  },
+  coursePlotMid: {
+    fill: "rgba(190,160,255,1)",
+    border: "rgba(200,200,200,0.7)",
+    borderWidth: 3,
+    outline: "none",
+    outlineWidth: 0,
+  },
+  crossRegion: {
+    fill: "rgba(0,255,0,0.25)",
+    border: "rgba(255,120,120,0.9)",
+    borderWidth: 2,
+    outline: "none",
+    outlineWidth: 0,
+  },
+};
+
+export interface LaneStyle {
+  color: string;
+  width: number;
+  dashPattern: string; // "none" or "4,4" or "12,8"
+  arrowColor: string; // "none" or color for directional arrows
+  arrowSize: number;
+  shadowBlur: number;
+  shadowColor: string; // "none" if no shadow
+}
+
+export interface LaneStyles {
+  normal: LaneStyle;
+  oneWay: LaneStyle;
+  hyperlane: LaneStyle;
+  hyperlaneStub: LaneStyle;
+  partial: LaneStyle;
+  muted: LaneStyle;
+  coursePlot: LaneStyle;
+  coursePlotAnimation: LaneStyle;
+}
+
+export const DEFAULT_LANE_STYLES: LaneStyles = {
+  normal: {
+    color: "rgba(120,230,160,1)",
+    width: 1.5,
+    dashPattern: "none",
+    arrowColor: "none",
+    arrowSize: 0,
+    shadowBlur: 0,
+    shadowColor: "none",
+  },
+  oneWay: {
+    color: "#4a90e2",
+    width: 1.5,
+    dashPattern: "none",
+    arrowColor: "#4a90e2",
+    arrowSize: 8,
+    shadowBlur: 0,
+    shadowColor: "none",
+  },
+  hyperlane: {
+    color: "rgba(190,160,255,1)",
+    width: 2,
+    dashPattern: "none",
+    arrowColor: "none",
+    arrowSize: 0,
+    shadowBlur: 0,
+    shadowColor: "none",
+  },
+  hyperlaneStub: {
+    color: "rgba(190,160,255,1)",
+    width: 2,
+    dashPattern: "4,4",
+    arrowColor: "rgba(190,160,255,1)",
+    arrowSize: 6,
+    shadowBlur: 0,
+    shadowColor: "none",
+  },
+  partial: {
+    color: "rgba(120,230,160,1)",
+    width: 1.5,
+    dashPattern: "3,3",
+    arrowColor: "rgba(120,230,160,1)",
+    arrowSize: 8,
+    shadowBlur: 0,
+    shadowColor: "none",
+  },
+  muted: {
+    color: "rgba(80,80,80,0.4)",
+    width: 1.5,
+    dashPattern: "none",
+    arrowColor: "rgba(80,80,80,0.4)",
+    arrowSize: 8,
+    shadowBlur: 0,
+    shadowColor: "none",
+  },
+  coursePlot: {
+    color: "rgba(120,230,160,1)",
+    width: 3,
+    dashPattern: "none",
+    arrowColor: "rgba(120,230,160,1)",
+    arrowSize: 8,
+    shadowBlur: 0,
+    shadowColor: "none",
+  },
+  coursePlotAnimation: {
+    color: "rgba(255,255,255,0.9)",
+    width: 4,
+    dashPattern: "12,8",
+    arrowColor: "none",
+    arrowSize: 0,
+    shadowBlur: 8,
+    shadowColor: "rgba(255,255,255,0.8)",
+  },
+};
+
+export interface LabelStyle {
+  textColor: string;
+  backgroundColor: string;
+  padding: number;
+  fontSize: number;
+  fontWeight: number | string;
+  mutedOpacity: number;
+}
+
+export interface LabelStyles {
+  sectorId: LabelStyle;
+  portCode: LabelStyle;
+  hyperlane: LabelStyle;
+}
+
+export const DEFAULT_LABEL_STYLES: LabelStyles = {
+  sectorId: {
+    textColor: "#000000",
+    backgroundColor: "#ffffff",
+    padding: 2,
+    fontSize: 10,
+    fontWeight: 800,
+    mutedOpacity: 0.3,
+  },
+  portCode: {
+    textColor: "#000000",
+    backgroundColor: "#ffffff",
+    padding: 2,
+    fontSize: 10,
+    fontWeight: 800,
+    mutedOpacity: 0.3,
+  },
+  hyperlane: {
+    textColor: "#000000",
+    backgroundColor: "#ffffff",
+    padding: 2,
+    fontSize: 10,
+    fontWeight: 800,
+    mutedOpacity: 1,
+  },
+};
+
+export interface PortStyle {
+  color: string;
+  radius: number;
+  mutedColor: string;
+}
+
+export interface PortStyles {
+  regular: PortStyle;
+  mega: PortStyle;
+}
+
+export const DEFAULT_PORT_STYLES: PortStyles = {
+  regular: {
+    color: "#FFFFFF",
+    radius: 5,
+    mutedColor: "rgba(40,40,40,0.5)",
+  },
+  mega: {
+    color: "#ffd700",
+    radius: 5,
+    mutedColor: "rgba(40,40,40,0.5)",
+  },
+};
+
+export interface UIStyles {
+  grid: {
+    color: string;
+    lineWidth: number;
+  };
+  background: {
+    color: string;
+  };
+  edgeFeather: {
+    size: number;
+  };
+}
+
+export const DEFAULT_UI_STYLES: UIStyles = {
+  grid: {
+    color: "rgba(255,255,255,0.3)",
+    lineWidth: 1,
+  },
+  background: {
+    color: "#000000",
+  },
+  edgeFeather: {
+    size: 220,
+  },
+};
 
 export const DEFAULT_MINIMAP_CONFIG: Omit<
   MiniMapConfigBase,
   "current_sector_id"
 > = {
-  colors: {
-    empty: "rgba(0,0,0,0.35)",
-    visited: "rgba(0,255,0,0.25)",
-    port: "#4a90e2",
-    mega_port: "#ffd700",
-    lane: "rgba(120,230,160,1)",
-    hyperlane: "rgba(190,160,255,1)",
-    lane_one_way: "#4a90e2",
-    sector_border: "rgba(200,200,200,0.7)",
-    sector_border_current: "#4a90e2",
-    cross_region_outline: "rgba(255,120,120,0.9)",
-    sector_id_text: "#dddddd",
-    grid: "rgba(255,255,255,0.3)",
-    background: "#000000",
-    label: "#000000",
-    label_bg: "#ffffff",
-    current: "rgba(74,144,226,0.4)",
-    current_outline: "rgba(74,144,226,0.6)",
-  },
   grid_spacing: 30,
   hex_size: 20,
   sector_label_offset: 5,
-  label_font_size: 10,
-  label_font_weight: 800,
-  label_padding: 2,
   frame_padding: 40,
-  edge_feather_size: 220,
-  current_sector_outer_border: 5,
   animation_duration_pan: 500,
   animation_duration_zoom: 800,
   bypass_animation: false,
@@ -85,6 +308,11 @@ export const DEFAULT_MINIMAP_CONFIG: Omit<
   show_hyperlanes: false,
   show_partial_lanes: true,
   max_bounds_distance: 7,
+  nodeStyles: DEFAULT_NODE_STYLES,
+  laneStyles: DEFAULT_LANE_STYLES,
+  labelStyles: DEFAULT_LABEL_STYLES,
+  portStyles: DEFAULT_PORT_STYLES,
+  uiStyles: DEFAULT_UI_STYLES,
 };
 
 export interface MiniMapProps {
@@ -93,6 +321,7 @@ export interface MiniMapProps {
   data: MapData;
   config: MiniMapConfigBase;
   maxDistance?: number;
+  coursePlot?: CoursePlot | null;
 }
 
 export interface CameraState {
@@ -377,7 +606,9 @@ function renderLane(
   scale: number,
   hexSize: number,
   config: MiniMapConfigBase,
-  isBidirectional: boolean
+  isBidirectional: boolean,
+  coursePlotLanes: Set<string> | null = null,
+  coursePlot: CoursePlot | null = null
 ) {
   const fromCenter = hexToWorld(
     fromNode.position[0],
@@ -389,15 +620,31 @@ function renderLane(
   const from = getHexEdgePoint(fromCenter, toCenter, hexSize);
   const to = getHexEdgePoint(toCenter, fromCenter, hexSize);
 
-  if (lane.hyperlane && config.show_hyperlanes) {
-    ctx.strokeStyle = config.colors.hyperlane;
-    ctx.lineWidth = 2;
+  // Determine lane type priority
+  const isInPlot = coursePlotLanes
+    ? coursePlotLanes.has(getUndirectedLaneKey(fromNode.id, toNode.id))
+    : true;
+
+  let laneStyle: LaneStyle;
+  if (coursePlotLanes && !isInPlot) {
+    laneStyle = config.laneStyles.muted;
+  } else if (coursePlot && isInPlot) {
+    laneStyle = config.laneStyles.coursePlot;
+  } else if (lane.hyperlane && config.show_hyperlanes) {
+    laneStyle = config.laneStyles.hyperlane;
   } else if (isBidirectional) {
-    ctx.strokeStyle = config.colors.lane;
-    ctx.lineWidth = 1.5;
+    laneStyle = config.laneStyles.normal;
   } else {
-    ctx.strokeStyle = config.colors.lane_one_way;
-    ctx.lineWidth = 1.5;
+    laneStyle = config.laneStyles.oneWay;
+  }
+
+  // Apply lane style
+  ctx.strokeStyle = laneStyle.color;
+  ctx.lineWidth = laneStyle.width;
+  if (laneStyle.dashPattern !== "none") {
+    ctx.setLineDash(laneStyle.dashPattern.split(",").map((n) => parseFloat(n)));
+  } else {
+    ctx.setLineDash([]);
   }
 
   ctx.beginPath();
@@ -405,8 +652,34 @@ function renderLane(
   ctx.lineTo(to.x, to.y);
   ctx.stroke();
 
-  if (!isBidirectional) {
-    renderArrow(ctx, from, to);
+  // Determine if arrow is needed
+  let needsArrow = laneStyle.arrowColor !== "none" && laneStyle.arrowSize > 0;
+  let arrowFrom = from;
+  let arrowTo = to;
+
+  if (coursePlot && isInPlot) {
+    const fromIndex = coursePlot.path.indexOf(fromNode.id);
+    const toIndex = coursePlot.path.indexOf(toNode.id);
+
+    if (
+      fromIndex !== -1 &&
+      toIndex !== -1 &&
+      Math.abs(fromIndex - toIndex) === 1
+    ) {
+      needsArrow = true;
+      if (fromIndex < toIndex) {
+        arrowFrom = from;
+        arrowTo = to;
+      } else {
+        arrowFrom = to;
+        arrowTo = from;
+      }
+    }
+  }
+
+  if (needsArrow) {
+    ctx.strokeStyle = laneStyle.arrowColor;
+    renderArrow(ctx, arrowFrom, arrowTo);
   }
 }
 
@@ -483,34 +756,40 @@ function renderHyperlaneStub(
     y: startEdge.y + stubLength * Math.sin(direction),
   };
 
+  const stubStyle = config.laneStyles.hyperlaneStub;
+
   ctx.save();
-  ctx.strokeStyle = config.colors.hyperlane;
-  ctx.lineWidth = 2;
-  ctx.setLineDash([4, 4]);
+  ctx.strokeStyle = stubStyle.color;
+  ctx.lineWidth = stubStyle.width;
+  if (stubStyle.dashPattern !== "none") {
+    ctx.setLineDash(stubStyle.dashPattern.split(",").map((n) => parseFloat(n)));
+  }
   ctx.beginPath();
   ctx.moveTo(startEdge.x, startEdge.y);
   ctx.lineTo(endPoint.x, endPoint.y);
   ctx.stroke();
   ctx.restore();
 
-  ctx.save();
-  ctx.strokeStyle = config.colors.hyperlane;
-  ctx.fillStyle = config.colors.hyperlane;
-  ctx.lineWidth = 2;
-  const arrowSize = 6;
-  ctx.beginPath();
-  ctx.moveTo(endPoint.x, endPoint.y);
-  ctx.lineTo(
-    endPoint.x - arrowSize * Math.cos(direction - Math.PI / 6),
-    endPoint.y - arrowSize * Math.sin(direction - Math.PI / 6)
-  );
-  ctx.lineTo(
-    endPoint.x - arrowSize * Math.cos(direction + Math.PI / 6),
-    endPoint.y - arrowSize * Math.sin(direction + Math.PI / 6)
-  );
-  ctx.closePath();
-  ctx.fill();
-  ctx.restore();
+  if (stubStyle.arrowColor !== "none" && stubStyle.arrowSize > 0) {
+    ctx.save();
+    ctx.strokeStyle = stubStyle.arrowColor;
+    ctx.fillStyle = stubStyle.arrowColor;
+    ctx.lineWidth = stubStyle.width;
+    const arrowSize = stubStyle.arrowSize;
+    ctx.beginPath();
+    ctx.moveTo(endPoint.x, endPoint.y);
+    ctx.lineTo(
+      endPoint.x - arrowSize * Math.cos(direction - Math.PI / 6),
+      endPoint.y - arrowSize * Math.sin(direction - Math.PI / 6)
+    );
+    ctx.lineTo(
+      endPoint.x - arrowSize * Math.cos(direction + Math.PI / 6),
+      endPoint.y - arrowSize * Math.sin(direction + Math.PI / 6)
+    );
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
 
   return {
     x: endPoint.x + 4,
@@ -537,7 +816,9 @@ function renderPartialLane(
   culledToNode: MapSectorNode,
   scale: number,
   hexSize: number,
-  config: MiniMapConfigBase
+  config: MiniMapConfigBase,
+  coursePlotLanes: Set<string> | null = null,
+  coursePlot: CoursePlot | null = null
 ) {
   const fromCenter = hexToWorld(
     fromNode.position[0],
@@ -553,15 +834,58 @@ function renderPartialLane(
   const from = getHexEdgePoint(fromCenter, toCenter, hexSize);
   const to = getHexEdgePoint(toCenter, fromCenter, hexSize);
 
+  // Determine which style to use
+  const isInPlot = coursePlotLanes
+    ? coursePlotLanes.has(getUndirectedLaneKey(fromNode.id, culledToNode.id))
+    : true;
+
+  const laneStyle =
+    coursePlotLanes && !isInPlot
+      ? config.laneStyles.muted
+      : coursePlot && isInPlot
+      ? config.laneStyles.coursePlot
+      : config.laneStyles.partial;
+
   ctx.save();
-  ctx.strokeStyle = applyAlpha(config.colors.lane, 0.5); // Dimmer to indicate it leads off-map
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([3, 3]); // Dashed to indicate it leads to culled sector
+
+  // Create gradient that fades out towards the end
+  const gradient = ctx.createLinearGradient(from.x, from.y, to.x, to.y);
+  gradient.addColorStop(0, laneStyle.color);
+  gradient.addColorStop(0.7, laneStyle.color);
+  gradient.addColorStop(1, applyAlpha(laneStyle.color, 0));
+
+  ctx.strokeStyle = gradient;
+  ctx.lineWidth = laneStyle.width;
+  if (laneStyle.dashPattern !== "none") {
+    ctx.setLineDash(laneStyle.dashPattern.split(",").map((n) => parseFloat(n)));
+  }
 
   ctx.beginPath();
   ctx.moveTo(from.x, from.y);
   ctx.lineTo(to.x, to.y);
   ctx.stroke();
+
+  // Add arrow for partial lanes if style specifies
+  if (
+    laneStyle.arrowColor !== "none" &&
+    laneStyle.arrowSize > 0 &&
+    coursePlot &&
+    isInPlot
+  ) {
+    const fromIndex = coursePlot.path.indexOf(fromNode.id);
+    const toIndex = coursePlot.path.indexOf(culledToNode.id);
+
+    if (
+      fromIndex !== -1 &&
+      toIndex !== -1 &&
+      Math.abs(fromIndex - toIndex) === 1
+    ) {
+      const arrowFrom = fromIndex < toIndex ? from : to;
+      const arrowTo = fromIndex < toIndex ? to : from;
+      ctx.strokeStyle = laneStyle.arrowColor;
+      renderArrow(ctx, arrowFrom, arrowTo);
+    }
+  }
 
   ctx.restore();
 }
@@ -573,7 +897,9 @@ function renderAllLanes(
   fullData: MapData,
   scale: number,
   hexSize: number,
-  config: MiniMapConfigBase
+  config: MiniMapConfigBase,
+  coursePlotLanes: Set<string> | null = null,
+  coursePlot: CoursePlot | null = null
 ): Array<{ x: number; y: number; text: string }> {
   const renderedLanes = new Set<string>();
   const hyperlaneLabels: Array<{ x: number; y: number; text: string }> = [];
@@ -596,7 +922,9 @@ function renderAllLanes(
               culledToNode,
               scale,
               hexSize,
-              config
+              config,
+              coursePlotLanes,
+              coursePlot
             );
             return;
           }
@@ -642,7 +970,9 @@ function renderAllLanes(
         scale,
         hexSize,
         config,
-        isBidirectional
+        isBidirectional,
+        coursePlotLanes,
+        coursePlot
       );
     });
   });
@@ -704,7 +1034,9 @@ function renderSector(
   hexSize: number,
   config: MiniMapConfigBase,
   currentRegion?: string,
-  opacity = 1
+  opacity = 1,
+  coursePlotSectors: Set<number> | null = null,
+  coursePlot: CoursePlot | null = null
 ) {
   const world = hexToWorld(node.position[0], node.position[1], scale);
   const isCurrent = node.id === config.current_sector_id;
@@ -712,44 +1044,87 @@ function renderSector(
   const isCrossRegion =
     currentRegion && node.region && node.region !== currentRegion;
 
-  if (isCurrent && config.current_sector_outer_border) {
-    const outerBorderSize = config.current_sector_outer_border;
+  const finalOpacity = opacity;
+  const isInPlot = coursePlotSectors ? coursePlotSectors.has(node.id) : true;
+
+  // Determine node type priority
+  let nodeStyle: NodeStyle;
+  if (coursePlot && coursePlot.from_sector === node.id) {
+    nodeStyle = config.nodeStyles.coursePlotStart;
+  } else if (coursePlot && coursePlot.to_sector === node.id) {
+    nodeStyle = config.nodeStyles.coursePlotEnd;
+  } else if (coursePlot && isInPlot && coursePlot.path.includes(node.id)) {
+    nodeStyle = config.nodeStyles.coursePlotMid;
+  } else if (coursePlotSectors && !isInPlot) {
+    nodeStyle = config.nodeStyles.muted;
+  } else if (isCurrent) {
+    nodeStyle = config.nodeStyles.current;
+  } else if (isCrossRegion) {
+    nodeStyle = config.nodeStyles.crossRegion;
+  } else if (isVisited) {
+    nodeStyle = config.nodeStyles.visited;
+  } else {
+    nodeStyle = config.nodeStyles.unvisited;
+  }
+
+  // Render outline if specified
+  if (nodeStyle.outline !== "none" && nodeStyle.outlineWidth > 0) {
     ctx.save();
-    ctx.strokeStyle = applyAlpha(config.colors.current_outline, opacity);
-    ctx.lineWidth = outerBorderSize;
-    drawHex(ctx, world.x, world.y, hexSize + outerBorderSize / 2 + 2, false);
+    ctx.strokeStyle = applyAlpha(nodeStyle.outline, finalOpacity);
+    ctx.lineWidth = nodeStyle.outlineWidth;
+    drawHex(
+      ctx,
+      world.x,
+      world.y,
+      hexSize + nodeStyle.outlineWidth / 2 + 2,
+      false
+    );
     ctx.restore();
   }
 
-  const fillColor = isCurrent
-    ? config.colors.current
-    : isVisited
-    ? config.colors.visited
-    : config.colors.empty;
-  ctx.fillStyle = applyAlpha(fillColor, opacity);
-
-  let strokeColor: string;
-  if (isCurrent) {
-    strokeColor = config.colors.current;
-    ctx.lineWidth = 2;
-  } else if (isCrossRegion) {
-    strokeColor = config.colors.cross_region_outline;
-    ctx.lineWidth = 2;
-  } else {
-    strokeColor = config.colors.sector_border;
-    ctx.lineWidth = 1;
-  }
-  ctx.strokeStyle = applyAlpha(strokeColor, opacity);
+  // Render fill and border
+  ctx.fillStyle = applyAlpha(nodeStyle.fill, finalOpacity);
+  ctx.strokeStyle = applyAlpha(nodeStyle.border, finalOpacity);
+  ctx.lineWidth = nodeStyle.borderWidth;
 
   drawHex(ctx, world.x, world.y, hexSize, true);
 
   if (config.show_ports && node.port) {
     const isMegaPort = node.is_mega || node.id === 0;
-    const portColor = isMegaPort ? config.colors.mega_port : config.colors.port;
-    ctx.fillStyle = applyAlpha(portColor, opacity);
+    const portStyle = isMegaPort
+      ? config.portStyles.mega
+      : config.portStyles.regular;
+
+    // Use muted color for ports not in course plot
+    let portColor: string;
+    if (coursePlotSectors && !isInPlot) {
+      portColor = portStyle.mutedColor;
+    } else {
+      portColor = portStyle.color;
+    }
+
+    ctx.fillStyle = applyAlpha(portColor, finalOpacity);
     ctx.beginPath();
-    ctx.arc(world.x, world.y, 5, 0, Math.PI * 2);
+    ctx.arc(world.x, world.y, portStyle.radius, 0, Math.PI * 2);
     ctx.fill();
+  }
+
+  // Render hop number for sectors in course plot
+  if (coursePlot && isInPlot) {
+    const hopIndex = coursePlot.path.indexOf(node.id);
+    if (hopIndex !== -1) {
+      const hopNumber = hopIndex + 1;
+      ctx.save();
+      ctx.font = `bold ${hexSize * 0.8}px ${getCanvasFontFamily(ctx)}`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = applyAlpha("#ffffff", finalOpacity * 0.9);
+      ctx.strokeStyle = applyAlpha("#000000", finalOpacity * 0.8);
+      ctx.lineWidth = 3;
+      ctx.strokeText(hopNumber.toString(), world.x, world.y);
+      ctx.fillText(hopNumber.toString(), world.x, world.y);
+      ctx.restore();
+    }
   }
 }
 
@@ -763,7 +1138,7 @@ function renderHexGrid(
   cameraOffsetY: number,
   scale: number,
   hexSize: number,
-  gridColor: string
+  gridStyle: { color: string; lineWidth: number }
 ) {
   const stepX = scale * 1.5;
   const invScale = 1 / scale;
@@ -782,8 +1157,8 @@ function renderHexGrid(
   }
 
   ctx.save();
-  ctx.strokeStyle = gridColor;
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = gridStyle.color;
+  ctx.lineWidth = gridStyle.lineWidth;
 
   for (let hx = minHexX; hx <= maxHexX; hx++) {
     const yOffset = 0.5 * (hx & 1);
@@ -849,21 +1224,51 @@ function calculateCameraState(
   height: number,
   scale: number,
   hexSize: number,
-  maxDistance: number
+  maxDistance: number,
+  coursePlot?: CoursePlot | null
 ): CameraState | null {
   const reachableMap = calculateReachableSectors(
     data,
     config.current_sector_id,
     maxDistance
   );
-  const filteredData = filterReachableSectors(data, reachableMap);
+  let filteredData = filterReachableSectors(data, reachableMap);
+
+  // If course plot exists, include all sectors from the path
+  let framingData = filteredData; // Data used for camera framing
+  if (coursePlot) {
+    const coursePlotSectorIds = new Set(coursePlot.path);
+    const sectorIndex = createSectorIndex(data);
+    const coursePlotSectors: MapData = [];
+    const additionalSectors: MapData = [];
+
+    coursePlotSectorIds.forEach((sectorId) => {
+      const sector = sectorIndex.get(sectorId);
+      if (sector) {
+        coursePlotSectors.push(sector);
+        // Only add to filtered if not already there
+        if (!filteredData.some((s) => s.id === sectorId)) {
+          additionalSectors.push(sector);
+        }
+      }
+    });
+
+    if (additionalSectors.length > 0) {
+      filteredData = [...filteredData, ...additionalSectors];
+    }
+
+    // Frame around only the course plot sectors
+    if (coursePlotSectors.length > 0) {
+      framingData = coursePlotSectors;
+    }
+  }
 
   if (filteredData.length === 0) {
     return null;
   }
 
   const camera = calculateCameraTransform(
-    filteredData,
+    framingData,
     config.current_sector_id,
     width,
     height,
@@ -904,21 +1309,27 @@ function renderSectorLabels(
   width: number,
   height: number,
   cameraState: CameraState,
-  config: MiniMapConfigBase
+  config: MiniMapConfigBase,
+  coursePlotSectors: Set<number> | null = null
 ) {
   if (!config.show_sector_ids) return;
 
+  const labelStyle = config.labelStyles.sectorId;
+
   ctx.save();
-  ctx.font = `${config.label_font_weight} ${
-    config.label_font_size
+  ctx.font = `${labelStyle.fontWeight} ${
+    labelStyle.fontSize
   }px ${getCanvasFontFamily(ctx)}`;
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
 
   const labelOffset = config.sector_label_offset ?? 2;
-  const padding = config.label_padding ?? 2;
+  const padding = labelStyle.padding;
 
   data.forEach((node) => {
+    // Skip labels for current sector
+    if (node.id === config.current_sector_id) return;
+
     const worldPos = hexToWorld(node.position[0], node.position[1], scale);
     const angle = -Math.PI / 3;
     const edgeWorldX = worldPos.x + hexSize * Math.cos(angle);
@@ -941,12 +1352,18 @@ function renderSectorLabels(
     const ascent =
       metrics.fontBoundingBoxAscent ??
       metrics.actualBoundingBoxAscent ??
-      config.label_font_size;
+      labelStyle.fontSize;
     const descent =
       metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent ?? 0;
     const textHeight = ascent + descent;
 
-    ctx.fillStyle = config.colors.label_bg;
+    // Apply muted opacity to labels for sectors not in course plot
+    const labelOpacity =
+      coursePlotSectors && !coursePlotSectors.has(node.id)
+        ? labelStyle.mutedOpacity
+        : 1;
+
+    ctx.fillStyle = applyAlpha(labelStyle.backgroundColor, labelOpacity);
     ctx.fillRect(
       textX - padding,
       textY - ascent - padding,
@@ -954,7 +1371,7 @@ function renderSectorLabels(
       textHeight + padding * 2
     );
 
-    ctx.fillStyle = config.colors.label;
+    ctx.fillStyle = applyAlpha(labelStyle.textColor, labelOpacity);
     ctx.fillText(text, textX, textY);
   });
 
@@ -970,22 +1387,27 @@ function renderPortLabels(
   width: number,
   height: number,
   cameraState: CameraState,
-  config: MiniMapConfigBase
+  config: MiniMapConfigBase,
+  coursePlotSectors: Set<number> | null = null
 ) {
   if (!config.show_ports) return;
 
+  const labelStyle = config.labelStyles.portCode;
+
   ctx.save();
-  ctx.font = `${config.label_font_weight} ${
-    config.label_font_size
+  ctx.font = `${labelStyle.fontWeight} ${
+    labelStyle.fontSize
   }px ${getCanvasFontFamily(ctx)}`;
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
 
   const labelOffset = config.sector_label_offset ?? 2;
-  const padding = config.label_padding ?? 2;
+  const padding = labelStyle.padding;
 
   data.forEach((node) => {
     if (!node.port) return;
+    // Skip labels for current sector
+    if (node.id === config.current_sector_id) return;
 
     const worldPos = hexToWorld(node.position[0], node.position[1], scale);
     const angle = Math.PI / 3;
@@ -1009,12 +1431,18 @@ function renderPortLabels(
     const ascent =
       metrics.fontBoundingBoxAscent ??
       metrics.actualBoundingBoxAscent ??
-      config.label_font_size;
+      labelStyle.fontSize;
     const descent =
       metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent ?? 0;
     const textHeight = ascent + descent;
 
-    ctx.fillStyle = config.colors.label_bg;
+    // Apply muted opacity to labels for sectors not in course plot
+    const labelOpacity =
+      coursePlotSectors && !coursePlotSectors.has(node.id)
+        ? labelStyle.mutedOpacity
+        : 1;
+
+    ctx.fillStyle = applyAlpha(labelStyle.backgroundColor, labelOpacity);
     ctx.fillRect(
       textX - padding,
       textY - ascent - padding,
@@ -1022,7 +1450,7 @@ function renderPortLabels(
       textHeight + padding * 2
     );
 
-    ctx.fillStyle = config.colors.label;
+    ctx.fillStyle = applyAlpha(labelStyle.textColor, labelOpacity);
     ctx.fillText(text, textX, textY);
   });
 
@@ -1035,7 +1463,7 @@ function renderWithCameraState(
   props: MiniMapProps,
   cameraState: CameraState
 ) {
-  const { width, height, config } = props;
+  const { width, height, config, coursePlot } = props;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
@@ -1044,12 +1472,23 @@ function renderWithCameraState(
   canvas.height = height * dpr;
   ctx.scale(dpr, dpr);
 
-  ctx.fillStyle = config.colors.background;
+  ctx.fillStyle = config.uiStyles.background.color;
   ctx.fillRect(0, 0, width, height);
 
   const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
   const hexSize = config.hex_size ?? gridSpacing * 0.85;
   const scale = gridSpacing;
+
+  // Pre-compute course plot Sets for O(1) lookups
+  const coursePlotSectors = coursePlot ? new Set(coursePlot.path) : null;
+  const coursePlotLanes = coursePlot
+    ? new Set(
+        coursePlot.path.slice(0, -1).map((from, i) => {
+          const to = coursePlot.path[i + 1];
+          return getUndirectedLaneKey(from, to);
+        })
+      )
+    : null;
 
   // 1) Draw grid in world space
   ctx.save();
@@ -1067,14 +1506,14 @@ function renderWithCameraState(
       cameraState.offsetY,
       scale,
       hexSize,
-      config.colors.grid
+      config.uiStyles.grid
     );
   }
   ctx.restore();
 
   // 2) Apply rectangular feather mask to background + grid (screen space)
   const featherSize = Math.min(
-    config.edge_feather_size ?? 40,
+    config.uiStyles.edgeFeather.size,
     Math.min(width, height) / 2
   );
   applyRectangularFeatherMask(ctx, width, height, featherSize);
@@ -1092,7 +1531,9 @@ function renderWithCameraState(
         props.data,
         scale,
         hexSize,
-        config
+        config,
+        coursePlotLanes,
+        coursePlot
       )
     : [];
 
@@ -1114,7 +1555,9 @@ function renderWithCameraState(
         hexSize,
         config,
         currentRegion,
-        fadeOpacity
+        fadeOpacity,
+        coursePlotSectors,
+        coursePlot
       );
     });
   }
@@ -1124,7 +1567,17 @@ function renderWithCameraState(
       fadingInIds.has(node.id) && cameraState.fadeProgress !== undefined
         ? cameraState.fadeProgress
         : 1;
-    renderSector(ctx, node, scale, hexSize, config, currentRegion, opacity);
+    renderSector(
+      ctx,
+      node,
+      scale,
+      hexSize,
+      config,
+      currentRegion,
+      opacity,
+      coursePlotSectors,
+      coursePlot
+    );
   });
 
   if (config.debug) {
@@ -1141,7 +1594,8 @@ function renderWithCameraState(
     width,
     height,
     cameraState,
-    config
+    config,
+    coursePlotSectors
   );
   renderPortLabels(
     ctx,
@@ -1151,13 +1605,16 @@ function renderWithCameraState(
     width,
     height,
     cameraState,
-    config
+    config,
+    coursePlotSectors
   );
 
   if (hyperlaneLabels.length > 0) {
+    const labelStyle = config.labelStyles.hyperlane;
+
     ctx.save();
-    ctx.font = `${config.label_font_weight} ${
-      config.label_font_size
+    ctx.font = `${labelStyle.fontWeight} ${
+      labelStyle.fontSize
     }px ${getCanvasFontFamily(ctx)}`;
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
@@ -1170,12 +1627,12 @@ function renderWithCameraState(
         cameraState
       );
       const metrics = ctx.measureText(label.text);
-      const ascent = metrics.actualBoundingBoxAscent ?? config.label_font_size;
+      const ascent = metrics.actualBoundingBoxAscent ?? labelStyle.fontSize;
       const descent = metrics.actualBoundingBoxDescent ?? 0;
       const textHeight = ascent + descent;
 
-      const padding = config.label_padding ?? 2;
-      ctx.fillStyle = config.colors.label_bg;
+      const padding = labelStyle.padding;
+      ctx.fillStyle = labelStyle.backgroundColor;
       ctx.fillRect(
         screenPos.x - padding,
         screenPos.y - ascent - padding,
@@ -1183,11 +1640,78 @@ function renderWithCameraState(
         textHeight + padding * 2
       );
 
-      ctx.fillStyle = config.colors.label;
+      ctx.fillStyle = labelStyle.textColor;
       ctx.fillText(label.text, screenPos.x, screenPos.y);
     });
     ctx.restore();
   }
+}
+
+/** Render animated arrows on course plot lanes only */
+function renderCoursePlotAnimation(
+  canvas: HTMLCanvasElement,
+  props: MiniMapProps,
+  cameraState: CameraState,
+  animationOffset: number
+) {
+  const { width, height, config, coursePlot } = props;
+  if (!coursePlot) return;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
+  const hexSize = config.hex_size ?? gridSpacing * 0.85;
+  const scale = gridSpacing;
+
+  const sectorIndex = createSectorIndex(cameraState.filteredData);
+
+  const animStyle = config.laneStyles.coursePlotAnimation;
+
+  ctx.save();
+  ctx.translate(width / 2, height / 2);
+  ctx.scale(cameraState.zoom, cameraState.zoom);
+  ctx.translate(cameraState.offsetX, cameraState.offsetY);
+
+  // Draw animated dashes on course plot lanes
+  if (animStyle.shadowBlur > 0 && animStyle.shadowColor !== "none") {
+    ctx.shadowBlur = animStyle.shadowBlur;
+    ctx.shadowColor = animStyle.shadowColor;
+  }
+  ctx.strokeStyle = animStyle.color;
+  ctx.lineWidth = animStyle.width;
+  ctx.lineCap = "round";
+  if (animStyle.dashPattern !== "none") {
+    ctx.setLineDash(animStyle.dashPattern.split(",").map((n) => parseFloat(n)));
+  }
+  ctx.lineDashOffset = -animationOffset;
+
+  for (let i = 0; i < coursePlot.path.length - 1; i++) {
+    const fromId = coursePlot.path[i];
+    const toId = coursePlot.path[i + 1];
+
+    const fromNode = sectorIndex.get(fromId);
+    const toNode = sectorIndex.get(toId);
+
+    if (!fromNode || !toNode) continue;
+
+    const fromCenter = hexToWorld(
+      fromNode.position[0],
+      fromNode.position[1],
+      scale
+    );
+    const toCenter = hexToWorld(toNode.position[0], toNode.position[1], scale);
+
+    const from = getHexEdgePoint(fromCenter, toCenter, hexSize);
+    const to = getHexEdgePoint(toCenter, fromCenter, hexSize);
+
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+  }
+
+  ctx.restore();
 }
 
 export interface MiniMapController {
@@ -1195,6 +1719,8 @@ export interface MiniMapController {
   moveToSector: (newSectorId: number, newMapData?: MapData) => void;
   getCurrentState: () => CameraState | null;
   updateProps: (newProps: Partial<MiniMapProps>) => void;
+  startCourseAnimation: () => void;
+  stopCourseAnimation: () => void;
 }
 
 /** Create minimap controller with imperative API */
@@ -1206,9 +1732,18 @@ export function createMiniMapController(
   let currentProps = { ...props };
   let animationCleanup: (() => void) | null = null;
   let animationCompletionTimeout: number | null = null;
+  let courseAnimationFrameId: number | null = null;
+  let courseAnimationOffset = 0;
 
   const render = () => {
-    const { width, height, data, config, maxDistance = 3 } = currentProps;
+    const {
+      width,
+      height,
+      data,
+      config,
+      maxDistance = 3,
+      coursePlot,
+    } = currentProps;
     const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
     const hexSize = config.hex_size ?? gridSpacing * 0.85;
     const scale = gridSpacing;
@@ -1220,7 +1755,8 @@ export function createMiniMapController(
       height,
       scale,
       hexSize,
-      maxDistance
+      maxDistance,
+      coursePlot
     );
 
     if (!cameraState) {
@@ -1230,10 +1766,10 @@ export function createMiniMapController(
         canvas.width = width * dpr;
         canvas.height = height * dpr;
         ctx.scale(dpr, dpr);
-        ctx.fillStyle = config.colors.background;
+        ctx.fillStyle = config.uiStyles.background.color;
         ctx.fillRect(0, 0, width, height);
         const feather = Math.min(
-          config.edge_feather_size ?? 40,
+          config.uiStyles.edgeFeather.size,
           Math.min(width, height) / 2
         );
         applyRectangularFeatherMask(ctx, width, height, feather);
@@ -1253,6 +1789,12 @@ export function createMiniMapController(
     if (animationCompletionTimeout !== null) {
       window.clearTimeout(animationCompletionTimeout);
       animationCompletionTimeout = null;
+    }
+
+    // Temporarily stop course animation during transition
+    const wasAnimating = courseAnimationFrameId !== null;
+    if (wasAnimating) {
+      stopCourseAnimation();
     }
 
     const updatedProps = {
@@ -1279,24 +1821,89 @@ export function createMiniMapController(
         currentCameraState = getCurrentCameraState(updatedProps);
         animationCleanup = null;
         animationCompletionTimeout = null;
+        // Restart course animation if it was running
+        if (wasAnimating && updatedProps.coursePlot) {
+          startCourseAnimation();
+        }
       }, animDuration);
     } else {
       render();
+      // Restart course animation immediately if no camera animation
+      if (wasAnimating && updatedProps.coursePlot) {
+        startCourseAnimation();
+      }
     }
   };
 
   const getCurrentState = () => currentCameraState;
 
   const updateProps = (newProps: Partial<MiniMapProps>) => {
+    const hadCoursePlot =
+      currentProps.coursePlot !== undefined && currentProps.coursePlot !== null;
+    const hasCoursePlot =
+      newProps.coursePlot !== undefined && newProps.coursePlot !== null;
+
     Object.assign(currentProps, newProps);
     if (newProps.config) {
       Object.assign(currentProps.config, newProps.config);
+    }
+
+    // Start or stop animation based on coursePlot presence
+    if (hasCoursePlot && !hadCoursePlot) {
+      startCourseAnimation();
+    } else if (!hasCoursePlot && hadCoursePlot) {
+      stopCourseAnimation();
+    }
+  };
+
+  const startCourseAnimation = () => {
+    if (courseAnimationFrameId !== null) return; // Already running
+    if (!currentProps.coursePlot || !currentCameraState) return;
+
+    const animate = () => {
+      courseAnimationOffset = (courseAnimationOffset + 0.5) % 20; // Cycle through dash pattern smoothly
+
+      if (currentCameraState && currentProps.coursePlot) {
+        // Re-render the base map first to clear previous animation frame
+        render();
+        // Then draw animated dashes on top
+        renderCoursePlotAnimation(
+          canvas,
+          currentProps,
+          currentCameraState,
+          courseAnimationOffset
+        );
+      }
+
+      courseAnimationFrameId = requestAnimationFrame(animate);
+    };
+
+    courseAnimationFrameId = requestAnimationFrame(animate);
+  };
+
+  const stopCourseAnimation = () => {
+    if (courseAnimationFrameId !== null) {
+      cancelAnimationFrame(courseAnimationFrameId);
+      courseAnimationFrameId = null;
+      courseAnimationOffset = 0;
     }
   };
 
   render();
 
-  return { render, moveToSector, getCurrentState, updateProps };
+  // Start animation if coursePlot is already active
+  if (props.coursePlot) {
+    startCourseAnimation();
+  }
+
+  return {
+    render,
+    moveToSector,
+    getCurrentState,
+    updateProps,
+    startCourseAnimation,
+    stopCourseAnimation,
+  };
 }
 
 /** Render minimap canvas (stateless) */
@@ -1304,7 +1911,7 @@ export function renderMiniMapCanvas(
   canvas: HTMLCanvasElement,
   props: MiniMapProps
 ) {
-  const { width, height, data, config, maxDistance = 3 } = props;
+  const { width, height, data, config, maxDistance = 3, coursePlot } = props;
 
   const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
   const hexSize = config.hex_size ?? gridSpacing * 0.85;
@@ -1317,7 +1924,8 @@ export function renderMiniMapCanvas(
     height,
     scale,
     hexSize,
-    maxDistance
+    maxDistance,
+    coursePlot
   );
 
   if (!cameraState) {
@@ -1327,10 +1935,10 @@ export function renderMiniMapCanvas(
       canvas.width = width * dpr;
       canvas.height = height * dpr;
       ctx.scale(dpr, dpr);
-      ctx.fillStyle = config.colors.background;
+      ctx.fillStyle = config.uiStyles.background.color;
       ctx.fillRect(0, 0, width, height);
       const feather = Math.min(
-        config.edge_feather_size ?? 40,
+        config.uiStyles.edgeFeather.size,
         Math.min(width, height) / 2
       );
       applyRectangularFeatherMask(ctx, width, height, feather);
@@ -1343,7 +1951,7 @@ export function renderMiniMapCanvas(
 
 /** Get current camera state for tracking between renders */
 export function getCurrentCameraState(props: MiniMapProps): CameraState | null {
-  const { width, height, data, config, maxDistance = 3 } = props;
+  const { width, height, data, config, maxDistance = 3, coursePlot } = props;
   const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
   const hexSize = config.hex_size ?? gridSpacing * 0.85;
   const scale = gridSpacing;
@@ -1354,7 +1962,8 @@ export function getCurrentCameraState(props: MiniMapProps): CameraState | null {
     height,
     scale,
     hexSize,
-    maxDistance
+    maxDistance,
+    coursePlot
   );
 }
 
@@ -1365,7 +1974,7 @@ export function updateCurrentSector(
   newSectorId: number,
   currentCameraState: CameraState | null
 ): () => void {
-  const { width, height, data, config, maxDistance = 3 } = props;
+  const { width, height, data, config, maxDistance = 3, coursePlot } = props;
 
   const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
   const hexSize = config.hex_size ?? gridSpacing * 0.85;
@@ -1380,7 +1989,8 @@ export function updateCurrentSector(
     height,
     scale,
     hexSize,
-    maxDistance
+    maxDistance,
+    coursePlot
   );
 
   if (!targetCameraState) {
@@ -1390,10 +2000,10 @@ export function updateCurrentSector(
       canvas.width = width * dpr;
       canvas.height = height * dpr;
       ctx.scale(dpr, dpr);
-      ctx.fillStyle = config.colors.background;
+      ctx.fillStyle = config.uiStyles.background.color;
       ctx.fillRect(0, 0, width, height);
       const feather = Math.min(
-        config.edge_feather_size ?? 40,
+        config.uiStyles.edgeFeather.size,
         Math.min(width, height) / 2
       );
       applyRectangularFeatherMask(ctx, width, height, feather);

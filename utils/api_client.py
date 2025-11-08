@@ -908,6 +908,11 @@ class AsyncGameClient:
         character_id: Optional[str] = None,
         sector: Optional[int] = None,
         corporation_id: Optional[str] = None,
+        string_match: Optional[str] = None,
+        max_rows: Optional[int] = None,
+        sort_direction: Optional[str] = None,
+        actor_character_id: Optional[str] = None,
+        event_scope: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Query event logs within a time range."""
 
@@ -923,6 +928,23 @@ class AsyncGameClient:
             payload["sector"] = sector
         if corporation_id:
             payload["corporation_id"] = corporation_id
+        if string_match:
+            payload["string_match"] = string_match
+        if max_rows is not None:
+            payload["max_rows"] = max_rows
+        if sort_direction:
+            payload["sort_direction"] = sort_direction
+        if event_scope:
+            payload["event_scope"] = event_scope
+
+        actor_value = (
+            actor_character_id
+            or self._actor_character_id
+            or self._character_id
+        )
+        if actor_value:
+            payload.setdefault("actor_character_id", actor_value)
+
         return await self._request("event.query", payload)
 
     async def create_corporation(

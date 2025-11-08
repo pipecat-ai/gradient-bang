@@ -31,6 +31,7 @@ import {
   type SectorUpdateMessage,
   type ServerMessage,
   type StatusMessage,
+  type TaskOutputMessage,
   type WarpPurchaseMessage,
   type WarpTransferMessage,
 } from "@/types/messages";
@@ -260,6 +261,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               startMoveToSector(
                 (gameEvent.payload as MovementStartMessage).sector
               );
+
               break;
             }
 
@@ -311,11 +313,10 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
               // Cleanup
 
-              // Remove any course plot data if we've reached our intended destination
+              const newSectorId = gameStore.sectorBuffer?.id ?? 0;
+              // Remove any course plot data if we've reached our intended destination or deviated
               // @TODO: make this logic robust (plots should become stale after a certain time)
-              if (
-                gameStore.course_plot?.to_sector === gameStore.sectorBuffer?.id
-              ) {
+              if (gameStore.course_plot?.to_sector === newSectorId) {
                 console.debug(
                   "[GAME EVENT] Reached intended destination, clearing course plot"
                 );
@@ -323,13 +324,12 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               }
               // Remove active course plot if we've gone to a sector outside of the plot
               if (
-                gameStore.sectorBuffer?.id &&
-                !gameStore.course_plot?.path.includes(
-                  gameStore.sectorBuffer?.id ?? 0
-                )
+                !gameStore.course_plot?.path.includes(newSectorId) ||
+                gameStore.course_plot?.to_sector !== newSectorId ||
+                gameStore.course_plot?.from_sector !== newSectorId
               ) {
                 console.debug(
-                  "[GAME EVENT] Went to a sector outside of the plot, clearing course plot"
+                  "[GAME EVENT] Went to a sector outside of the plot, clearing"
                 );
                 gameStore.clearCoursePlot();
               }
@@ -414,7 +414,18 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               break;
             }
 
-            case "map.region":
+            case "map.region": {
+              console.debug(
+                "[GAME EVENT] Regional map data",
+                gameEvent.payload
+              );
+
+              gameStore.setRegionalMapData(
+                (gameEvent.payload as MapLocalMessage).sectors
+              );
+              break;
+            }
+
             case "map.local": {
               console.debug("[GAME EVENT] Local map data", gameEvent.payload);
 
@@ -625,6 +636,24 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               if (starfield) {
                 starfield.selectGameObject("port");
               }
+
+              gameStore.setActiveScreen("trading");
+
+              break;
+            }
+
+            //@TODO: improve this
+            case "task_output": {
+              console.debug("[GAME EVENT] Task output", gameEvent.payload);
+              const data = gameEvent.payload as TaskOutputMessage;
+              gameStore.setTaskInProgress(true);
+              gameStore.addTask(data.text);
+              break;
+            }
+
+            case "task_complete": {
+              console.debug("[GAME EVENT] Task complete", gameEvent.payload);
+              gameStore.setTaskInProgress(false);
               break;
             }
 

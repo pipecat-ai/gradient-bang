@@ -16,7 +16,7 @@ export const Error = ({
   return (
     <Card
       variant="stripes"
-      className="h-screen stripe-frame-destructive-foreground bg-destructive/10"
+      className="h-screen stripe-frame-destructive bg-destructive/10"
       size="lg"
     >
       <CardHeader>

@@ -6,27 +6,24 @@ import * as React from "react";
 import { cn } from "@/utils/tailwind";
 import { cva, type VariantProps } from "class-variance-authority";
 
-const separatorVariants = cva(
-  "bg-border text-muted-foreground/30 shrink-0 data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:w-px",
-  {
-    variants: {
-      orientation: {
-        horizontal: "h-px w-full",
-        vertical: "h-full w-px",
-      },
-      variant: {
-        solid: "",
-        dashed:
-          "bg-transparent bg-[repeating-linear-gradient(to_right,currentColor,currentColor_10px,transparent_10px,transparent_15px)] bg-[length:15px_100%]",
-        dotted:
-          "bg-transparent bg-[repeating-linear-gradient(to_right,currentColor,currentColor_2px,transparent_2px,transparent_6px)] bg-[length:6px_100%]",
-      },
+const separatorVariants = cva("bg-border text-muted-foreground/30 shrink-0", {
+  variants: {
+    orientation: {
+      horizontal: "h-px w-full",
+      vertical: "h-full w-px",
     },
-    defaultVariants: {
-      orientation: "horizontal",
+    variant: {
+      solid: "",
+      dashed:
+        "bg-transparent bg-[repeating-linear-gradient(to_right,currentColor,currentColor_10px,transparent_10px,transparent_15px)] bg-[length:15px_100%]",
+      dotted:
+        "bg-transparent bg-[repeating-linear-gradient(to_right,currentColor,currentColor_2px,transparent_2px,transparent_6px)] bg-[length:6px_100%]",
     },
-  }
-);
+  },
+  defaultVariants: {
+    orientation: "horizontal",
+  },
+});
 function Separator({
   className,
   orientation = "horizontal",

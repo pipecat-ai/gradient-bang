@@ -1,20 +1,14 @@
-import { LightningIcon, NutIcon, PlantIcon } from "@phosphor-icons/react";
-import {
-  Badge,
-  Card,
-  CardContent,
-  CardHeader,
-  Divider,
-  PanelTitle,
-} from "@pipecat-ai/voice-ui-kit";
+import { Badge } from "@/components/primitives/Badge";
+import { Card, CardContent, CardHeader } from "@/components/primitives/Card";
+import useGameStore from "@/stores/game";
+import { AtomIcon, LightningIcon, PlantIcon } from "@phosphor-icons/react";
+import { CardTitle, Divider } from "@pipecat-ai/voice-ui-kit";
 import { useEffect } from "react";
-import { usePanelRef } from "../hooks/usePanelRef";
-import useImageStore from "../stores/image";
-import usePortStore from "../stores/port";
+import { PanelTitle } from "./PanelTitle";
 
 const IconMap = {
   ro: <PlantIcon size={28} weight="duotone" />,
-  qf: <NutIcon size={28} weight="duotone" />,
+  qf: <AtomIcon size={28} weight="duotone" />,
   ns: <LightningIcon size={28} weight="duotone" />,
 };
 
@@ -30,7 +24,7 @@ const codeToAbbrev = {
   ns: "NS",
 };
 
-const baseClx = "flex flex-col gap-4";
+const baseClx = "flex flex-col gap-4 elbow-muted elbow-size-20 w-[210px]";
 const inactiveClx = "opacity-50";
 
 const CommodityItem = ({
@@ -47,7 +41,11 @@ const CommodityItem = ({
   units?: number;
 }) => {
   return (
-    <Card className={`${baseClx} ${!buys && !sells ? inactiveClx : ""}`}>
+    <Card
+      className={`${baseClx} ${!buys && !sells ? inactiveClx : ""}`}
+      elbow={true}
+      size="sm"
+    >
       <CardHeader className="flex flex-col gap-2">
         <div className={buys || sells ? "text-agent" : ""}>
           {IconMap[commodity as keyof typeof IconMap]}
@@ -63,16 +61,12 @@ const CommodityItem = ({
       <CardContent className="flex flex-col gap-2">
         <div className="flex flex-col gap-0.5">
           <Badge
-            size="md"
-            variant="elbow"
             className={`w-full justify-between ${sells ? "" : "opacity-40"}`}
           >
             <span className="opacity-40">Stock:</span>
             {sells ? units : "---"}
           </Badge>
           <Badge
-            size="md"
-            variant="elbow"
             className={`w-full justify-between ${sells ? "" : "opacity-40"}`}
           >
             <span className="opacity-40">$ per unit:</span>
@@ -81,8 +75,6 @@ const CommodityItem = ({
         </div>
         <Divider variant="dotted" className="h-2" />
         <Badge
-          size="md"
-          variant="elbow"
           color={buys ? "active" : "ghost"}
           className={`w-full ${buys ? "animate-pulse" : "opacity-40"}`}
         >
@@ -94,58 +86,58 @@ const CommodityItem = ({
 };
 
 export const PortPanel = () => {
-  const { active, port } = usePortStore();
-  const { setImage, getPortImage, clearImage } = useImageStore();
-  const panelRef = usePanelRef("port");
+  const sector = useGameStore.use.sector?.();
+  const starfield = useGameStore.use.starfieldInstance?.();
 
   useEffect(() => {
-    if (!port || !active) {
-      clearImage();
-      return;
+    if (starfield) {
+      starfield.selectGameObject("port");
     }
+  }, [starfield]);
 
-    setImage(getPortImage(port.code) || "");
-  }, [port, active, setImage, getPortImage, clearImage]);
+  //  const { setImage, getPortImage, clearImage } = useImageStore();
 
-  if (!active) return null;
-
-  const buysQF = port?.code?.split("")[0] === "B";
-  const buysRO = port?.code?.split("")[1] === "B";
-  const buysNS = port?.code?.split("")[2] === "B";
-  const sellsQF = port?.code?.split("")[0] === "S";
-  const sellsRO = port?.code?.split("")[1] === "S";
-  const sellsNS = port?.code?.split("")[2] === "S";
+  const buysQF = sector?.port?.code?.split("")[0] === "B";
+  const buysRO = sector?.port?.code?.split("")[1] === "B";
+  const buysNS = sector?.port?.code?.split("")[2] === "B";
+  const sellsQF = sector?.port?.code?.split("")[0] === "S";
+  const sellsRO = sector?.port?.code?.split("")[1] === "S";
+  const sellsNS = sector?.port?.code?.split("")[2] === "S";
 
   return (
-    <div className="absolute -left-5 bg-background">
-      <Card ref={panelRef} className="flex" background="stripes" size="md">
-        <CardContent className="flex flex-col overflow-y-auto">
-          <h1 className="text-xl font-extrabold">
+    <div className="flex flex-row gap-6">
+      <Card
+        variant="stripes"
+        className="stripe-frame-ui-sm stripe-frame-white/30"
+      >
+        <CardHeader>
+          <CardTitle className="heading-1">
             Tradepost<span className="opacity-40"> / </span>
-            {port?.code || "BSB"}
-          </h1>
-          <Divider decoration="plus" size="md" />
+            {sector?.port?.code || "SSS"}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="">
           <div className="flex flex-row gap-2">
             <CommodityItem
               commodity="qf"
               buys={buysQF}
               sells={sellsQF}
-              price={port?.last_seen_prices.quantum_foam || 0}
-              units={port?.last_seen_stock.quantum_foam || 0}
+              price={sector?.port?.prices.quantum_foam || 0}
+              units={sector?.port?.stock.quantum_foam || 0}
             />
             <CommodityItem
               commodity="ro"
               buys={buysRO}
               sells={sellsRO}
-              price={port?.last_seen_prices.retro_organics || 0}
-              units={port?.last_seen_stock.retro_organics || 0}
+              price={sector?.port?.prices.retro_organics || 0}
+              units={sector?.port?.stock.retro_organics || 0}
             />
             <CommodityItem
               commodity="ns"
               sells={sellsNS}
               buys={buysNS}
-              price={port?.last_seen_prices.neuro_symbolics || 0}
-              units={port?.last_seen_stock.neuro_symbolics || 0}
+              price={sector?.port?.prices.neuro_symbolics || 0}
+              units={sector?.port?.stock.neuro_symbolics || 0}
             />
           </div>
         </CardContent>
