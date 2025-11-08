@@ -16,6 +16,7 @@ from utils.api_client import AsyncGameClient
 from utils.task_agent import TaskAgent, TaskOutputType
 from utils.tools_schema import (
     MyStatus,
+    LeaderboardResources,
     PlotCourse,
     LocalMapRegion,
     ListKnownPorts,
@@ -31,6 +32,7 @@ from utils.tools_schema import (
     BankWithdraw,
     DumpCargo,
     SendMessage,
+    PurchaseFighters,
     CombatInitiate,
     CombatAction,
     PlaceFighters,
@@ -105,6 +107,7 @@ class VoiceTaskManager:
             "character.moved",
             "trade.executed",
             "port.update",
+            "fighter.purchase",
             "warp.purchase",
             "warp.transfer",
             "credits.transfer",
@@ -147,6 +150,9 @@ class VoiceTaskManager:
             "my_status": lambda: self.game_client.my_status(
                 character_id=self.character_id
             ),
+            "leaderboard_resources": lambda **kwargs: self.game_client.leaderboard_resources(
+                character_id=self.character_id, **kwargs
+            ),
             "plot_course": lambda to_sector: self.game_client.plot_course(
                 to_sector=to_sector, character_id=self.character_id
             ),
@@ -163,6 +169,9 @@ class VoiceTaskManager:
                 to_sector=to_sector, character_id=self.character_id
             ),
             "trade": lambda **kwargs: self.game_client.trade(
+                character_id=self.character_id, **kwargs
+            ),
+            "purchase_fighters": lambda **kwargs: self.game_client.purchase_fighters(
                 character_id=self.character_id, **kwargs
             ),
             "dump_cargo": lambda **kwargs: self.game_client.dump_cargo(
@@ -493,6 +502,7 @@ class VoiceTaskManager:
         return ToolsSchema(
             standard_tools=[
                 MyStatus.schema(),
+                LeaderboardResources.schema(),
                 PlotCourse.schema(),
                 LocalMapRegion.schema(),
                 ListKnownPorts.schema(),
@@ -503,6 +513,7 @@ class VoiceTaskManager:
                 RechargeWarpPower.schema(),
                 TransferWarpPower.schema(),
                 TransferCredits.schema(),
+                PurchaseFighters.schema(),
                 BankDeposit.schema(),
                 BankWithdraw.schema(),
                 SendMessage.schema(),

@@ -38,6 +38,10 @@ class ShipStats:
     built_in_features: List[str]
 
 
+# Credit cost per fighter at the armory/shipyard
+FIGHTER_PRICE = 50
+
+
 # Ship registry with all ship definitions
 SHIP_REGISTRY = {
     ShipType.KESTREL_COURIER: ShipStats(
@@ -210,6 +214,35 @@ SHIP_REGISTRY = {
         built_in_features=[],
     ),
 }
+
+
+def get_ship_hull_price(ship_type: ShipType) -> int:
+    """Return the hull-only component of a ship's purchase price."""
+
+    stats = get_ship_stats(ship_type)
+    fighters_value = stats.fighters * FIGHTER_PRICE
+    return max(0, stats.price - fighters_value)
+
+
+def calculate_trade_in_value(ship_record: dict) -> int:
+    """Calculate the dynamic trade-in value for a specific ship record."""
+
+    if not isinstance(ship_record, dict):
+        raise TypeError("ship_record must be a dict")
+
+    ship_type_value = ship_record.get("ship_type")
+    if not ship_type_value:
+        raise ValueError("ship record missing ship_type")
+
+    ship_type = ShipType(ship_type_value)
+    stats = get_ship_stats(ship_type)
+    hull_price = get_ship_hull_price(ship_type)
+
+    state = ship_record.get("state", {}) or {}
+    fighters_remaining = int(state.get("fighters", stats.fighters))
+    fighters_remaining = max(0, min(fighters_remaining, stats.fighters))
+
+    return hull_price + fighters_remaining * FIGHTER_PRICE
 
 
 def get_ship_stats(ship_type: ShipType) -> ShipStats:

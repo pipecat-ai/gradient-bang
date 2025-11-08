@@ -21,7 +21,7 @@ import time
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional, Tuple
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional, Set, Tuple
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -54,12 +54,14 @@ from utils.base_llm_agent import LLMConfig
 
 from utils.tools_schema import (
     MyStatus,
+    LeaderboardResources,
     PlotCourse,
     LocalMapRegion,
     ListKnownPorts,
     PathWithRegion,
     Move,
     Trade,
+    PurchaseFighters,
     CreateCorporation,
     JoinCorporation,
     LeaveCorporation,
@@ -274,14 +276,18 @@ class TaskAgent:
         self._idle_wait_active: bool = False
         self._idle_wait_interrupt_reason: Optional[str] = None
 
+        self._synchronous_tools: Set[str] = set()
+
         tools = tools_list or [
             MyStatus,
+            LeaderboardResources,
             PlotCourse,
             LocalMapRegion,
             ListKnownPorts,
             PathWithRegion,
             Move,
             Trade,
+            PurchaseFighters,
             CreateCorporation,
             JoinCorporation,
             LeaveCorporation,
@@ -304,6 +310,7 @@ class TaskAgent:
             TaskFinished,
         ]
         self.set_tools(tools)
+        self._synchronous_tools = {LeaderboardResources.schema().name}
 
         self._event_names = [
             "status.snapshot",
@@ -320,6 +327,7 @@ class TaskAgent:
             "character.moved",
             "trade.executed",
             "port.update",
+            "fighter.purchase",
             "warp.purchase",
             "warp.transfer",
             "credits.transfer",
@@ -970,10 +978,13 @@ class TaskAgent:
         if self._tool_call_event_callback:
             await self._tool_call_event_callback(tool_name, arguments)
 
-        # put a tool call result into the context saying we sent the request
-        tool_result = {"status": "Executed."}
-        properties = FunctionCallResultProperties(run_llm=False)
-        await params.result_callback(tool_result, properties=properties)
+        is_synchronous_tool = tool_name in self._synchronous_tools
+
+        if not is_synchronous_tool:
+            # put a tool call result into the context saying we sent the request
+            tool_result = {"status": "Executed."}
+            properties = FunctionCallResultProperties(run_llm=False)
+            await params.result_callback(tool_result, properties=properties)
 
         tool = self.tools.get(tool_name)
         if not tool:
@@ -1011,6 +1022,31 @@ class TaskAgent:
             )
             await self._on_tool_call_completed(tool_name, error_payload)
             return
+
+        if is_synchronous_tool:
+            callback_payload = {"result": result_payload}
+            sync_properties = FunctionCallResultProperties(run_llm=True)
+            formatted_message = self._format_tool_message(tool_call_id, result_payload)
+            if getattr(self, "_context", None) is not None:
+                self._context.add_message(formatted_message)
+            else:
+                self.add_message(formatted_message)
+            try:
+                await params.result_callback(callback_payload, properties=sync_properties)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to deliver synchronous tool result tool={} error={}",
+                    tool_name,
+                    exc,
+                )
+            serialized_response = self._serialize_output(result_payload)
+            if serialized_response:
+                if len(serialized_response) > 500:
+                    serialized_response = serialized_response[:500] + "..."
+                message_text = self._timestamped_text(
+                    f"{tool_name} response: {serialized_response}"
+                )
+                self._output(message_text, TaskOutputType.MESSAGE)
 
         logger.debug(
             "TOOL_RESULT tool={} arguments={} result={}",

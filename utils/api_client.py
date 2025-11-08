@@ -829,6 +829,22 @@ class AsyncGameClient:
         """
         return await self._request("server_status", {})
 
+    async def leaderboard_resources(
+        self,
+        *,
+        character_id: Optional[str] = None,
+        force_refresh: bool = False,
+    ) -> Dict[str, Any]:
+        """Fetch the latest leaderboard snapshot (players + corporations)."""
+
+        payload: Dict[str, Any] = {}
+        target_character = character_id or self._character_id
+        if target_character:
+            payload["character_id"] = target_character
+        if force_refresh:
+            payload["force_refresh"] = True
+        return await self._request("leaderboard.resources", payload)
+
     async def character_create(
         self,
         *,
@@ -1264,6 +1280,26 @@ class AsyncGameClient:
             },
         )
         return ack
+
+    async def purchase_fighters(
+        self,
+        *,
+        units: int,
+        character_id: str,
+    ) -> Dict[str, Any]:
+        """Purchase fighters at the sector 0 armory (50 credits each)."""
+
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        if not isinstance(units, int) or units <= 0:
+            raise ValueError("units must be a positive integer")
+
+        payload = {"character_id": character_id, "units": units}
+        return await self._request("purchase_fighters", payload)
 
     async def recharge_warp_power(
         self, units: int, character_id: str
