@@ -4,6 +4,8 @@ import secrets
 import httpx
 import pytest
 
+from tests.edge.support.characters import char_id
+
 
 API_URL = os.environ.get('SUPABASE_URL', 'http://127.0.0.1:54321')
 EDGE_URL = os.environ.get('EDGE_FUNCTIONS_URL', f"{API_URL}/functions/v1")
@@ -34,7 +36,7 @@ def _call_join(character_id: str, token: str | None = None, json_body: dict | No
 
 @pytest.mark.edge
 def test_join_requires_token():
-    resp = _call_join('00000000-0000-0000-0000-000000000001', token='invalid')
+    resp = _call_join(KNOWN_CHARACTER, token='invalid')
     assert resp.status_code == 401
     data = resp.json()
     assert data['success'] is False
@@ -43,7 +45,7 @@ def test_join_requires_token():
 
 @pytest.mark.edge
 def test_join_returns_character_snapshot():
-    resp = _call_join('00000000-0000-0000-0000-000000000001', token=_expected_token())
+    resp = _call_join(KNOWN_CHARACTER, token=_expected_token())
     assert resp.status_code == 200
     data = resp.json()
     assert data['success'] is True
@@ -53,9 +55,10 @@ def test_join_returns_character_snapshot():
 
 @pytest.mark.edge
 def test_join_not_found():
-    missing_id = '99999999-9999-9999-9999-999999999999'
-    resp = _call_join(missing_id, token=_expected_token())
+    resp = _call_join(MISSING_CHARACTER, token=_expected_token())
     assert resp.status_code == 404
     data = resp.json()
     assert data['success'] is False
     assert 'not found' in data['error']
+KNOWN_CHARACTER = char_id('test_2p_player1')
+MISSING_CHARACTER = char_id('missing_join_character')

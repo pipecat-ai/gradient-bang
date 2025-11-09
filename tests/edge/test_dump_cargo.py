@@ -4,10 +4,12 @@ from typing import Any, Dict
 import httpx
 import pytest
 
+from tests.edge.support.characters import char_id
+
 API_URL = os.environ.get('SUPABASE_URL', 'http://127.0.0.1:54321')
 EDGE_URL = os.environ.get('EDGE_FUNCTIONS_URL', f"{API_URL}/functions/v1")
 REST_URL = f"{API_URL}/rest/v1"
-CHARACTER_ID = '00000000-0000-0000-0000-000000000001'
+CHARACTER_ID = char_id('test_2p_player1')
 
 
 def _edge_headers() -> Dict[str, str]:
@@ -68,6 +70,17 @@ def _ship_state() -> Dict[str, Any]:
     })
 
 
+def _patch_ship(ship_id: str, payload: Dict[str, Any]) -> None:
+    resp = httpx.patch(
+        f"{REST_URL}/ship_instances",
+        headers=_rest_headers(),
+        params={'ship_id': f'eq.{ship_id}'},
+        json=payload,
+        timeout=10.0,
+    )
+    resp.raise_for_status()
+
+
 def _latest_event(event_type: str) -> Dict[str, Any]:
     resp = httpx.get(
         f"{REST_URL}/events",
@@ -97,6 +110,7 @@ def _reset_character(sector: int) -> None:
 def test_dump_cargo_creates_salvage_and_updates_status():
     _reset_character(sector=0)
     before = _ship_state()
+    _patch_ship(before['ship_id'], {'cargo_qf': 5})
 
     resp = _call('dump_cargo', {
         'character_id': CHARACTER_ID,

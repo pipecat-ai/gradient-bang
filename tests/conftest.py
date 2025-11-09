@@ -27,6 +27,7 @@ SUPABASE_START_LOG = LOG_DIR / "supabase-start.log"
 EDGE_FUNCTION_LOG = LOG_DIR / "supabase-functions.log"
 _SUPABASE_ENV_CACHE: Optional[Dict[str, str]] = None
 _SUPABASE_STACK_READY = False
+_SUPABASE_DB_BOOTSTRAPPED = False
 FUNCTION_PROC: Optional[tuple[subprocess.Popen[str], Any]] = None
 ENV_EXPORTS: Dict[str, str] = {}
 
@@ -301,6 +302,7 @@ import json
 import httpx
 import pytest
 from helpers.character_setup import register_all_test_characters
+from helpers.supabase_reset import reset_supabase_state
 from helpers.server_fixture import (
     start_test_server,
     stop_test_server,
@@ -468,7 +470,10 @@ def _ensure_supabase_ready() -> Dict[str, str]:
 
     _ensure_supabase_stack_running()
     env = _load_supabase_env()
-    _run_supabase_db_reset()
+    global _SUPABASE_DB_BOOTSTRAPPED
+    if not _SUPABASE_DB_BOOTSTRAPPED:
+        _run_supabase_db_reset()
+        _SUPABASE_DB_BOOTSTRAPPED = True
     _ensure_functions_served_for_tests()
     return env
 
@@ -639,8 +644,57 @@ async def _reset_supabase_state_async() -> None:
     if _env_truthy("SUPABASE_SKIP_DB_RESET"):
         return
 
+    edge_base = _edge_base_url()
+    try:
+        await _call_supabase_test_reset(edge_base)
+        return
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Supabase test.reset RPC failed (%s); falling back to local reset", exc)
+
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, _run_supabase_db_reset)
+    try:
+        await loop.run_in_executor(None, reset_supabase_state)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("supabase_reset_state failed (%s); falling back to supabase db reset", exc)
+        await loop.run_in_executor(None, _run_supabase_db_reset)
+
+
+async def _call_supabase_test_reset(edge_base: str, payload: dict | None = None) -> None:
+    headers = _edge_request_headers()
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(
+            f"{edge_base}/test_reset",
+            headers=headers,
+            json=payload or {},
+        )
+        response.raise_for_status()
+
+
+def _edge_base_url() -> str:
+    edge_url = os.environ.get("EDGE_FUNCTIONS_URL")
+    if edge_url:
+        return edge_url.rstrip("/")
+    supabase_url = os.environ.get("SUPABASE_URL")
+    if not supabase_url:
+        raise RuntimeError("EDGE_FUNCTIONS_URL or SUPABASE_URL must be set for Supabase tests")
+    return f"{supabase_url.rstrip('/')}/functions/v1"
+
+
+def _edge_request_headers() -> dict:
+    anon = os.environ.get("SUPABASE_ANON_KEY", "anon-key")
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {anon}",
+        "apikey": anon,
+    }
+    token = (
+        os.environ.get("EDGE_API_TOKEN")
+        or os.environ.get("SUPABASE_API_TOKEN")
+        or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    )
+    if token:
+        headers["x-api-token"] = token
+    return headers
 
 # Import AsyncGameClient for test reset calls (patched above when Supabase mode is enabled)
 from utils.api_client import AsyncGameClient
@@ -659,6 +713,18 @@ def supabase_environment():
         yield env
     finally:
         _stop_functions_proc()
+
+
+@pytest.fixture(scope="module", autouse=True)
+def supabase_module_seed(setup_test_characters):  # noqa: ARG001
+    if not USE_SUPABASE_TESTS:
+        yield
+        return
+
+    _ensure_supabase_ready()
+    edge_base = _edge_base_url()
+    asyncio.run(_call_supabase_test_reset(edge_base))
+    yield
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -814,44 +880,56 @@ async def test_server(server_url):
 @pytest.fixture(autouse=True)
 async def reset_test_state(server_url, supabase_environment):  # noqa: ARG001 - fixture ensures Supabase readiness
     """
-    Reset server state after each test for proper test isolation.
+    Reset server state between tests for proper isolation.
 
-    This fixture calls the test.reset endpoint to clear:
-    - In-memory character state (world.characters)
-    - Combat manager encounters
-    - Salvage manager state
-    - Garrison manager state
-    - Knowledge manager cache
-    - Test character knowledge files on disk
-    - Event log
-
-    Scope: function - Runs after EVERY test automatically
+    Supabase mode:
+        - Reset BEFORE each test via the edge test_reset RPC (preferred) or fallback helper.
+        - Skip the post-test reset when the pre-test reset succeeds to avoid redundant truncations.
+    FastAPI mode:
+        - Reset after each test via the legacy test.reset endpoint (matches previous behavior).
     """
-    yield  # Let the test run first
+    supabase_reset_ok = False
 
     if USE_SUPABASE_TESTS:
         _ensure_supabase_ready()
         try:
             await _reset_supabase_state_async()
+            supabase_reset_ok = True
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Supabase reset failed: %s", exc)
+            logger.warning("Supabase reset failed before test: %s", exc)
+    else:
+        # For FastAPI, we still rely on the server-side reset after tests to clean disk artifacts.
+        pass
+
+    yield  # Run the test
+
+    if USE_SUPABASE_TESTS:
+        if supabase_reset_ok:
+            return  # next test will trigger another reset
+        _ensure_supabase_ready()
+        try:
+            await _reset_supabase_state_async()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Supabase reset failed after test: %s", exc)
         return
 
-    # After test completes, reset the server state
+    # FastAPI/server mode: reset after each test (unchanged from previous behavior)
     try:
         client = AsyncGameClient(base_url=server_url, character_id="test_reset_runner")
-        # Call the test.reset endpoint
-        result = await client._request("test.reset", {
-            "clear_files": True,  # Delete test character files from disk
-            "file_prefixes": ["test_", "weak_", "strong_", "player", "push_"]
-        })
+        result = await client._request(
+            "test.reset",
+            {
+                "clear_files": True,
+                "file_prefixes": ["test_", "weak_", "strong_", "player", "push_"],
+            },
+        )
         logger.info(
-            f"Test reset completed: {result['cleared_characters']} characters, "
-            f"{result['cleared_combats']} combats, {result['deleted_files']} files deleted, "
-            f"{result.get('ports_reset', 0)} ports reset"
+            "Test reset completed: %s characters, %s combats, %s files deleted, %s ports reset",
+            result["cleared_characters"],
+            result["cleared_combats"],
+            result["deleted_files"],
+            result.get("ports_reset", 0),
         )
         await client.close()
-    except Exception as e:
-        # Log but don't fail the test if reset fails
-        # This might happen if server isn't running (for unit tests)
-        logger.debug(f"Test reset skipped or failed: {e}")
+    except Exception as e:  # noqa: BLE001
+        logger.debug("Test reset skipped or failed: %s", e)

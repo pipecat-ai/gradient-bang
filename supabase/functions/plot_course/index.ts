@@ -157,5 +157,11 @@ async function handlePlotCourse(
     requestId,
   });
 
-  return successResponse({ request_id: requestId });
+  return successResponse({
+    request_id: requestId,
+    from_sector: fromSector,
+    to_sector: toSector,
+    path,
+    distance,
+  });
 }

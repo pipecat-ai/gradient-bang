@@ -4,10 +4,12 @@ from typing import Any, Dict
 import httpx
 import pytest
 
+from tests.edge.support.characters import char_id
+
 API_URL = os.environ.get('SUPABASE_URL', 'http://127.0.0.1:54321')
 EDGE_URL = os.environ.get('EDGE_FUNCTIONS_URL', f"{API_URL}/functions/v1")
 REST_URL = f"{API_URL}/rest/v1"
-CHARACTER_ID = '00000000-0000-0000-0000-000000000001'
+CHARACTER_ID = char_id('test_2p_player1')
 
 
 def _edge_headers():
@@ -138,7 +140,12 @@ def test_trade_rejects_invalid_commodity():
 
 @pytest.mark.edge
 def test_trade_requires_port_presence():
-    _reset_character(sector=1)
+    _reset_character(sector=4)
+    ship_row = _rest_single('ship_instances', {
+        'select': 'current_sector',
+        'owner_character_id': f'eq.{CHARACTER_ID}',
+    })
+    assert ship_row['current_sector'] == 4
     resp = _call('trade', {
         'character_id': CHARACTER_ID,
         'commodity': 'quantum_foam',

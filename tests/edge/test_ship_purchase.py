@@ -1,13 +1,17 @@
 import os
+import uuid
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 import httpx
 import pytest
 
+from tests.edge.support.characters import char_id
+
 API_URL = os.environ.get('SUPABASE_URL', 'http://127.0.0.1:54321')
 EDGE_URL = os.environ.get('EDGE_FUNCTIONS_URL', f"{API_URL}/functions/v1")
 REST_URL = f"{API_URL}/rest/v1"
-CHAR_ONE = '00000000-0000-0000-0000-000000000001'
+CHAR_ONE = char_id('test_2p_player1')
 
 
 def _edge_headers() -> Dict[str, str]:
@@ -115,6 +119,35 @@ def _patch_character(character_id: str, payload: Dict[str, Any]) -> None:
     resp.raise_for_status()
 
 
+def _create_corporation(name: str, founder_id: str) -> str:
+    corp_id = str(uuid.uuid4())
+    payload = {
+        'corp_id': corp_id,
+        'name': name,
+        'founder_id': founder_id,
+        'invite_code': uuid.uuid4().hex[:8],
+        'invite_code_generated_by': founder_id,
+    }
+    resp = httpx.post(
+        f"{REST_URL}/corporations",
+        headers=_rest_headers(),
+        json=payload,
+        timeout=10.0,
+    )
+    resp.raise_for_status()
+    return corp_id
+
+
+def _add_corporation_member(corp_id: str, character_id: str) -> None:
+    resp = httpx.post(
+        f"{REST_URL}/corporation_members",
+        headers=_rest_headers(),
+        json={'corp_id': corp_id, 'character_id': character_id},
+        timeout=10.0,
+    )
+    resp.raise_for_status()
+
+
 def _restore_ship_defaults() -> None:
     ship = _ship_state(CHAR_ONE)
     _patch_ship(ship['ship_id'], {
@@ -194,6 +227,12 @@ def test_ship_purchase_rejects_autonomous_types():
 def test_ship_purchase_corporation_flow_creates_corp_ship():
     _reset_character(CHAR_ONE, sector=0)
     _patch_character(CHAR_ONE, {'credits_in_megabank': 500000})
+    corp_id = _create_corporation('Edge Test Corp', CHAR_ONE)
+    _add_corporation_member(corp_id, CHAR_ONE)
+    _patch_character(CHAR_ONE, {
+        'corporation_id': corp_id,
+        'corporation_joined_at': datetime.now(timezone.utc).isoformat(),
+    })
 
     resp = _call('ship_purchase', {
         'character_id': CHAR_ONE,

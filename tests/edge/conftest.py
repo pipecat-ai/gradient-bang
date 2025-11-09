@@ -60,6 +60,8 @@ FUNCTIONS_UNDER_TEST = (
     'combat_initiate',
     'combat_action',
     'combat_tick',
+    'event_query',
+    'test_reset',
 )
 
 

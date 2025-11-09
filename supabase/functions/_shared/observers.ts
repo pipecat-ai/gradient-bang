@@ -8,12 +8,23 @@ interface CharacterRow {
   corporation_id: string | null;
 }
 
+interface SectorObserverRow {
+  owner_character_id: string | null;
+  owner_id: string | null;
+  owner_type: string | null;
+}
+
 export interface ObserverMetadata {
   characterId: string;
   characterName: string;
   shipId: string;
   shipName: string;
   shipType: string;
+}
+
+export interface BuildCharacterMovedPayloadOptions {
+  moveType?: string;
+  extraFields?: Record<string, unknown>;
 }
 
 export async function listSectorObservers(
@@ -24,10 +35,10 @@ export async function listSectorObservers(
   const excludeSet = new Set(exclude);
   const { data, error } = await supabase
     .from('ship_instances')
-    .select('owner_character_id')
+    .select('owner_character_id, owner_id, owner_type')
     .eq('current_sector', sectorId)
     .eq('in_hyperspace', false)
-    .not('owner_character_id', 'is', null);
+    .or('owner_character_id.not.is.null,owner_type.eq.character');
   if (error) {
     console.error('observers.list.error', { sectorId, error });
     return [];
@@ -36,8 +47,8 @@ export async function listSectorObservers(
     return [];
   }
   const observers: string[] = [];
-  for (const row of data) {
-    const charId = row.owner_character_id as string | null;
+  for (const row of data as SectorObserverRow[]) {
+    const charId = row.owner_character_id ?? (row.owner_type === 'character' ? row.owner_id : null);
     if (!charId || excludeSet.has(charId)) {
       continue;
     }
@@ -52,8 +63,11 @@ export function buildCharacterMovedPayload(
   metadata: ObserverMetadata,
   movement: 'depart' | 'arrive',
   source?: EventSource,
+  options?: BuildCharacterMovedPayloadOptions,
 ): Record<string, unknown> {
   const timestamp = new Date().toISOString();
+  const moveType = options?.moveType ?? 'normal';
+  const extraFields = options?.extraFields;
   const payload: Record<string, unknown> = {
     player: {
       id: metadata.characterId,
@@ -64,13 +78,16 @@ export function buildCharacterMovedPayload(
       ship_type: metadata.shipType,
     },
     timestamp,
-    move_type: 'normal',
+    move_type: moveType,
     movement,
     name: metadata.characterName,
     ship_type: metadata.shipType,
   };
   if (source) {
     payload.source = source;
+  }
+  if (extraFields && Object.keys(extraFields).length) {
+    Object.assign(payload, extraFields);
   }
   return payload;
 }
@@ -124,17 +141,17 @@ export async function emitGarrisonCharacterMovedEvents({
   sectorId: number;
   payload: Record<string, unknown>;
   requestId?: string;
-}): Promise<void> {
+}): Promise<number> {
   const { data: garrisons, error } = await supabase
     .from('garrisons')
     .select('owner_id, fighters, mode, toll_amount, deployed_at')
     .eq('sector_id', sectorId);
   if (error) {
     console.error('garrison.observer.list', { sectorId, error });
-    return;
+    return 0;
   }
   if (!garrisons || garrisons.length === 0) {
-    return;
+    return 0;
   }
 
   const ownerIds = Array.from(
@@ -145,7 +162,7 @@ export async function emitGarrisonCharacterMovedEvents({
     ),
   );
   if (!ownerIds.length) {
-    return;
+    return 0;
   }
 
   const { data: ownerRows, error: ownerError } = await supabase
@@ -154,10 +171,10 @@ export async function emitGarrisonCharacterMovedEvents({
     .in('character_id', ownerIds);
   if (ownerError) {
     console.error('garrison.observer.loadOwners', ownerError);
-    return;
+    return 0;
   }
   if (!ownerRows || ownerRows.length === 0) {
-    return;
+    return 0;
   }
 
   const ownerMap = new Map<string, CharacterRow>();
@@ -190,6 +207,7 @@ export async function emitGarrisonCharacterMovedEvents({
     }
   }
 
+  let delivered = 0;
   for (const garrison of garrisons) {
     const ownerId = garrison.owner_id as string | null;
     if (!ownerId) {
@@ -229,5 +247,8 @@ export async function emitGarrisonCharacterMovedEvents({
         }),
       ),
     );
+    delivered += recipients.length;
   }
+
+  return delivered;
 }

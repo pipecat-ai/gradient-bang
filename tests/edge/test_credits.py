@@ -4,12 +4,14 @@ from typing import Any, Dict
 import httpx
 import pytest
 
+from tests.edge.support.characters import char_id
+
 API_URL = os.environ.get('SUPABASE_URL', 'http://127.0.0.1:54321')
 EDGE_URL = os.environ.get('EDGE_FUNCTIONS_URL', f"{API_URL}/functions/v1")
 REST_URL = f"{API_URL}/rest/v1"
-SENDER = '00000000-0000-0000-0000-000000000001'
-RECEIVER = '00000000-0000-0000-0000-000000000002'
-RECEIVER_NAME = 'Borealis-NPC'
+SENDER = char_id('test_2p_player1')
+RECEIVER = char_id('test_2p_player2')
+RECEIVER_NAME = 'test_2p_player2'
 
 
 def _edge_headers() -> Dict[str, str]:

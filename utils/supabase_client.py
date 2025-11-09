@@ -228,6 +228,54 @@ class AsyncGameClient(LegacyAsyncGameClient):
             payload["round"] = round_number
         return await self._request("combat_action", payload)
 
+    async def combat_leave_fighters(
+        self,
+        *,
+        sector: int,
+        quantity: int,
+        mode: str = "offensive",
+        toll_amount: int = 0,
+        character_id: str,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "sector": sector,
+            "quantity": quantity,
+            "mode": mode,
+            "toll_amount": toll_amount,
+            "character_id": canonicalize_character_id(character_id),
+        }
+        return await self._request("combat_leave_fighters", payload)
+
+    async def combat_collect_fighters(
+        self,
+        *,
+        sector: int,
+        quantity: int,
+        character_id: str,
+    ) -> Dict[str, Any]:
+        payload = {
+            "sector": sector,
+            "quantity": quantity,
+            "character_id": canonicalize_character_id(character_id),
+        }
+        return await self._request("combat_collect_fighters", payload)
+
+    async def combat_set_garrison_mode(
+        self,
+        *,
+        sector: int,
+        mode: str,
+        toll_amount: int = 0,
+        character_id: str,
+    ) -> Dict[str, Any]:
+        payload = {
+            "sector": sector,
+            "mode": mode,
+            "toll_amount": toll_amount,
+            "character_id": canonicalize_character_id(character_id),
+        }
+        return await self._request("combat_set_garrison_mode", payload)
+
     def _inject_character_ids(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         enriched = dict(payload)
         requested_character_id = enriched.get("character_id")

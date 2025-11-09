@@ -4,12 +4,14 @@ from typing import Any, Dict
 import httpx
 import pytest
 
+from tests.edge.support.characters import char_id
+
 API_URL = os.environ.get('SUPABASE_URL', 'http://127.0.0.1:54321')
 EDGE_URL = os.environ.get('EDGE_FUNCTIONS_URL', f"{API_URL}/functions/v1")
 REST_URL = f"{API_URL}/rest/v1"
-CHAR_ONE = '00000000-0000-0000-0000-000000000001'
-CHAR_TWO = '00000000-0000-0000-0000-000000000002'
-CHAR_TWO_NAME = 'Borealis-NPC'
+CHAR_ONE = char_id('test_2p_player1')
+CHAR_TWO = char_id('test_2p_player2')
+CHAR_TWO_NAME = 'test_2p_player2'
 
 
 def _edge_headers() -> Dict[str, str]:
@@ -109,6 +111,10 @@ def _patch_ship(ship_id: str, payload: Dict[str, Any]) -> None:
 @pytest.mark.edge
 def test_recharge_warp_power_increases_warp_and_logs_event():
     _reset_character(CHAR_ONE, sector=0)
+    ship = _ship_state(CHAR_ONE)
+    _patch_ship(ship['ship_id'], {
+        'current_warp_power': max(0, ship['current_warp_power'] - 50),
+    })
     before = _ship_state(CHAR_ONE)
 
     resp = _call('recharge_warp_power', {'character_id': CHAR_ONE, 'units': 25})

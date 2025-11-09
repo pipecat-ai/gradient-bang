@@ -797,7 +797,13 @@ class AsyncGameClient:
         ack = await self._request("my_status", {"character_id": character_id})
         return ack
 
-    async def plot_course(self, to_sector: int, character_id: str) -> Dict[str, Any]:
+    async def plot_course(
+        self,
+        to_sector: int,
+        character_id: Optional[str] = None,
+        *,
+        from_sector: Optional[int] = None,
+    ) -> Dict[str, Any]:
         """Plot a course from the current sector to a destination.
 
         Args:
@@ -811,15 +817,21 @@ class AsyncGameClient:
             RPCError: If the request fails
             ValueError: If character_id doesn't match bound ID
         """
-        if character_id != self._character_id:
+        target_character = character_id or self._character_id
+        if target_character != self._character_id:
             raise ValueError(
                 f"AsyncGameClient is bound to character_id {self._character_id!r}; "
-                f"received {character_id!r}"
+                f"received {target_character!r}"
             )
 
-        ack = await self._request(
-            "plot_course", {"character_id": character_id, "to_sector": to_sector}
-        )
+        payload: Dict[str, Any] = {
+            "character_id": target_character,
+            "to_sector": to_sector,
+        }
+        if from_sector is not None:
+            payload["from_sector"] = from_sector
+
+        ack = await self._request("plot_course", payload)
         return ack
 
     async def server_status(self) -> Dict[str, Any]:

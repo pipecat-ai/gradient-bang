@@ -3,6 +3,8 @@ import os
 import httpx
 import pytest
 
+from tests.edge.support.characters import char_id
+
 API_URL = os.environ.get('SUPABASE_URL', 'http://127.0.0.1:54321')
 EDGE_URL = os.environ.get('EDGE_FUNCTIONS_URL', f"{API_URL}/functions/v1")
 
@@ -61,7 +63,7 @@ def _set_ship_state(character_id: str, **fields: object) -> None:
 
 @pytest.mark.edge
 def test_my_status_requires_token():
-    resp = _call_my_status('00000000-0000-0000-0000-000000000001', token='invalid')
+    resp = _call_my_status(char_id('test_2p_player1'), token='invalid')
     assert resp.status_code == 401
     data = resp.json()
     assert data['success'] is False
@@ -70,7 +72,7 @@ def test_my_status_requires_token():
 
 @pytest.mark.edge
 def test_my_status_returns_request_id():
-    resp = _call_my_status('00000000-0000-0000-0000-000000000001', token=_expected_token())
+    resp = _call_my_status(char_id('test_2p_player1'), token=_expected_token())
     assert resp.status_code == 200
     data = resp.json()
     assert data['success'] is True
@@ -80,8 +82,9 @@ def test_my_status_returns_request_id():
 
 @pytest.mark.edge
 def test_my_status_hyperspace_conflict():
-    _set_ship_state('00000000-0000-0000-0000-000000000002', current_sector=5, in_hyperspace=True)
-    resp = _call_my_status('00000000-0000-0000-0000-000000000002', token=_expected_token())
+    target = char_id('test_2p_player2')
+    _set_ship_state(target, current_sector=5, in_hyperspace=True)
+    resp = _call_my_status(target, token=_expected_token())
     assert resp.status_code == 409
     data = resp.json()
     assert data['success'] is False

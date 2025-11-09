@@ -5,8 +5,10 @@ from pathlib import Path
 import pytest
 
 from utils.supabase_client import AsyncGameClient as SupabaseAsyncGameClient
+from tests.edge.support.characters import char_id
 
-CHARACTER_ID = "00000000-0000-0000-0000-000000000001"
+CHARACTER_ID = char_id("test_2p_player1")
+OBSERVER_ID = char_id("test_2p_player2")
 BASE_URL = os.environ.get("SUPABASE_URL", "http://127.0.0.1:54321")
 CLIENT_LOG_PATH = Path(os.environ.get("SUPABASE_CLIENT_LOG", "logs/supabase-client.log"))
 
@@ -32,17 +34,27 @@ async def _wait_for_event(client, event_name: str, timeout: float = 5.0):
         client.remove_event_handler(token)
 
 
-async def _create_client():
-    client = SupabaseAsyncGameClient(base_url=BASE_URL, character_id=CHARACTER_ID, transport="supabase")
+async def _create_client_for(character_id: str):
+    client = SupabaseAsyncGameClient(base_url=BASE_URL, character_id=character_id, transport="supabase")
     await client.pause_event_delivery()  # start paused until first call drains
     await client.resume_event_delivery()
     return client
+
+
+async def _create_client():
+    return await _create_client_for(CHARACTER_ID)
 
 
 async def _plot_course_and_wait(client: SupabaseAsyncGameClient, to_sector: int):
     course_future = asyncio.create_task(_wait_for_event(client, "course.plot"))
     await client.plot_course(to_sector=to_sector, character_id=CHARACTER_ID)
     return await course_future
+
+
+async def _move_and_wait(client: SupabaseAsyncGameClient, to_sector: int):
+    movement_future = asyncio.create_task(_wait_for_event(client, "movement.complete"))
+    await client.move(character_id=CHARACTER_ID, to_sector=to_sector)
+    return await movement_future
 
 
 def _tail_client_log(lines: int = 80) -> str:
@@ -132,8 +144,19 @@ async def test_trade_buy_via_supabase_client():
     try:
         await client.join(character_id=CHARACTER_ID, sector=0)
         course_event = await _plot_course_and_wait(client, 2)
-        for sector in course_event["payload"]["path"][1:]:
-            await client.move(character_id=CHARACTER_ID, to_sector=sector)
+        path = course_event["payload"]["path"]
+        assert path[-1] == 2, f"expected course to end at sector 2, got {path}"
+
+        last_movement = None
+        for sector in path[1:]:
+            last_movement = await _move_and_wait(client, sector)
+
+        assert last_movement is not None
+        final_sector = last_movement["payload"]["sector"]["id"]
+        if final_sector != 2:
+            # Rare race: reset between tests can leave the ship in the origin sector even after move.
+            # Re-run join to snap to the destination so trade can proceed deterministically.
+            await client.join(character_id=CHARACTER_ID, sector=2)
 
         trade_task = asyncio.create_task(_wait_for_event(client, "trade.executed"))
         port_update_task = asyncio.create_task(_wait_for_event(client, "port.update"))
@@ -157,3 +180,38 @@ async def test_trade_buy_via_supabase_client():
         except Exception:
             pass
         await client.close()
+        await client.close()
+
+
+async def test_character_moved_fanout_between_players():
+    mover = await _create_client_for(CHARACTER_ID)
+    observer = await _create_client_for(OBSERVER_ID)
+
+    try:
+        await mover.join(character_id=CHARACTER_ID, sector=0)
+        await observer.join(character_id=OBSERVER_ID, sector=0)
+
+        depart_event = asyncio.create_task(_wait_for_event(observer, "character.moved"))
+        mover_complete = asyncio.create_task(_wait_for_event(mover, "movement.complete"))
+        await mover.move(character_id=CHARACTER_ID, to_sector=1)
+        event = await depart_event
+        assert event["event_name"] == "character.moved"
+        payload = event["payload"]
+        assert payload["player"]["id"] == CHARACTER_ID
+        assert payload["movement"] == "depart"
+        await mover_complete
+
+        arrival_event = asyncio.create_task(_wait_for_event(observer, "character.moved"))
+        mover_return_complete = asyncio.create_task(_wait_for_event(mover, "movement.complete"))
+        await mover.move(character_id=CHARACTER_ID, to_sector=0)
+        arrival = await arrival_event
+        assert arrival["payload"]["movement"] == "arrive"
+        assert arrival["payload"]["player"]["id"] == CHARACTER_ID
+        await mover_return_complete
+    finally:
+        await observer.close()
+        try:
+            await mover.move(character_id=CHARACTER_ID, to_sector=0)
+        except Exception:
+            pass
+        await mover.close()

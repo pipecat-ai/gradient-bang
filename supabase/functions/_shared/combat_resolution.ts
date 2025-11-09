@@ -48,6 +48,9 @@ export async function resolveEncounterRound(options: {
     timestamp: new Date().toISOString(),
   });
 
+  const resolvedPayload = buildRoundResolvedPayload(encounter, outcome);
+  resolvedPayload.source = buildEventSource('combat.round_resolved', requestId);
+
   for (const [pid, participant] of Object.entries(encounter.participants)) {
     participant.fighters = outcome.fighters_remaining?.[pid] ?? participant.fighters;
     participant.shields = outcome.shields_remaining?.[pid] ?? participant.shields;
@@ -57,8 +60,6 @@ export async function resolveEncounterRound(options: {
   encounter.awaiting_resolution = false;
 
   const recipients = collectRecipients(encounter);
-  const resolvedPayload = buildRoundResolvedPayload(encounter, outcome);
-  resolvedPayload.source = buildEventSource('combat.round_resolved', requestId);
 
   await broadcastEvent({
     supabase,

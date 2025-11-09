@@ -26,13 +26,8 @@ import {
   resolveRequestId,
   respondWithError,
 } from '../_shared/request.ts';
-import {
-  buildCharacterMovedPayload,
-  emitCharacterMovedEvents,
-  emitGarrisonCharacterMovedEvents,
-  listSectorObservers,
-  type ObserverMetadata,
-} from '../_shared/observers.ts';
+import { type ObserverMetadata } from '../_shared/observers.ts';
+import { emitMovementObservers } from '../_shared/movement.ts';
 
 const BASE_MOVE_DELAY = Number(Deno.env.get('MOVE_DELAY_SECONDS_PER_TURN') ?? (2 / 3));
 const MOVE_DELAY_SCALE = Number(Deno.env.get('MOVE_DELAY_SCALE') ?? '1');
@@ -164,7 +159,6 @@ async function handleMove({ supabase, characterId, destination, requestId }: {
     shipName: ship.ship_name ?? shipDefinition.display_name,
     shipType: ship.ship_type,
   };
-  const departureObservers = await listSectorObservers(supabase, ship.current_sector, [characterId]);
 
   const adjacent = await getAdjacentSectors(supabase, ship.current_sector);
   if (!adjacent.includes(destination)) {
@@ -232,22 +226,14 @@ async function handleMove({ supabase, characterId, destination, requestId }: {
       requestId,
     });
 
-    if (departureObservers.length) {
-      const departPayload = buildCharacterMovedPayload(observerMetadata, 'depart', source);
-      await emitCharacterMovedEvents({
-        supabase,
-        observers: departureObservers,
-        payload: departPayload,
-        sectorId: ship.current_sector,
-        requestId,
-      });
-      await emitGarrisonCharacterMovedEvents({
-        supabase,
-        sectorId: ship.current_sector,
-        payload: departPayload,
-        requestId,
-      });
-    }
+    await emitMovementObservers({
+      supabase,
+      sectorId: ship.current_sector,
+      metadata: observerMetadata,
+      movement: 'depart',
+      source,
+      requestId,
+    });
 
     scheduleMovementCompletion({
       supabase,
@@ -378,23 +364,14 @@ function scheduleMovementCompletion({
         requestId,
       });
 
-      const arrivalObservers = await listSectorObservers(supabase, destination, [characterId]);
-      if (arrivalObservers.length) {
-        const arrivalPayload = buildCharacterMovedPayload(observerMetadata, 'arrive', source);
-        await emitCharacterMovedEvents({
-          supabase,
-          observers: arrivalObservers,
-          payload: arrivalPayload,
-          sectorId: destination,
-          requestId,
-        });
-        await emitGarrisonCharacterMovedEvents({
-          supabase,
-          sectorId: destination,
-          payload: arrivalPayload,
-          requestId,
-        });
-      }
+      await emitMovementObservers({
+        supabase,
+        sectorId: destination,
+        metadata: observerMetadata,
+        movement: 'arrive',
+        source,
+        requestId,
+      });
     } catch (error) {
       console.error('move.async_completion', error);
       await emitErrorEvent(supabase, {

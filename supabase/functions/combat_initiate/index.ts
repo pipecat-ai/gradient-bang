@@ -21,7 +21,12 @@ import { computeNextCombatDeadline } from '../_shared/combat_resolution.ts';
 
 const MIN_PARTICIPANTS = 2;
 
-function randomSeed(): number {
+function deterministicSeed(combatId: string): number {
+  const normalized = combatId.replace(/[^0-9a-f]/gi, '').slice(0, 12) || combatId;
+  const parsed = Number.parseInt(normalized, 16);
+  if (Number.isFinite(parsed)) {
+    return parsed >>> 0;
+  }
   return Math.floor(Math.random() * 1_000_000);
 }
 
@@ -140,6 +145,9 @@ async function handleCombatInitiate(params: {
       }
       encounter.participants[participant.combatant_id] = participant;
     }
+    if (!encounter.base_seed) {
+      encounter.base_seed = deterministicSeed(encounter.combat_id);
+    }
   } else {
     const participants: Record<string, CombatantState> = {};
     for (const state of participantStates) {
@@ -154,8 +162,9 @@ async function handleCombatInitiate(params: {
       throw err;
     }
 
+    const combatId = generateCombatId();
     encounter = {
-      combat_id: generateCombatId(),
+      combat_id: combatId,
       sector_id: sectorId,
       round: 1,
       deadline: computeNextCombatDeadline(),
@@ -170,7 +179,7 @@ async function handleCombatInitiate(params: {
       awaiting_resolution: false,
       ended: false,
       end_state: null,
-      base_seed: randomSeed(),
+      base_seed: deterministicSeed(combatId),
       last_updated: nowIso(),
     };
   }

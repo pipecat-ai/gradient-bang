@@ -3,6 +3,7 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { validateApiToken, unauthorizedResponse, errorResponse, successResponse } from '../_shared/auth.ts';
 import { createServiceRoleClient } from '../_shared/client.ts';
 import { emitCharacterEvent, buildEventSource } from '../_shared/events.ts';
+import { emitMovementObservers } from '../_shared/movement.ts';
 import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
 import { buildStatusPayload } from '../_shared/status.ts';
 import {
@@ -18,6 +19,7 @@ import {
   resolveRequestId,
   respondWithError,
 } from '../_shared/request.ts';
+import { type ObserverMetadata } from '../_shared/observers.ts';
 
 type CharacterRow = {
   character_id: string;
@@ -92,13 +94,9 @@ serve(async (req: Request): Promise<Response> => {
   const creditsOverride = optionalNumber(payload, 'credits');
 
   try {
-    let character = await loadCharacterRow(supabase, characterId);
+    const character = await loadCharacterRow(supabase, characterId);
     if (!character) {
-      character = await createCharacterRow({
-        supabase,
-        characterId,
-        displayName: payload.name ?? characterId,
-      });
+      throw new JoinError('character not found', 404);
     }
 
     try {
@@ -111,11 +109,17 @@ serve(async (req: Request): Promise<Response> => {
       throw new JoinError('rate limit error', 500);
     }
 
-    const ship = await loadOrCreateShip({
-      supabase,
-      character,
-      shipTypeOverride,
-    });
+    if (!character.current_ship_id) {
+      throw new JoinError('character has no ship', 500);
+    }
+
+    const ship = await loadShipRow(supabase, character.current_ship_id);
+    if (!ship) {
+      throw new JoinError('character ship not found', 500);
+    }
+
+    const shipDefinition = await loadShipDefinition(supabase, ship.ship_type);
+    const previousSector = ship.current_sector;
 
     const targetSector = await resolveTargetSector({
       supabase,
@@ -129,6 +133,8 @@ serve(async (req: Request): Promise<Response> => {
       sectorId: targetSector,
       creditsOverride,
     });
+
+    ship.current_sector = targetSector;
 
     await ensureCharacterShipLink(supabase, character.character_id, ship.ship_id);
 
@@ -167,6 +173,37 @@ serve(async (req: Request): Promise<Response> => {
       requestId,
     });
 
+    const observerMetadata: ObserverMetadata = {
+      characterId: character.character_id,
+      characterName: character.name,
+      shipId: ship.ship_id,
+      shipName: ship.ship_name ?? shipDefinition.display_name,
+      shipType: ship.ship_type,
+    };
+
+    if (previousSector !== null && previousSector !== targetSector) {
+      await emitMovementObservers({
+        supabase,
+        sectorId: previousSector,
+        metadata: observerMetadata,
+        movement: 'depart',
+        moveType: 'teleport',
+        source,
+        requestId,
+        extraPayload: { from_sector: previousSector },
+      });
+      await emitMovementObservers({
+        supabase,
+        sectorId: targetSector,
+        metadata: observerMetadata,
+        movement: 'arrive',
+        moveType: 'teleport',
+        source,
+        requestId,
+        extraPayload: { to_sector: targetSector },
+      });
+    }
+
     return successResponse({ request_id: requestId });
   } catch (err) {
     if (err instanceof JoinError) {
@@ -194,46 +231,6 @@ async function loadCharacterRow(
   return (data as CharacterRow | null) ?? null;
 }
 
-async function createCharacterRow({
-  supabase,
-  characterId,
-  displayName,
-}: {
-  supabase: ReturnType<typeof createServiceRoleClient>;
-  characterId: string;
-  displayName: string;
-}): Promise<CharacterRow> {
-  const initialKnowledge = {
-    sectors_visited: {},
-    total_sectors_visited: 0,
-    current_sector: DEFAULT_START_SECTOR,
-  } as Record<string, unknown>;
-
-  const { data, error } = await supabase
-    .from('characters')
-    .insert({
-      character_id: characterId,
-      name: displayName,
-      map_knowledge: initialKnowledge,
-      player_metadata: {},
-      is_npc: false,
-      credits_in_megabank: 0,
-      current_ship_id: null,
-    })
-    .select('character_id, name, current_ship_id, map_knowledge')
-    .single();
-
-  if (error) {
-    console.error('join.character.create', error);
-    const existing = await loadCharacterRow(supabase, characterId);
-    if (existing) {
-      return existing;
-    }
-    throw new JoinError('failed to create character', 500);
-  }
-
-  return data as CharacterRow;
-}
 
 async function loadShipRow(
   supabase: ReturnType<typeof createServiceRoleClient>,
@@ -270,55 +267,6 @@ async function loadShipDefinition(
   return data as ShipDefinitionRow;
 }
 
-async function loadOrCreateShip({
-  supabase,
-  character,
-  shipTypeOverride,
-}: {
-  supabase: ReturnType<typeof createServiceRoleClient>;
-  character: CharacterRow;
-  shipTypeOverride: string | null;
-}): Promise<ShipRow> {
-  if (character.current_ship_id) {
-    const existing = await loadShipRow(supabase, character.current_ship_id);
-    if (existing) {
-      return existing;
-    }
-  }
-
-  const shipType = shipTypeOverride ?? DEFAULT_SHIP_TYPE;
-  const definition = await loadShipDefinition(supabase, shipType);
-  const { data, error } = await supabase
-    .from('ship_instances')
-    .insert({
-      owner_id: character.character_id,
-      ship_type: shipType,
-      ship_name: definition.display_name,
-      current_sector: DEFAULT_START_SECTOR,
-      in_hyperspace: false,
-      credits: 0,
-      cargo_qf: 0,
-      cargo_ro: 0,
-      cargo_ns: 0,
-      current_warp_power: definition.warp_power_capacity,
-      current_shields: definition.shields,
-      current_fighters: definition.fighters,
-      metadata: {},
-    })
-    .select('ship_id, owner_id, ship_type, ship_name, current_sector')
-    .single();
-  if (error) {
-    console.error('join.ship.create', error);
-    throw new JoinError('failed to create starter ship', 500);
-  }
-
-  await supabase
-    .from('characters')
-    .update({ current_ship_id: data.ship_id })
-    .eq('character_id', character.character_id);
-
-  return data as ShipRow;
-}
 
 async function resolveTargetSector({
   supabase,

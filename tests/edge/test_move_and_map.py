@@ -3,9 +3,11 @@ import os
 import httpx
 import pytest
 
+from tests.edge.support.characters import char_id
+
 API_URL = os.environ.get('SUPABASE_URL', 'http://127.0.0.1:54321')
 EDGE_URL = os.environ.get('EDGE_FUNCTIONS_URL', f"{API_URL}/functions/v1")
-CHARACTER_ID = '00000000-0000-0000-0000-000000000001'
+CHARACTER_ID = char_id('test_2p_player1')
 
 
 def _headers():
@@ -37,7 +39,7 @@ def _reset_character(sector: int = 0) -> None:
 @pytest.mark.edge
 def test_move_requires_adjacent_sector():
     _reset_character(sector=0)
-    resp = _call('move', {'character_id': CHARACTER_ID, 'to_sector': 2})
+    resp = _call('move', {'character_id': CHARACTER_ID, 'to_sector': 4})
     assert resp.status_code == 400
     body = resp.json()
     assert body['success'] is False

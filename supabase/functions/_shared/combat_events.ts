@@ -154,17 +154,24 @@ export function buildRoundResolvedPayload(
   let garrisonPayload: Record<string, unknown> | null = null;
 
   for (const [pid, participant] of Object.entries(encounter.participants)) {
-    const shieldIntegrity = computeShieldIntegrity(participant);
     const delta = deltas[pid] ?? { fighters: 0, shields: 0 };
-    const fighterLoss = Math.abs(delta.fighters);
-    const shieldDamage = participant.max_shields
-      ? (-delta.shields / Math.max(1, participant.max_shields)) * 100
-      : 0;
+    const fightersStart = participant.fighters ?? 0;
+    const fightersRemaining = outcome.fighters_remaining?.[pid] ?? fightersStart;
+    const fighterLoss = Math.max(0, fightersStart - fightersRemaining);
+
+    const maxShields = Math.max(0, participant.max_shields ?? participant.shields ?? 0);
+    const shieldsStart = participant.shields ?? maxShields;
+    const shieldsRemaining = outcome.shields_remaining?.[pid] ?? shieldsStart;
+    const shieldDamagePercent =
+      maxShields > 0 ? ((shieldsStart - shieldsRemaining) / maxShields) * 100 : 0;
+    const shieldIntegrity =
+      maxShields > 0 ? (shieldsRemaining / maxShields) * 100 : 0;
+
     if (participant.combatant_type === 'character') {
       participants.push(
         buildParticipantPayload(participant, {
           shieldIntegrity,
-          shieldDamage,
+          shieldDamage: shieldDamagePercent,
           fighterLoss,
         }),
       );
