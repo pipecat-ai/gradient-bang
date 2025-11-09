@@ -1,3 +1,4 @@
+import { Leaderboard } from "@/components/dialogs/Leaderboard";
 import { Settings } from "@/components/dialogs/Settings";
 import { Button } from "@/components/primitives/Button";
 import { Card, CardContent, CardHeader } from "@/components/primitives/Card";
@@ -42,6 +43,14 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
               Join
             </Button>
             <Button
+              onClick={() => setActiveModal("leaderboard")}
+              variant="secondary"
+              size="xl"
+              className="w-full"
+            >
+              Leaderboard
+            </Button>
+            <Button
               onClick={() => setActiveModal("settings")}
               variant="secondary"
               size="xl"
@@ -60,6 +69,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
         </Card>
       </div>
       <Settings />
+      <Leaderboard />
     </div>
   );
 };

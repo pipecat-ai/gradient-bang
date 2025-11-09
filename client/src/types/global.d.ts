@@ -185,7 +185,7 @@ declare global {
 
   type UIState = "idle" | "moving" | "combat" | "paused";
   type UIScreen = "self" | "messaging" | "trading" | "map" | "tasks" | "combat";
-  type UIModal = "settings" | undefined;
+  type UIModal = "settings" | "leaderboard" | undefined;
 
   // --- COMBAT
 
@@ -248,6 +248,19 @@ declare global {
     content: string;
     to_name?: string;
     timestamp: string;
+  }
+  interface LeaderboardPlayer {
+    rank: number;
+    character_id: string;
+    name: string;
+    bank_credits: number;
+    ship_credits: number;
+    ship_trade_in_value: number;
+    ship_count: number;
+    garrison_fighter_value: number;
+    sectors_visited: number;
+    exploration_percent: number;
+    total_resources: number;
   }
 }
 
