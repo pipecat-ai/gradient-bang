@@ -19,6 +19,7 @@ export interface SettingsSlice {
     qualityPreset: "text" | "low" | "high";
     saveSettings: boolean;
     bypassTitleScreen: boolean;
+    showMobileWarning: boolean;
   };
   setSettings: (settings: SettingsSlice["settings"]) => void;
 }
@@ -39,6 +40,7 @@ const defaultSettings = {
   qualityPreset: "high" as const,
   saveSettings: true,
   bypassTitleScreen: false,
+  showMobileWarning: true,
 };
 
 export const createSettingsSlice: StateCreator<SettingsSlice> = (set) => ({

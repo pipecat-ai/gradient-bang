@@ -2,14 +2,11 @@ import Settings from "@/settings.json";
 import type { SettingsSlice } from "@/stores/settingsSlice";
 
 export function getLocalSettings() {
-  console.debug("[GAME SETTINGS] Getting local settings", Settings);
+  console.debug("[GAME SETTINGS] JSON setting overrides", Settings);
 
-  // Check if we have a settings blob in local storage
   const localSettings = localStorage.getItem("gb-settings");
   if (localSettings) {
     console.debug("[GAME SETTINGS] Found local settings", localSettings);
-    // Merge with default settings
-    // json file overrides take priority
     return {
       ...JSON.parse(localSettings),
       ...Settings,

@@ -4,14 +4,6 @@ import { useCallback, useEffect, useRef, type ReactNode } from "react";
 
 import { startMoveToSector } from "@/actions";
 import { GameContext } from "@/hooks/useGameContext";
-import { wait } from "@/utils/animation";
-import {
-  salvageCollectedSummaryString,
-  salvageCreatedSummaryString,
-  transferSummaryString,
-} from "@/utils/game";
-import useGameStore, { GameInitStateMessage } from "@stores/game";
-
 import {
   type BankTransactionMessage,
   type CharacterMovedMessage,
@@ -35,6 +27,13 @@ import {
   type WarpPurchaseMessage,
   type WarpTransferMessage,
 } from "@/types/messages";
+import { wait } from "@/utils/animation";
+import {
+  salvageCollectedSummaryString,
+  salvageCreatedSummaryString,
+  transferSummaryString,
+} from "@/utils/game";
+import useGameStore, { GameInitStateMessage } from "@stores/game";
 import GameInstanceManager from "./GameInstanceManager";
 
 interface GameProviderProps {

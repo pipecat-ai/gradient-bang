@@ -168,6 +168,7 @@ export const AnimatedFrame = ({ config = {} }: AnimatedFrameProps) => {
 
   useEffect(() => {
     const state = useGameStore.getState();
+
     if (!canvasRef.current || state.diamondFXInstance) return;
 
     console.debug("[GAME] AnimatedFrame initialized");

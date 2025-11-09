@@ -6,12 +6,12 @@ import {
 import { CaptainsLogPanel } from "@/components/CaptainsLogPanel";
 import { CargoCapacityBadge } from "@/components/CargoCapacityBadge";
 import { CoursePlotPanel } from "@/components/CoursePlotPanel";
+import MiniMap from "@/components/hud/MiniMap";
 import { MovementHistoryPanel } from "@/components/MovementHistoryPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { WarpBadge } from "@/components/WarpBadge";
 import { useGameContext } from "@/hooks/useGameContext";
 import { useNotificationSound } from "@/hooks/useNotificationSound";
-import MiniMap from "@/hud/MiniMap";
 import useGameStore from "@/stores/game";
 import type { Story } from "@ladle/react";
 import { Button, Divider, TextInput } from "@pipecat-ai/voice-ui-kit";

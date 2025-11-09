@@ -11,12 +11,12 @@ import {
 import { Progress } from "@/components/primitives/Progress";
 import { ScrollArea } from "@/components/primitives/ScrollArea";
 import { Separator } from "@/components/primitives/Separator";
-import { ScreenContainer } from "@/screens/ScreenContainer";
-import { ScreenMenu } from "@/screens/ScreenMenu";
-import Error from "@/views/Error";
-import Game from "@/views/Game";
-import JoinStatus from "@/views/JoinStatus";
-import ViewContainer from "@/views/ViewContainer";
+import { ScreenContainer } from "@/components/screens/ScreenContainer";
+import { ScreenMenu } from "@/components/screens/ScreenMenu";
+import Error from "@/components/views/Error";
+import Game from "@/components/views/Game";
+import JoinStatus from "@/components/views/JoinStatus";
+import ViewContainer from "@/components/views/ViewContainer";
 import { AnimatedFrame } from "@fx/frame";
 import type { Story } from "@ladle/react";
 import { Dialog } from "radix-ui";

@@ -1,5 +1,6 @@
 // Images
 export const images = {
+  splash1: new URL("./images/splash-1.png", import.meta.url).href,
   skybox1: new URL("./images/skybox-1.png", import.meta.url).href,
   skybox2: new URL("./images/skybox-2.png", import.meta.url).href,
   skybox3: new URL("./images/skybox-3.png", import.meta.url).href,
@@ -14,6 +15,7 @@ export const images = {
 // Videos
 export const videos = {
   title: new URL("./videos/title.mp4", import.meta.url).href,
+  planetLoading: new URL("./videos/planet-loader.mp4", import.meta.url).href,
 } as const;
 
 // Sounds

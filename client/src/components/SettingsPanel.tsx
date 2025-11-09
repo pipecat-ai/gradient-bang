@@ -144,7 +144,7 @@ export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
   return (
     <>
       <div className="flex-1 overflow-y-auto">
-        <ScrollArea className="w-full h-full dotted-mask-32 dotted-mask-black">
+        <ScrollArea className="w-full h-full dotted-mask-42 dotted-mask-black">
           <CardContent className="flex flex-col gap-6 pb-6">
             {/* AI */}
             <FieldSet>

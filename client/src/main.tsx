@@ -1,32 +1,30 @@
+import { PipecatAppBase } from "@pipecat-ai/voice-ui-kit";
+import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-import { PipecatAppBase } from "@pipecat-ai/voice-ui-kit";
-
 import { TempMobileBlock } from "@/components/TempMobileBlock";
-import { AnimatedFrame } from "@/fx/frame";
+import { ViewContainer } from "@/components/views/ViewContainer";
 import { GameProvider } from "@/GameContext";
-import { getLocalSettings } from "@/utils/settings";
-import { ViewContainer } from "@/views/ViewContainer";
-
-//@TODO: this fixes lazy loading issues, must fix!
-import { DailyTransport } from "@pipecat-ai/daily-transport";
+import { AnimatedFrame } from "@fx/frame";
+import useGameStore from "@stores/game";
 
 import "./css/index.css";
 
-// @TODO: Rather than apply during instantiation, we should
-// modify relevant properties on pipecat client later.
-// Currently, the noAudioOutput setting is irreversible!
-const Settings = getLocalSettings();
+// Get settings from the initialized store (not from JSON directly)
+const Settings = useGameStore.getState().settings;
 
 // Parse query string parameters
 const queryParams = new URLSearchParams(window.location.search);
-const endpoint = queryParams.get("server") || "http://localhost:7860/start";
+const transport = queryParams.get("transport") || "smallwebrtc";
+const endpoint = queryParams.get("server") || "api/offer";
 
 const requestBodyEntries = [...queryParams.entries()].filter(
-  ([key]) => key !== "server"
+  ([key]) => key !== "server" && key !== "transport"
 );
-const requestBody = Object.fromEntries(requestBodyEntries) as Record<string, string>;
-
+const requestBody = Object.fromEntries(requestBodyEntries) as Record<
+  string,
+  string
+>;
 const startRequestData = {
   createDailyRoom: true,
   dailyRoomProperties: {
@@ -36,30 +34,31 @@ const startRequestData = {
   body: requestBody,
 };
 
-console.debug("[MAIN] Daily start endpoint:", endpoint, DailyTransport);
+console.debug("[MAIN] Pipecat Configuration:", endpoint, transport);
 
 createRoot(document.getElementById("root")!).render(
-  <PipecatAppBase
-    transportType="daily"
-    startBotParams={{
-      endpoint,
-      requestData: startRequestData,
-    }}
-    clientOptions={{
-      enableMic: Settings.enableMic,
-    }}
-    noThemeProvider={true}
-    noAudioOutput={Settings.disableRemoteAudio}
-  >
-    {({ handleConnect, error }) => (
-      <GameProvider onConnect={handleConnect}>
-        {/* Main View Container */}
-        <ViewContainer error={error} />
-
-        {/* HOC renderables */}
-        <AnimatedFrame />
-        {Settings.showMobileWarning && <TempMobileBlock />}
-      </GameProvider>
-    )}
-  </PipecatAppBase>
+  <StrictMode>
+    <PipecatAppBase
+      transportType={transport as "smallwebrtc" | "daily"}
+      startBotParams={{
+        endpoint,
+        requestData:
+          transport === "daily" ? startRequestData : { start_on_join: false },
+      }}
+      clientOptions={{
+        enableMic: Settings.enableMic,
+      }}
+      noThemeProvider={true}
+      noAudioOutput={Settings.disableRemoteAudio}
+    >
+      {({ handleConnect, error }) => (
+        <GameProvider onConnect={handleConnect}>
+          <ViewContainer error={error} />
+        </GameProvider>
+      )}
+    </PipecatAppBase>
+    {/* HOC renderables */}
+    <AnimatedFrame />
+    {Settings.showMobileWarning && <TempMobileBlock />}
+  </StrictMode>
 );

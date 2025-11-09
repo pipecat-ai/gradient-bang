@@ -1,9 +1,9 @@
 import { GET_MAP_REGION } from "@/actions/dispatch";
 import { CoursePlotPanel } from "@/components/CoursePlotPanel";
+import MiniMap, { type MiniMapConfig } from "@/components/hud/MiniMap";
 import { MovementHistoryPanel } from "@/components/MovementHistoryPanel";
 import { Separator } from "@/components/primitives/Separator";
 import { useGameContext } from "@/hooks/useGameContext";
-import MiniMap, { type MiniMapConfig } from "@/hud/MiniMap";
 import useGameStore from "@/stores/game";
 import { useEffect, useRef } from "react";
 

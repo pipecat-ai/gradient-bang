@@ -4,9 +4,13 @@ import path from "path";
 import { visualizer } from "rollup-plugin-visualizer";
 import { defineConfig, type PluginOption } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
+import { version } from "./package.json";
 
 // https://vite.dev/config/
 export default defineConfig({
+  define: {
+    "import.meta.env.VITE_APP_VERSION": JSON.stringify(version),
+  },
   plugins: [
     react(),
     tailwindcss(),
@@ -43,9 +47,9 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
       "@assets": path.resolve(__dirname, "./src/assets"),
       "@fx": path.resolve(__dirname, "./src/fx"),
-      "@hud": path.resolve(__dirname, "./src/hud"),
-      "@views": path.resolve(__dirname, "./src/views"),
-      "@screens": path.resolve(__dirname, "./src/screens"),
+      "@hud": path.resolve(__dirname, "./src/components/hud"),
+      "@views": path.resolve(__dirname, "./src/components/views"),
+      "@screens": path.resolve(__dirname, "./src/components/screens"),
       "@stores": path.resolve(__dirname, "./src/stores"),
     },
   },
