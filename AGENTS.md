@@ -59,5 +59,6 @@
 - Port 8000 in use: `lsof -ti:8000 | xargs kill -9`
 - Dict attribute errors: API returns dicts; use `resp['field']`, not `resp.field`.
 - Wrong commodity names: use exactly `quantum_foam`, `retro_organics`, `neuro_symbolics`.
-- Map not updating: call `my_map(force_refresh=True)` after move/status if cache is stale.
+- Map not updating: call `local_map_region` (or `map.local` via Supabase client) after move/status if cache is stale.
 - Missing `character_id`: pass explicitly when the client is not tracking a character.
+- Need realtime diagnostics: export `SUPABASE_REALTIME_DEBUG=1` before running edge tests or Supabase clients to capture detailed subscribe/broadcast logs. Pytests will emit `logs/supabase-client.log` automatically when this flag is on.

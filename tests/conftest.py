@@ -3,16 +3,32 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
+import shlex
+import subprocess
 import sys
+import time
 import types
 from enum import Enum
 from pathlib import Path
-from typing import Any, Awaitable, Callable, List, Optional
+from shutil import which
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 # Add project root to Python path for utils module
 _project_root = Path(__file__).parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
+
+REPO_ROOT = _project_root
+LOG_DIR = REPO_ROOT / "logs"
+ENV_PATH = REPO_ROOT / ".env.supabase"
+SUPABASE_START_LOG = LOG_DIR / "supabase-start.log"
+EDGE_FUNCTION_LOG = LOG_DIR / "supabase-functions.log"
+_SUPABASE_ENV_CACHE: Optional[Dict[str, str]] = None
+_SUPABASE_STACK_READY = False
+FUNCTION_PROC: Optional[tuple[subprocess.Popen[str], Any]] = None
+ENV_EXPORTS: Dict[str, str] = {}
 
 # Add game-server directory to Python path for unit tests
 _game_server_path = _project_root / "game-server"
@@ -281,10 +297,9 @@ _ensure_pipecat_stub()
 # =============================================================================
 
 import json
-import pytest
+
 import httpx
-import logging
-from pathlib import Path
+import pytest
 from helpers.character_setup import register_all_test_characters
 from helpers.server_fixture import (
     start_test_server,
@@ -292,10 +307,358 @@ from helpers.server_fixture import (
     wait_for_server_ready,
 )
 
-# Import AsyncGameClient for test reset calls
+from utils import api_client as _api_client_module
+
+_TRUTHY = {"1", "true", "on", "yes"}
+
+
+def _env_truthy(name: str, default: str = "0") -> bool:
+    return os.environ.get(name, default).strip().lower() in _TRUTHY
+
+
+USE_SUPABASE_TESTS = _env_truthy("USE_SUPABASE_TESTS")
+
+
+def _resolve_supabase_cli_command() -> Optional[List[str]]:
+    cmd = os.environ.get("SUPABASE_CLI_COMMAND")
+    if cmd:
+        return shlex.split(cmd)
+
+    path_override = os.environ.get("SUPABASE_CLI")
+    if path_override:
+        candidate = Path(path_override)
+        if candidate.exists():
+            return [str(candidate)]
+
+    binary = which("supabase")
+    if binary:
+        return [binary]
+
+    if which("npx"):
+        return ["npx", "supabase@latest"]
+
+    return None
+
+
+SUPABASE_CLI_COMMAND = _resolve_supabase_cli_command() if USE_SUPABASE_TESTS else None
+
+if USE_SUPABASE_TESTS:
+    os.environ.setdefault("SUPABASE_ALLOW_LEGACY_IDS", "1")
+    os.environ.setdefault("SUPABASE_TEST_MOVE_DELAY_SCALE", "0.1")
+    from utils.supabase_client import AsyncGameClient as _SupabaseAsyncGameClient
+
+    _api_client_module.AsyncGameClient = _SupabaseAsyncGameClient  # type: ignore[attr-defined]
+
+
+def _load_supabase_env() -> Dict[str, str]:
+    global _SUPABASE_ENV_CACHE
+    if _SUPABASE_ENV_CACHE is not None:
+        return _SUPABASE_ENV_CACHE
+
+    if not ENV_PATH.exists():
+        raise RuntimeError(
+            ".env.supabase is missing. Run `supabase start` once to generate it or copy an existing env file."
+        )
+
+    env_vars: Dict[str, str] = {}
+    with ENV_PATH.open() as env_file:
+        for line in env_file:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, value = stripped.split("=", 1)
+            env_vars[key] = value
+
+    if USE_SUPABASE_TESTS:
+        env_vars["MOVE_DELAY_SCALE"] = os.environ.get("SUPABASE_TEST_MOVE_DELAY_SCALE", "1")
+
+    for key, value in env_vars.items():
+        os.environ[key] = value
+
+    _SUPABASE_ENV_CACHE = env_vars
+    ENV_EXPORTS.clear()
+    ENV_EXPORTS.update(env_vars)
+    return env_vars
+
+
+def _run_supabase_cli(*args: str) -> subprocess.CompletedProcess[str]:
+    if SUPABASE_CLI_COMMAND is None:
+        raise RuntimeError(
+            "Supabase CLI is required for USE_SUPABASE_TESTS=1. Install the CLI or set SUPABASE_CLI_COMMAND."
+        )
+
+    return subprocess.run(
+        [*SUPABASE_CLI_COMMAND, *args],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+    )
+
+
+def _stack_running() -> bool:
+    if SUPABASE_CLI_COMMAND is None:
+        return False
+    result = _run_supabase_cli("status", "--output", "json")
+    return result.returncode == 0
+
+
+def _start_supabase_stack() -> None:
+    if SUPABASE_CLI_COMMAND is None:
+        raise RuntimeError(
+            "Supabase CLI is required for USE_SUPABASE_TESTS=1. Install the CLI or set SUPABASE_CLI_COMMAND."
+        )
+
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_handle = SUPABASE_START_LOG.open("w", encoding="utf-8")
+
+    proc = subprocess.Popen(  # noqa: S603
+        [*SUPABASE_CLI_COMMAND, "start"],
+        cwd=str(REPO_ROOT),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    if not proc.stdout:
+        proc.terminate()
+        raise RuntimeError("Failed to capture supabase start output")
+
+    ready_markers = {"API URL": False, "Studio URL": False}
+    timeout = float(os.environ.get("SUPABASE_START_TIMEOUT", "240"))
+    start_time = time.time()
+
+    try:
+        for line in proc.stdout:
+            log_handle.write(line)
+            for marker in ready_markers:
+                if marker in line:
+                    ready_markers[marker] = True
+            if all(ready_markers.values()):
+                break
+            if time.time() - start_time > timeout:
+                proc.terminate()
+                raise RuntimeError("Timed out waiting for supabase start to finish. See logs/supabase-start.log")
+    finally:
+        log_handle.flush()
+
+    proc.wait(timeout=60)
+    log_handle.close()
+
+
+def _ensure_supabase_stack_running() -> None:
+    global _SUPABASE_STACK_READY
+    if _SUPABASE_STACK_READY:
+        return
+
+    if _env_truthy("SUPABASE_SKIP_START"):
+        _SUPABASE_STACK_READY = True
+        return
+
+    if _stack_running():
+        _SUPABASE_STACK_READY = True
+        return
+
+    _start_supabase_stack()
+    _SUPABASE_STACK_READY = True
+
+
+def _ensure_supabase_ready() -> Dict[str, str]:
+    if not USE_SUPABASE_TESTS:
+        return {}
+
+    _ensure_supabase_stack_running()
+    env = _load_supabase_env()
+    _run_supabase_db_reset()
+    _ensure_functions_served_for_tests()
+    return env
+
+
+def _function_available(name: str) -> bool:
+    api_token = (
+        os.environ.get("EDGE_API_TOKEN")
+        or os.environ.get("SUPABASE_API_TOKEN")
+        or os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    )
+    base = os.environ.get("EDGE_FUNCTIONS_URL")
+    if not base:
+        supabase_url = os.environ.get("SUPABASE_URL", "http://127.0.0.1:54321").rstrip("/")
+        base = f"{supabase_url}/functions/v1"
+    try:
+        resp = httpx.post(
+            f"{base.rstrip('/')}/{name}",
+            headers={
+                "Content-Type": "application/json",
+                "x-api-token": api_token,
+            },
+            json={"healthcheck": True},
+            timeout=5.0,
+        )
+    except httpx.HTTPError:
+        return False
+
+    if resp.status_code >= 500:
+        return False
+    if resp.status_code == 404 and resp.text.strip() == "Function not found":
+        return False
+    try:
+        payload = resp.json()
+    except ValueError:
+        return False
+    return payload.get("status") == "ok"
+
+
+def _cleanup_edge_container() -> None:
+    container_name = os.environ.get("SUPABASE_EDGE_RUNTIME_CONTAINER", "supabase_edge_runtime_gb-supa")
+    result = subprocess.run(  # noqa: S603
+        ["docker", "rm", "-f", container_name],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0 and "No such container" not in result.stderr:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(LOG_DIR / "edge-container-cleanup.log", "a", encoding="utf-8") as handle:
+            handle.write(f"[pytest] docker rm -f {container_name} failed: {result.stderr}\n")
+
+
+def _write_function_env() -> Path:
+    allowed = {k: v for k, v in ENV_EXPORTS.items() if not k.startswith("SUPABASE_")}
+    env_file = LOG_DIR / ".edge-env-integration"
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    with env_file.open("w", encoding="utf-8") as handle:
+        for key, value in allowed.items():
+            handle.write(f"{key}={value}\n")
+    return env_file
+
+
+REQUIRED_FUNCTIONS = (
+    "join",
+    "my_status",
+    "move",
+    "local_map_region",
+    "list_known_ports",
+    "plot_course",
+    "path_with_region",
+    "trade",
+    "transfer_credits",
+    "bank_transfer",
+    "recharge_warp_power",
+    "transfer_warp_power",
+    "dump_cargo",
+    "purchase_fighters",
+    "ship_purchase",
+)
+
+
+def _ensure_functions_served_for_tests() -> None:
+    global FUNCTION_PROC
+    if not USE_SUPABASE_TESTS:
+        return
+
+    if SUPABASE_CLI_COMMAND is None:
+        raise RuntimeError(
+            "Supabase CLI is required for USE_SUPABASE_TESTS=1. Install it or set SUPABASE_CLI_COMMAND."
+        )
+
+    if FUNCTION_PROC:
+        if all(_function_available(name) for name in REQUIRED_FUNCTIONS):
+            return
+        _stop_functions_proc()
+
+    _cleanup_edge_container()
+    env_file = _write_function_env()
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_handle = open(EDGE_FUNCTION_LOG, "a", buffering=1, encoding="utf-8")
+    log_handle.write("[pytest] launching supabase functions serve (integration suite)\n")
+
+    cmd = [*SUPABASE_CLI_COMMAND, "functions", "serve", "--env-file", str(env_file), "--no-verify-jwt"]
+    proc = subprocess.Popen(  # noqa: S603
+        cmd,
+        cwd=str(REPO_ROOT),
+        stdout=log_handle,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    FUNCTION_PROC = (proc, log_handle)
+
+    deadline = time.time() + 120
+    while time.time() < deadline:
+        if all(_function_available(name) for name in REQUIRED_FUNCTIONS):
+            return
+        if proc.poll() is not None:
+            raise RuntimeError(
+                f"Supabase functions serve exited early. Inspect {EDGE_FUNCTION_LOG} for details."
+            )
+        time.sleep(1)
+
+    _stop_functions_proc()
+    raise RuntimeError(
+        f"Supabase functions were not reachable within timeout. Inspect {EDGE_FUNCTION_LOG} for details."
+    )
+
+
+def _stop_functions_proc() -> None:
+    global FUNCTION_PROC
+    if FUNCTION_PROC is None:
+        return
+    proc, handle = FUNCTION_PROC
+    if proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+    handle.close()
+    FUNCTION_PROC = None
+
+
+def _run_supabase_db_reset() -> None:
+    if _env_truthy("SUPABASE_SKIP_DB_RESET"):
+        return
+
+    if SUPABASE_CLI_COMMAND is None:
+        raise RuntimeError(
+            "Supabase CLI is required for USE_SUPABASE_TESTS=1. Install the CLI or set SUPABASE_CLI_COMMAND."
+        )
+
+    cmd = [*SUPABASE_CLI_COMMAND, "--yes", "db", "reset"]
+    result = subprocess.run(
+        cmd,
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            "supabase db reset failed:\n"
+            f"STDOUT: {result.stdout}\nSTDERR: {result.stderr or '<empty>'}"
+        )
+
+
+async def _reset_supabase_state_async() -> None:
+    if _env_truthy("SUPABASE_SKIP_DB_RESET"):
+        return
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _run_supabase_db_reset)
+
+# Import AsyncGameClient for test reset calls (patched above when Supabase mode is enabled)
 from utils.api_client import AsyncGameClient
 
 logger = logging.getLogger(__name__)
+
+
+@pytest.fixture(scope="session")
+def supabase_environment():
+    if not USE_SUPABASE_TESTS:
+        yield {}
+        return
+
+    env = _ensure_supabase_ready()
+    try:
+        yield env
+    finally:
+        _stop_functions_proc()
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -326,13 +689,19 @@ def setup_test_characters():
 
 
 @pytest.fixture(scope="session")
-def server_url():
+def server_url(supabase_environment):  # noqa: ARG001 - fixture ensures Supabase readiness
     """
     Provide the test server URL.
 
     Returns:
         str: The base URL for the test server (http://localhost:8002)
     """
+    if USE_SUPABASE_TESTS:
+        supabase_url = supabase_environment.get("SUPABASE_URL") or os.environ.get("SUPABASE_URL")
+        if not supabase_url:
+            pytest.skip("Set SUPABASE_URL when USE_SUPABASE_TESTS=1 to run integration tests against Supabase.")
+        return supabase_url.rstrip("/")
+
     return "http://localhost:8002"
 
 
@@ -352,9 +721,43 @@ async def check_server_available(server_url):
         async def test_something(check_server_available):
             # Test code here
     """
+    if USE_SUPABASE_TESTS:
+        edge_base = os.environ.get("EDGE_FUNCTIONS_URL", f"{server_url.rstrip('/')}/functions/v1")
+        anon_key = os.environ.get("SUPABASE_ANON_KEY", "anon-key")
+        token = (
+            os.environ.get("EDGE_API_TOKEN")
+            or os.environ.get("SUPABASE_API_TOKEN")
+            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        )
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {anon_key}",
+            "apikey": anon_key,
+        }
+        if token:
+            headers["x-api-token"] = token
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{edge_base}/join",
+                    headers=headers,
+                    json={"healthcheck": True},
+                    timeout=3.0,
+                )
+        except (httpx.ConnectError, httpx.TimeoutException):
+            pytest.skip(
+                "Supabase functions endpoint not reachable. Run `supabase start` and export EDGE_API_TOKEN."
+            )
+        if response.status_code != 200:
+            pytest.skip(
+                f"Supabase join function unhealthy ({response.status_code}). Check Supabase stack logs before running tests."
+            )
+        yield
+        return
+
     try:
         async with httpx.AsyncClient() as client:
-            # Use root endpoint (server doesn't have /health)
             response = await client.get(f"{server_url}/", timeout=1.0)
             if response.status_code != 200:
                 pytest.skip(
@@ -388,6 +791,11 @@ async def test_server(server_url):
         Tests can use server_url fixture which provides "http://localhost:8002"
         The test_server fixture ensures server is running for entire session
     """
+    if USE_SUPABASE_TESTS:
+        # Supabase stack is managed outside pytest (supabase start)
+        yield server_url
+        return
+
     # Start the server
     process = start_test_server(port=8002, world_data_dir="tests/test-world-data")
 
@@ -404,7 +812,7 @@ async def test_server(server_url):
 
 
 @pytest.fixture(autouse=True)
-async def reset_test_state(server_url):
+async def reset_test_state(server_url, supabase_environment):  # noqa: ARG001 - fixture ensures Supabase readiness
     """
     Reset server state after each test for proper test isolation.
 
@@ -420,6 +828,14 @@ async def reset_test_state(server_url):
     Scope: function - Runs after EVERY test automatically
     """
     yield  # Let the test run first
+
+    if USE_SUPABASE_TESTS:
+        _ensure_supabase_ready()
+        try:
+            await _reset_supabase_state_async()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Supabase reset failed: %s", exc)
+        return
 
     # After test completes, reset the server state
     try:

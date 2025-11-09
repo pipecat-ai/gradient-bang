@@ -1,9 +1,10 @@
+import logging
 import os
 import shlex
 import subprocess
 import time
 from pathlib import Path
-from typing import Dict, IO, Tuple
+from typing import Dict, IO, Optional, Tuple
 
 import httpx
 import pytest
@@ -12,6 +13,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_PATH = REPO_ROOT / '.env.supabase'
 LOG_DIR = REPO_ROOT / 'logs'
+SUPABASE_CLIENT_LOG_PATH = LOG_DIR / 'supabase-client.log'
 ENV_EXPORTS: Dict[str, str] = {}
 
 
@@ -38,8 +40,27 @@ def _resolve_cli_command() -> list[str] | None:
 
 
 CLI_COMMAND = _resolve_cli_command()
-FUNCTION_PROCS: Dict[str, Tuple[subprocess.Popen[str], IO[str]]] = {}
-FUNCTIONS_UNDER_TEST = ('join',)
+FUNCTION_PROC: Optional[Tuple[subprocess.Popen[str], IO[str]]] = None
+FUNCTIONS_UNDER_TEST = (
+    'join',
+    'my_status',
+    'move',
+    'local_map_region',
+    'list_known_ports',
+    'plot_course',
+    'trade',
+    'path_with_region',
+    'recharge_warp_power',
+    'transfer_warp_power',
+    'dump_cargo',
+    'transfer_credits',
+    'bank_transfer',
+    'purchase_fighters',
+    'ship_purchase',
+    'combat_initiate',
+    'combat_action',
+    'combat_tick',
+)
 
 
 def _edge_url() -> str:
@@ -121,6 +142,15 @@ def _start_stack() -> None:
     proc.wait(timeout=30)
 
 
+def _reset_database() -> None:
+    if CLI_COMMAND is None or os.environ.get('SUPABASE_SKIP_DB_RESET') == '1':
+        return
+
+    result = _run_cli('--yes', 'db', 'reset')
+    if result.returncode != 0:
+        raise RuntimeError(f'Supabase db reset failed: {result.stderr or result.stdout}')
+
+
 def _function_available(name: str) -> bool:
     api_token = os.environ.get('EDGE_API_TOKEN') or os.environ.get('SUPABASE_API_TOKEN', '')
     try:
@@ -157,17 +187,36 @@ def _write_function_env(name: str) -> Path:
     return env_file
 
 
-def _ensure_function_served(name: str) -> None:
-    if name in FUNCTION_PROCS:
-        return
+def _cleanup_edge_container() -> None:
+    container_name = os.environ.get('SUPABASE_EDGE_RUNTIME_CONTAINER', 'supabase_edge_runtime_gb-supa')
+    result = subprocess.run(
+        ['docker', 'rm', '-f', container_name],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0 and 'No such container' not in result.stderr:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(LOG_DIR / 'edge-container-cleanup.log', 'a', buffering=1) as handle:
+            handle.write(f"[pytest] docker rm -f {container_name} failed: {result.stderr}\n")
+
+
+def _ensure_functions_served(names: Tuple[str, ...]) -> None:
+    global FUNCTION_PROC
+
+    if FUNCTION_PROC:
+        if all(_function_available(name) for name in names):
+            return
+        _stop_functions_proc()
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log_path = LOG_DIR / f'edge-{name}.log'
+    log_path = LOG_DIR / 'edge-functions.log'
     log_handle = open(log_path, 'a', buffering=1)
-    log_handle.write(f"[pytest] launching supabase functions serve for {name}\n")
+    log_handle.write('[pytest] launching supabase functions serve (all functions)\n')
 
-    env_file = _write_function_env(name)
-    cmd = [*CLI_COMMAND, 'functions', 'serve', '--env-file', str(env_file), '--no-verify-jwt', name]
+    _cleanup_edge_container()
+
+    env_file = _write_function_env('functions')
+    cmd = [*CLI_COMMAND, 'functions', 'serve', '--env-file', str(env_file), '--no-verify-jwt']
     env = os.environ.copy()
     proc = subprocess.Popen(
         cmd,
@@ -177,25 +226,41 @@ def _ensure_function_served(name: str) -> None:
         text=True,
         env=env,
     )
-    FUNCTION_PROCS[name] = (proc, log_handle)
+    FUNCTION_PROC = (proc, log_handle)
 
-    deadline = time.time() + 90
+    deadline = time.time() + 120
     while time.time() < deadline:
-        if _function_available(name):
+        if all(_function_available(name) for name in names):
             return
+        if proc.poll() is not None:
+            raise RuntimeError(
+                f'Edge functions serve exited early. Check logs at {log_path} for diagnostics.'
+            )
         time.sleep(1)
 
-    proc.terminate()
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-    handle.close()
-    FUNCTION_PROCS.pop(name, None)
-
+    _stop_functions_proc()
     raise RuntimeError(
-        f'Edge function {name} did not become available. Check logs at {log_path} for diagnostics.'
+        f'Edge functions did not become available. Check logs at {log_path} for diagnostics.'
     )
+
+
+def _stop_functions_proc() -> None:
+    global FUNCTION_PROC
+    if FUNCTION_PROC is None:
+        return
+    proc, handle = FUNCTION_PROC
+    if proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+    handle.close()
+    FUNCTION_PROC = None
+
+
+def _realtime_debug_enabled() -> bool:
+    return os.environ.get('SUPABASE_REALTIME_DEBUG', '').lower() in {'1', 'true', 'on'}
 
 
 @pytest.fixture(scope='session', autouse=True)
@@ -208,22 +273,42 @@ def supabase_stack():
     _load_env()
     if not _stack_running():
         _start_stack()
+    _reset_database()
 
-    for fn in FUNCTIONS_UNDER_TEST:
-        _ensure_function_served(fn)
+    _ensure_functions_served(FUNCTIONS_UNDER_TEST)
 
     try:
         yield
     finally:
-        for proc, handle in FUNCTION_PROCS.values():
-            if proc.poll() is None:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-            handle.close()
-        FUNCTION_PROCS.clear()
+        _stop_functions_proc()
+
+
+@pytest.fixture(scope='session', autouse=True)
+def supabase_client_logging():
+    if not _realtime_debug_enabled():
+        # Enable by exporting SUPABASE_REALTIME_DEBUG=1 before running pytest.
+        yield None
+        return
+
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(SUPABASE_CLIENT_LOG_PATH, mode='w')
+    formatter = logging.Formatter('[%(asctime)s] %(levelname)s %(name)s: %(message)s')
+    handler.setFormatter(formatter)
+    handler.setLevel(logging.DEBUG)
+
+    logger = logging.getLogger('utils.supabase_client')
+    previous_level = logger.level
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(handler)
+    os.environ['SUPABASE_CLIENT_LOG'] = str(SUPABASE_CLIENT_LOG_PATH)
+
+    try:
+        yield SUPABASE_CLIENT_LOG_PATH
+    finally:
+        logger.removeHandler(handler)
+        handler.close()
+        logger.setLevel(previous_level)
+        os.environ.pop('SUPABASE_CLIENT_LOG', None)
 
 
 @pytest.fixture(scope='session', autouse=True)

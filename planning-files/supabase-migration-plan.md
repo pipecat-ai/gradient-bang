@@ -1,6 +1,6 @@
 # Supabase Migration Plan - Server-Only Architecture
 
-**Last Updated:** 2025-11-06
+**Last Updated:** 2025-11-09
 
 ## Executive Summary
 
@@ -14,6 +14,8 @@ This document outlines a 7-week plan (including Week 0 preparation) to move Grad
 - Supabase Python SDK for voice bot integration
 - Realtime Broadcast for event delivery (replaces WebSocket firehose)
 - Deterministic Supabase seeding (“universe bang”) instead of legacy data migration
+
+**Tooling Standard:** Every Supabase CLI command is run via `npx supabase …` so contributors share the exact CLI/Docker pairing without relying on global installs. All shell snippets below follow this format.
 
 ## Timeline Overview
 
@@ -29,13 +31,161 @@ This document outlines a 7-week plan (including Week 0 preparation) to move Grad
 
 ## Progress Snapshot (as of 2025-11-08)
 
-- ✅ Supabase CLI + VS Code config committed (`supabase/config.toml`, `.vscode` settings).
-- ✅ Initial migration captured (`supabase/migrations/20251108093000_initial_schema.sql`) and applied via `supabase db reset`.
-- ✅ Local seed data (`supabase/seed.sql`) loads a 7-sector dev universe with sample characters/ships/garrisons.
-- ✅ Edge function scaffolding in place: `_shared/{auth,client,constants,events,rate_limiting}.ts` plus the first `join` handler.
-- ✅ Edge-function coverage: new `tests/edge/` suite boots the Supabase stack automatically, injects `EDGE_API_TOKEN`, and runs HTTPX-based `join` smoke tests (token required + happy path + 404).
-- ✅ Rate-limit helper fixed via `20251108100000_fix_rate_limit_fn.sql` so RPCs can enforce limits safely.
-- ⏳ Next up: bring `join` to full parity (status/event payloads + AsyncGameClient contract) and implement the next critical endpoint (`my_status`) with matching edge tests, then wire both into the Supabase-backed client.
+- ✅ Supabase CLI/VS Code config, initial schema migration, deterministic seed data, and `npx supabase db reset` automation are all in place.
+- ✅ Shared helper stack (`_shared/request.ts`, `_shared/map.ts`, `_shared/status.ts`, `_shared/events.ts`, `_shared/rate_limiting.ts`) now powers `join`, `my_status`, **and** the newly ported `move`, `local_map_region`, and `list_known_ports` edge functions.
+- ✅ Event logging + realtime broadcast parity verified: helper posts `type: "broadcast"` payloads to `public:character:{id}` topics, edge + Supabase client integration tests all pass (join, my_status, move).
+- ✅ Supabase `AsyncGameClient` mirrors the legacy API, exposes the optional `SUPABASE_REALTIME_DEBUG` flag, and now streams `movement.start`, `movement.complete`, and `map.local` events end-to-end.
+- ✅ Fighter armory + shipyard RPCs (`purchase_fighters`, `ship_purchase`) now run as Supabase edge functions, emit the legacy `fighter.purchase` / `ship.traded_in` events, and ship with dedicated edge tests + AsyncGameClient coverage.
+- ✅ Corporation schema is live end-to-end: `ship_instances` gained owner-type metadata, corp tables (`corporations`, `corporation_members`, `corporation_ships`) are seeded, and the Supabase `ship_purchase` function now handles corporation buys (bank debits, corp ship registry, autopilot characters, and `corporation.ship_purchased` events) with passing edge tests.
+- ✅ Edge test harness resets the Supabase stack per session (`npx supabase db reset`), serves all relevant functions, and captures realtime debug logs only when requested, keeping the signal clean in CI/local runs.
+
+### Immediate Next Steps (Week 2 focus)
+1. **Observer/combat hooks:** Reintroduce `character.moved`, per-sector broadcasts, and garrison/combat auto-engage logic via the shared event helpers so movement once again triggers downstream observers without relying on the Python server.
+2. **Economy parity:** Finish the remaining credit-lock/bank flows (transfer/bank RPCs plus AsyncGameClient defaults) so corp + personal economies match FastAPI behavior end-to-end once Supabase transport becomes the default.
+3. **Docs + CI coverage:** Capture the new fighter/ship flows in `AGENTS.md` and `CLAUDE.md`, then wire a CI job that runs `npx supabase db reset && uv run pytest tests/edge -q` to keep migrations plus RPC/event wiring green.
+4. **Supabase move parity:** ✅ Harness + legacy-ID shim let `tests/integration/test_game_server_api.py -k "move"` run unchanged via `USE_SUPABASE_TESTS=1`. See §2D for the new runbook.
+5. **Combat test parity blocker:** The first Supabase-backed run of `tests/integration/test_combat_system.py::TestBasicCombatScenarios::test_two_players_combat_attack_actions` now exercises the new edge functions, but it fails with `RPCError: combat_initiate ... 409` because the Supabase pytest fixtures do not seed the deterministic combat characters/ships the legacy FastAPI tests expect. Until we port the reset/seed path (§2A → §5.1a) the entire combat suite will continue to error out before assertions run.
+
+### Operational Next Actions (Nov 09 alignment)
+1. **Finish the combat half of Task 2A.** `_shared/combat_state.ts`, `combat_engage`, and `combat_round_tick` must all emit sector envelopes through `emitSectorEnvelope` + the observer registry so that `auto_engage` and every `combat.round_*` payload travels over Supabase without FastAPI in the loop. Concretely:
+   - Swap the remaining inline `broadcast` calls in the combat edge functions for `emitSectorEnvelope({ sectorId, observerHint, payload })`, ensuring each payload also post-fans out to the per-character observer registry that movement already uses.
+   - Extend `_shared/combat_state.ts` with a tiny adapter that calls `emitSectorEnvelope` whenever combat transitions occur (join, round start, round complete) and backfills the observer diagnostics log so we can trace missing envelopes.
+   - Re-run `USE_SUPABASE_TESTS=1 uv run pytest tests/integration/test_combat_system.py -k auto_engage` plus the new realtime smoke in `tests/edge/test_combat_auto_engage.py` to prove FastAPI is no longer required for engagement broadcasts.
+2. **Roll straight into Task 2B + docs/CI capture once combat envelopes land.** Economy parity (credit locks, corp/personal banks, AsyncGameClient defaults) resumes immediately after the combat broadcast work merges, and we must simultaneously document the Supabase move/observer workflow for §2C so CI + runbooks explain exactly how `npx supabase start` + `emitSectorEnvelope` sequencing works.
+
+## Week 2 Detailed Execution Plan (Nov 10–Nov 16, 2025)
+
+**Scope:** Close the three Week 2 objectives above while keeping Supabase + FastAPI parity, locking in regression coverage, and proving the end-to-end observer graph works without the Python server acting as an event hub.
+
+### 2A. Observer & Combat Hooks (Target: Wed, Nov 12)
+
+- **Status:** 🔄 Observer broadcasts + garrison fan-out ✅; combat auto-engage still pending.
+- **Observer Broadcast Work (Complete):**
+  - `sector_contents` now carries an `observer_channels` JSONB column (seed + migration `20251109170000_add_observer_channels.sql`). `_shared/observer_registry.ts` caches those channels so edge functions can look them up without going back to Python.
+  - `_shared/events.ts` gained `emitSectorEnvelope` + `emitObserverDiagnostics`, letting us broadcast any payload to `public:sector:{id}` *and* the per-sector observer channels with optional debug logging.
+  - `move`, `local_map_region`, and `path_with_region` now call the new helper so `movement.complete`, `map.local`, `map.region`, and `path.region` all hit the same realtime fan-out paths the FastAPI server used.
+  - Garrison corp members once again receive `garrison.character_moved` notifications via `emitGarrisonCharacterMovedEvents` in `_shared/observers.ts`.
+  - Move integration tests continued to pass via `USE_SUPABASE_TESTS=1 uv run pytest tests/integration/test_game_server_api.py -k "move" -vv`.
+- **Remaining Work (Combat Hooks):** wire `_shared/combat_state.ts` + the combat edge functions to the new helpers so auto-engage and `combat.round_*` events emit sector envelopes the same way. The work splits into:
+  - `emitSectorEnvelope` adoption: replace the bespoke `broadcast` usage inside `combat_engage`, `combat_round_tick`, and `combat_join` with the shared helper so every combat payload (start, wait, result) automatically hits both `public:sector:{id}` and the observer registry fan-outs.
+  - Observer registry plumbing: extend `_shared/combat_state.ts` so the registry can map combat participants → relevant observers (player, corp garrisons, toll authorities) and reuse the same `emitObserverDiagnostics` logging we already rely on for movement.
+  - Regression coverage: rerun `USE_SUPABASE_TESTS=1 uv run pytest tests/integration/test_combat_system.py -k "auto_engage or round_broadcast"` plus the realtime-specific `tests/edge/test_combat_auto_engage.py` once it lands; failures block Task 2A sign-off because FastAPI must no longer be required for combat envelopes.
+  - **Test fixture work (blocking):** Supabase mode currently skips the FastAPI `test.reset` endpoint but still relies on the file-based world data. We must implement a Supabase-native `reset_supabase_state()` fixture that calls a dedicated `test_reset` edge function (or the Python bang scripts) to seed the deterministic characters/ships used throughout `tests/integration/test_combat_system.py`. Without that step `combat_initiate` returns 409 because the `test_2p_player*` characters never exist in the database.
+  - Once the reset/seed fixture lands we can rerun `pytest -k auto_engage` under Supabase mode to close the loop.
+- **Monitoring:** keep `SUPABASE_OBSERVER_DEBUG=1` handy; the helper now logs `observer.broadcast` lines showing which channels saw each event.
+
+### 2B. Economy Parity & Credit Locks (Target: Fri, Nov 14)
+
+- **Goals:** Finish the remaining money-moving RPCs plus AsyncGameClient defaults so corp + personal accounts remain consistent when Supabase fully replaces filesystem storage.
+- **Implementation Tasks:**
+  - Ship `supabase/functions/transfer_credits/index.ts`, `bank_transfer/index.ts`, and `recharge_warp_power/index.ts` using the `_shared/optimistic_lock.ts` helper to guard concurrent updates.
+  - Persist corp + personal balances inside `characters` and `corporations` tables; add a lightweight `ledger_entries` table (documented in the Phase 1 checklist once finalized) for optional auditing.
+  - Update `utils/supabase_client.AsyncGameClient.transfer_credits()` and `.bank_transfer()` to default to the caller’s tracked character unless overridden, mirroring the legacy keyword-arg behavior.
+  - Port the flaky FastAPI fixtures into deterministic Supabase fixtures (`tests/fixtures/economy.json`) so `tests/integration/test_economy_paths.py` and `tests/test_credit_locks.py` run without legacy shims.
+  - Bake credit-lock smoke tests into CI by adding `uv run pytest tests/edge/test_economy.py -q` to the Supabase job once it passes locally.
+- **Exit Criteria:**
+  - Dual-account transfer scenarios (corp↔pilot, pilot↔pilot, pilot↔bank) succeed with optimistic locking proved by two concurrent `transfer_credits` calls.
+  - AsyncGameClient parity confirmed via the legacy contract tests + a manual sanity script (`scripts/manual_credit_smoke.py`).
+  - No regressions in fighter purchases or shipyard flows (rerun `tests/edge/test_ship_purchase.py`).
+- **Dependencies:** Observer + combat envelope migrations from §2A merged (ensures shared helper + registry API is stable) and ledger schema agreed upon (see open question W2-Q2 below).
+- **Monitoring:** Add temporary Prometheus counter `economy_credit_lock_retry_total` surfaced via Supabase Edge logs to watch for contention spikes post-merge.
+
+### 2C. Docs + CI Coverage (Target: Sun, Nov 16)
+
+- **Goals:** Keep the knowledge base and automation in lockstep with the Supabase build so the rest of the team can start using the new backend without tribal knowledge.
+- **Implementation Tasks:**
+  - Update `AGENTS.md` + `CLAUDE.md` with: Supabase-only auth model, new AsyncGameClient path, and Week 2 observer/economy changes (include troubleshooting steps for rate limits and credit locks).
+  - Document the Supabase bang/reset workflow inside `docs/supabase-dev.md` (or create it) and link from README + Appendix B.
+  - Capture the Supabase move/observer workflow (text + diagram) so everyone knows how `_shared/events.ts` → `emitSectorEnvelope` → observer registry → Supabase Realtime wiring fits together. Reference that runbook from the CI job description and this plan’s §2A/2C hand-off.
+  - Add a Supabase-focused CI job in `.github/workflows/tests.yml` that boots `npx supabase start` + `npx supabase functions serve --no-verify-jwt <fn-list>` (reuse the `supabase_stack` helper), then runs `npx supabase db reset`, `npx supabase functions test` (once available), and `uv run pytest tests/edge -q`. Gate merges into the Supabase worktree on that job.
+  - Publish a small “how-to” Loom or screenshot walkthrough for running `npx supabase functions serve` + AsyncGameClient locally; store notes in `docs/runbooks/supabase-edge.md`.
+  - Capture Week 2 learnings + API drift notes in `planning-files/changelog-supabase.md` (new file) for weekly demos.
+  - Document the Supabase move test workflow (env vars, CLI fallbacks, log locations) so folks can run `tests/integration/test_game_server_api.py -k "move"` locally using the new harness.
+- **Exit Criteria:**
+  - Docs PR merged with reviewer sign-off; `AGENTS.md` + `CLAUDE.md` mention Supabase at least in the Tooling and Architecture sections.
+  - CI job green (visible in GitHub / Supabase worktree) for two consecutive runs.
+  - Runbook + changelog published and linked from this plan.
+- **Dependencies:** Observer/economy changes must land first so docs describe the final behavior; CI job needs the deterministic fixtures from Sections 2A/2B.
+- **Monitoring:** Track CI runtime (<12 minutes target) and Supabase CLI stderr output; adjust concurrency if the job exceeds 15 minutes.
+
+### Week 2 Milestones & Checkpoints
+
+| Date (2025) | Focus | Checkpoint | Owner | Notes |
+|-------------|-------|-----------|-------|-------|
+| Nov 10 (Mon) | Observer hooks | `_shared/events.ts` + observer registry PR ready for review | KhK | Include seed migration draft |
+| Nov 11 (Tue) | Observer validation | Realtime dry run log + combat auto-engage replay | KhK + Ops | Attach logs to `logs/realtime-observer-sample.log` |
+| Nov 12 (Wed) | Observer exit review | Merge observer PR + update plan status | KhK | Blocker for economy work |
+| Nov 13 (Thu) | Economy implementation | `transfer_credits` + `bank_transfer` edge tests green | KhK | Requires ledger schema |
+| Nov 14 (Fri) | Economy validation | Integration suite `-k economy` green + CI job draft ready | KhK + QA | Document contention metrics |
+| Nov 15 (Sat) | Docs drafting | `AGENTS.md` + `CLAUDE.md` updates ready for review | KhK | Pair review to reduce churn |
+| Nov 16 (Sun) | Week 2 retrospective | Publish changelog + update this plan’s snapshot | KhK | Include metrics + blockers |
+
+### 2D. Move Integration Parity (Target: Sun, Nov 16)
+
+- **Status:** ✅ Complete.
+- **Highlights:**
+  - `tests/conftest.py` now exposes a Supabase mode (`USE_SUPABASE_TESTS=1`) that: auto-runs `npx supabase@latest start` (unless `SUPABASE_SKIP_START=1`), loads `.env.supabase`, serves the required edge functions, and shells out to `npx supabase db reset --yes` for isolation (opt out with `SUPABASE_SKIP_DB_RESET=1`).
+  - Legacy character IDs are deterministically mapped to UUIDs (`utils/legacy_ids.py`), and the `join` edge function will auto-create the corresponding characters/ships the first time Supabase sees them.
+  - `tests/helpers/event_capture.py` routes its existing API through Supabase Realtime (“public:character:{id}”) while canonicalizing IDs so assertions (`assert_event_emitted`) still pass unmodified.
+  - `supabase/functions/move` mimics FastAPI timing by scheduling completion events asynchronously; hyperspace lock checks still prevent double-moves.
+- **Runbook (local):**
+  1. `USE_SUPABASE_TESTS=1 uv run pytest tests/integration/test_game_server_api.py -k "move" -vv`
+  2. Optional flags: `SUPABASE_SKIP_START=1` to reuse a running stack, `SUPABASE_SKIP_DB_RESET=1` to preserve state, `SUPABASE_REALTIME_DEBUG=1` to tee client logs to `logs/supabase-client.log`.
+  3. Logs: `logs/supabase-start.log` (CLI), `logs/supabase-functions.log` (edge serve); Supabase env remains in `.env.supabase`.
+- **Next:** Replace the heavy `npx supabase db reset` calls with a `test_reset` edge function, document this workflow in `docs/supabase-dev.md`, and wire the Supabase move suite into CI once observer/combat work lands.
+
+### Week 2 Risk Watchlist
+- **Observer payload drift:** Supabase helpers may omit optional fields (e.g., `sector_metadata`). *Mitigation:* mirror FastAPI payload schema in `observer_registry` fixtures and add schema assertion tests.
+- **Credit lock contention:** New optimistic locking could throttle simultaneous transfers. *Mitigation:* keep retry count configurable, add metrics, and document fallback (queue) if >5% retries.
+- **CI runtime creep:** Added Supabase job may exceed GitHub’s 15‑minute limit. *Mitigation:* parallelize `tests/edge` shards (movement/economy/combat) and cache `world-data` artifact.
+
+### Proposal: Move Integration Test Compatibility (Supabase AsyncGameClient)
+
+**Objective:** Allow `tests/integration/test_game_server_api.py::test_move_*` to execute *unchanged* while the Supabase-backed `AsyncGameClient` replaces the FastAPI transport. Success means invoking `uv run pytest tests/integration/test_game_server_api.py -k "move"` against the Supabase stack with no edits to the test modules themselves.
+
+#### Current Gaps
+1. **Transport mismatch:** Integration fixtures always boot the FastAPI server (`tests/conftest.py:329-434`). Need a Supabase-aware path that brings up `npx supabase start`, launches `npx supabase functions serve --no-verify-jwt <fn-list>`, seeds data, and exposes the correct base URL to the existing `server_url` fixture.
+2. **Event capture:** `tests/helpers/event_capture.py` streams `/ws` WebSockets. Supabase emits events via Realtime channels, so we need a shim that preserves the same API (`EventListener`, `create_firehose_listener`) while internally subscribing to `public:character:{id}` and optional `public:sector:*` broadcasts.
+3. **State reset:** Post-test cleanup currently calls the FastAPI-only `test.reset` RPC. We need an equivalent Supabase edge function (or script) that truncates deterministic tables, reruns the bang/seed scripts, and keeps the signature expected by `reset_test_state`.
+4. **Client auto-selection:** Tests import `AsyncGameClient` from `utils.api_client`. We can keep that import untouched by adding a thin wrapper that instantiates `utils.supabase_client.AsyncGameClient` whenever `SUPABASE_URL`/`USE_SUPABASE_TESTS=1` is set, while defaulting to the legacy WebSocket client otherwise.
+
+#### Implementation Steps
+1. **Supabase Test Harness (Day 1-2)
+   - Add `tests/supabase_fixtures.py` (or extend `tests/conftest.py`) with a `supabase_stack` session fixture that: (a) runs `npx supabase start`, (b) loads `.env.supabase`, (c) starts `npx supabase functions serve --no-verify-jwt <fn-list>` in watch mode so every pytest run hits live edge handlers, (d) calls `npx supabase db reset`, and (e) yields the edge base URL as `server_url` when `pytest --supabase` (or env flag) is set.
+   - Mirror the existing `test_server` autouse logic but skip FastAPI boot when Supabase mode is active.
+   - Document env expectations in `docs/supabase-dev.md` + this plan.
+2. **Realtime Event Shim (Day 2-3)
+   - Implement `SupabaseEventListener` next to the current WebSocket listener, exposing the same async context manager + helper methods but internally using `realtime.AsyncRealtimeClient`.
+   - Update `create_firehose_listener` to select between `EventListener` (FastAPI) and `SupabaseEventListener` based on the `server_url`/env flag—no test call sites change.
+   - Log raw payloads to `logs/supabase-event-listener.log` for debugging timeouts.
+3. **State Reset Edge Function (Day 3)
+   - Add `supabase/functions/test_reset/index.ts` that truncates/refreshes the relevant tables (characters, ship_instances, events, garrisons, sector_contents overrides) and replays deterministic seeds by invoking the bang scripts.
+   - Teach `reset_test_state` fixture to POST to `functions/v1/test_reset` when Supabase mode is active, keeping the response schema identical to the FastAPI handler so existing logging stays valid.
+4. **Client Auto-Wiring (Day 3-4)
+   - Update `utils/api_client.py` export path so `AsyncGameClient` becomes a factory: if `SUPABASE_URL` is set (and optional `USE_SUPABASE_CLIENT=1`), return an instance of `utils.supabase_client.AsyncGameClient`; otherwise instantiate the legacy implementation.
+   - Ensure context-manager hooks (`__aenter__`, `__aexit__`), event handler registration, and `_request` semantics remain consistent so helper utilities (fixtures, scripts) remain untouched.
+5. **Validation (Day 4)
+   - Script: `scripts/run_move_integration_supabase.sh` that boots the Supabase stack, exports the required env vars, and runs `uv run pytest tests/integration/test_game_server_api.py -k 'move' -vv`.
+   - Capture Supabase CLI + pytest output in `logs/move-integration-supabase.log` and link it from this plan once green.
+
+#### Deliverables & Exit Criteria
+- Supabase harness + event shim merged, gated behind an opt-in flag so legacy FastAPI tests still work.
+- `test_move_to_adjacent_sector` and `test_move_to_invalid_sector_fails` pass using the Supabase AsyncGameClient, emitting the expected events without modifying the test modules.
+- `reset_test_state` fixture succeeds in Supabase mode and completes in <5 s (db reset + reseed).
+- Developer docs updated with exact commands/env vars to run the move integration subset against Supabase locally and in CI.
+
+#### Risks & Mitigations
+- **Supabase start latency** could balloon overall test time. *Mitigation:* allow reusing a running stack if `SUPABASE_SKIP_START=1` is set, and reuse the same stack for the full test session.
+- **Realtime race conditions** (listener starts after movement events). *Mitigation:* have the shim automatically buffer events from the Supabase channel immediately on subscription and add a `ready` awaitable before issuing RPCs in tests.
+- **Reset edge function drift** vs. bang scripts. *Mitigation:* make the edge reset call the same Python bang helpers via `uv run scripts/reset_supabase.py --mode=test` so there is a single source of truth for truncation + reseed logic.
+
+### Decisions & Open Questions (Need answers by Wed, Nov 12)
+1. **Ledger table scope (W2-Q2):** Do we create a first-class `ledger_entries` table this week or defer to Week 3? Decision impacts the bank transfer schema migration.
+2. **Observer registry storage (W2-Q3):** Prefer `sector_contents.observer_channels` JSONB or a dedicated `observer_channels` table? JSONB is faster to seed but harder to query; table enables future analytics.
+3. **Realtime channel naming (W2-Q4):** Confirm whether per-sector channels stay `public:sector:{id}` or move to `observer:{sector_id}` to avoid collisions with other broadcasts.
+4. **CI secrets strategy (W2-Q5):** Choose between GitHub OpenID → Supabase service key exchange versus storing a long-lived service key in repo secrets; blocks the CI job rollout.
+
+Document decisions directly in this section (dated bullet) once resolved so Week 3 inherits the context without spelunking PRs.
 
 ## Week 0: Preparation & Design (Week 0)
 
@@ -48,7 +198,7 @@ This document outlines a 7-week plan (including Week 0 preparation) to move Grad
 ### Tasks
 
 #### 0.1 Environment + Tooling Setup (Days 1-2)
-- Ensure Supabase CLI + Docker are installed and `supabase start` works locally.
+- Ensure Supabase CLI + Docker are installed and `npx supabase start` works locally.
 - Create a dedicated worktree/branch for the Supabase implementation so rollback is handled by branch switching, not production data changes.
 - Stub `.env.supabase` with `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `SUPABASE_API_TOKEN`.
 
@@ -101,7 +251,7 @@ docker --version
 
 # Initialize Supabase in your project
 cd /path/to/gradient-bang
-supabase init
+npx supabase init
 
 # This creates:
 # supabase/
@@ -111,7 +261,7 @@ supabase init
 #     _shared/           - Shared utilities
 
 # Start local Supabase (runs in Docker)
-supabase start
+npx supabase start
 
 # This starts:
 # - PostgreSQL database (port 54322)
@@ -126,25 +276,25 @@ supabase start
 **Link to Remote Project (Optional):**
 ```bash
 # Link local project to remote
-supabase link --project-ref your-project-ref
+npx supabase link --project-ref your-project-ref
 
 # Pull remote schema to local
-supabase db pull
+npx supabase db pull
 
 # Push local changes to remote
-supabase db push
+npx supabase db push
 ```
 
 **Environment Variables:**
 ```bash
 # .env.local (for local development)
 SUPABASE_URL=http://localhost:54321
-SUPABASE_SERVICE_ROLE_KEY=<shown in supabase start output>
+SUPABASE_SERVICE_ROLE_KEY=<shown in npx supabase start output>
 SUPABASE_API_TOKEN=local-dev-token
 
 # .env.production (for remote)
 SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=<from supabase dashboard>
+SUPABASE_SERVICE_ROLE_KEY=<from npx supabase dashboard>
 SUPABASE_API_TOKEN=<generate with: openssl rand -hex 32>
 ```
 
@@ -159,10 +309,10 @@ See Appendix B for the full environment variable reference so we only maintain t
 cp planning-files/supabase-schema-server-only.sql supabase/migrations/20250101000000_initial_schema.sql
 
 # Apply to local database
-supabase db reset
+npx supabase db reset
 
 # Verify tables created
-supabase db diff
+npx supabase db diff
 
 # View in Supabase Studio
 # Open http://localhost:54323 in browser
@@ -256,13 +406,13 @@ uv run python scripts/seed_universe.py --sql > supabase/migrations/2025010100000
 # ... (200 port rows)
 
 # Apply to local database
-supabase db reset
+npx supabase db reset
 ```
 
 **Option 2: Direct seeding script**
 ```python
 # scripts/seed_universe.py
-from supabase import create_client
+from npx supabase import create_client
 
 client = create_client(supabase_url, service_key)
 
@@ -365,7 +515,7 @@ gradient-bang/
 1. **Create Function:**
 ```bash
 # Create new edge function
-supabase functions new my_function
+npx supabase functions new my_function
 
 # This creates: supabase/functions/my_function/index.ts
 ```
@@ -377,7 +527,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 serve(async (req) => {
-  const supabase = createClient(
+  const npx supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   )
@@ -400,12 +550,12 @@ serve(async (req) => {
 3. **Serve Locally:**
 ```bash
 # Start local edge function runtime
-supabase functions serve my_function
+npx supabase functions serve my_function
 
 # Function runs at: http://localhost:54321/functions/v1/my_function
 
 # Watch for changes (auto-reload)
-supabase functions serve my_function --watch
+npx supabase functions serve my_function --watch
 ```
 
 4. **Test Function:**
@@ -443,25 +593,25 @@ uv run pytest tests/integration/test_<endpoint_suite>.py -v
 console.log('Request received:', req)
 console.log('Data:', data)
 
-// Logs appear in terminal running supabase functions serve
+// Logs appear in terminal running npx supabase functions serve
 ```
 
 7. **Deploy to Local Supabase:**
 ```bash
-# Edge functions are auto-served when using supabase functions serve
+# Edge functions are auto-served when using npx supabase functions serve
 # No separate deploy needed for local development
 ```
 
 8. **Deploy to Remote:**
 ```bash
 # Deploy single function
-supabase functions deploy my_function
+npx supabase functions deploy my_function
 
 # Deploy all functions
-supabase functions deploy
+npx supabase functions deploy
 
 # Set environment variables (secrets)
-supabase secrets set API_TOKEN=your-token-here
+npx supabase secrets set API_TOKEN=your-token-here
 ```
 
 **Environment Variables in Edge Functions:**
@@ -471,8 +621,8 @@ const apiToken = Deno.env.get('API_TOKEN')
 const supabaseUrl = Deno.env.get('SUPABASE_URL')
 const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
 
-// For local development, these are auto-set by supabase start
-// For production, set with: supabase secrets set KEY=value
+// For local development, these are auto-set by npx supabase start
+// For production, set with: npx supabase secrets set KEY=value
 ```
 
 **Common Debugging Issues:**
@@ -481,13 +631,13 @@ const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
 # Function not updating?
 # Kill and restart serve:
 Ctrl+C
-supabase functions serve my_function --watch
+npx supabase functions serve my_function --watch
 
 # Check function logs
-supabase functions logs my_function
+npx supabase functions logs my_function
 
 # Check what functions are deployed
-supabase functions list
+npx supabase functions list
 
 # Inspect local database while debugging
 psql postgresql://postgres:postgres@localhost:54322/postgres
@@ -567,7 +717,115 @@ For every endpoint above:
 - Re-run the matching integration files (Category 1) without editing the tests; success proves that events + RPC payloads match the legacy contract.
 - Create/update Supabase seed data needed for those tests (characters, ships, ports, corporations) as part of the implementation, rather than deferring to a later "data" phase.
 
-**Testing note (added 2025-11-08):** A new `tests/edge/` directory now houses Supabase-specific smoke tests. The session fixture spins up `supabase start`, launches `supabase functions serve --no-verify-jwt <fn>` with a sanitized env file (injecting `EDGE_API_TOKEN`), and captures logs under `logs/edge-*.log`. Every edge function we port should gain coverage here before we flip the AsyncGameClient to Supabase.
+**Testing note (added 2025-11-08):** A new `tests/edge/` directory now houses Supabase-specific smoke tests. The session fixture spins up `npx supabase start`, launches `npx supabase functions serve --no-verify-jwt <fn>` with a sanitized env file (injecting `EDGE_API_TOKEN`), and captures logs under `logs/edge-*.log`. Every edge function we port should gain coverage here before we flip the AsyncGameClient to Supabase.
+
+**Realtime debugging flag:** Export `SUPABASE_REALTIME_DEBUG=1` to enable verbose logging across the Supabase stack. When set, edge functions print `broadcast.attempt` / `broadcast.response` lines (helpful when diagnosing missing events) and the Supabase `AsyncGameClient` emits subscribe + delivery traces to `logs/supabase-client.log` (pytest automatically tails this file when a realtime wait times out). Leave the flag unset for normal development/CI and toggle it only when investigating flaky realtime tests or staging incidents.
+
+##### 2.2.1 `join` parity + AsyncGameClient bridge (target: Day 3 EOD)
+
+1. **Mirror the FastAPI contract.**
+   - Port validation + authorization from `game-server/api/join.py` (`character_id` required, optional `ship_type`, `sector`, `credits`, `admin_override`, `actor_character_id`).
+   - Add `_shared/request.ts` helper (or extend `auth.ts`) so we can parse/validate the payload once and reuse for other endpoints.
+   - Enforce admin overrides and corp-actor rules up front; persist audit metadata in the response/event `source` so parity harnesses can diff payloads deterministically.
+2. **Supabase data orchestration.**
+   - Create `_shared/status.ts` with `buildStatusPayload(supabase, characterId)` that joins `characters`, `ship_instances`, `ship_definitions`, `sector_contents`, `ports`, `corporations`, and `map_knowledge` to reconstruct the same dict produced by `build_status_payload()`.
+   - Add `_shared/map.ts` to encapsulate the `build_local_map_region` logic (sector adjacency, garrisons, salvage, players) so both `join` and `my_status` can reuse it.
+   - Implement deterministic ship bootstrap path: if the caller has no ship row, insert via SQL function `bootstrap_character_ship(character_id, ship_type, credits)` and return the new ship + sector assignments before emitting events.
+3. **Event fanout + persistence.**
+   - Expand `_shared/events.ts` with `emitCharacterEvent`, `emitSectorEvent`, and `publishRealtime(event_type, payload, channel)` helpers that both insert into `events` (for replay) and publish to Supabase Realtime broadcast channels (`character:{uuid}`, `sector:{id}`).
+   - Emit `status.snapshot`, `map.local`, and conditional `combat.round_waiting` exactly like `game-server/api/join.py` (see `docs/event_catalog.md:1256`). Include `source = build_event_source("join", request_id)`.
+   - Ensure garrison + teleport side-effects are handled (auto-engage combat, mover events) by querying `garrisons` and `sector_contents.combat`. Log every emitted event with `logEvent` for telemetry parity.
+4. **AsyncGameClient bridge.**
+   - Flesh out `utils/supabase_client.AsyncGameClient` (see §5.3) with `_call_edge_function` + Realtime channel subscriptions so the legacy `client.on("status.snapshot", handler)` path receives Supabase events with zero code changes.
+   - Add a transport flag (`transport="supabase"`) or environment toggle so integration tests can switch between FastAPI and Supabase backends while sharing the same test bodies.
+5. **Testing + parity harness.**
+   - Extend `tests/edge/test_join.py` to assert: (a) status snapshot payload matches a gold fixture (hash compare), (b) map payload includes adjacency + salvage, (c) rate-limit + token enforcement still work.
+   - Add a regression test that calls `utils/api_client.AsyncGameClient.join()` against Supabase via the new transport and verifies `status.snapshot` + `map.local` events appear before the RPC ack resolves (mirrors `tests/integration/test_event_system.py::test_join_emits_status`).
+   - Capture fixtures from the FastAPI server (using `scripts/dump_status_payload.py`) and diff Supabase payloads field-by-field. Store diffs under `tests/fixtures/supabase_parity/join.json` so CI fails if parity drifts.
+
+##### 2.2.2 `my_status` edge function + shared tooling (target: Day 3 late afternoon)
+
+1. **Function scaffold.**
+   - Create `supabase/functions/my_status/index.ts` that mirrors the join auth + rate-limit wrappers (rate rule already in `_shared/constants.ts`).
+   - Reuse the new `_shared/status.ts` helper so both RPCs emit identical payloads; reject requests if the character is missing, in hyperspace, or unauthorized, matching `game-server/api/my_status.py` semantics.
+2. **Event emission.**
+   - Emit exactly one `status.snapshot` event per call (plus optional `combat.round_waiting` if we detect an encounter), using the same `source` metadata but `method="my_status"`.
+   - Ensure `emit_error_event` parity by logging to `events` with `event_type="error.rpc"` and publishing to `character:{id}` when raising 4xx/5xx errors.
+3. **Edge tests.**
+   - Add `tests/edge/test_my_status.py` covering token enforcement, happy-path payload (compare to join snapshot), 404 when the character is offline/unseeded, and 409 for hyperspace states (seed via SQL fixture that sets `ship_instances.in_hyperspace=true`).
+   - Update `tests/edge/conftest.py` so `FUNCTIONS_UNDER_TEST = ('join', 'my_status')` and ensure pytest spins up both functions concurrently.
+4. **Integration + AsyncGameClient coverage.**
+   - Run `tests/integration/test_event_system.py::test_status_snapshot_delivery` twice (FastAPI + Supabase transports) to prove events arrive identically.
+   - Wire `npc/simple_tui` + `pipecat` smoke scripts to call `my_status` via the Supabase client during CI so voice agents keep working.
+5. **Documentation/operability.**
+   - Update `docs/event_catalog.md` and this plan’s Week 2 DoD checklist to note that Supabase now owns `status.snapshot` emissions.
+   - Capture runbooks for debugging (`npx supabase functions logs my_status`, `npx supabase db pull events --where "event_type='status.snapshot'"`) under `docs/supabase-edge.md` so on-call engineers can trace failures quickly.
+
+##### 2.2.3 Join + MyStatus end-to-end validation (Day 4 morning)
+
+1. **Golden fixtures + diff harness.**
+   - Use the legacy FastAPI server to capture canonical `status.snapshot`, `map.local`, and (if applicable) `combat.round_waiting` payloads for the seeded dev characters.
+   - Store fixtures in `tests/fixtures/supabase_parity/{join,status}.json` (checked in) and add a helper `tests/helpers/parity_assertions.py` that normalizes timestamps/request IDs before diffing.
+   - Extend `tests/edge/test_join.py` to load the golden snapshot, scrub dynamic fields (timestamps, `source.request_id`), and assert that Supabase events match field-for-field; fail with a readable diff when they diverge.
+2. **`AsyncGameClient` transport flip.**
+   - Add `SUPABASE_TRANSPORT=1` (or CLI flag) so `tests/helpers/clients.py` can instantiate either the WebSocket client (`utils/api_client.AsyncGameClient`) or the Supabase-flavored client described in §5.3.
+   - Create `tests/integration/test_event_system_supabase.py` that reuses the existing `test_event_system` parametrized suite but runs against the Supabase backend by default inside CI’s nightly workflow.
+3. **Realtime smoke tests.**
+   - Build `tests/edge/test_realtime_status.py` which subscribes to `postgres_changes` on the `events` table (filtered by `character_id`) and asserts that a `status.snapshot` event arrives within 750 ms of invoking `join`/`my_status` via the edge functions.
+   - Capture logs to `logs/realtime-status.log` so flakes can be diagnosed quickly; include instructions in the runbook for tailing these logs.
+4. **CLI + tooling verification.**
+   - Update `scripts/character_lookup.py` and `npc/simple_tui` to accept `--supabase` flag that flips them to call edge functions via the new client, then document the exact commands QA should run (“`EDGE_API_TOKEN=... uv run scripts/character_lookup.py --npx supabase ...`”).
+   - Ensure voice/NPC runners gate on the same env flag so we can AB-test FastAPI vs Supabase without diverging code paths.
+5. **Performance sampling.**
+   - Instrument `tests/edge/test_join.py` to log latency percentiles (p50/p95/p99) for the Supabase stack once per test run (store under `logs/edge-join-latency.json`).
+   - Compare against the FastAPI baselines captured in Week 1.5 and update the plan’s SLO table with the results so we know whether additional tuning is required before moving on to `move`/`trade`.
+
+##### 2.2.4 Plot Course + Trade Stack (Days 4-5)
+
+**Status (2025-11-08):** Shared helpers, `plot_course`, `trade`, and `path_with_region` are now Supabase-native with edge + client parity.
+
+1. **Shared navigation + trading helpers.**
+   - Extend `_shared/map.ts` with cached `findShortestPath()` / `collectRegionContext()` utilities that fan out from `universe_structure.warps` once per function instance and reuse the normalized `MapKnowledge` structures we already ship to `local_map_region`. The helper should return `{path, distance, visited, sectors}` so `plot_course`, `path_with_region`, and `list_known_ports` all consume identical adjacency metadata.
+   - Add `_shared/trading.ts` that mirrors `trading.calculate_price_*`, `validate_*`, `get_port_prices`, and `log_trade` semantics in TypeScript. This module should expose typed commodity constants (`'quantum_foam' | 'retro_organics' | 'neuro_symbolics'`), helper guards, and a `withPortLock()` wrapper so both `trade` and future port-affecting RPCs can run inside one transactional section without duplicating SQL.
+   - Update `_shared/constants.ts` / `rate_limiting.ts` so `plot_course`, `path_with_region`, and `trade` have explicit rate buckets (mirroring `game-server/config/rate_limits.yaml:81`) before we open the endpoints to clients.
+
+2. **`plot_course` edge function.**
+   - Create `supabase/functions/plot_course/index.ts` using the mutation template: parse `character_id`, optional `actor_character_id`, optional `from_sector` (defaults to the mover’s `ship_instances.current_sector`), and required `to_sector`. Enforce that non-admin callers can only plot from their current sector to prevent path spoofing.
+   - Reuse `findShortestPath()` to get the hop list, compute `distance = len(path) - 1`, and populate `source = buildEventSource("plot_course", request_id)`. The HTTP response remains `{success: true}`; the payload is delivered exclusively via `emitCharacterEvent("course.plot", payload)`.
+   - Capture parity fixtures and update `utils/api_client.AsyncGameClient.plot_course()` so it toggles between FastAPI/Supabase transports without branching event handling (`course.plot` listener already exists). Regression targets: `tests/unit/test_plot_course.py`, `tests/integration/test_movement_system.py::test_plot_course_returns_valid_path`, `tests/integration/test_async_game_client.py::test_plot_course_finds_path`, and the observer permutations in `tests/integration/test_event_system.py` that subscribe to `course.plot`.
+
+3. **`path_with_region` parity.**
+   - ✅ Supabase edge function now mirrors the FastAPI semantics, reusing shared knowledge helpers to build the `path.region` payload (visited metadata, `adjacent_to_path_nodes`, unvisited `seen_from` data) and emits the event before acknowledging the RPC.
+   - ✅ Added `tests/edge/test_path_with_region.py` plus Supabase AsyncGameClient coverage to ensure events arrive with the expected path + sector counts.
+
+4. **`trade` Supabase-native mutation.** ✅
+   - Edge implementation reuses `_shared/trading.ts`, performs optimistic port updates, emits `trade.executed`/`status.update`/`port.update`, and is exercised via the Supabase AsyncGameClient + edge tests.
+
+5. **Regression + parity harness.** ✅
+   - Edge coverage now spans `plot_course`, `path_with_region`, `trade`, `recharge_warp_power`, `transfer_warp_power`, and Supabase AsyncGameClient realtime delivery, with 26 edge tests passing against the local Supabase stack.
+
+##### 2.2.5 Observer + Combat Side Effects (Days 5-6)
+
+1. **Realtime fanout + payload builders.**
+   - Create `_shared/movement.ts` with helpers to (a) load sector occupants (`SELECT characters.character_id FROM characters JOIN ship_instances ON ... WHERE current_sector = :sector AND in_hyperspace = FALSE`), (b) build the canonical `character.moved` payload (mirrors `game-server/api/utils.build_character_moved_payload`), and (c) emit `garrison.character_moved` notifications to corporation members that own garrisons in the affected sector.
+   - Extend `_shared/events.ts` with `emitCharacterFanout()` and `emitMultiSectorEvent()` utilities so we can log once per event and broadcast to many `public:character:{id}` or `public:sector:{id}` topics without manual loops in each RPC.
+   - Document the new helpers in `docs/supabase-edge.md` (how to call them, expectations around excluding the actor) and add a short code sample so future RPCs (e.g., teleport, admin warps) reuse the same pattern.
+
+2. **`character.moved` parity inside Supabase move/join.**
+   - Update `supabase/functions/move/index.ts` to emit two sector-level events: `movement="depart"` on the old sector before `startHyperspace()` completes and `movement="arrive"` after `finishHyperspace()`. Each event writes to `events` and broadcasts to every occupant except the mover (`emitSectorEvent`), matching the FastAPI semantics verified in `docs/event_catalog.md:795`.
+   - Reintroduce the teleport arrival hook in `supabase/functions/join/index.ts` so that when an admin spawns a character directly into a sector, observers immediately receive the same `character.moved` arrival event they would under FastAPI (movement type `teleport`). This keeps `npc/simple_tui`, `pipecat`, and `utils/task_agent` observers in sync while we gradually move more RPCs.
+   - Ensure `movement.start`/`movement.complete` still fire in the right order relative to the new observer events; add structured logging (`movement.observers.emitted` with counts) to aid debugging when sectors appear “quiet.”
+
+3. **Garrison + combat auto-engage.**
+   - Port the `emit_garrison_character_moved_event` behavior into `_shared/movement.ts` by querying `garrisons` plus `corporation_members` so we can fan out `garrison.character_moved` to the owning corp’s connected pilots. Emit via `emitCharacterEvent` to each corp member (match `tests/unit/test_move_combat.py` expectations).
+   - Add `_shared/combat.ts` with wrappers around new SQL RPCs (`combat_find_active(sector_id)`, `combat_add_participant(combat_id, character_id)`, `combat_start_with_garrisons(...)`) so the Supabase move handler can (a) check for an existing encounter, (b) auto-join the mover if a battle is underway, and (c) spin up a new encounter when hostile/toll garrisons are present. Mirror the FastAPI logic that filters out the mover’s own garrisons and only auto-engages for `mode in ('offensive', 'toll')`.
+   - After combat enrollment, emit the usual `combat.round_waiting` payload (source `move`, request ID) so clients waiting on combat UI stay functional. If combat creation fails, log + emit an `error` event but let movement finish—same fallback as FastAPI.
+
+4. **Regression + instrumentation.**
+   - Expand `tests/integration/test_event_system.py::test_character_moved_visibility` and `tests/integration/test_event_system.py::test_observer_move_events` to run under Supabase transport, asserting that both JSONL logs and realtime subscribers capture departure + arrival broadcasts.
+   - Add a targeted edge suite (`tests/edge/test_move_observers.py`) that subscribes to `public:sector:{id}` via the Supabase realtime client, triggers a move, and asserts the broadcast payload matches the golden fixture (movement, ship type, timestamps). Include garrison scenarios that verify `garrison.character_moved` emission counts.
+   - Re-run `tests/unit/test_move_combat.py` and `tests/integration/test_combat_system.py::test_auto_engage_garrison` with Supabase data—if the combat RPCs are still Python-only, temporarily route through FastAPI via a feature flag but keep the parity assertions so we know when the Supabase implementation is ready to take over.
+   - Emit structured metrics (`movement.observers.count`, `combat.auto_engage.count`) via the existing Supabase logging hooks so we can watch for regressions once this ships. Document the log keys in `docs/supabase-edge.md` for on-call reference.
 
 #### 2.2a Leaderboard Snapshot RPC (Days 5-6)
 - Add the read-only `leaderboard.resources` RPC to the Supabase backlog so parity stays complete. The FastAPI server shells out to `scripts/rebuild_leaderboard.py`, which recalculates `core/leaderboard.py`'s JSON snapshot (`leaderboard_resources.json`) and caches it via `get_cached_leaderboard()`.
@@ -581,7 +839,7 @@ For every endpoint above:
 - Success criteria: `join` completes <200 ms (p95) locally, event delivery works, and API surface remains identical to the legacy client.
 
 #### 2.4 Integration Testing (Day 7)
-- Test edge functions locally with `supabase functions serve`
+- Test edge functions locally with `npx supabase functions serve`
 - Verify token authentication works
 - Test rate limiting behavior
 - Validate error handling
@@ -612,7 +870,7 @@ Week 3 assumes every endpoint already emits events (Week 2 DoD). These tasks
 
 **Python Client Example:**
 ```python
-from supabase import create_client
+from npx supabase import create_client
 
 client = create_client(supabase_url, service_key)
 
@@ -702,7 +960,7 @@ serve(async (req) => {
 ### Tasks
 
 #### 4.1 Seed Script Development (Days 1-3)
-- Implement `scripts/supabase_universe_bang.py` that recreates the existing universe-bang logic but writes directly to Supabase tables (or emits SQL suitable for `supabase db reset`). Each test/deploy run starts from a **fresh** deterministic universe; no legacy data migration is needed.
+- Implement `scripts/supabase_universe_bang.py` that recreates the existing universe-bang logic but writes directly to Supabase tables (or emits SQL suitable for `npx supabase db reset`). Each test/deploy run starts from a **fresh** deterministic universe; no legacy data migration is needed.
 - Implement `scripts/seed_universe.py` to populate universe_config, universe_structure, ports, sector_contents (calls into the Supabase bang helper)
 - Implement `scripts/seed_ships_and_characters.py` to create starter characters, ships, and ship state
 - Implement `scripts/seed_corporations.py` (optional) for baseline corp + corp ship data
@@ -777,7 +1035,7 @@ SELECT sector_id, owner_id, fighters, mode FROM garrisons ORDER BY sector_id;
 
 #### 5.1 Integration Testing (Days 1-2)
 - Run existing test suite against Supabase backend
-- Update `tests/conftest.py` fixtures to spin up a Supabase test project (via `supabase start`) and tear it down after the session
+- Update `tests/conftest.py` fixtures to spin up a Supabase test project (via `npx supabase start` + `npx supabase functions serve --no-verify-jwt <fn-list>`) and tear it down after the session
 - Build a pytest fixture that invokes the Supabase bang + seed scripts before tests and truncates afterward to guarantee deterministic data
 - Test multi-character scenarios (combat, trading)
 
@@ -802,7 +1060,7 @@ uv run pytest tests/ -v
 - Everything under `tests/unit/` (API handlers, combat math, locks, tooling CLIs) plus `tests/diagnostics/test_combat_event_payloads.py`. These suites currently import `game-server` modules directly or mutate the JSON world files, so they will be reworked to use in-memory fakes that mimic the Supabase schema.
 
 **Execution plan:**
-- **Supabase-backed fixtures:** Replace the FastAPI server fixture in `tests/conftest.py` with a session-scoped harness that runs `supabase start`, exports `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`/`SUPABASE_API_TOKEN`, and exposes a `supabase_admin` helper (psycopg or Supabase client) for direct resets. `AsyncGameClient` continues to read `server_url`, but behind the scenes the “server” is the Edge Function gateway hitting Supabase.
+- **Supabase-backed fixtures:** Replace the FastAPI server fixture in `tests/conftest.py` with a session-scoped harness that runs `npx supabase start`, spawns `npx supabase functions serve --no-verify-jwt <fn-list>` in the background, exports `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`/`SUPABASE_API_TOKEN`, and exposes a `supabase_admin` helper (psycopg or Supabase client) for direct resets. `AsyncGameClient` continues to read `server_url`, but behind the scenes the “server” is the Edge Function gateway hitting Supabase.
 - **Deterministic seed data:** Reproduce `tests/test-world-data` via SQL instead of filesystem copies. Add `scripts/supabase_seed_test_data.py` (wraps the existing universe bang + character registry JSON) that truncates mutable tables, inserts the fixed 10-sector map, registers every character from `tests/helpers/character_setup.py:TEST_CHARACTER_IDS`, and seeds ships/corporations/knowledge exactly once per test session. Re-run this seeder (or a stored procedure) before each test module to keep data identical to today’s setup.
 - **Per-test reset:** Replace the `test.reset` RPC dependency with a direct database reset fixture. Options: wrap each test in a transaction and rollback, or call a lightweight SQL procedure that truncates `characters_runtime`, `combats`, `salvage`, `garrisons`, `events`, etc., then replays only the incremental data required for that test. Provide helpers (e.g., `supabase_reset_state()` in `tests/helpers/server_fixture.py`) so both integration and unit suites share the same cleanup logic.
 - **Unit-test adapters:** Introduce a `SupabaseTestWorld` module that loads fixture rows from JSON (same files already used) into simple dataclasses so unit tests can keep instantiating handler functions without needing a real database. Update Category 2 suites to depend on this adapter rather than the legacy file-backed “world” dicts.
@@ -839,7 +1097,7 @@ Create **new, separate client** `utils/supabase_client.py` that implements `Asyn
 Create `utils/supabase_client.py`:
 ```python
 # utils/supabase_client.py
-from supabase import create_client, Client
+from npx supabase import create_client, Client
 from typing import Optional, Dict, Any, Callable
 import asyncio
 import os
@@ -1410,17 +1668,17 @@ Build `utils/supabase_realtime.RealtimeEventListener`, matching the legacy event
 ### Phase 17: Deployment
 
 #### Local Deployment
-- [ ] Start local Supabase: `supabase start`
-- [ ] Apply migrations: `supabase db reset`
-- [ ] Serve edge functions: `supabase functions serve`
+- [ ] Start local Supabase: `npx supabase start`
+- [ ] Apply migrations: `npx supabase db reset`
+- [ ] Serve edge functions: `npx supabase functions serve`
 - [ ] Test all endpoints locally
 - [ ] Verify Realtime broadcasts work
 
 #### Remote Deployment
 - [ ] Create production Supabase project
 - [ ] Apply database migrations to production
-- [ ] Deploy all edge functions: `supabase functions deploy`
-- [ ] Set production secrets: `supabase secrets set`
+- [ ] Deploy all edge functions: `npx supabase functions deploy`
+- [ ] Set production secrets: `npx supabase secrets set`
 - [ ] Update production environment variables
 - [ ] Run smoke tests against production
 

@@ -1,0 +1,196 @@
+import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+
+import { validateApiToken, unauthorizedResponse, errorResponse, successResponse } from '../_shared/auth.ts';
+import { createServiceRoleClient } from '../_shared/client.ts';
+import { emitCharacterEvent, emitErrorEvent, buildEventSource } from '../_shared/events.ts';
+import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
+import { loadCharacter, loadShip, loadShipDefinition, buildStatusPayload } from '../_shared/status.ts';
+import {
+  parseJsonRequest,
+  requireString,
+  optionalString,
+  optionalBoolean,
+  optionalNumber,
+  resolveRequestId,
+  respondWithError,
+} from '../_shared/request.ts';
+
+class RechargeWarpPowerError extends Error {
+  status: number;
+
+  constructor(message: string, status = 400) {
+    super(message);
+    this.name = 'RechargeWarpPowerError';
+    this.status = status;
+  }
+}
+
+const WARP_DEPOT_SECTOR = 0;
+const PRICE_PER_UNIT = 2;
+
+serve(async (req: Request): Promise<Response> => {
+  if (!validateApiToken(req)) {
+    return unauthorizedResponse();
+  }
+
+  const supabase = createServiceRoleClient();
+  let payload: Record<string, unknown>;
+  try {
+    payload = await parseJsonRequest(req);
+  } catch (err) {
+    const response = respondWithError(err);
+    if (response) {
+      return response;
+    }
+    console.error('recharge_warp_power.parse', err);
+    return errorResponse('invalid JSON payload', 400);
+  }
+
+  if (payload.healthcheck === true) {
+    return successResponse({ status: 'ok', token_present: Boolean(Deno.env.get('EDGE_API_TOKEN')) });
+  }
+
+  const requestId = resolveRequestId(payload);
+  const characterId = requireString(payload, 'character_id');
+  const actorCharacterId = optionalString(payload, 'actor_character_id');
+  const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
+
+  if (actorCharacterId && actorCharacterId !== characterId && !adminOverride) {
+    return errorResponse('actor_character_id must match character_id unless admin_override is true', 403);
+  }
+
+  try {
+    await enforceRateLimit(supabase, characterId, 'recharge_warp_power');
+  } catch (err) {
+    if (err instanceof RateLimitError) {
+      await emitErrorEvent(supabase, {
+        characterId,
+        method: 'recharge_warp_power',
+        requestId,
+        detail: 'Too many recharge_warp_power requests',
+        status: 429,
+      });
+      return errorResponse('Too many recharge_warp_power requests', 429);
+    }
+    console.error('recharge_warp_power.rate_limit', err);
+    return errorResponse('rate limit error', 500);
+  }
+
+  try {
+    return await handleRecharge(supabase, payload, characterId, requestId);
+  } catch (err) {
+    if (err instanceof RechargeWarpPowerError) {
+      await emitErrorEvent(supabase, {
+        characterId,
+        method: 'recharge_warp_power',
+        requestId,
+        detail: err.message,
+        status: err.status,
+      });
+      return errorResponse(err.message, err.status);
+    }
+    console.error('recharge_warp_power.unhandled', err);
+    await emitErrorEvent(supabase, {
+      characterId,
+      method: 'recharge_warp_power',
+      requestId,
+      detail: 'internal server error',
+      status: 500,
+    });
+    return errorResponse('internal server error', 500);
+  }
+});
+
+async function handleRecharge(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  payload: Record<string, unknown>,
+  characterId: string,
+  requestId: string,
+): Promise<Response> {
+  const source = buildEventSource('recharge_warp_power', requestId);
+
+  const unitsRaw = optionalNumber(payload, 'units');
+  if (unitsRaw === null || !Number.isInteger(unitsRaw) || unitsRaw <= 0) {
+    throw new RechargeWarpPowerError('units must be a positive integer', 400);
+  }
+  const unitsRequested = Math.floor(unitsRaw);
+
+  const character = await loadCharacter(supabase, characterId);
+  const ship = await loadShip(supabase, character.current_ship_id);
+  if (ship.in_hyperspace) {
+    throw new RechargeWarpPowerError('Character is in hyperspace, cannot recharge warp power', 400);
+  }
+  if (ship.current_sector !== WARP_DEPOT_SECTOR) {
+    throw new RechargeWarpPowerError(
+      `Warp power depot is only available in sector ${WARP_DEPOT_SECTOR}. You are in sector ${ship.current_sector ?? 'unknown'}`,
+      400,
+    );
+  }
+
+  const shipDefinition = await loadShipDefinition(supabase, ship.ship_type);
+  const currentWarpPower = ship.current_warp_power ?? shipDefinition.warp_power_capacity;
+  const remainingCapacity = shipDefinition.warp_power_capacity - currentWarpPower;
+  if (remainingCapacity <= 0) {
+    throw new RechargeWarpPowerError('Warp power is already at maximum', 400);
+  }
+
+  const unitsToBuy = Math.min(unitsRequested, remainingCapacity);
+  const totalCost = unitsToBuy * PRICE_PER_UNIT;
+  const currentCredits = ship.credits ?? 0;
+  if (currentCredits < totalCost) {
+    throw new RechargeWarpPowerError(
+      `Insufficient credits. Need ${totalCost} but only have ${currentCredits}`,
+      400,
+    );
+  }
+
+  const { error: updateError } = await supabase
+    .from('ship_instances')
+    .update({
+      current_warp_power: currentWarpPower + unitsToBuy,
+      credits: currentCredits - totalCost,
+    })
+    .eq('ship_id', ship.ship_id);
+  if (updateError) {
+    console.error('recharge_warp_power.update_ship', updateError);
+    throw new RechargeWarpPowerError('Failed to update ship state', 500);
+  }
+
+  await supabase
+    .from('characters')
+    .update({ last_active: new Date().toISOString() })
+    .eq('character_id', characterId);
+
+  const timestamp = new Date().toISOString();
+  const warpPayload = {
+    source,
+    character_id: characterId,
+    sector: { id: WARP_DEPOT_SECTOR },
+    units: unitsToBuy,
+    price_per_unit: PRICE_PER_UNIT,
+    total_cost: totalCost,
+    timestamp,
+    new_warp_power: currentWarpPower + unitsToBuy,
+    warp_power_capacity: shipDefinition.warp_power_capacity,
+    new_credits: currentCredits - totalCost,
+  };
+
+  await emitCharacterEvent({
+    supabase,
+    characterId,
+    eventType: 'warp.purchase',
+    payload: warpPayload,
+    requestId,
+  });
+
+  const statusPayload = await buildStatusPayload(supabase, characterId);
+  await emitCharacterEvent({
+    supabase,
+    characterId,
+    eventType: 'status.update',
+    payload: statusPayload,
+    requestId,
+  });
+
+  return successResponse({ request_id: requestId });
+}

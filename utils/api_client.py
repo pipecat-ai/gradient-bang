@@ -7,6 +7,7 @@ import asyncio
 import json
 import uuid
 import inspect
+import os
 import websockets
 
 from utils.summary_formatters import (
@@ -699,6 +700,7 @@ class AsyncGameClient:
         character_id: str,
         ship_type: Optional[str] = None,
         credits: Optional[int] = None,
+        sector: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Join the game with a character.
 
@@ -725,6 +727,8 @@ class AsyncGameClient:
             payload["ship_type"] = ship_type
         if credits is not None:
             payload["credits"] = int(credits)
+        if sector is not None:
+            payload["sector"] = int(sector)
 
         ack = await self._request("join", payload)
         return ack
@@ -1281,6 +1285,19 @@ class AsyncGameClient:
         )
         return ack
 
+
+LegacyAsyncGameClient = AsyncGameClient
+
+
+def _use_supabase_transport() -> bool:
+    flag = os.getenv("SUPABASE_TRANSPORT", "")
+    return flag.lower() in {"1", "true", "on", "yes"}
+
+
+if _use_supabase_transport():
+    from utils.supabase_client import AsyncGameClient as _SupabaseAsyncGameClient  # type: ignore
+
+    AsyncGameClient = _SupabaseAsyncGameClient  # type: ignore[assignment]
     async def purchase_fighters(
         self,
         *,

@@ -1,40 +1,53 @@
-"""
-Event capture infrastructure for integration tests.
-
-This module provides utilities for capturing and validating game events during
-tests. Events are the real API - API responses are simple (ok/error), but events
-contain all the actual game state changes and data.
-"""
+"""Event capture helpers for integration and diagnostics tests."""
 
 import asyncio
 import json
-from typing import List, Dict, Any, Optional
-import websockets
+import os
 from contextlib import asynccontextmanager
+from typing import Any, Dict, List, Optional
+
+import websockets
+
+from utils.legacy_ids import canonicalize_character_id
+
+try:
+    from realtime import AsyncRealtimeClient, RealtimeSubscribeStates
+except ImportError:  # pragma: no cover - realtime is available in test deps
+    AsyncRealtimeClient = None  # type: ignore
+    RealtimeSubscribeStates = None  # type: ignore
+
+
+_TRUTHY = {"1", "true", "on", "yes"}
+
+
+def _env_truthy(name: str, default: str = "0") -> bool:
+    return os.environ.get(name, default).strip().lower() in _TRUTHY
+
+
+USE_SUPABASE_TESTS = _env_truthy("USE_SUPABASE_TESTS")
 
 
 class EventListener:
-    """
-    Captures events from firehose or character-specific streams.
-
-    This class connects to a WebSocket event stream and captures events
-    for validation in tests.
-    """
+    """Capture events from either the FastAPI firehose or Supabase Realtime."""
 
     def __init__(self, server_url: str, character_id: Optional[str] = None):
-        """
-        Initialize the event listener.
-
-        Args:
-            server_url: Base URL of the server (e.g., "http://localhost:8002")
-            character_id: Optional character ID for filtered events (not implemented yet)
-        """
-        self.server_url = server_url
+        self.server_url = server_url.rstrip("/") if server_url else server_url
         self.character_id = character_id
         self.events: List[Dict[str, Any]] = []
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
         self._listen_task: Optional[asyncio.Task] = None
         self._connected = False
+        self._supabase_mode = USE_SUPABASE_TESTS
+        self._rt_client: Optional[AsyncRealtimeClient] = None
+        self._rt_channel = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._canonical_character_id: Optional[str] = None
+        if self._supabase_mode:
+            if not character_id:
+                raise ValueError(
+                    "Supabase event capture requires character_id when USE_SUPABASE_TESTS=1"
+                )
+            self._canonical_character_id = canonicalize_character_id(character_id)
 
     async def __aenter__(self):
         """Connect to event stream."""
@@ -46,29 +59,34 @@ class EventListener:
         await self.disconnect()
 
     async def connect(self):
-        """Connect to the WebSocket event stream."""
+        """Connect to the websocket or Supabase broadcast channel."""
+        if self._supabase_mode:
+            await self._connect_supabase()
+            return
+
         ws_url = self.server_url.replace("http://", "ws://").replace("https://", "wss://")
         ws_url = ws_url.rstrip("/") + "/ws"
 
         self.websocket = await websockets.connect(ws_url)
         self._connected = True
 
-        # If we have a character_id, identify to receive character-specific events
         if self.character_id:
-            import json
             identify_msg = {
                 "type": "identify",
                 "character_id": self.character_id,
-                "id": "identify-1"
+                "id": "identify-1",
             }
             await self.websocket.send(json.dumps(identify_msg))
 
-        # Start listening in background
         self._listen_task = asyncio.create_task(self._listen())
 
     async def disconnect(self):
         """Disconnect from the WebSocket."""
         self._connected = False
+
+        if self._supabase_mode:
+            await self._disconnect_supabase()
+            return
 
         if self._listen_task:
             self._listen_task.cancel()
@@ -81,7 +99,9 @@ class EventListener:
             await self.websocket.close()
 
     async def _listen(self):
-        """Background task to listen for events."""
+        """Background task to listen for FastAPI websocket events."""
+        if self._supabase_mode:
+            return
         try:
             while self._connected and self.websocket:
                 try:
@@ -107,6 +127,106 @@ class EventListener:
         except asyncio.CancelledError:
             # Task was cancelled, clean exit
             pass
+
+    async def _connect_supabase(self) -> None:
+        if AsyncRealtimeClient is None or RealtimeSubscribeStates is None:
+            raise RuntimeError(
+                "realtime library is unavailable; install dependencies or disable USE_SUPABASE_TESTS"
+            )
+        if not self.character_id:
+            raise ValueError(
+                "Supabase event capture requires character_id. Pass one to create_firehose_listener()."
+            )
+
+        supabase_url = self.server_url or os.environ.get("SUPABASE_URL", "http://127.0.0.1:54321")
+        realtime_url = f"{supabase_url.rstrip('/')}/realtime/v1"
+        anon_key = os.environ.get("SUPABASE_ANON_KEY", "anon-key")
+
+        self._loop = asyncio.get_running_loop()
+        self._rt_client = AsyncRealtimeClient(
+            url=realtime_url,
+            token=anon_key,
+            auto_reconnect=True,
+        )
+
+        topic = f"public:character:{self._canonical_character_id}"
+        params = {
+            "config": {
+                "broadcast": {"ack": False, "self": False},
+                "presence": {"enabled": False, "key": ""},
+                "private": False,
+            }
+        }
+
+        channel = self._rt_client.channel(topic, params)
+        channel.broadcast_callbacks.append(self._handle_supabase_broadcast)
+
+        loop = asyncio.get_running_loop()
+        subscribed = loop.create_future()
+
+        def _callback(state, error):
+            if subscribed.done():
+                return
+            if state == RealtimeSubscribeStates.SUBSCRIBED:
+                subscribed.set_result(None)
+            elif state in {
+                RealtimeSubscribeStates.CHANNEL_ERROR,
+                RealtimeSubscribeStates.TIMED_OUT,
+                RealtimeSubscribeStates.CLOSED,
+            }:
+                subscribed.set_exception(
+                    error
+                    or RuntimeError(f"Supabase realtime subscribe failed: {getattr(state, 'value', state)}")
+                )
+
+        await channel.subscribe(callback=_callback)
+        await asyncio.wait_for(subscribed, timeout=5.0)
+
+        self._rt_channel = channel
+        self._connected = True
+
+    async def _disconnect_supabase(self) -> None:
+        if self._rt_channel is not None:
+            try:
+                await self._rt_channel.unsubscribe()
+            except Exception:  # noqa: BLE001
+                pass
+            self._rt_channel = None
+        if self._rt_client is not None:
+            try:
+                await self._rt_client.close()
+            except Exception:  # noqa: BLE001
+                pass
+            self._rt_client = None
+        self._loop = None
+
+    def _handle_supabase_broadcast(self, message: Dict[str, Any]) -> None:
+        event_type = message.get("event")
+        payload = message.get("payload") or {}
+        if not event_type:
+            return
+
+        normalized_payload = payload.copy() if isinstance(payload, dict) else {"value": payload}
+        event_id = normalized_payload.pop("__event_id", None)
+
+        frame: Dict[str, Any] = {
+            "type": event_type,
+            "event": event_type,
+            "frame_type": "event",
+            "payload": normalized_payload,
+            "event_id": event_id,
+            "topic": message.get("topic"),
+        }
+
+        source = normalized_payload.get("source")
+        if isinstance(source, dict) and "timestamp" in source:
+            frame["timestamp"] = source["timestamp"]
+
+        loop = self._loop
+        if loop is not None:
+            loop.call_soon_threadsafe(self.events.append, frame)
+        else:  # pragma: no cover - only for shutdown edge cases
+            self.events.append(frame)
 
     async def wait_for_event(self, event_type: str, timeout: float = 10.0) -> Dict[str, Any]:
         """
@@ -223,6 +343,11 @@ async def create_event_listener(
     Yields:
         EventListener instance
     """
+    if USE_SUPABASE_TESTS and not character_id:
+        raise RuntimeError(
+            "USE_SUPABASE_TESTS=1 requires character_id for event listeners to subscribe to Supabase channels."
+        )
+
     listener = EventListener(server_url, character_id)
     async with listener:
         yield listener
@@ -240,6 +365,11 @@ async def create_firehose_listener(server_url: str, character_id: Optional[str] 
     Yields:
         EventListener instance configured for firehose
     """
+    if USE_SUPABASE_TESTS and not character_id:
+        raise RuntimeError(
+            "USE_SUPABASE_TESTS=1 requires character_id for firehose listeners; Supabase has per-character channels."
+        )
+
     listener = EventListener(server_url, character_id=character_id)
     async with listener:
         yield listener
@@ -256,6 +386,11 @@ async def capture_events_during(async_fn, server_url: str) -> List[Dict[str, Any
     Returns:
         List of events captured during the operation
     """
+    if USE_SUPABASE_TESTS:
+        raise RuntimeError(
+            "capture_events_during is unsupported with USE_SUPABASE_TESTS=1. Use explicit create_firehose_listener with a character_id."
+        )
+
     async with create_firehose_listener(server_url) as listener:
         # Wait a moment for listener to connect
         await asyncio.sleep(0.5)

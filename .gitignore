@@ -31,12 +31,16 @@ logs/
 
 # Environments
 .env
+.env.supabase
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Local secrets
+planning-files/.secrets
 
 # System
 .DS_Store
