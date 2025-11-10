@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from tests.edge.support.characters import char_id
+from tests.edge.support.state import reset_character_state
 
 API_URL = os.environ.get('SUPABASE_URL', 'http://127.0.0.1:54321')
 EDGE_URL = os.environ.get('EDGE_FUNCTIONS_URL', f"{API_URL}/functions/v1")
@@ -34,8 +35,7 @@ def _call(function: str, payload: dict) -> httpx.Response:
 
 
 def _reset_character(sector: int = 0) -> None:
-    resp = _call('join', {'character_id': CHARACTER_ID, 'sector': sector})
-    resp.raise_for_status()
+    reset_character_state(CHARACTER_ID, sector=sector)
 
 
 def _service_headers() -> dict:

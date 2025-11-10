@@ -2,21 +2,16 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 import uuid
 import logging
 from typing import Any, Dict, Mapping, Optional
 
 import httpx
-from realtime import (
-    AsyncRealtimeChannel,
-    AsyncRealtimeClient,
-    RealtimeSubscribeStates,
-)
 
 from utils.api_client import AsyncGameClient as LegacyAsyncGameClient, RPCError
 from utils.legacy_ids import canonicalize_character_id
+from utils.supabase_realtime import SupabaseRealtimeListener
 
 
 logger = logging.getLogger(__name__)
@@ -98,11 +93,7 @@ class AsyncGameClient(LegacyAsyncGameClient):
         self._http = httpx.AsyncClient(timeout=10.0)
         self._requested_transport = requested_transport
 
-        self._realtime_client: Optional[AsyncRealtimeClient] = None
-        self._realtime_channel: Optional[AsyncRealtimeChannel] = None
-        self._realtime_lock = asyncio.Lock()
-        self._realtime_ready = asyncio.Event()
-        self._last_event_id: Optional[int] = None
+        self._realtime_listener: Optional[SupabaseRealtimeListener] = None
         self._realtime_subscribe_timeout = float(
             os.getenv("SUPABASE_REALTIME_SUBSCRIBE_TIMEOUT", "5")
         )
@@ -118,13 +109,15 @@ class AsyncGameClient(LegacyAsyncGameClient):
         if self._http:
             await self._http.aclose()
             self._http = None
-        await self._shutdown_realtime()
+        if self._realtime_listener is not None:
+            await self._realtime_listener.stop()
+            self._realtime_listener = None
 
     async def _ensure_ws(self):  # type: ignore[override]
         return  # Supabase transport does not use legacy websockets
 
     async def _request(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:  # type: ignore[override]
-        await self._ensure_realtime_channel()
+        await self._ensure_realtime_listener()
 
         req_id = str(uuid.uuid4())
         enriched = self._inject_character_ids(payload)
@@ -304,141 +297,29 @@ class AsyncGameClient(LegacyAsyncGameClient):
     def _character_topic(self) -> str:
         return f"public:character:{self._canonical_character_id}"
 
-    async def _ensure_realtime_channel(self) -> None:
-        if self._realtime_channel is not None:
-            await self._realtime_ready.wait()
-            return
-
-        async with self._realtime_lock:
-            if self._realtime_channel is not None:
-                await self._realtime_ready.wait()
-                return
-
-            topic = self._character_topic()
-            logger.info("supabase realtime subscribe starting", extra={"topic": topic})
-            self._realtime_ready.clear()
-            realtime_url = f"{self._supabase_url}/realtime/v1"
-            client = AsyncRealtimeClient(
-                url=realtime_url,
-                token=self._anon_key,
-                auto_reconnect=True,
+    async def _ensure_realtime_listener(self) -> None:
+        if self._realtime_listener is None:
+            listener = SupabaseRealtimeListener(
+                supabase_url=self._supabase_url,
+                anon_key=self._anon_key,
+                topic=self._character_topic(),
+                subscribe_timeout=self._realtime_subscribe_timeout,
             )
-            self._realtime_client = client
-            params = {
-                "config": {
-                    "broadcast": {"ack": False, "self": False},
-                    "presence": {"key": "", "enabled": False},
-                    "private": False,
-                }
-            }
-            channel = client.channel(topic, params)
-            channel.broadcast_callbacks.append(self._handle_broadcast)
+            listener.on_any(self._handle_realtime_event)
+            self._realtime_listener = listener
 
-            loop = asyncio.get_running_loop()
-            subscribe_future: asyncio.Future[None] = loop.create_future()
+        await self._realtime_listener.start()
 
-            def _subscription_callback(state, error):
-                state_value = getattr(state, "value", state)
-                logger.info(
-                    "supabase realtime subscribe state",
-                    extra={
-                        "topic": topic,
-                        "state": state_value,
-                        "error": str(error) if error else None,
-                    },
-                )
-                if subscribe_future.done():
-                    return
-                if state == RealtimeSubscribeStates.SUBSCRIBED:
-                    subscribe_future.set_result(None)
-                elif state in {
-                    RealtimeSubscribeStates.CHANNEL_ERROR,
-                    RealtimeSubscribeStates.TIMED_OUT,
-                    RealtimeSubscribeStates.CLOSED,
-                }:
-                    subscribe_future.set_exception(
-                        error
-                        or RuntimeError(
-                            f"supabase realtime subscribe failed: {state_value}"
-                        )
-                    )
-
-            await channel.subscribe(callback=_subscription_callback)
-
-            try:
-                await asyncio.wait_for(
-                    subscribe_future, timeout=self._realtime_subscribe_timeout
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.exception(
-                    "supabase realtime subscribe failed", extra={"topic": topic}
-                )
-                await self._teardown_failed_realtime(channel)
-                raise RuntimeError(
-                    "failed to establish Supabase realtime subscription"
-                ) from exc
-
-            logger.info("supabase realtime subscribed", extra={"topic": topic})
-            self._realtime_channel = channel
-            self._realtime_ready.set()
-
-    async def _shutdown_realtime(self) -> None:
-        if self._realtime_channel is not None:
-            try:
-                await self._realtime_channel.unsubscribe()
-            except Exception:  # noqa: BLE001
-                pass
-            self._realtime_channel = None
-        if self._realtime_client is not None:
-            try:
-                await self._realtime_client.close()
-            except Exception:  # noqa: BLE001
-                pass
-        self._realtime_client = None
-        self._realtime_ready.clear()
-
-    async def _teardown_failed_realtime(self, channel: AsyncRealtimeChannel) -> None:
-        try:
-            await channel.unsubscribe()
-        except Exception:  # noqa: BLE001
-            pass
-        if self._realtime_client is not None:
-            try:
-                await self._realtime_client.close()
-            except Exception:  # noqa: BLE001
-                pass
-        self._realtime_client = None
-        self._realtime_channel = None
-        self._realtime_ready.clear()
-
-    def _handle_broadcast(self, message: Dict[str, Any]) -> None:
-        event_name = message.get("event")
-        payload = message.get("payload")
-        if not event_name:
-            return
-        if not isinstance(payload, dict):
-            payload = {}
-        event_id = payload.pop("__event_id", None)
-        if isinstance(event_id, int):
-            if self._last_event_id is not None and event_id <= self._last_event_id:
-                logger.debug(
-                    "supabase realtime dropping duplicate event",
-                    extra={"event": event_name, "event_id": event_id},
-                )
-                return
-            self._last_event_id = event_id
-
+    async def _handle_realtime_event(
+        self,
+        event_name: str,
+        payload: Dict[str, Any],
+    ) -> None:
         logger.info(
             "supabase realtime event received",
             extra={
                 "event": event_name,
-                "event_id": event_id,
                 "payload_keys": list(payload.keys()),
             },
         )
-
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return
-        loop.create_task(self._process_event(event_name, payload))
+        await self._process_event(event_name, payload)

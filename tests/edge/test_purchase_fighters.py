@@ -5,6 +5,7 @@ import httpx
 import pytest
 
 from tests.edge.support.characters import char_id
+from tests.edge.support.state import reset_character_state
 
 API_URL = os.environ.get('SUPABASE_URL', 'http://127.0.0.1:54321')
 EDGE_URL = os.environ.get('EDGE_FUNCTIONS_URL', f"{API_URL}/functions/v1")
@@ -91,8 +92,7 @@ def _latest_event(character_id: str, event_type: str) -> Dict[str, Any]:
 
 
 def _reset_character(character_id: str, *, sector: int) -> None:
-    resp = _call('join', {'character_id': character_id, 'sector': sector})
-    resp.raise_for_status()
+    reset_character_state(character_id, sector=sector)
 
 
 def _patch_ship(ship_id: str, payload: Dict[str, Any]) -> None:

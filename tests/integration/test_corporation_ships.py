@@ -10,7 +10,11 @@ from pathlib import Path
 import pytest
 
 from utils.api_client import AsyncGameClient, RPCError
-from helpers.corporation_utils import managed_client, reset_corporation_test_state
+from helpers.corporation_utils import (
+    managed_client,
+    reset_corporation_test_state,
+    REQUIRED_CORPORATION_FUNCTIONS,
+)
 
 
 pytestmark = [
@@ -18,6 +22,7 @@ pytestmark = [
     pytest.mark.integration,
     pytest.mark.requires_server,
     pytest.mark.timeout(60),
+    pytest.mark.requires_supabase_functions(*REQUIRED_CORPORATION_FUNCTIONS),
 ]
 
 SHIPS_PATH = Path("tests/test-world-data/ships.json")

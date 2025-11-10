@@ -5,10 +5,19 @@ from __future__ import annotations
 import pytest
 
 from utils.api_client import RPCError
-from helpers.corporation_utils import managed_client, reset_corporation_test_state
+from helpers.corporation_utils import (
+    managed_client,
+    reset_corporation_test_state,
+    REQUIRED_CORPORATION_FUNCTIONS,
+)
 
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.integration,
+    pytest.mark.requires_server,
+    pytest.mark.requires_supabase_functions(*REQUIRED_CORPORATION_FUNCTIONS),
+]
 
 
 @pytest.fixture(autouse=True)

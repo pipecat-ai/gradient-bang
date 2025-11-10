@@ -22,6 +22,8 @@ export interface EventSource {
 }
 
 const OBSERVER_DEBUG = (Deno.env.get('SUPABASE_OBSERVER_DEBUG') ?? '0').toLowerCase() === '1';
+const MAX_BROADCAST_ATTEMPTS = Math.max(1, Number(Deno.env.get('EDGE_BROADCAST_RETRIES') ?? '3'));
+const BROADCAST_RETRY_DELAY_MS = Math.max(0, Number(Deno.env.get('EDGE_BROADCAST_RETRY_DELAY_MS') ?? '40'));
 
 export function buildEventSource(method: string, requestId: string, sourceType = 'rpc'): EventSource {
   return {
@@ -190,54 +192,32 @@ async function publishRealtime(
   const endpoint = `${baseUrl.replace(/\/$/, '')}/realtime/v1/api/broadcast`;
   const errors: string[] = [];
 
-  await Promise.all(
-    topics.map(async (topic) => {
-      const sanitizedTopic = sanitizeTopic(topic);
-      if (!sanitizedTopic) {
-        return;
-      }
-      const realtimeTopic = sanitizedTopic;
-      const payloadCopy = typeof payload === 'object' && payload !== null ? { ...payload } : { value: payload };
-      if (eventId !== undefined) {
-        payloadCopy.__event_id = eventId;
-      }
+  for (const topic of topics) {
+    const sanitizedTopic = sanitizeTopic(topic);
+    if (!sanitizedTopic) {
+      continue;
+    }
+    const realtimeTopic = sanitizedTopic;
+    const payloadCopy = typeof payload === 'object' && payload !== null ? { ...payload } : { value: payload };
+    if (eventId !== undefined) {
+      payloadCopy.__event_id = eventId;
+    }
 
-      try {
-        debugRealtime('broadcast.attempt', { eventType, topic: sanitizedTopic });
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            apikey: serviceKey,
-            Authorization: `Bearer ${serviceKey}`,
-          },
-          body: JSON.stringify({
-            messages: [
-              {
-                type: 'broadcast',
-                topic: realtimeTopic,
-                event: eventType,
-                payload: payloadCopy,
-                private: false,
-              },
-            ],
-          }),
-        });
-        debugRealtime('broadcast.response', { eventType, topic: sanitizedTopic, status: response.status });
-
-        if (!response.ok) {
-          const detail = await response.text();
-          const message = `failed to broadcast ${eventType} to ${sanitizedTopic}: ${response.status} ${detail}`;
-          console.error('broadcast.error', message);
-          errors.push(message);
-        }
-      } catch (error) {
-        const message = `error broadcasting ${eventType} to ${sanitizedTopic}: ${error instanceof Error ? error.message : String(error)}`;
-        console.error('broadcast.exception', message);
-        errors.push(message);
-      }
-    }),
-  );
+    try {
+      await sendBroadcastWithRetry({
+        endpoint,
+        serviceKey,
+        eventType,
+        topic: sanitizedTopic,
+        realtimeTopic,
+        payload: payloadCopy,
+      });
+    } catch (error) {
+      const message = `error broadcasting ${eventType} to ${sanitizedTopic}: ${error instanceof Error ? error.message : String(error)}`;
+      console.error('broadcast.exception', message);
+      errors.push(message);
+    }
+  }
 
   if (errors.length) {
     throw new Error(errors[0]);
@@ -264,4 +244,59 @@ function debugRealtime(message: string, data?: Record<string, unknown>): void {
   } else {
     console.log(message);
   }
+}
+
+async function sendBroadcastWithRetry(options: {
+  endpoint: string;
+  serviceKey: string;
+  eventType: string;
+  topic: string;
+  realtimeTopic: string;
+  payload: Record<string, unknown>;
+}): Promise<void> {
+  const { endpoint, serviceKey, eventType, topic, realtimeTopic, payload } = options;
+
+  for (let attempt = 1; attempt <= MAX_BROADCAST_ATTEMPTS; attempt += 1) {
+    debugRealtime('broadcast.attempt', { eventType, topic, attempt });
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+      },
+      body: JSON.stringify({
+        messages: [
+          {
+            type: 'broadcast',
+            topic: realtimeTopic,
+            event: eventType,
+            payload,
+            private: false,
+          },
+        ],
+      }),
+    });
+
+    debugRealtime('broadcast.response', { eventType, topic, status: response.status, attempt });
+
+    if (response.ok) {
+      return;
+    }
+
+    if (response.status === 429 && attempt < MAX_BROADCAST_ATTEMPTS) {
+      await delay(BROADCAST_RETRY_DELAY_MS * attempt);
+      continue;
+    }
+
+    const detail = await response.text();
+    throw new Error(`failed to broadcast ${eventType} to ${topic}: ${response.status} ${detail}`);
+  }
+}
+
+function delay(ms: number): Promise<void> {
+  if (ms <= 0) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

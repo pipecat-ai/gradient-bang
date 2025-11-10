@@ -14,9 +14,15 @@ import pytest
 
 from utils.api_client import AsyncGameClient, RPCError
 from helpers.combat_helpers import create_test_character_knowledge
+from helpers.corporation_utils import REQUIRED_CORPORATION_FUNCTIONS
 
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.integration,
+    pytest.mark.requires_server,
+    pytest.mark.requires_supabase_functions(*REQUIRED_CORPORATION_FUNCTIONS),
+]
 
 
 async def _status_snapshot(client: AsyncGameClient, character_id: str) -> dict:

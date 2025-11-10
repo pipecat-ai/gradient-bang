@@ -303,6 +303,7 @@ import httpx
 import pytest
 from helpers.character_setup import register_all_test_characters
 from helpers.supabase_reset import reset_supabase_state
+from helpers.supabase_features import missing_supabase_functions
 from helpers.server_fixture import (
     start_test_server,
     stop_test_server,
@@ -313,6 +314,14 @@ from utils import api_client as _api_client_module
 
 _TRUTHY = {"1", "true", "on", "yes"}
 
+_CUSTOM_MARKERS = {
+    "unit": "Unit tests (fast, no server needed)",
+    "integration": "Integration tests (may need server)",
+    "requires_server": "Requires live server on port 8002",
+    "stress": "Stress tests (slow, concurrent operations)",
+    "requires_supabase_functions": "Skip when the named Supabase edge functions have not been implemented",
+}
+
 
 def _env_truthy(name: str, default: str = "0") -> bool:
     return os.environ.get(name, default).strip().lower() in _TRUTHY
@@ -322,6 +331,12 @@ MANUAL_SUPABASE_STACK = _env_truthy("SUPABASE_MANUAL_STACK")
 
 
 USE_SUPABASE_TESTS = _env_truthy("USE_SUPABASE_TESTS")
+SUPABASE_BACKEND_ACTIVE = USE_SUPABASE_TESTS or bool(os.environ.get("SUPABASE_URL"))
+
+
+def pytest_configure(config):
+    for name, description in _CUSTOM_MARKERS.items():
+        config.addinivalue_line("markers", f"{name}: {description}")
 
 
 def _resolve_supabase_cli_command() -> Optional[List[str]]:
@@ -1014,3 +1029,23 @@ async def reset_test_state(server_url, supabase_environment):  # noqa: ARG001 - 
         await client.close()
     except Exception as e:  # noqa: BLE001
         logger.debug("Test reset skipped or failed: %s", e)
+
+
+def pytest_collection_modifyitems(config, items):
+    if not SUPABASE_BACKEND_ACTIVE:
+        return
+
+    for item in items:
+        marker = item.get_closest_marker("requires_supabase_functions")
+        if not marker:
+            continue
+
+        required = list(marker.args)
+        required.extend(marker.kwargs.get("names", []))
+        if not required:
+            continue
+
+        missing = missing_supabase_functions(tuple(required))
+        if missing:
+            reason = "Missing Supabase functions: " + ", ".join(sorted(missing))
+            item.add_marker(pytest.mark.skip(reason=reason))
