@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from utils.api_client import AsyncGameClient
+if os.getenv("SUPABASE_URL"):
+    from utils.supabase_client import AsyncGameClient
+else:
+    from utils.api_client import AsyncGameClient
 
 
 async def ensure_position(

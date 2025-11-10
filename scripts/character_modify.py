@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import getpass
+import os
 from pathlib import Path
 import sys
 from typing import Any, Dict, Optional
@@ -115,12 +116,32 @@ async def main() -> int:
     parser.add_argument("--character-id", help="Character UUID to modify")
     parser.add_argument("--client-id", default="admin-tool", help="Identifier to register this admin connection")
     parser.add_argument("--admin-password", help="Admin password (prompted if required and not provided)")
+    parser.add_argument(
+        "--supabase",
+        action="store_true",
+        help="Force Supabase admin mode (default when SUPABASE_URL is set)",
+    )
+    parser.add_argument(
+        "--legacy",
+        action="store_true",
+        help="Force legacy FastAPI RPC mode",
+    )
     args = parser.parse_args()
 
     character_id = args.character_id or _prompt("Character UUID: ")
     if not character_id:
         print("Character ID is required.")
         return 1
+
+    payload = _collect_payload()
+    if not payload:
+        print("No changes specified; aborting.")
+        return 0
+
+    use_supabase = _should_use_supabase_mode(args)
+    if use_supabase:
+        os.environ.setdefault("SUPABASE_ALLOW_LEGACY_IDS", "1")
+        return await _modify_via_supabase(character_id, payload)
 
     password_required = _admin_password_required()
     admin_password = args.admin_password
@@ -129,10 +150,6 @@ async def main() -> int:
         if not admin_password:
             print("Admin password is required.")
             return 1
-    payload = _collect_payload()
-    if not payload:
-        print("No changes specified; aborting.")
-        return 0
 
     try:
         async with AsyncGameClient(base_url=args.server, character_id=args.client_id) as client:
@@ -148,6 +165,42 @@ async def main() -> int:
         print(f"Update failed: {exc}")
         return 1
     print("Update complete:", result)
+    return 0
+
+
+def _should_use_supabase_mode(args: argparse.Namespace) -> bool:
+    if args.legacy:
+        return False
+    if args.supabase:
+        return True
+    return bool(os.getenv("SUPABASE_URL"))
+
+
+async def _modify_via_supabase(character_id: str, payload: Dict[str, Any]) -> int:
+    try:
+        from utils.supabase_admin import SupabaseAdminClient, SupabaseAdminError
+    except ImportError as exc:  # pragma: no cover - dependency missing
+        print(f"Supabase admin helpers unavailable: {exc}")
+        return 1
+
+    try:
+        async with SupabaseAdminClient() as admin:
+            result = await admin.modify_character(
+                character_id=character_id,
+                name=payload.get("name"),
+                player=payload.get("player"),
+                ship=payload.get("ship"),
+            )
+    except SupabaseAdminError as exc:
+        print(f"Supabase character update failed: {exc}")
+        return 1
+
+    print("✓ Supabase character updated.")
+    if result.get("character"):
+        print(f"  Name: {result['character'].get('name')}")
+    if result.get("ship"):
+        ship = result["ship"]
+        print(f"  Ship: {ship.get('ship_id')} ({ship.get('ship_type')})")
     return 0
 
 

@@ -970,6 +970,17 @@ Current CLAUDE.md has extensive FastAPI architecture documentation. Post-migrati
 3. **Database Migrations** (how to modify schema)
 4. **Monitoring & Debugging** (Supabase Studio, logs)
 
+### 18.2 Local Test Harness Expectations (Edge + Supabase)
+
+The existing `tests/edge/conftest.py` fixture **already spins up the entire Supabase local stack** (via `supabase start`, `supabase db reset`, and `supabase functions serve`). That means every developer can run any edge test in their normal loop—no manual docker orchestration required beyond ensuring the Supabase CLI is available. If a test fails with `404 Function not found`, assume the local stack is stale and simply run:
+
+```bash
+npx supabase stop
+npx supabase start
+```
+
+After that, rerun `pytest tests/edge -q` and the fixture will: (1) load `.env.supabase`, (2) ensure containers are healthy, (3) reseed via the `test_reset` edge function, and (4) tail logs into `logs/edge-functions.log`. Document this workflow prominently so teammates know that **edge tests will always bootstrap Supabase automatically**, and that a quick stop/start cycle is the fastest way to recover from local corruption.
+
 **Example Addition:**
 ```markdown
 ## Supabase Architecture

@@ -13,7 +13,10 @@ from loguru import logger
 # Ensure project modules are importable when running as a script
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from utils.api_client import AsyncGameClient
+if os.getenv("SUPABASE_URL"):
+    from utils.supabase_client import AsyncGameClient
+else:
+    from utils.api_client import AsyncGameClient
 from utils.task_agent import TaskAgent
 
 DEFAULT_MODEL = "gemini-2.5-flash-preview-09-2025"

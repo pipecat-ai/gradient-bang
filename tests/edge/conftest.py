@@ -3,14 +3,22 @@ import os
 import shlex
 import subprocess
 import time
+from contextlib import suppress
 from pathlib import Path
 from typing import Dict, IO, Optional, Tuple
 
 import httpx
 import pytest
+try:
+    import resource
+except ImportError:  # pragma: no cover - platform without resource module
+    resource = None
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+SUPABASE_WORKDIR = REPO_ROOT / 'supabase'
+if not SUPABASE_WORKDIR.exists():
+    SUPABASE_WORKDIR = REPO_ROOT
 ENV_PATH = REPO_ROOT / '.env.supabase'
 LOG_DIR = REPO_ROOT / 'logs'
 SUPABASE_CLIENT_LOG_PATH = LOG_DIR / 'supabase-client.log'
@@ -39,8 +47,36 @@ def _resolve_cli_command() -> list[str] | None:
     return None
 
 
+def _raise_nofile_limit(target: int = 16384) -> None:
+    if resource is None:
+        return
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    desired = min(hard, max(soft, target))
+    if soft < desired:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (desired, hard))
+
+
 CLI_COMMAND = _resolve_cli_command()
 FUNCTION_PROC: Optional[Tuple[subprocess.Popen[str], IO[str]]] = None
+TRUTHY = {'1', 'true', 'on'}
+MANUAL_STACK = os.environ.get('SUPABASE_MANUAL_STACK', '').lower() in TRUTHY
+# Provide actionable guidance when CLI automation fails
+MANUAL_STACK_HINT = (
+    'Either allow pytest to start Supabase automatically (requires Docker + supabase CLI) '
+    'or export SUPABASE_MANUAL_STACK=1 after manually running the commands in docs/runbooks/supabase.md '
+    '(`npx supabase start`, `curl …/test_reset`, `npx supabase functions serve --env-file .env.supabase --no-verify-jwt`).'
+)
+USE_SUPABASE_TESTS = os.environ.get('USE_SUPABASE_TESTS', '').lower() in TRUTHY
+
+
+def _cli_args(*args: str) -> list[str]:
+    if CLI_COMMAND is None:
+        raise RuntimeError('Supabase CLI is not available.')
+    cmd = [*CLI_COMMAND]
+    cmd.extend(args)
+    return cmd
+
+
 FUNCTIONS_UNDER_TEST = (
     'join',
     'my_status',
@@ -70,6 +106,30 @@ def _edge_url() -> str:
     return os.environ.get('EDGE_FUNCTIONS_URL', f"{base.rstrip('/')}/functions/v1")
 
 
+def _edge_request_headers(include_token: bool = True) -> Dict[str, str]:
+    anon = os.environ.get('SUPABASE_ANON_KEY', 'anon-key')
+    headers: Dict[str, str] = {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {anon}',
+        'apikey': anon,
+    }
+    if not include_token:
+        return headers
+
+    token = (
+        os.environ.get('EDGE_API_TOKEN')
+        or os.environ.get('SUPABASE_API_TOKEN')
+        or os.environ.get('SUPABASE_SERVICE_ROLE_KEY')
+    )
+    if not token:
+        raise RuntimeError(
+            'EDGE_API_TOKEN (or SUPABASE_API_TOKEN) must be set. '
+            'Load .env.supabase before running edge tests.'
+        )
+    headers['x-api-token'] = token
+    return headers
+
+
 def _load_env() -> Dict[str, str]:
     if not ENV_PATH.exists():
         raise RuntimeError(
@@ -97,10 +157,11 @@ def _run_cli(*args: str, check: bool = False):
         raise RuntimeError('Supabase CLI is not available. Install supabase or set SUPABASE_CLI_COMMAND.')
 
     return subprocess.run(
-        [*CLI_COMMAND, *args],
+        _cli_args(*args),
         capture_output=True,
         text=True,
         check=check,
+        cwd=str(SUPABASE_WORKDIR),
     )
 
 
@@ -116,16 +177,22 @@ def _start_stack() -> None:
     if CLI_COMMAND is None:
         raise RuntimeError('Supabase CLI is not available; cannot start local stack')
 
-    proc = subprocess.Popen(
-        [*CLI_COMMAND, 'start'],
-        cwd=str(REPO_ROOT),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
+    start_cmd = _cli_args('start', '--ignore-health-check')
+    try:
+        proc = subprocess.Popen(
+            start_cmd,
+            cwd=str(SUPABASE_WORKDIR),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            preexec_fn=lambda: _raise_nofile_limit(),
+        )
+    except OSError as exc:  # e.g., Docker missing
+        raise RuntimeError(f'Failed to spawn `supabase start`: {exc}. {MANUAL_STACK_HINT}') from exc
 
     if not proc.stdout:
-        raise RuntimeError('Failed to capture supabase start output')
+        proc.terminate()
+        raise RuntimeError(f'Failed to capture supabase start output. {MANUAL_STACK_HINT}')
 
     ready_markers = {'API URL': False, 'Studio URL': False}
     timeout = 180.0
@@ -139,7 +206,7 @@ def _start_stack() -> None:
             break
         if time.time() - start_time > timeout:
             proc.terminate()
-            raise RuntimeError('Timed out waiting for supabase start to finish')
+            raise RuntimeError(f'Timed out waiting for supabase start to finish. {MANUAL_STACK_HINT}')
 
     proc.wait(timeout=30)
 
@@ -150,7 +217,10 @@ def _reset_database() -> None:
 
     result = _run_cli('--yes', 'db', 'reset')
     if result.returncode != 0:
-        raise RuntimeError(f'Supabase db reset failed: {result.stderr or result.stdout}')
+        details = result.stderr or result.stdout or '<no output>'
+        raise RuntimeError(
+            f'Supabase db reset failed: {details.strip()}\n{MANUAL_STACK_HINT}'
+        )
 
 
 def _function_available(name: str) -> bool:
@@ -178,6 +248,70 @@ def _function_available(name: str) -> bool:
     if payload.get('status') != 'ok':
         return False
     return bool(payload.get('token_present'))
+
+
+def _require_manual_stack_ready() -> None:
+    """Ensure a manually started Supabase stack is usable for edge tests."""
+
+    health_payload = _fetch_health_payload('join')
+    if health_payload is None:
+        raise RuntimeError(
+            'Supabase join function is not reachable. '
+            'When SUPABASE_MANUAL_STACK=1 you must run:\n'
+            '  npx supabase start\n'
+            '  curl -X POST -H "x-api-token: $EDGE_API_TOKEN" -H "Content-Type: application/json" '
+            "-d '{}' http://127.0.0.1:54321/functions/v1/test_reset"
+            '\n  npx supabase functions serve --env-file .env.supabase --no-verify-jwt'
+        )
+
+    if not health_payload.get('token_present'):
+        raise RuntimeError(
+            'Edge functions are running without EDGE_API_TOKEN. '
+            'Launch `npx supabase functions serve --env-file .env.supabase --no-verify-jwt` '
+            'so tests can assert authentication behaviour.'
+        )
+
+    _invoke_test_reset()
+
+
+def _fetch_health_payload(name: str) -> Optional[Dict[str, object]]:
+    headers = _edge_request_headers()
+    try:
+        resp = httpx.post(
+            f"{_edge_url().rstrip('/')}/{name}",
+            headers=headers,
+            json={'healthcheck': True},
+            timeout=5.0,
+        )
+    except httpx.HTTPError:
+        return None
+    if resp.status_code >= 500:
+        return None
+    try:
+        payload = resp.json()
+    except ValueError:
+        return None
+    return payload if payload.get('status') == 'ok' else None
+
+
+def _invoke_test_reset() -> None:
+    headers = _edge_request_headers()
+    try:
+        resp = httpx.post(
+            f"{_edge_url().rstrip('/')}/test_reset",
+            headers=headers,
+            json={},
+            timeout=120.0,
+        )
+    except httpx.HTTPError as exc:
+        raise RuntimeError('Supabase test_reset RPC failed. Ensure supabase functions serve is running.') from exc
+
+    if resp.status_code == 404:
+        raise RuntimeError('test_reset edge function is missing. Did you run functions serve with the repo functions directory?')
+
+    payload = resp.json()
+    if not payload.get('success'):
+        raise RuntimeError(f"test_reset RPC returned an error: {payload}")
 
 
 def _write_function_env(name: str) -> Path:
@@ -218,15 +352,18 @@ def _ensure_functions_served(names: Tuple[str, ...]) -> None:
     _cleanup_edge_container()
 
     env_file = _write_function_env('functions')
-    cmd = [*CLI_COMMAND, 'functions', 'serve', '--env-file', str(env_file), '--no-verify-jwt']
+    cmd = _cli_args('functions', 'serve', '--env-file', str(env_file), '--no-verify-jwt')
     env = os.environ.copy()
+    env.setdefault('CHOKIDAR_USEPOLLING', '1')
+    env.setdefault('CHOKIDAR_INTERVAL', '1000')
     proc = subprocess.Popen(
         cmd,
-        cwd=str(REPO_ROOT),
+        cwd=str(SUPABASE_WORKDIR),
         stdout=log_handle,
         stderr=subprocess.STDOUT,
         text=True,
         env=env,
+        preexec_fn=lambda: _raise_nofile_limit(),
     )
     FUNCTION_PROC = (proc, log_handle)
 
@@ -242,7 +379,7 @@ def _ensure_functions_served(names: Tuple[str, ...]) -> None:
 
     _stop_functions_proc()
     raise RuntimeError(
-        f'Edge functions did not become available. Check logs at {log_path} for diagnostics.'
+        f'Edge functions did not become available. Check logs at {log_path} for diagnostics.\n{MANUAL_STACK_HINT}'
     )
 
 
@@ -273,16 +410,20 @@ def supabase_stack():
         pytest.skip('Supabase CLI not available; install it or set SUPABASE_CLI_COMMAND="npx supabase@latest"')
 
     _load_env()
-    if not _stack_running():
-        _start_stack()
-    _reset_database()
-
-    _ensure_functions_served(FUNCTIONS_UNDER_TEST)
+    if not MANUAL_STACK:
+        if not _stack_running():
+            _start_stack()
+        _reset_database()
+        _ensure_functions_served(FUNCTIONS_UNDER_TEST)
+        _invoke_test_reset()
+    else:
+        _require_manual_stack_ready()
 
     try:
         yield
     finally:
-        _stop_functions_proc()
+        if not MANUAL_STACK:
+            _stop_functions_proc()
 
 
 @pytest.fixture(scope='session', autouse=True)
@@ -319,7 +460,8 @@ def test_server():
     yield
 
 
-@pytest.fixture(autouse=True)
-def reset_test_state():
-    """Edge tests talk directly to Supabase so no FastAPI reset is needed."""
-    yield
+if not USE_SUPABASE_TESTS:
+    @pytest.fixture(autouse=True)
+    def reset_test_state():
+        """Edge tests talk directly to Supabase so no FastAPI reset is needed."""
+        yield

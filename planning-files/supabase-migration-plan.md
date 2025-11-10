@@ -58,6 +58,7 @@ Core architecture pillars:
 1. **Expand combat coverage.** With `test_two_players_combat_attack_actions` passing under Supabase transport, run `USE_SUPABASE_TESTS=1 uv run pytest tests/integration/test_combat_system.py -k "auto_engage or toll or garrison" -vv` (and ultimately the full file) to uncover any remaining encounter/garrison gaps.
 2. **Broaden seeded scenarios.** Add the next wave of combat/economy fixtures directly into `tests/helpers/supabase_reset.py` (corp balances, toll garrisons, autopilot ships) so every Supabase run starts from the same deterministic world as FastAPI.
 3. **Document & automate the workflow.** Capture the Supabase reset helper, debug flags (`SUPABASE_REALTIME_DEBUG=1`), and stack restart steps in `AGENTS.md`/`CLAUDE.md`, then add a CI leg that runs `npx supabase db reset && USE_SUPABASE_TESTS=1 uv run pytest tests/edge -q` plus the combat subset to prevent regressions.
+4. **Admin/utility blockers.** Validate `scripts/character_create.py`, `scripts/character_modify.py`, and NPC tooling against the Supabase backend now that `join` no longer auto-creates characters; provide deterministic UUID helpers (already used in edge tests) plus a CI smoke script to ensure future admin endpoints keep parity.
 
 ### 3.4 Timeboxed execution plan (Week of 2025-11-10)
 To push through the remaining Phase 2 scope, tackle the following day-by-day slices. Each row calls out the concrete artifacts we need plus the signal that the work is truly done.
@@ -162,6 +163,17 @@ Each phase keeps the overall goals and completion criteria from the original pla
 - `supabase_reset_state()` fixture exists and is used by all Supabase-aware tests.
 - Deterministic combat/economy characters appear automatically after each reset, unblocking the combat suites.
 - Validation script reports zero drift between seeds and live tables.
+
+### Recovery Status – 2025-11-10
+- A local cleanup inadvertently deleted the entire `supabase/` directory after the Week 2 edge-function work (test_reset, event_query, movement observers, shared helpers, fixtures). The directory was restored from `HEAD`, which means all in-progress Supabase code is currently missing.
+- The pytest fixture briefly cloned `supabase/` into `.supabase-test-workdir/`, causing the Supabase CLI watcher to rewrite duplicate files and constantly restart the edge runtime; this directory has been removed, and the fixture now always invokes `supabase … --workdir supabase`.
+- **Immediate recovery plan:**
+  1. Re-create the Supabase project files exactly as described in `docs/supabase-migration-review-UPDATED.md` (test_reset, event_query, movement observers, `_shared` modules, fixtures).
+  2. Re-run `npx supabase db reset --workdir supabase` followed by `UV run pytest tests/edge/test_admin_smoke.py -q` to verify the rebuilt functions.
+  3. Recommit the Supabase directory to prevent accidental loss and add `scripts/recover_supabase.sh` (optional) documenting how to regenerate the folder from fixtures.
+  4. Keep `.supabase-test-workdir/` out of the repo; rely solely on `--workdir supabase` when calling the CLI.
+
+Until these recovery tasks are finished, treat the Supabase port as “degraded” and pause work on Phase 4+ items.
 
 ### Phase 5 – Testing & Optimization (Week 5) ⏳
 **Goals**

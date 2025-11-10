@@ -318,6 +318,9 @@ def _env_truthy(name: str, default: str = "0") -> bool:
     return os.environ.get(name, default).strip().lower() in _TRUTHY
 
 
+MANUAL_SUPABASE_STACK = _env_truthy("SUPABASE_MANUAL_STACK")
+
+
 USE_SUPABASE_TESTS = _env_truthy("USE_SUPABASE_TESTS")
 
 
@@ -452,6 +455,11 @@ def _ensure_supabase_stack_running() -> None:
     if _SUPABASE_STACK_READY:
         return
 
+    if MANUAL_SUPABASE_STACK:
+        _require_manual_stack_ready()
+        _SUPABASE_STACK_READY = True
+        return
+
     if _env_truthy("SUPABASE_SKIP_START"):
         _SUPABASE_STACK_READY = True
         return
@@ -472,7 +480,10 @@ def _ensure_supabase_ready() -> Dict[str, str]:
     env = _load_supabase_env()
     global _SUPABASE_DB_BOOTSTRAPPED
     if not _SUPABASE_DB_BOOTSTRAPPED:
-        _run_supabase_db_reset()
+        if MANUAL_SUPABASE_STACK:
+            _invoke_test_reset_sync()
+        else:
+            _run_supabase_db_reset()
         _SUPABASE_DB_BOOTSTRAPPED = True
     _ensure_functions_served_for_tests()
     return env
@@ -557,6 +568,10 @@ REQUIRED_FUNCTIONS = (
 def _ensure_functions_served_for_tests() -> None:
     global FUNCTION_PROC
     if not USE_SUPABASE_TESTS:
+        return
+
+    if MANUAL_SUPABASE_STACK:
+        _require_manual_stack_ready()
         return
 
     if SUPABASE_CLI_COMMAND is None:
@@ -695,6 +710,72 @@ def _edge_request_headers() -> dict:
     if token:
         headers["x-api-token"] = token
     return headers
+
+
+def _require_manual_stack_ready() -> None:
+    payload = _fetch_edge_health("join")
+    if payload is None:
+        raise RuntimeError(
+            "Supabase join function is unreachable. When SUPABASE_MANUAL_STACK=1 run:\n"
+            "  npx supabase start\n"
+            "  curl -X POST -H 'Content-Type: application/json' -H 'x-api-token: $EDGE_API_TOKEN' -d '{}' "
+            "${SUPABASE_URL:-http://127.0.0.1:54321}/functions/v1/test_reset\n"
+            "  npx supabase functions serve --env-file .env.supabase --no-verify-jwt"
+        )
+
+    if not payload.get("token_present"):
+        raise RuntimeError(
+            "Edge functions are running without EDGE_API_TOKEN. Restart `supabase functions serve --env-file "
+            ".env.supabase --no-verify-jwt`."
+        )
+
+    _invoke_test_reset_sync()
+
+
+def _fetch_edge_health(function_name: str) -> Optional[Dict[str, object]]:
+    headers = _edge_request_headers()
+    try:
+        resp = httpx.post(
+            f"{_edge_base_url()}/{function_name}",
+            headers=headers,
+            json={"healthcheck": True},
+            timeout=5.0,
+        )
+    except httpx.HTTPError:
+        return None
+
+    if resp.status_code >= 500:
+        return None
+    try:
+        payload = resp.json()
+    except ValueError:
+        return None
+    return payload if payload.get("status") == "ok" else None
+
+
+def _invoke_test_reset_sync() -> None:
+    headers = _edge_request_headers()
+    try:
+        resp = httpx.post(
+            f"{_edge_base_url()}/test_reset",
+            headers=headers,
+            json={},
+            timeout=120.0,
+        )
+    except httpx.HTTPError as exc:
+        raise RuntimeError(
+            "Failed to call test_reset edge function. Ensure `supabase functions serve` is running with the repo's "
+            "functions directory."
+        ) from exc
+
+    if resp.status_code == 404:
+        raise RuntimeError(
+            "test_reset edge function returned 404. Launch `supabase functions serve --env-file .env.supabase --no-verify-jwt`."
+        )
+
+    payload = resp.json()
+    if not payload.get("success"):
+        raise RuntimeError(f"test_reset RPC failed: {payload}")
 
 # Import AsyncGameClient for test reset calls (patched above when Supabase mode is enabled)
 from utils.api_client import AsyncGameClient

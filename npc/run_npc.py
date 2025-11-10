@@ -17,7 +17,12 @@ from loguru import logger
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from utils.api_client import AsyncGameClient, RPCError  # noqa: E402
+from utils.api_client import RPCError  # noqa: E402
+
+if os.getenv("SUPABASE_URL"):
+    from utils.supabase_client import AsyncGameClient  # noqa: E402
+else:
+    from utils.api_client import AsyncGameClient  # noqa: E402
 from utils.task_agent import TaskAgent  # noqa: E402
 
 DEFAULT_MODEL = "gemini-2.5-flash-preview-09-2025"

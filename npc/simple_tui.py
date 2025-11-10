@@ -40,7 +40,12 @@ from textual.widgets import Header, Input, ListItem, ListView, Static
 from npc.combat_session import CombatSession
 from npc.combat_utils import ensure_position
 from npc.status_bars import StatusBarUpdater
-from utils.api_client import AsyncGameClient, RPCError
+from utils.api_client import RPCError
+
+if os.getenv("SUPABASE_URL"):
+    from utils.supabase_client import AsyncGameClient
+else:
+    from utils.api_client import AsyncGameClient
 from utils.task_agent import TaskAgent, TaskOutputType
 
 

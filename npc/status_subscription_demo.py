@@ -30,7 +30,10 @@ from loguru import logger
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from utils.api_client import AsyncGameClient
+if os.getenv("SUPABASE_URL"):
+    from utils.supabase_client import AsyncGameClient
+else:
+    from utils.api_client import AsyncGameClient
 from utils.base_llm_agent import LLMConfig
 from utils.task_agent import TaskAgent
 

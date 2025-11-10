@@ -13,7 +13,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from utils.api_client import AsyncGameClient, RPCError
+from utils.api_client import RPCError
+
+if os.getenv("SUPABASE_URL"):
+    from utils.supabase_client import AsyncGameClient
+else:
+    from utils.api_client import AsyncGameClient
 from utils.base_llm_agent import LLMConfig
 from utils.task_agent import TaskAgent
 from utils.combat_tools import (

@@ -9,6 +9,9 @@ import uuid
 LEGACY_NAMESPACE = uuid.UUID(
     os.environ.get("SUPABASE_LEGACY_ID_NAMESPACE", "5a53c4f5-8f16-4be6-8d3d-2620f4c41b3b")
 )
+SHIP_NAMESPACE = uuid.UUID(
+    os.environ.get("SUPABASE_SHIP_ID_NAMESPACE", "b7b87641-1c44-4ed1-8e9c-5f671484b1a9")
+)
 
 
 def _allow_legacy_ids() -> bool:
@@ -35,3 +38,12 @@ def canonicalize_character_id(character_id: str) -> str:
         if not _allow_legacy_ids():
             raise
         return str(uuid.uuid5(LEGACY_NAMESPACE, character_id))
+
+
+def deterministic_ship_id(label: str) -> str:
+    """Return a stable UUID for ship identifiers derived from a label."""
+
+    label = label.strip()
+    if not label:
+        raise ValueError("Ship label cannot be empty")
+    return str(uuid.uuid5(SHIP_NAMESPACE, label))
