@@ -23,6 +23,7 @@ ENV_PATH = REPO_ROOT / '.env.supabase'
 LOG_DIR = REPO_ROOT / 'logs'
 SUPABASE_CLIENT_LOG_PATH = LOG_DIR / 'supabase-client.log'
 ENV_EXPORTS: Dict[str, str] = {}
+logger = logging.getLogger(__name__)
 
 
 def _resolve_cli_command() -> list[str] | None:
@@ -67,6 +68,7 @@ MANUAL_STACK_HINT = (
     '(`npx supabase start`, `curl …/test_reset`, `npx supabase functions serve --env-file .env.supabase --no-verify-jwt`).'
 )
 USE_SUPABASE_TESTS = os.environ.get('USE_SUPABASE_TESTS', '').lower() in TRUTHY
+os.environ.setdefault('EDGE_DISABLE_REALTIME', '0')
 
 
 def _cli_args(*args: str) -> list[str]:
@@ -98,6 +100,14 @@ FUNCTIONS_UNDER_TEST = (
     'combat_tick',
     'event_query',
     'test_reset',
+    'corporation_create',
+    'corporation_join',
+    'corporation_leave',
+    'corporation_kick',
+    'corporation_regenerate_invite_code',
+    'corporation_list',
+    'corporation_info',
+    'my_corporation',
 )
 
 
@@ -146,6 +156,11 @@ def _load_env() -> Dict[str, str]:
                 continue
             key, value = stripped.split('=', 1)
             env_vars[key] = value
+
+    if 'EDGE_BROADCAST_RETRIES' not in env_vars and 'EDGE_BROADCAST_RETRIES' not in os.environ:
+        env_vars['EDGE_BROADCAST_RETRIES'] = '5'
+    if 'EDGE_BROADCAST_RETRY_DELAY_MS' not in env_vars and 'EDGE_BROADCAST_RETRY_DELAY_MS' not in os.environ:
+        env_vars['EDGE_BROADCAST_RETRY_DELAY_MS'] = '200'
 
     os.environ.update(env_vars)
     ENV_EXPORTS.update(env_vars)
@@ -314,6 +329,63 @@ def _invoke_test_reset() -> None:
         raise RuntimeError(f"test_reset RPC returned an error: {payload}")
 
 
+def _warmup_realtime(timeout: float = 30.0) -> None:
+    service_key = os.environ.get('SUPABASE_SERVICE_ROLE_KEY')
+    if not service_key:
+        logger.warning('SUPABASE_SERVICE_ROLE_KEY missing; skipping realtime warmup')
+        return
+
+    supabase_url = os.environ.get('SUPABASE_URL', 'http://127.0.0.1:54321').rstrip('/')
+    endpoint = f"{supabase_url}/realtime/v1/api/broadcast"
+    payload = {
+        'messages': [
+            {
+                'type': 'broadcast',
+                'topic': 'public:healthcheck',
+                'event': 'healthcheck',
+                'payload': {'ts': time.time()},
+                'private': False,
+            }
+        ]
+    }
+
+    headers = {
+        'Content-Type': 'application/json',
+        'apikey': service_key,
+        'Authorization': f'Bearer {service_key}',
+    }
+
+    deadline = time.time() + timeout
+    attempt = 0
+    last_error: Optional[Exception] = None
+
+    while time.time() < deadline:
+        attempt += 1
+        try:
+            resp = httpx.post(endpoint, headers=headers, json=payload, timeout=5.0)
+        except httpx.HTTPError as exc:  # pragma: no cover - network hiccup
+            last_error = exc
+        else:
+            if resp.status_code in {200, 202}:
+                if attempt > 1 or resp.status_code == 202:
+                    logger.info(
+                        'Realtime warmup succeeded after %s attempts (status %s)',
+                        attempt,
+                        resp.status_code,
+                    )
+                return
+            if resp.status_code == 429:
+                last_error = RuntimeError('realtime broadcast rate limited during warmup')
+            else:
+                last_error = RuntimeError(
+                    f'Realtime warmup returned {resp.status_code}: {resp.text.strip() or "<empty>"}'
+                )
+
+        time.sleep(min(0.5 * attempt, 2.0))
+
+    raise RuntimeError('Realtime broadcast warmup did not succeed; see logs/edge-functions.log') from last_error
+
+
 def _write_function_env(name: str) -> Path:
     allowed = {k: v for k, v in ENV_EXPORTS.items() if not k.startswith('SUPABASE_')}
     env_file = LOG_DIR / f'.edge-env-{name}'
@@ -416,8 +488,10 @@ def supabase_stack():
         _reset_database()
         _ensure_functions_served(FUNCTIONS_UNDER_TEST)
         _invoke_test_reset()
+        _warmup_realtime()
     else:
         _require_manual_stack_ready()
+        _warmup_realtime()
 
     try:
         yield

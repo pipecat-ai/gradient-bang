@@ -46,7 +46,7 @@ Core architecture pillars:
 6. **Event logging + realtime parity.** `_shared/events.ts` inserts into the `events` table and publishes to `public:character:{id}` / `public:sector:{id}` topics; `tests/edge/test_join.py`, `tests/edge/test_move.py`, and the Supabase AsyncGameClient smoke tests verify broadcasts before RPCs return.
 7. **Supabase AsyncGameClient parity.** `utils/supabase_client.py` mirrors the legacy API (including the combat methods `combat_initiate`, `combat_action`, `combat_leave_fighters`, `combat_collect_fighters`, `combat_set_garrison_mode`), exposes the realtime debug toggle, and backs `utils/api_client.AsyncGameClient` without import churn. CI already runs the move subset against this transport.
 8. **Economy/ship feature parity shipped.** `supabase/functions/purchase_fighters/index.ts`, `ship_purchase/index.ts`, `bank_transfer/index.ts`, `transfer_credits/index.ts`, and `_shared/trading.ts` re-implement fighter armories, trade-ins, corp-aware debits, and optimistic port locking while emitting the legacy `fighter.purchase`, `ship.traded_in`, and `trade.executed` events.
-9. **Corporation schema + RPC plumbing.** `supabase/migrations/20251109121500_add_corporations.sql` adds `corporations`, `corporation_members`, `corporation_ships`, and the corporation-aware columns on `ship_instances` + `characters`. `supabase/functions/ship_purchase` now handles corporation balances, autopilot pilots, and emits `corporation.ship_purchased` with parity tests in `tests/edge/test_ship_purchase.py`.
+9. **Corporation schema + RPC plumbing.** `supabase/migrations/20251109121500_add_corporations.sql` adds `corporations`, `corporation_members`, `corporation_ships`, and the corporation-aware columns on `ship_instances` + `characters`. `_shared/corporations.ts` now centralizes invite code generation, membership upserts, ship summaries, and `emitCorporationEvent`, and the full RPC set (`corporation.create/join/leave/kick/regenerate_invite_code/list/info`, `my.corporation`) ships under `supabase/functions/corporation_*/` with coverage in `tests/edge/test_corporations.py`.
 10. **Deterministic combat payloads.** Combat encounters seed their RNG from the combat_id, `combat.round_resolved` events compute fighter/shield deltas before mutating in-memory state, and the payload now shows `fighter_loss`/`shield_damage`, matching FastAPI expectations.
 
 ### 3.2 Known blockers / open issues
@@ -143,11 +143,13 @@ Each phase keeps the overall goals and completion criteria from the original pla
 - Build Supabase-native smoke tests for combat + observer pipelines (`tests/edge/test_combat_auto_engage.py`, realtime subscriber harness in `tests/edge/helpers/realtime.py`).
 - Instrument `npc/simple_tui` and the voice bot to consume Supabase realtime events end-to-end via `utils/supabase_client.py`.
 - Add rate limit dashboards (leveraging Supabase metrics + logs) and alert thresholds.
+- Harden realtime fan-out so it survives local and CI load (retry/backoff, sequential broadcasts, better error surfacing), then remove the temporary `EDGE_DISABLE_REALTIME` default and re-enable `tests/edge/test_supabase_client_integration.py` by default.
 
 **Completion criteria**
 - Realtime topics (`public:character:{id}`, `public:sector:{id}`) verified via automated tests and manual subscribers.
 - Rate limiting proves effective via synthetic load (no false positives in move/join smoke tests).
 - Combat observers auto-enroll pilots without FastAPI fallbacks.
+- Full edge suite (including Supabase client integration tests) passes with realtime broadcasting enabled by default on both auto-managed and manual stacks.
 
 ### Phase 4 – Data Tooling & Validation (Week 4) ⏳
 **Goals**
@@ -223,7 +225,7 @@ Until these recovery tasks are finished, treat the Supabase port as “degraded�
 | Trade/economy | `trade`, `list_known_ports`, `dump_cargo`, `transfer_credits`, `bank_transfer`, `recharge_warp_power`, `transfer_warp_power`, `purchase_fighters` ✅ | Finish corp defaulting + locking behavior before closing Phase 2.
 | Ship acquisition | `ship_purchase` ✅ | Ensure corp autopilot + trade-in telemetry stays in sync with `game-server/shipyard.py`.
 | Combat | `combat_initiate`, `combat_action`, `combat_tick` (scaffolds exist) | Need Supabase fixtures plus `_shared/combat_*.ts` helpers to handle enrollment, timers, and victory resolution.
-| Corporations | Edge functions not yet ported: `corporation.create`, `corporation.join`, `corporation.leave`, `corporation.kick`, `corporation.regenerate_invite_code`, `corporation.list`, `corporation.info`, `my.corporation`. Each must validate roles, emit `corporation.*` events, update `corporation_members`/`corporation_ships`, and reuse rate-limit helpers.
+| Corporations | `corporation.create`, `corporation.join`, `corporation.leave`, `corporation.kick`, `corporation.regenerate_invite_code`, `corporation.list`, `corporation.info`, `my.corporation` ✅ | Shared helper `_shared/corporations.ts` drives membership + events; smoke coverage lives in `tests/edge/test_corporations.py`. Next up: admin corps (`corporation.modify/delete`) if/when they matter.
 | Salvage & events | `salvage_collect`, `send_message` pending (`event_query` ✅) | `salvage_collect` uses `_shared/salvage.ts`; `event_query` now exposes pagination/filtering for clients to catch up; `send_message` allows admin broadcasts (per-character insert + broadcast).
 
 ### 5.3 SDK, Tooling, and Client Work

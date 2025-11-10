@@ -23,4 +23,12 @@ export const RATE_LIMITS: Record<string, RateLimitRule> = {
   ship_purchase: { max: 15, window: 60 },
   combat_initiate: { max: 30, window: 60 },
   combat_action: { max: 120, window: 60 },
+  corporation_create: { max: 10, window: 60 },
+  corporation_join: { max: 30, window: 60 },
+  corporation_leave: { max: 30, window: 60 },
+  corporation_kick: { max: 20, window: 60 },
+  corporation_regenerate_invite_code: { max: 10, window: 60 },
+  corporation_list: { max: 30, window: 60 },
+  corporation_info: { max: 60, window: 60 },
+  my_corporation: { max: 60, window: 60 },
 };

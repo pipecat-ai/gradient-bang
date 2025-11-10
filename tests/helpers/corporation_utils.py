@@ -9,6 +9,17 @@ from typing import AsyncGenerator
 from utils.api_client import AsyncGameClient
 from helpers.combat_helpers import create_test_character_knowledge
 
+REQUIRED_CORPORATION_FUNCTIONS = (
+    "corporation_create",
+    "corporation_join",
+    "corporation_leave",
+    "corporation_kick",
+    "corporation_regenerate_invite_code",
+    "corporation_list",
+    "corporation_info",
+    "my_corporation",
+)
+
 
 RESET_PREFIXES = ["corp_events_", "corp_filter_"]
 

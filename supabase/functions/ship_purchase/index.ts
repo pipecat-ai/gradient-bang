@@ -5,6 +5,7 @@ import { createServiceRoleClient } from '../_shared/client.ts';
 import { emitCharacterEvent, emitErrorEvent, buildEventSource } from '../_shared/events.ts';
 import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
 import { buildStatusPayload, loadCharacter, loadShip, loadShipDefinition, type ShipRow, type ShipDefinitionRow } from '../_shared/status.ts';
+import { emitCorporationEvent, isActiveCorporationMember, loadCorporationById } from '../_shared/corporations.ts';
 import { calculateTradeInValue, isAutonomousShipType } from '../_shared/ships.ts';
 import {
   optionalBoolean,
@@ -243,8 +244,11 @@ async function handleCorporationPurchase(
     throw new ShipPurchaseError('Not in a corporation', 400);
   }
 
-  await ensureCorporationMembership(supabase, corpId, characterId);
-  const corporation = await loadCorporationRecord(supabase, corpId);
+  const isMember = await isActiveCorporationMember(supabase, corpId, characterId);
+  if (!isMember) {
+    throw new ShipPurchaseError('Not authorized to purchase for this corporation', 403);
+  }
+  const corporation = await loadCorporationById(supabase, corpId);
 
   const currentShip = await loadShip(supabase, character.current_ship_id);
   if (currentShip.in_hyperspace) {
@@ -317,7 +321,6 @@ async function handleCorporationPurchase(
     requestId,
   });
 
-  const corpMembers = await listCorporationMembers(supabase, corpId);
   const corpEventPayload = {
     source,
     corp_id: corpId,
@@ -331,18 +334,11 @@ async function handleCorporationPurchase(
     sector: currentShip.current_sector ?? 0,
     timestamp,
   };
-  await Promise.all(
-    corpMembers.map((memberId) =>
-      emitCharacterEvent({
-        supabase,
-        characterId: memberId,
-        eventType: 'corporation.ship_purchased',
-        payload: corpEventPayload,
-        sectorId: currentShip.current_sector ?? 0,
-        requestId,
-      }),
-    ),
-  );
+  await emitCorporationEvent(supabase, corpId, {
+    eventType: 'corporation.ship_purchased',
+    payload: corpEventPayload,
+    requestId,
+  });
 
   return successResponse({
     corp_id: corpId,
@@ -376,65 +372,6 @@ async function ensureNotInCombat(
   }
 }
 
-async function loadCorporationRecord(
-  supabase: ReturnType<typeof createServiceRoleClient>,
-  corpId: string,
-): Promise<{ corp_id: string; name: string }> {
-  const { data, error } = await supabase
-    .from('corporations')
-    .select('corp_id, name')
-    .eq('corp_id', corpId)
-    .maybeSingle();
-  if (error) {
-    console.error('ship_purchase.corporation_load', error);
-    throw new ShipPurchaseError('Failed to load corporation data', 500);
-  }
-  if (!data) {
-    throw new ShipPurchaseError('Corporation not found', 404);
-  }
-  return data as { corp_id: string; name: string };
-}
-
-async function ensureCorporationMembership(
-  supabase: ReturnType<typeof createServiceRoleClient>,
-  corpId: string,
-  characterId: string,
-): Promise<void> {
-  const { data, error } = await supabase
-    .from('corporation_members')
-    .select('character_id')
-    .eq('corp_id', corpId)
-    .eq('character_id', characterId)
-    .maybeSingle();
-  if (error) {
-    console.error('ship_purchase.corporation_membership', error);
-    throw new ShipPurchaseError('Failed to verify corporation membership', 500);
-  }
-  if (!data) {
-    throw new ShipPurchaseError('Not authorized to purchase for this corporation', 403);
-  }
-}
-
-async function listCorporationMembers(
-  supabase: ReturnType<typeof createServiceRoleClient>,
-  corpId: string,
-): Promise<string[]> {
-  const { data, error } = await supabase
-    .from('corporation_members')
-    .select('character_id')
-    .eq('corp_id', corpId);
-  if (error) {
-    console.error('ship_purchase.corporation_member_list', error);
-    return [];
-  }
-  const ids = new Set<string>();
-  for (const row of data ?? []) {
-    if (row.character_id) {
-      ids.add(row.character_id);
-    }
-  }
-  return Array.from(ids);
-}
 
 async function ensureCorporationShipCharacter(params: {
   supabase: ReturnType<typeof createServiceRoleClient>;
