@@ -122,8 +122,10 @@ class AsyncGameClient(LegacyAsyncGameClient):
         req_id = str(uuid.uuid4())
         enriched = self._inject_character_ids(payload)
 
+        edge_endpoint = endpoint.replace('.', '_')
+
         response = await self._http.post(
-            f"{self._functions_url}/{endpoint}",
+            f"{self._functions_url}/{edge_endpoint}",
             headers=self._edge_headers(),
             json=enriched,
         )
