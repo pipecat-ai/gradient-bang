@@ -590,7 +590,11 @@ def apply_port_observation(
     event_port = deepcopy(base_port)
     event_port["observed_at"] = None if in_sector else observation_time
 
-    if observer_id and hasattr(world.knowledge_manager, "update_port_observation"):
+    if (
+        in_sector
+        and observer_id
+        and hasattr(world.knowledge_manager, "update_port_observation")
+    ):
         knowledge_port = deepcopy(base_port)
         knowledge_port["observed_at"] = observation_time
         world.knowledge_manager.update_port_observation(
