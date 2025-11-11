@@ -12,7 +12,7 @@ export const TopBar = () => {
   return (
     <header className="flex flex-row justify-between gap-5">
       <div className="flex-1 p-ui-sm align-self w-full max-w-110 top-lhs-perspective">
-        <div className="elbow flex flex-col gap-1 p-2 backdrop-blur-sm bg-card/20">
+        <div className="elbow flex flex-col gap-1 p-2 bg-card/20 motion-safe:backdrop-blur-sm motion-safe:bg-card/10">
           <WarpBadge />
           <Separator
             variant="dotted"
@@ -28,7 +28,7 @@ export const TopBar = () => {
         <ScreenMenu />
       </div>
       <div className="flex-1 p-ui-sm align-self w-full max-w-110 top-rhs-perspective">
-        <div className="elbow flex flex-col gap-1 p-2 backdrop-blur-sm bg-card/20">
+        <div className="elbow flex flex-col gap-1 p-2 bg-card/20 motion-safe:backdrop-blur-sm motion-safe:bg-card/10">
           <CargoBadge />
           <Separator
             variant="dotted"

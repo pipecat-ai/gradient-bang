@@ -9,9 +9,8 @@ const badgeVariants = cva(
         default: "bg-muted border-border text-foreground",
         secondary:
           "border-transparent bg-muted/60 text-foreground bracket-muted-foreground/40 elbow-muted-foreground/40",
-        glass: "border-transparent bg-muted/60 text-foreground",
         count:
-          "border-transparent bg-muted/60 text-foreground transition-colors duration-500",
+          "border-transparent bg-muted/60 motion-safe:bg-muted/50 text-foreground transition-colors duration-500 ",
         countIncrement: "bg-success-background text-success-foreground",
         countDecrement: "bg-warning-background text-warning-foreground",
         highlight:
@@ -78,21 +77,16 @@ const badgeVariants = cva(
         class: "bracket-muted-foreground/50",
       },
       {
-        variant: "glass",
+        variant: ["count", "countIncrement", "countDecrement"],
         border: "elbow",
-        class: "elbow-white/30 -elbow-offset-2",
-      },
-      {
-        variant: "glass",
-        border: "bracket",
-        class: "bracket-white/30 -bracket-offset-2",
+        class: "-elbow-offset-2",
       },
       {
         variant: ["count", "countIncrement", "countDecrement"],
-        border: ["elbow", "bracket"],
-        class:
-          "-elbow-offset-2 -bracket-offset-2 after:transition-all after:duration-300 after:ease-in-out",
+        border: "bracket",
+        class: "-bracket-offset-2",
       },
+
       {
         variant: "count",
         border: ["elbow", "bracket"],

@@ -13,7 +13,7 @@ export const ShieldsBadge = ({ className }: { className?: string }) => {
 
   return (
     <Badge
-      variant="glass"
+      variant="count"
       border="elbow"
       className={cn("flex-col gap-2 items-start", className)}
     >

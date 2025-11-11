@@ -70,10 +70,11 @@ export const ToastContainer = () => {
   const toastActive = toasts.length > 0 && !isExiting;
 
   const containerClasses = cn(
-    "relative h-toast w-full items-center justify-center bg-black/20 bracket bracket-2 transition-all duration-300",
+    "relative h-toast w-full items-center justify-center bracket bracket-2 transition-all duration-300",
     {
-      "opacity-10 bg-black/50 bracket-white": !toastActive,
-      "opacity-100 bracket-white": toastActive,
+      "opacity-10 bg-background/70 bracket-white": !toastActive,
+      "opacity-100 bg-background/80 bracket-white motion-safe:bg-background/70 motion-safe:backdrop-blur-sm":
+        toastActive,
     }
   );
 
