@@ -1,12 +1,14 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-import { emitCharacterEvent, emitSectorEvent, EventSource } from './events.ts';
+import {
+  emitCharacterEvent,
+  EventSource,
+  recordEventWithRecipients,
+} from './events.ts';
+import type { VisibilityCharacterRow } from './visibility.ts';
+import { dedupeRecipientSnapshots, loadGarrisonContext } from './visibility.ts';
 
-interface CharacterRow {
-  character_id: string;
-  name: string;
-  corporation_id: string | null;
-}
+type CharacterRow = VisibilityCharacterRow;
 
 interface SectorObserverRow {
   owner_character_id: string | null;
@@ -98,36 +100,31 @@ export async function emitCharacterMovedEvents({
   payload,
   sectorId,
   requestId,
+  actorCharacterId,
 }: {
   supabase: SupabaseClient;
   observers: string[];
   payload: Record<string, unknown>;
   sectorId: number;
   requestId?: string;
+  actorCharacterId: string;
 }): Promise<void> {
-  if (!observers.length) {
+  const recipients = dedupeRecipientSnapshots(
+    observers.map((observerId) => ({ characterId: observerId, reason: 'sector_snapshot' })),
+  );
+  if (!recipients.length) {
     return;
   }
 
-  await Promise.all(
-    observers.map((observerId) =>
-      emitCharacterEvent({
-        supabase,
-        characterId: observerId,
-        eventType: 'character.moved',
-        payload,
-        sectorId,
-        requestId,
-      }),
-    ),
-  );
-
-  await emitSectorEvent({
+  await recordEventWithRecipients({
     supabase,
-    sectorId,
     eventType: 'character.moved',
+    scope: 'sector',
     payload,
     requestId,
+    sectorId,
+    actorCharacterId,
+    recipients,
   });
 }
 
@@ -142,69 +139,9 @@ export async function emitGarrisonCharacterMovedEvents({
   payload: Record<string, unknown>;
   requestId?: string;
 }): Promise<number> {
-  const { data: garrisons, error } = await supabase
-    .from('garrisons')
-    .select('owner_id, fighters, mode, toll_amount, deployed_at')
-    .eq('sector_id', sectorId);
-  if (error) {
-    console.error('garrison.observer.list', { sectorId, error });
+  const { garrisons, ownerMap, membersByCorp } = await loadGarrisonContext(supabase, sectorId);
+  if (!garrisons.length) {
     return 0;
-  }
-  if (!garrisons || garrisons.length === 0) {
-    return 0;
-  }
-
-  const ownerIds = Array.from(
-    new Set(
-      garrisons
-        .map((row) => row.owner_id as string | null)
-        .filter((value): value is string => typeof value === 'string'),
-    ),
-  );
-  if (!ownerIds.length) {
-    return 0;
-  }
-
-  const { data: ownerRows, error: ownerError } = await supabase
-    .from('characters')
-    .select('character_id, name, corporation_id')
-    .in('character_id', ownerIds);
-  if (ownerError) {
-    console.error('garrison.observer.loadOwners', ownerError);
-    return 0;
-  }
-  if (!ownerRows || ownerRows.length === 0) {
-    return 0;
-  }
-
-  const ownerMap = new Map<string, CharacterRow>();
-  const corpIds = new Set<string>();
-  for (const row of ownerRows as CharacterRow[]) {
-    ownerMap.set(row.character_id, row);
-    if (row.corporation_id) {
-      corpIds.add(row.corporation_id);
-    }
-  }
-
-  const corpIdList = Array.from(corpIds);
-  const membersByCorp = new Map<string, string[]>();
-  if (corpIdList.length) {
-    const { data: corpMembers, error: memberError } = await supabase
-      .from('characters')
-      .select('character_id, corporation_id')
-      .in('corporation_id', corpIdList);
-    if (memberError) {
-      console.error('garrison.observer.loadMembers', memberError);
-    } else if (corpMembers) {
-      for (const row of corpMembers as CharacterRow[]) {
-        if (!row.corporation_id) {
-          continue;
-        }
-        const existing = membersByCorp.get(row.corporation_id) ?? [];
-        existing.push(row.character_id);
-        membersByCorp.set(row.corporation_id, existing);
-      }
-    }
   }
 
   let delivered = 0;
@@ -235,18 +172,26 @@ export async function emitGarrisonCharacterMovedEvents({
 
     const eventPayload = { ...payload, garrison: garrisonPayload };
 
-    await Promise.all(
-      recipients.map((characterId) =>
-        emitCharacterEvent({
-          supabase,
-          characterId,
-          eventType: 'garrison.character_moved',
-          payload: eventPayload,
-          sectorId,
-          requestId,
-        }),
-      ),
+    const recipientSnapshots = dedupeRecipientSnapshots(
+      recipients.map((characterId) => ({
+        characterId,
+        reason: characterId === owner.character_id ? 'garrison_owner' : 'garrison_corp_member',
+      })),
     );
+    if (!recipientSnapshots.length) {
+      continue;
+    }
+
+    await recordEventWithRecipients({
+      supabase,
+      eventType: 'garrison.character_moved',
+      scope: 'sector',
+      payload: eventPayload,
+      requestId,
+      sectorId,
+      actorCharacterId: owner.character_id,
+      recipients: recipientSnapshots,
+    });
     delivered += recipients.length;
   }
 

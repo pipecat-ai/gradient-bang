@@ -1,6 +1,6 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-import { emitCharacterEvent } from './events.ts';
+import { recordEventWithRecipients } from './events.ts';
 import type { ShipDefinitionRow } from './status.ts';
 
 export interface CorporationRecord {
@@ -268,7 +268,7 @@ export function buildCorporationMemberPayload(
 export async function emitCorporationEvent(
   supabase: SupabaseClient,
   corpId: string,
-  options: { eventType: string; payload: Record<string, unknown>; requestId: string; memberIds?: string[] },
+  options: { eventType: string; payload: Record<string, unknown>; requestId: string; memberIds?: string[]; actorCharacterId?: string | null },
 ): Promise<void> {
   let recipients = options.memberIds;
   if (!recipients) {
@@ -279,23 +279,25 @@ export async function emitCorporationEvent(
       return;
     }
   }
-  if (!recipients.length) {
+  const uniqueRecipients = Array.from(
+    new Set((recipients ?? []).filter((value): value is string => typeof value === 'string' && value.length > 0)),
+  );
+  if (!uniqueRecipients.length) {
     return;
   }
 
-  const uniqueRecipients = Array.from(new Set(recipients));
-  await Promise.all(
-    uniqueRecipients.map((memberId) =>
-      emitCharacterEvent({
-        supabase,
-        characterId: memberId,
-        eventType: options.eventType,
-        payload: options.payload,
-        requestId: options.requestId,
-        meta: { corporation_id: corpId },
-      }),
-    ),
-  );
+  const eventId = await recordEventWithRecipients({
+    supabase,
+    eventType: options.eventType,
+    scope: 'corp',
+    payload: options.payload,
+    requestId: options.requestId,
+    corpId,
+    actorCharacterId: options.actorCharacterId ?? null,
+    recipients: uniqueRecipients.map((characterId) => ({ characterId, reason: 'corp_snapshot' })),
+    meta: { corporation_id: corpId },
+  });
+
 }
 
 async function fetchActiveMembershipRows(

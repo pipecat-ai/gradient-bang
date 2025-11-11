@@ -20,6 +20,7 @@ import {
   loadCorporationById,
   markCorporationMembershipLeft,
 } from '../_shared/corporations.ts';
+import { canonicalizeCharacterId } from '../_shared/ids.ts';
 
 class CorporationLeaveError extends Error {
   status: number;
@@ -54,8 +55,12 @@ serve(async (req: Request): Promise<Response> => {
 
   const supabase = createServiceRoleClient();
   const requestId = resolveRequestId(payload);
-  const characterId = requireString(payload, 'character_id');
-  const actorCharacterId = optionalString(payload, 'actor_character_id');
+  const rawCharacterId = requireString(payload, 'character_id');
+  const legacyCharacterLabel = optionalString(payload, '__legacy_character_label');
+  const characterLabel = legacyCharacterLabel ?? rawCharacterId;
+  const characterId = await canonicalizeCharacterId(rawCharacterId);
+  const actorCharacterLabel = optionalString(payload, 'actor_character_id');
+  const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
   ensureActorMatches(actorCharacterId, characterId);
 
   try {
@@ -76,7 +81,7 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    await handleLeave({ supabase, characterId, requestId });
+    await handleLeave({ supabase, characterId, characterLabel, requestId });
     return successResponse({ request_id: requestId });
   } catch (err) {
     if (err instanceof CorporationLeaveError) {
@@ -90,9 +95,10 @@ serve(async (req: Request): Promise<Response> => {
 async function handleLeave(params: {
   supabase: ReturnType<typeof createServiceRoleClient>;
   characterId: string;
+  characterLabel: string;
   requestId: string;
 }): Promise<void> {
-  const { supabase, characterId, requestId } = params;
+  const { supabase, characterId, characterLabel, requestId } = params;
   const character = await loadCharacter(supabase, characterId);
   const corpId = character.corporation_id;
   if (!corpId) {
@@ -129,13 +135,13 @@ async function handleLeave(params: {
 
   const source = buildEventSource('corporation_leave', requestId);
   const departedName = typeof character.name === 'string' && character.name.trim().length > 0
-    ? character.name
+    ? character.name.trim()
     : characterId;
   const payload = {
     source,
     corp_id: corpId,
     corp_name: corporation.name,
-    departed_member_id: characterId,
+    departed_member_id: characterLabel,
     departed_member_name: departedName,
     member_count: remainingMembers.length,
     timestamp,

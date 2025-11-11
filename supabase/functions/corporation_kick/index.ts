@@ -18,6 +18,7 @@ import {
   loadCorporationById,
   markCorporationMembershipLeft,
 } from '../_shared/corporations.ts';
+import { canonicalizeCharacterId } from '../_shared/ids.ts';
 
 class CorporationKickError extends Error {
   status: number;
@@ -52,10 +53,21 @@ serve(async (req: Request): Promise<Response> => {
 
   const supabase = createServiceRoleClient();
   const requestId = resolveRequestId(payload);
-  const characterId = requireString(payload, 'character_id');
-  const targetId = requireString(payload, 'target_id');
-  const actorCharacterId = optionalString(payload, 'actor_character_id');
+  const rawCharacterId = requireString(payload, 'character_id');
+  const legacyCharacterLabel = optionalString(payload, '__legacy_character_label');
+  const characterLabel = legacyCharacterLabel ?? rawCharacterId;
+  const targetLabel = requireString(payload, 'target_id');
+  const actorCharacterLabel = optionalString(payload, 'actor_character_id');
+
+  const characterId = await canonicalizeCharacterId(rawCharacterId);
+  const targetId = await canonicalizeCharacterId(targetLabel);
+  const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
+
   ensureActorMatches(actorCharacterId, characterId);
+
+  if (characterId === targetId) {
+    return errorResponse('Use leave to exit your corporation', 400);
+  }
 
   if (characterId === targetId) {
     return errorResponse('Use leave to exit your corporation', 400);
@@ -79,7 +91,14 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    await handleKick({ supabase, characterId, targetId, requestId });
+    await handleKick({
+      supabase,
+      characterId,
+      targetId,
+      characterLabel,
+      targetLabel,
+      requestId,
+    });
     return successResponse({ request_id: requestId });
   } catch (err) {
     if (err instanceof CorporationKickError) {
@@ -94,11 +113,16 @@ async function handleKick(params: {
   supabase: ReturnType<typeof createServiceRoleClient>;
   characterId: string;
   targetId: string;
+  characterLabel: string;
+  targetLabel: string;
   requestId: string;
 }): Promise<void> {
-  const { supabase, characterId, targetId, requestId } = params;
+  const { supabase, characterId, targetId, characterLabel, targetLabel, requestId } = params;
   const kicker = await loadCharacterSummary(supabase, characterId, 'Character not found');
-  const target = await loadCharacterSummary(supabase, targetId, 'Target character not found');
+  const target = await loadCharacterSummary(supabase, targetId, {
+    notFoundDetail: 'Target is not in your corporation',
+    notFoundStatus: 400,
+  });
 
   const corpId = kicker.corporation_id;
   if (!corpId) {
@@ -137,18 +161,18 @@ async function handleKick(params: {
 
   const source = buildEventSource('corporation_kick', requestId);
   const kickerName = typeof kicker.name === 'string' && kicker.name.trim().length > 0
-    ? kicker.name
+    ? kicker.name.trim()
     : characterId;
   const targetName = typeof target.name === 'string' && target.name.trim().length > 0
-    ? target.name
+    ? target.name.trim()
     : targetId;
   const payload = {
     source,
     corp_id: corpId,
     corp_name: corporation.name,
-    kicked_member_id: targetId,
+    kicked_member_id: targetLabel,
     kicked_member_name: targetName,
-    kicker_id: characterId,
+    kicker_id: characterLabel,
     kicker_name: kickerName,
     member_count: remainingMembers.length,
     timestamp,
@@ -169,19 +193,22 @@ async function handleKick(params: {
 async function loadCharacterSummary(
   supabase: ReturnType<typeof createServiceRoleClient>,
   characterId: string,
-  notFoundMessage: string,
+  notFoundMessage: string | { notFoundStatus?: number; notFoundDetail?: string } = 'Character not found',
 ): Promise<{ character_id: string; name: string | null; corporation_id: string | null }> {
   const { data, error } = await supabase
     .from('characters')
     .select('character_id, name, corporation_id')
     .eq('character_id', characterId)
+    .limit(1)
     .maybeSingle();
   if (error) {
     console.error('corporation_kick.character_load', error);
     throw new CorporationKickError('Failed to load character data', 500);
   }
   if (!data) {
-    throw new CorporationKickError(notFoundMessage, 404);
+    const detail = typeof notFoundMessage === 'string' ? notFoundMessage : (notFoundMessage.notFoundDetail ?? 'Character not found');
+    const status = typeof notFoundMessage === 'string' ? 404 : (notFoundMessage.notFoundStatus ?? 404);
+    throw new CorporationKickError(detail, status);
   }
   return data as { character_id: string; name: string | null; corporation_id: string | null };
 }

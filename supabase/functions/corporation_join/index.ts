@@ -18,6 +18,7 @@ import {
   loadCorporationById,
   upsertCorporationMembership,
 } from '../_shared/corporations.ts';
+import { canonicalizeCharacterId } from '../_shared/ids.ts';
 
 class CorporationJoinError extends Error {
   status: number;
@@ -52,7 +53,10 @@ serve(async (req: Request): Promise<Response> => {
 
   const supabase = createServiceRoleClient();
   const requestId = resolveRequestId(payload);
-  const characterId = requireString(payload, 'character_id');
+  const rawCharacterId = requireString(payload, 'character_id');
+  const legacyCharacterLabel = optionalString(payload, '__legacy_character_label');
+  const characterLabel = legacyCharacterLabel ?? rawCharacterId;
+  const characterId = await canonicalizeCharacterId(rawCharacterId);
   const corpId = requireString(payload, 'corp_id');
   const inviteCode = requireString(payload, 'invite_code');
   const actorCharacterId = optionalString(payload, 'actor_character_id');
@@ -76,7 +80,14 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    const result = await handleJoin({ supabase, characterId, corpId, inviteCode, requestId });
+    const result = await handleJoin({
+      supabase,
+      characterId,
+      characterLabel,
+      corpId,
+      inviteCode,
+      requestId,
+    });
     return successResponse({ ...result, request_id: requestId });
   } catch (err) {
     if (err instanceof CorporationJoinError) {
@@ -90,11 +101,12 @@ serve(async (req: Request): Promise<Response> => {
 async function handleJoin(params: {
   supabase: ReturnType<typeof createServiceRoleClient>;
   characterId: string;
+  characterLabel: string;
   corpId: string;
   inviteCode: string;
   requestId: string;
 }): Promise<Record<string, unknown>> {
-  const { supabase, characterId, corpId, inviteCode, requestId } = params;
+  const { supabase, characterId, characterLabel, corpId, inviteCode, requestId } = params;
   const character = await loadCharacter(supabase, characterId);
   if (character.corporation_id) {
     throw new CorporationJoinError('Already in a corporation', 400);
@@ -107,6 +119,9 @@ async function handleJoin(params: {
   }
 
   const timestamp = new Date().toISOString();
+  const memberName = typeof character.name === 'string' && character.name.trim().length > 0
+    ? character.name.trim()
+    : characterId;
   await upsertCorporationMembership(supabase, corpId, characterId, timestamp);
 
   const { error: characterUpdateError } = await supabase
@@ -124,14 +139,11 @@ async function handleJoin(params: {
 
   const members = await fetchCorporationMembers(supabase, corpId);
   const source = buildEventSource('corporation_join', requestId);
-  const memberName = typeof character.name === 'string' && character.name.trim().length > 0
-    ? character.name
-    : characterId;
   const eventPayload = {
     source,
     corp_id: corpId,
     name: corporation.name,
-    member_id: characterId,
+    member_id: characterLabel,
     member_name: memberName,
     member_count: members.length,
     timestamp,

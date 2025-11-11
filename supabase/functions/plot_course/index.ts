@@ -6,6 +6,7 @@ import { emitCharacterEvent, emitErrorEvent, buildEventSource } from '../_shared
 import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
 import { findShortestPath, PathNotFoundError, fetchSectorRow } from '../_shared/map.ts';
 import { loadCharacter, loadShip } from '../_shared/status.ts';
+import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -53,10 +54,6 @@ serve(async (req: Request): Promise<Response> => {
   const actorCharacterId = optionalString(payload, 'actor_character_id');
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
-  if (actorCharacterId && actorCharacterId !== characterId && !adminOverride) {
-    return errorResponse('actor_character_id must match character_id unless admin_override is true', 403);
-  }
-
   try {
     await enforceRateLimit(supabase, characterId, 'plot_course');
   } catch (err) {
@@ -75,8 +72,18 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    return await handlePlotCourse(supabase, payload, characterId, requestId, adminOverride);
+    return await handlePlotCourse(supabase, payload, characterId, requestId, adminOverride, actorCharacterId);
   } catch (err) {
+    if (err instanceof ActorAuthorizationError) {
+      await emitErrorEvent(supabase, {
+        characterId,
+        method: 'plot_course',
+        requestId,
+        detail: err.message,
+        status: err.status,
+      });
+      return errorResponse(err.message, err.status);
+    }
     if (err instanceof PlotCourseError || err instanceof PathNotFoundError) {
       await emitErrorEvent(supabase, {
         characterId,
@@ -105,11 +112,20 @@ async function handlePlotCourse(
   characterId: string,
   requestId: string,
   adminOverride: boolean,
+  actorCharacterId: string | null,
 ): Promise<Response> {
   const source = buildEventSource('plot_course', requestId);
 
   const character = await loadCharacter(supabase, characterId);
   const ship = await loadShip(supabase, character.current_ship_id);
+
+  await ensureActorAuthorization({
+    supabase,
+    ship,
+    actorCharacterId,
+    adminOverride,
+    targetCharacterId: characterId,
+  });
   if (ship.current_sector === null || ship.current_sector === undefined) {
     throw new PlotCourseError('Ship sector is unavailable', 500);
   }

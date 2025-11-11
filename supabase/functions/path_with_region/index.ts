@@ -11,6 +11,7 @@ import {
   buildPathRegionPayload,
 } from '../_shared/map.ts';
 import { loadCharacter, loadShip } from '../_shared/status.ts';
+import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -62,10 +63,6 @@ serve(async (req: Request): Promise<Response> => {
   const actorCharacterId = optionalString(payload, 'actor_character_id');
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
-  if (actorCharacterId && actorCharacterId !== characterId && !adminOverride) {
-    return errorResponse('actor_character_id must match character_id unless admin_override is true', 403);
-  }
-
   try {
     await enforceRateLimit(supabase, characterId, 'path_with_region');
   } catch (err) {
@@ -84,8 +81,18 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    return await handlePathWithRegion(supabase, payload, characterId, requestId);
+    return await handlePathWithRegion(supabase, payload, characterId, requestId, actorCharacterId, adminOverride);
   } catch (err) {
+    if (err instanceof ActorAuthorizationError) {
+      await emitErrorEvent(supabase, {
+        characterId,
+        method: 'path_with_region',
+        requestId,
+        detail: err.message,
+        status: err.status,
+      });
+      return errorResponse(err.message, err.status);
+    }
     if (err instanceof PathWithRegionError || err instanceof PathNotFoundError) {
       await emitErrorEvent(supabase, {
         characterId,
@@ -113,11 +120,21 @@ async function handlePathWithRegion(
   payload: Record<string, unknown>,
   characterId: string,
   requestId: string,
+  actorCharacterId: string | null,
+  adminOverride: boolean,
 ): Promise<Response> {
   const source = buildEventSource('path_with_region', requestId);
 
   const character = await loadCharacter(supabase, characterId);
   const ship = await loadShip(supabase, character.current_ship_id);
+
+  await ensureActorAuthorization({
+    supabase,
+    ship,
+    actorCharacterId,
+    adminOverride,
+    targetCharacterId: characterId,
+  });
   if (ship.current_sector === null || ship.current_sector === undefined) {
     throw new PathWithRegionError('Ship sector is unavailable', 500);
   }

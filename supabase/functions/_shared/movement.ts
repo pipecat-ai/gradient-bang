@@ -63,6 +63,7 @@ export async function emitMovementObservers(options: MovementObserverOptions): P
       payload,
       sectorId,
       requestId,
+      actorCharacterId: metadata.characterId,
     });
   }
 

@@ -210,7 +210,7 @@ async function fetchEvents(options: {
   const ascending = sortDirection === 'forward';
   const selectColumns = 'timestamp,direction,event_type,character_id,sender_id,sector_id,ship_id,request_id,payload,meta';
   let query = supabase
-    .from('events')
+    .from('visible_events')
     .select(selectColumns)
     .gte('timestamp', start.toISOString())
     .lte('timestamp', end.toISOString())

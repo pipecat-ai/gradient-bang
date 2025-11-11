@@ -14,6 +14,8 @@ import {
   respondWithError,
 } from '../_shared/request.ts';
 import { loadCombatById, persistCombatState } from '../_shared/combat_state.ts';
+import { loadCharacter, loadShip } from '../_shared/status.ts';
+import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 import { CombatantAction, CombatEncounterState, CombatantState, RoundActionState } from '../_shared/combat_types.ts';
 import { getAdjacentSectors } from '../_shared/map.ts';
 import { computeNextCombatDeadline, resolveEncounterRound } from '../_shared/combat_resolution.ts';
@@ -49,10 +51,6 @@ serve(async (req: Request): Promise<Response> => {
   const actorCharacterId = optionalString(payload, 'actor_character_id');
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
-  if (actorCharacterId && actorCharacterId !== characterId && !adminOverride) {
-    return errorResponse('actor_character_id must match character_id unless admin_override is true', 403);
-  }
-
   try {
     await enforceRateLimit(supabase, characterId, 'combat_action');
   } catch (err) {
@@ -80,8 +78,20 @@ serve(async (req: Request): Promise<Response> => {
       commit: actionCommit,
       targetId,
       payload,
+      actorCharacterId,
+      adminOverride,
     });
   } catch (err) {
+    if (err instanceof ActorAuthorizationError) {
+      await emitErrorEvent(supabase, {
+        characterId,
+        method: 'combat_action',
+        requestId,
+        detail: err.message,
+        status: err.status,
+      });
+      return errorResponse(err.message, err.status);
+    }
     console.error('combat_action.error', err);
     const status = err instanceof Error && 'status' in err ? Number((err as Error & { status?: number }).status) : 500;
     await emitErrorEvent(supabase, {
@@ -104,8 +114,31 @@ async function handleCombatAction(params: {
   commit: number;
   targetId: string | null;
   payload: Record<string, unknown>;
+  actorCharacterId: string | null;
+  adminOverride: boolean;
 }): Promise<Response> {
-  const { supabase, requestId, characterId, combatId, actionRaw, commit, targetId, payload } = params;
+  const {
+    supabase,
+    requestId,
+    characterId,
+    combatId,
+    actionRaw,
+    commit,
+    targetId,
+    payload,
+    actorCharacterId,
+    adminOverride,
+  } = params;
+
+  const character = await loadCharacter(supabase, characterId);
+  const ship = await loadShip(supabase, character.current_ship_id);
+  await ensureActorAuthorization({
+    supabase,
+    ship,
+    actorCharacterId,
+    adminOverride,
+    targetCharacterId: characterId,
+  });
   const encounter = await loadCombatById(supabase, combatId);
   if (!encounter || encounter.ended) {
     const err = new Error('Combat encounter not found') as Error & { status?: number };
@@ -261,4 +294,3 @@ function isRoundReady(encounter: CombatEncounterState): boolean {
   }
   return true;
 }
-

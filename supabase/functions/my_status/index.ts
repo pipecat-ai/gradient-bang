@@ -4,7 +4,7 @@ import { validateApiToken, unauthorizedResponse, errorResponse, successResponse 
 import { createServiceRoleClient } from '../_shared/client.ts';
 import { emitCharacterEvent, emitErrorEvent, buildEventSource } from '../_shared/events.ts';
 import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
-import { buildStatusPayload } from '../_shared/status.ts';
+import { buildStatusPayload, loadCharacter, loadShip } from '../_shared/status.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -13,6 +13,8 @@ import {
   resolveRequestId,
   respondWithError,
 } from '../_shared/request.ts';
+import { canonicalizeCharacterId } from '../_shared/ids.ts';
+import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 
 const HYPERSPACE_ERROR = 'Character is in hyperspace, status unavailable until arrival';
 
@@ -39,13 +41,26 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   const requestId = resolveRequestId(payload);
-  const characterId = requireString(payload, 'character_id');
-  const actorCharacterId = optionalString(payload, 'actor_character_id');
-  const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
-
-  if (actorCharacterId && actorCharacterId !== characterId && !adminOverride) {
-    return errorResponse('actor_character_id must match character_id unless admin_override is true', 403);
+  const rawCharacterId = requireString(payload, 'character_id');
+  let characterId: string;
+  try {
+    characterId = await canonicalizeCharacterId(rawCharacterId);
+  } catch (err) {
+    console.error('my_status.canonicalize_character_id', err);
+    return errorResponse('invalid character_id', 400);
   }
+
+  const rawActorId = optionalString(payload, 'actor_character_id');
+  let actorCharacterId: string | null = null;
+  if (rawActorId) {
+    try {
+      actorCharacterId = await canonicalizeCharacterId(rawActorId);
+    } catch (err) {
+      console.error('my_status.canonicalize_actor_id', err);
+      return errorResponse('invalid actor_character_id', 400);
+    }
+  }
+  const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
   try {
     await enforceRateLimit(supabase, characterId, 'my_status');
@@ -58,8 +73,16 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    const character = await loadCharacterCore(supabase, characterId);
-    const ship = await loadShipCore(supabase, character.current_ship_id);
+    const character = await loadCharacter(supabase, characterId);
+    const ship = await loadShip(supabase, character.current_ship_id);
+
+    await ensureActorAuthorization({
+      supabase,
+      ship,
+      characterId,
+      actorCharacterId,
+      adminOverride,
+    });
 
     if (ship.in_hyperspace) {
       await emitErrorEvent(supabase, {
@@ -88,6 +111,9 @@ serve(async (req: Request): Promise<Response> => {
 
     return successResponse({ request_id: requestId });
   } catch (err) {
+    if (err instanceof ActorAuthorizationError) {
+      return errorResponse(err.message, err.status);
+    }
     if (isNotFoundError(err)) {
       return errorResponse('character not found', 404);
     }
@@ -95,49 +121,6 @@ serve(async (req: Request): Promise<Response> => {
     return errorResponse('internal server error', 500);
   }
 });
-
-async function loadCharacterCore(
-  supabase: ReturnType<typeof createServiceRoleClient>,
-  characterId: string,
-): Promise<{ character_id: string; current_ship_id: string }>
-{
-  const { data, error } = await supabase
-    .from('characters')
-    .select('character_id, current_ship_id')
-    .eq('character_id', characterId)
-    .maybeSingle();
-  if (error) {
-    console.error('my_status.character', error);
-    throw error;
-  }
-  if (!data) {
-    throw new Error('character not found');
-  }
-  if (!data.current_ship_id) {
-    throw new Error('character missing ship');
-  }
-  return data as { character_id: string; current_ship_id: string };
-}
-
-async function loadShipCore(
-  supabase: ReturnType<typeof createServiceRoleClient>,
-  shipId: string,
-): Promise<{ ship_id: string; current_sector: number | null; in_hyperspace: boolean }>
-{
-  const { data, error } = await supabase
-    .from('ship_instances')
-    .select('ship_id, current_sector, in_hyperspace')
-    .eq('ship_id', shipId)
-    .maybeSingle();
-  if (error) {
-    console.error('my_status.ship', error);
-    throw error;
-  }
-  if (!data) {
-    throw new Error('ship not found');
-  }
-  return data as { ship_id: string; current_sector: number | null; in_hyperspace: boolean };
-}
 
 function isNotFoundError(err: unknown): boolean {
   if (!(err instanceof Error)) {

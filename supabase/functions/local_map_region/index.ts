@@ -9,6 +9,7 @@ import {
   normalizeMapKnowledge,
 } from '../_shared/map.ts';
 import { loadCharacter, loadShip } from '../_shared/status.ts';
+import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -49,10 +50,6 @@ serve(async (req: Request): Promise<Response> => {
   const actorCharacterId = optionalString(payload, 'actor_character_id');
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
-  if (actorCharacterId && actorCharacterId !== characterId && !adminOverride) {
-    return errorResponse('actor_character_id must match character_id unless admin_override is true', 403);
-  }
-
   try {
     await enforceRateLimit(supabase, characterId, 'local_map_region');
   } catch (err) {
@@ -71,8 +68,18 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    return await handleLocalMapRegion(supabase, payload, characterId, requestId);
+    return await handleLocalMapRegion(supabase, payload, characterId, requestId, actorCharacterId, adminOverride);
   } catch (err) {
+    if (err instanceof ActorAuthorizationError) {
+      await emitErrorEvent(supabase, {
+        characterId,
+        method: 'local_map_region',
+        requestId,
+        detail: err.message,
+        status: err.status,
+      });
+      return errorResponse(err.message, err.status);
+    }
     if (err instanceof LocalMapRegionError) {
       await emitErrorEvent(supabase, {
         characterId,
@@ -110,10 +117,19 @@ async function handleLocalMapRegion(
   payload: Record<string, unknown>,
   characterId: string,
   requestId: string,
+  actorCharacterId: string | null,
+  adminOverride: boolean,
 ): Promise<Response> {
   const source = buildEventSource('local_map_region', requestId);
   const character = await loadCharacter(supabase, characterId);
   const ship = await loadShip(supabase, character.current_ship_id);
+  await ensureActorAuthorization({
+    supabase,
+    ship,
+    actorCharacterId,
+    adminOverride,
+    targetCharacterId: characterId,
+  });
   const knowledge = normalizeMapKnowledge(character.map_knowledge);
 
   let centerSector = optionalNumber(payload, 'center_sector');

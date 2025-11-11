@@ -5,6 +5,7 @@ import { createServiceRoleClient } from '../_shared/client.ts';
 import { emitCharacterEvent, emitErrorEvent, buildEventSource } from '../_shared/events.ts';
 import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
 import { loadCharacter, loadShip, loadShipDefinition, buildStatusPayload } from '../_shared/status.ts';
+import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -55,10 +56,6 @@ serve(async (req: Request): Promise<Response> => {
   const actorCharacterId = optionalString(payload, 'actor_character_id');
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
-  if (actorCharacterId && actorCharacterId !== characterId && !adminOverride) {
-    return errorResponse('actor_character_id must match character_id unless admin_override is true', 403);
-  }
-
   try {
     await enforceRateLimit(supabase, characterId, 'recharge_warp_power');
   } catch (err) {
@@ -77,8 +74,18 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    return await handleRecharge(supabase, payload, characterId, requestId);
+    return await handleRecharge(supabase, payload, characterId, requestId, actorCharacterId, adminOverride);
   } catch (err) {
+    if (err instanceof ActorAuthorizationError) {
+      await emitErrorEvent(supabase, {
+        characterId,
+        method: 'recharge_warp_power',
+        requestId,
+        detail: err.message,
+        status: err.status,
+      });
+      return errorResponse(err.message, err.status);
+    }
     if (err instanceof RechargeWarpPowerError) {
       await emitErrorEvent(supabase, {
         characterId,
@@ -106,6 +113,8 @@ async function handleRecharge(
   payload: Record<string, unknown>,
   characterId: string,
   requestId: string,
+  actorCharacterId: string | null,
+  adminOverride: boolean,
 ): Promise<Response> {
   const source = buildEventSource('recharge_warp_power', requestId);
 
@@ -117,6 +126,14 @@ async function handleRecharge(
 
   const character = await loadCharacter(supabase, characterId);
   const ship = await loadShip(supabase, character.current_ship_id);
+
+  await ensureActorAuthorization({
+    supabase,
+    ship,
+    actorCharacterId,
+    adminOverride,
+    targetCharacterId: characterId,
+  });
   if (ship.in_hyperspace) {
     throw new RechargeWarpPowerError('Character is in hyperspace, cannot recharge warp power', 400);
   }

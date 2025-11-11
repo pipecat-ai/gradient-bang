@@ -16,6 +16,7 @@ import {
   loadCharacter,
   loadShip,
   loadShipDefinition,
+  type ShipRow,
 } from '../_shared/status.ts';
 import {
   parseJsonRequest,
@@ -26,6 +27,8 @@ import {
   resolveRequestId,
   respondWithError,
 } from '../_shared/request.ts';
+import { canonicalizeCharacterId } from '../_shared/ids.ts';
+import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 import { type ObserverMetadata } from '../_shared/observers.ts';
 import { emitMovementObservers } from '../_shared/movement.ts';
 
@@ -67,13 +70,12 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   const requestId = resolveRequestId(payload);
-  const characterId = requireString(payload, 'character_id');
-  const actorCharacterId = optionalString(payload, 'actor_character_id');
+  const rawCharacterId = requireString(payload, 'character_id');
+  const characterId = await canonicalizeCharacterId(rawCharacterId);
+  const actorCharacterLabel = optionalString(payload, 'actor_character_id');
+  const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
-  if (actorCharacterId && actorCharacterId !== characterId && !adminOverride) {
-    return errorResponse('actor_character_id must match character_id unless admin_override is true', 403);
-  }
 
   let toSector = optionalNumber(payload, 'to_sector');
   if (toSector === null && 'to' in payload) {
@@ -104,16 +106,25 @@ serve(async (req: Request): Promise<Response> => {
     return errorResponse('rate limit error', 500);
   }
 
-  const moveContext = { supabase, characterId, destination, requestId } as const;
+  const moveContext = {
+    supabase,
+    characterId,
+    destination,
+    requestId,
+    actorCharacterId,
+    adminOverride,
+  } as const;
 
   return await handleMove(moveContext);
 });
 
-async function handleMove({ supabase, characterId, destination, requestId }: {
+async function handleMove({ supabase, characterId, destination, requestId, actorCharacterId, adminOverride }: {
   supabase: ReturnType<typeof createServiceRoleClient>;
   characterId: string;
   destination: number;
   requestId: string;
+  actorCharacterId: string | null;
+  adminOverride: boolean;
 }): Promise<Response> {
   const source = buildEventSource('move', requestId);
   let observerMetadata: ObserverMetadata;
@@ -135,6 +146,22 @@ async function handleMove({ supabase, characterId, destination, requestId }: {
       status: 404,
     });
     return errorResponse('character not found', 404);
+  }
+
+  try {
+    await ensureActorAuthorization({
+      supabase,
+      ship,
+      actorCharacterId,
+      adminOverride,
+      targetCharacterId: characterId,
+    });
+  } catch (err) {
+    if (err instanceof ActorAuthorizationError) {
+      console.warn('move.authorization', err.message);
+      return errorResponse(err.message, err.status);
+    }
+    throw err;
   }
 
   if (ship.in_hyperspace) {
@@ -235,7 +262,7 @@ async function handleMove({ supabase, characterId, destination, requestId }: {
       requestId,
     });
 
-    scheduleMovementCompletion({
+    await completeMovement({
       supabase,
       characterId,
       shipId: ship.ship_id,
@@ -251,6 +278,16 @@ async function handleMove({ supabase, characterId, destination, requestId }: {
 
     return successResponse({ request_id: requestId });
   } catch (err) {
+    if (err instanceof ActorAuthorizationError) {
+      await emitErrorEvent(supabase, {
+        characterId,
+        method: 'move',
+        requestId,
+        detail: err.message,
+        status: err.status,
+      });
+      return errorResponse(err.message, err.status);
+    }
     console.error('move.unhandled', err);
     await emitErrorEvent(supabase, {
       characterId,
@@ -267,9 +304,12 @@ async function handleMove({ supabase, characterId, destination, requestId }: {
     if (enteredHyperspace) {
       await finishHyperspace({ supabase, shipId: ship.ship_id, destination: ship.current_sector ?? 0 });
     }
+  }
 }
 
-function scheduleMovementCompletion({
+// helper moved to _shared/actors.ts
+
+async function completeMovement({
   supabase,
   characterId,
   shipId,
@@ -289,101 +329,83 @@ function scheduleMovementCompletion({
   hyperspaceSeconds: number;
   destinationSnapshot: Record<string, unknown>;
   observerMetadata: ObserverMetadata;
-}): void {
-  (async () => {
-    try {
-      if (hyperspaceSeconds > 0) {
-        await new Promise((resolve) => setTimeout(resolve, hyperspaceSeconds * 1000));
-      }
-
-      await finishHyperspace({ supabase, shipId, destination });
-
-      await supabase
-        .from('characters')
-        .update({ last_active: new Date().toISOString() })
-        .eq('character_id', characterId);
-
-      const statusPayload = await buildStatusPayload(supabase, characterId);
-      const knowledge = await loadMapKnowledge(supabase, characterId);
-      const { firstVisit, knowledge: updatedKnowledge } = await markSectorVisited(supabase, {
-        characterId,
-        sectorId: destination,
-        sectorSnapshot: destinationSnapshot,
-        knowledge,
-      });
-
-      const movementCompletePayload = {
-        source,
-        player: statusPayload.player,
-        ship: statusPayload.ship,
-        sector: statusPayload.sector,
-        first_visit: firstVisit,
-      } as Record<string, unknown>;
-
-      await emitCharacterEvent({
-        supabase,
-        characterId,
-        eventType: 'movement.complete',
-        payload: movementCompletePayload,
-        shipId,
-        sectorId: destination,
-        requestId,
-      });
-
-      await emitSectorEnvelope({
-        supabase,
-        sectorId: destination,
-        eventType: 'movement.complete',
-        payload: movementCompletePayload,
-        requestId,
-      });
-
-      const mapRegion = await buildLocalMapRegion(supabase, {
-        characterId,
-        centerSector: destination,
-        mapKnowledge: updatedKnowledge,
-        maxHops: MAX_LOCAL_MAP_HOPS,
-        maxSectors: MAX_LOCAL_MAP_NODES,
-      });
-      mapRegion['source'] = source;
-
-      await emitCharacterEvent({
-        supabase,
-        characterId,
-        eventType: 'map.local',
-        payload: mapRegion,
-        sectorId: destination,
-        requestId,
-      });
-
-      await emitSectorEnvelope({
-        supabase,
-        sectorId: destination,
-        eventType: 'map.local',
-        payload: mapRegion,
-        requestId,
-      });
-
-      await emitMovementObservers({
-        supabase,
-        sectorId: destination,
-        metadata: observerMetadata,
-        movement: 'arrive',
-        source,
-        requestId,
-      });
-    } catch (error) {
-      console.error('move.async_completion', error);
-      await emitErrorEvent(supabase, {
-        characterId,
-        method: 'move.complete',
-        requestId,
-        detail: error instanceof Error ? error.message : 'movement completion failed',
-        status: 500,
-      });
+}): Promise<void> {
+  try {
+    if (hyperspaceSeconds > 0) {
+      await new Promise((resolve) => setTimeout(resolve, hyperspaceSeconds * 1000));
     }
-  })();
-}
+
+    await finishHyperspace({ supabase, shipId, destination });
+
+    await supabase
+      .from('characters')
+      .update({ last_active: new Date().toISOString() })
+      .eq('character_id', characterId);
+
+    const statusPayload = await buildStatusPayload(supabase, characterId);
+    const knowledge = await loadMapKnowledge(supabase, characterId);
+    const { firstVisit, knowledge: updatedKnowledge } = await markSectorVisited(supabase, {
+      characterId,
+      sectorId: destination,
+      sectorSnapshot: destinationSnapshot,
+      knowledge,
+    });
+
+    const movementCompletePayload = {
+      source,
+      player: statusPayload.player,
+      ship: statusPayload.ship,
+      sector: statusPayload.sector,
+      first_visit: firstVisit,
+    } as Record<string, unknown>;
+
+    await emitCharacterEvent({
+      supabase,
+      characterId,
+      eventType: 'movement.complete',
+      payload: movementCompletePayload,
+      shipId,
+      sectorId: destination,
+      requestId,
+    });
+
+    const mapRegion = await buildLocalMapRegion(supabase, {
+      characterId,
+      centerSector: destination,
+      mapKnowledge: updatedKnowledge,
+      maxHops: MAX_LOCAL_MAP_HOPS,
+      maxSectors: MAX_LOCAL_MAP_NODES,
+    });
+    mapRegion['source'] = source;
+
+    await emitCharacterEvent({
+      supabase,
+      characterId,
+      eventType: 'map.local',
+      payload: mapRegion,
+      sectorId: destination,
+      requestId,
+    });
+
+    await emitMovementObservers({
+      supabase,
+      sectorId: destination,
+      metadata: observerMetadata,
+      movement: 'arrive',
+      source,
+      requestId,
+    });
+  } catch (error) {
+    console.error('move.async_completion', error);
+    await emitErrorEvent(supabase, {
+      characterId,
+      method: 'move.complete',
+      requestId,
+      detail: error instanceof Error ? error.message : 'movement completion failed',
+      status: 500,
+    });
+    throw error; // Re-throw so caller knows completion failed
+  }
 }
 
 async function startHyperspace({

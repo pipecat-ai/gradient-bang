@@ -23,6 +23,7 @@ import {
   type TradeType,
 } from '../_shared/trading.ts';
 import { buildStatusPayload, loadCharacter, loadShip, loadShipDefinition } from '../_shared/status.ts';
+import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -72,10 +73,6 @@ serve(async (req: Request): Promise<Response> => {
   const actorCharacterId = optionalString(payload, 'actor_character_id');
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
-  if (actorCharacterId && actorCharacterId !== characterId && !adminOverride) {
-    return errorResponse('actor_character_id must match character_id unless admin_override is true', 403);
-  }
-
   try {
     await enforceRateLimit(supabase, characterId, 'trade');
   } catch (err) {
@@ -94,8 +91,18 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    return await handleTrade(supabase, payload, characterId, requestId, adminOverride);
+    return await handleTrade(supabase, payload, characterId, requestId, adminOverride, actorCharacterId);
   } catch (err) {
+    if (err instanceof ActorAuthorizationError) {
+      await emitErrorEvent(supabase, {
+        characterId,
+        method: 'trade',
+        requestId,
+        detail: err.message,
+        status: err.status,
+      });
+      return errorResponse(err.message, err.status);
+    }
     if (err instanceof TradeError || err instanceof TradingValidationError) {
       await emitErrorEvent(supabase, {
         characterId,
@@ -124,12 +131,21 @@ async function handleTrade(
   characterId: string,
   requestId: string,
   adminOverride: boolean,
+  actorCharacterId: string | null,
 ): Promise<Response> {
   const source = buildEventSource('trade', requestId);
 
   const character = await loadCharacter(supabase, characterId);
   const ship = await loadShip(supabase, character.current_ship_id);
   const shipDefinition = await loadShipDefinition(supabase, ship.ship_type);
+
+  await ensureActorAuthorization({
+    supabase,
+    ship,
+    actorCharacterId,
+    adminOverride,
+    targetCharacterId: characterId,
+  });
 
   if (ship.in_hyperspace) {
     throw new TradeError('Character is in hyperspace, cannot trade', 409);
@@ -183,7 +199,7 @@ async function handleTrade(
     initialPort: portRowInitial,
   });
 
-  const shipUpdate = await supabase
+  let shipUpdate = supabase
     .from('ship_instances')
     .update({
       credits: execution.computation.updatedCredits,
@@ -191,12 +207,13 @@ async function handleTrade(
       cargo_ro: execution.computation.updatedCargo.retro_organics,
       cargo_ns: execution.computation.updatedCargo.neuro_symbolics,
     })
-    .eq('ship_id', ship.ship_id)
-    .eq('owner_id', characterId)
-    .select('ship_id')
-    .maybeSingle();
-  if (shipUpdate.error || !shipUpdate.data) {
-    console.error('trade.ship_update', shipUpdate.error);
+    .eq('ship_id', ship.ship_id);
+  if (ship.owner_id) {
+    shipUpdate = shipUpdate.eq('owner_id', ship.owner_id);
+  }
+  const shipUpdateResult = await shipUpdate.select('ship_id').maybeSingle();
+  if (shipUpdateResult.error || !shipUpdateResult.data) {
+    console.error('trade.ship_update', shipUpdateResult.error);
     await revertPortInventory(supabase, execution.originalPort, execution.updatedPort);
     throw new TradeError('failed to update ship after trade', 500);
   }

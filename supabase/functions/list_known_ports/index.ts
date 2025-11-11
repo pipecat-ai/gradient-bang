@@ -10,6 +10,7 @@ import {
 } from '../_shared/map.ts';
 import type { MapKnowledge } from '../_shared/map.ts';
 import { loadCharacter, loadShip } from '../_shared/status.ts';
+import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -56,10 +57,6 @@ serve(async (req: Request): Promise<Response> => {
   const actorCharacterId = optionalString(payload, 'actor_character_id');
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
-  if (actorCharacterId && actorCharacterId !== characterId && !adminOverride) {
-    return errorResponse('actor_character_id must match character_id unless admin_override is true', 403);
-  }
-
   try {
     await enforceRateLimit(supabase, characterId, 'list_known_ports');
   } catch (err) {
@@ -78,8 +75,18 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    return await handleListKnownPorts(supabase, payload, characterId, requestId);
+    return await handleListKnownPorts(supabase, payload, characterId, requestId, actorCharacterId, adminOverride);
   } catch (err) {
+    if (err instanceof ActorAuthorizationError) {
+      await emitErrorEvent(supabase, {
+        characterId,
+        method: 'list_known_ports',
+        requestId,
+        detail: err.message,
+        status: err.status,
+      });
+      return errorResponse(err.message, err.status);
+    }
     if (err instanceof ListKnownPortsError) {
       await emitErrorEvent(supabase, {
         characterId,
@@ -117,11 +124,20 @@ async function handleListKnownPorts(
   payload: Record<string, unknown>,
   characterId: string,
   requestId: string,
+  actorCharacterId: string | null,
+  adminOverride: boolean,
 ): Promise<Response> {
   const source = buildEventSource('list_known_ports', requestId);
 
   const character = await loadCharacter(supabase, characterId);
   const ship = await loadShip(supabase, character.current_ship_id);
+  await ensureActorAuthorization({
+    supabase,
+    ship,
+    actorCharacterId,
+    adminOverride,
+    targetCharacterId: characterId,
+  });
   const knowledge = await loadMapKnowledge(supabase, characterId);
 
   let fromSector = optionalNumber(payload, 'from_sector');

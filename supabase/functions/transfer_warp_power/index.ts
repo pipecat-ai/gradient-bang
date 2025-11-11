@@ -10,6 +10,7 @@ import {
   loadShip,
   loadShipDefinition,
 } from '../_shared/status.ts';
+import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -59,10 +60,6 @@ serve(async (req: Request): Promise<Response> => {
   const actorCharacterId = optionalString(payload, 'actor_character_id');
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
-  if (actorCharacterId && actorCharacterId !== fromCharacterId && !adminOverride) {
-    return errorResponse('actor_character_id must match from_character_id unless admin_override is true', 403);
-  }
-
   try {
     await enforceRateLimit(supabase, fromCharacterId, 'transfer_warp_power');
   } catch (err) {
@@ -81,8 +78,18 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    return await handleTransfer(supabase, payload, fromCharacterId, toPlayerName, requestId);
+    return await handleTransfer(supabase, payload, fromCharacterId, toPlayerName, requestId, actorCharacterId, adminOverride);
   } catch (err) {
+    if (err instanceof ActorAuthorizationError) {
+      await emitErrorEvent(supabase, {
+        characterId: fromCharacterId,
+        method: 'transfer_warp_power',
+        requestId,
+        detail: err.message,
+        status: err.status,
+      });
+      return errorResponse(err.message, err.status);
+    }
     if (err instanceof TransferWarpPowerError) {
       await emitErrorEvent(supabase, {
         characterId: fromCharacterId,
@@ -111,6 +118,8 @@ async function handleTransfer(
   fromCharacterId: string,
   toPlayerName: string,
   requestId: string,
+  actorCharacterId: string | null,
+  adminOverride: boolean,
 ): Promise<Response> {
   const source = buildEventSource('transfer_warp_power', requestId);
 
@@ -122,6 +131,13 @@ async function handleTransfer(
 
   const fromCharacter = await loadCharacter(supabase, fromCharacterId);
   const fromShip = await loadShip(supabase, fromCharacter.current_ship_id);
+  await ensureActorAuthorization({
+    supabase,
+    ship: fromShip,
+    actorCharacterId,
+    adminOverride,
+    targetCharacterId: fromCharacterId,
+  });
   if (fromShip.in_hyperspace) {
     throw new TransferWarpPowerError('Sender is in hyperspace, cannot transfer warp power', 400);
   }

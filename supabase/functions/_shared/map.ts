@@ -2,6 +2,17 @@ import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 import { resolvePlayerType } from './status.ts';
 
+function formatShipDisplayName(shipType: string): string {
+  if (!shipType) {
+    return 'Ship';
+  }
+  return shipType
+    .split('_')
+    .filter((part) => part.length > 0)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 export interface WarpEdge {
   to: number;
   two_way?: boolean;
@@ -14,7 +25,7 @@ export interface SectorSnapshot {
   position: [number, number];
   port: Record<string, unknown> | null;
   players: Array<Record<string, unknown>>;
-  garrison: Array<Record<string, unknown>>;
+  garrison: Array<Record<string, unknown>> | null;
   salvage: Array<Record<string, unknown>>;
   unowned_ships: Array<Record<string, unknown>>;
   scene_config: unknown;
@@ -312,14 +323,21 @@ export async function buildSectorSnapshot(
         return null;
       }
       const playerType = resolvePlayerType(character.player_metadata);
+      const characterMetadata = (character.player_metadata ?? null) as Record<string, unknown> | null;
+      const legacyDisplayName = typeof characterMetadata?.legacy_display_name === 'string'
+        ? characterMetadata.legacy_display_name.trim()
+        : '';
+      const displayName = legacyDisplayName?.length ? legacyDisplayName : (character.name ?? character.character_id);
+      const shipName = typeof ship.ship_name === 'string' ? ship.ship_name.trim() : '';
+      const shipDisplayName = shipName.length > 0 ? shipName : formatShipDisplayName(ship.ship_type);
       return {
         created_at: character.first_visit ?? null,
         id: character.character_id,
-        name: character.name ?? character.character_id,
+        name: displayName,
         player_type: playerType,
         ship: {
           ship_type: ship.ship_type,
-          ship_name: ship.ship_name ?? ship.ship_type,
+          ship_name: shipDisplayName,
         },
       };
     })
@@ -331,7 +349,7 @@ export async function buildSectorSnapshot(
     position: [structureRow.position_x ?? 0, structureRow.position_y ?? 0],
     port,
     players,
-    garrison: garrisons ?? [],
+    garrison: garrisons && garrisons.length > 0 ? garrisons : null,
     salvage: (contentsData && Array.isArray(contentsData.salvage)) ? contentsData.salvage : [],
     unowned_ships: [],
     scene_config: null,

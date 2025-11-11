@@ -134,14 +134,18 @@ export async function loadCharacterCombatants(
     throw new Error('Failed to load sector ships');
   }
   const filteredShips = (ships ?? []).filter(
-    (row) => row.owner_character_id && row.owner_type === 'character',
+    (row) => row.owner_type === 'character' || row.owner_type === 'corporation',
   );
   if (!filteredShips.length) {
     return [];
   }
 
   const ownerIds = Array.from(
-    new Set(filteredShips.map((row) => row.owner_character_id!).filter(Boolean)),
+    new Set(
+      filteredShips
+        .map((row) => (row.owner_type === 'character' ? row.owner_character_id : row.ship_id))
+        .filter((value): value is string => Boolean(value)),
+    ),
   );
   const { data: characters, error: characterError } = await supabase
     .from<CharacterRecord>('characters')
@@ -170,7 +174,11 @@ export async function loadCharacterCombatants(
 
   const combatants: CharacterCombatant[] = [];
   for (const ship of filteredShips) {
-    const character = characterMap.get(ship.owner_character_id!);
+    const characterKey = ship.owner_type === 'character' ? ship.owner_character_id! : ship.ship_id;
+    if (!characterKey) {
+      continue;
+    }
+    const character = characterMap.get(characterKey);
     if (!character || character.current_ship_id !== ship.ship_id) {
       continue;
     }

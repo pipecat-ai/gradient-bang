@@ -5,6 +5,7 @@ import { createServiceRoleClient } from '../_shared/client.ts';
 import { emitCharacterEvent, emitErrorEvent, buildEventSource } from '../_shared/events.ts';
 import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
 import { buildStatusPayload, loadCharacter, loadShip } from '../_shared/status.ts';
+import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -64,6 +65,16 @@ serve(async (req: Request): Promise<Response> => {
     }
     throw new BankTransferError("direction must be 'deposit' or 'withdraw'", 400);
   } catch (err) {
+    if (err instanceof ActorAuthorizationError) {
+      await emitErrorEvent(supabase, {
+        characterId: actorCharacterId ?? 'unknown',
+        method: 'bank_transfer',
+        requestId,
+        detail: err.message,
+        status: err.status,
+      });
+      return errorResponse(err.message, err.status);
+    }
     if (err instanceof BankTransferError) {
       await emitErrorEvent(supabase, {
         characterId: actorCharacterId ?? 'unknown',
@@ -91,15 +102,18 @@ async function handleDeposit(
   const amount = requirePositiveInt(payload, 'amount');
 
   const ship = await loadShip(supabase, shipId);
+  await ensureActorAuthorization({
+    supabase,
+    ship,
+    actorCharacterId,
+    adminOverride,
+    targetCharacterId: ship.owner_character_id ?? ship.owner_id ?? ship.ship_id,
+  });
   if (ship.current_sector !== BANK_SECTOR || ship.in_hyperspace) {
     throw new BankTransferError('Deposits require the ship to be docked at the Megaport (sector 0)', 400);
   }
 
   const ownerId = ship.owner_id;
-
-  if (ownerId && actorCharacterId && ownerId !== actorCharacterId && !adminOverride) {
-    throw new BankTransferError('Cannot deposit from another pilot’s ship without admin override', 403);
-  }
 
   const target = await findCharacterByName(supabase, targetPlayerName);
   if (!target) {
@@ -178,10 +192,6 @@ async function handleWithdraw(
   const characterId = requireString(payload, 'character_id');
   const amount = requirePositiveInt(payload, 'amount');
 
-  if (actorCharacterId && actorCharacterId !== characterId && !adminOverride) {
-    throw new BankTransferError('actor_character_id must match character_id unless admin_override is true', 403);
-  }
-
   try {
     await enforceRateLimit(supabase, characterId, 'bank_transfer');
   } catch (err) {
@@ -194,6 +204,13 @@ async function handleWithdraw(
 
   const character = await loadCharacter(supabase, characterId);
   const ship = await loadShip(supabase, character.current_ship_id);
+  await ensureActorAuthorization({
+    supabase,
+    ship,
+    actorCharacterId,
+    adminOverride,
+    targetCharacterId: characterId,
+  });
   if (ship.current_sector !== BANK_SECTOR || ship.in_hyperspace) {
     throw new BankTransferError('Withdrawals require the pilot to be at the Megaport (sector 0)', 400);
   }

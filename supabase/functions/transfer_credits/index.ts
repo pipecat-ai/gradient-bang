@@ -4,7 +4,8 @@ import { validateApiToken, unauthorizedResponse, errorResponse, successResponse 
 import { createServiceRoleClient } from '../_shared/client.ts';
 import { emitCharacterEvent, emitErrorEvent, buildEventSource } from '../_shared/events.ts';
 import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
-import { buildStatusPayload, loadCharacter, loadShip } from '../_shared/status.ts';
+import { buildStatusPayload, loadCharacter, loadShip, type ShipRow, type CharacterRow } from '../_shared/status.ts';
+import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -54,10 +55,6 @@ serve(async (req: Request): Promise<Response> => {
   const actorCharacterId = optionalString(payload, 'actor_character_id');
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
-  if (actorCharacterId && actorCharacterId !== fromCharacterId && !adminOverride) {
-    return errorResponse('actor_character_id must match from_character_id unless admin_override is true', 403);
-  }
-
   try {
     await enforceRateLimit(supabase, fromCharacterId, 'transfer_credits');
   } catch (err) {
@@ -76,8 +73,18 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    return await handleTransfer(supabase, payload, fromCharacterId, toPlayerName, requestId);
+    return await handleTransfer(supabase, payload, fromCharacterId, toPlayerName, requestId, actorCharacterId, adminOverride);
   } catch (err) {
+    if (err instanceof ActorAuthorizationError) {
+      await emitErrorEvent(supabase, {
+        characterId: fromCharacterId,
+        method: 'transfer_credits',
+        requestId,
+        detail: err.message,
+        status: err.status,
+      });
+      return errorResponse(err.message, err.status);
+    }
     if (err instanceof TransferCreditsError) {
       await emitErrorEvent(supabase, {
         characterId: fromCharacterId,
@@ -99,6 +106,8 @@ async function handleTransfer(
   fromCharacterId: string,
   toPlayerName: string,
   requestId: string,
+  actorCharacterId: string | null,
+  adminOverride: boolean,
 ): Promise<Response> {
   const amountRaw = optionalNumber(payload, 'amount');
   if (amountRaw === null || !Number.isInteger(amountRaw) || amountRaw <= 0) {
@@ -107,6 +116,13 @@ async function handleTransfer(
   const amount = Math.floor(amountRaw);
 
   const fromRecord = await fetchCharacterAndShip(supabase, fromCharacterId);
+  await ensureActorAuthorization({
+    supabase,
+    ship: fromRecord.ship,
+    actorCharacterId,
+    adminOverride,
+    targetCharacterId: fromCharacterId,
+  });
   const toRecord = await resolveCharacterByNameAndSector(
     supabase,
     toPlayerName,
@@ -206,7 +222,7 @@ function buildTransferPayload(
 async function fetchCharacterAndShip(
   supabase: SupabaseClient,
   characterId: string,
-): Promise<{ character: { character_id: string; current_ship_id: string }; ship: { ship_id: string; ship_type: string; ship_name: string | null; current_sector: number | null; in_hyperspace: boolean; credits: number | null } }> {
+): Promise<{ character: CharacterRow; ship: ShipRow }> {
   const character = await loadCharacter(supabase, characterId);
   const ship = await loadShip(supabase, character.current_ship_id);
   return { character, ship };

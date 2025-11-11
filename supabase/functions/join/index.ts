@@ -16,10 +16,13 @@ import {
   requireString,
   optionalString,
   optionalNumber,
+  optionalBoolean,
   resolveRequestId,
   respondWithError,
 } from '../_shared/request.ts';
 import { type ObserverMetadata } from '../_shared/observers.ts';
+import { canonicalizeCharacterId } from '../_shared/ids.ts';
+import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 
 type CharacterRow = {
   character_id: string;
@@ -31,6 +34,9 @@ type CharacterRow = {
 type ShipRow = {
   ship_id: string;
   owner_id: string;
+  owner_type: 'character' | 'corporation' | 'unowned' | null;
+  owner_character_id: string | null;
+  owner_corporation_id: string | null;
   ship_type: string;
   ship_name: string | null;
   current_sector: number | null;
@@ -92,11 +98,22 @@ serve(async (req: Request): Promise<Response> => {
   const shipTypeOverride = optionalString(payload, 'ship_type');
   const sectorOverride = optionalNumber(payload, 'sector');
   const creditsOverride = optionalNumber(payload, 'credits');
+  const rawActorCharacterId = optionalString(payload, 'actor_character_id');
+  let actorCharacterId: string | null = null;
+  if (rawActorCharacterId) {
+    try {
+      actorCharacterId = await canonicalizeCharacterId(rawActorCharacterId);
+    } catch (err) {
+      console.error('join.canonicalize.actor', err);
+      return errorResponse('invalid actor_character_id', 400);
+    }
+  }
+  const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
   try {
     const character = await loadCharacterRow(supabase, characterId);
     if (!character) {
-      throw new JoinError('character not found', 404);
+      throw new JoinError('Character is not registered', 404);
     }
 
     try {
@@ -117,6 +134,14 @@ serve(async (req: Request): Promise<Response> => {
     if (!ship) {
       throw new JoinError('character ship not found', 500);
     }
+
+    await ensureActorAuthorization({
+      supabase,
+      ship,
+      actorCharacterId,
+      adminOverride,
+      targetCharacterId: characterId,
+    });
 
     const shipDefinition = await loadShipDefinition(supabase, ship.ship_type);
     const previousSector = ship.current_sector;
@@ -206,6 +231,9 @@ serve(async (req: Request): Promise<Response> => {
 
     return successResponse({ request_id: requestId });
   } catch (err) {
+    if (err instanceof ActorAuthorizationError) {
+      return errorResponse(err.message, err.status);
+    }
     if (err instanceof JoinError) {
       console.warn('join.validation', err.message);
       return errorResponse(err.message, err.status);
@@ -238,7 +266,7 @@ async function loadShipRow(
 ): Promise<ShipRow | null> {
   const { data, error } = await supabase
     .from('ship_instances')
-    .select('ship_id, owner_id, ship_type, ship_name, current_sector')
+    .select('ship_id, owner_id, owner_type, owner_character_id, owner_corporation_id, ship_type, ship_name, current_sector')
     .eq('ship_id', shipId)
     .maybeSingle();
   if (error) {

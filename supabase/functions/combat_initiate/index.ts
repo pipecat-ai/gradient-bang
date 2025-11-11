@@ -4,7 +4,8 @@ import { validateApiToken, unauthorizedResponse, errorResponse, successResponse 
 import { createServiceRoleClient } from '../_shared/client.ts';
 import { emitCharacterEvent, emitErrorEvent, emitSectorEnvelope, buildEventSource } from '../_shared/events.ts';
 import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
-import { loadCharacter } from '../_shared/status.ts';
+import { loadCharacter, loadShip } from '../_shared/status.ts';
+import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -61,10 +62,6 @@ serve(async (req: Request): Promise<Response> => {
   const actorCharacterId = optionalString(payload, 'actor_character_id');
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
-  if (actorCharacterId && actorCharacterId !== characterId && !adminOverride) {
-    return errorResponse('actor_character_id must match character_id unless admin_override is true', 403);
-  }
-
   try {
     await enforceRateLimit(supabase, characterId, 'combat_initiate');
   } catch (err) {
@@ -83,8 +80,25 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    return await handleCombatInitiate({ supabase, payload, characterId, requestId });
+    return await handleCombatInitiate({
+      supabase,
+      payload,
+      characterId,
+      requestId,
+      actorCharacterId,
+      adminOverride,
+    });
   } catch (err) {
+    if (err instanceof ActorAuthorizationError) {
+      await emitErrorEvent(supabase, {
+        characterId,
+        method: 'combat_initiate',
+        requestId,
+        detail: err.message,
+        status: err.status,
+      });
+      return errorResponse(err.message, err.status);
+    }
     console.error('combat_initiate.error', err);
     await emitErrorEvent(supabase, {
       characterId,
@@ -103,29 +117,32 @@ async function handleCombatInitiate(params: {
   payload: Record<string, unknown>;
   characterId: string;
   requestId: string;
+  actorCharacterId: string | null;
+  adminOverride: boolean;
 }): Promise<Response> {
-  const { supabase, characterId, requestId } = params;
+  const { supabase, characterId, requestId, actorCharacterId, adminOverride } = params;
   const character = await loadCharacter(supabase, characterId);
   const shipId = character.current_ship_id;
   if (!shipId) {
     throw new Error('Character has no ship assigned');
   }
 
-  const { data: shipRow, error: shipError } = await supabase
-    .from('ship_instances')
-    .select('ship_id, current_sector, in_hyperspace')
-    .eq('ship_id', shipId)
-    .maybeSingle();
-  if (shipError || !shipRow) {
-    throw new Error('Ship not found for combat initiation');
-  }
-  if (shipRow.in_hyperspace) {
+  const ship = await loadShip(supabase, shipId);
+  await ensureActorAuthorization({
+    supabase,
+    ship,
+    actorCharacterId,
+    adminOverride,
+    targetCharacterId: characterId,
+  });
+
+  if (ship.in_hyperspace) {
     throw new Error('Character is in hyperspace and cannot initiate combat');
   }
-  if (shipRow.current_sector === null || shipRow.current_sector === undefined) {
+  if (ship.current_sector === null || ship.current_sector === undefined) {
     throw new Error('Character ship missing sector');
   }
-  const sectorId = shipRow.current_sector;
+  const sectorId = ship.current_sector;
 
   const existingEncounter = await loadCombatForSector(supabase, sectorId);
   const participantStates = await loadCharacterCombatants(supabase, sectorId);
