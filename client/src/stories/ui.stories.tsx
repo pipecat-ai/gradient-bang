@@ -82,6 +82,7 @@ export const GameUI: Story = () => {
           Warp Purchase Toast
         </Button>
         <Button
+          size="sm"
           onClick={() => {
             addToast({
               type: "bank.transaction",
@@ -99,6 +100,7 @@ export const GameUI: Story = () => {
           Bank Transaction Toast
         </Button>
         <Button
+          size="sm"
           onClick={() => {
             addToast({
               type: "transfer",
@@ -132,6 +134,7 @@ export const GameUI: Story = () => {
           Received Credits Toast
         </Button>
         <Button
+          size="sm"
           onClick={() => {
             addToast({
               type: "transfer",
@@ -165,6 +168,7 @@ export const GameUI: Story = () => {
           Sent Warp Power Toast
         </Button>
         <Button
+          size="sm"
           onClick={() => {
             addToast({
               type: "trade.executed",
@@ -193,6 +197,7 @@ export const GameUI: Story = () => {
           Trade Purchase Toast
         </Button>
         <Button
+          size="sm"
           onClick={() => {
             addToast({
               type: "trade.executed",
@@ -219,6 +224,52 @@ export const GameUI: Story = () => {
           }}
         >
           Trade Sale Toast
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => {
+            addToast({
+              type: "salvage.collected",
+              meta: {
+                salvage: {
+                  salvage_id: "salv_123",
+                  collected: {
+                    cargo: {
+                      quantum_foam: 8,
+                      retro_organics: 0,
+                      neuro_symbolics: 15,
+                    },
+                    scrap: 0,
+                    credits: 100,
+                  },
+                },
+              },
+            });
+          }}
+        >
+          Salvage Collected Toast
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => {
+            addToast({
+              type: "salvage.created",
+              meta: {
+                salvage: {
+                  salvage_id: "salv_123",
+                  cargo: {
+                    quantum_foam: 8,
+                    retro_organics: 0,
+                    neuro_symbolics: 15,
+                  },
+                  scrap: 0,
+                  credits: 100,
+                },
+              },
+            });
+          }}
+        >
+          Salvage Created Toast
         </Button>
       </div>
     </div>

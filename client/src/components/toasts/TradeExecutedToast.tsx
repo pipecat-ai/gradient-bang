@@ -12,7 +12,12 @@ import { useEffect, useState } from "react";
 import { CurrencyCounter } from "../CurrencyCounter";
 import { Card, CardContent } from "../primitives/Card";
 import { Separator } from "../primitives/Separator";
-import { ToastBase, ToastTitle, ToastValue } from "./ToastBase";
+import {
+  ToastBase,
+  ToastResourceTile,
+  ToastTitle,
+  ToastValue,
+} from "./ToastBase";
 
 interface TradeExecutedToastProps {
   toast: Toast & { type: "trade.executed" };
@@ -21,36 +26,6 @@ interface TradeExecutedToastProps {
   onDismiss?: () => void;
 }
 
-const TradeCommodityItem = ({
-  children,
-  active = false,
-  commodity,
-  units,
-}: {
-  children: React.ReactNode;
-  active: boolean;
-  commodity: Resource;
-  units?: number;
-}) => {
-  return (
-    <div
-      className={cn(
-        "flex flex-col border items-center justify-center flex-1",
-        !active
-          ? "opacity-50 cross-lines-accent border-border"
-          : "border-success"
-      )}
-    >
-      <div className="flex items-center justify-center h-full">{children}</div>
-      <div className="bg-black w-full text-center text-xs font-bold py-1">
-        {RESOURCE_SHORT_NAMES[commodity]}:{" "}
-        <span className={units === 0 ? "opacity-50" : "text-success"}>
-          {units || 0}
-        </span>
-      </div>
-    </div>
-  );
-};
 export const TradeExecutedToast = ({
   toast,
   onAnimateIn,
@@ -77,15 +52,15 @@ export const TradeExecutedToast = ({
         size="sm"
         className="stripe-frame-white/30 stripe-frame-2 stripe-frame-size-2 border-none bg-transparent w-full h-full"
       >
-        <CardContent className="flex flex-col h-full justify-between items-center gap-3">
+        <CardContent className="flex flex-col h-full justify-between items-center gap-ui-sm">
           <ToastTitle>
             {meta?.trade_type === "buy" ? "Purchase Executed" : "Sale Executed"}
           </ToastTitle>
           <div className="flex flex-row gap-3 w-full h-full">
             <div className="flex flex-row gap-1.5 w-full h-full">
-              <TradeCommodityItem
+              <ToastResourceTile
                 active={meta?.commodity === "quantum_foam"}
-                commodity="quantum_foam"
+                commodity={RESOURCE_SHORT_NAMES["quantum_foam"]}
                 units={meta?.new_cargo.quantum_foam}
               >
                 <QuantumFoamIcon
@@ -93,10 +68,10 @@ export const TradeExecutedToast = ({
                   weight="duotone"
                   className="shrink-0 size-6"
                 />
-              </TradeCommodityItem>
-              <TradeCommodityItem
+              </ToastResourceTile>
+              <ToastResourceTile
                 active={meta?.commodity === "retro_organics"}
-                commodity="retro_organics"
+                commodity={RESOURCE_SHORT_NAMES["retro_organics"]}
                 units={meta?.new_cargo.retro_organics}
               >
                 <RetroOrganicsIcon
@@ -104,11 +79,11 @@ export const TradeExecutedToast = ({
                   weight="duotone"
                   className="shrink-0 size-6"
                 />
-              </TradeCommodityItem>
+              </ToastResourceTile>
 
-              <TradeCommodityItem
+              <ToastResourceTile
                 active={meta?.commodity === "neuro_symbolics"}
-                commodity="neuro_symbolics"
+                commodity={RESOURCE_SHORT_NAMES["neuro_symbolics"]}
                 units={meta?.new_cargo.neuro_symbolics}
               >
                 <NeuroSymbolicsIcon
@@ -116,7 +91,7 @@ export const TradeExecutedToast = ({
                   weight="duotone"
                   className="shrink-0 size-6"
                 />
-              </TradeCommodityItem>
+              </ToastResourceTile>
             </div>
             <Separator orientation="vertical" className="opacity-30" />
             <div className="flex flex-col gap-2 w-1/2">

@@ -1,4 +1,6 @@
+import usePlaySound from "@/hooks/usePlaySound";
 import { cn } from "@/utils/tailwind";
+import { cva } from "class-variance-authority";
 import { motion } from "motion/react";
 import { useEffect } from "react";
 import { Separator } from "../primitives/Separator";
@@ -16,11 +18,17 @@ export const ToastBase = ({
   onAnimationComplete,
   onClick,
 }: ToastBaseProps) => {
+  const { playSound } = usePlaySound();
+
   useEffect(() => {
     if (onAnimateIn) {
       onAnimateIn();
     }
   }, [onAnimateIn]);
+
+  useEffect(() => {
+    playSound("chime2");
+  }, [playSound]);
 
   return (
     <motion.div
@@ -56,7 +64,7 @@ export const ToastTitle = ({
       )}
     >
       <Separator className="w-auto flex-1" />
-      <span className="heading-4 tracking-widest">{children}</span>
+      <span className="heading-4 tracking-widest leading-none">{children}</span>
       <Separator className="w-auto flex-1" />
     </div>
   );
@@ -77,6 +85,86 @@ export const ToastValue = ({
       )}
     >
       {children}
+    </div>
+  );
+};
+
+const tileVariants = cva(
+  "flex flex-col border items-center justify-center flex-1",
+  {
+    variants: {
+      color: {
+        success: "border-success",
+        warning: "border-warning",
+        destructive: "border-destructive",
+        default: "border-border",
+      },
+      active: {
+        true: "",
+        false: "opacity-50 cross-lines-accent border-border",
+      },
+    },
+    compoundVariants: [
+      {
+        active: false,
+        className: "border-border",
+      },
+    ],
+    defaultVariants: {
+      color: "success",
+      active: true,
+    },
+  }
+);
+
+const tileUnitsVariants = cva("", {
+  variants: {
+    color: {
+      success: "text-success",
+      warning: "text-warning",
+      destructive: "text-destructive",
+      default: "text-foreground",
+    },
+    empty: {
+      true: "opacity-50",
+      false: "",
+    },
+  },
+  defaultVariants: {
+    color: "success",
+    empty: false,
+  },
+});
+
+export const ToastResourceTile = ({
+  color = "success",
+  children,
+  active = false,
+  commodity,
+  units,
+}: {
+  color?: "success" | "warning" | "destructive" | "default";
+  children: React.ReactNode;
+  active: boolean;
+  commodity: string;
+  units?: number;
+}) => {
+  return (
+    <div className={cn(tileVariants({ color, active }))}>
+      <div className="flex items-center justify-center h-full">{children}</div>
+      <div className="bg-black w-full text-center text-xs font-bold py-1 uppercase">
+        {commodity}:{" "}
+        <span
+          className={cn(
+            tileUnitsVariants({
+              color,
+              empty: units === 0 || units === undefined,
+            })
+          )}
+        >
+          {units || 0}
+        </span>
+      </div>
     </div>
   );
 };

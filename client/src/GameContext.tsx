@@ -402,6 +402,13 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
                   data.sector.id
                 }] ${salvageCreatedSummaryString(data.salvage_details)}`,
               });
+
+              gameStore.addToast({
+                type: "salvage.created",
+                meta: {
+                  salvage: data.salvage_details as Salvage,
+                },
+              });
               break;
             }
 
@@ -416,6 +423,12 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
                 }] ${salvageCollectedSummaryString(data.salvage_details)}`,
               });
 
+              gameStore.addToast({
+                type: "salvage.collected",
+                meta: {
+                  salvage: data.salvage_details as Salvage,
+                },
+              });
               break;
             }
 

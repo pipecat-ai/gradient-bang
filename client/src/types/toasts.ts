@@ -49,6 +49,14 @@ export type TradeExecutedToastData = {
   new_prices: Record<Resource, number>;
 };
 
+export type SalvageCollectedToastData = {
+  salvage: Salvage;
+};
+
+export type SalvageCreatedToastData = {
+  salvage: Salvage;
+};
+
 export type ToastInput = Omit<Toast, "id" | "timestamp">;
 
 type ToastBase = {
@@ -72,4 +80,12 @@ export type Toast =
   | (ToastBase & {
       type: "trade.executed";
       meta?: TradeExecutedToastData;
+    })
+  | (ToastBase & {
+      type: "salvage.collected";
+      meta?: SalvageCollectedToastData;
+    })
+  | (ToastBase & {
+      type: "salvage.created";
+      meta?: SalvageCreatedToastData;
     });
