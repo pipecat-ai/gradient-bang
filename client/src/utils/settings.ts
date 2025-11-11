@@ -6,9 +6,10 @@ export function getLocalSettings() {
 
   const localSettings = localStorage.getItem("gb-settings");
   if (localSettings) {
-    console.debug("[GAME SETTINGS] Found local settings", localSettings);
+    const s = JSON.parse(localSettings);
+    console.debug("[GAME SETTINGS] Found local settings", s);
     return {
-      ...JSON.parse(localSettings),
+      ...s,
       ...Settings,
     };
   }

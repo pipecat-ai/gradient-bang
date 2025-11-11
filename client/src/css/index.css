@@ -58,6 +58,7 @@
   --z-starfield: 1;
   --z-visor: 2;
   --z-hud: 3;
+  --z-toasts: 4;
   --z-screens: 20;
 }
 
@@ -105,6 +106,7 @@
   --color-client: var(--color-sky-300);
 
   /** UI **/
+  --spacing-ui-xs: calc(var(--spacing) * 2);
   --spacing-ui-sm: calc(var(--spacing) * 4);
   --spacing-ui-md: calc(var(--spacing) * 6);
   --spacing-ui-lg: calc(var(--spacing) * 10);
@@ -116,6 +118,9 @@
 
   --height-ui: 460px;
   --width-ui: 400px;
+
+  --height-toast: 160px;
+  --width-toast: 600px;
 
   --shadow-glow-sm: 0 0 10px 1px var(--color-primary);
   --text-shadow-hud: 0 0 12px rgba(0, 0, 0, 0.6);
@@ -614,53 +619,42 @@ button {
   animation: highlight-focus 1.2s ease-out forwards;
 }
 
-/* Numerical Badge Animations */
-@keyframes counter-tick {
+@keyframes flash-glow-increment {
   0% {
     transform: scale(1);
+    box-shadow: 0 0 0 0 var(--color-success);
   }
-  50% {
+  40% {
     transform: scale(1.05);
+    box-shadow: 0 0 0px 4px var(--color-success);
   }
   100% {
     transform: scale(1);
+    box-shadow: 0 0 0px 12px transparent;
   }
 }
 
-@keyframes flash-glow {
+@keyframes flash-glow-decrement {
   0% {
-    box-shadow: 0 0 0 0 var(--color-active);
+    transform: scale(1);
+    box-shadow: 0 0 0 0 var(--color-destructive);
   }
-  50% {
-    box-shadow: 0 0 0 4px var(--color-active);
+  40% {
+    transform: scale(1.05);
+    box-shadow: 0 0 0px 4px var(--color-destructive);
   }
   100% {
-    box-shadow: 0 0 0 0 var(--color-active);
+    transform: scale(1);
+    box-shadow: 0 0 0px 12px transparent;
   }
 }
 
-@keyframes flash-glow-inactive {
-  0% {
-    box-shadow: 0 0 0 0 var(--color-inactive);
-  }
-  50% {
-    box-shadow: 0 0 0 4px var(--color-inactive);
-  }
-  100% {
-    box-shadow: 0 0 0 0 var(--color-inactive);
-  }
+.numerical-badge-flashing-increment {
+  animation: flash-glow-increment 1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
-.numerical-badge-animating {
-  animation: counter-tick 0.1s ease-out;
-}
-
-.numerical-badge-flashing {
-  animation: flash-glow 0.8s ease-out;
-}
-
-.numerical-badge-flashing-inactive {
-  animation: flash-glow-inactive 0.8s ease-out;
+.numerical-badge-flashing-decrement {
+  animation: flash-glow-decrement 1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
 @import "./starfield.css";

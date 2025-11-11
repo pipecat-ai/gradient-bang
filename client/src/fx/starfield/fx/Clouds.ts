@@ -14,10 +14,10 @@ export class Clouds extends FX {
 
   constructor(uniformManager: UniformManager, scene: THREE.Scene) {
     super(uniformManager, scene);
-    this._noiseTexture = null;
     this._clouds = null;
     this._cloudsMaterial = null;
     this._config = null;
+    this._noiseTexture = createNoiseTexture(512);
   }
 
   public create(config: GalaxyStarfieldConfig): void {
@@ -28,7 +28,6 @@ export class Clouds extends FX {
     }
 
     this._config = config;
-    const precomputedNoise = createNoiseTexture(512);
     const geo = new THREE.PlaneGeometry(2, 2);
     const mat = new THREE.ShaderMaterial({
       uniforms: {
@@ -68,7 +67,7 @@ export class Clouds extends FX {
         shakeWarpIntensity: { value: config.cloudsShakeWarpIntensity },
         shakeWarpRampTime: { value: config.cloudsShakeWarpRampTime },
         cloudsShakeProgress: { value: 0 },
-        noiseTexture: { value: precomputedNoise },
+        noiseTexture: { value: this._noiseTexture },
         noiseUse: { value: 1.0 },
         shadowCenter: { value: new THREE.Vector2(0.5, 0.5) },
         shadowRadius: { value: 0.15 },

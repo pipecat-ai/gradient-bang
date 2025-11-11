@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 export const ShipVisor = () => {
   const gameState = useGameStore.use.gameState();
-  const playSound = usePlaySound();
+  const { playSound } = usePlaySound();
   const [isOpen, setIsOpen] = useState(false);
 
   /*

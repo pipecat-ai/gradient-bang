@@ -96,6 +96,37 @@
   }
 }
 
+@utility bracket-vertical {
+  &:after {
+    content: "";
+    position: absolute;
+    inset: calc(var(--bracket-offset) * -1);
+    background: 
+        /* Top horizontal line (full width) */ linear-gradient(
+          var(--bracket-color),
+          var(--bracket-color)
+        )
+        top 0 left 0 / 100% var(--bracket-width) no-repeat,
+      /* Bottom horizontal line (full width) */
+        linear-gradient(var(--bracket-color), var(--bracket-color)) bottom 0
+        left 0 / 100% var(--bracket-width) no-repeat,
+      /* Top-left vertical cap */
+        linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 left 0 /
+        var(--bracket-width) var(--bracket-size) no-repeat,
+      /* Top-right vertical cap */
+        linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 right
+        0 / var(--bracket-width) var(--bracket-size) no-repeat,
+      /* Bottom-left vertical cap */
+        linear-gradient(var(--bracket-color), var(--bracket-color)) bottom 0
+        left 0 / var(--bracket-width) var(--bracket-size) no-repeat,
+      /* Bottom-right vertical cap */
+        linear-gradient(var(--bracket-color), var(--bracket-color)) bottom 0
+        right 0 / var(--bracket-width) var(--bracket-size) no-repeat;
+    pointer-events: none;
+    opacity: var(--bracket-opacity);
+  }
+}
+
 @utility bracket-* {
   --bracket-color: --value(--color- *);
   --bracket-width: calc(--value(integer) * 1px);
@@ -286,6 +317,16 @@
   --stripe-inset: --spacing(--value(integer));
   --stripe-color: --value(--color- *);
   --stripe-opacity: calc(--modifier(integer) * 1%);
+}
+
+@utility stripe-frame-size-* {
+  --stripe-size: --value(--spacing- *);
+  --stripe-size: --spacing(--value(integer));
+}
+
+@utility stripe-frame-border-* {
+  --stripe-border: --value(--spacing- *);
+  --stripe-border: --spacing(--value(integer));
 }
 
 @utility stripe-bar {

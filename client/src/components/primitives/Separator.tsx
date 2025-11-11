@@ -20,6 +20,20 @@ const separatorVariants = cva("bg-border text-muted-foreground/30 shrink-0", {
         "bg-transparent bg-[repeating-linear-gradient(to_right,currentColor,currentColor_2px,transparent_2px,transparent_6px)] bg-[length:6px_100%]",
     },
   },
+  compoundVariants: [
+    {
+      orientation: "vertical",
+      variant: "dashed",
+      className:
+        "bg-transparent bg-[repeating-linear-gradient(to_bottom,currentColor,currentColor_10px,transparent_10px,transparent_15px)] bg-[length:15px_100%]",
+    },
+    {
+      orientation: "vertical",
+      variant: "dotted",
+      className:
+        "bg-transparent bg-[repeating-linear-gradient(to_bottom,currentColor,currentColor_2px,transparent_2px,transparent_6px)] bg-[length:6px_100%]",
+    },
+  ],
   defaultVariants: {
     orientation: "horizontal",
   },

@@ -1,3 +1,5 @@
+import { CurrencyCounter } from "@/components/CurrencyCounter";
+import { NumericalBadge } from "@/components/NumericalBadge";
 import { Badge } from "@/components/primitives/Badge";
 import { Button } from "@/components/primitives/Button";
 import {
@@ -17,6 +19,7 @@ import Error from "@/components/views/Error";
 import Game from "@/components/views/Game";
 import JoinStatus from "@/components/views/JoinStatus";
 import ViewContainer from "@/components/views/ViewContainer";
+import useGameStore from "@/stores/game";
 import { AnimatedFrame } from "@fx/frame";
 import type { Story } from "@ladle/react";
 import { Dialog } from "radix-ui";
@@ -54,12 +57,173 @@ ScreenMenuUI.meta = {
   disconnectedStory: true,
 };
 
-export const GameUI: Story = () => (
-  <div className="relative w-full h-screen">
-    <Game />
-    <AnimatedFrame />
-  </div>
-);
+export const GameUI: Story = () => {
+  const addToast = useGameStore.use.addToast();
+  return (
+    <div className="relative w-full h-screen">
+      <Game />
+      <AnimatedFrame />
+      <div className="fixed bottom-0 right-0 p-ui-sm z-9999">
+        <Button
+          onClick={() => {
+            addToast({
+              type: "warp.purchase",
+              meta: {
+                cost: 250,
+                capacity: 300,
+                prev_amount: 60,
+                new_amount: 300,
+                new_credits: 890,
+                prev_credits: 1000,
+              },
+            });
+          }}
+        >
+          Warp Purchase Toast
+        </Button>
+        <Button
+          onClick={() => {
+            addToast({
+              type: "bank.transaction",
+              meta: {
+                direction: "deposit",
+                amount: 1000,
+                credits_on_hand_before: 2000,
+                credits_on_hand_after: 1000,
+                credits_in_bank_before: 1000,
+                credits_in_bank_after: 2000,
+              },
+            });
+          }}
+        >
+          Bank Transaction Toast
+        </Button>
+        <Button
+          onClick={() => {
+            addToast({
+              type: "transfer",
+              meta: {
+                direction: "received",
+                from: {
+                  player_type: "human",
+                  name: "John Doe",
+                  id: "123",
+                  ship: {
+                    ship_type: "ship",
+                    ship_name: "Ship",
+                  },
+                },
+                to: {
+                  player_type: "human",
+                  name: "Jane Doe",
+                  id: "456",
+                  ship: {
+                    ship_type: "ship",
+                    ship_name: "Ship",
+                  },
+                },
+                transfer_details: {
+                  credits: 1000,
+                },
+              },
+            });
+          }}
+        >
+          Received Credits Toast
+        </Button>
+        <Button
+          onClick={() => {
+            addToast({
+              type: "transfer",
+              meta: {
+                direction: "sent",
+                from: {
+                  player_type: "human",
+                  name: "John Doe",
+                  id: "123",
+                  ship: {
+                    ship_type: "ship",
+                    ship_name: "Ship",
+                  },
+                },
+                to: {
+                  player_type: "human",
+                  name: "Jane Doe",
+                  id: "456",
+                  ship: {
+                    ship_type: "ship",
+                    ship_name: "Ship",
+                  },
+                },
+                transfer_details: {
+                  warp_power: 1000,
+                },
+              },
+            });
+          }}
+        >
+          Sent Warp Power Toast
+        </Button>
+        <Button
+          onClick={() => {
+            addToast({
+              type: "trade.executed",
+              meta: {
+                trade_type: "buy",
+                commodity: "quantum_foam",
+                units: 1,
+                price_per_unit: 24,
+                total_price: 24,
+                old_credits: 874,
+                new_credits: 850,
+                new_cargo: {
+                  neuro_symbolics: 0,
+                  quantum_foam: 1,
+                  retro_organics: 0,
+                },
+                new_prices: {
+                  quantum_foam: 24,
+                  retro_organics: 9,
+                  neuro_symbolics: 38,
+                },
+              },
+            });
+          }}
+        >
+          Trade Purchase Toast
+        </Button>
+        <Button
+          onClick={() => {
+            addToast({
+              type: "trade.executed",
+              meta: {
+                trade_type: "sell",
+                commodity: "retro_organics",
+                units: 1,
+                price_per_unit: 24,
+                total_price: 24,
+                old_credits: 850,
+                new_credits: 874,
+                new_cargo: {
+                  neuro_symbolics: 0,
+                  quantum_foam: 0,
+                  retro_organics: 0,
+                },
+                new_prices: {
+                  quantum_foam: 24,
+                  retro_organics: 9,
+                  neuro_symbolics: 38,
+                },
+              },
+            });
+          }}
+        >
+          Trade Sale Toast
+        </Button>
+      </div>
+    </div>
+  );
+};
 
 GameUI.meta = {
   disconnectedStory: true,
@@ -315,5 +479,45 @@ export const ProgressStory: Story = () => {
 };
 
 ProgressStory.meta = {
+  disconnectedStory: true,
+};
+
+export const NumberCounter: Story = () => {
+  const [count, setCount] = useState(0);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-row gap-4">
+        <Button onClick={() => setCount(count + 1)}>Increment</Button>
+        <Button onClick={() => setCount(count + 100)}>Increment 100</Button>
+        <Button onClick={() => setCount(count + 1000)}>Increment 1000</Button>
+        <Button onClick={() => setCount(count + 10000)}>Increment 10000</Button>
+        <Button onClick={() => setCount(count + 100000)}>
+          Increment 100000
+        </Button>
+        <Button onClick={() => setCount(count + 1000000)}>
+          Increment 1000000
+        </Button>
+        <Button onClick={() => setCount(count + 10000000)}>
+          Increment 10000000
+        </Button>
+        <Button onClick={() => setCount(0)}>Set to 0</Button>
+      </div>
+      <CurrencyCounter value={count} className="text-2xl font-bold" />
+      <NumericalBadge value={count}>Badge</NumericalBadge>
+      <NumericalBadge
+        value={count}
+        variants={{
+          increment: "success",
+          decrement: "warning",
+        }}
+      >
+        Badge
+      </NumericalBadge>
+    </div>
+  );
+};
+
+NumberCounter.meta = {
   disconnectedStory: true,
 };

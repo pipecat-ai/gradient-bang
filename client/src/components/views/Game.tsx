@@ -1,6 +1,7 @@
 import { AutoPilot } from "@/components/AutoPilot";
 import { Settings } from "@/components/dialogs/Settings";
 import { ShipVisor } from "@/components/hud/ShipVisor";
+import { ToastContainer } from "@/components/toasts/ToastContainer";
 import { useNotificationSound } from "@/hooks/useNotificationSound";
 import { usePlaySound } from "@/hooks/usePlaySound";
 import useGameStore from "@/stores/game";
@@ -13,7 +14,7 @@ import { ScreenContainer } from "@/components/screens/ScreenContainer";
 import { useEffect } from "react";
 
 export const Game = () => {
-  const playSound = usePlaySound();
+  const { playSound } = usePlaySound();
   const gameState = useGameStore.use.gameState();
 
   useNotificationSound();
@@ -32,6 +33,7 @@ export const Game = () => {
 
         <div className="flex flex-col items-center justify-center">
           {/* The Whole Wide Universe */}
+          <ToastContainer />
           <AutoPilot />
         </div>
 

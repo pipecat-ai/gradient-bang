@@ -44,6 +44,7 @@ export const GameInitStateMessage = {
 
 export interface GameState {
   player: PlayerSelf;
+  character_id?: string;
   ship: ShipSelf;
   sector?: Sector;
   local_map_data?: MapData;
@@ -66,6 +67,7 @@ export interface GameState {
 
 export interface GameSlice extends GameState {
   setState: (newState: Partial<GameState>) => void;
+  setCharacterId: (characterId: string) => void;
   addMessage: (message: ChatMessage) => void;
   setPlayer: (player: Partial<PlayerSelf>) => void;
   setSector: (sector: Sector) => void;
@@ -98,6 +100,7 @@ const createGameSlice: StateCreator<
   GameSlice
 > = (set, get) => ({
   player: {} as PlayerSelf,
+  character_id: undefined,
   ship: {} as ShipSelf,
   sector: undefined,
   local_map_data: undefined, // @TODO: move to map slice
@@ -112,6 +115,7 @@ const createGameSlice: StateCreator<
   gameState: "not_ready",
   gameStateMessage: GameInitStateMessage.INIT,
 
+  setCharacterId: (characterId: string) => set({ character_id: characterId }),
   setGameStateMessage: (gameStateMessage: string) => set({ gameStateMessage }),
   setState: (newState: Partial<GameState>) =>
     set({ ...get(), ...newState }, true),

@@ -22,9 +22,11 @@ export const useFlashAnimation = (
 
   const [isFlashing, setIsFlashing] = useState(false);
   const [flashColor, setFlashColor] = useState<
-    "primary" | "active" | "inactive"
-  >("primary");
-  const timeoutRef = useRef<number | undefined>(undefined);
+    "idle" | "increment" | "decrement"
+  >("idle");
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined
+  );
   const previousTriggerRef = useRef<number | undefined>(undefined);
   const isFirstRenderRef = useRef(true);
   const isFlashingRef = useRef(false);
@@ -61,7 +63,7 @@ export const useFlashAnimation = (
         typeof trigger === "number" &&
         typeof previousValue === "number" &&
         trigger > previousValue;
-      const flashColorToUse = isIncrease ? "active" : "inactive";
+      const flashColorToUse = isIncrease ? "increment" : "decrement";
 
       previousTriggerRef.current = trigger;
       lastProcessedValueRef.current = trigger;
@@ -74,7 +76,7 @@ export const useFlashAnimation = (
         setTimeout(() => {
           isFlashingRef.current = false;
           setIsFlashing(false);
-          setFlashColor("primary");
+          setFlashColor("idle");
         }, duration);
       }, flashDelay);
     }
@@ -104,10 +106,10 @@ export const useFlashAnimation = (
 
       isFlashingRef.current = true;
       setIsFlashing(true);
-      setFlashColor("active");
+      setFlashColor("increment");
 
       setTimeout(() => {
-        setFlashColor("primary");
+        setFlashColor("idle");
       }, duration / 2);
 
       setTimeout(() => {

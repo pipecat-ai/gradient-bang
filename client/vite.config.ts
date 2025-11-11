@@ -56,7 +56,7 @@ export default defineConfig({
   server: {
     allowedHosts: true,
     proxy: {
-      "/api": {
+      "/start": {
         target: "http://0.0.0.0:7860",
         changeOrigin: true,
       },

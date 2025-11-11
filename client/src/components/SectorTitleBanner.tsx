@@ -39,7 +39,7 @@ const useDelayedVisibility = (value: boolean, delay: number) => {
 };
 
 export const SectorTitleBanner = () => {
-  const playSound = usePlaySound();
+  const { playSound } = usePlaySound();
   const starfieldInstance = useGameStore.use.starfieldInstance?.();
   const sector = useGameStore.use.sector?.();
   const [isVisible, setIsVisible] = useState(false);

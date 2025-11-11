@@ -16,7 +16,8 @@ const Settings = useGameStore.getState().settings;
 // Parse query string parameters
 const queryParams = new URLSearchParams(window.location.search);
 const transport = queryParams.get("transport") || "smallwebrtc";
-const endpoint = queryParams.get("server") || "api/offer";
+const endpoint =
+  queryParams.get("server") || `${import.meta.env.VITE_BOT_URL}/start`;
 
 const requestBodyEntries = [...queryParams.entries()].filter(
   ([key]) => key !== "server" && key !== "transport"
@@ -31,20 +32,24 @@ const startRequestData = {
     start_video_off: true,
     eject_at_room_exp: true,
   },
-  body: requestBody,
+  body: { ...requestBody, start_on_join: false },
 };
+
+// createDailyRoom: false, enableDefaultIceServers: true
 
 console.debug("[MAIN] Pipecat Configuration:", endpoint, transport);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <PipecatAppBase
-      transportType={transport as "smallwebrtc" | "daily"}
       startBotParams={{
         endpoint,
         requestData:
-          transport === "daily" ? startRequestData : { start_on_join: false },
+          transport === "daily"
+            ? startRequestData
+            : { ...requestBody, start_on_join: false },
       }}
+      transportType={transport as "smallwebrtc" | "daily"}
       clientOptions={{
         enableMic: Settings.enableMic,
       }}

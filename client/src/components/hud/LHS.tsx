@@ -14,7 +14,7 @@ export const LHS = () => {
   return (
     <div className="min-w-[400px] lhs-perspective flex flex-col gap-2 w-[700px]">
       <Card
-        className="relative border-2 border-white/10 bg-transport p-0"
+        className="relative border-2 border-white/10 bg-transport p-0 h-full"
         elbow={true}
       >
         {sector && localMapData && (
@@ -24,7 +24,7 @@ export const LHS = () => {
             maxDistance={2}
             showLegend={false}
             width={600}
-            height={308}
+            height={300}
           />
         )}
       </Card>

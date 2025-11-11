@@ -2,11 +2,14 @@ import useGameStore from "@stores/game";
 import { memo, useEffect } from "react";
 
 import type { StarfieldSceneConfig } from "@/fx/starfield/constants";
-import type { GalaxyStarfieldEvents, GameObjectInstance } from "@/fx/starfield/types";
+import type {
+  GalaxyStarfieldEvents,
+  GameObjectInstance,
+} from "@/fx/starfield/types";
 import { usePlaySound } from "@/hooks/usePlaySound";
 
 export const StarField = memo(() => {
-  const playSound = usePlaySound();
+  const { playSound } = usePlaySound();
   const ready = useGameStore.use.gameState() === "ready";
   const settings = useGameStore.use.settings();
   const starfieldInstance = useGameStore.use.starfieldInstance?.();

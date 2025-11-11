@@ -2,18 +2,19 @@ import { cn } from "@/utils/tailwind";
 import { cva, type VariantProps } from "class-variance-authority";
 
 const badgeVariants = cva(
-  "inline-flex items-center justify-center uppercase gap-2 whitespace-nowrap duration-300 ease-in-out font-medium disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive self-start",
+  "inline-flex items-center border justify-center uppercase gap-2 whitespace-nowrap duration-300 ease-in-out font-medium disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive self-start",
   {
     variants: {
       variant: {
-        default: "bg-muted border border-border text-foreground",
+        default: "bg-muted border-border text-foreground",
         secondary:
-          "bg-muted/60 text-foreground bracket-muted-foreground/40 elbow-muted-foreground/40",
-        glass: "bg-muted/60 text-foreground",
-        highlight: "bg-fuel/20 text-fuel bracket-fuel bracket-offset-0",
+          "border-transparent bg-muted/60 text-foreground bracket-muted-foreground/40 elbow-muted-foreground/40",
+        glass: "border-transparent bg-muted/60 text-foreground",
+        highlight:
+          "border-transparent bg-fuel/20 text-fuel bracket-fuel bracket-offset-0",
         success:
-          "bg-success/20 text-success-foreground bracket-success bracket-offset-0 animate-pulse",
-        warning: "bg-warning-background text-warning-foreground",
+          "border-success bg-success/20 text-success-foreground bracket-success bracket-offset-0 animate-pulse",
+        warning: "border-warning bg-warning-background text-warning-foreground",
       },
       border: {
         none: "",

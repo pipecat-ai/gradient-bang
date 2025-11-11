@@ -1,19 +1,30 @@
-import { Badge } from "@pipecat-ai/voice-ui-kit";
-import { useAnimatedCounter } from "../hooks/useAnimatedCounter";
-import { useFlashAnimation } from "../hooks/useFlashAnimation";
+import { Badge } from "@/components/primitives/Badge";
+import { useCounter } from "@/hooks/useCounter";
+import { useFlashAnimation } from "@/hooks/useFlashAnimation";
+import { cn } from "@/utils/tailwind";
 
 export const NumericalBadge = ({
   value,
   children,
   formatAsCurrency = false,
-}: {
+  duration = 1500,
+  precision = 0,
+  className,
+  variants,
+  ...props
+}: React.ComponentProps<typeof Badge> & {
   value: number | undefined;
-  children: React.ReactNode;
   formatAsCurrency?: boolean;
+  duration?: number;
+  precision?: number;
+  variants?: {
+    increment: React.ComponentProps<typeof Badge>["variant"];
+    decrement: React.ComponentProps<typeof Badge>["variant"];
+  };
 }) => {
-  const { displayValue, isAnimating } = useAnimatedCounter(value, {
-    duration: 1200,
-    precision: 0,
+  const { displayValue } = useCounter(value, {
+    duration,
+    precision,
   });
 
   const { flashColor, isFlashing } = useFlashAnimation(value, {
@@ -23,26 +34,27 @@ export const NumericalBadge = ({
 
   return (
     <Badge
-      variant="elbow"
-      color={flashColor}
-      buttonSizing
-      className={`gap-1 transition-colors duration-200 ${
-        isFlashing
-          ? flashColor === "active"
-            ? "numerical-badge-flashing"
-            : "numerical-badge-flashing-inactive"
-          : ""
-      } ${isAnimating ? "numerical-badge-animating" : ""}`}
+      {...props}
+      variant={flashColor !== "idle" ? variants?.[flashColor] : undefined}
+      className={cn(
+        `gap-1 transition-colors duration-200`,
+        isFlashing &&
+          (flashColor === "increment"
+            ? "numerical-badge-flashing-increment"
+            : "numerical-badge-flashing-decrement"),
+        className
+      )}
     >
       {children}
       <span
-        className={`w-10 text-center transition-all duration-150 ${
+        className={cn(
+          "transition-all duration-150",
           value === undefined
             ? "text-subtle"
             : value === 0
             ? "text-white opacity-40"
             : "text-white"
-        } ${isAnimating ? "font-semibold" : ""}`}
+        )}
       >
         {value === undefined
           ? "---"

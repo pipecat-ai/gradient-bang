@@ -9,7 +9,7 @@ import type {
 import { usePlaySound } from "@/hooks/usePlaySound";
 
 export const StarField = memo(() => {
-  const playSound = usePlaySound();
+  const { playSound } = usePlaySound();
   const starfieldInstance = useGameStore.use.starfieldInstance?.();
   const settings = useGameStore.use.settings();
 

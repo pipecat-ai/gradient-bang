@@ -7,28 +7,12 @@ import {
   CardTitle,
 } from "@/components/primitives/Card";
 import { Divider } from "@/components/primitives/Divider";
+import { ScrollArea } from "@/components/primitives/ScrollArea";
 import useGameStore from "@/stores/game";
 import { AnimatePresence, motion } from "motion/react";
 import { Dialog } from "radix-ui";
 import { useEffect, useState } from "react";
-
-const LeaderboardPlayerRow = ({ player }: { player: LeaderboardPlayer }) => {
-  return (
-    <tr>
-      <td className="py-1">{player.name}</td>
-      <td className="py-1">{player.rank}</td>
-      <td className="py-1">
-        {player.bank_credits +
-          player.ship_credits +
-          player.ship_trade_in_value +
-          player.garrison_fighter_value}
-      </td>
-      <td className="py-1">{player.sectors_visited}</td>
-      <td className="py-1">{player.exploration_percent}%</td>
-      <td className="py-1">{player.total_resources}</td>
-    </tr>
-  );
-};
+import { LeaderboardTable } from "../LeaderboardTable";
 
 export const Leaderboard = () => {
   const setActiveModal = useGameStore.use.setActiveModal();
@@ -74,7 +58,7 @@ export const Leaderboard = () => {
                   asChild
                   forceMount
                   aria-describedby={undefined}
-                  className="DialogContent max-w-xl"
+                  className="DialogContent max-w-3xl"
                 >
                   <motion.div
                     initial={{ opacity: 0, scale: 0.95 }}
@@ -85,40 +69,25 @@ export const Leaderboard = () => {
                     <Card
                       elbow={true}
                       size="default"
-                      className="w-full h-full max-h-max bg-black shadow-2xl"
+                      className="w-full h-full bg-black shadow-2xl"
                     >
                       <CardHeader>
                         <CardTitle className="heading-2">Leaderboard</CardTitle>
                       </CardHeader>
-                      <CardContent>
-                        <table className="w-full text-xs">
-                          <thead className="text-left bg-background border-b border-border">
-                            <tr>
-                              <th className="py-1 uppercase">Name</th>
-                              <th className="py-1 uppercase">Rank</th>
-                              <th className="py-1 uppercase">Net worth</th>
-                              <th className="py-1 uppercase">
-                                Sectors visited
-                              </th>
-                              <th className="py-1 uppercase">
-                                Exploration percent
-                              </th>
-                              <th className="py-1 uppercase">
-                                Total resources
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {leaderboardData.map(
-                              (player: LeaderboardPlayer) => (
-                                <LeaderboardPlayerRow
-                                  key={player.character_id}
-                                  player={player}
-                                />
-                              )
-                            )}
-                          </tbody>
-                        </table>
+                      <CardContent className="h-full">
+                        {leaderboardData.length > 0 ? (
+                          <ScrollArea className="w-full h-full">
+                            <LeaderboardTable
+                              leaderboardData={leaderboardData}
+                            />
+                          </ScrollArea>
+                        ) : (
+                          <div className="text-muted-foreground text-center flex flex-col items-center justify-center h-full cross-lines-terminal-foreground/20">
+                            <span className="text-sm uppercase animate-pulse bg-background/40 p-2 tracking-wider font-medium">
+                              Fetching leaderboard data...
+                            </span>
+                          </div>
+                        )}
                       </CardContent>
                       <CardFooter className="flex flex-col gap-6">
                         <Divider decoration="plus" />

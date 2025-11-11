@@ -1,6 +1,8 @@
 import type { StateCreator } from "zustand";
 
+import type { Toast, ToastInput } from "@/types/toasts";
 import { produce } from "immer";
+import { nanoid } from "nanoid";
 
 interface Notifications {
   newChatMessage: boolean;
@@ -14,6 +16,12 @@ export interface UISlice {
 
   notifications: Notifications;
   setNotifications: (notifications: Partial<Notifications>) => void;
+
+  toasts: Toast[];
+  setToasts: (toasts: Toast[]) => void;
+  addToast: (toast: ToastInput) => void;
+  clearToasts: () => void;
+  removeToast: (id: string) => void;
 
   setUIState: (newState: UIState) => void;
   setActiveScreen: (screen?: UIScreen) => void;
@@ -29,6 +37,40 @@ export const createUISlice: StateCreator<UISlice> = (set) => ({
 
   notifications: {
     newChatMessage: false,
+  },
+
+  toasts: [],
+  setToasts: (toasts: Toast[]) => {
+    set(
+      produce((state) => {
+        state.toasts = toasts;
+      })
+    );
+  },
+  addToast: (toast: ToastInput) => {
+    set(
+      produce((state) => {
+        state.toasts.push({
+          ...toast,
+          id: nanoid(),
+          timestamp: new Date().toISOString(),
+        });
+      })
+    );
+  },
+  clearToasts: () => {
+    set(
+      produce((state) => {
+        state.toasts = [];
+      })
+    );
+  },
+  removeToast: (id: string) => {
+    set(
+      produce((state) => {
+        state.toasts = state.toasts.filter((toast: Toast) => toast?.id !== id);
+      })
+    );
   },
 
   setNotifications: (notifications: Partial<Notifications>) => {

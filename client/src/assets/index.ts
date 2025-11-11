@@ -31,6 +31,7 @@ export const sounds = {
   chime6: new URL("./sounds/chime-6.wav", import.meta.url).href,
   text: new URL("./sounds/text.wav", import.meta.url).href,
   ambience: new URL("./sounds/ambience.wav", import.meta.url).href,
+  currency: new URL("./sounds/currency.wav", import.meta.url).href,
 } as const;
 
 // JS Chunks
