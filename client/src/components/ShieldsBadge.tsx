@@ -22,7 +22,7 @@ export const ShieldsBadge = ({ className }: { className?: string }) => {
         <Progress
           color="success"
           value={shieldsPercentage}
-          className="h-[8px] w-full"
+          className="h-[10px] w-full"
         />
       </div>
     </Badge>

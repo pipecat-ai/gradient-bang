@@ -1,17 +1,17 @@
 import { CargoBadge } from "@/components/CargoBadge";
 import { CargoHoldsBadge } from "@/components/CargoHoldsBadge";
-import { CreditsOnHandBadge } from "@/components/CreditsOnHandBadge";
 import { FightersBadge } from "@/components/FightersBadge";
-import { DotDivider } from "@/components/primitives/DotDivider";
 import { Separator } from "@/components/primitives/Separator";
 import { ScreenMenu } from "@/components/screens/ScreenMenu";
 import { ShieldsBadge } from "@/components/ShieldsBadge";
 import { WarpBadge } from "@/components/WarpBadge";
+import { CreditsOnHandBadge } from "../CreditsOnHandBadge";
+import { DotDivider } from "../primitives/DotDivider";
 
 export const TopBar = () => {
   return (
     <header className="flex flex-row justify-between gap-5">
-      <div className="flex-1 p-ui-sm align-self max-w-100 top-lhs-perspective">
+      <div className="flex-1 p-ui-sm align-self w-full max-w-110 top-lhs-perspective">
         <div className="elbow flex flex-col gap-1 p-2 backdrop-blur-sm bg-card/20">
           <WarpBadge />
           <Separator
@@ -27,7 +27,7 @@ export const TopBar = () => {
       <div className="flex flex-row gap-2 justify-center">
         <ScreenMenu />
       </div>
-      <div className="flex-1 p-ui-sm align-self max-w-100 top-rhs-perspective">
+      <div className="flex-1 p-ui-sm align-self w-full max-w-110 top-rhs-perspective">
         <div className="elbow flex flex-col gap-1 p-2 backdrop-blur-sm bg-card/20">
           <CargoBadge />
           <Separator
@@ -36,8 +36,8 @@ export const TopBar = () => {
           />
           <div className="flex flex-row gap-1 items-center">
             <CargoHoldsBadge />
-            <DotDivider />
-            <CreditsOnHandBadge className="flex-1" />
+            <DotDivider className="mx-1" />
+            <CreditsOnHandBadge />
           </div>
         </div>
       </div>

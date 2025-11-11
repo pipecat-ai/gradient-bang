@@ -22,7 +22,7 @@ export const FightersBadge = ({ className }: { className?: string }) => {
         <Progress
           color="success"
           value={fightersPercentage}
-          className="h-[8px] w-full"
+          className="h-[10px] w-full"
         />
       </div>
     </Badge>

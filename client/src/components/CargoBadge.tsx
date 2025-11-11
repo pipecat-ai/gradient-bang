@@ -5,9 +5,10 @@ import { cn } from "@/utils/tailwind";
 import useGameStore from "../stores/game";
 
 const incrementCx =
-  "bg-success-background stripe-bar stripe-bar-success stripe-bar-8 stripe-bar-animate-1";
+  "bg-warning-background stripe-bar stripe-bar-warning stripe-bar-8 stripe-bar-animate-1";
+
 const decrementCx =
-  "stripe-bar stripe-bar-8 stripe-bar-animate-1 stripe-bar-reverse";
+  "bg-success-background stripe-bar stripe-bar-success stripe-bar-8 stripe-bar-animate-1 stripe-bar-reverse";
 
 export const CargoBadge = ({ className }: { className?: string }) => {
   const ship = useGameStore.use.ship();
@@ -18,17 +19,19 @@ export const CargoBadge = ({ className }: { className?: string }) => {
     100;
 
   const color =
-    cargoPercentage >= 75
+    cargoPercentage >= 95
       ? "destructive"
-      : cargoPercentage >= 50
+      : cargoPercentage >= 85
       ? "warning"
       : "primary";
 
-  const dCX = `${decrementCx} ${
+  console.log(color);
+  const iCX = `${
     color === "destructive"
-      ? "bg-destructive-background stripe-bar-destructive"
-      : "bg-warning-background stripe-bar-warning"
+      ? "bg-destructive-background stripe-bar stripe-bar-destructive stripe-bar-8 stripe-bar-animate-1"
+      : incrementCx
   }`;
+
   return (
     <Badge
       variant="glass"
@@ -37,7 +40,10 @@ export const CargoBadge = ({ className }: { className?: string }) => {
     >
       <div className="flex flex-row gap-2 items-center w-full justify-between">
         <div className="text-xs">
-          {ship?.empty_holds ?? 0}
+          {Math.min(
+            Math.max((ship?.cargo_capacity ?? 0) - (ship?.empty_holds ?? 0), 0),
+            ship?.cargo_capacity ?? 0
+          )}
           <span className="opacity-30"> / </span>
           {ship?.cargo_capacity ?? 0}
         </div>
@@ -46,12 +52,12 @@ export const CargoBadge = ({ className }: { className?: string }) => {
       <div className="flex flex-row gap-3 items-center w-full">
         <Progress
           color={color}
-          value={100 - cargoPercentage}
+          value={cargoPercentage}
           segmented={true}
           className="h-[16px] w-full"
           classNames={{
-            increment: incrementCx,
-            decrement: dCX,
+            increment: iCX,
+            decrement: decrementCx,
           }}
           segmentHoldMs={500}
         />

@@ -26,11 +26,11 @@
   --destructive-foreground: oklch(93.6% 0.032 17.717);
   --destructive-background: oklch(44.4% 0.177 26.899);
   --warning: oklch(82.8% 0.189 84.429);
-  --warning-foreground: oklch(82.8% 0.189 84.429);
-  --warning-background: oklch(47.3% 0.137 46.201);
+  --warning-foreground: oklch(92.4% 0.12 95.746);
+  --warning-background: oklch(27.9% 0.077 45.635);
   --success: oklch(76.5% 0.177 163.223);
-  --success-foreground: oklch(97.9% 0.021 166.113);
-  --success-background: oklch(43.2% 0.095 166.913);
+  --success-foreground: oklch(95% 0.052 163.051);
+  --success-background: oklch(26.2% 0.051 172.552);
   --border: var(--color-neutral-600);
   --input: oklch(0.708 0 0);
   --ring: oklch(0.439 0 0);
@@ -637,11 +637,11 @@ button {
 @keyframes flash-glow-decrement {
   0% {
     transform: scale(1);
-    box-shadow: 0 0 0 0 var(--color-destructive);
+    box-shadow: 0 0 0 0 var(--color-warning);
   }
   40% {
-    transform: scale(1.05);
-    box-shadow: 0 0 0px 4px var(--color-destructive);
+    transform: scale(1.03);
+    box-shadow: 0 0 0px 4px var(--color-warning);
   }
   100% {
     transform: scale(1);

@@ -15,6 +15,7 @@ import Error from "./../src/components/views/Error";
 import { MessageSelect } from "./MessageSelect";
 
 import { PipecatClient } from "@pipecat-ai/client-js";
+import useGameStore from "../src/stores/game";
 import "./global.css";
 
 const StoryWrapper = ({
@@ -31,7 +32,7 @@ const StoryWrapper = ({
   storyMeta?: Meta;
 }) => {
   const { isConnected, isConnecting } = usePipecatConnectionState();
-
+  const setGameState = useGameStore.use.setGameState();
   const connecting = isConnecting || storyMeta?.connectOnMount;
 
   useEffect(() => {
@@ -39,6 +40,11 @@ const StoryWrapper = ({
       client.initDevices();
     }
   }, [storyMeta?.enableMic, client]);
+
+  useEffect(() => {
+    if (!isConnected) return;
+    setGameState("ready");
+  }, [isConnected, setGameState]);
 
   return (
     <>

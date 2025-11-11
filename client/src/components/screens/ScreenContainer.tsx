@@ -1,9 +1,9 @@
 import { PortPanel } from "@/components/PortPanel";
 import { MapScreen } from "@/components/screens/MapScreen";
 import useGameStore from "@/stores/game";
+import { useClickAway } from "@uidotdev/usehooks";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useRef, type RefObject } from "react";
-import { useOnClickOutside } from "usehooks-ts";
+import { useEffect, useRef } from "react";
 
 const variants = {
   enter: {
@@ -23,14 +23,14 @@ const ScreenBase = ({ children }: { children: React.ReactNode }) => {
 
 export const ScreenContainer = () => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const screenRef = useRef<HTMLDivElement>(null);
+  //const screenRef = useRef<HTMLDivElement>(null);
 
   const activeScreen = useGameStore.use.activeScreen?.();
   const prevActiveScreenRef = useRef<UIScreen | undefined>(activeScreen);
   const diamondFXInstance = useGameStore.use.diamondFXInstance?.();
   const setActiveScreen = useGameStore.use.setActiveScreen?.();
 
-  useOnClickOutside(screenRef as RefObject<HTMLElement>, (e) => {
+  const screenRef = useClickAway<HTMLDivElement>((e) => {
     const target = e.target as HTMLElement;
     const isMenuClick =
       target.closest('[role="tab"]') ||

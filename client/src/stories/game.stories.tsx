@@ -4,7 +4,6 @@ import {
   GET_MY_STATUS_MESSAGE,
 } from "@/actions/dispatch";
 import { CaptainsLogPanel } from "@/components/CaptainsLogPanel";
-import { CargoCapacityBadge } from "@/components/CargoCapacityBadge";
 import { CoursePlotPanel } from "@/components/CoursePlotPanel";
 import MiniMap from "@/components/hud/MiniMap";
 import { MovementHistoryPanel } from "@/components/MovementHistoryPanel";
@@ -87,7 +86,6 @@ export const Init: Story = () => {
           </ul>
         )}
 
-        <CargoCapacityBadge />
         <WarpBadge />
 
         <h3 className="story-heading">Sector:</h3>

@@ -1,4 +1,4 @@
-import { Badge } from "@/components/primitives/Badge";
+import { Badge, BadgeTitle } from "@/components/primitives/Badge";
 import { useCounter } from "@/hooks/useCounter";
 import { useFlashAnimation } from "@/hooks/useFlashAnimation";
 import { cn } from "@/utils/tailwind";
@@ -10,6 +10,7 @@ export const NumericalBadge = ({
   duration = 1500,
   precision = 0,
   className,
+  classNames,
   variants,
   ...props
 }: React.ComponentProps<typeof Badge> & {
@@ -17,6 +18,9 @@ export const NumericalBadge = ({
   formatAsCurrency?: boolean;
   duration?: number;
   precision?: number;
+  classNames?: {
+    value?: string;
+  };
   variants?: {
     increment: React.ComponentProps<typeof Badge>["variant"];
     decrement: React.ComponentProps<typeof Badge>["variant"];
@@ -35,7 +39,7 @@ export const NumericalBadge = ({
   return (
     <Badge
       {...props}
-      variant={flashColor !== "idle" ? variants?.[flashColor] : undefined}
+      variant={flashColor !== "idle" ? variants?.[flashColor] : props.variant}
       className={cn(
         `gap-1 transition-colors duration-200`,
         isFlashing &&
@@ -46,22 +50,25 @@ export const NumericalBadge = ({
       )}
     >
       {children}
-      <span
-        className={cn(
-          "transition-all duration-150",
-          value === undefined
-            ? "text-subtle"
-            : value === 0
-            ? "text-white opacity-40"
-            : "text-white"
-        )}
+      <BadgeTitle
+        className={
+          (cn(
+            "transition-all duration-150",
+            value === undefined
+              ? "text-subtle"
+              : value === 0
+              ? "text-white opacity-40"
+              : "text-white"
+          ),
+          classNames?.value)
+        }
       >
         {value === undefined
           ? "---"
           : formatAsCurrency
           ? displayValue.toLocaleString()
           : displayValue}
-      </span>
+      </BadgeTitle>
     </Badge>
   );
 };
