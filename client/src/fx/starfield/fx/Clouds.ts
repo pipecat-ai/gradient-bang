@@ -17,7 +17,8 @@ export class Clouds extends FX {
     this._clouds = null;
     this._cloudsMaterial = null;
     this._config = null;
-    this._noiseTexture = createNoiseTexture(512);
+    this._noiseTexture = null;
+    this.ensureNoiseTexture();
   }
 
   public create(config: GalaxyStarfieldConfig): void {
@@ -28,6 +29,7 @@ export class Clouds extends FX {
     }
 
     this._config = config;
+    const noiseTexture = this.ensureNoiseTexture();
     const geo = new THREE.PlaneGeometry(2, 2);
     const mat = new THREE.ShaderMaterial({
       uniforms: {
@@ -67,7 +69,7 @@ export class Clouds extends FX {
         shakeWarpIntensity: { value: config.cloudsShakeWarpIntensity },
         shakeWarpRampTime: { value: config.cloudsShakeWarpRampTime },
         cloudsShakeProgress: { value: 0 },
-        noiseTexture: { value: this._noiseTexture },
+        noiseTexture: { value: noiseTexture },
         noiseUse: { value: 1.0 },
         shadowCenter: { value: new THREE.Vector2(0.5, 0.5) },
         shadowRadius: { value: 0.15 },
@@ -149,13 +151,13 @@ export class Clouds extends FX {
   public restore(): void {
     console.debug("[CLOUDS] Restoring");
     if (!this._clouds) return;
-    if (this._noiseTexture) {
-      this._noiseTexture.dispose();
-      this._noiseTexture = createNoiseTexture(512);
-    }
-
     if (this._cloudsMaterial) {
-      this._cloudsMaterial.uniforms.noiseTexture.value = this._noiseTexture;
+      if (this._noiseTexture) {
+        this._noiseTexture.dispose();
+        this._noiseTexture = null;
+      }
+      const noiseTexture = this.ensureNoiseTexture();
+      this._cloudsMaterial.uniforms.noiseTexture.value = noiseTexture;
     }
   }
 
@@ -180,5 +182,12 @@ export class Clouds extends FX {
    */
   public getCloudsMaterial(): THREE.ShaderMaterial | null {
     return this._cloudsMaterial;
+  }
+
+  private ensureNoiseTexture(): THREE.DataTexture {
+    if (!this._noiseTexture) {
+      this._noiseTexture = createNoiseTexture(512);
+    }
+    return this._noiseTexture;
   }
 }

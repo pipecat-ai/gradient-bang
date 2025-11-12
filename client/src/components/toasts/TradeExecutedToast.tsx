@@ -59,9 +59,15 @@ export const TradeExecutedToast = ({
           <div className="flex flex-row gap-3 w-full h-full">
             <div className="flex flex-row gap-1.5 w-full h-full">
               <ToastResourceTile
+                color={meta?.trade_type === "buy" ? "success" : "warning"}
                 active={meta?.commodity === "quantum_foam"}
                 commodity={RESOURCE_SHORT_NAMES["quantum_foam"]}
-                units={meta?.new_cargo.quantum_foam}
+                units={
+                  meta?.trade_type === "sell" &&
+                  meta?.commodity === "quantum_foam"
+                    ? meta?.units
+                    : meta?.new_cargo.quantum_foam
+                }
               >
                 <QuantumFoamIcon
                   size={24}
@@ -70,9 +76,15 @@ export const TradeExecutedToast = ({
                 />
               </ToastResourceTile>
               <ToastResourceTile
+                color={meta?.trade_type === "buy" ? "success" : "warning"}
                 active={meta?.commodity === "retro_organics"}
                 commodity={RESOURCE_SHORT_NAMES["retro_organics"]}
-                units={meta?.new_cargo.retro_organics}
+                units={
+                  meta?.trade_type === "sell" &&
+                  meta?.commodity === "retro_organics"
+                    ? meta?.units
+                    : meta?.new_cargo.retro_organics
+                }
               >
                 <RetroOrganicsIcon
                   size={24}
@@ -82,9 +94,15 @@ export const TradeExecutedToast = ({
               </ToastResourceTile>
 
               <ToastResourceTile
+                color={meta?.trade_type === "buy" ? "success" : "warning"}
                 active={meta?.commodity === "neuro_symbolics"}
                 commodity={RESOURCE_SHORT_NAMES["neuro_symbolics"]}
-                units={meta?.new_cargo.neuro_symbolics}
+                units={
+                  meta?.trade_type === "sell" &&
+                  meta?.commodity === "neuro_symbolics"
+                    ? meta?.units
+                    : meta?.new_cargo.neuro_symbolics
+                }
               >
                 <NeuroSymbolicsIcon
                   size={24}

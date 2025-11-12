@@ -224,6 +224,7 @@ export interface GalaxyStarfieldConfig {
 
   // Rendering control
   renderingEnabled: boolean;
+  pauseOnBlur: boolean;
   debugGameObjectCounts: DebugGameObjectCounts;
 }
 
@@ -368,7 +369,7 @@ export const DEFAULT_GALAXY_CONFIG: GalaxyStarfieldConfig = {
   // === WARP EFFECT ===
   warpDurationSec: 3, // Warp sequence duration in seconds
   warpFOVMax: 140, // Maximum FOV during warp effect
-  warpCooldownSec: 10, // Cooldown period after warp animation before next animation can play
+  warpCooldownSec: 25, // Cooldown period after warp animation before next animation can play
   queueProcessingDelaySec: 1, // Delay between processing queued warp requests (fast sequential loading)
 
   // === NEBULA SETTINGS ===
@@ -378,10 +379,10 @@ export const DEFAULT_GALAXY_CONFIG: GalaxyStarfieldConfig = {
   nebulaColorMid: RAND_NEB.mid, // Middle color for 3-point gradient
   nebulaIntensity: Math.random() * 2 + 0.15, // Overall nebula brightness
   nebulaBlending: THREE.AdditiveBlending, // Should be screen
-  nebulaIdleNoiseSpeed: 0.25, // Speed of nebula evolution during idle
+  nebulaIdleNoiseSpeed: 0.15, // Speed of nebula evolution during idle
   nebulaDriftSpeed: 0.000005, // Speed of nebula UV drift
   nebulaAnisotropy: 2.2, // Stretch factor along galactic band (1.0 = circular)
-  nebulaDomainWarpStrength: 0.12, // Amount of noise domain warping (0-1)
+  nebulaDomainWarpStrength: 0.04, // Amount of noise domain warping (0-1)
   nebulaFilamentContrast: 0.65, // Mix amount for ridged filament structures (0-1)
   nebulaDarkLaneStrength: 0.35 + Math.random() * 0.65, // Strength of dark dust lane effect (0-1)
   nebulaPosterizeLevels: 0, // Posterization levels (0 = disabled)
@@ -395,8 +396,8 @@ export const DEFAULT_GALAXY_CONFIG: GalaxyStarfieldConfig = {
   cloudsColorPrimary: RAND_NEB.c1, // Primary cloud color (matches nebula)
   cloudsColorSecondary: RAND_NEB.c2, // Secondary cloud color (matches nebula)
   cloudsSpeed: 0.0025, // Speed of cloud animation
-  cloudsIterPrimary: Math.floor(Math.random() * 20) + 10, // Primary fractal iterations
-  cloudsIterSecondary: Math.floor(Math.random() * 10) + 1, // Secondary fractal iterations
+  cloudsIterPrimary: Math.floor(Math.random() * 4) + 3, // Primary fractal iterations
+  cloudsIterSecondary: Math.floor(Math.random() * 2) + 1, // Secondary fractal iterations
   cloudsDomainScale: 0.5 + Math.random() * 0.99, // Domain scaling for cloud noise
   cloudWarpSpeed: 25.0, // Cloud animation speed multiplier during warp
   cloudShakeSpeed: 50.0, // Cloud animation speed multiplier during shake
@@ -494,6 +495,7 @@ export const DEFAULT_GALAXY_CONFIG: GalaxyStarfieldConfig = {
   debugMode: false,
 
   renderingEnabled: true,
+  pauseOnBlur: false,
 
   debugGameObjectCounts: {
     playerShip: 1,

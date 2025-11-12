@@ -311,6 +311,18 @@ export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
                     }))
                   }
                 />
+
+                <SettingSwitch
+                  label="Bypass Warp Animation"
+                  id="bypass-warp-animation"
+                  checked={formSettings.fxBypassAnimation}
+                  onChange={(value) =>
+                    setFormSettings((prev) => ({
+                      ...prev,
+                      fxBypassAnimation: value,
+                    }))
+                  }
+                />
               </FieldGroup>
             </FieldSet>
 

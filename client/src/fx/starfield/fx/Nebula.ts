@@ -18,6 +18,7 @@ export class Nebula extends FX {
     this._nebula = null;
     this._nebulaMaterial = null;
     this._config = null;
+    this.ensureNoiseTexture();
   }
 
   public create(config: GalaxyStarfieldConfig): void {
@@ -38,12 +39,11 @@ export class Nebula extends FX {
       Math.cos(phi)
     ).normalize();
 
+    const noiseTexture = this.ensureNoiseTexture();
     const nebulaMaterial = new THREE.ShaderMaterial({
       uniforms: {
         time: { value: 0 },
-        noiseTexture: {
-          value: this._noiseTexture || createNoiseTexture(256),
-        },
+        noiseTexture: { value: noiseTexture },
         nebulaNoiseUse: { value: 0.0 },
         nebulaColor1: {
           value: new THREE.Vector3(
@@ -168,13 +168,13 @@ export class Nebula extends FX {
   public restore(): void {
     console.debug("[NEBULA] Restoring");
     if (!this._nebula) return;
-    if (this._noiseTexture) {
-      this._noiseTexture.dispose();
-      this._noiseTexture = createNoiseTexture(256);
-    }
-
     if (this._nebulaMaterial) {
-      this._nebulaMaterial.uniforms.noiseTexture.value = this._noiseTexture;
+      if (this._noiseTexture) {
+        this._noiseTexture.dispose();
+        this._noiseTexture = null;
+      }
+      const noiseTexture = this.ensureNoiseTexture();
+      this._nebulaMaterial.uniforms.noiseTexture.value = noiseTexture;
     }
   }
 
@@ -216,5 +216,12 @@ export class Nebula extends FX {
       material: this._nebulaMaterial,
       opacity: 1.0,
     };
+  }
+
+  private ensureNoiseTexture(): THREE.DataTexture {
+    if (!this._noiseTexture) {
+      this._noiseTexture = createNoiseTexture(256);
+    }
+    return this._noiseTexture;
   }
 }

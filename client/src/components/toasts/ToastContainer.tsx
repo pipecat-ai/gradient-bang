@@ -10,7 +10,7 @@ import { SalvageCreatedToast } from "./SalvageCreatedToast";
 import { TradeExecutedToast } from "./TradeExecutedToast";
 import { TransferToast } from "./TransferToast";
 
-const TOAST_DURATION_MS = 3000;
+const TOAST_DURATION_MS = 4000;
 
 export const ToastContainer = () => {
   const toasts = useGameStore.use.toasts();

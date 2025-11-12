@@ -1,10 +1,11 @@
+import { GET_MAP_REGION } from "@/actions/dispatch";
 import { CoursePlotPanel } from "@/components/CoursePlotPanel";
 import { MovementHistoryPanel } from "@/components/MovementHistoryPanel";
 import { Separator } from "@/components/primitives/Separator";
 import { useGameContext } from "@/hooks/useGameContext";
 import useGameStore from "@/stores/game";
 import MiniMap, { type MiniMapConfig } from "@hud/MiniMap";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 
 const MAP_CONFIG: MiniMapConfig = {
   max_bounds_distance: undefined,
@@ -21,7 +22,6 @@ export const MapScreen = () => {
 
   const throttleActive = useRef(false);
 
-  /*
   useEffect(() => {
     if (sector !== undefined && !throttleActive.current) {
       console.debug("[GAME MAP SCREEN] Fetching", sector?.id);
@@ -40,7 +40,7 @@ export const MapScreen = () => {
         throttleActive.current = false;
       }, 250);
     }
-  }, [sector, dispatchEvent]);*/
+  }, [sector, dispatchEvent]);
 
   return (
     <div className="w-[calc(100vw-220px)] h-[calc(100vh-420px)]">

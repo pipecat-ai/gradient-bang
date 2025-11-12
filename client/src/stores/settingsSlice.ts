@@ -16,6 +16,7 @@ export interface SettingsSlice {
     soundFXVolume: number;
     startMuted: boolean;
     fxBypassFlash: boolean;
+    fxBypassAnimation: boolean;
     qualityPreset: "text" | "low" | "high";
     saveSettings: boolean;
     bypassTitleScreen: boolean;
@@ -37,6 +38,7 @@ const defaultSettings = {
   soundFXVolume: 0.5,
   startMuted: false,
   fxBypassFlash: false,
+  fxBypassAnimation: false,
   qualityPreset: "high" as const,
   saveSettings: true,
   bypassTitleScreen: false,

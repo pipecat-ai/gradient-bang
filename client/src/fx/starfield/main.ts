@@ -294,6 +294,7 @@ export class GalaxyStarfield {
       this.finalizeSceneReady();
       this.startRendering();
       this.resetNonAnimatedWarpState();
+      this.warpController.notifyWarpComplete();
     }
   }
 
@@ -325,7 +326,7 @@ export class GalaxyStarfield {
         }
       },
       onWindowBlur: () => {
-        if (!this._isRendering) {
+        if (!this._isRendering || !this.config.pauseOnBlur) {
           return;
         }
         if (!this.isPaused) {
@@ -336,6 +337,9 @@ export class GalaxyStarfield {
         }
       },
       onWindowFocus: () => {
+        if (!this.config.pauseOnBlur) {
+          return;
+        }
         if (!document.hidden && !this.isManuallyPaused) {
           this.forceResume();
         }
