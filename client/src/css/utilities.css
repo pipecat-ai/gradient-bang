@@ -256,6 +256,10 @@
   }
 }
 
+@utility cross-lines-offset-* {
+  --cross-offset: calc(--value(integer) * 1px);
+}
+
 @utility stripe-frame {
   --stripe-inset: 12px;
   --stripe-border: var(--stripe-inset);

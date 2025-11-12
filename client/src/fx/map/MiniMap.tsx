@@ -75,32 +75,32 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     outlineWidth: 0,
   },
   coursePlotStart: {
-    fill: "rgba(0,255,0,0.25)",
-    border: "rgba(200,200,200,0.7)",
+    fill: "rgba(0,220,200,0.35)",
+    border: "rgba(0,255,230,0.9)",
     borderWidth: 3,
-    outline: "rgba(50,200,50,0.9)",
+    outline: "rgba(0,255,230,0.6)",
     outlineWidth: 4,
   },
   coursePlotEnd: {
-    fill: "rgba(0,255,0,0.25)",
-    border: "rgba(200,200,200,0.7)",
+    fill: "rgba(255,200,0,0.35)",
+    border: "rgba(255,220,0,0.9)",
     borderWidth: 3,
-    outline: "rgba(220,50,50,0.9)",
+    outline: "rgba(255,200,0,0.6)",
     outlineWidth: 4,
   },
   coursePlotMid: {
-    fill: "rgba(190,160,255,1)",
-    border: "rgba(200,200,200,0.7)",
-    borderWidth: 3,
+    fill: "rgba(255,255,255,0.25)",
+    border: "rgba(255,255,255,1)",
+    borderWidth: 2,
     outline: "none",
     outlineWidth: 0,
   },
   coursePlotPassed: {
-    fill: "rgba(255,165,0,0.6)",
-    border: "rgba(255,140,0,1)",
+    fill: "rgba(100,100,100,0.3)",
+    border: "rgba(120,180,170,0.6)",
     borderWidth: 2,
-    outline: "rgba(255,165,0,0.7)",
-    outlineWidth: 3,
+    outline: "none",
+    outlineWidth: 0,
   },
   crossRegion: {
     fill: "rgba(0,255,0,0.25)",
@@ -119,6 +119,7 @@ export interface LaneStyle {
   arrowSize: number;
   shadowBlur: number;
   shadowColor: string; // "none" if no shadow
+  lineCap: "butt" | "round" | "square";
 }
 
 export interface LaneStyles {
@@ -141,6 +142,7 @@ export const DEFAULT_LANE_STYLES: LaneStyles = {
     arrowSize: 0,
     shadowBlur: 0,
     shadowColor: "none",
+    lineCap: "round",
   },
   oneWay: {
     color: "#4a90e2",
@@ -150,6 +152,7 @@ export const DEFAULT_LANE_STYLES: LaneStyles = {
     arrowSize: 8,
     shadowBlur: 0,
     shadowColor: "none",
+    lineCap: "round",
   },
   hyperlane: {
     color: "rgba(190,160,255,1)",
@@ -159,6 +162,7 @@ export const DEFAULT_LANE_STYLES: LaneStyles = {
     arrowSize: 0,
     shadowBlur: 0,
     shadowColor: "none",
+    lineCap: "round",
   },
   hyperlaneStub: {
     color: "rgba(190,160,255,1)",
@@ -168,6 +172,7 @@ export const DEFAULT_LANE_STYLES: LaneStyles = {
     arrowSize: 6,
     shadowBlur: 0,
     shadowColor: "none",
+    lineCap: "round",
   },
   partial: {
     color: "rgba(120,230,160,1)",
@@ -177,6 +182,7 @@ export const DEFAULT_LANE_STYLES: LaneStyles = {
     arrowSize: 8,
     shadowBlur: 0,
     shadowColor: "none",
+    lineCap: "round",
   },
   muted: {
     color: "rgba(80,80,80,0.4)",
@@ -186,24 +192,27 @@ export const DEFAULT_LANE_STYLES: LaneStyles = {
     arrowSize: 8,
     shadowBlur: 0,
     shadowColor: "none",
+    lineCap: "round",
   },
   coursePlot: {
     color: "rgba(120,230,160,1)",
-    width: 3,
+    width: 4,
     dashPattern: "none",
     arrowColor: "rgba(120,230,160,1)",
     arrowSize: 8,
     shadowBlur: 0,
     shadowColor: "none",
+    lineCap: "round",
   },
   coursePlotAnimation: {
-    color: "rgba(255,255,255,0.9)",
+    color: "rgba(255,255,255,0.6)",
     width: 4,
     dashPattern: "12,8",
     arrowColor: "none",
     arrowSize: 0,
-    shadowBlur: 8,
+    shadowBlur: 0,
     shadowColor: "rgba(255,255,255,0.8)",
+    lineCap: "butt",
   },
 };
 
@@ -652,6 +661,7 @@ function renderLane(
   // Apply lane style
   ctx.strokeStyle = laneStyle.color;
   ctx.lineWidth = laneStyle.width;
+  ctx.lineCap = laneStyle.lineCap;
   if (laneStyle.dashPattern !== "none") {
     ctx.setLineDash(laneStyle.dashPattern.split(",").map((n) => parseFloat(n)));
   } else {
@@ -772,6 +782,7 @@ function renderHyperlaneStub(
   ctx.save();
   ctx.strokeStyle = stubStyle.color;
   ctx.lineWidth = stubStyle.width;
+  ctx.lineCap = stubStyle.lineCap;
   if (stubStyle.dashPattern !== "none") {
     ctx.setLineDash(stubStyle.dashPattern.split(",").map((n) => parseFloat(n)));
   }
@@ -882,6 +893,7 @@ function renderPartialLane(
 
   ctx.strokeStyle = gradient;
   ctx.lineWidth = laneStyle.width;
+  ctx.lineCap = laneStyle.lineCap;
   if (laneStyle.dashPattern !== "none") {
     ctx.setLineDash(laneStyle.dashPattern.split(",").map((n) => parseFloat(n)));
   }
@@ -1724,7 +1736,7 @@ function renderCoursePlotAnimation(
   }
   ctx.strokeStyle = animStyle.color;
   ctx.lineWidth = animStyle.width;
-  ctx.lineCap = "round";
+  ctx.lineCap = animStyle.lineCap;
   if (animStyle.dashPattern !== "none") {
     ctx.setLineDash(animStyle.dashPattern.split(",").map((n) => parseFloat(n)));
   }

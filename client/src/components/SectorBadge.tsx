@@ -1,14 +1,15 @@
 import { Badge } from "@/components/primitives/Badge";
 import useGameStore from "@/stores/game";
+import { cn } from "@/utils/tailwind";
 
-export const SectorBadge = () => {
+export const SectorBadge = ({ className }: { className?: string }) => {
   const sector = useGameStore.use.sector?.();
 
   return (
     <Badge
       variant="secondary"
       border="bracket"
-      className="flex-1 bracket-offset-0"
+      className={cn("flex-1 bracket-offset-0", className)}
     >
       Sector:
       <span

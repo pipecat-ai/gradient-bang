@@ -4,7 +4,11 @@ import { ShipOSDVisualizer } from "./ShipOSDVisualizer";
 
 export const ShipOSDPanel = () => {
   return (
-    <Card className="h-full bg-background w-[230px] border-2" elbow={true}>
+    <Card
+      className="h-full bg-background w-[210px] border-2"
+      elbow={true}
+      size="sm"
+    >
       <CardHeader className="flex flex-row justify-between">
         <PanelTitle>Ship OSD</PanelTitle>
         <PanelTitle className="text-border">v12.1</PanelTitle>

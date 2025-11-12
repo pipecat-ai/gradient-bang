@@ -1,30 +1,75 @@
 import useGameStore from "@/stores/game";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  PanelTitle,
-} from "@pipecat-ai/voice-ui-kit";
+import { cn } from "@/utils/tailwind";
+import { ArrowFatRightIcon, CompassIcon } from "@phosphor-icons/react";
+import { PanelTitle } from "./PanelTitle";
 import { Button } from "./primitives/Button";
+import { Card, CardContent } from "./primitives/Card";
 
 export const CoursePlotPanel = () => {
   const coursePlot = useGameStore.use.course_plot?.();
   const clearCoursePlot = useGameStore.use.clearCoursePlot?.();
+
   return (
-    <Card>
-      <CardHeader>
-        <PanelTitle>Active course plot:</PanelTitle>
-      </CardHeader>
-      <CardContent>
+    <Card
+      variant="stripes"
+      size="sm"
+      className={cn(
+        "",
+        coursePlot
+          ? "bg-fuel-background/50 stripe-frame-fuel"
+          : "stripe-frame-white/30"
+      )}
+    >
+      <CardContent className="h-24 flex flex-col justify-center items-center">
         {coursePlot ? (
-          <>
-            <pre className="text-xs bg-gray-900 p-2 rounded overflow-x-auto">
-              {JSON.stringify(coursePlot)}
-            </pre>
-            <Button onClick={clearCoursePlot}>Clear course plot</Button>
-          </>
+          <div className="flex flex-col gap-3 justify-between h-full w-full">
+            <div className="flex flex-row gap-3 items-center justify-between w-full h-full">
+              <div className="flex shrink-0 flex-1 flex-col gap-1 bg-fuel-background h-full items-center justify-center">
+                <span className="text-xs uppercase font-bold tracking-widest">
+                  From
+                </span>
+                <span className="text-lg font-bold text-fuel-foreground leading-none">
+                  {coursePlot.from_sector}
+                </span>
+              </div>
+              <ArrowFatRightIcon
+                weight="duotone"
+                size={24}
+                className="text-fuel"
+              />
+              <div className="flex flex-col gap-1">
+                <span className="text-xs uppercase font-bold tracking-widest animate-pulse">
+                  {coursePlot.distance} Hops
+                </span>
+              </div>
+              <ArrowFatRightIcon
+                weight="duotone"
+                size={24}
+                className="text-fuel"
+              />
+              <div className="flex shrink-0 flex-1 flex-col gap-1 bg-fuel-background h-full items-center justify-center">
+                <span className="text-xs uppercase font-bold tracking-widest">
+                  To
+                </span>
+                <span className="text-lg font-bold text-fuel-foreground leading-none">
+                  {coursePlot.to_sector}
+                </span>
+              </div>
+            </div>
+            <Button
+              onClick={clearCoursePlot}
+              size="sm"
+              variant="secondary"
+              className="w-full text-xs border-transparent"
+            >
+              Clear course plot
+            </Button>
+          </div>
         ) : (
-          <pre>No active course plot</pre>
+          <div className="text-center text-xs flex flex-col gap-3 items-center ">
+            <CompassIcon size={32} weight="duotone" className="opacity-30" />
+            <PanelTitle>No active course plot</PanelTitle>
+          </div>
         )}
       </CardContent>
     </Card>
