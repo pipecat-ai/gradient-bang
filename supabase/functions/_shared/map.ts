@@ -281,7 +281,7 @@ export async function buildSectorSnapshot(
   let occupantRows: Array<{
     character_id: string;
     name: string;
-    first_visit: string;
+    first_visit: string | null;
     player_metadata: Record<string, unknown> | null;
     current_ship_id: string;
   }> = [];
@@ -301,7 +301,7 @@ export async function buildSectorSnapshot(
   const ownerCharacterIds = (ships ?? [])
     .map((ship) => ship.owner_character_id)
     .filter((ownerId): ownerId is string => typeof ownerId === 'string');
-  let ownerRows: Array<{ character_id: string; name: string; first_visit: string; player_metadata: Record<string, unknown> | null }> = [];
+  let ownerRows: Array<{ character_id: string; name: string; first_visit: string | null; player_metadata: Record<string, unknown> | null }> = [];
   if (ownerCharacterIds.length > 0) {
     const { data, error } = await supabase
       .from('characters')

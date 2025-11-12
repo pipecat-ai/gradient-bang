@@ -24,6 +24,7 @@ import {
 } from '../_shared/trading.ts';
 import { buildStatusPayload, loadCharacter, loadShip, loadShipDefinition } from '../_shared/status.ts';
 import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
+import { canonicalizeCharacterId } from '../_shared/ids.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -69,8 +70,10 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   const requestId = resolveRequestId(payload);
-  const characterId = requireString(payload, 'character_id');
-  const actorCharacterId = optionalString(payload, 'actor_character_id');
+  const rawCharacterId = requireString(payload, 'character_id');
+  const characterId = await canonicalizeCharacterId(rawCharacterId);
+  const actorCharacterLabel = optionalString(payload, 'actor_character_id');
+  const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
   try {
@@ -242,6 +245,17 @@ async function handleTrade(
   const statusPayload = await buildStatusPayload(supabase, characterId);
   const priceMap = getPortPrices(execution.portDataAfter);
   const stockMap = getPortStock(execution.portDataAfter);
+  const portUpdatePayload = {
+    sector: {
+      id: sectorId,
+      port: {
+        code: execution.updatedPort.port_code,
+        prices: priceMap,
+        stock: stockMap,
+      },
+    },
+    updated_at: timestamp,
+  };
 
   await emitCharacterEvent({
     supabase,
@@ -263,7 +277,9 @@ async function handleTrade(
       },
     },
     sectorId,
+    shipId: ship.ship_id,
     requestId,
+    actorCharacterId,
   });
 
   await emitCharacterEvent({
@@ -272,16 +288,26 @@ async function handleTrade(
     eventType: 'status.update',
     payload: statusPayload,
     sectorId,
+    shipId: ship.ship_id,
     requestId,
+    actorCharacterId,
+  });
+
+  await emitCharacterEvent({
+    supabase,
+    characterId,
+    eventType: 'port.update',
+    payload: portUpdatePayload,
+    sectorId,
+    shipId: ship.ship_id,
+    requestId,
+    actorCharacterId,
   });
 
   await emitPortUpdateEvents(supabase, {
     sectorId,
-    recipients: await listCharactersInSector(supabase, sectorId),
-    portCode: execution.updatedPort.port_code,
-    priceMap,
-    stockMap,
-    observedAt: timestamp,
+    recipients: (await listCharactersInSector(supabase, sectorId)).filter((id) => id !== characterId),
+    payload: portUpdatePayload,
   });
 
   return successResponse({ request_id: requestId });
@@ -519,16 +545,16 @@ async function listCharactersInSector(
 ): Promise<string[]> {
   const { data, error } = await supabase
     .from('ship_instances')
-    .select('ship_id')
-    .eq('current_sector', sectorId)
-    .eq('in_hyperspace', false);
+    .select('ship_id, in_hyperspace')
+    .eq('current_sector', sectorId);
   if (error) {
     console.error('trade.list_characters', error);
     return [];
   }
   const shipIds = (data ?? [])
+    .filter((row) => row && row.in_hyperspace !== true)
     .map((row) => row.ship_id)
-    .filter((shipId): shipId is string => typeof shipId === 'string');
+    .filter((shipId): shipId is string => typeof shipId === 'string' && shipId.length > 0);
   if (shipIds.length === 0) {
     return [];
   }
@@ -554,26 +580,12 @@ async function emitPortUpdateEvents(
   params: {
     sectorId: number;
     recipients: string[];
-    portCode: string;
-    priceMap: Record<Commodity, number | null>;
-    stockMap: Record<Commodity, number>;
-    observedAt: string;
+    payload: Record<string, unknown>;
   },
 ): Promise<void> {
   if (params.recipients.length === 0) {
     return;
   }
-  const payload = {
-    sector: {
-      id: params.sectorId,
-      port: {
-        code: params.portCode,
-        prices: params.priceMap,
-        stock: params.stockMap,
-      },
-    },
-    updated_at: params.observedAt,
-  };
 
   await Promise.all(
     params.recipients.map((recipient) =>
@@ -581,7 +593,7 @@ async function emitPortUpdateEvents(
         supabase,
         characterId: recipient,
         eventType: 'port.update',
-        payload,
+        payload: params.payload,
         sectorId: params.sectorId,
       }),
     ),

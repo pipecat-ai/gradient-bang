@@ -303,7 +303,6 @@ _ensure_pipecat_stub()
 import httpx
 import pytest
 from helpers.character_setup import register_all_test_characters
-from helpers.supabase_reset import reset_supabase_state
 from helpers.supabase_features import missing_supabase_functions
 from helpers.server_fixture import (
     start_test_server,
@@ -544,13 +543,8 @@ def _ensure_supabase_ready() -> Dict[str, str]:
     _ensure_functions_served_for_tests()
     global _SUPABASE_DB_BOOTSTRAPPED
     if not _SUPABASE_DB_BOOTSTRAPPED:
-        try:
-            _invoke_test_reset_sync()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Edge reset failed: %s", exc)
-            if MANUAL_SUPABASE_STACK:
-                raise
-            _run_supabase_db_reset()
+        # Call test_reset edge function - fail loudly if it doesn't work
+        _invoke_test_reset_sync()
         _SUPABASE_DB_BOOTSTRAPPED = True
     return env
 
@@ -697,30 +691,6 @@ def _stop_functions_proc() -> None:
     FUNCTION_PROC = None
 
 
-def _run_supabase_db_reset() -> None:
-    if _env_truthy("SUPABASE_SKIP_DB_RESET"):
-        return
-
-    if SUPABASE_CLI_COMMAND is None:
-        raise RuntimeError(
-            "Supabase CLI is required for USE_SUPABASE_TESTS=1. Install the CLI or set SUPABASE_CLI_COMMAND."
-        )
-
-    cmd = [*SUPABASE_CLI_COMMAND, "--yes", "db", "reset"]
-    result = subprocess.run(
-        cmd,
-        cwd=str(REPO_ROOT),
-        capture_output=True,
-        text=True,
-    )
-
-    if result.returncode != 0:
-        raise RuntimeError(
-            "supabase db reset failed:\n"
-            f"STDOUT: {result.stdout}\nSTDERR: {result.stderr or '<empty>'}"
-        )
-
-
 def _invoke_edge_test_reset() -> None:
     """Call the test_reset edge function to seed test data."""
     import httpx
@@ -748,16 +718,8 @@ async def _reset_supabase_state_async() -> None:
         return
 
     loop = asyncio.get_running_loop()
-    try:
-        # Prefer edge function (seeds all characters from fixtures)
-        await loop.run_in_executor(None, _invoke_edge_test_reset)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Edge test_reset failed (%s); falling back to Python helper", exc)
-        try:
-            await loop.run_in_executor(None, reset_supabase_state)
-        except Exception as exc2:  # noqa: BLE001
-            logger.warning("Python reset_supabase_state failed (%s); falling back to db reset", exc2)
-            await loop.run_in_executor(None, _run_supabase_db_reset)
+    # Call test_reset edge function - if this fails, tests should fail
+    await loop.run_in_executor(None, _invoke_edge_test_reset)
 
 
 def _edge_base_url() -> str:
@@ -832,18 +794,8 @@ def _fetch_edge_health(function_name: str) -> Optional[Dict[str, object]]:
 
 
 def _invoke_test_reset_sync() -> None:
-    try:
-        reset_supabase_state()
-    except RuntimeError as e:
-        # On cloud without SUPABASE_DB_URL, skip reset and use existing data
-        supabase_url = os.environ.get("SUPABASE_URL", "")
-        if "supabase.co" in supabase_url and "SUPABASE_DB_URL" in str(e):
-            logger.warning(
-                "Skipping Supabase reset on cloud (SUPABASE_DB_URL not set). "
-                "Ensure database is pre-seeded with test data."
-            )
-        else:
-            raise
+    """Call test_reset edge function - no fallbacks."""
+    _invoke_edge_test_reset()
 
 # Import AsyncGameClient for test reset calls (patched above when Supabase mode is enabled)
 from utils.api_client import AsyncGameClient
@@ -871,7 +823,7 @@ def supabase_module_seed(setup_test_characters):  # noqa: ARG001
         return
 
     _ensure_supabase_ready()
-    reset_supabase_state()
+    _invoke_test_reset_sync()
     yield
 
 

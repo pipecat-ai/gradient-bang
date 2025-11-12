@@ -539,6 +539,18 @@ class AsyncGameClient(LegacyAsyncGameClient):
         await self._process_event(event_name, cleaned_payload)
         self._append_event_log(event_name, cleaned_payload)
 
+    async def _handle_sector_event(
+        self,
+        event_name: str,
+        payload: Dict[str, Any],
+    ) -> None:
+        context = payload.get("__event_context") if isinstance(payload, Mapping) else None
+        if isinstance(context, Mapping):
+            sector_character_id = context.get("character_id")
+            if isinstance(sector_character_id, str) and sector_character_id == self._canonical_character_id:
+                return
+        await self._handle_realtime_event(event_name, payload)
+
     def _append_event_log(self, event_name: str, payload: Dict[str, Any]) -> None:
         if not self._event_log_path:
             return
@@ -590,7 +602,7 @@ class AsyncGameClient(LegacyAsyncGameClient):
             access_token=character_jwt,
             postgres_filter=f"sector_id=eq.{sector_id}",
         )
-        listener.on_any(self._handle_realtime_event)
+        listener.on_any(self._handle_sector_event)
         self._sector_listener = listener
         self._sector_listener_topic = sector_id
         self._sector_listener_token = character_jwt

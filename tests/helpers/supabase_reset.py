@@ -120,7 +120,23 @@ def _load_character_registry() -> Dict[str, Dict[str, Any]]:
 
 def _load_character_ids() -> List[str]:
     registry = _load_character_registry()
-    return sorted(registry.keys())
+    selected: List[str] = []
+    for legacy_id in registry.keys():
+        try:
+            canonical = canonicalize_character_id(legacy_id)
+        except ValueError:
+            continue
+        # Check both canonical UUID name and legacy ID name
+        canonical_path = CHARACTER_KNOWLEDGE_DIR / f"{canonical}.json"
+        legacy_path = CHARACTER_KNOWLEDGE_DIR / f"{legacy_id}.json"
+        if canonical_path.exists() or legacy_path.exists():
+            selected.append(legacy_id)
+
+    for extra in EXTRA_CHARACTERS:
+        if extra not in selected and extra in registry:
+            selected.append(extra)
+
+    return sorted(selected)
 
 
 def _load_ships_data() -> Dict[str, Dict[str, Any]]:

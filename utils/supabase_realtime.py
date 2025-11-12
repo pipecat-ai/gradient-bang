@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+from collections import deque
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Deque, Dict, List, Optional, Tuple
 
 from realtime import AsyncRealtimeChannel, AsyncRealtimeClient, RealtimeSubscribeStates
 
@@ -66,7 +67,7 @@ class SupabaseRealtimeListener:
         self._event_handlers: Dict[str, List[EventHandler]] = {}
         self._any_handlers: List[EventHandler] = []
         self._status_handlers: List[StatusHandler] = []
-        self._last_event_id: Optional[int] = None
+        self._recent_event_ids: Deque[int] = deque(maxlen=2048)
 
     @property
     def topic(self) -> str:
@@ -246,13 +247,13 @@ class SupabaseRealtimeListener:
 
     def _dispatch_event(self, event_name: str, payload: Dict[str, Any], event_id: Optional[int]) -> None:
         if event_id is not None:
-            if self._last_event_id is not None and event_id <= self._last_event_id:
+            if event_id in self._recent_event_ids:
                 logger.debug(
                     "supabase realtime dropping duplicate",
                     extra={"topic": self._topic, "event": event_name, "event_id": event_id},
                 )
                 return
-            self._last_event_id = event_id
+            self._recent_event_ids.append(event_id)
 
         loop = self._loop
         if loop is None:

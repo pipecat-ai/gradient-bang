@@ -1286,6 +1286,16 @@ class AsyncGameClient:
                 f"received {character_id!r}"
             )
 
+        payload = {
+            "character_id": character_id,
+            "commodity": commodity,
+            "quantity": quantity,
+            "trade_type": trade_type,
+        }
+
+        ack = await self._request("trade", payload)
+        return ack
+
     async def purchase_fighters(
         self,
         *,
