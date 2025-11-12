@@ -56,6 +56,10 @@ export default defineConfig({
   server: {
     allowedHosts: true,
     proxy: {
+      "/leaderboard": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+      },
       "/start": {
         target: "http://0.0.0.0:7860",
         changeOrigin: true,

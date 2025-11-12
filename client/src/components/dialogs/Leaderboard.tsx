@@ -14,6 +14,9 @@ import { Dialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import { LeaderboardTable } from "../LeaderboardTable";
 
+const LEADERBOARD_URL =
+  import.meta.env.VITE_SERVER_URL ?? "http://localhost:8000";
+
 export const Leaderboard = () => {
   const setActiveModal = useGameStore.use.setActiveModal();
   const activeModal = useGameStore.use.activeModal?.();
@@ -26,9 +29,7 @@ export const Leaderboard = () => {
 
     const fetchLeaderboard = async () => {
       const response = await fetch(
-        `${
-          import.meta.env.VITE_SERVER_URL
-        }/leaderboard/resources?force_refresh=true`
+        `${LEADERBOARD_URL}/leaderboard/resources?force_refresh=true`
       );
       const data = await response.json();
       setLeaderboardData(data.players);

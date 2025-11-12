@@ -48,7 +48,7 @@ export const TaskStatusBadge = () => {
         }
         border="bracket"
       >
-        Task Agent:
+        <span className="opacity-50">Task Agent:</span>
         <span
           className={cn(
             "font-extrabold uppercase",

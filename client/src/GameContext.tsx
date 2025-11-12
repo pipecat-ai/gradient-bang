@@ -1,6 +1,6 @@
 import { RTVIEvent } from "@pipecat-ai/client-js";
 import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react";
-import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useRef, type ReactNode } from "react";
 
 import { startMoveToSector } from "@/actions";
 import { GameContext } from "@/hooks/useGameContext";
@@ -65,14 +65,6 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
   const instanceManagerRef = useRef<GameInstanceManager | null>(null);
 
-  useEffect(() => {
-    if (!client) return;
-
-    if (!instanceManagerRef.current) {
-      instanceManagerRef.current = new GameInstanceManager();
-    }
-  }, [client]);
-
   /**
    * Send user text input to server
    */
@@ -133,9 +125,10 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
   const initialize = useCallback(async () => {
     console.debug("[GAME CONTEXT] Initializing...");
 
+    // Create the instance manager if it doesn't exist
     if (!instanceManagerRef.current) {
-      console.error("[GAME CONTEXT] Game instance manager not found");
-      return;
+      console.debug("[GAME CONTEXT] Creating game instance manager");
+      instanceManagerRef.current = new GameInstanceManager();
     }
 
     gameStore.setGameStateMessage(GameInitStateMessage.INIT);
