@@ -77,6 +77,7 @@ ScreenMenuUI.meta = {
 export const GameUI: Story = () => {
   const addToast = useGameStore.use.addToast();
   const addEntry = useGameStore.use.addActivityLogEntry();
+
   return (
     <div className="relative w-full h-screen">
       <Game />

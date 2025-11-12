@@ -120,6 +120,7 @@ export const ConversationPanel = () => {
 
   return (
     <Card
+      size="sm"
       variant={isConnected ? "default" : "stripes"}
       className={isConnected ? clxConnected : clxDisconnected}
     >

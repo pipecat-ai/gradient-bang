@@ -1,53 +1,121 @@
-import useGameStore from "@/stores/game";
-
 import { Card, CardContent } from "@/components/primitives/Card";
+import { ScrollArea } from "@/components/primitives/ScrollArea";
+import { Separator } from "@/components/primitives/Separator";
+import useGameStore from "@/stores/game";
+import { cn } from "@/utils/tailwind";
 import { useEffect, useRef } from "react";
 
-const TaskRow = ({
-  outputText,
-}: {
-  timestamp: string;
-  outputText?: string;
-}) => {
+const MAX_TASK_SUMMARY_LENGTH = 100;
+
+const TaskTypeBadge = ({ type }: { type: Task["type"] }) => {
   return (
-    <div className="flex flex-row gap-4 w-full border-b border-white/20 pb-2 text-[10px]">
-      <div className="flex flex-row gap-2 normal-case flex-1">{outputText}</div>
+    <div
+      className={cn(
+        "uppercase font-extrabold text-center py-1 leading-none",
+        type === "FAILED"
+          ? "bg-destructive-background text-destructive-foreground"
+          : type === "ACTION"
+          ? "bg-warning-background text-warning-foreground"
+          : type === "EVENT"
+          ? "bg-fuel text-fuel-background"
+          : type === "STEP"
+          ? "bg-primary/30 text-primary border border-primary"
+          : type === "COMPLETE"
+          ? "bg-success-background text-success-foreground"
+          : "bg-foreground text-background"
+      )}
+    >
+      {type}
     </div>
   );
 };
 
-export const TaskOutputStream = () => {
+const TaskCompleteRow = () => {
+  return (
+    <div className="flex flex-row gap-3 w-full user-select-none items-center justify-center py-3 last:pb-0">
+      <Separator variant="dotted" className="flex-1 h-[5px]" />
+      <div className="shrink-0 uppercase font-bold tracking-widest text-foreground text-xs">
+        Task complete
+      </div>
+      <Separator variant="dotted" className="flex-1 h-[5px]" />
+    </div>
+  );
+};
+
+const formatTaskSummary = (summary: string) => {
+  // First remove leading numbers
+  const cleaned = summary.replace(/^[0-9]+ - /, "");
+
+  // Match pattern like "movement.complete:" or "map.local:" at the start
+  const match = cleaned.match(/^([a-zA-Z_]+\.[a-zA-Z_]+:)\s*/);
+
+  if (match) {
+    const prefix = match[1];
+    const rest = cleaned.slice(match[0].length);
+    return (
+      <>
+        <span className="text-cyan-400 font-semibold">{prefix}</span> {rest}
+      </>
+    );
+  }
+
+  return cleaned;
+};
+
+const TaskRow = ({ task, className }: { task: Task; className?: string }) => {
+  return (
+    <div
+      className={cn(
+        "flex flex-row gap-4 w-full border-b border-white/20 last:border-b-0 py-2 last:pb-0 text-[10px] user-select-none",
+        className
+      )}
+    >
+      <div className="flex flex-row gap-3">
+        <div className="w-16">
+          <TaskTypeBadge type={task.type} />
+        </div>
+        <div className="normal-case flex-1">
+          {formatTaskSummary(task.summary)}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const TaskOutputStreamComponent = ({ tasks }: { tasks: Task[] }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
-
-  const getTasks = useGameStore.use.getTasks();
-
-  const tasks = getTasks();
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [tasks]);
 
+  const visibleTasks = tasks.slice(-MAX_TASK_SUMMARY_LENGTH);
+
   return (
-    <div className="flex flex-col gap-3 w-full h-full overflow-hidden">
-      <Card
-        className="flex w-full h-full bg-transparent border-none"
-        size="none"
-      >
-        <CardContent className="flex flex-col gap-2 overflow-y-auto h-full">
-          <div className="relative h-full w-full">
-            <div className="absolute inset-0 overflow-y-auto flex flex-col gap-2 [mask-image:linear-gradient(to_bottom,transparent_0%,black_50%,black_100%)]">
-              {tasks.map((task) => (
-                <TaskRow
-                  key={task.timestamp}
-                  timestamp={task.timestamp}
-                  outputText={task.summary || ""}
-                />
-              ))}
-              <div ref={bottomRef} />
+    <Card className="flex w-full h-full bg-transparent border-none" size="none">
+      <CardContent className="relative flex flex-col gap-2 h-full justify-end [mask-image:linear-gradient(to_bottom,transparent_0%,black_50%,black_100%)]">
+        <ScrollArea className="w-full h-full" fullHeight={true}>
+          <div className="h-full flex flex-col justify-end">
+            <div>
+              {visibleTasks.map((task) => {
+                if (task.type === "COMPLETE") {
+                  return <TaskCompleteRow key={task.id} />;
+                }
+                return <TaskRow key={task.id} task={task} />;
+              })}
             </div>
+            <div ref={bottomRef} className="h-0" />
           </div>
-        </CardContent>
-      </Card>
-    </div>
+        </ScrollArea>
+      </CardContent>
+    </Card>
   );
+};
+
+export const TaskOutputStream = () => {
+  const getTasks = useGameStore.use.getTasks();
+
+  const tasks = getTasks();
+
+  return <TaskOutputStreamComponent tasks={tasks} />;
 };

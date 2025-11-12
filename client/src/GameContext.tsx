@@ -23,6 +23,7 @@ import {
   type SectorUpdateMessage,
   type ServerMessage,
   type StatusMessage,
+  type TaskCompleteMessage,
   type TaskOutputMessage,
   type TradeExecutedMessage,
   type WarpPurchaseMessage,
@@ -37,6 +38,7 @@ import {
 } from "@/utils/game";
 import useGameStore, { GameInitStateMessage } from "@stores/game";
 import GameInstanceManager from "./GameInstanceManager";
+import { RESOURCE_SHORT_NAMES } from "./types/constants";
 
 interface GameProviderProps {
   children: ReactNode;
@@ -470,9 +472,9 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
                 type: "trade.executed",
                 message: `Trade executed: ${
                   data.trade.trade_type === "buy" ? "Bought" : "Sold"
-                } ${data.trade.units} [${data.trade.commodity}] for [CR ${
-                  data.trade.total_price
-                }]`,
+                } ${data.trade.units} [${
+                  RESOURCE_SHORT_NAMES[data.trade.commodity]
+                }] for [CR ${data.trade.total_price}]`,
               });
 
               gameStore.addToast({
@@ -709,13 +711,21 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               console.debug("[GAME EVENT] Task output", gameEvent.payload);
               const data = gameEvent.payload as TaskOutputMessage;
               gameStore.setTaskInProgress(true);
-              gameStore.addTask(data.text);
+              gameStore.addTask(data.text, data.task_message_type);
               break;
             }
 
             case "task_complete": {
               console.debug("[GAME EVENT] Task complete", gameEvent.payload);
+              const data = gameEvent.payload as TaskCompleteMessage;
+
               gameStore.setTaskInProgress(false);
+              gameStore.addActivityLogEntry({
+                type: "task.complete",
+                message: `${
+                  data.was_cancelled ? "Task cancelled" : "Task completed"
+                }`,
+              });
               break;
             }
 

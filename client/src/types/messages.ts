@@ -22,13 +22,11 @@ export interface ErrorMessage extends ServerMessagePayload {
 
 export interface TaskOutputMessage extends ServerMessagePayload {
   text: string;
-  task_message_type:
-    | "STEP"
-    | "ACTION"
-    | "EVENT"
-    | "MESSAGE"
-    | "ERROR"
-    | "FINISHED";
+  task_message_type: TaskType;
+}
+
+export interface TaskCompleteMessage extends ServerMessagePayload {
+  was_cancelled: boolean;
 }
 
 export interface IncomingChatMessage

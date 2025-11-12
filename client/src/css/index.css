@@ -38,7 +38,8 @@
   --terminal: #dcfd38;
   --terminal-foreground: #f5ffc6;
   --fuel: oklch(86.5% 0.127 207.078);
-  --fuel-foreground: oklch(98.4% 0.019 200.873);
+  --fuel-background: oklch(30.2% 0.056 229.695);
+  --fuel-foreground: oklch(95.6% 0.045 203.388);
 
   --grid-opacity: 0.25;
   --screen-bg-feather: 20px;
@@ -101,6 +102,7 @@
   --color-screen-foreground: rgba(255, 255, 255, 1);
   --color-fuel: var(--fuel);
   --color-fuel-foreground: var(--fuel-foreground);
+  --color-fuel-background: var(--fuel-background);
 
   --color-agent: var(--color-teal-300);
   --color-client: var(--color-sky-300);
@@ -121,7 +123,7 @@
   --width-ui-hud-lhs: 400px;
   --width-ui-hud-rhs: 400px;
   --grid-cols-hud: minmax(var(--width-ui-hud-lhs), 700px)
-    minmax(var(--width-ui-hud-center), var(--width-ui-hud-center))
+    minmax(400px, var(--width-ui-hud-center))
     minmax(var(--width-ui-hud-rhs), 700px);
 
   --height-toast: 160px;

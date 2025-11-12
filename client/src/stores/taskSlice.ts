@@ -1,16 +1,10 @@
 import { nanoid } from "nanoid";
 import type { StateCreator } from "zustand";
 
-export interface Task {
-  id: string;
-  summary: string;
-  timestamp: string;
-}
-
 export interface TaskSlice {
   taskInProgress: boolean;
   tasks: Task[];
-  addTask: (summary: string) => void;
+  addTask: (summary: string, type: Task["type"]) => void;
   getTasks: () => Task[];
   setTaskInProgress: (taskInProgress: boolean) => void;
 }
@@ -18,11 +12,16 @@ export interface TaskSlice {
 export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
   taskInProgress: false,
   tasks: [],
-  addTask: (summary: string) =>
+  addTask: (summary: string, type: Task["type"]) =>
     set((state) => ({
       tasks: [
         ...state.tasks,
-        { summary, id: nanoid(), timestamp: new Date().toISOString() },
+        {
+          summary,
+          id: nanoid(),
+          type: type.toUpperCase() as TaskType,
+          timestamp: new Date().toISOString(),
+        },
       ],
     })),
   getTasks: () => get().tasks,

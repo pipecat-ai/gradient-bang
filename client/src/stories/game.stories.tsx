@@ -6,7 +6,9 @@ import {
 import { CoursePlotPanel } from "@/components/CoursePlotPanel";
 import { ActivityStream } from "@/components/hud/ActivityStream";
 import MiniMap from "@/components/hud/MiniMap";
+import { TaskOutputStream } from "@/components/hud/TaskOutputStream";
 import { MovementHistoryPanel } from "@/components/MovementHistoryPanel";
+import { Button } from "@/components/primitives/Button";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { TextInputControl } from "@/components/TextInputControl";
 import { WarpBadge } from "@/components/WarpBadge";
@@ -14,8 +16,10 @@ import { useGameContext } from "@/hooks/useGameContext";
 import { useNotificationSound } from "@/hooks/useNotificationSound";
 import useGameStore from "@/stores/game";
 import type { Story } from "@ladle/react";
-import { Button, Divider } from "@pipecat-ai/voice-ui-kit";
+import { Divider } from "@pipecat-ai/voice-ui-kit";
 import { useMemo } from "react";
+
+import { MOCK_TASK_DATA } from "./mock.stories";
 
 export const Init: Story = () => {
   const coursePlot = useGameStore.use.course_plot?.();
@@ -170,6 +174,60 @@ export const Settings: Story = () => {
 
 Settings.meta = {
   disconnectedStory: true,
+  connectOnMount: false,
+  enableMic: false,
+  disableAudioOutput: true,
+};
+
+export const TaskOutput: Story = () => {
+  const { sendUserTextInput } = useGameContext();
+  const addTask = useGameStore.use.addTask();
+  return (
+    <>
+      <div className="story-description">
+        <TextInputControl
+          onSend={(text) => {
+            sendUserTextInput?.(text);
+          }}
+        />
+        <Button
+          onClick={() => {
+            addTask(
+              MOCK_TASK_DATA[0].summary,
+              MOCK_TASK_DATA[0].type as TaskType
+            );
+          }}
+        >
+          Add Task
+        </Button>
+        <Button
+          onClick={() => {
+            addTask("Task complete", "COMPLETE");
+          }}
+        >
+          Add Complete Task
+        </Button>
+        <Button
+          onClick={() => {
+            MOCK_TASK_DATA.forEach((task) => {
+              addTask(task.summary, task.type as TaskType);
+            });
+          }}
+        >
+          Add mock
+        </Button>
+      </div>
+      <div className="story-card h-[400px]">
+        <div className="w-full h-full">
+          <TaskOutputStream />
+        </div>
+      </div>
+    </>
+  );
+};
+
+TaskOutput.meta = {
+  disconnectedStory: false,
   connectOnMount: false,
   enableMic: false,
   disableAudioOutput: true,
