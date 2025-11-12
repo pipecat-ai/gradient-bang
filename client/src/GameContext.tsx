@@ -514,7 +514,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
                 type: "warp.purchase",
                 meta: {
                   prev_amount: gameStore.ship?.warp_power ?? 0,
-                  new_amount: data.units,
+                  new_amount: data.new_warp_power,
                   capacity: data.warp_power_capacity,
                   cost: data.total_cost,
                   new_credits: data.new_credits,
@@ -685,16 +685,15 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               break;
             }
 
-            //@TODO: remove this
             case "ui-action": {
               console.debug("[GAME EVENT] UI action", gameEvent.payload);
 
-              const starfield = gameStore.starfieldInstance;
+              /*const starfield = gameStore.starfieldInstance;
               if (starfield) {
                 starfield.selectGameObject("port");
               }
 
-              gameStore.setActiveScreen("trading");
+              gameStore.setActiveScreen("trading");*/
 
               break;
             }
