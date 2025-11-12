@@ -30,7 +30,7 @@ export const TextInputControl = ({
     setIsDispatching(false);
   };
 
-  const isDisabled = false; //isDispatching || transportState !== "ready";
+  const isDisabled = isDispatching || transportState !== "ready";
 
   return (
     <div

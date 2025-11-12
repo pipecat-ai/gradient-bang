@@ -24,6 +24,7 @@ import { Preload } from "@/components/views/Preload";
 import ViewContainer from "@/components/views/ViewContainer";
 import useGameStore from "@/stores/game";
 import { AnimatedFrame } from "@fx/frame";
+import { ActivityStream } from "@hud/ActivityStream";
 import type { Story } from "@ladle/react";
 import { Dialog } from "radix-ui";
 import React, { useState } from "react";
@@ -614,5 +615,70 @@ export const TextInputControlStory: Story = () => (
 );
 
 TextInputControlStory.meta = {
+  disconnectedStory: true,
+};
+
+const DEBUG_ENTRIES = [
+  {
+    type: "movement",
+    message: "Moved to [sector 0]",
+  },
+  {
+    type: "chat.direct",
+    message: "New direct message from [John Doe]",
+    meta: {
+      from_name: "John Doe",
+    },
+  },
+  {
+    type: "chat.direct",
+    message: "New direct message from [Foo Bar]",
+    meta: {
+      from_name: "Foo Bar",
+    },
+  },
+];
+
+export const ActivityStreamStory: Story = () => {
+  const addEntry = useGameStore.use.addActivityLogEntry();
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="h-[400px] p-4 bg-red-500 w-1/2">
+        <ActivityStream />
+      </div>
+      <div className="flex flex-row gap-4">
+        <Button
+          onClick={() => {
+            addEntry({
+              ...DEBUG_ENTRIES[0],
+            });
+          }}
+        >
+          Add Movement
+        </Button>
+        <Button
+          onClick={() => {
+            addEntry({
+              ...DEBUG_ENTRIES[1],
+            });
+          }}
+        >
+          DM John Doe
+        </Button>
+        <Button
+          onClick={() => {
+            addEntry({
+              ...DEBUG_ENTRIES[2],
+            });
+          }}
+        >
+          DM Foo Bar
+        </Button>
+      </div>
+    </div>
+  );
+};
+
+ActivityStreamStory.meta = {
   disconnectedStory: true,
 };
