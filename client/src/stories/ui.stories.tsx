@@ -15,6 +15,8 @@ import { ScrollArea } from "@/components/primitives/ScrollArea";
 import { Separator } from "@/components/primitives/Separator";
 import { ScreenContainer } from "@/components/screens/ScreenContainer";
 import { ScreenMenu } from "@/components/screens/ScreenMenu";
+import { TextInputControl } from "@/components/TextInputControl";
+import { UserMicControl } from "@/components/UserMicControl";
 import Error from "@/components/views/Error";
 import Game from "@/components/views/Game";
 import JoinStatus from "@/components/views/JoinStatus";
@@ -470,6 +472,10 @@ export const ButtonStory: Story = () => (
     <Button size="sm">Small</Button>
     <Button size="lg">Large</Button>
     <Button size="xl">XLarge</Button>
+
+    <Button loader="stripes" isLoading={true}>
+      Loading
+    </Button>
   </div>
 );
 
@@ -584,5 +590,29 @@ export const NumberCounter: Story = () => {
 };
 
 NumberCounter.meta = {
+  disconnectedStory: true,
+};
+
+export const UserMicControlStory: Story = () => (
+  <div className="flex flex-col gap-4">
+    <UserMicControl />
+  </div>
+);
+
+UserMicControlStory.meta = {
+  enableMic: true,
+};
+
+export const TextInputControlStory: Story = () => (
+  <div className="flex flex-col gap-4">
+    <TextInputControl
+      onSend={(text) => {
+        console.log(text);
+      }}
+    />
+  </div>
+);
+
+TextInputControlStory.meta = {
   disconnectedStory: true,
 };

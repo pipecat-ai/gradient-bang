@@ -10,19 +10,19 @@ import { SalvageCreatedToast } from "./SalvageCreatedToast";
 import { TradeExecutedToast } from "./TradeExecutedToast";
 import { TransferToast } from "./TransferToast";
 
-const TOAST_DURATION_MS = 4000;
+const TOAST_DURATION_MS = 3500;
 
 export const ToastContainer = () => {
   const toasts = useGameStore.use.toasts();
+  const getNextToast = useGameStore.use.getNextToast();
   const removeToast = useGameStore.use.removeToast();
   const [isExiting, setIsExiting] = useState(false);
 
-  const currentToast = toasts[0];
+  const currentToast = getNextToast();
 
   useEffect(() => {
     if (!currentToast || isExiting) return;
 
-    // Set timer to trigger exit animation
     const timer = setTimeout(() => {
       setIsExiting(true);
     }, TOAST_DURATION_MS);

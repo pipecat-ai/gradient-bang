@@ -226,6 +226,14 @@ export interface GalaxyStarfieldConfig {
   renderingEnabled: boolean;
   pauseOnBlur: boolean;
   debugGameObjectCounts: DebugGameObjectCounts;
+
+  // === PERFORMANCE SETTINGS ===
+  performanceMode: boolean;
+  performanceAutoToggle: boolean;
+  performanceSlowFrameThresholdMs: number;
+  performanceFastFrameThresholdMs: number;
+  performanceSlowFrameCount: number;
+  performanceFastFrameCount: number;
 }
 
 // ============================================================================
@@ -502,4 +510,12 @@ export const DEFAULT_GALAXY_CONFIG: GalaxyStarfieldConfig = {
     port: 2,
     npc: 5,
   },
+
+  // === PERFORMANCE SETTINGS ===
+  performanceMode: false,
+  performanceAutoToggle: true,
+  performanceSlowFrameThresholdMs: 28,
+  performanceFastFrameThresholdMs: 20,
+  performanceSlowFrameCount: 45,
+  performanceFastFrameCount: 120,
 };

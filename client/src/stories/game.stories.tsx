@@ -8,12 +8,13 @@ import { CoursePlotPanel } from "@/components/CoursePlotPanel";
 import MiniMap from "@/components/hud/MiniMap";
 import { MovementHistoryPanel } from "@/components/MovementHistoryPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
+import { TextInputControl } from "@/components/TextInputControl";
 import { WarpBadge } from "@/components/WarpBadge";
 import { useGameContext } from "@/hooks/useGameContext";
 import { useNotificationSound } from "@/hooks/useNotificationSound";
 import useGameStore from "@/stores/game";
 import type { Story } from "@ladle/react";
-import { Button, Divider, TextInput } from "@pipecat-ai/voice-ui-kit";
+import { Button, Divider } from "@pipecat-ai/voice-ui-kit";
 import { useMemo } from "react";
 
 export const Init: Story = () => {
@@ -42,7 +43,7 @@ export const Init: Story = () => {
         <p>Note: audio disabled in this story. Send text input below:</p>
 
         <Divider />
-        <TextInput
+        <TextInputControl
           onSend={(text) => {
             sendUserTextInput?.(text);
           }}

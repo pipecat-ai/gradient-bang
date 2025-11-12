@@ -1,12 +1,10 @@
 import { ConversationPanel } from "@/components/ConversationPanel";
 import { ShipOSDPanel } from "@/components/ShipOSDPanel";
 import { useGameContext } from "@/hooks/useGameContext";
-import {
-  CardContent,
-  Divider,
-  TextInput,
-  UserAudioControl,
-} from "@pipecat-ai/voice-ui-kit";
+import { CardContent, Divider } from "@pipecat-ai/voice-ui-kit";
+import { TextInputControl } from "../TextInputControl";
+import { UserMicControl } from "../UserMicControl";
+import { Separator } from "../primitives/Separator";
 
 export const RHS = () => {
   const { sendUserTextInput } = useGameContext();
@@ -25,12 +23,15 @@ export const RHS = () => {
             >
               Input controls
             </Divider>
-            <UserAudioControl size="lg" variant="outline" />
-            <TextInput
-              onSend={(text) => {
-                sendUserTextInput?.(text);
-              }}
-            />
+            <div className="flex flex-row gap-2">
+              <TextInputControl
+                onSend={(text) => {
+                  sendUserTextInput?.(text);
+                }}
+              />
+              <Separator orientation="vertical" />
+              <UserMicControl className="min-w-32" />
+            </div>
           </CardContent>
         </div>
       </div>

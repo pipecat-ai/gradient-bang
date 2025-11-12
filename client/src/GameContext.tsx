@@ -171,7 +171,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
     await wait(1000);
 
     // 5. Dispatch start event to bot to kick off the conversation
-    //dispatchEvent({ type: "start" });
+    dispatchEvent({ type: "start" });
   }, [onConnect, gameStore, dispatchEvent, client]);
 
   /**

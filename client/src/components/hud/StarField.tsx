@@ -36,6 +36,13 @@ export const StarField = memo(() => {
     console.log("[STARFIELD] Game object cleared");
   }, []);
 
+  const onPerformanceModeChanged = useCallback(
+    ({ active }: { active: boolean }) => {
+      console.log("[STARFIELD] Performance mode changed:", active);
+    },
+    []
+  );
+
   /*
    * Initialize or re-initialize starfield
    */
@@ -50,19 +57,21 @@ export const StarField = memo(() => {
     starfieldInstance.on("gameObjectSelected", onGameObjectSelected);
     starfieldInstance.on("gameObjectInView", onGameObjectInView);
     starfieldInstance.on("gameObjectCleared", onGameObjectCleared);
-
+    starfieldInstance.on("performanceModeChanged", onPerformanceModeChanged);
     return () => {
       console.debug("[STARFIELD] Unsubscribing from starfield events");
       starfieldInstance.off("warpStart", onWarpStart);
       starfieldInstance.off("gameObjectSelected", onGameObjectSelected);
       starfieldInstance.off("gameObjectInView", onGameObjectInView);
       starfieldInstance.off("gameObjectCleared", onGameObjectCleared);
+      starfieldInstance.off("performanceModeChanged", onPerformanceModeChanged);
     };
   }, [
     onWarpStart,
     onGameObjectSelected,
     onGameObjectInView,
     onGameObjectCleared,
+    onPerformanceModeChanged,
     starfieldInstance,
     settings.renderStarfield,
   ]);

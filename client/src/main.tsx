@@ -55,6 +55,7 @@ createRoot(document.getElementById("root")!).render(
       }}
       noThemeProvider={true}
       noAudioOutput={Settings.disableRemoteAudio}
+      initDevicesOnMount={false}
     >
       {({ handleConnect, error }) => (
         <GameProvider onConnect={handleConnect}>

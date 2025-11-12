@@ -96,6 +96,7 @@ export class Nebula extends FX {
         resolution: {
           value: new THREE.Vector2(window.innerWidth, window.innerHeight),
         },
+        performanceMode: { value: config.performanceMode ? 1 : 0 },
       },
       vertexShader: nebulaVertexShader,
       fragmentShader: nebulaFragmentShader,
@@ -130,6 +131,7 @@ export class Nebula extends FX {
       shadowSoftness: { type: "number", min: 0 },
       shadowStrength: { type: "number", min: 0, max: 1 },
       resolution: { type: "vector2" },
+      performanceMode: { type: "number", min: 0, max: 1 },
     });
 
     this._nebula = new THREE.Mesh(nebulaGeometry, nebulaMaterial);
@@ -192,6 +194,14 @@ export class Nebula extends FX {
     if (!this._nebula) return;
     this._uniformManager.updateUniforms("nebula", {
       resolution: { x: width, y: height },
+    });
+  }
+
+  public setPerformanceMode(active: boolean): void {
+    if (!this._nebulaMaterial) return;
+    const value = active ? 1 : 0;
+    this._uniformManager.updateUniforms("nebula", {
+      performanceMode: value,
     });
   }
 

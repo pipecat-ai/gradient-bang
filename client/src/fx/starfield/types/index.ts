@@ -13,6 +13,7 @@ export type GalaxyStarfieldEvents = {
   warpQueue: number;
   sceneIsLoading: void;
   sceneReady: { isInitialRender: boolean; sceneId: string | null };
+  performanceModeChanged: { active: boolean };
 };
 
 export interface FrameState {

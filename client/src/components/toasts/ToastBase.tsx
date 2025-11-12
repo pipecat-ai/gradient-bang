@@ -142,12 +142,14 @@ export const ToastResourceTile = ({
   active = false,
   commodity,
   units,
+  prefix = "",
 }: {
   color?: "success" | "warning" | "destructive" | "default";
   children: React.ReactNode;
   active: boolean;
   commodity: string;
   units?: number;
+  prefix?: string;
 }) => {
   return (
     <div className={cn(tileVariants({ color, active }))}>
@@ -162,6 +164,7 @@ export const ToastResourceTile = ({
             })
           )}
         >
+          {prefix}
           {units || 0}
         </span>
       </div>

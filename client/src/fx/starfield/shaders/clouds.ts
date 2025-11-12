@@ -31,6 +31,7 @@ export const cloudsFragmentShader = `
                 uniform vec3 cameraRotation;
                 uniform float parallaxAmount;
                 uniform float noiseReduction;
+                uniform float performanceMode;
 
                 varying vec2 vUv;
 
@@ -86,6 +87,9 @@ export const cloudsFragmentShader = `
 
                 // Low-frequency flow direction (non-linear, no fixed scroll)
                 vec2 flow(vec2 p, float t) {
+                  if (performanceMode > 0.5) {
+                    return vec2(0.0);
+                  }
                   float aVal; float bVal;
                   if (noiseUse > 0.5) {
                     // Blend multiple mip levels via repeated sampling for smoother, less blocky flow
@@ -158,7 +162,7 @@ export const cloudsFragmentShader = `
                   vec2 uvsFlow = uvs + flow(uvs * 0.6, t) * (0.02 * speed * 100.0);
                   
                   // Add shake-based warping effect only when actually shaking
-                  if (cloudsShakeProgress > 0.0) {
+                  if (cloudsShakeProgress > 0.0 && performanceMode < 0.5) {
                     // Use cloudsShakeProgress for BOTH timing and intensity to get proper gradual buildup
                     float shakeTime = cloudsShakeProgress * 20.0; // Scale progress to create timing
                     

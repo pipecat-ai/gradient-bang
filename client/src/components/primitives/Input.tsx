@@ -12,7 +12,7 @@ const inputVariants = cva(
           "focus-outline bg-background/40 focus-visible:border-foreground focus-visible:bg-background",
       },
       size: {
-        default: "h-9 px-32 py-2",
+        default: "h-9 px-2.5 py-2",
         sm: "h-8 px-2",
         lg: "h-10 px-3",
         xl: "h-12 px-4 py-3",

@@ -8,6 +8,8 @@ interface Notifications {
   newChatMessage: boolean;
 }
 
+const DEDUPE_TOAST_TYPES = ["trade.executed"];
+
 export interface UISlice {
   uiState: UIState;
   activeScreen?: UIScreen;
@@ -18,10 +20,12 @@ export interface UISlice {
   setNotifications: (notifications: Partial<Notifications>) => void;
 
   toasts: Toast[];
+  displayingToastId: string | null;
   setToasts: (toasts: Toast[]) => void;
   addToast: (toast: ToastInput) => void;
   clearToasts: () => void;
   removeToast: (id: string) => void;
+  getNextToast: () => Toast | undefined;
 
   setUIState: (newState: UIState) => void;
   setActiveScreen: (screen?: UIScreen) => void;
@@ -29,7 +33,7 @@ export interface UISlice {
   setActivePanel: (panel: string) => void;
 }
 
-export const createUISlice: StateCreator<UISlice> = (set) => ({
+export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   uiState: "idle",
   activeScreen: undefined,
   activeModal: undefined,
@@ -40,6 +44,7 @@ export const createUISlice: StateCreator<UISlice> = (set) => ({
   },
 
   toasts: [],
+  displayingToastId: null,
   setToasts: (toasts: Toast[]) => {
     set(
       produce((state) => {
@@ -50,6 +55,26 @@ export const createUISlice: StateCreator<UISlice> = (set) => ({
   addToast: (toast: ToastInput) => {
     set(
       produce((state) => {
+        // Check if this toast type should be deduplicated
+        if (DEDUPE_TOAST_TYPES.includes(toast.type)) {
+          // Find existing toast, but skip the locked one
+          const existingIndex = state.toasts.findIndex(
+            (t: Toast) =>
+              t.type === toast.type && t.id !== state.displayingToastId
+          );
+
+          if (existingIndex !== -1) {
+            // Update the unlocked matching toast
+            state.toasts[existingIndex] = {
+              ...state.toasts[existingIndex],
+              meta: toast.meta,
+              timestamp: new Date().toISOString(),
+            };
+            return;
+          }
+        }
+
+        // No match found or type not in DEDUPE_TOAST_TYPES - add new toast
         state.toasts.push({
           ...toast,
           id: nanoid(),
@@ -69,8 +94,27 @@ export const createUISlice: StateCreator<UISlice> = (set) => ({
     set(
       produce((state) => {
         state.toasts = state.toasts.filter((toast: Toast) => toast?.id !== id);
+        // Clear lock if we're removing the locked toast
+        if (state.displayingToastId === id) {
+          state.displayingToastId = null;
+        }
       })
     );
+  },
+  getNextToast: () => {
+    const state = get();
+    const nextToast = state.toasts[0];
+
+    if (nextToast && state.displayingToastId !== nextToast.id) {
+      // Lock this toast
+      set(
+        produce((draft) => {
+          draft.displayingToastId = nextToast.id;
+        })
+      );
+    }
+
+    return nextToast;
   },
 
   setNotifications: (notifications: Partial<Notifications>) => {

@@ -68,6 +68,15 @@ export const TradeExecutedToast = ({
                     ? meta?.units
                     : meta?.new_cargo.quantum_foam
                 }
+                prefix={
+                  meta?.commodity === "quantum_foam" &&
+                  meta?.trade_type === "sell"
+                    ? "-"
+                    : meta?.commodity === "quantum_foam" &&
+                      meta?.trade_type === "buy"
+                    ? "+"
+                    : ""
+                }
               >
                 <QuantumFoamIcon
                   size={24}
@@ -84,6 +93,15 @@ export const TradeExecutedToast = ({
                   meta?.commodity === "retro_organics"
                     ? meta?.units
                     : meta?.new_cargo.retro_organics
+                }
+                prefix={
+                  meta?.commodity === "retro_organics" &&
+                  meta?.trade_type === "sell"
+                    ? "-"
+                    : meta?.commodity === "retro_organics" &&
+                      meta?.trade_type === "buy"
+                    ? "+"
+                    : ""
                 }
               >
                 <RetroOrganicsIcon
@@ -102,6 +120,13 @@ export const TradeExecutedToast = ({
                   meta?.commodity === "neuro_symbolics"
                     ? meta?.units
                     : meta?.new_cargo.neuro_symbolics
+                }
+                prefix={
+                  meta?.trade_type === "buy"
+                    ? "+"
+                    : meta?.commodity === "neuro_symbolics"
+                    ? "-"
+                    : ""
                 }
               >
                 <NeuroSymbolicsIcon
