@@ -37,6 +37,10 @@ class SupabaseRealtimeListener:
         anon_key: str,
         topic: str,
         subscribe_timeout: float = 5.0,
+        schema: str = "public",
+        table: Optional[str] = None,
+        access_token: Optional[str] = None,
+        postgres_filter: Optional[str] = None,
     ) -> None:
         trimmed_topic = topic.strip()
         if not trimmed_topic:
@@ -48,6 +52,10 @@ class SupabaseRealtimeListener:
         self._anon_key = anon_key
         self._topic = trimmed_topic
         self._subscribe_timeout = subscribe_timeout
+        self._schema = schema or "public"
+        self._table = table
+        self._access_token = access_token
+        self._postgres_filter = postgres_filter
 
         self._client: Optional[AsyncRealtimeClient] = None
         self._channel: Optional[AsyncRealtimeChannel] = None
@@ -114,18 +122,24 @@ class SupabaseRealtimeListener:
                 token=self._anon_key,
                 auto_reconnect=True,
             )
-            params = {
-                "config": {
-                    "broadcast": {"ack": False, "self": False},
-                    "presence": {"key": "", "enabled": False},
-                    "private": False,
-                }
-            }
-            channel = client.channel(self._topic, params)
-            channel.broadcast_callbacks.append(self._handle_broadcast)
+            if self._access_token:
+                await client.set_auth(self._access_token)
+
+            channel = client.channel(self._topic)
+            channel.on_postgres_changes(
+                event="INSERT",
+                schema=self._schema,
+                table=self._table,
+                filter=self._postgres_filter,
+                callback=self._handle_postgres_change,
+            )
             logger.info(
-                "supabase realtime broadcast handler registered",
-                extra={"topic": self._topic},
+                "supabase realtime postgres handler registered",
+                extra={
+                    "topic": self._topic,
+                    "schema": self._schema,
+                    "table": self._table,
+                },
             )
 
             subscribe_future: asyncio.Future[None] = loop.create_future()
@@ -156,7 +170,10 @@ class SupabaseRealtimeListener:
             self._client = client
             self._channel = channel
             self._ready.set()
-            logger.info("supabase realtime subscribed", extra={"topic": self._topic})
+            logger.info(
+                "supabase realtime subscribed",
+                extra={"topic": self._topic},
+            )
 
     async def stop(self) -> None:
         async with self._start_lock:
@@ -181,17 +198,54 @@ class SupabaseRealtimeListener:
             except Exception:  # noqa: BLE001
                 logger.debug("realtime client close failed", exc_info=True)
 
-    def _handle_broadcast(self, message: Dict[str, Any]) -> None:
-        logger.info("supabase realtime broadcast raw", extra={"topic": self._topic})
-        event_name = message.get("event")
-        payload = message.get("payload")
-        if not event_name:
+    def _handle_postgres_change(self, change: Dict[str, Any]) -> None:
+        logger.info(
+            "supabase realtime postgres raw",
+            extra={"topic": self._topic, "schema": self._schema, "table": self._table},
+        )
+        # Extract record from postgres_changes payload structure
+        data = change.get("data", {})
+        record = data.get("new") or data.get("record") or {}
+        if not isinstance(record, dict):
             return
+
+        event_name = record.get("event_type")
+        if not isinstance(event_name, str) or not event_name:
+            return
+
+        payload = record.get("payload") or {}
         if not isinstance(payload, dict):
             payload = {"value": payload}
 
-        event_id = payload.pop("__event_id", None)
-        if isinstance(event_id, int):
+        meta = record.get("meta")
+        if isinstance(meta, dict) and "meta" not in payload:
+            payload["meta"] = meta
+
+        request_id = record.get("request_id")
+        if isinstance(request_id, str) and request_id and "request_id" not in payload:
+            payload["request_id"] = request_id
+
+        inserted_id = record.get("id")
+        event_id: Optional[int]
+        try:
+            event_id = int(inserted_id) if inserted_id is not None else None
+        except (TypeError, ValueError):
+            event_id = None
+
+        context: Dict[str, Any] = {}
+        for key in ("scope", "sector_id", "corp_id", "actor_character_id", "character_id", "direction"):
+            value = record.get(key)
+            if value is not None:
+                context[key] = value
+        if event_id is not None:
+            context["event_id"] = event_id
+        if context:
+            payload.setdefault("__event_context", context)
+
+        self._dispatch_event(event_name, payload, event_id)
+
+    def _dispatch_event(self, event_name: str, payload: Dict[str, Any], event_id: Optional[int]) -> None:
+        if event_id is not None:
             if self._last_event_id is not None and event_id <= self._last_event_id:
                 logger.debug(
                     "supabase realtime dropping duplicate",

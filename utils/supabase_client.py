@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import uuid
 import logging
-from typing import Any, Dict, Mapping, Optional
+from collections import deque
+from typing import Any, Deque, Dict, Mapping, Optional
+from pathlib import Path
+from datetime import datetime, timezone, timedelta
+import json
 
 import httpx
 
@@ -16,11 +21,12 @@ from utils.supabase_realtime import SupabaseRealtimeListener
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
-SUPABASE_REALTIME_DEBUG = os.getenv("SUPABASE_REALTIME_DEBUG", "").lower() in {
-    "1",
-    "true",
-    "on",
-}
+_TRUE_VALUES = {"1", "true", "on", "yes"}
+SUPABASE_REALTIME_DEBUG = os.getenv("SUPABASE_REALTIME_DEBUG", "").lower() in _TRUE_VALUES
+CHARACTER_JWT_REFRESH_MARGIN_SECONDS = float(
+    os.getenv("SUPABASE_CHARACTER_JWT_REFRESH_MARGIN", "60")
+)
+DEFAULT_CHARACTER_JWT_TTL_SECONDS = 60 * 60
 # Enable verbose realtime logging by exporting SUPABASE_REALTIME_DEBUG=1
 logger.setLevel(logging.INFO if SUPABASE_REALTIME_DEBUG else logging.WARNING)
 
@@ -94,6 +100,13 @@ class AsyncGameClient(LegacyAsyncGameClient):
         self._requested_transport = requested_transport
 
         self._realtime_listener: Optional[SupabaseRealtimeListener] = None
+        self._sector_listener: Optional[SupabaseRealtimeListener] = None
+        self._sector_listener_topic: Optional[int] = None
+        self._realtime_listener_token: Optional[str] = None
+        self._sector_listener_token: Optional[str] = None
+        self._current_sector_id: Optional[int] = None
+        self._recent_event_ids: Deque[int] = deque()
+        self._recent_event_ids_max = 512
         self._realtime_subscribe_timeout = float(
             os.getenv("SUPABASE_REALTIME_SUBSCRIBE_TIMEOUT", "5")
         )
@@ -103,6 +116,11 @@ class AsyncGameClient(LegacyAsyncGameClient):
             if actor_character_id is not None
             else None
         )
+        self._event_log_path = os.getenv("SUPABASE_EVENT_LOG_PATH")
+        self._character_jwt: Optional[str] = None
+        self._character_jwt_expires_at: Optional[datetime] = None
+        margin_seconds = max(5.0, CHARACTER_JWT_REFRESH_MARGIN_SECONDS)
+        self._character_jwt_refresh_margin = timedelta(seconds=margin_seconds)
 
     async def close(self):
         await super().close()
@@ -112,19 +130,28 @@ class AsyncGameClient(LegacyAsyncGameClient):
         if self._realtime_listener is not None:
             await self._realtime_listener.stop()
             self._realtime_listener = None
+        if self._sector_listener is not None:
+            await self._sector_listener.stop()
+            self._sector_listener = None
+            self._sector_listener_topic = None
+            self._sector_listener_token = None
+        self._character_jwt = None
+        self._character_jwt_expires_at = None
 
     async def _ensure_ws(self):  # type: ignore[override]
         return  # Supabase transport does not use legacy websockets
 
     async def _request(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:  # type: ignore[override]
-        await self._ensure_realtime_listener()
+        if endpoint != "get_character_jwt":
+            await self._ensure_realtime_listener()
+        http_client = self._ensure_http_client()
 
         req_id = str(uuid.uuid4())
         enriched = self._inject_character_ids(payload)
 
         edge_endpoint = endpoint.replace('.', '_')
 
-        response = await self._http.post(
+        response = await http_client.post(
             f"{self._functions_url}/{edge_endpoint}",
             headers=self._edge_headers(),
             json=enriched,
@@ -157,6 +184,7 @@ class AsyncGameClient(LegacyAsyncGameClient):
             request_id=req_id,
             result=result,
         )
+        await self._maybe_update_sector_from_response(endpoint, result)
         return result
 
     async def _send_command(self, frame: Dict[str, Any]) -> Dict[str, Any]:  # type: ignore[override]
@@ -176,6 +204,10 @@ class AsyncGameClient(LegacyAsyncGameClient):
             "X-API-Token": self._edge_api_token,
         }
 
+    async def ensure_character_jwt(self, force: bool = False) -> str:
+        """Ensure a per-character JWT is available (prefetch helper for changefeed rollout)."""
+        return await self._ensure_character_jwt(force=force)
+
     def set_actor_character_id(self, actor_character_id: Optional[str]) -> None:  # type: ignore[override]
         super().set_actor_character_id(actor_character_id)
         self._canonical_actor_character_id = (
@@ -183,6 +215,7 @@ class AsyncGameClient(LegacyAsyncGameClient):
             if actor_character_id is not None
             else None
         )
+        asyncio.create_task(self._ensure_sector_listener())
 
     async def combat_initiate(
         self,
@@ -293,24 +326,196 @@ class AsyncGameClient(LegacyAsyncGameClient):
 
         return enriched
 
+    async def purchase_fighters(
+        self,
+        *,
+        units: int,
+        character_id: str,
+    ) -> Dict[str, Any]:
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+        if not isinstance(units, int) or units <= 0:
+            raise ValueError("units must be a positive integer")
+        payload = {"character_id": character_id, "units": units}
+        return await self._request("purchase_fighters", payload)
+
+    async def recharge_warp_power(
+        self,
+        units: int,
+        character_id: str,
+    ) -> Dict[str, Any]:
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+        payload = {"character_id": character_id, "units": units}
+        return await self._request("recharge_warp_power", payload)
+
+    async def transfer_warp_power(
+        self,
+        *,
+        to_player_name: str,
+        units: int,
+        character_id: str,
+    ) -> Dict[str, Any]:
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+        if not isinstance(to_player_name, str) or not to_player_name.strip():
+            raise ValueError("to_player_name must be a non-empty string")
+        payload = {
+            "from_character_id": character_id,
+            "units": units,
+            "to_player_name": to_player_name,
+        }
+        return await self._request("transfer_warp_power", payload)
+
+    async def transfer_credits(
+        self,
+        *,
+        to_player_name: str,
+        amount: int,
+        character_id: str,
+    ) -> Dict[str, Any]:
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+        payload = {
+            "from_character_id": character_id,
+            "to_player_name": to_player_name,
+            "amount": amount,
+        }
+        return await self._request("transfer_credits", payload)
+
+    async def deposit_to_bank(
+        self,
+        *,
+        amount: int,
+        target_player_name: str,
+        ship_id: Optional[str] = None,
+        character_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if not isinstance(target_player_name, str) or not target_player_name.strip():
+            raise ValueError("target_player_name must be a non-empty string")
+        payload: Dict[str, Any] = {
+            "direction": "deposit",
+            "amount": amount,
+            "target_player_name": target_player_name,
+        }
+        if ship_id:
+            payload["ship_id"] = ship_id
+        if character_id:
+            payload["character_id"] = character_id
+        return await self._request("bank_transfer", payload)
+
+    async def withdraw_from_bank(
+        self,
+        *,
+        amount: int,
+        character_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if character_id is None:
+            character_id = self._character_id
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+        payload = {
+            "direction": "withdraw",
+            "amount": amount,
+            "character_id": character_id,
+        }
+        return await self._request("bank_transfer", payload)
+
     async def _emit_frame(self, direction: str, frame: Mapping[str, Any]) -> None:  # type: ignore[override]
         return  # No legacy websocket frames
 
-    def _character_topic(self) -> str:
-        return f"public:character:{self._canonical_character_id}"
+    async def _ensure_character_jwt(self, force: bool = False) -> str:
+        now = datetime.now(timezone.utc)
+        if (
+            not force
+            and self._character_jwt
+            and self._character_jwt_expires_at
+            and self._character_jwt_expires_at - now > self._character_jwt_refresh_margin
+        ):
+            return self._character_jwt
+
+        response = await self._request(
+            "get_character_jwt",
+            {"character_id": self._canonical_character_id},
+        )
+        token = response.get("jwt")
+        if not isinstance(token, str) or not token.strip():
+            raise RPCError("get_character_jwt", 500, "missing jwt in response")
+        expires_at = self._parse_jwt_expiry(response)
+        self._character_jwt = token
+        self._character_jwt_expires_at = expires_at
+        return token
+
+    def _parse_jwt_expiry(self, response: Mapping[str, Any]) -> datetime:
+        raw_expires_at = response.get("expires_at")
+        now = datetime.now(timezone.utc)
+        if isinstance(raw_expires_at, str):
+            try:
+                parsed = datetime.fromisoformat(
+                    raw_expires_at.replace("Z", "+00:00")
+                )
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                else:
+                    parsed = parsed.astimezone(timezone.utc)
+                return parsed
+            except ValueError:
+                logger.debug(
+                    "supabase_client.jwt.parse_failed",
+                    extra={"expires_at": raw_expires_at},
+                    exc_info=True,
+                )
+        expires_in = response.get("expires_in_seconds")
+        seconds: int
+        try:
+            seconds = int(float(expires_in))
+        except (TypeError, ValueError):
+            seconds = DEFAULT_CHARACTER_JWT_TTL_SECONDS
+        if seconds < 60:
+            seconds = 60
+        return now + timedelta(seconds=seconds)
 
     async def _ensure_realtime_listener(self) -> None:
-        if self._realtime_listener is None:
+        character_jwt = await self._ensure_character_jwt()
+        listener = self._realtime_listener
+        if (
+            listener is None
+            or self._realtime_listener_token != character_jwt
+            or listener.topic != "public:events"
+        ):
+            if listener is not None:
+                await listener.stop()
             listener = SupabaseRealtimeListener(
                 supabase_url=self._supabase_url,
                 anon_key=self._anon_key,
-                topic=self._character_topic(),
+                topic="public:events",
                 subscribe_timeout=self._realtime_subscribe_timeout,
+                schema="public",
+                table="events",
+                access_token=character_jwt,
+                postgres_filter=f"character_id=eq.{self._canonical_character_id}",
             )
             listener.on_any(self._handle_realtime_event)
             self._realtime_listener = listener
+            self._realtime_listener_token = character_jwt
 
         await self._realtime_listener.start()
+        await self._ensure_sector_listener()
 
     async def _handle_realtime_event(
         self,
@@ -324,4 +529,173 @@ class AsyncGameClient(LegacyAsyncGameClient):
                 "payload_keys": list(payload.keys()),
             },
         )
-        await self._process_event(event_name, payload)
+        if not self._record_event_id(payload):
+            return
+        await self._maybe_update_sector_from_event(event_name, payload)
+        cleaned_payload = self._strip_supabase_metadata(payload)
+        event_id = self._extract_event_id_from_payload(payload)
+        if event_id is not None:
+            cleaned_payload["__supabase_event_id"] = event_id
+        await self._process_event(event_name, cleaned_payload)
+        self._append_event_log(event_name, cleaned_payload)
+
+    def _append_event_log(self, event_name: str, payload: Dict[str, Any]) -> None:
+        if not self._event_log_path:
+            return
+        record = {
+            "timestamp": payload.get("source", {}).get("timestamp")
+            or datetime.now(timezone.utc).isoformat(),
+            "event": event_name,
+            "payload": payload,
+            "corporation_id": payload.get("corp_id"),
+        }
+        try:
+            path = Path(self._event_log_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except (OSError, TypeError) as exc:  # noqa: BLE001
+            logger.debug("supabase.event_log.append_failed", exc_info=exc)
+
+    def _ensure_http_client(self) -> httpx.AsyncClient:
+        if self._http is None:
+            self._http = httpx.AsyncClient(timeout=10.0)
+        return self._http
+
+    async def _ensure_sector_listener(self) -> None:
+        sector_id = self._current_sector_id
+        if sector_id is None:
+            await self._stop_sector_listener()
+            return
+
+        character_jwt = await self._ensure_character_jwt()
+        listener = self._sector_listener
+        if (
+            listener is not None
+            and self._sector_listener_topic == sector_id
+            and self._sector_listener_token == character_jwt
+        ):
+            await listener.start()
+            return
+
+        await self._stop_sector_listener()
+
+        listener = SupabaseRealtimeListener(
+            supabase_url=self._supabase_url,
+            anon_key=self._anon_key,
+            topic="public:events",
+            subscribe_timeout=self._realtime_subscribe_timeout,
+            schema="public",
+            table="events",
+            access_token=character_jwt,
+            postgres_filter=f"sector_id=eq.{sector_id}",
+        )
+        listener.on_any(self._handle_realtime_event)
+        self._sector_listener = listener
+        self._sector_listener_topic = sector_id
+        self._sector_listener_token = character_jwt
+        await listener.start()
+
+    async def _stop_sector_listener(self) -> None:
+        if self._sector_listener is not None:
+            await self._sector_listener.stop()
+            self._sector_listener = None
+        self._sector_listener_topic = None
+        self._sector_listener_token = None
+
+    async def _maybe_update_sector_from_response(self, endpoint: str, result: Mapping[str, Any]) -> None:
+        if not isinstance(result, Mapping):
+            return
+        sector = result.get("sector")
+        sector_id = self._coerce_sector_id_from_value(sector)
+        if sector_id is None and endpoint == "move":
+            destination = result.get("destination_sector") or result.get("sector_id")
+            sector_id = self._coerce_sector_id(destination)
+        if sector_id is None and endpoint == "join":
+            # join responses sometimes wrap sector under player.sector
+            player = result.get("player")
+            if isinstance(player, Mapping):
+                sector_id = self._coerce_sector_id_from_value(player.get("sector"))
+        if sector_id is None:
+            return
+        await self._set_current_sector(sector_id)
+
+    async def _maybe_update_sector_from_event(self, event_name: str, payload: Mapping[str, Any]) -> None:
+        sector_id = self._extract_sector_id_from_event(event_name, payload)
+        if sector_id is None:
+            return
+        await self._set_current_sector(sector_id)
+
+    async def _set_current_sector(self, sector_id: Optional[int]) -> None:
+        if sector_id == self._current_sector_id:
+            return
+        self._current_sector_id = sector_id
+        await self._ensure_sector_listener()
+
+    def _extract_sector_id_from_event(self, event_name: str, payload: Mapping[str, Any]) -> Optional[int]:
+        ctx = payload.get("__event_context") if isinstance(payload, Mapping) else None
+        if isinstance(ctx, Mapping):
+            sector_id = self._coerce_sector_id(ctx.get("sector_id"))
+            if sector_id is not None:
+                return sector_id
+        if event_name in {"movement.complete", "status.snapshot", "map.local"}:
+            sector = payload.get("sector") if isinstance(payload, Mapping) else None
+            sector_id = self._coerce_sector_id_from_value(sector)
+            if sector_id is not None:
+                return sector_id
+        return None
+
+    def _coerce_sector_id_from_value(self, value: Any) -> Optional[int]:
+        if isinstance(value, Mapping):
+            return self._coerce_sector_id(value.get("id") or value.get("sector_id"))
+        return self._coerce_sector_id(value)
+
+    def _coerce_sector_id(self, value: Any) -> Optional[int]:
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.strip().isdigit():
+            try:
+                return int(value.strip())
+            except ValueError:
+                return None
+        return None
+
+    def _record_event_id(self, payload: Mapping[str, Any]) -> bool:
+        ctx = payload.get("__event_context") if isinstance(payload, Mapping) else None
+        if not isinstance(ctx, Mapping):
+            return True
+        event_id = ctx.get("event_id")
+        if not isinstance(event_id, int):
+            return True
+        if event_id in self._recent_event_ids:
+            return False
+        self._recent_event_ids.append(event_id)
+        if len(self._recent_event_ids) > self._recent_event_ids_max:
+            self._recent_event_ids.popleft()
+        return True
+
+    def _strip_supabase_metadata(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        if not isinstance(payload, Mapping):
+            return payload  # type: ignore[return-value]
+        cleaned = dict(payload)
+        cleaned.pop("__event_context", None)
+        cleaned.pop("request_id", None)
+        return cleaned
+
+    def _extract_event_id_from_payload(self, payload: Mapping[str, Any]) -> Optional[int]:
+        ctx = payload.get("__event_context") if isinstance(payload, Mapping) else None
+        if not isinstance(ctx, Mapping):
+            return None
+        event_id = ctx.get("event_id")
+        if isinstance(event_id, int):
+            return event_id
+        return None
+
+    def _format_event(self, event_name: str, payload: Any) -> Dict[str, Any]:  # type: ignore[override]
+        event_id = None
+        if isinstance(payload, dict) and "__supabase_event_id" in payload:
+            event_id = payload.pop("__supabase_event_id", None)
+        event_message = super()._format_event(event_name, payload)
+        if event_id is not None:
+            event_message["__event_id"] = event_id
+        return event_message

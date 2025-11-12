@@ -32,15 +32,19 @@ logs/
 # Environments
 .env
 .env.supabase
+.env.cloud
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+supabase/.env
 
 # Local secrets
 planning-files/.secrets
+supabase/character_jwt_signing_key.json
+supabase/character_jwt_signing_key_*.json
 
 # System
 .DS_Store

@@ -6,6 +6,7 @@ import { emitCharacterEvent, emitErrorEvent, buildEventSource } from '../_shared
 import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
 import { loadCharacter, loadShip, loadShipDefinition, buildStatusPayload } from '../_shared/status.ts';
 import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
+import { canonicalizeCharacterId } from '../_shared/ids.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -52,8 +53,10 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   const requestId = resolveRequestId(payload);
-  const characterId = requireString(payload, 'character_id');
-  const actorCharacterId = optionalString(payload, 'actor_character_id');
+  const rawCharacterId = requireString(payload, 'character_id');
+  const characterId = await canonicalizeCharacterId(rawCharacterId);
+  const actorCharacterLabel = optionalString(payload, 'actor_character_id');
+  const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
   try {
@@ -74,7 +77,15 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    return await handleRecharge(supabase, payload, characterId, requestId, actorCharacterId, adminOverride);
+    return await handleRecharge(
+      supabase,
+      payload,
+      characterId,
+      rawCharacterId,
+      requestId,
+      actorCharacterId,
+      adminOverride,
+    );
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
       await emitErrorEvent(supabase, {
@@ -112,6 +123,7 @@ async function handleRecharge(
   supabase: ReturnType<typeof createServiceRoleClient>,
   payload: Record<string, unknown>,
   characterId: string,
+  characterLabelFallback: string,
   requestId: string,
   actorCharacterId: string | null,
   adminOverride: boolean,
@@ -126,6 +138,7 @@ async function handleRecharge(
 
   const character = await loadCharacter(supabase, characterId);
   const ship = await loadShip(supabase, character.current_ship_id);
+  const characterLabel = character.name ?? characterLabelFallback ?? character.character_id;
 
   await ensureActorAuthorization({
     supabase,
@@ -181,7 +194,7 @@ async function handleRecharge(
   const timestamp = new Date().toISOString();
   const warpPayload = {
     source,
-    character_id: characterId,
+    character_id: characterLabel,
     sector: { id: WARP_DEPOT_SECTOR },
     units: unitsToBuy,
     price_per_unit: PRICE_PER_UNIT,
@@ -197,6 +210,8 @@ async function handleRecharge(
     characterId,
     eventType: 'warp.purchase',
     payload: warpPayload,
+    sectorId: ship.current_sector,
+    shipId: ship.ship_id,
     requestId,
   });
 
@@ -206,6 +221,8 @@ async function handleRecharge(
     characterId,
     eventType: 'status.update',
     payload: statusPayload,
+    sectorId: ship.current_sector,
+    shipId: ship.ship_id,
     requestId,
   });
 

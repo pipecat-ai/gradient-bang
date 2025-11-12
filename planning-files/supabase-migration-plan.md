@@ -245,6 +245,16 @@ Until these recovery tasks are finished, treat the Supabase port as “degraded�
 2. **Credit overrides for tests:** FastAPI corp tests set ship credits via `managed_client(..., credits=...)` (updates knowledge/ships JSON). Supabase bypasses those files and reads DB state, so corp creation never fails with “Insufficient credits”. Add a Supabase-specific reset hook (e.g., use `tests/edge/support/state.reset_character_state`) so the integration fixtures can set credits/sector/warp before each test when `USE_SUPABASE_TESTS=1`.
 3. **Event payload mismatches:** `corporation.member_joined`, `corporation.member_left`, etc., are missing legacy fields (`member_id`, etc.) or emit different shapes. Align Supabase payloads with `game-server/api/corporation_*.py` and verify via `tests/integration/test_corporation_events.py`.
 
+**Progress – Nov 10, 2025**
+- Centralized corporation-actor authorization lives in `_shared/actors.ts` and is now enforced by the movement, trade, status, map, bank, combat, and transfer edge functions. These handlers also canonicalize actor IDs before enforcing rate limits.
+- Supabase AsyncGameClient regained the missing public RPC helpers (`purchase_fighters`, `recharge_warp_power`, `transfer_*`, bank helpers, combat helpers), keeping the drop-in contract identical to the legacy transport.
+- Combat enrollment now includes corporation-owned ships via `_shared/combat_participants.loadCharacterCombatants`, unblocking the Supabase corp combat suite once DB seeding populates `corporation_ships`.
+
+**Next Steps (short term)**
+1. Apply the new authorization helper to any remaining endpoints (`join`, corp admin RPCs) and ensure unauthorized actors are rejected before they can move, chat, or trade. Re-run `tests/integration/test_corporation_ships.py` to confirm the “rejects unauthorized actor” expectations.
+2. Match legacy error messaging for invalid corp ship joins (e.g., return “ship not registered” for 404) so `test_corporation_ship_invalid_id_rejected` aligns with FastAPI.
+3. Seed `corporation_ships`/`ship_instances.owner_type='corporation'` during test resets so Supabase corp fleets exist in the DB; once done, rerun the full Supabase corp integration batch (`tests/integration/test_corporation_*.py tests/integration/test_event_corporation_filter.py`).
+
 **Next steps:** patch the three gaps above, rerun `USE_SUPABASE_TESTS=1` corp integration suites, and then tackle remaining functional gaps (combat, salvage, admin endpoints).
 | Salvage & events | `salvage_collect`, `send_message` pending (`event_query` ✅) | `salvage_collect` uses `_shared/salvage.ts`; `event_query` now exposes pagination/filtering for clients to catch up; `send_message` allows admin broadcasts (per-character insert + broadcast).
 

@@ -2,11 +2,12 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 
 import { validateApiToken, unauthorizedResponse, errorResponse, successResponse } from '../_shared/auth.ts';
 import { createServiceRoleClient } from '../_shared/client.ts';
-import { emitCharacterEvent, emitErrorEvent, buildEventSource } from '../_shared/events.ts';
+import { emitCharacterEvent, emitErrorEvent, buildEventSource, emitSectorEnvelope } from '../_shared/events.ts';
 import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
 import { buildStatusPayload, loadCharacter, loadShip, loadShipDefinition } from '../_shared/status.ts';
 import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 import { buildSectorSnapshot } from '../_shared/map.ts';
+import { canonicalizeCharacterId } from '../_shared/ids.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -52,8 +53,10 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   const requestId = resolveRequestId(payload);
-  const characterId = requireString(payload, 'character_id');
-  const actorCharacterId = optionalString(payload, 'actor_character_id');
+  const rawCharacterId = requireString(payload, 'character_id');
+  const characterId = await canonicalizeCharacterId(rawCharacterId);
+  const actorCharacterLabel = optionalString(payload, 'actor_character_id');
+  const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
   try {
@@ -188,6 +191,14 @@ async function handleDumpCargo(
   );
   await appendSalvageEntry(supabase, ship.current_sector, salvageEntry);
 
+  const { error: characterUpdateError } = await supabase
+    .from('characters')
+    .update({ last_active: salvageEntry.created_at })
+    .eq('character_id', characterId);
+  if (characterUpdateError) {
+    console.error('dump_cargo.character_update', characterUpdateError);
+  }
+
   const source = buildEventSource('dump_cargo', requestId);
   await emitCharacterEvent({
     supabase,
@@ -206,6 +217,8 @@ async function handleDumpCargo(
       timestamp: salvageEntry.created_at,
       source,
     },
+    sectorId: ship.current_sector,
+    shipId: ship.ship_id,
     requestId,
   });
 
@@ -215,33 +228,20 @@ async function handleDumpCargo(
     characterId,
     eventType: 'status.update',
     payload: statusPayload,
+    sectorId: ship.current_sector,
+    shipId: ship.ship_id,
     requestId,
   });
 
-  const sectorRecipients = await listCharactersInSector(supabase, ship.current_sector);
-  if (sectorRecipients.length) {
-    const sectorSnapshot = await buildSectorSnapshot(supabase, ship.current_sector, characterId);
-    await emitCharacterEvent({
-      supabase,
-      characterId: sectorRecipients[0],
-      eventType: 'sector.update',
-      payload: sectorSnapshot,
-      sectorId: ship.current_sector,
-      senderId: characterId,
-      requestId,
-    });
-    for (let idx = 1; idx < sectorRecipients.length; idx += 1) {
-      await emitCharacterEvent({
-        supabase,
-        characterId: sectorRecipients[idx],
-        eventType: 'sector.update',
-        payload: sectorSnapshot,
-        sectorId: ship.current_sector,
-        senderId: characterId,
-        requestId,
-      });
-    }
-  }
+  const sectorSnapshot = await buildSectorSnapshot(supabase, ship.current_sector);
+  await emitSectorEnvelope({
+    supabase,
+    sectorId: ship.current_sector,
+    eventType: 'sector.update',
+    payload: sectorSnapshot,
+    requestId,
+    actorCharacterId: characterId,
+  });
 
   return successResponse({ request_id: requestId });
 }
@@ -287,40 +287,4 @@ async function updateShipCargo(
     console.error('dump_cargo.update_ship', error);
     throw new DumpCargoError('Failed to update ship cargo', 500);
   }
-}
-
-async function listCharactersInSector(
-  supabase: ReturnType<typeof createServiceRoleClient>,
-  sectorId: number,
-): Promise<string[]> {
-  const { data, error } = await supabase
-    .from('ship_instances')
-    .select('ship_id')
-    .eq('current_sector', sectorId)
-    .eq('in_hyperspace', false);
-  if (error) {
-    console.error('dump_cargo.list_characters', error);
-    return [];
-  }
-  const shipIds = (data ?? [])
-    .map((row) => row.ship_id)
-    .filter((shipId): shipId is string => typeof shipId === 'string');
-  if (shipIds.length === 0) {
-    return [];
-  }
-  const { data: characters, error: characterError } = await supabase
-    .from('characters')
-    .select('character_id, current_ship_id')
-    .in('current_ship_id', shipIds);
-  if (characterError) {
-    console.error('dump_cargo.list_characters.characters', characterError);
-    return [];
-  }
-  const ids = new Set<string>();
-  for (const row of characters ?? []) {
-    if (typeof row.character_id === 'string' && row.character_id.length > 0) {
-      ids.add(row.character_id);
-    }
-  }
-  return Array.from(ids);
 }

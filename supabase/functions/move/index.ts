@@ -221,7 +221,20 @@ async function handleMove({ supabase, characterId, destination, requestId, actor
   const hyperspaceEta = new Date(Date.now() + hyperspaceSeconds * 1000).toISOString();
   let enteredHyperspace = false;
 
-  const destinationSnapshot = await buildSectorSnapshot(supabase, destination, characterId);
+  let destinationSnapshot;
+  try {
+    destinationSnapshot = await buildSectorSnapshot(supabase, destination, characterId);
+  } catch (err) {
+    console.error('move.destination_snapshot', err);
+    await emitErrorEvent(supabase, {
+      characterId,
+      method: 'move',
+      requestId,
+      detail: 'failed to build destination snapshot',
+      status: 500,
+    });
+    return errorResponse('failed to build destination snapshot', 500);
+  }
 
   try {
     await startHyperspace({

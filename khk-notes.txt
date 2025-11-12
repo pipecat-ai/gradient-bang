@@ -1,3 +1,39 @@
+We are creating a plan to replace our existing event system with Supabase realtime events:
+  - planning doc: planning-files/NEXT-supabase-migration-plan.md
+  - overall migration to Supabase: planning-files/supabase-migration-plan.md
+
+Read the planning-files/NEXT-supabase-migration-plan.md. 
+
+Ultrathink about this plan. Identify any issues we should address in two main areas:
+1. Pay particular attention to fan out helper logic. Is this complete and airtight?
+2. Does this plan allow us to maintain complete compatibility with the public API surface area of the legacy AsyncGameClient implementation that we are replacing with this new Supabase system?
+
+
+----
+
+Question: is our plan to have an events table per character? 
+  - One big events table that records each emitted event and then
+  - Helper functions that write the event to each character's events table?
+
+----
+
+Codex: planning-files/supabase-events-rls-plan.md
+
+Claude: planning-files/rls-event-delivery-plan.md
+
+
+Compare your plan with planning-files/rls-event-delivery-plan.md. Ultrathink about the differences, strengths, and weaknesses. Tell me what you think should be incorporated into your plan from this other plan.
+
+
+For Claude:
+
+Compare our planning-files/rls-event-delivery-plan.md to a previous planning-files/supabase-events-rls-plan.md doc. Ultrathink about the differences in the two docs, how an implementation based on each would be different, and strengths/weaknesses of the two approaches. Do not change any code, yet.
+
+For Codex:
+
+Compare our planning-files/supabase-events-rls-plan.md to a previous planning-files/rls-event-delivery-plan.md doc. Ultrathink about the differences in the two docs, how an implementation based on each would be different, and strengths/weaknesses of the two approaches. Do not change any code, yet.
+
+----
 
 - Rate limits in a database table? What about supabase rate limits?
 - Look at SQL tables (1.3)

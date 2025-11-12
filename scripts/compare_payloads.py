@@ -19,15 +19,34 @@ from tests.helpers.payload_assertions import COMPARERS  # noqa: E402
 
 def load_events(path: Path) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
+    mode = "unknown"
     with path.open(encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
             if not line:
                 continue
             record = json.loads(line)
+            if record.get("record_type") == "meta":
+                mode = record.get("mode", mode)
+                continue
             if record.get("record_type") != "event":
                 continue
             events.append(record["event"])
+
+    if mode == "supabase":
+        def _event_sort_key(event: dict[str, Any]) -> tuple[int, int]:
+            event_id = event.get("__event_id")
+            if not isinstance(event_id, int):
+                ctx = event.get("payload", {}).get("__event_context", {})
+                ctx_event_id = ctx.get("event_id") if isinstance(ctx, dict) else None
+                if isinstance(ctx_event_id, int):
+                    event_id = ctx_event_id
+            if isinstance(event_id, int):
+                return (event_id, 0)
+            return (10**12, 0)
+
+        events = sorted(events, key=_event_sort_key)
+
     return events
 
 

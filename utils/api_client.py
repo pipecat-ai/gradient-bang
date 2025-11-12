@@ -1286,30 +1286,6 @@ class AsyncGameClient:
                 f"received {character_id!r}"
             )
 
-        ack = await self._request(
-            "trade",
-            {
-                "character_id": character_id,
-                "commodity": commodity,
-                "quantity": quantity,
-                "trade_type": trade_type,
-            },
-        )
-        return ack
-
-
-LegacyAsyncGameClient = AsyncGameClient
-
-
-def _use_supabase_transport() -> bool:
-    flag = os.getenv("SUPABASE_TRANSPORT", "")
-    return flag.lower() in {"1", "true", "on", "yes"}
-
-
-if _use_supabase_transport():
-    from utils.supabase_client import AsyncGameClient as _SupabaseAsyncGameClient  # type: ignore
-
-    AsyncGameClient = _SupabaseAsyncGameClient  # type: ignore[assignment]
     async def purchase_fighters(
         self,
         *,
@@ -1845,3 +1821,17 @@ if _use_supabase_transport():
         if character_id is not None:
             frame["character_id"] = character_id
         await self._send_command(frame)
+
+
+LegacyAsyncGameClient = AsyncGameClient
+
+
+def _use_supabase_transport() -> bool:
+    flag = os.getenv("SUPABASE_TRANSPORT", "")
+    return flag.lower() in {"1", "true", "on", "yes"}
+
+
+if _use_supabase_transport():
+    from utils.supabase_client import AsyncGameClient as _SupabaseAsyncGameClient  # type: ignore
+
+    AsyncGameClient = _SupabaseAsyncGameClient  # type: ignore[assignment]

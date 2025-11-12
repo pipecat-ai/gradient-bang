@@ -6,6 +6,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
+import httpx
 import websockets
 
 from utils.legacy_ids import canonicalize_character_id
@@ -59,7 +60,7 @@ class EventListener:
         await self.disconnect()
 
     async def connect(self):
-        """Connect to the websocket or Supabase broadcast channel."""
+        """Connect to the websocket or Supabase changefeed."""
         if self._supabase_mode:
             await self._connect_supabase()
             return
@@ -140,7 +141,32 @@ class EventListener:
 
         supabase_url = self.server_url or os.environ.get("SUPABASE_URL", "http://127.0.0.1:54321")
         realtime_url = f"{supabase_url.rstrip('/')}/realtime/v1"
+        functions_url = f"{supabase_url.rstrip('/')}/functions/v1/get_character_jwt"
         anon_key = os.environ.get("SUPABASE_ANON_KEY", "anon-key")
+        edge_token = (
+            os.environ.get("EDGE_API_TOKEN")
+            or os.environ.get("SUPABASE_API_TOKEN")
+            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        )
+        if not edge_token:
+            raise RuntimeError("EDGE_API_TOKEN (or SUPABASE_API_TOKEN) is required for Supabase event capture")
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.post(
+                functions_url,
+                json={"character_id": self._canonical_character_id},
+                headers={
+                    "Content-Type": "application/json",
+                    "apikey": anon_key,
+                    "Authorization": f"Bearer {anon_key}",
+                    "X-API-Token": edge_token,
+                },
+            )
+            response.raise_for_status()
+            payload = response.json()
+            jwt = payload.get("jwt")
+            if not isinstance(jwt, str) or not jwt:
+                raise RuntimeError("get_character_jwt returned an invalid response")
 
         self._loop = asyncio.get_running_loop()
         self._rt_client = AsyncRealtimeClient(
@@ -148,18 +174,15 @@ class EventListener:
             token=anon_key,
             auto_reconnect=True,
         )
+        await self._rt_client.set_auth(jwt)
 
-        topic = f"public:character:{self._canonical_character_id}"
-        params = {
-            "config": {
-                "broadcast": {"ack": False, "self": False},
-                "presence": {"enabled": False, "key": ""},
-                "private": False,
-            }
-        }
-
-        channel = self._rt_client.channel(topic, params)
-        channel.broadcast_callbacks.append(self._handle_supabase_broadcast)
+        channel = self._rt_client.channel("public:events")
+        channel.on_postgres_changes(
+            event="INSERT",
+            schema="public",
+            table="events",
+            callback=self._handle_supabase_change,
+        )
 
         loop = asyncio.get_running_loop()
         subscribed = loop.create_future()
@@ -200,33 +223,57 @@ class EventListener:
             self._rt_client = None
         self._loop = None
 
-    def _handle_supabase_broadcast(self, message: Dict[str, Any]) -> None:
-        event_type = message.get("event")
-        payload = message.get("payload") or {}
+    def _handle_supabase_change(self, change: Dict[str, Any]) -> None:
+        # postgres_changes payload structure: {data: {new: {...}, old: {...}}}
+        data = change.get("data", {})
+        record = data.get("new") or data.get("record") or {}
+        if not isinstance(record, dict):
+            return
+
+        # Transform database record to match legacy WebSocket event format
+        # Legacy format: {type: "event.name", payload: {...}, summary: "..."}
+        event_type = record.get("event_type")
         if not event_type:
             return
 
-        normalized_payload = payload.copy() if isinstance(payload, dict) else {"value": payload}
-        event_id = normalized_payload.pop("__event_id", None)
+        payload = record.get("payload") or {}
+        if not isinstance(payload, dict):
+            payload = {"value": payload}
 
-        frame: Dict[str, Any] = {
+        event_id = None
+        context_event_id = record.get("event_id")
+        if isinstance(context_event_id, int):
+            event_id = context_event_id
+
+        event = {
             "type": event_type,
             "event": event_type,
-            "frame_type": "event",
-            "payload": normalized_payload,
-            "event_id": event_id,
-            "topic": message.get("topic"),
+            "payload": payload,
+            "summary": record.get("summary", ""),
         }
-
-        source = normalized_payload.get("source")
-        if isinstance(source, dict) and "timestamp" in source:
-            frame["timestamp"] = source["timestamp"]
+        if event_id is not None:
+            event["__event_id"] = event_id
 
         loop = self._loop
         if loop is not None:
-            loop.call_soon_threadsafe(self.events.append, frame)
+            loop.call_soon_threadsafe(self._append_event_sorted, event)
         else:  # pragma: no cover - only for shutdown edge cases
-            self.events.append(frame)
+            self._append_event_sorted(event)
+
+    def _append_event_sorted(self, event: Dict[str, Any]) -> None:
+        event_id = event.get("__event_id")
+        if not isinstance(event_id, int):
+            self.events.append(event)
+            return
+
+        insert_idx = len(self.events)
+        for idx, existing in enumerate(self.events):
+            existing_id = existing.get("__event_id")
+            if isinstance(existing_id, int) and event_id < existing_id:
+                insert_idx = idx
+                break
+
+        self.events.insert(insert_idx, event)
 
     async def wait_for_event(self, event_type: str, timeout: float = 10.0) -> Dict[str, Any]:
         """
@@ -367,7 +414,7 @@ async def create_firehose_listener(server_url: str, character_id: Optional[str] 
     """
     if USE_SUPABASE_TESTS and not character_id:
         raise RuntimeError(
-            "USE_SUPABASE_TESTS=1 requires character_id for firehose listeners; Supabase has per-character channels."
+            "USE_SUPABASE_TESTS=1 requires character_id for firehose listeners because Supabase changefeed auth is per character."
         )
 
     listener = EventListener(server_url, character_id=character_id)

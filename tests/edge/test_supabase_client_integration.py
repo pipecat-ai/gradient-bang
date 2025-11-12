@@ -215,3 +215,47 @@ async def test_character_moved_fanout_between_players():
         except Exception:
             pass
         await mover.close()
+
+
+async def test_sector_listener_updates_after_observer_move():
+    """Observer should keep receiving character.moved after moving to a new sector."""
+
+    mover = await _create_client_for(CHARACTER_ID)
+    observer = await _create_client_for(OBSERVER_ID)
+
+    try:
+        await mover.join(character_id=CHARACTER_ID, sector=0)
+        await observer.join(character_id=OBSERVER_ID, sector=0)
+
+        observer_complete = asyncio.create_task(_wait_for_event(observer, "movement.complete"))
+        await observer.move(character_id=OBSERVER_ID, to_sector=1)
+        await observer_complete
+
+        arrival_event_future = asyncio.create_task(_wait_for_event(observer, "character.moved"))
+        mover_arrival_complete = asyncio.create_task(_wait_for_event(mover, "movement.complete"))
+        await mover.move(character_id=CHARACTER_ID, to_sector=1)
+        arrival_event = await arrival_event_future
+        await mover_arrival_complete
+
+        assert arrival_event["payload"]["player"]["id"] == CHARACTER_ID
+        assert arrival_event["payload"]["movement"] == "arrive"
+
+        depart_event_future = asyncio.create_task(_wait_for_event(observer, "character.moved"))
+        mover_depart_complete = asyncio.create_task(_wait_for_event(mover, "movement.complete"))
+        await mover.move(character_id=CHARACTER_ID, to_sector=0)
+        depart_event = await depart_event_future
+        await mover_depart_complete
+
+        assert depart_event["payload"]["player"]["id"] == CHARACTER_ID
+        assert depart_event["payload"]["movement"] == "depart"
+    finally:
+        try:
+            await observer.move(character_id=OBSERVER_ID, to_sector=0)
+        except Exception:
+            pass
+        await observer.close()
+        try:
+            await mover.move(character_id=CHARACTER_ID, to_sector=0)
+        except Exception:
+            pass
+        await mover.close()

@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import shlex
 import subprocess
+import contextlib
 import sys
 import time
 import types
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from shutil import which
@@ -297,8 +300,6 @@ _ensure_pipecat_stub()
 # Test Infrastructure Fixtures
 # =============================================================================
 
-import json
-
 import httpx
 import pytest
 from helpers.character_setup import register_all_test_characters
@@ -311,6 +312,7 @@ from helpers.server_fixture import (
 )
 
 from utils import api_client as _api_client_module
+from scripts.compare_payloads import load_events as _load_dump_events, compare as _compare_event_lists
 
 _TRUTHY = {"1", "true", "on", "yes"}
 
@@ -375,6 +377,32 @@ def _load_supabase_env() -> Dict[str, str]:
     if _SUPABASE_ENV_CACHE is not None:
         return _SUPABASE_ENV_CACHE
 
+    # If using manual stack with cloud credentials, use environment variables directly
+    if MANUAL_SUPABASE_STACK and all(
+        os.environ.get(k) for k in ["SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY"]
+    ):
+        env_vars = {
+            "SUPABASE_URL": os.environ["SUPABASE_URL"],
+            "SUPABASE_ANON_KEY": os.environ["SUPABASE_ANON_KEY"],
+            "SUPABASE_SERVICE_ROLE_KEY": os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+        }
+        # Also include optional vars if present
+        for optional_key in ["EDGE_API_TOKEN", "SUPABASE_API_TOKEN", "CHARACTER_JWT_SIGNING_KEY"]:
+            if optional_key in os.environ:
+                env_vars[optional_key] = os.environ[optional_key]
+
+        if USE_SUPABASE_TESTS:
+            env_vars["MOVE_DELAY_SCALE"] = os.environ.get("SUPABASE_TEST_MOVE_DELAY_SCALE", "1")
+            os.environ.setdefault(
+                "SUPABASE_EVENT_LOG_PATH",
+                str((REPO_ROOT / "tests" / "test-world-data" / "event-log.jsonl").resolve()),
+            )
+
+        _SUPABASE_ENV_CACHE = env_vars
+        ENV_EXPORTS.clear()
+        ENV_EXPORTS.update(env_vars)
+        return env_vars
+
     if not ENV_PATH.exists():
         raise RuntimeError(
             ".env.supabase is missing. Run `supabase start` once to generate it or copy an existing env file."
@@ -394,6 +422,12 @@ def _load_supabase_env() -> Dict[str, str]:
 
     for key, value in env_vars.items():
         os.environ[key] = value
+
+    if USE_SUPABASE_TESTS:
+        os.environ.setdefault(
+            "SUPABASE_EVENT_LOG_PATH",
+            str((REPO_ROOT / "tests" / "test-world-data" / "event-log.jsonl").resolve()),
+        )
 
     _SUPABASE_ENV_CACHE = env_vars
     ENV_EXPORTS.clear()
@@ -465,6 +499,21 @@ def _start_supabase_stack() -> None:
     log_handle.close()
 
 
+def _stop_supabase_stack() -> None:
+    if SUPABASE_CLI_COMMAND is None:
+        return
+    try:
+        subprocess.run(
+            [*SUPABASE_CLI_COMMAND, 'stop'],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        pass
+
+
 def _ensure_supabase_stack_running() -> None:
     global _SUPABASE_STACK_READY
     if _SUPABASE_STACK_READY:
@@ -480,8 +529,7 @@ def _ensure_supabase_stack_running() -> None:
         return
 
     if _stack_running():
-        _SUPABASE_STACK_READY = True
-        return
+        _stop_supabase_stack()
 
     _start_supabase_stack()
     _SUPABASE_STACK_READY = True
@@ -493,14 +541,17 @@ def _ensure_supabase_ready() -> Dict[str, str]:
 
     _ensure_supabase_stack_running()
     env = _load_supabase_env()
+    _ensure_functions_served_for_tests()
     global _SUPABASE_DB_BOOTSTRAPPED
     if not _SUPABASE_DB_BOOTSTRAPPED:
-        if MANUAL_SUPABASE_STACK:
+        try:
             _invoke_test_reset_sync()
-        else:
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Edge reset failed: %s", exc)
+            if MANUAL_SUPABASE_STACK:
+                raise
             _run_supabase_db_reset()
         _SUPABASE_DB_BOOTSTRAPPED = True
-    _ensure_functions_served_for_tests()
     return env
 
 
@@ -670,34 +721,43 @@ def _run_supabase_db_reset() -> None:
         )
 
 
+def _invoke_edge_test_reset() -> None:
+    """Call the test_reset edge function to seed test data."""
+    import httpx
+
+    edge_url = _edge_base_url()
+    headers = _edge_request_headers()
+
+    try:
+        resp = httpx.post(
+            f"{edge_url}/test_reset",
+            headers=headers,
+            json={},
+            timeout=120.0,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        if not payload.get("success"):
+            raise RuntimeError(f"test_reset edge function failed: {payload}")
+    except Exception as exc:
+        raise RuntimeError(f"Failed to invoke test_reset edge function: {exc}") from exc
+
+
 async def _reset_supabase_state_async() -> None:
     if _env_truthy("SUPABASE_SKIP_DB_RESET"):
         return
 
-    edge_base = _edge_base_url()
-    try:
-        await _call_supabase_test_reset(edge_base)
-        return
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Supabase test.reset RPC failed (%s); falling back to local reset", exc)
-
     loop = asyncio.get_running_loop()
     try:
-        await loop.run_in_executor(None, reset_supabase_state)
+        # Prefer edge function (seeds all characters from fixtures)
+        await loop.run_in_executor(None, _invoke_edge_test_reset)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("supabase_reset_state failed (%s); falling back to supabase db reset", exc)
-        await loop.run_in_executor(None, _run_supabase_db_reset)
-
-
-async def _call_supabase_test_reset(edge_base: str, payload: dict | None = None) -> None:
-    headers = _edge_request_headers()
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(
-            f"{edge_base}/test_reset",
-            headers=headers,
-            json=payload or {},
-        )
-        response.raise_for_status()
+        logger.warning("Edge test_reset failed (%s); falling back to Python helper", exc)
+        try:
+            await loop.run_in_executor(None, reset_supabase_state)
+        except Exception as exc2:  # noqa: BLE001
+            logger.warning("Python reset_supabase_state failed (%s); falling back to db reset", exc2)
+            await loop.run_in_executor(None, _run_supabase_db_reset)
 
 
 def _edge_base_url() -> str:
@@ -738,7 +798,10 @@ def _require_manual_stack_ready() -> None:
             "  npx supabase functions serve --env-file .env.supabase --no-verify-jwt"
         )
 
-    if not payload.get("token_present"):
+    # Only check for EDGE_API_TOKEN when using local stack (not cloud deployments)
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    is_cloud = "supabase.co" in supabase_url
+    if not is_cloud and not payload.get("token_present"):
         raise RuntimeError(
             "Edge functions are running without EDGE_API_TOKEN. Restart `supabase functions serve --env-file "
             ".env.supabase --no-verify-jwt`."
@@ -769,28 +832,18 @@ def _fetch_edge_health(function_name: str) -> Optional[Dict[str, object]]:
 
 
 def _invoke_test_reset_sync() -> None:
-    headers = _edge_request_headers()
     try:
-        resp = httpx.post(
-            f"{_edge_base_url()}/test_reset",
-            headers=headers,
-            json={},
-            timeout=120.0,
-        )
-    except httpx.HTTPError as exc:
-        raise RuntimeError(
-            "Failed to call test_reset edge function. Ensure `supabase functions serve` is running with the repo's "
-            "functions directory."
-        ) from exc
-
-    if resp.status_code == 404:
-        raise RuntimeError(
-            "test_reset edge function returned 404. Launch `supabase functions serve --env-file .env.supabase --no-verify-jwt`."
-        )
-
-    payload = resp.json()
-    if not payload.get("success"):
-        raise RuntimeError(f"test_reset RPC failed: {payload}")
+        reset_supabase_state()
+    except RuntimeError as e:
+        # On cloud without SUPABASE_DB_URL, skip reset and use existing data
+        supabase_url = os.environ.get("SUPABASE_URL", "")
+        if "supabase.co" in supabase_url and "SUPABASE_DB_URL" in str(e):
+            logger.warning(
+                "Skipping Supabase reset on cloud (SUPABASE_DB_URL not set). "
+                "Ensure database is pre-seeded with test data."
+            )
+        else:
+            raise
 
 # Import AsyncGameClient for test reset calls (patched above when Supabase mode is enabled)
 from utils.api_client import AsyncGameClient
@@ -818,8 +871,7 @@ def supabase_module_seed(setup_test_characters):  # noqa: ARG001
         return
 
     _ensure_supabase_ready()
-    edge_base = _edge_base_url()
-    asyncio.run(_call_supabase_test_reset(edge_base))
+    reset_supabase_state()
     yield
 
 
@@ -935,6 +987,139 @@ async def check_server_available(server_url):
     yield
 
 
+# ---------------------------------------------------------------------------
+# Payload parity fixture (legacy vs Supabase event comparison)
+# ---------------------------------------------------------------------------
+
+class _EventCapture(contextlib.AbstractContextManager["_EventCapture"]):
+    def __init__(self):
+        self.events: List[Dict[str, Any]] = []
+        self._orig = None
+
+    def __enter__(self):  # noqa: D401
+        from utils import api_client as legacy_api_client  # local import to avoid cycles
+
+        self._orig = legacy_api_client.LegacyAsyncGameClient._deliver_event
+
+        def patched(instance, event_name: str, event_message: Dict[str, Any]) -> None:
+            serialized = json.loads(json.dumps(event_message, default=_json_default))
+            self.events.append({
+                "event_name": event_name,
+                "payload": serialized.get("payload"),
+                "summary": serialized.get("summary"),
+            })
+            return self._orig(instance, event_name, event_message)
+
+        legacy_api_client.LegacyAsyncGameClient._deliver_event = patched  # type: ignore[assignment]
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:  # noqa: D401
+        if self._orig is not None:
+            from utils import api_client as legacy_api_client
+
+            legacy_api_client.LegacyAsyncGameClient._deliver_event = self._orig  # type: ignore[assignment]
+
+
+def _json_default(value: Any) -> Any:
+    if isinstance(value, (datetime, timezone)):
+        return value.isoformat()
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except Exception:  # pragma: no cover - best effort
+            return str(value)
+    return value
+
+
+def _sanitize_nodeid(nodeid: str) -> str:
+    sanitized = [ch if ch.isalnum() else "_" for ch in nodeid]
+    return "".join(sanitized).strip("_") or "test"
+
+
+def _env_truthy(var: str) -> bool:
+    value = os.getenv(var)
+    return value is not None and value.strip().lower() in _TRUTHY
+
+
+def _write_event_dump(path: Path, events: List[Dict[str, Any]], mode: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    def _event_sort_key(event: Dict[str, Any]) -> tuple[int, int]:
+        context = event.get("payload", {}).get("__event_context", {})
+        event_id = context.get("event_id")
+        if isinstance(event_id, int):
+            return (event_id, 0)
+        return (10**12, 0)
+
+    ordered_events = events
+    if mode == "supabase":
+        ordered_events = sorted(events, key=_event_sort_key)
+
+    with path.open("w", encoding="utf-8") as handle:
+        meta = {
+            "record_type": "meta",
+            "mode": mode,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        handle.write(json.dumps(meta) + "\n")
+        for index, event in enumerate(ordered_events):
+            handle.write(json.dumps({"record_type": "event", "index": index, "event": event}) + "\n")
+
+
+def _run_baseline_capture(nodeid: str, baseline_path: Path) -> None:
+    env = os.environ.copy()
+    env.pop("USE_SUPABASE_TESTS", None)
+    env["PAYLOAD_BASELINE_RUN"] = "1"
+    env["PAYLOAD_BASELINE_PATH"] = str(baseline_path)
+    env["ASYNC_CLIENT_PAYLOAD_DUMP"] = str(baseline_path)
+    result = subprocess.run(
+        ["uv", "run", "pytest", "-q", nodeid],
+        env=env,
+        cwd=str(REPO_ROOT),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Baseline capture for {nodeid} failed:\n{result.stdout}"
+        )
+
+
+@pytest.fixture
+def payload_parity(request):
+    nodeid = request.node.nodeid
+    baseline_mode = os.getenv("PAYLOAD_BASELINE_RUN") == "1"
+    supabase_mode = _env_truthy("USE_SUPABASE_TESTS")
+
+    if not baseline_mode and not supabase_mode:
+        yield
+        return
+
+    slug = _sanitize_nodeid(nodeid)
+    base_dir = LOG_DIR / "payload-parity-inline" / slug
+    base_dir.mkdir(parents=True, exist_ok=True)
+    baseline_path = base_dir / "legacy.jsonl"
+    sup_path = base_dir / f"supabase_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}Z.jsonl"
+
+    with _EventCapture() as capture:
+        if baseline_mode:
+            yield
+            target = Path(os.getenv("PAYLOAD_BASELINE_PATH", baseline_path))
+            _write_event_dump(target, capture.events, mode="legacy")
+            return
+
+        if not baseline_path.exists():
+            _run_baseline_capture(nodeid, baseline_path)
+
+        yield
+
+        _write_event_dump(sup_path, capture.events, mode="supabase")
+        legacy_events = _load_dump_events(baseline_path)
+        diffs = _compare_event_lists(legacy_events, capture.events)
+        if diffs:
+            raise AssertionError(
+                "\n".join([f"Payload parity mismatch for {nodeid}:"] + diffs)
+            )
 @pytest.fixture(scope="session", autouse=True)
 async def test_server(server_url):
     """

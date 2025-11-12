@@ -153,7 +153,7 @@ async def test_whois_returns_character_info(server_url, check_server_available):
 # =============================================================================
 
 
-async def test_move_to_adjacent_sector(server_url, check_server_available):
+async def test_move_to_adjacent_sector(server_url, payload_parity, check_server_available):
     """
     Test POST /api/move validates adjacency.
 
@@ -175,8 +175,8 @@ async def test_move_to_adjacent_sector(server_url, check_server_available):
             # Validate API response
             assert result.get("success") is True
 
-            # Wait for movement to complete
-            await asyncio.sleep(0.5)
+            # Wait for movement to complete (default hyperspace_time is 2 seconds)
+            await asyncio.sleep(2.5)
 
             # Validate event emission
             events = listener.events

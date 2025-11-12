@@ -11,6 +11,7 @@ import {
 import type { MapKnowledge } from '../_shared/map.ts';
 import { loadCharacter, loadShip } from '../_shared/status.ts';
 import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
+import { canonicalizeCharacterId } from '../_shared/ids.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -53,8 +54,10 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   const requestId = resolveRequestId(payload);
-  const characterId = requireString(payload, 'character_id');
-  const actorCharacterId = optionalString(payload, 'actor_character_id');
+  const rawCharacterId = requireString(payload, 'character_id');
+  const characterId = await canonicalizeCharacterId(rawCharacterId);
+  const actorCharacterLabel = optionalString(payload, 'actor_character_id');
+  const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
   try {
@@ -140,29 +143,48 @@ async function handleListKnownPorts(
   });
   const knowledge = await loadMapKnowledge(supabase, characterId);
 
-  let fromSector = optionalNumber(payload, 'from_sector');
-  if (fromSector === null) {
-    fromSector = ship.current_sector ?? knowledge.current_sector ?? 0;
+  const requestedFromSector = optionalNumber(payload, 'from_sector');
+  let fromSector: number | null = null;
+  if (requestedFromSector !== null) {
+    if (!Number.isInteger(requestedFromSector)) {
+      throw new ListKnownPortsError('from_sector must be an integer', 400);
+    }
+    fromSector = requestedFromSector;
+  } else if (typeof ship.current_sector === 'number' && Number.isFinite(ship.current_sector)) {
+    fromSector = ship.current_sector;
+  } else if (typeof knowledge.current_sector === 'number' && Number.isFinite(knowledge.current_sector)) {
+    fromSector = knowledge.current_sector;
+  } else {
+    fromSector = 0;
   }
+
   if (fromSector === null) {
     throw new ListKnownPortsError('from_sector could not be determined', 400);
   }
+  fromSector = Math.trunc(fromSector);
 
   if (!knowledge.sectors_visited[String(fromSector)]) {
     throw new ListKnownPortsError(`Starting sector ${fromSector} must be a visited sector`, 400);
   }
 
-  let maxHops = optionalNumber(payload, 'max_hops');
-  if (maxHops === null) {
-    maxHops = MAX_HOPS_DEFAULT;
+  let maxHopsValue = optionalNumber(payload, 'max_hops');
+  if (maxHopsValue === null) {
+    maxHopsValue = MAX_HOPS_DEFAULT;
   }
+  if (!Number.isFinite(maxHopsValue)) {
+    throw new ListKnownPortsError('max_hops must be an integer between 0 and 10', 400);
+  }
+  const maxHops = Math.trunc(maxHopsValue);
   if (!Number.isInteger(maxHops) || maxHops < 0 || maxHops > MAX_HOPS_LIMIT) {
     throw new ListKnownPortsError('max_hops must be an integer between 0 and 10', 400);
   }
 
-  const portTypeFilter = optionalString(payload, 'port_type');
-  const commodityFilter = optionalString(payload, 'commodity');
-  const tradeTypeFilter = optionalString(payload, 'trade_type');
+  const portTypeFilterRaw = optionalString(payload, 'port_type');
+  const portTypeFilter = portTypeFilterRaw ? portTypeFilterRaw.toUpperCase() : null;
+  const commodityFilterRaw = optionalString(payload, 'commodity');
+  const commodityFilter = commodityFilterRaw ? commodityFilterRaw.toLowerCase() : null;
+  const tradeTypeFilterRaw = optionalString(payload, 'trade_type');
+  const tradeTypeFilter = tradeTypeFilterRaw ? tradeTypeFilterRaw.toLowerCase() : null;
 
   if ((commodityFilter && !tradeTypeFilter) || (tradeTypeFilter && !commodityFilter)) {
     throw new ListKnownPortsError('commodity and trade_type must be provided together', 400);
@@ -171,7 +193,8 @@ async function handleListKnownPorts(
     throw new ListKnownPortsError("trade_type must be 'buy' or 'sell'", 400);
   }
   if (commodityFilter && !(commodityFilter in COMMODITY_MAP)) {
-    throw new ListKnownPortsError(`Unknown commodity: ${commodityFilter}`, 400);
+    const invalidValue = commodityFilterRaw ?? commodityFilter;
+    throw new ListKnownPortsError(`Unknown commodity: ${invalidValue}`, 400);
   }
 
   const visitedIds = Object.keys(knowledge.sectors_visited).map((key) => Number(key));
@@ -188,11 +211,13 @@ async function handleListKnownPorts(
     sectorsSearched += 1;
 
     const portRow = portMap.get(current.sector);
-    if (portRow) {
-      if (portMatchesFilters(portRow, portTypeFilter, commodityFilter, tradeTypeFilter)) {
-        const knowledgeEntry = knowledge.sectors_visited[String(current.sector)];
-        results.push(buildPortResult(current, current.hops, portRow, knowledgeEntry));
-      }
+    if (portRow && portMatchesFilters(portRow, portTypeFilter, commodityFilter, tradeTypeFilter)) {
+      const knowledgeEntry = knowledge.sectors_visited[String(current.sector)];
+      const inSector = typeof ship.current_sector === 'number'
+        && ship.current_sector === current.sector
+        && !ship.in_hyperspace;
+      const observationTimestamp = inSector ? null : new Date().toISOString();
+      results.push(buildPortResult(current, current.hops, portRow, knowledgeEntry, inSector, observationTimestamp));
     }
 
     if (current.hops >= maxHops) {
@@ -208,12 +233,18 @@ async function handleListKnownPorts(
     }
   }
 
+  results.sort((a, b) => {
+    if (a.hops_from_start !== b.hops_from_start) {
+      return a.hops_from_start - b.hops_from_start;
+    }
+    return a.sector.id - b.sector.id;
+  });
+
   const payloadBody = {
     from_sector: fromSector,
-    max_hops: maxHops,
     ports: results,
     total_ports_found: results.length,
-    sectors_searched: sectorsSearched,
+    searched_sectors: sectorsSearched,
     source,
   };
 
@@ -291,12 +322,16 @@ function portMatchesFilters(
   commodity: string | null,
   tradeType: string | null,
 ): boolean {
-  if (portTypeFilter && portRow.port_code !== portTypeFilter) {
+  const code = portRow.port_code?.toUpperCase() ?? '';
+  if (portTypeFilter && code !== portTypeFilter) {
     return false;
   }
   if (commodity && tradeType) {
     const index = COMMODITY_MAP[commodity];
-    const codeChar = portRow.port_code?.charAt(index) ?? '';
+    if (typeof index !== 'number') {
+      return false;
+    }
+    const codeChar = code.charAt(index);
     if (tradeType === 'buy') {
       return codeChar === 'S';
     }
@@ -309,7 +344,9 @@ function buildPortResult(
   node: { sector: number; hops: number },
   hops: number,
   portRow: PortRow,
-  knowledgeEntry?: { position?: [number, number]; last_visited?: string },
+  knowledgeEntry: { position?: [number, number]; last_visited?: string } | undefined,
+  inSector: boolean,
+  observationTimestamp: string | null,
 ): PortResult {
   const position = knowledgeEntry?.position ?? [0, 0];
   const portPayload = {
@@ -325,6 +362,7 @@ function buildPortResult(
       retro_organics: portRow.max_ro,
       neuro_symbolics: portRow.max_ns,
     },
+    observed_at: inSector ? null : observationTimestamp,
   } as Record<string, unknown>;
 
   return {
@@ -333,7 +371,7 @@ function buildPortResult(
       position,
       port: portPayload,
     },
-    updated_at: portRow.last_updated,
+    updated_at: inSector ? null : observationTimestamp,
     hops_from_start: hops,
     last_visited: knowledgeEntry?.last_visited,
   };

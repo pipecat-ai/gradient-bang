@@ -7,6 +7,7 @@ and set up specific combat scenarios with predictable outcomes.
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -267,7 +268,29 @@ def create_test_character_knowledge(
         "current_sector": sector,
     }
 
-    return _write_knowledge_file(character_id, knowledge)
+    knowledge_path = _write_knowledge_file(character_id, knowledge)
+
+    if os.environ.get("USE_SUPABASE_TESTS", "").strip().lower() in {"1", "true", "on", "yes"}:
+        try:
+            from tests.edge.support.state import reset_character_state as supabase_reset_character_state  # type: ignore
+        except Exception:  # noqa: BLE001
+            pass
+        else:
+            ship_updates = {
+                'cargo_qf': cargo.get('quantum_foam', 0),
+                'cargo_ro': cargo.get('retro_organics', 0),
+                'cargo_ns': cargo.get('neuro_symbolics', 0),
+            }
+            supabase_reset_character_state(
+                character_id,
+                sector=sector,
+                credits=credits,
+                ship_updates=ship_updates,
+                map_knowledge=knowledge,
+                bank_credits=credits_in_bank,
+            )
+
+    return knowledge_path
 
 
 def modify_character_fighters(

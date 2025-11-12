@@ -88,6 +88,7 @@ def reset_character_state(
     in_hyperspace: bool = False,
     ship_updates: Optional[Dict[str, Any]] = None,
     map_knowledge: Optional[Dict[str, Any]] = None,
+    bank_credits: Optional[int] = None,
 ) -> str:
     """Place an existing character/ship pair into a known state without calling join."""
 
@@ -107,6 +108,10 @@ def reset_character_state(
     _patch('ship_instances', headers, {'ship_id': f'eq.{ship_id}'}, updates)
 
     knowledge = map_knowledge if map_knowledge is not None else _default_map_knowledge(sector)
-    _patch('characters', headers, {'character_id': f'eq.{character_id}'}, {'map_knowledge': knowledge})
+    character_payload: Dict[str, Any] = {'map_knowledge': knowledge}
+    if bank_credits is not None:
+        character_payload['credits_in_megabank'] = bank_credits
+
+    _patch('characters', headers, {'character_id': f'eq.{character_id}'}, character_payload)
 
     return character_id

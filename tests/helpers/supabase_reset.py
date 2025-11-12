@@ -6,15 +6,16 @@ import json
 import logging
 import os
 import uuid
+import copy
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-import httpx
 import psycopg
 from psycopg.types.json import Json
 
-from utils.legacy_ids import canonicalize_character_id
+from utils.legacy_ids import canonicalize_character_id, deterministic_ship_id
 
 os.environ.setdefault("SUPABASE_ALLOW_LEGACY_IDS", "1")
 
@@ -34,6 +35,18 @@ CHARACTER_REGISTRY = Path(
         "tests/test-world-data/characters.json",
     )
 )
+SHIPS_PATH = Path(
+    os.environ.get(
+        "SUPABASE_TEST_SHIPS",
+        "tests/test-world-data/ships.json",
+    )
+)
+CHARACTER_KNOWLEDGE_DIR = Path(
+    os.environ.get(
+        "SUPABASE_TEST_CHARACTER_MAP_DIR",
+        "tests/test-world-data/character-map-knowledge",
+    )
+)
 UNIVERSE_STRUCTURE_PATH = Path(
     os.environ.get(
         "SUPABASE_TEST_UNIVERSE_STRUCTURE",
@@ -44,6 +57,12 @@ SECTOR_CONTENTS_PATH = Path(
     os.environ.get(
         "SUPABASE_TEST_SECTOR_CONTENTS",
         "tests/test-world-data/sector_contents.json",
+    )
+)
+PORT_STATES_DIR = Path(
+    os.environ.get(
+        "SUPABASE_TEST_PORT_STATES",
+        "tests/test-world-data/port-states",
     )
 )
 EXTRA_CHARACTERS = {"test_reset_runner"}
@@ -76,9 +95,9 @@ DEFAULT_SHIP_NAME_SUFFIX = os.environ.get(
     "SUPABASE_TEST_SHIP_SUFFIX", "-ship"
 )
 DEFAULT_SHIP_CREDITS = int(
-    os.environ.get("SUPABASE_TEST_DEFAULT_SHIP_CREDITS", "25000")
+    os.environ.get("SUPABASE_TEST_DEFAULT_SHIP_CREDITS", "1000")
 )
-DEFAULT_FIGHTERS = int(os.environ.get("SUPABASE_TEST_DEFAULT_FIGHTERS", "250"))
+DEFAULT_FIGHTERS = int(os.environ.get("SUPABASE_TEST_DEFAULT_FIGHTERS", "300"))
 DEFAULT_SHIELDS = int(os.environ.get("SUPABASE_TEST_DEFAULT_SHIELDS", "150"))
 DEFAULT_WARP = int(os.environ.get("SUPABASE_TEST_DEFAULT_WARP", "300"))
 
@@ -88,14 +107,66 @@ PINNED_SECTORS = {
 }
 
 
-def _load_character_ids() -> List[str]:
+def _load_character_registry() -> Dict[str, Dict[str, Any]]:
     if not CHARACTER_REGISTRY.exists():
-        return sorted(EXTRA_CHARACTERS)
+        return {character: {"name": character} for character in EXTRA_CHARACTERS}
 
     data = json.loads(CHARACTER_REGISTRY.read_text())
     registry = data.get("characters", {})
-    character_ids = set(registry.keys()) | EXTRA_CHARACTERS
-    return sorted(character_ids)
+    for extra in EXTRA_CHARACTERS:
+        registry.setdefault(extra, {"name": extra})
+    return registry
+
+
+def _load_character_ids() -> List[str]:
+    registry = _load_character_registry()
+    return sorted(registry.keys())
+
+
+def _load_ships_data() -> Dict[str, Dict[str, Any]]:
+    if not SHIPS_PATH.exists():
+        return {}
+    return json.loads(SHIPS_PATH.read_text())
+
+
+def _load_map_knowledge(canonical_id: str) -> Optional[Dict[str, Any]]:
+    path = CHARACTER_KNOWLEDGE_DIR / f"{canonical_id}.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except json.JSONDecodeError:  # pragma: no cover - corrupted fixture
+        logger.warning("Failed to parse map knowledge for %s", canonical_id)
+        return None
+
+
+@dataclass
+class ShipSeed:
+    ship_id: str
+    ship_type: str
+    ship_name: Optional[str]
+    sector: int
+    credits: int
+    fighters: int
+    shields: int
+    warp_power: int
+    warp_power_capacity: int
+    cargo_qf: int
+    cargo_ro: int
+    cargo_ns: int
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class CharacterSeed:
+    legacy_id: str
+    canonical_id: str
+    display_name: str
+    legacy_display_name: str
+    bank_credits: int
+    map_knowledge: Dict[str, Any]
+    current_sector: int
+    ship: ShipSeed
 
 
 def _ship_id_for(character_id: str) -> str:
@@ -123,18 +194,184 @@ def _sector_for_index(index: int) -> int:
     return DISTRIBUTION_SECTORS[index % len(DISTRIBUTION_SECTORS)]
 
 
-def _character_rows(character_ids: Sequence[str], sector_map: Sequence[int]) -> List[Tuple]:
+def _build_character_seeds(character_ids: Sequence[str]) -> List[CharacterSeed]:
+    registry = _load_character_registry()
+    ships_data = _load_ships_data()
+    owner_index: Dict[str, List[str]] = {}
+    for ship_id, record in ships_data.items():
+        if record.get("owner_type") != "character":
+            continue
+        owner_id = record.get("owner_id")
+        if not owner_id:
+            continue
+        owner_index.setdefault(owner_id, []).append(ship_id)
+        try:
+            canonical_owner = canonicalize_character_id(owner_id)
+            owner_index.setdefault(canonical_owner, []).append(ship_id)
+        except ValueError:
+            continue
+
+    seeds: List[CharacterSeed] = []
+    used_names: set[str] = set()
+    for idx, legacy_id in enumerate(character_ids):
+        legacy_display = registry.get(legacy_id, {}).get("name") or legacy_id
+        display = legacy_display
+        if display in used_names:
+            display = f"{legacy_display} ({legacy_id})"
+        used_names.add(display)
+        canonical = canonicalize_character_id(legacy_id)
+        map_data = _load_map_knowledge(canonical)
+        desired_sector = None
+        if map_data and map_data.get("current_sector") is not None:
+            desired_sector = int(map_data.get("current_sector"))
+        if desired_sector is None:
+            desired_sector = PINNED_SECTORS.get(legacy_id, DEFAULT_SECTOR)
+        fallback_sector = PINNED_SECTORS.get(legacy_id, _sector_for_index(idx))
+        ship_record, from_fixture = _select_ship_record(
+            legacy_id,
+            canonical,
+            map_data,
+            ships_data,
+            owner_index,
+            desired_sector,
+            fallback_sector,
+        )
+        if not from_fixture and map_data is None:
+            # Character has no pre-seeded ship/knowledge; skip until runtime join creates one.
+            continue
+        if map_data and map_data.get("current_sector") is not None:
+            current_sector = int(map_data.get("current_sector"))
+        else:
+            record_sector = ship_record.get("sector")
+            current_sector = int(record_sector) if record_sector is not None else fallback_sector
+        map_payload = map_data or _map_payload(current_sector)
+        bank_credits = int((map_data or {}).get("credits_in_bank", 0))
+
+        ship_seed = _ship_seed_from_record(
+            ship_record,
+            legacy_id,
+            canonical,
+            current_sector,
+        )
+
+        seeds.append(
+            CharacterSeed(
+                legacy_id=legacy_id,
+                canonical_id=canonical,
+                display_name=display,
+                legacy_display_name=legacy_display,
+                bank_credits=bank_credits,
+                map_knowledge=map_payload,
+                current_sector=current_sector,
+                ship=ship_seed,
+            )
+        )
+
+    return seeds
+
+
+def _select_ship_record(
+    legacy_id: str,
+    canonical_id: str,
+    map_data: Optional[Dict[str, Any]],
+    ships_data: Dict[str, Dict[str, Any]],
+    owner_index: Dict[str, List[str]],
+    desired_sector: int,
+    fallback_sector: int,
+) -> Tuple[Dict[str, Any], bool]:
+    preferred_id = (map_data or {}).get("current_ship_id")
+    if preferred_id and preferred_id in ships_data:
+        return copy.deepcopy(ships_data[preferred_id]), True
+
+    candidates: List[Dict[str, Any]] = []
+    for key in (canonical_id, legacy_id):
+        for ship_id in owner_index.get(key, []):
+            record = ships_data.get(ship_id)
+            if record:
+                candidates.append(record)
+
+    if candidates:
+        def _sort_key(record: Dict[str, Any]) -> Tuple[int, str]:
+            sector = record.get("sector", DEFAULT_SECTOR)
+            mismatch = 0 if sector == desired_sector else 1
+            acquired = record.get("acquired") or ""
+            return (mismatch, acquired)
+
+        record = sorted(candidates, key=_sort_key)[0]
+        return copy.deepcopy(record), True
+
+    sector = desired_sector or fallback_sector
+    return {
+        "ship_id": deterministic_ship_id(f"{legacy_id}-default-ship"),
+        "ship_type": DEFAULT_SHIP_TYPE,
+        "name": f"{legacy_id}{DEFAULT_SHIP_NAME_SUFFIX}",
+        "sector": sector,
+        "state": {
+            "fighters": DEFAULT_FIGHTERS,
+            "shields": DEFAULT_SHIELDS,
+            "credits": DEFAULT_SHIP_CREDITS,
+            "cargo": {"quantum_foam": 0, "retro_organics": 0, "neuro_symbolics": 0},
+            "cargo_holds": 30,
+            "warp_power": DEFAULT_WARP,
+            "warp_power_capacity": DEFAULT_WARP,
+        },
+    }, False
+
+
+def _ship_seed_from_record(
+    record: Dict[str, Any],
+    legacy_id: str,
+    canonical_id: str,
+    sector_override: Optional[int] = None,
+) -> ShipSeed:
+    ship_id = record.get("ship_id")
+    try:
+        if ship_id:
+            uuid.UUID(ship_id)
+        else:
+            raise ValueError
+    except ValueError:
+        ship_id = deterministic_ship_id(f"{legacy_id}-ship")
+    ship_type = record.get("ship_type", DEFAULT_SHIP_TYPE)
+    ship_name = record.get("name")
+    sector = sector_override if sector_override is not None else record.get("sector", DEFAULT_SECTOR)
+    state = record.get("state", {})
+    cargo = state.get("cargo", {})
+    return ShipSeed(
+        ship_id=ship_id,
+        ship_type=ship_type,
+        ship_name=ship_name,
+        sector=int(sector),
+        credits=int(state.get("credits", DEFAULT_SHIP_CREDITS)),
+        fighters=int(state.get("fighters", DEFAULT_FIGHTERS)),
+        shields=int(state.get("shields", DEFAULT_SHIELDS)),
+        warp_power=int(state.get("warp_power", DEFAULT_WARP)),
+        warp_power_capacity=int(state.get("warp_power_capacity", DEFAULT_WARP)),
+        cargo_qf=int(cargo.get("quantum_foam", 0)),
+        cargo_ro=int(cargo.get("retro_organics", 0)),
+        cargo_ns=int(cargo.get("neuro_symbolics", 0)),
+        metadata={
+            "legacy_owner_id": legacy_id,
+            "canonical_owner_id": canonical_id,
+            "legacy_display_name": record.get("name") or legacy_id,
+        },
+    )
+
+
+def _character_rows(seeds: Sequence[CharacterSeed]) -> List[Tuple]:
     timestamp = datetime.now(timezone.utc)
     rows: List[Tuple] = []
-    for character, sector in zip(character_ids, sector_map, strict=False):
-        canonical = canonicalize_character_id(character)
+    for seed in seeds:
         rows.append(
             (
-                canonical,
-                character,
-                DEFAULT_SHIP_CREDITS,
-                Json(_map_payload(sector)),
-                Json({}),
+                seed.canonical_id,
+                seed.display_name,
+                seed.bank_credits,
+                Json(seed.map_knowledge),
+                Json({
+                    "legacy_id": seed.legacy_id,
+                    "legacy_display_name": seed.legacy_display_name,
+                }),
                 False,
                 timestamp,
                 timestamp,
@@ -144,27 +381,29 @@ def _character_rows(character_ids: Sequence[str], sector_map: Sequence[int]) -> 
     return rows
 
 
-def _ship_rows(character_ids: Sequence[str], sector_map: Sequence[int]) -> List[Tuple]:
+def _ship_rows(seeds: Sequence[CharacterSeed]) -> List[Tuple]:
     rows: List[Tuple] = []
-    for character, sector in zip(character_ids, sector_map, strict=False):
-        canonical = canonicalize_character_id(character)
+    for seed in seeds:
+        ship = seed.ship
         rows.append(
             (
-                _ship_id_for(character),
-                canonical,
-                canonical,
-                DEFAULT_SHIP_TYPE,
-                f"{character}{DEFAULT_SHIP_NAME_SUFFIX}",
-                sector,
+                ship.ship_id,
+                seed.canonical_id,
+                seed.canonical_id,
+                ship.ship_type,
+                ship.ship_name,
+                ship.sector,
                 False,
-                DEFAULT_SHIP_CREDITS,
-                0,
-                0,
-                0,
-                DEFAULT_WARP,
-                DEFAULT_SHIELDS,
-                DEFAULT_FIGHTERS,
-                Json({}),
+                ship.credits,
+                ship.cargo_qf,
+                ship.cargo_ro,
+                ship.cargo_ns,
+                ship.warp_power,
+                ship.shields,
+                ship.fighters,
+                Json(ship.metadata),
+                "character",
+                None,
             )
         )
     return rows
@@ -181,7 +420,7 @@ def _insert_port(cur, sector_id: int, port_data: Dict[str, object]) -> Optional[
             return 0
 
     stock = port_data.get("stock") or {}
-    stock_max = port_data.get("stock_max") or {}
+    stock_max = port_data.get("stock_max") or port_data.get("max_capacity") or {}
 
     cur.execute(
         """
@@ -211,7 +450,46 @@ def _insert_port(cur, sector_id: int, port_data: Dict[str, object]) -> Optional[
         ),
     )
     row = cur.fetchone()
+    port_id = int(row[0]) if row else None
+    if port_id:
+        _apply_port_state_override(cur, port_id, sector_id)
     return int(row[0]) if row else None
+
+
+def _apply_port_state_override(cur, port_id: int, sector_id: int) -> None:
+    state_path = PORT_STATES_DIR / f"sector_{sector_id}.json"
+    if not state_path.exists():
+        return
+    try:
+        state = json.loads(state_path.read_text())
+    except json.JSONDecodeError:
+        return
+    stock = state.get("stock") or {}
+    capacity = state.get("max_capacity") or state.get("stock_max") or {}
+    updated_at = state.get("last_updated")
+    cur.execute(
+        """
+        UPDATE ports
+        SET stock_qf = %s,
+            stock_ro = %s,
+            stock_ns = %s,
+            max_qf = %s,
+            max_ro = %s,
+            max_ns = %s,
+            last_updated = %s
+        WHERE port_id = %s
+        """,
+        (
+            int(stock.get("QF", 0) or 0),
+            int(stock.get("RO", 0) or 0),
+            int(stock.get("NS", 0) or 0),
+            int(capacity.get("QF", 0) or 0),
+            int(capacity.get("RO", 0) or 0),
+            int(capacity.get("NS", 0) or 0),
+            updated_at,
+            port_id,
+        ),
+    )
 
 
 def _seed_universe(cur) -> None:
@@ -277,7 +555,7 @@ def _seed_universe(cur) -> None:
 
 
 def reset_supabase_state(character_ids: Iterable[str] | None = None) -> None:
-    """Reset Supabase state via edge RPC (preferred) or direct SQL fallback."""
+    """Reset Supabase state directly via SQL using tests/test-world-data fixtures."""
 
     ids: List[str]
     if character_ids is None:
@@ -285,47 +563,12 @@ def reset_supabase_state(character_ids: Iterable[str] | None = None) -> None:
     else:
         ids = sorted(set(character_ids))
 
-    if _try_edge_test_reset(ids):
-        return
-
-    _reset_via_sql(ids)
-
-
-def _try_edge_test_reset(ids: List[str]) -> bool:
-    edge_url = os.environ.get("EDGE_FUNCTIONS_URL")
-    base = edge_url or os.environ.get("SUPABASE_URL")
-    if not base:
-        return False
-    edge_base = edge_url.rstrip("/") if edge_url else f"{base.rstrip('/')}/functions/v1"
-    anon = os.environ.get("SUPABASE_ANON_KEY", "anon-key")
-    token = os.environ.get("EDGE_API_TOKEN") or os.environ.get("SUPABASE_API_TOKEN") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {anon}",
-        "apikey": anon,
-    }
-    if token:
-        headers["x-api-token"] = token
-
-    payload = {"character_ids": ids}
-    try:
-        resp = httpx.post(
-            f"{edge_base}/test_reset",
-            headers=headers,
-            json=payload,
-            timeout=120.0,
-        )
-        resp.raise_for_status()
-        return True
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("edge test_reset failed (%s); falling back to SQL", exc)
-        return False
-
-
-def _reset_via_sql(ids: List[str]) -> None:
     db_url = os.environ.get("SUPABASE_DB_URL")
     if not db_url:
-        raise RuntimeError("SUPABASE_DB_URL is required to reset Supabase state")
+        raise RuntimeError(
+            "SUPABASE_DB_URL is required to reset Supabase state; "
+            "export it (e.g., from .env.supabase) before running tests"
+        )
 
     with psycopg.connect(db_url, autocommit=False) as conn:
         with conn.cursor() as cur:
@@ -350,11 +593,9 @@ def _reset_via_sql(ids: List[str]) -> None:
 
             _seed_universe(cur)
 
-            sector_assignments = [
-                PINNED_SECTORS.get(character, _sector_for_index(idx))
-                for idx, character in enumerate(ids)
-            ]
-            character_rows = _character_rows(ids, sector_assignments)
+            seeds = _build_character_seeds(ids)
+
+            character_rows = _character_rows(seeds)
             if character_rows:
                 cur.executemany(
                     """
@@ -373,7 +614,7 @@ def _reset_via_sql(ids: List[str]) -> None:
                     character_rows,
                 )
 
-            ship_rows = _ship_rows(ids, sector_assignments)
+            ship_rows = _ship_rows(seeds)
             if ship_rows:
                 cur.executemany(
                     """
@@ -411,14 +652,16 @@ def _reset_via_sql(ids: List[str]) -> None:
                         %s,
                         %s,
                         %s,
-                        'character',
-                        NULL
+                        %s,
+                        %s
                     )
                     """,
                     ship_rows,
                 )
 
-                update_rows = [(_ship_id_for(character), canonicalize_character_id(character)) for character in ids]
+                update_rows = [
+                    (seed.ship.ship_id, seed.canonical_id) for seed in seeds
+                ]
                 cur.executemany(
                     "UPDATE characters SET current_ship_id = %s WHERE character_id = %s",
                     update_rows,

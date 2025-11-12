@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import shlex
@@ -14,6 +15,11 @@ try:
 except ImportError:  # pragma: no cover - platform without resource module
     resource = None
 
+try:
+    from realtime import AsyncRealtimeClient, RealtimeSubscribeStates
+except ImportError:  # pragma: no cover - realtime may be missing outside test envs
+    AsyncRealtimeClient = None  # type: ignore
+    RealtimeSubscribeStates = None  # type: ignore
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SUPABASE_WORKDIR = REPO_ROOT / 'supabase'
@@ -116,6 +122,11 @@ def _edge_url() -> str:
     return os.environ.get('EDGE_FUNCTIONS_URL', f"{base.rstrip('/')}/functions/v1")
 
 
+def _rest_url() -> str:
+    base = os.environ.get('SUPABASE_URL', 'http://127.0.0.1:54321')
+    return f"{base.rstrip('/')}/rest/v1"
+
+
 def _edge_request_headers(include_token: bool = True) -> Dict[str, str]:
     anon = os.environ.get('SUPABASE_ANON_KEY', 'anon-key')
     headers: Dict[str, str] = {
@@ -156,11 +167,6 @@ def _load_env() -> Dict[str, str]:
                 continue
             key, value = stripped.split('=', 1)
             env_vars[key] = value
-
-    if 'EDGE_BROADCAST_RETRIES' not in env_vars and 'EDGE_BROADCAST_RETRIES' not in os.environ:
-        env_vars['EDGE_BROADCAST_RETRIES'] = '5'
-    if 'EDGE_BROADCAST_RETRY_DELAY_MS' not in env_vars and 'EDGE_BROADCAST_RETRY_DELAY_MS' not in os.environ:
-        env_vars['EDGE_BROADCAST_RETRY_DELAY_MS'] = '200'
 
     os.environ.update(env_vars)
     ENV_EXPORTS.update(env_vars)
@@ -274,9 +280,8 @@ def _require_manual_stack_ready() -> None:
             'Supabase join function is not reachable. '
             'When SUPABASE_MANUAL_STACK=1 you must run:\n'
             '  npx supabase start\n'
-            '  curl -X POST -H "x-api-token: $EDGE_API_TOKEN" -H "Content-Type: application/json" '
-            "-d '{}' http://127.0.0.1:54321/functions/v1/test_reset"
-            '\n  npx supabase functions serve --env-file .env.supabase --no-verify-jwt'
+            '  npx supabase functions serve --env-file .env.supabase --no-verify-jwt\n'
+            '(test_reset will be called automatically before each test)'
         )
 
     if not health_payload.get('token_present'):
@@ -285,8 +290,6 @@ def _require_manual_stack_ready() -> None:
             'Launch `npx supabase functions serve --env-file .env.supabase --no-verify-jwt` '
             'so tests can assert authentication behaviour.'
         )
-
-    _invoke_test_reset()
 
 
 def _fetch_health_payload(name: str) -> Optional[Dict[str, object]]:
@@ -329,61 +332,102 @@ def _invoke_test_reset() -> None:
         raise RuntimeError(f"test_reset RPC returned an error: {payload}")
 
 
+def _verify_reset_data(max_attempts: int = 20, delay_seconds: float = 0.5) -> None:
+    """Poll the characters table until reset data is visible via PostgREST."""
+
+    service_key = os.environ.get('SUPABASE_SERVICE_ROLE_KEY')
+    if not service_key:
+        raise RuntimeError('SUPABASE_SERVICE_ROLE_KEY required to verify reset data visibility')
+
+    headers = {
+        'apikey': service_key,
+        'Authorization': f'Bearer {service_key}',
+    }
+    url = f"{_rest_url()}/characters"
+    params = {'select': 'character_id', 'limit': 1}
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = httpx.get(url, headers=headers, params=params, timeout=5.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list) and data:
+                    logger.info('Reset verification succeeded on attempt %s: %s', attempt, data[0])
+                    return
+                logger.debug('Reset verification attempt %s returned empty payload', attempt)
+            else:
+                logger.debug(
+                    'Reset verification attempt %s returned HTTP %s: %s',
+                    attempt,
+                    resp.status_code,
+                    resp.text[:256],
+                )
+        except Exception as exc:
+            logger.debug('Reset verification attempt %s failed: %s', attempt, exc)
+
+        time.sleep(delay_seconds)
+
+    raise RuntimeError('Test data not visible after reset - connection pool issue?')
+
+
 def _warmup_realtime(timeout: float = 30.0) -> None:
+    """Establish a lightweight changefeed subscription to ensure realtime is ready."""
+
+    if AsyncRealtimeClient is None or RealtimeSubscribeStates is None:  # pragma: no cover - optional dep
+        logger.warning('realtime python client unavailable; skipping changefeed warmup')
+        return
+
     service_key = os.environ.get('SUPABASE_SERVICE_ROLE_KEY')
     if not service_key:
         logger.warning('SUPABASE_SERVICE_ROLE_KEY missing; skipping realtime warmup')
         return
 
     supabase_url = os.environ.get('SUPABASE_URL', 'http://127.0.0.1:54321').rstrip('/')
-    endpoint = f"{supabase_url}/realtime/v1/api/broadcast"
-    payload = {
-        'messages': [
-            {
-                'type': 'broadcast',
-                'topic': 'public:healthcheck',
-                'event': 'healthcheck',
-                'payload': {'ts': time.time()},
-                'private': False,
-            }
-        ]
-    }
+    anon_key = os.environ.get('SUPABASE_ANON_KEY', 'anon-key')
 
-    headers = {
-        'Content-Type': 'application/json',
-        'apikey': service_key,
-        'Authorization': f'Bearer {service_key}',
-    }
+    async def _run_warmup() -> None:
+        client = AsyncRealtimeClient(
+            url=f'{supabase_url}/realtime/v1',
+            token=anon_key,
+            auto_reconnect=False,
+        )
+        await client.set_auth(service_key)
 
-    deadline = time.time() + timeout
-    attempt = 0
-    last_error: Optional[Exception] = None
+        channel = client.channel('public:events')
+        channel.on_postgres_changes(
+            event='INSERT',
+            schema='public',
+            table='events',
+            callback=lambda change: None,
+        )
+        loop = asyncio.get_running_loop()
+        subscribed: asyncio.Future[None] = loop.create_future()
 
-    while time.time() < deadline:
-        attempt += 1
-        try:
-            resp = httpx.post(endpoint, headers=headers, json=payload, timeout=5.0)
-        except httpx.HTTPError as exc:  # pragma: no cover - network hiccup
-            last_error = exc
-        else:
-            if resp.status_code in {200, 202}:
-                if attempt > 1 or resp.status_code == 202:
-                    logger.info(
-                        'Realtime warmup succeeded after %s attempts (status %s)',
-                        attempt,
-                        resp.status_code,
-                    )
+        def _callback(state, error):
+            if subscribed.done():
                 return
-            if resp.status_code == 429:
-                last_error = RuntimeError('realtime broadcast rate limited during warmup')
-            else:
-                last_error = RuntimeError(
-                    f'Realtime warmup returned {resp.status_code}: {resp.text.strip() or "<empty>"}'
+            if state == RealtimeSubscribeStates.SUBSCRIBED:
+                subscribed.set_result(None)
+            elif state in {
+                RealtimeSubscribeStates.CHANNEL_ERROR,
+                RealtimeSubscribeStates.TIMED_OUT,
+                RealtimeSubscribeStates.CLOSED,
+            }:
+                subscribed.set_exception(
+                    error or RuntimeError(f"Supabase realtime subscribe failed: {getattr(state, 'value', state)}")
                 )
 
-        time.sleep(min(0.5 * attempt, 2.0))
+        await channel.subscribe(callback=_callback)
+        try:
+            await asyncio.wait_for(subscribed, timeout=timeout)
+        finally:
+            await channel.unsubscribe()
+            await client.close()
 
-    raise RuntimeError('Realtime broadcast warmup did not succeed; see logs/edge-functions.log') from last_error
+    try:
+        asyncio.run(_run_warmup())
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError('Supabase realtime changefeed warmup failed') from exc
 
 
 def _write_function_env(name: str) -> Path:
@@ -487,7 +531,6 @@ def supabase_stack():
             _start_stack()
         _reset_database()
         _ensure_functions_served(FUNCTIONS_UNDER_TEST)
-        _invoke_test_reset()
         _warmup_realtime()
     else:
         _require_manual_stack_ready()
