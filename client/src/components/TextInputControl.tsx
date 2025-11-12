@@ -44,7 +44,7 @@ export const TextInputControl = ({
         placeholder="Enter command"
         value={command}
         disabled={isDisabled}
-        onChange={(e) => setCommand(e.target.value.trim())}
+        onChange={(e) => setCommand(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && command) {
             handleSend(command);

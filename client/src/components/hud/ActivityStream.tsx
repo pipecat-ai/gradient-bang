@@ -1,5 +1,5 @@
+import { Card, CardContent } from "@/components/primitives/Card";
 import useGameStore from "@/stores/game";
-import { Card, CardContent } from "@pipecat-ai/voice-ui-kit";
 import { AnimatePresence, motion } from "motion/react";
 
 import * as React from "react";
@@ -11,16 +11,17 @@ const STACKABLE_LOG_TYPES: ReadonlySet<LogEntry["type"]> = new Set([
 ]);
 
 // Animation configuration constants
-const FADE_DELAY_MS = 2000;
+const FADE_DELAY_MS = 3000;
 const LIFETIME_MS = 10_000;
-const SLIDE_DISTANCE = 20;
+const SLIDE_DISTANCE = 50;
 const SLIDE_DURATION = 0.3;
-const SLIDE_EASE = "easeOut";
+const SLIDE_DELAY = 0.2;
+const SLIDE_EASE = "easeOut" as const;
 const FADE_OUT_DURATION = 0.5;
 const FADE_OPACITY = 0.5;
-const FADE_EASE = "easeInOut";
+const FADE_EASE = "easeInOut" as const;
 const FINAL_FADEOUT_DURATION = 1.0;
-const FINAL_FADEOUT_EASE = "easeOut";
+const FINAL_FADEOUT_EASE = "easeOut" as const;
 
 // Stack cooldown matches entry lifetime
 const STACK_COOLDOWN_MS = LIFETIME_MS;
@@ -109,8 +110,11 @@ export const ActivityStream = () => {
   });
 
   return (
-    <Card className="flex bg-black h-full w-full">
-      <CardContent className="flex flex-col gap-2 overflow-y-auto flex-1 justify-end">
+    <Card
+      className="relative z-(--z-hud) flex h-full w-full border-none overflow-hidden bg-transparent py-ui-md"
+      size="none"
+    >
+      <CardContent className="flex flex-col gap-3 overflow-y-auto flex-1 justify-center">
         <AnimatePresence mode="popLayout">
           {visibleEntries.map((item) => (
             <LogEntryRow
@@ -160,6 +164,19 @@ const LogEntryRow = React.memo(
     count: number;
     onExpire: () => void;
   }) => {
+    const prevCountRef = React.useRef(count);
+    const isInitialMountRef = React.useRef(true);
+    const [opacityKey, setOpacityKey] = React.useState(0);
+
+    // Track count changes for opacity reset
+    React.useEffect(() => {
+      if (!isInitialMountRef.current && prevCountRef.current !== count) {
+        prevCountRef.current = count;
+        // Trigger opacity re-animation by changing key
+        setOpacityKey((k) => k + 1);
+      }
+    }, [count]);
+
     // Single timer: triggers re-render when entry should expire
     React.useEffect(() => {
       const lifetimeTimer = setTimeout(() => {
@@ -169,21 +186,70 @@ const LogEntryRow = React.memo(
       return () => clearTimeout(lifetimeTimer);
     }, [count, onExpire]);
 
-    // Calculate animation timing
-    const totalFadeTime = (FADE_DELAY_MS + FADE_OUT_DURATION * 1000) / 1000;
-    const fadeStartPoint =
-      FADE_DELAY_MS / (FADE_DELAY_MS + FADE_OUT_DURATION * 1000);
+    // Calculate timing values for opacity keyframes
+    const totalOpacityDuration =
+      SLIDE_DELAY + (FADE_DELAY_MS + FADE_OUT_DURATION * 1000) / 1000;
+    const opacityTimes = [
+      0,
+      SLIDE_DELAY / totalOpacityDuration,
+      (SLIDE_DELAY + FADE_DELAY_MS / 1000) / totalOpacityDuration,
+      1,
+    ];
+
+    // Determine animation based on initial mount
+    const animate = isInitialMountRef.current
+      ? {
+          x: 0,
+          opacity: [0, 1, 1, FADE_OPACITY],
+        }
+      : {
+          opacity: [1, 1, FADE_OPACITY],
+        };
+
+    const transition = isInitialMountRef.current
+      ? {
+          x: {
+            duration: SLIDE_DURATION,
+            delay: SLIDE_DELAY,
+            ease: SLIDE_EASE,
+          },
+          opacity: {
+            duration: totalOpacityDuration,
+            times: opacityTimes,
+            ease: FADE_EASE,
+          },
+          layout: { duration: 0.3, ease: "easeInOut" as const },
+        }
+      : {
+          opacity: {
+            duration: (FADE_DELAY_MS + FADE_OUT_DURATION * 1000) / 1000,
+            times: [
+              0,
+              FADE_DELAY_MS / (FADE_DELAY_MS + FADE_OUT_DURATION * 1000),
+              1,
+            ],
+            ease: FADE_EASE,
+          },
+          layout: { duration: 0.3, ease: "easeInOut" as const },
+        };
+
+    // Mark as no longer initial mount after first render
+    React.useEffect(() => {
+      isInitialMountRef.current = false;
+    }, []);
 
     return (
       <motion.div
-        key={`${entry.message}-${count}`} // Force re-animation on count change
+        key={opacityKey}
         className="flex flex-col gap-2"
         layout
-        initial={{ x: -SLIDE_DISTANCE, opacity: 1 }}
-        animate={{
-          x: 0,
-          opacity: [1, 1, FADE_OPACITY], // Stay at 1, then fade to FADE_OPACITY
-        }}
+        initial={
+          isInitialMountRef.current
+            ? { x: -SLIDE_DISTANCE, opacity: 0 }
+            : { opacity: 1 }
+        }
+        animate={animate}
+        transition={transition}
         exit={{
           opacity: 0,
           transition: {
@@ -191,18 +257,10 @@ const LogEntryRow = React.memo(
             ease: FINAL_FADEOUT_EASE,
           },
         }}
-        transition={{
-          x: { duration: SLIDE_DURATION, ease: SLIDE_EASE },
-          opacity: {
-            duration: totalFadeTime,
-            times: [0, fadeStartPoint, 1], // Hold at 1, then fade
-            ease: FADE_EASE,
-          },
-          layout: { duration: 0.3, ease: "easeInOut" },
-        }}
       >
-        <div className="flex items-center gap-3 max-w-max">
-          <span className="flex-1 uppercase text-xs font-bold [&_span]:bg-white [&_span]:text-black">
+        <div className="flex items-center max-w-max gap-2">
+          <div className="bg-terminal w-4 h-px" />
+          <span className="bg-background/40 px-2 py-1 flex-1 uppercase text-xs font-extrabold [&_span]:bg-white [&_span]:text-black [&_span]:px-1">
             {formatMessage(entry.message)}
           </span>
           {count > 1 ? <StackCountBubble count={count} /> : null}
@@ -214,7 +272,7 @@ const LogEntryRow = React.memo(
 );
 
 const StackCountBubble = ({ count }: { count: number }) => (
-  <span className="inline-flex min-w-7 items-center justify-center rounded-full bg-blue-500/20 px-2 py-0.5 text-xs font-semibold text-blue-300">
+  <span className="inline-flex h-full min-w-7 items-center justify-center bg-fuel/20 px-2 py-0.5 text-xs font-semibold text-fuel">
     {count}
   </span>
 );

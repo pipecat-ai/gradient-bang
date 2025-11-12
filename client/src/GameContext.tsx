@@ -466,6 +466,15 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               console.debug("[GAME EVENT] Trade executed", gameEvent.payload);
               const data = gameEvent.payload as TradeExecutedMessage;
 
+              gameStore.addActivityLogEntry({
+                type: "trade.executed",
+                message: `Trade executed: ${
+                  data.trade.trade_type === "buy" ? "Bought" : "Sold"
+                } ${data.trade.units} [${data.trade.commodity}] for [CR ${
+                  data.trade.total_price
+                }]`,
+              });
+
               gameStore.addToast({
                 type: "trade.executed",
                 meta: {

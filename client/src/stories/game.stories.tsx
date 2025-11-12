@@ -3,8 +3,8 @@ import {
   GET_MAP_REGION,
   GET_MY_STATUS_MESSAGE,
 } from "@/actions/dispatch";
-import { CaptainsLogPanel } from "@/components/CaptainsLogPanel";
 import { CoursePlotPanel } from "@/components/CoursePlotPanel";
+import { ActivityStream } from "@/components/hud/ActivityStream";
 import MiniMap from "@/components/hud/MiniMap";
 import { MovementHistoryPanel } from "@/components/MovementHistoryPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
@@ -133,7 +133,7 @@ export const Init: Story = () => {
 
         <div className="story-card bg-card">
           <h3 className="story-heading">Activity Log:</h3>
-          <CaptainsLogPanel />
+          <ActivityStream />
         </div>
 
         <div className="story-card bg-card">

@@ -15,10 +15,19 @@ const TOAST_DURATION_MS = 3500;
 export const ToastContainer = () => {
   const toasts = useGameStore.use.toasts();
   const getNextToast = useGameStore.use.getNextToast();
+  const lockToast = useGameStore.use.lockToast();
+  const displayingToastId = useGameStore.use.displayingToastId();
   const removeToast = useGameStore.use.removeToast();
   const [isExiting, setIsExiting] = useState(false);
 
   const currentToast = getNextToast();
+
+  // Lock the toast when it becomes current
+  useEffect(() => {
+    if (currentToast && displayingToastId !== currentToast.id) {
+      lockToast(currentToast.id);
+    }
+  }, [currentToast, displayingToastId, lockToast]);
 
   useEffect(() => {
     if (!currentToast || isExiting) return;

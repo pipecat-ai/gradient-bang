@@ -40,6 +40,7 @@ const useDelayedVisibility = (value: boolean, delay: number) => {
 
 export const SectorTitleBanner = () => {
   const { playSound } = usePlaySound();
+  const taskInProgress = useGameStore.use.taskInProgress?.();
   const starfieldInstance = useGameStore.use.starfieldInstance?.();
   const sector = useGameStore.use.sector?.();
   const [isVisible, setIsVisible] = useState(false);
@@ -80,9 +81,10 @@ export const SectorTitleBanner = () => {
   const onSceneChange = useCallback(() => {
     setSkipExit(false);
 
-    const shouldDisplay = (starfieldInstance?.getWarpQueueLength() ?? 0) === 0;
+    const shouldDisplay =
+      (starfieldInstance?.getWarpQueueLength() ?? 0) === 0 && !taskInProgress;
     setIsVisible(shouldDisplay);
-  }, [starfieldInstance]);
+  }, [starfieldInstance, taskInProgress]);
 
   useEffect(() => {
     if (!debouncedVisible) return;
@@ -97,6 +99,13 @@ export const SectorTitleBanner = () => {
     clearHideTimer();
     setIsVisible(false);
   }, [sector, clearHideTimer]);
+
+  useEffect(() => {
+    if (taskInProgress) {
+      clearHideTimer();
+      setIsVisible(false);
+    }
+  }, [taskInProgress, clearHideTimer]);
 
   const onWarpStart = useCallback(async () => {
     clearHideTimer();

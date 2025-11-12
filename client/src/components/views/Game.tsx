@@ -1,16 +1,16 @@
-import { AutoPilot } from "@/components/AutoPilot";
 import { Settings } from "@/components/dialogs/Settings";
-import { ShipVisor } from "@/components/hud/ShipVisor";
 import { ToastContainer } from "@/components/toasts/ToastContainer";
 import { useNotificationSound } from "@/hooks/useNotificationSound";
 import { usePlaySound } from "@/hooks/usePlaySound";
 import useGameStore from "@/stores/game";
+import { ShipVisor } from "@hud/ShipVisor";
 
 import { ShipHUD } from "@hud/ShipHUD";
 import { StarField } from "@hud/StarField";
 import { TopBar } from "@hud/TopBar";
 
 import { ScreenContainer } from "@/components/screens/ScreenContainer";
+import { ActivityStream } from "@hud/ActivityStream";
 import { useEffect } from "react";
 
 export const Game = () => {
@@ -31,10 +31,10 @@ export const Game = () => {
         {/* Top Bar */}
         <TopBar />
 
-        <div className="flex flex-col items-center justify-center">
+        <div className="relative flex flex-col items-center justify-center">
           {/* The Whole Wide Universe */}
           <ToastContainer />
-          <AutoPilot />
+          <ActivityStream />
         </div>
 
         {/* HUD */}

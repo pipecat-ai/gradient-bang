@@ -26,6 +26,7 @@ export interface UISlice {
   clearToasts: () => void;
   removeToast: (id: string) => void;
   getNextToast: () => Toast | undefined;
+  lockToast: (id: string) => void;
 
   setUIState: (newState: UIState) => void;
   setActiveScreen: (screen?: UIScreen) => void;
@@ -103,18 +104,14 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   },
   getNextToast: () => {
     const state = get();
-    const nextToast = state.toasts[0];
-
-    if (nextToast && state.displayingToastId !== nextToast.id) {
-      // Lock this toast
-      set(
-        produce((draft) => {
-          draft.displayingToastId = nextToast.id;
-        })
-      );
-    }
-
-    return nextToast;
+    return state.toasts[0];
+  },
+  lockToast: (id: string) => {
+    set(
+      produce((draft) => {
+        draft.displayingToastId = id;
+      })
+    );
   },
 
   setNotifications: (notifications: Partial<Notifications>) => {
@@ -153,13 +150,6 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
     set(
       produce((state) => {
         state.activePanel = panel;
-      })
-    );
-  },
-  setAutopilot: (autopilot: boolean) => {
-    set(
-      produce((state) => {
-        state.uiState = autopilot;
       })
     );
   },

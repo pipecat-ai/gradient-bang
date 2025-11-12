@@ -117,12 +117,12 @@
   --spacing-screen-border-x: calc(var(--spacing) * 4);
 
   --height-ui-hud: 460px;
-  --width-ui-hud-center: 360px;
-  --width-ui-hud-lhs: 300px;
-  --width-ui-hud-rhs: 300px;
-  --grid-cols-hud: minmax(var(--width-ui-hud-lhs), 1fr)
-    minmax(var(--width-ui-hud-center), max-content)
-    minmax(var(--width-ui-hud-rhs), 1fr);
+  --width-ui-hud-center: 500px;
+  --width-ui-hud-lhs: 400px;
+  --width-ui-hud-rhs: 400px;
+  --grid-cols-hud: minmax(var(--width-ui-hud-lhs), 700px)
+    minmax(var(--width-ui-hud-center), var(--width-ui-hud-center))
+    minmax(var(--width-ui-hud-rhs), 700px);
 
   --height-toast: 160px;
   --width-toast: 600px;
