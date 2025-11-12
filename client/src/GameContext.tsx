@@ -706,12 +706,17 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               break;
             }
 
-            //@TODO: improve this
             case "task_output": {
               console.debug("[GAME EVENT] Task output", gameEvent.payload);
               const data = gameEvent.payload as TaskOutputMessage;
               gameStore.setTaskInProgress(true);
               gameStore.addTask(data.text, data.task_message_type);
+
+              // @TODO Properly handle task failure.
+              // Right now, we treat them as cancellations
+              if (data.task_message_type === "FAILED") {
+                gameStore.setTaskWasCancelled(true);
+              }
               break;
             }
 
@@ -726,6 +731,11 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
                   data.was_cancelled ? "Task cancelled" : "Task completed"
                 }`,
               });
+
+              //@TODO Properly handle task failures
+              if (data.was_cancelled) {
+                gameStore.setTaskWasCancelled(true);
+              }
               break;
             }
 

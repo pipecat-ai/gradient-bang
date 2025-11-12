@@ -10,6 +10,7 @@ import { TaskOutputStream } from "@/components/hud/TaskOutputStream";
 import { MovementHistoryPanel } from "@/components/MovementHistoryPanel";
 import { Button } from "@/components/primitives/Button";
 import { SettingsPanel } from "@/components/SettingsPanel";
+import { TaskStatusBadge } from "@/components/TaskStatusBadge";
 import { TextInputControl } from "@/components/TextInputControl";
 import { WarpBadge } from "@/components/WarpBadge";
 import { useGameContext } from "@/hooks/useGameContext";
@@ -18,7 +19,6 @@ import useGameStore from "@/stores/game";
 import type { Story } from "@ladle/react";
 import { Divider } from "@pipecat-ai/voice-ui-kit";
 import { useMemo } from "react";
-
 import { MOCK_TASK_DATA } from "./mock.stories";
 
 export const Init: Story = () => {
@@ -182,6 +182,10 @@ Settings.meta = {
 export const TaskOutput: Story = () => {
   const { sendUserTextInput } = useGameContext();
   const addTask = useGameStore.use.addTask();
+  const setTaskInProgress = useGameStore.use.setTaskInProgress();
+  const setTaskWasCancelled = useGameStore.use.setTaskWasCancelled();
+  const taskInProgress = useGameStore.use.taskInProgress();
+
   return (
     <>
       <div className="story-description">
@@ -216,10 +220,27 @@ export const TaskOutput: Story = () => {
         >
           Add mock
         </Button>
+        <Button
+          onClick={() => {
+            setTaskInProgress(!taskInProgress);
+          }}
+        >
+          Toggle task in progress
+        </Button>
+        <Button
+          onClick={() => {
+            setTaskWasCancelled(true);
+          }}
+        >
+          Set task cancelled
+        </Button>
       </div>
-      <div className="story-card h-[400px]">
+      <div className="story-card">
         <div className="w-full h-full">
-          <TaskOutputStream />
+          <div className="h-[400px]">
+            <TaskOutputStream />
+          </div>
+          <TaskStatusBadge />
         </div>
       </div>
     </>

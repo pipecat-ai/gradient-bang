@@ -9,9 +9,11 @@ function ScrollArea({
   className,
   children,
   fullHeight = false,
+  classNames,
   ...props
 }: React.ComponentProps<typeof ScrollAreaPrimitive.Root> & {
   fullHeight?: boolean;
+  classNames?: { scrollbar?: string };
 }) {
   return (
     <ScrollAreaPrimitive.Root
@@ -28,7 +30,7 @@ function ScrollArea({
       >
         {children}
       </ScrollAreaPrimitive.Viewport>
-      <ScrollBar />
+      <ScrollBar className={classNames?.scrollbar} />
       <ScrollAreaPrimitive.Corner />
     </ScrollAreaPrimitive.Root>
   );

@@ -15,8 +15,7 @@ const badgeVariants = cva(
         countDecrement: "bg-warning-background text-warning-foreground",
         highlight:
           "border-transparent bg-fuel/20 text-fuel bracket-fuel bracket-offset-0",
-        success:
-          "border-success bg-success/20 text-success-foreground bracket-success bracket-offset-0 animate-pulse",
+        success: "border-success bg-success/20 text-success-foreground",
         warning: "border-warning bg-warning-background text-warning-foreground",
       },
       border: {
