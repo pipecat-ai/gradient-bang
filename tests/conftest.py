@@ -852,7 +852,7 @@ logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(scope="session")
-def supabase_environment():
+def supabase_environment(setup_test_characters):  # noqa: ARG001 - order dependency
     if not USE_SUPABASE_TESTS:
         yield {}
         return
@@ -903,7 +903,7 @@ def setup_test_characters():
 
 
 @pytest.fixture(scope="session")
-def server_url(supabase_environment):  # noqa: ARG001 - fixture ensures Supabase readiness
+def server_url(supabase_environment, setup_test_characters):  # noqa: ARG001 - fixture ensures Supabase readiness
     """
     Provide the test server URL.
 
@@ -1068,6 +1068,7 @@ def _write_event_dump(path: Path, events: List[Dict[str, Any]], mode: str) -> No
 def _run_baseline_capture(nodeid: str, baseline_path: Path) -> None:
     env = os.environ.copy()
     env.pop("USE_SUPABASE_TESTS", None)
+    env.pop("SUPABASE_TRANSPORT", None)
     env["PAYLOAD_BASELINE_RUN"] = "1"
     env["PAYLOAD_BASELINE_PATH"] = str(baseline_path)
     env["ASYNC_CLIENT_PAYLOAD_DUMP"] = str(baseline_path)

@@ -118,6 +118,10 @@ Maintaining this per-function cadence keeps the migration auditable, limits blas
 
 **Progress (2025-11-12 03:26 UTC):** `transfer_credits` now shares the same canonicalization + public snapshot helpers as warp transfers, edge fixtures seed matching credit balances, and both the Supabase edge suite plus `TestCreditTransfers::test_transfer_credits_same_sector` parity harness are green (`logs/payload-parity/tests_integration_test_credit_transfers_py__TestCreditTransfers__test_transfer_credits_same_sector/20251112-032612`). This clears the path to tackle `bank_transfer` and `purchase_fighters` using the same shared snapshot helper.
 
+**Progress (2025-11-12 04:51 UTC):** `bank_transfer` deposits/withdrawals now emit the exact legacy `bank.transaction` payloads (display-name IDs, ship IDs, sector metadata) thanks to the shared public snapshot helper and canonical ID plumbing. Edge tests pass, and both deposit + withdraw parity runs (`logs/payload-parity/tests_integration_test_bank_operations_py__TestBankOperations__test_deposit_credits_in_sector_0/20251112-045040` and `...test_withdraw_credits_in_sector_0/20251112-045113`) report perfect matches. Next stop: `purchase_fighters`.
+
+**Realtime reminder (2025-11-12 06:10 UTC):** Local Supabase (`.env.supabase`) cannot deliver `public:events` via Realtime because the CLI signer is still broken (`:error_generating_signer`). Run parity only after sourcing `.env.cloud`—cloud Realtime works, which is how the 06:00:18 UTC purchase_fighters parity run succeeded. Local edge tests remain valid, but parity must never target the local stack until Supabase fixes the CLI runtime.
+
 **Ops note (2025-11-11 22:15 UTC):** Local `supabase functions serve` started crashing on `std@0.224.0` because the CLI’s edge runtime image still can’t load `.d.mts` modules. Temporarily pinned `[edge_runtime].deno_version = 1` in `supabase/config.toml` so the CLI can bootstrap the stack again. Revisit once Supabase ships a Deno 2-compatible edge runtime.
 
 ### Execution Order (agreed 2025-11-11 PM)

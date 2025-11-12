@@ -454,3 +454,131 @@ def compare_credits_transfer(legacy_event: Dict[str, Any], supabase_event: Dict[
 
 
 COMPARERS["credits.transfer"] = compare_credits_transfer
+
+
+def compare_fighter_purchase(legacy_event: Dict[str, Any], supabase_event: Dict[str, Any]) -> ComparisonResult:
+    diffs: List[str] = []
+    leg = legacy_event.get("payload", {})
+    sup = supabase_event.get("payload", {})
+
+    legacy_char = leg.get("character_id")
+    sup_char = sup.get("character_id")
+    if legacy_char and sup_char:
+        expected = _canonical(str(legacy_char))
+        actual = _canonical(str(sup_char))
+        if expected != actual:
+            diffs.append(f"character_id mismatch: {expected!r} != {actual!r}")
+    elif legacy_char != sup_char:
+        diffs.append(f"character_id mismatch: {legacy_char!r} != {sup_char!r}")
+
+    for field in (
+        "units",
+        "price_per_unit",
+        "total_cost",
+        "fighters_before",
+        "fighters_after",
+        "max_fighters",
+        "credits_before",
+        "credits_after",
+    ):
+        if leg.get(field) != sup.get(field):
+            diffs.append(f"{field} mismatch: {leg.get(field)!r} != {sup.get(field)!r}")
+
+    diffs.extend(_compare_sector(leg.get("sector"), sup.get("sector")))
+    diffs.extend(_compare_fighter_ship(leg.get("ship"), sup.get("ship")))
+    diffs.extend(_compare_fighter_player(leg.get("player"), sup.get("player")))
+
+    return ComparisonResult(diffs)
+
+
+def _compare_fighter_ship(
+    legacy_ship: Dict[str, Any] | None,
+    sup_ship: Dict[str, Any] | None,
+) -> List[str]:
+    diffs: List[str] = []
+    if not isinstance(legacy_ship, dict) or not isinstance(sup_ship, dict):
+        diffs.append("ship payload missing")
+        return diffs
+
+    for field in ("ship_type", "ship_name", "fighters", "max_fighters"):
+        if legacy_ship.get(field) != sup_ship.get(field):
+            diffs.append(
+                f"ship.{field} mismatch: {legacy_ship.get(field)!r} != {sup_ship.get(field)!r}"
+            )
+
+    return diffs
+
+
+def _compare_fighter_player(
+    legacy_player: Dict[str, Any] | None,
+    sup_player: Dict[str, Any] | None,
+) -> List[str]:
+    diffs: List[str] = []
+    if not isinstance(legacy_player, dict) or not isinstance(sup_player, dict):
+        diffs.append("player payload missing")
+        return diffs
+
+    legacy_id = legacy_player.get("id")
+    sup_id = sup_player.get("id")
+    if legacy_id and sup_id:
+        expected = _canonical(str(legacy_id))
+        actual = _canonical(str(sup_id))
+        if expected != actual:
+            diffs.append(f"player.id mismatch: {expected!r} != {actual!r}")
+    elif legacy_id != sup_id:
+        diffs.append(f"player.id mismatch: {legacy_id!r} != {sup_id!r}")
+
+    for field in ("name", "player_type"):
+        if legacy_player.get(field) != sup_player.get(field):
+            diffs.append(
+                f"player.{field} mismatch: {legacy_player.get(field)!r} != {sup_player.get(field)!r}"
+            )
+
+    legacy_ship = legacy_player.get("ship") if isinstance(legacy_player.get("ship"), dict) else None
+    sup_ship = sup_player.get("ship") if isinstance(sup_player.get("ship"), dict) else None
+    if legacy_ship and sup_ship:
+        for field in ("ship_type", "ship_name"):
+            if legacy_ship.get(field) != sup_ship.get(field):
+                diffs.append(
+                    f"player.ship.{field} mismatch: {legacy_ship.get(field)!r} != {sup_ship.get(field)!r}"
+                )
+
+    return diffs
+
+
+COMPARERS["fighter.purchase"] = compare_fighter_purchase
+
+
+def compare_bank_transaction(legacy_event: Dict[str, Any], supabase_event: Dict[str, Any]) -> ComparisonResult:
+    diffs: List[str] = []
+    leg = legacy_event.get("payload", {})
+    sup = supabase_event.get("payload", {})
+
+    if leg.get("direction") != sup.get("direction"):
+        diffs.append(f"direction mismatch: {leg.get('direction')!r} != {sup.get('direction')!r}")
+
+    for field in (
+        "amount",
+        "ship_credits_before",
+        "ship_credits_after",
+        "credits_in_bank_before",
+        "credits_in_bank_after",
+    ):
+        if leg.get(field) != sup.get(field):
+            diffs.append(f"{field} mismatch: {leg.get(field)!r} != {sup.get(field)!r}")
+
+    if leg.get("direction") == "deposit":
+        for field in ("target_character_id", "source_character_id", "ship_id"):
+            if leg.get(field) != sup.get(field):
+                diffs.append(f"{field} mismatch: {leg.get(field)!r} != {sup.get(field)!r}")
+    else:
+        if leg.get("character_id") != sup.get("character_id"):
+            diffs.append(
+                f"character_id mismatch: {leg.get('character_id')!r} != {sup.get('character_id')!r}"
+            )
+        diffs.extend(_compare_sector(leg.get("sector"), sup.get("sector")))
+
+    return ComparisonResult(diffs)
+
+
+COMPARERS["bank.transaction"] = compare_bank_transaction

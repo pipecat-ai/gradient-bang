@@ -236,9 +236,6 @@ def _build_character_seeds(character_ids: Sequence[str]) -> List[CharacterSeed]:
             desired_sector,
             fallback_sector,
         )
-        if not from_fixture and map_data is None:
-            # Character has no pre-seeded ship/knowledge; skip until runtime join creates one.
-            continue
         if map_data and map_data.get("current_sector") is not None:
             current_sector = int(map_data.get("current_sector"))
         else:

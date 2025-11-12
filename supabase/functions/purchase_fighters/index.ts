@@ -5,8 +5,15 @@ import { createServiceRoleClient } from '../_shared/client.ts';
 import { emitCharacterEvent, emitErrorEvent, buildEventSource } from '../_shared/events.ts';
 import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
 import { FIGHTER_PRICE } from '../_shared/constants.ts';
-import { buildStatusPayload, loadCharacter, loadShip, loadShipDefinition } from '../_shared/status.ts';
+import {
+  buildStatusPayload,
+  buildPublicPlayerSnapshotFromStatus,
+  loadCharacter,
+  loadShip,
+  loadShipDefinition,
+} from '../_shared/status.ts';
 import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
+import { canonicalizeCharacterId } from '../_shared/ids.ts';
 import {
   optionalBoolean,
   optionalNumber,
@@ -50,8 +57,10 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   const requestId = resolveRequestId(payload);
-  const characterId = requireString(payload, 'character_id');
-  const actorCharacterId = optionalString(payload, 'actor_character_id');
+  const rawCharacterId = requireString(payload, 'character_id');
+  const characterId = await canonicalizeCharacterId(rawCharacterId);
+  const actorCharacterLabel = optionalString(payload, 'actor_character_id');
+  const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
   try {
@@ -72,7 +81,15 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    return await handlePurchase(supabase, payload, characterId, requestId, actorCharacterId, adminOverride);
+    return await handlePurchase(
+      supabase,
+      payload,
+      characterId,
+      rawCharacterId,
+      requestId,
+      actorCharacterId,
+      adminOverride,
+    );
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
       await emitErrorEvent(supabase, {
@@ -110,6 +127,7 @@ async function handlePurchase(
   supabase: ReturnType<typeof createServiceRoleClient>,
   payload: Record<string, unknown>,
   characterId: string,
+  characterLabelFallback: string,
   requestId: string,
   actorCharacterId: string | null,
   adminOverride: boolean,
@@ -125,6 +143,10 @@ async function handlePurchase(
 
   const character = await loadCharacter(supabase, characterId);
   const ship = await loadShip(supabase, character.current_ship_id);
+  const characterLabel =
+    (typeof character.name === 'string' && character.name.trim() ? character.name : null) ??
+    (characterLabelFallback && characterLabelFallback.trim() ? characterLabelFallback : null) ??
+    character.character_id;
 
   await ensureActorAuthorization({
     supabase,
@@ -184,6 +206,27 @@ async function handlePurchase(
   }
 
   const statusPayload = await buildStatusPayload(supabase, characterId);
+  const publicPlayer = buildPublicPlayerSnapshotFromStatus(statusPayload);
+  const basePlayer = (statusPayload.player ?? {}) as Record<string, unknown>;
+  const playerPayload: Record<string, unknown> = { ...basePlayer };
+  if (typeof publicPlayer.id === 'string' && publicPlayer.id.trim()) {
+    playerPayload['id'] = publicPlayer.id;
+  }
+  if (typeof publicPlayer.name === 'string' && publicPlayer.name.trim()) {
+    playerPayload['name'] = publicPlayer.name;
+  } else if (!playerPayload['name'] && typeof publicPlayer.id === 'string') {
+    playerPayload['name'] = publicPlayer.id;
+  }
+  if (!playerPayload['player_type'] && typeof publicPlayer.player_type === 'string') {
+    playerPayload['player_type'] = publicPlayer.player_type;
+  }
+  if (!playerPayload['corporation'] && Object.prototype.hasOwnProperty.call(publicPlayer, 'corporation')) {
+    playerPayload['corporation'] = publicPlayer.corporation ?? null;
+  }
+  const displayCharacterId =
+    (typeof playerPayload['id'] === 'string' && (playerPayload['id'] as string).trim()
+      ? (playerPayload['id'] as string)
+      : characterLabel);
   const sectorId = ship.current_sector ?? 0;
   const source = buildEventSource('purchase_fighters', requestId);
 
@@ -193,7 +236,7 @@ async function handlePurchase(
     eventType: 'fighter.purchase',
     payload: {
       source,
-      character_id: characterId,
+      character_id: displayCharacterId,
       timestamp,
       sector: statusPayload.sector ?? { id: sectorId },
       units: unitsToBuy,
@@ -205,10 +248,12 @@ async function handlePurchase(
       credits_before: creditsBefore,
       credits_after: newCredits,
       ship: statusPayload.ship,
-      player: statusPayload.player,
+      player: playerPayload,
     },
     sectorId,
+    shipId: ship.ship_id,
     requestId,
+    actorCharacterId,
   });
 
   await emitCharacterEvent({
@@ -217,7 +262,9 @@ async function handlePurchase(
     eventType: 'status.update',
     payload: statusPayload,
     sectorId,
+    shipId: ship.ship_id,
     requestId,
+    actorCharacterId,
   });
 
   return successResponse({ request_id: requestId, units_purchased: unitsToBuy });

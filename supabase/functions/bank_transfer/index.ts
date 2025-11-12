@@ -6,6 +6,7 @@ import { emitCharacterEvent, emitErrorEvent, buildEventSource } from '../_shared
 import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
 import { buildStatusPayload, loadCharacter, loadShip } from '../_shared/status.ts';
 import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
+import { canonicalizeCharacterId } from '../_shared/ids.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -53,7 +54,8 @@ serve(async (req: Request): Promise<Response> => {
 
   const requestId = resolveRequestId(payload);
   const direction = requireString(payload, 'direction');
-  const actorCharacterId = optionalString(payload, 'actor_character_id');
+  const actorCharacterLabel = optionalString(payload, 'actor_character_id');
+  const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
   try {
@@ -100,6 +102,8 @@ async function handleDeposit(
   const shipId = requireString(payload, 'ship_id');
   const targetPlayerName = requireString(payload, 'target_player_name');
   const amount = requirePositiveInt(payload, 'amount');
+  const sourceCharacterLabel = optionalString(payload, 'character_id');
+  const sourceCharacterId = sourceCharacterLabel ? await canonicalizeCharacterId(sourceCharacterLabel) : null;
 
   const ship = await loadShip(supabase, shipId);
   await ensureActorAuthorization({
@@ -107,21 +111,22 @@ async function handleDeposit(
     ship,
     actorCharacterId,
     adminOverride,
-    targetCharacterId: ship.owner_character_id ?? ship.owner_id ?? ship.ship_id,
+    targetCharacterId: sourceCharacterId ?? ship.owner_character_id ?? ship.owner_id ?? ship.ship_id,
   });
   if (ship.current_sector !== BANK_SECTOR || ship.in_hyperspace) {
     throw new BankTransferError('Deposits require the ship to be docked at the Megaport (sector 0)', 400);
   }
 
-  const ownerId = ship.owner_id;
+  const ownerId = ship.owner_character_id ?? ship.owner_id;
 
   const target = await findCharacterByName(supabase, targetPlayerName);
   if (!target) {
     throw new BankTransferError('Target player not found', 404);
   }
+  const targetCharacterId = target.character_id;
 
   try {
-    await enforceRateLimit(supabase, ownerId ?? target.character_id, 'bank_transfer');
+    await enforceRateLimit(supabase, ownerId ?? targetCharacterId, 'bank_transfer');
   } catch (err) {
     if (err instanceof RateLimitError) {
       throw new BankTransferError('Too many bank_transfer requests', 429);
@@ -130,52 +135,87 @@ async function handleDeposit(
     throw new BankTransferError('rate limit error', 500);
   }
 
-  if ((ship.credits ?? 0) < amount) {
+  const shipCreditsBefore = ship.credits ?? 0;
+  if (shipCreditsBefore < amount) {
     throw new BankTransferError('Insufficient ship credits for deposit', 400);
   }
 
   await supabase
     .from('ship_instances')
-    .update({ credits: (ship.credits ?? 0) - amount })
+    .update({ credits: shipCreditsBefore - amount })
     .eq('ship_id', shipId);
 
+  const bankBefore = target.credits_in_megabank ?? 0;
   await supabase
     .from('characters')
-    .update({ credits_in_megabank: (target.credits_in_megabank ?? 0) + amount })
-    .eq('character_id', target.character_id);
+    .update({ credits_in_megabank: bankBefore + amount })
+    .eq('character_id', targetCharacterId);
 
   const source = buildEventSource('bank_transfer', requestId);
+  const timestamp = new Date().toISOString();
+
+  const targetStatus = await buildStatusPayload(supabase, targetCharacterId);
+  const targetDisplayId = resolveDisplayIdFromStatus(targetStatus, target.name ?? targetPlayerName, targetCharacterId);
+
+  const resolvedSourceCharacter = sourceCharacterId ?? ship.owner_character_id ?? targetCharacterId;
+  let sourceStatus: Record<string, unknown> | null = null;
+  if (resolvedSourceCharacter && resolvedSourceCharacter !== targetCharacterId) {
+    sourceStatus = await buildStatusPayload(supabase, resolvedSourceCharacter);
+  }
+  const sourceDisplayId =
+    resolvedSourceCharacter === targetCharacterId
+      ? targetDisplayId
+      : resolveDisplayIdFromStatus(
+          sourceStatus,
+          sourceCharacterLabel,
+          resolvedSourceCharacter ?? targetDisplayId,
+        );
+
   await emitBankTransaction(
     supabase,
-    target.character_id,
-    {
+    targetCharacterId,
+    buildDepositPayload({
       source,
-      direction: 'deposit',
       amount,
-      ship_credits_before: ship.credits ?? 0,
-      ship_credits_after: (ship.credits ?? 0) - amount,
-      credits_in_bank_before: target.credits_in_megabank ?? 0,
-      credits_in_bank_after: (target.credits_in_megabank ?? 0) + amount,
+      shipId: resolveLegacyShipId(targetStatus, shipId, targetDisplayId),
+      shipCreditsBefore,
+      shipCreditsAfter: shipCreditsBefore - amount,
+      bankBefore,
+      bankAfter: bankBefore + amount,
+      timestamp,
+      targetCharacterId: targetDisplayId,
+      sourceCharacterId: sourceDisplayId,
+    }),
+    {
+      requestId,
+      sectorId: BANK_SECTOR,
+      shipId,
+      actorCharacterId,
     },
   );
 
-  const targetStatus = await buildStatusPayload(supabase, target.character_id);
   await emitCharacterEvent({
     supabase,
-    characterId: target.character_id,
+    characterId: targetCharacterId,
     eventType: 'status.update',
     payload: targetStatus,
     requestId,
+    sectorId: BANK_SECTOR,
+    shipId,
+    actorCharacterId,
   });
 
-  if (ownerId && ownerId !== target.character_id) {
-    const ownerStatus = await buildStatusPayload(supabase, ownerId);
+  if (resolvedSourceCharacter && resolvedSourceCharacter !== targetCharacterId) {
+    const ownerStatus = sourceStatus ?? (await buildStatusPayload(supabase, resolvedSourceCharacter));
     await emitCharacterEvent({
       supabase,
-      characterId: ownerId,
+      characterId: resolvedSourceCharacter,
       eventType: 'status.update',
       payload: ownerStatus,
       requestId,
+      sectorId: BANK_SECTOR,
+      shipId,
+      actorCharacterId,
     });
   }
 
@@ -189,7 +229,8 @@ async function handleWithdraw(
   actorCharacterId: string | null,
   adminOverride: boolean,
 ): Promise<Response> {
-  const characterId = requireString(payload, 'character_id');
+  const characterLabel = requireString(payload, 'character_id');
+  const characterId = await canonicalizeCharacterId(characterLabel);
   const amount = requirePositiveInt(payload, 'amount');
 
   try {
@@ -230,28 +271,39 @@ async function handleWithdraw(
     .update({ credits: (ship.credits ?? 0) + amount })
     .eq('ship_id', ship.ship_id);
 
+  const statusPayload = await buildStatusPayload(supabase, characterId);
+  const timestamp = new Date().toISOString();
   const source = buildEventSource('bank_transfer', requestId);
   await emitBankTransaction(
     supabase,
     characterId,
-    {
+    buildWithdrawPayload({
       source,
-      direction: 'withdraw',
       amount,
-      ship_credits_before: ship.credits ?? 0,
-      ship_credits_after: (ship.credits ?? 0) + amount,
-      credits_in_bank_before: bankBalance,
-      credits_in_bank_after: bankBalance - amount,
+      shipCreditsBefore: ship.credits ?? 0,
+      shipCreditsAfter: (ship.credits ?? 0) + amount,
+      bankBefore: bankBalance,
+      bankAfter: bankBalance - amount,
+      timestamp,
+      characterId: resolveDisplayIdFromStatus(statusPayload, characterLabel, characterId),
+    }),
+    {
+      requestId,
+      sectorId: BANK_SECTOR,
+      shipId: ship.ship_id,
+      actorCharacterId,
     },
   );
 
-  const statusPayload = await buildStatusPayload(supabase, characterId);
   await emitCharacterEvent({
     supabase,
     characterId,
     eventType: 'status.update',
     payload: statusPayload,
     requestId,
+    sectorId: BANK_SECTOR,
+    shipId: ship.ship_id,
+    actorCharacterId,
   });
 
   return successResponse({ request_id: requestId });
@@ -261,12 +313,17 @@ async function emitBankTransaction(
   supabase: SupabaseClient,
   characterId: string,
   payload: Record<string, unknown>,
+  options: { requestId?: string | null; sectorId?: number | null; shipId?: string | null; actorCharacterId?: string | null } = {},
 ): Promise<void> {
   await emitCharacterEvent({
     supabase,
     characterId,
     eventType: 'bank.transaction',
     payload,
+    requestId: options.requestId,
+    sectorId: options.sectorId,
+    shipId: options.shipId ?? undefined,
+    actorCharacterId: options.actorCharacterId ?? null,
   });
 }
 
@@ -281,11 +338,11 @@ function requirePositiveInt(payload: Record<string, unknown>, key: string): numb
 async function findCharacterByName(
   supabase: SupabaseClient,
   name: string,
-): Promise<{ character_id: string; credits_in_megabank: number | null } | null> {
+): Promise<{ character_id: string; credits_in_megabank: number | null; name: string | null } | null> {
   const pattern = name.replace(/[%_]/g, (ch) => `\\${ch}`);
   const { data, error } = await supabase
     .from('characters')
-    .select('character_id, credits_in_megabank')
+    .select('character_id, credits_in_megabank, name')
     .ilike('name', pattern)
     .limit(1)
     .maybeSingle();
@@ -294,4 +351,100 @@ async function findCharacterByName(
     throw new BankTransferError('Failed to lookup target player', 500);
   }
   return data ?? null;
+}
+
+function resolveDisplayIdFromStatus(
+  statusPayload: Record<string, unknown> | null,
+  fallbackName: string | null,
+  fallbackId: string,
+): string {
+  if (statusPayload && typeof statusPayload === 'object') {
+    const player = (statusPayload['player'] ?? {}) as Record<string, unknown>;
+    const name = typeof player['name'] === 'string' ? (player['name'] as string) : null;
+    if (name && name.trim()) {
+      return name;
+    }
+    const playerId = typeof player['id'] === 'string' ? (player['id'] as string) : null;
+    if (playerId && playerId.trim()) {
+      return playerId;
+    }
+  }
+  if (fallbackName && fallbackName.trim()) {
+    return fallbackName;
+  }
+  return fallbackId;
+}
+
+function buildDepositPayload(params: {
+  source: Record<string, unknown>;
+  amount: number;
+  shipId: string;
+  shipCreditsBefore: number;
+  shipCreditsAfter: number;
+  bankBefore: number;
+  bankAfter: number;
+  timestamp: string;
+  targetCharacterId: string;
+  sourceCharacterId: string | null;
+}): Record<string, unknown> {
+  return {
+    source: params.source,
+    target_character_id: params.targetCharacterId,
+    source_character_id: params.sourceCharacterId,
+    ship_id: params.shipId,
+    direction: 'deposit',
+    amount: params.amount,
+    timestamp: params.timestamp,
+    ship_credits_before: params.shipCreditsBefore,
+    ship_credits_after: params.shipCreditsAfter,
+    credits_in_bank_before: params.bankBefore,
+    credits_in_bank_after: params.bankAfter,
+  };
+}
+
+function buildWithdrawPayload(params: {
+  source: Record<string, unknown>;
+  amount: number;
+  shipCreditsBefore: number;
+  shipCreditsAfter: number;
+  bankBefore: number;
+  bankAfter: number;
+  timestamp: string;
+  characterId: string;
+}): Record<string, unknown> {
+  return {
+    source: params.source,
+    character_id: params.characterId,
+    sector: { id: BANK_SECTOR },
+    direction: 'withdraw',
+    amount: params.amount,
+    timestamp: params.timestamp,
+    ship_credits_before: params.shipCreditsBefore,
+    ship_credits_after: params.shipCreditsAfter,
+    credits_in_bank_before: params.bankBefore,
+    credits_in_bank_after: params.bankAfter,
+  };
+}
+
+function resolveLegacyShipId(statusPayload: Record<string, unknown>, fallback: string, characterLabel: string): string {
+  if (statusPayload && typeof statusPayload === 'object') {
+    const ship = statusPayload['ship'];
+    if (ship && typeof ship === 'object') {
+      const statusShipId = (ship as Record<string, unknown>)['ship_id'];
+      if (typeof statusShipId === 'string' && statusShipId.trim()) {
+        if (!looksLikeUuid(characterLabel) && looksLikeUuid(statusShipId)) {
+          return `${characterLabel}-ship`;
+        }
+        return statusShipId;
+      }
+    }
+  }
+  if (characterLabel && !looksLikeUuid(characterLabel) && looksLikeUuid(fallback)) {
+    return `${characterLabel}-ship`;
+  }
+  return fallback;
+}
+
+function looksLikeUuid(value: string): boolean {
+  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(value);
 }

@@ -543,9 +543,56 @@ async def test_trade_insufficient_credits_fails(server_url, check_server_availab
 
             # Validate no trade event
             await asyncio.sleep(0.2)
+    events = listener.events
+    trade_events = [e for e in events if e.get("event") == "trade.executed"]
+    assert len(trade_events) == 0
+
+
+# =============================================================================
+# Fighter Armory Tests
+# =============================================================================
+
+
+async def test_purchase_fighters(server_url, payload_parity, check_server_available):
+    """Characters can buy fighters at the sector 0 armory."""
+
+    from helpers.combat_helpers import create_test_character_knowledge
+
+    char_id = "test_api_trade_buy"
+
+    # Seed character with spare hangar capacity and credits at sector 0
+    create_test_character_knowledge(
+        char_id,
+        sector=0,
+        fighters=120,
+        credits=50_000,
+    )
+
+    async with create_firehose_listener(server_url, char_id) as listener:
+        async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
+            await client.join(character_id=char_id)
+            listener.clear_events()
+
+            # Attempt to buy more fighters (capped by available hangar space)
+            result = await client.purchase_fighters(units=150, character_id=char_id)
+
+            assert result.get("success") is True
+
+            # Wait for fighter.purchase + status.update fan-out
+            await asyncio.sleep(0.3)
+
             events = listener.events
-            trade_events = [e for e in events if e.get("event") == "trade.executed"]
-            assert len(trade_events) == 0
+            fighter_events = [e for e in events if e.get("event") == "fighter.purchase"]
+            status_events = [e for e in events if e.get("event") == "status.update"]
+            assert len(fighter_events) == 1
+            assert len(status_events) >= 1
+
+            payload = fighter_events[0]["payload"]
+            assert payload["price_per_unit"] == 50
+            assert 0 < payload["units"] <= 150
+            assert payload["sector"]["id"] == 0
+            assert payload["character_id"] == char_id
+
 # =============================================================================
 # Combat Endpoints Tests (5 tests)
 # =============================================================================
