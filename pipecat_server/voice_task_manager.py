@@ -257,12 +257,22 @@ class VoiceTaskManager:
         )
 
         summary = event.get("summary", payload)
+
+        # Find the task_id for this event (if it belongs to a task)
+        task_id = self._get_task_id_for_character(self.character_id)
+
+        # Build event XML with optional task_id
+        if task_id:
+            event_xml = f"<event name={event_name} task_id={task_id}>\n{summary}\n</event>"
+        else:
+            event_xml = f"<event name={event_name}>\n{summary}\n</event>"
+
         await self.rtvi_processor.push_frame(
             LLMMessagesAppendFrame(
                 messages=[
                     {
                         "role": "user",
-                        "content": f"<event name={event_name}>\n{summary}\n</event>",
+                        "content": event_xml,
                     }
                 ]
             )
@@ -271,6 +281,20 @@ class VoiceTaskManager:
     #
     # Task management
     #
+
+    def _get_task_id_for_character(self, character_id: str) -> Optional[str]:
+        """Find the task_id for an active task that matches the given character_id.
+
+        Args:
+            character_id: The character ID to look up
+
+        Returns:
+            The task_id if found, None otherwise
+        """
+        for task_id, task_info in self._active_tasks.items():
+            if task_info.get("target_character_id") == character_id:
+                return task_id
+        return None
 
     def get_task_progress(self) -> str:
         """Get buffered task progress for chat context.
