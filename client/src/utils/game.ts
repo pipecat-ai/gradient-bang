@@ -88,7 +88,10 @@ export function salvageCreatedSummaryString(salvage: {
   }
 }
 
-function getMetaValue<T>(meta: Record<string, unknown> | undefined, key: string) {
+function getMetaValue<T>(
+  meta: Record<string, unknown> | undefined,
+  key: string
+) {
   if (!meta) {
     return undefined;
   }
@@ -156,3 +159,17 @@ export function createLogEntrySignature(
 
   return undefined;
 }
+
+export const hasDeviatedFromCoursePlot = (
+  coursePlot: CoursePlot | null | undefined,
+  current_sector_id: number,
+  falseIfFinished: boolean = false
+) => {
+  if (!coursePlot) {
+    return false;
+  }
+  if (falseIfFinished && coursePlot.to_sector === current_sector_id) {
+    return false;
+  }
+  return !coursePlot.path.includes(current_sector_id);
+};

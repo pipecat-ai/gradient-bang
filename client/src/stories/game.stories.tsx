@@ -17,6 +17,7 @@ import { Button, Divider, TextInput } from "@pipecat-ai/voice-ui-kit";
 import { useMemo } from "react";
 
 export const Init: Story = () => {
+  const coursePlot = useGameStore.use.course_plot?.();
   const player = useGameStore((state) => state.player);
   const ship = useGameStore((state) => state.ship);
   const sector = useGameStore((state) => state.sector);
@@ -119,6 +120,7 @@ export const Init: Story = () => {
                 height={440}
                 maxDistance={2}
                 config={{ debug: true }}
+                coursePlot={coursePlot}
               />
             </div>
           )}

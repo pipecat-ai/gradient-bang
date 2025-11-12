@@ -69,6 +69,15 @@ const mapTopologyChanged = (
   return previousHops.size > 0;
 };
 
+const courseplotsEqual = (
+  a: CoursePlot | null | undefined,
+  b: CoursePlot | null | undefined
+): boolean => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.from_sector === b.from_sector && a.to_sector === b.to_sector;
+};
+
 export const MiniMap = ({
   current_sector_id,
   config,
@@ -95,7 +104,10 @@ export const MiniMap = ({
   const prevSectorIdRef = useRef<number>(current_sector_id);
   const previousMapRef = useRef<MapData | null>(null);
   const lastMaxDistanceRef = useRef<number | undefined>(maxDistance);
-  const lastConfigInputRef = useRef<MiniMapConfig | undefined>(config);
+  const lastConfigRef = useRef<Omit<
+    MiniMapConfigBase,
+    "current_sector_id"
+  > | null>(null);
   const lastCoursePlotRef = useRef<CoursePlot | null | undefined>(coursePlot);
 
   const [measuredSize, setMeasuredSize] = useState<{
@@ -103,25 +115,30 @@ export const MiniMap = ({
     height: number;
   } | null>(null);
 
-  // Determine if we're auto-sizing (no width/height provided)
   const isAutoSizing = width === undefined && height === undefined;
 
-  // Calculate effective dimensions
-  const effectiveWidth = width ?? measuredSize?.width ?? 440;
-  const effectiveHeight = height ?? measuredSize?.height ?? 440;
+  // Memoize effective dimensions to prevent unnecessary effect triggers
+  const effectiveWidth = useMemo(
+    () => width ?? measuredSize?.width ?? 440,
+    [width, measuredSize?.width]
+  );
+
+  const effectiveHeight = useMemo(
+    () => height ?? measuredSize?.height ?? 440,
+    [height, measuredSize?.height]
+  );
 
   const lastDimensionsRef = useRef<{ width: number; height: number }>({
     width: effectiveWidth,
     height: effectiveHeight,
   });
 
-  const mergedConfig = useMemo<MiniMapConfigBase>(
+  const baseConfig = useMemo<Omit<MiniMapConfigBase, "current_sector_id">>(
     () =>
       deepmerge(DEFAULT_MINIMAP_CONFIG, {
         ...config,
-        current_sector_id,
-      }) as MiniMapConfigBase,
-    [current_sector_id, config]
+      }) as Omit<MiniMapConfigBase, "current_sector_id">,
+    [config]
   );
 
   // ResizeObserver effect for auto-sizing
@@ -154,50 +171,74 @@ export const MiniMap = ({
   }, [isAutoSizing]);
 
   useEffect(() => {
+    const controller = controllerRef.current;
+    if (!controller) return; // Not initialized yet
+
+    const dimensionsChanged =
+      lastDimensionsRef.current.width !== effectiveWidth ||
+      lastDimensionsRef.current.height !== effectiveHeight;
+
+    if (dimensionsChanged) {
+      console.debug("[GAME MINIMAP] Dimensions changed, updating", {
+        from: lastDimensionsRef.current,
+        to: { width: effectiveWidth, height: effectiveHeight },
+      });
+
+      controller.updateProps({
+        width: effectiveWidth,
+        height: effectiveHeight,
+      });
+      controller.render();
+
+      lastDimensionsRef.current = {
+        width: effectiveWidth,
+        height: effectiveHeight,
+      };
+    }
+  }, [effectiveWidth, effectiveHeight]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     let controller = controllerRef.current;
 
     if (!controller) {
+      console.debug("[GAME MINIMAP] Initializing MiniMap");
+
       controller = createMiniMapController(canvas, {
-        width: effectiveWidth,
-        height: effectiveHeight,
+        width: lastDimensionsRef.current.width,
+        height: lastDimensionsRef.current.height,
         data: map_data,
-        config: mergedConfig,
+        config: { ...baseConfig, current_sector_id },
         maxDistance,
         coursePlot,
       });
       controllerRef.current = controller;
       prevSectorIdRef.current = current_sector_id;
       previousMapRef.current = map_data;
-      lastDimensionsRef.current = {
-        width: effectiveWidth,
-        height: effectiveHeight,
-      };
       lastMaxDistanceRef.current = maxDistance;
-      lastConfigInputRef.current = config;
+      lastConfigRef.current = baseConfig;
       lastCoursePlotRef.current = coursePlot;
       return;
     }
+
+    console.debug("[GAME MINIMAP] Updating MiniMap");
 
     const topologyChanged = mapTopologyChanged(
       previousMapRef.current,
       map_data
     );
     const sectorChanged = current_sector_id !== prevSectorIdRef.current;
-    const dimensionsChanged =
-      lastDimensionsRef.current.width !== effectiveWidth ||
-      lastDimensionsRef.current.height !== effectiveHeight;
     const maxDistanceChanged = lastMaxDistanceRef.current !== maxDistance;
-    const configChanged = lastConfigInputRef.current !== config;
-    const coursePlotChanged = lastCoursePlotRef.current !== coursePlot;
-
+    const configChanged = lastConfigRef.current !== baseConfig;
+    const coursePlotChanged = !courseplotsEqual(
+      lastCoursePlotRef.current,
+      coursePlot
+    );
     controller.updateProps({
-      width: effectiveWidth,
-      height: effectiveHeight,
       maxDistance,
-      config: mergedConfig,
+      ...(configChanged && { config: { ...baseConfig, current_sector_id } }),
       data: map_data,
       coursePlot,
     });
@@ -208,35 +249,23 @@ export const MiniMap = ({
       maxDistanceChanged ||
       coursePlotChanged
     ) {
+      console.debug("[GAME MINIMAP] Moving to sector", current_sector_id);
       controller.moveToSector(current_sector_id, map_data);
-      if (sectorChanged) {
-        prevSectorIdRef.current = current_sector_id;
-      }
-    } else if (dimensionsChanged || configChanged) {
+      prevSectorIdRef.current = current_sector_id;
+    } else if (configChanged) {
+      console.debug("[GAME MINIMAP] Rendering MiniMap");
       controller.render();
     }
 
     previousMapRef.current = map_data;
-    lastDimensionsRef.current = {
-      width: effectiveWidth,
-      height: effectiveHeight,
-    };
     lastMaxDistanceRef.current = maxDistance;
-    lastConfigInputRef.current = config;
+    lastConfigRef.current = baseConfig;
     lastCoursePlotRef.current = coursePlot;
-  }, [
-    current_sector_id,
-    effectiveHeight,
-    effectiveWidth,
-    map_data,
-    maxDistance,
-    mergedConfig,
-    config,
-    coursePlot,
-  ]);
+  }, [current_sector_id, map_data, maxDistance, baseConfig, coursePlot]);
 
   useEffect(() => {
     return () => {
+      console.debug("[GAME MINIMAP] Cleaning up MiniMap controller");
       controllerRef.current = null;
     };
   }, []);
@@ -279,8 +308,8 @@ export const MiniMap = ({
               style={{
                 width: 14,
                 height: 14,
-                background: mergedConfig.nodeStyles.visited.fill,
-                border: `${mergedConfig.nodeStyles.visited.borderWidth}px solid ${mergedConfig.nodeStyles.visited.border}`,
+                background: baseConfig.nodeStyles.visited.fill,
+                border: `${baseConfig.nodeStyles.visited.borderWidth}px solid ${baseConfig.nodeStyles.visited.border}`,
               }}
             />
             Visited
@@ -292,8 +321,8 @@ export const MiniMap = ({
               style={{
                 width: 14,
                 height: 14,
-                background: mergedConfig.nodeStyles.unvisited.fill,
-                border: `${mergedConfig.nodeStyles.unvisited.borderWidth}px solid ${mergedConfig.nodeStyles.unvisited.border}`,
+                background: baseConfig.nodeStyles.unvisited.fill,
+                border: `${baseConfig.nodeStyles.unvisited.borderWidth}px solid ${baseConfig.nodeStyles.unvisited.border}`,
               }}
             />
             Unvisited
@@ -305,7 +334,7 @@ export const MiniMap = ({
               style={{
                 width: 14,
                 height: 14,
-                background: mergedConfig.portStyles.regular.color,
+                background: baseConfig.portStyles.regular.color,
                 borderRadius: 7,
               }}
             />
@@ -318,7 +347,7 @@ export const MiniMap = ({
               style={{
                 width: 14,
                 height: 14,
-                background: mergedConfig.portStyles.mega.color,
+                background: baseConfig.portStyles.mega.color,
                 borderRadius: 7,
               }}
             />
@@ -331,7 +360,7 @@ export const MiniMap = ({
               style={{
                 width: 16,
                 height: 2,
-                background: mergedConfig.laneStyles.normal.color,
+                background: baseConfig.laneStyles.normal.color,
               }}
             />
             Lane
@@ -343,8 +372,8 @@ export const MiniMap = ({
               style={{
                 width: 14,
                 height: 14,
-                border: `${mergedConfig.nodeStyles.crossRegion.borderWidth}px solid ${mergedConfig.nodeStyles.crossRegion.border}`,
-                background: mergedConfig.nodeStyles.crossRegion.fill,
+                border: `${baseConfig.nodeStyles.crossRegion.borderWidth}px solid ${baseConfig.nodeStyles.crossRegion.border}`,
+                background: baseConfig.nodeStyles.crossRegion.fill,
               }}
             />
             Cross-region sector (vs current)
@@ -360,7 +389,7 @@ export const MiniMap = ({
                   left: 0,
                   width: 12,
                   height: 2,
-                  background: mergedConfig.laneStyles.oneWay.color,
+                  background: baseConfig.laneStyles.oneWay.color,
                 }}
               />
               <span
@@ -372,13 +401,13 @@ export const MiniMap = ({
                   height: 0,
                   borderTop: "4px solid transparent",
                   borderBottom: "4px solid transparent",
-                  borderLeft: `6px solid ${mergedConfig.laneStyles.oneWay.arrowColor}`,
+                  borderLeft: `6px solid ${baseConfig.laneStyles.oneWay.arrowColor}`,
                 }}
               />
             </span>
             One-way
           </span>
-          {mergedConfig.show_hyperlanes && (
+          {baseConfig.show_hyperlanes && (
             <span
               style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
             >
@@ -386,7 +415,7 @@ export const MiniMap = ({
                 style={{
                   width: 16,
                   height: 2,
-                  background: `linear-gradient(90deg, transparent, ${mergedConfig.laneStyles.hyperlane.color}, transparent)`,
+                  background: `linear-gradient(90deg, transparent, ${baseConfig.laneStyles.hyperlane.color}, transparent)`,
                 }}
               />
               Hyperlane

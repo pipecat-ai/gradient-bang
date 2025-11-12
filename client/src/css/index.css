@@ -116,8 +116,13 @@
   --spacing-screen-border-y: calc(var(--spacing) * 10);
   --spacing-screen-border-x: calc(var(--spacing) * 4);
 
-  --height-ui: 460px;
-  --width-ui: 400px;
+  --height-ui-hud: 460px;
+  --width-ui-hud-center: 360px;
+  --width-ui-hud-lhs: 300px;
+  --width-ui-hud-rhs: 300px;
+  --grid-cols-hud: minmax(var(--width-ui-hud-lhs), 1fr)
+    minmax(var(--width-ui-hud-center), max-content)
+    minmax(var(--width-ui-hud-rhs), 1fr);
 
   --height-toast: 160px;
   --width-toast: 600px;

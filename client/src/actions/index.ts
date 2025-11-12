@@ -1,5 +1,4 @@
 import useGameStore from "@/stores/game";
-
 export const startMoveToSector = (
   newSector: Sector,
   options: { bypassAnimation: boolean; bypassFlash: boolean } = {
@@ -19,7 +18,7 @@ export const startMoveToSector = (
 
   gameStore.setUIState("moving");
 
-  if (!starfield) {
+  if (!starfield || !gameStore.settings.renderStarfield) {
     console.error(
       "[GAME ACTION] Starfield instance not found, skipping animation"
     );

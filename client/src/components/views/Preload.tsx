@@ -13,9 +13,15 @@ import { Separator } from "../primitives/Separator";
 
 interface PreloadProps {
   onComplete: () => void;
+  className?: string;
+  readyText?: string;
 }
 
-export const Preload = ({ onComplete }: PreloadProps) => {
+export const Preload = ({
+  onComplete,
+  className,
+  readyText = "Download complete",
+}: PreloadProps) => {
   const { preloadAll, progress, isComplete } = useAssetPreloader();
 
   useEffect(() => {
@@ -31,7 +37,12 @@ export const Preload = ({ onComplete }: PreloadProps) => {
   }, [isComplete, onComplete]);
 
   return (
-    <div className="relative h-screen w-screen overflow-hidden flex flex-col justify-center bg-black">
+    <div
+      className={cn(
+        "relative h-screen w-screen overflow-hidden flex flex-col justify-center bg-black",
+        className
+      )}
+    >
       <main className="relative h-full w-full flex items-center justify-center">
         <img
           src={Splash}
@@ -55,7 +66,7 @@ export const Preload = ({ onComplete }: PreloadProps) => {
               <Separator variant="dashed" />
               <span className="heading-2 animate-pulse font-light text-center">
                 {progress.percentage >= 100
-                  ? "Download complete"
+                  ? readyText
                   : "Downloading game assets"}
               </span>
             </CardContent>

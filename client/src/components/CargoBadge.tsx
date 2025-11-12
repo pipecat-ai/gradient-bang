@@ -25,7 +25,6 @@ export const CargoBadge = ({ className }: { className?: string }) => {
       ? "warning"
       : "primary";
 
-  console.log(color);
   const iCX = `${
     color === "destructive"
       ? "bg-destructive-background stripe-bar stripe-bar-destructive stripe-bar-8 stripe-bar-animate-1"

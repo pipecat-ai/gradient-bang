@@ -133,7 +133,6 @@ export class GameInstanceManager {
   // ----- MINIMAP
 
   private _constructMiniMap(): void {
-    console.debug("[GAME INSTANCE MANAGER] Constructing minimap");
     // @TODO: implement
   }
 }

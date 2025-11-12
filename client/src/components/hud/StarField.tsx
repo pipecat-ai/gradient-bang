@@ -7,6 +7,7 @@ import type {
   GameObjectInstance,
 } from "@/fx/starfield/types";
 import { usePlaySound } from "@/hooks/usePlaySound";
+import Splash from "@assets/images/splash-1.png";
 
 export const StarField = memo(() => {
   const { playSound } = usePlaySound();
@@ -69,9 +70,16 @@ export const StarField = memo(() => {
   return (
     <div
       id="starfield-container"
-      className="relative user-select-none pointer-events-none"
+      className={"relative user-select-none pointer-events-none"}
       tabIndex={-1}
     >
+      {!settings.renderStarfield && (
+        <img
+          src={Splash}
+          alt="Splash"
+          className="absolute inset-0 w-full h-full object-contain z-1 pointer-events-none object-bottom"
+        />
+      )}
       <SectorTitleBanner />
       <div id="whiteFlash"></div>
       <div id="vignette"></div>

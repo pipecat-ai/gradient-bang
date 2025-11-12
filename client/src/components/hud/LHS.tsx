@@ -12,7 +12,7 @@ export const LHS = () => {
   const localMapData = useGameStore((state) => state.local_map_data);
 
   return (
-    <div className="min-w-[400px] lhs-perspective flex flex-col gap-2 w-[700px]">
+    <div className="lhs-perspective flex flex-col gap-2">
       <Card
         className="relative border-2 border-white/10 bg-transport p-0 h-full"
         elbow={true}

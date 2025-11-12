@@ -18,6 +18,7 @@ import { ScreenMenu } from "@/components/screens/ScreenMenu";
 import Error from "@/components/views/Error";
 import Game from "@/components/views/Game";
 import JoinStatus from "@/components/views/JoinStatus";
+import { Preload } from "@/components/views/Preload";
 import ViewContainer from "@/components/views/ViewContainer";
 import useGameStore from "@/stores/game";
 import { AnimatedFrame } from "@fx/frame";
@@ -25,6 +26,19 @@ import type { Story } from "@ladle/react";
 import { Dialog } from "radix-ui";
 import React, { useState } from "react";
 
+export const PreloadStory: Story = () => (
+  <div className="relative w-full h-full">
+    <Preload
+      onComplete={() => {}}
+      className="w-full h-full"
+      readyText="LOADING (T-24)"
+    />
+  </div>
+);
+
+PreloadStory.meta = {
+  disconnectedStory: true,
+};
 export const DotStory: Story = () => (
   <div className="relative w-full h-screen">
     <div className="w-full h-full bg-dotted-sm bg-center">DOTS</div>

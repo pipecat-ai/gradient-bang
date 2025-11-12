@@ -2,12 +2,12 @@ import React, { useEffect, useMemo } from "react";
 
 import type { GlobalProvider, Meta } from "@ladle/react";
 import {
-  Badge,
   Divider,
   PipecatAppBase,
   usePipecatConnectionState,
   UserAudioControl,
 } from "@pipecat-ai/voice-ui-kit";
+import { Badge } from "../src/components/primitives/Badge";
 import { Button } from "../src/components/primitives/Button";
 
 import { GameProvider } from "./../src/GameContext";
@@ -66,7 +66,7 @@ const StoryWrapper = ({
               {storyMeta?.enableMic ? (
                 <UserAudioControl />
               ) : (
-                <Badge buttonSizing={true} variant="elbow" color="secondary">
+                <Badge size="sm" border="elbow">
                   Audio Disabled
                 </Badge>
               )}

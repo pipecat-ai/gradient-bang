@@ -30,6 +30,7 @@ import {
 } from "@/types/messages";
 import { wait } from "@/utils/animation";
 import {
+  hasDeviatedFromCoursePlot,
   salvageCollectedSummaryString,
   salvageCreatedSummaryString,
   transferSummaryString,
@@ -170,7 +171,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
     await wait(1000);
 
     // 5. Dispatch start event to bot to kick off the conversation
-    dispatchEvent({ type: "start" });
+    //dispatchEvent({ type: "start" });
   }, [onConnect, gameStore, dispatchEvent, client]);
 
   /**
@@ -325,9 +326,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               }
               // Remove active course plot if we've gone to a sector outside of the plot
               if (
-                !gameStore.course_plot?.path.includes(newSectorId) ||
-                gameStore.course_plot?.to_sector !== newSectorId ||
-                gameStore.course_plot?.from_sector !== newSectorId
+                hasDeviatedFromCoursePlot(gameStore.course_plot, newSectorId)
               ) {
                 console.debug(
                   "[GAME EVENT] Went to a sector outside of the plot, clearing"
