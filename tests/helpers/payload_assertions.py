@@ -339,3 +339,118 @@ def compare_warp_purchase(legacy_event: Dict[str, Any], supabase_event: Dict[str
 
 
 COMPARERS["warp.purchase"] = compare_warp_purchase
+
+
+def compare_warp_transfer(legacy_event: Dict[str, Any], supabase_event: Dict[str, Any]) -> ComparisonResult:
+    diffs: List[str] = []
+    leg = legacy_event.get("payload", {})
+    sup = supabase_event.get("payload", {})
+
+    for field in ("transfer_direction",):
+        if leg.get(field) != sup.get(field):
+            diffs.append(f"{field} mismatch: {leg.get(field)!r} != {sup.get(field)!r}")
+
+    leg_details = leg.get("transfer_details", {})
+    sup_details = sup.get("transfer_details", {})
+    if leg_details.get("warp_power") != sup_details.get("warp_power"):
+        diffs.append(
+            f"transfer_details.warp_power mismatch: {leg_details.get('warp_power')!r} != {sup_details.get('warp_power')!r}"
+        )
+
+    diffs.extend(_compare_sector(leg.get("sector"), sup.get("sector")))
+
+    diffs.extend(_compare_public_player(leg.get("from"), sup.get("from"), "from"))
+    diffs.extend(_compare_public_player(leg.get("to"), sup.get("to"), "to"))
+
+    leg_source = leg.get("source") or {}
+    sup_source = sup.get("source") or {}
+    for field in ("method", "type"):
+        if leg_source.get(field) != sup_source.get(field):
+            diffs.append(f"source.{field} mismatch: {leg_source.get(field)!r} != {sup_source.get(field)!r}")
+
+    return ComparisonResult(diffs)
+
+
+COMPARERS["warp.transfer"] = compare_warp_transfer
+
+
+def _compare_public_player(
+    legacy_player: Dict[str, Any] | None,
+    sup_player: Dict[str, Any] | None,
+    label: str,
+) -> List[str]:
+    diffs: List[str] = []
+    if not isinstance(legacy_player, dict) or not isinstance(sup_player, dict):
+        diffs.append(f"{label} payload missing")
+        return diffs
+
+    legacy_id = legacy_player.get("id")
+    sup_id = sup_player.get("id")
+    if legacy_id and sup_id:
+        expected = _canonical(str(legacy_id))
+        actual = _canonical(str(sup_id))
+        if expected != actual:
+            diffs.append(f"{label}.id mismatch: {expected!r} != {actual!r}")
+    elif legacy_id != sup_id:
+        diffs.append(f"{label}.id mismatch: {legacy_id!r} != {sup_id!r}")
+
+    for field in ("name", "player_type"):
+        if legacy_player.get(field) != sup_player.get(field):
+            diffs.append(
+                f"{label}.{field} mismatch: {legacy_player.get(field)!r} != {sup_player.get(field)!r}"
+            )
+
+    legacy_corp = legacy_player.get("corporation")
+    sup_corp = sup_player.get("corporation")
+    if bool(legacy_corp) != bool(sup_corp):
+        diffs.append(f"{label}.corporation mismatch: {legacy_corp!r} != {sup_corp!r}")
+
+    legacy_ship = legacy_player.get("ship", {})
+    sup_ship = sup_player.get("ship", {})
+    for field in ("ship_type", "ship_name"):
+        if (legacy_ship or {}).get(field) != (sup_ship or {}).get(field):
+            diffs.append(
+                f"{label}.ship.{field} mismatch: {(legacy_ship or {}).get(field)!r} != {(sup_ship or {}).get(field)!r}"
+            )
+
+    allowed_keys = {"corporation", "created_at", "id", "name", "player_type", "ship"}
+    legacy_keys = set(legacy_player.keys())
+    sup_keys = set(sup_player.keys())
+    if legacy_keys - allowed_keys:
+        diffs.append(f"{label} contains unexpected fields: {sorted(legacy_keys - allowed_keys)}")
+    if sup_keys - allowed_keys:
+        diffs.append(f"{label} contains unexpected fields: {sorted(sup_keys - allowed_keys)}")
+
+    return diffs
+
+
+def compare_credits_transfer(legacy_event: Dict[str, Any], supabase_event: Dict[str, Any]) -> ComparisonResult:
+    diffs: List[str] = []
+    leg = legacy_event.get("payload", {})
+    sup = supabase_event.get("payload", {})
+
+    for field in ("transfer_direction",):
+        if leg.get(field) != sup.get(field):
+            diffs.append(f"{field} mismatch: {leg.get(field)!r} != {sup.get(field)!r}")
+
+    leg_details = leg.get("transfer_details", {})
+    sup_details = sup.get("transfer_details", {})
+    if leg_details.get("credits") != sup_details.get("credits"):
+        diffs.append(
+            f"transfer_details.credits mismatch: {leg_details.get('credits')!r} != {sup_details.get('credits')!r}"
+        )
+
+    diffs.extend(_compare_sector(leg.get("sector"), sup.get("sector")))
+    diffs.extend(_compare_public_player(leg.get("from"), sup.get("from"), "from"))
+    diffs.extend(_compare_public_player(leg.get("to"), sup.get("to"), "to"))
+
+    source_legacy = leg.get("source") or {}
+    source_sup = sup.get("source") or {}
+    for field in ("method", "type"):
+        if source_legacy.get(field) != source_sup.get(field):
+            diffs.append(f"source.{field} mismatch: {source_legacy.get(field)!r} != {source_sup.get(field)!r}")
+
+    return ComparisonResult(diffs)
+
+
+COMPARERS["credits.transfer"] = compare_credits_transfer

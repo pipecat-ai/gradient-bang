@@ -9,8 +9,10 @@ import {
   loadCharacter,
   loadShip,
   loadShipDefinition,
+  buildPublicPlayerSnapshotFromStatus,
 } from '../_shared/status.ts';
 import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
+import { canonicalizeCharacterId } from '../_shared/ids.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -55,9 +57,11 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   const requestId = resolveRequestId(payload);
-  const fromCharacterId = requireString(payload, 'from_character_id');
+  const fromCharacterLabel = requireString(payload, 'from_character_id');
+  const fromCharacterId = await canonicalizeCharacterId(fromCharacterLabel);
   const toPlayerName = requireString(payload, 'to_player_name');
-  const actorCharacterId = optionalString(payload, 'actor_character_id');
+  const actorCharacterLabel = optionalString(payload, 'actor_character_id');
+  const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
   try {
@@ -78,7 +82,15 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    return await handleTransfer(supabase, payload, fromCharacterId, toPlayerName, requestId, actorCharacterId, adminOverride);
+    return await handleTransfer(
+      supabase,
+      payload,
+      fromCharacterId,
+      toPlayerName,
+      requestId,
+      actorCharacterId,
+      adminOverride,
+    );
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
       await emitErrorEvent(supabase, {
@@ -196,13 +208,12 @@ async function handleTransfer(
   const fromStatus = await buildStatusPayload(supabase, fromCharacterId);
   const toStatus = await buildStatusPayload(supabase, toCharacter.character_id);
 
-  const fromPlayer = fromStatus.player;
-  const toPlayer = toStatus.player;
-  const fromShipSnapshot = fromStatus.ship;
-  const toShipSnapshot = toStatus.ship;
+  const fromPlayer = buildPublicPlayerSnapshotFromStatus(fromStatus);
+  const toPlayer = buildPublicPlayerSnapshotFromStatus(toStatus);
 
   const transferDetails = { warp_power: unitsToTransfer };
-  const sectorPayload = { id: fromShip.current_sector ?? toShip.current_sector ?? 0 };
+  const sectorId = fromShip.current_sector ?? toShip.current_sector ?? 0;
+  const sectorPayload = { id: sectorId };
 
   await emitCharacterEvent({
     supabase,
@@ -211,25 +222,16 @@ async function handleTransfer(
     payload: {
       transfer_direction: 'sent',
       transfer_details: transferDetails,
-      from: {
-        ...fromPlayer,
-        ship: {
-          ship_type: fromShipSnapshot.ship_type,
-          ship_name: fromShipSnapshot.ship_name,
-        },
-      },
-      to: {
-        ...toPlayer,
-        ship: {
-          ship_type: toShipSnapshot.ship_type,
-          ship_name: toShipSnapshot.ship_name,
-        },
-      },
+      from: fromPlayer,
+      to: toPlayer,
       sector: sectorPayload,
       timestamp,
       source,
     },
     requestId,
+    sectorId,
+    shipId: fromShip.ship_id,
+    actorCharacterId,
   });
 
   await emitCharacterEvent({
@@ -239,25 +241,16 @@ async function handleTransfer(
     payload: {
       transfer_direction: 'received',
       transfer_details: transferDetails,
-      from: {
-        ...fromPlayer,
-        ship: {
-          ship_type: fromShipSnapshot.ship_type,
-          ship_name: fromShipSnapshot.ship_name,
-        },
-      },
-      to: {
-        ...toPlayer,
-        ship: {
-          ship_type: toShipSnapshot.ship_type,
-          ship_name: toShipSnapshot.ship_name,
-        },
-      },
+      from: fromPlayer,
+      to: toPlayer,
       sector: sectorPayload,
       timestamp,
       source,
     },
     requestId,
+    sectorId,
+    shipId: toShip.ship_id,
+    actorCharacterId,
   });
 
   await emitCharacterEvent({
@@ -266,6 +259,9 @@ async function handleTransfer(
     eventType: 'status.update',
     payload: fromStatus,
     requestId,
+    sectorId,
+    shipId: fromShip.ship_id,
+    actorCharacterId,
   });
   await emitCharacterEvent({
     supabase,
@@ -273,6 +269,9 @@ async function handleTransfer(
     eventType: 'status.update',
     payload: toStatus,
     requestId,
+    sectorId,
+    shipId: toShip.ship_id,
+    actorCharacterId,
   });
 
   return successResponse({ request_id: requestId });

@@ -280,7 +280,12 @@ def create_test_character_knowledge(
                 'cargo_qf': cargo.get('quantum_foam', 0),
                 'cargo_ro': cargo.get('retro_organics', 0),
                 'cargo_ns': cargo.get('neuro_symbolics', 0),
+                'current_warp_power': warp_power,
+                'current_shields': shields,
+                'current_fighters': fighters,
             }
+            if ship_name is not None:
+                ship_updates['ship_name'] = ship_name
             supabase_reset_character_state(
                 character_id,
                 sector=sector,

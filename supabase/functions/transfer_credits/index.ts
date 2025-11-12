@@ -4,8 +4,16 @@ import { validateApiToken, unauthorizedResponse, errorResponse, successResponse 
 import { createServiceRoleClient } from '../_shared/client.ts';
 import { emitCharacterEvent, emitErrorEvent, buildEventSource } from '../_shared/events.ts';
 import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
-import { buildStatusPayload, loadCharacter, loadShip, type ShipRow, type CharacterRow } from '../_shared/status.ts';
+import {
+  buildStatusPayload,
+  loadCharacter,
+  loadShip,
+  buildPublicPlayerSnapshotFromStatus,
+  type ShipRow,
+  type CharacterRow,
+} from '../_shared/status.ts';
 import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
+import { canonicalizeCharacterId } from '../_shared/ids.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -50,9 +58,11 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   const requestId = resolveRequestId(payload);
-  const fromCharacterId = requireString(payload, 'from_character_id');
+  const fromCharacterLabel = requireString(payload, 'from_character_id');
+  const fromCharacterId = await canonicalizeCharacterId(fromCharacterLabel);
   const toPlayerName = requireString(payload, 'to_player_name');
-  const actorCharacterId = optionalString(payload, 'actor_character_id');
+  const actorCharacterLabel = optionalString(payload, 'actor_character_id');
+  const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
   try {
@@ -166,20 +176,31 @@ async function handleTransfer(
   const fromStatus = await buildStatusPayload(supabase, fromCharacterId);
   const toStatus = await buildStatusPayload(supabase, toRecord.character.character_id);
 
+  const fromPlayer = buildPublicPlayerSnapshotFromStatus(fromStatus);
+  const toPlayer = buildPublicPlayerSnapshotFromStatus(toStatus);
+  const sectorId = fromRecord.ship.current_sector ?? toRecord.ship.current_sector ?? 0;
+  const timestamp = new Date().toISOString();
+
   await emitCharacterEvent({
     supabase,
     characterId: fromCharacterId,
     eventType: 'credits.transfer',
-    payload: buildTransferPayload('sent', amount, fromStatus.player, toStatus.player, fromRecord.ship.current_sector ?? 0, source),
+    payload: buildTransferPayload('sent', amount, fromPlayer, toPlayer, sectorId, source, timestamp),
     requestId,
+    sectorId,
+    shipId: fromRecord.ship.ship_id,
+    actorCharacterId,
   });
 
   await emitCharacterEvent({
     supabase,
     characterId: toRecord.character.character_id,
     eventType: 'credits.transfer',
-    payload: buildTransferPayload('received', amount, fromStatus.player, toStatus.player, fromRecord.ship.current_sector ?? 0, source),
+    payload: buildTransferPayload('received', amount, fromPlayer, toPlayer, sectorId, source, timestamp),
     requestId,
+    sectorId,
+    shipId: toRecord.ship.ship_id,
+    actorCharacterId,
   });
 
   await emitCharacterEvent({
@@ -188,6 +209,9 @@ async function handleTransfer(
     eventType: 'status.update',
     payload: fromStatus,
     requestId,
+    sectorId,
+    shipId: fromRecord.ship.ship_id,
+    actorCharacterId,
   });
   await emitCharacterEvent({
     supabase,
@@ -195,6 +219,9 @@ async function handleTransfer(
     eventType: 'status.update',
     payload: toStatus,
     requestId,
+    sectorId,
+    shipId: toRecord.ship.ship_id,
+    actorCharacterId,
   });
 
   return successResponse({ request_id: requestId });
@@ -207,6 +234,7 @@ function buildTransferPayload(
   toPlayer: Record<string, unknown>,
   sectorId: number,
   source: Record<string, unknown>,
+  timestamp: string,
 ): Record<string, unknown> {
   return {
     transfer_direction: direction,
@@ -214,7 +242,7 @@ function buildTransferPayload(
     from: fromPlayer,
     to: toPlayer,
     sector: { id: sectorId },
-    timestamp: new Date().toISOString(),
+    timestamp,
     source,
   };
 }

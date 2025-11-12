@@ -208,6 +208,33 @@ export function buildPlayerSnapshot(
   };
 }
 
+export function buildPublicPlayerSnapshotFromStatus(statusPayload: Record<string, unknown>): Record<string, unknown> {
+  const player = (statusPayload['player'] ?? {}) as Record<string, unknown>;
+  const ship = (statusPayload['ship'] ?? {}) as Record<string, unknown>;
+
+  const displayName = typeof player['name'] === 'string' ? (player['name'] as string) : null;
+  const canonicalId = typeof player['id'] === 'string' ? (player['id'] as string) : null;
+  const playerId = displayName ?? canonicalId;
+
+  const shipType = typeof ship['ship_type'] === 'string' ? (ship['ship_type'] as string) : null;
+  const shipName =
+    (typeof ship['ship_name'] === 'string' ? (ship['ship_name'] as string) : null) ??
+    (typeof ship['display_name'] === 'string' ? (ship['display_name'] as string) : null) ??
+    shipType;
+
+  return {
+    created_at: player['created_at'] ?? null,
+    id: playerId,
+    name: displayName ?? canonicalId,
+    player_type: player['player_type'] ?? 'human',
+    corporation: Object.prototype.hasOwnProperty.call(player, 'corporation') ? player['corporation'] : null,
+    ship: {
+      ship_type: shipType,
+      ship_name: shipName,
+    },
+  };
+}
+
 function buildShipSnapshot(
   ship: ShipRow,
   definition: ShipDefinitionRow,
