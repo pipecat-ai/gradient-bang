@@ -1,0 +1,2 @@
+overrides:
+  '@pipecat-ai/voice-ui-kit': link:../../../Library/pnpm/global/5/node_modules/@pipecat-ai/voice-ui-kit

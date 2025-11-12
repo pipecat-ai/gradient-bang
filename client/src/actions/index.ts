@@ -1,5 +1,5 @@
+import type { StarfieldSceneConfig } from "@/fx/starfield";
 import useGameStore from "@/stores/game";
-
 export const startMoveToSector = (
   newSector: Sector,
   options: { bypassAnimation: boolean; bypassFlash: boolean } = {
@@ -19,7 +19,7 @@ export const startMoveToSector = (
 
   gameStore.setUIState("moving");
 
-  if (!starfield) {
+  if (!starfield || !gameStore.settings.renderStarfield) {
     console.error(
       "[GAME ACTION] Starfield instance not found, skipping animation"
     );
@@ -30,11 +30,13 @@ export const startMoveToSector = (
 
   starfield.warpToSector({
     id: newSector.id.toString(),
+    sceneConfig: newSector.scene_config as Partial<StarfieldSceneConfig>,
     gameObjects: newSector.port
       ? [{ id: "port", type: "port", name: "Port" }]
       : undefined,
-    bypassAnimation: options.bypassAnimation,
-    bypassFlash: options.bypassFlash,
+    bypassAnimation:
+      options.bypassAnimation || gameStore.settings.fxBypassAnimation,
+    bypassFlash: options.bypassFlash || gameStore.settings.fxBypassFlash,
   });
 };
 

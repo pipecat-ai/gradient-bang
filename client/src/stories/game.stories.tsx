@@ -3,21 +3,22 @@ import {
   GET_MAP_REGION,
   GET_MY_STATUS_MESSAGE,
 } from "@/actions/dispatch";
-import { CaptainsLogPanel } from "@/components/CaptainsLogPanel";
-import { CargoCapacityBadge } from "@/components/CargoCapacityBadge";
 import { CoursePlotPanel } from "@/components/CoursePlotPanel";
+import { ActivityStream } from "@/components/hud/ActivityStream";
 import MiniMap from "@/components/hud/MiniMap";
 import { MovementHistoryPanel } from "@/components/MovementHistoryPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
+import { TextInputControl } from "@/components/TextInputControl";
 import { WarpBadge } from "@/components/WarpBadge";
 import { useGameContext } from "@/hooks/useGameContext";
 import { useNotificationSound } from "@/hooks/useNotificationSound";
 import useGameStore from "@/stores/game";
 import type { Story } from "@ladle/react";
-import { Button, Divider, TextInput } from "@pipecat-ai/voice-ui-kit";
+import { Button, Divider } from "@pipecat-ai/voice-ui-kit";
 import { useMemo } from "react";
 
 export const Init: Story = () => {
+  const coursePlot = useGameStore.use.course_plot?.();
   const player = useGameStore((state) => state.player);
   const ship = useGameStore((state) => state.ship);
   const sector = useGameStore((state) => state.sector);
@@ -42,7 +43,7 @@ export const Init: Story = () => {
         <p>Note: audio disabled in this story. Send text input below:</p>
 
         <Divider />
-        <TextInput
+        <TextInputControl
           onSend={(text) => {
             sendUserTextInput?.(text);
           }}
@@ -87,7 +88,6 @@ export const Init: Story = () => {
           </ul>
         )}
 
-        <CargoCapacityBadge />
         <WarpBadge />
 
         <h3 className="story-heading">Sector:</h3>
@@ -121,6 +121,7 @@ export const Init: Story = () => {
                 height={440}
                 maxDistance={2}
                 config={{ debug: true }}
+                coursePlot={coursePlot}
               />
             </div>
           )}
@@ -132,7 +133,7 @@ export const Init: Story = () => {
 
         <div className="story-card bg-card">
           <h3 className="story-heading">Activity Log:</h3>
-          <CaptainsLogPanel />
+          <ActivityStream />
         </div>
 
         <div className="story-card bg-card">

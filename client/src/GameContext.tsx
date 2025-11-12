@@ -24,11 +24,13 @@ import {
   type ServerMessage,
   type StatusMessage,
   type TaskOutputMessage,
+  type TradeExecutedMessage,
   type WarpPurchaseMessage,
   type WarpTransferMessage,
 } from "@/types/messages";
 import { wait } from "@/utils/animation";
 import {
+  hasDeviatedFromCoursePlot,
   salvageCollectedSummaryString,
   salvageCreatedSummaryString,
   transferSummaryString,
@@ -143,6 +145,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
     // 2. Connect to agent
     gameStore.setGameStateMessage(GameInitStateMessage.CONNECTING);
+
     try {
       await onConnect?.();
       if (!client?.connected) {
@@ -323,9 +326,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               }
               // Remove active course plot if we've gone to a sector outside of the plot
               if (
-                !gameStore.course_plot?.path.includes(newSectorId) ||
-                gameStore.course_plot?.to_sector !== newSectorId ||
-                gameStore.course_plot?.from_sector !== newSectorId
+                hasDeviatedFromCoursePlot(gameStore.course_plot, newSectorId)
               ) {
                 console.debug(
                   "[GAME EVENT] Went to a sector outside of the plot, clearing"
@@ -353,6 +354,18 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
                   message: `Withdrew [${data.amount}] credits from bank`,
                 });
               }
+
+              gameStore.addToast({
+                type: "bank.transaction",
+                meta: {
+                  direction: data.direction,
+                  amount: data.amount,
+                  credits_on_hand_before: data.credits_on_hand_before,
+                  credits_on_hand_after: data.credits_on_hand_after,
+                  credits_in_bank_before: data.credits_in_bank_before,
+                  credits_in_bank_after: data.credits_in_bank_after,
+                },
+              });
               break;
             }
 
@@ -388,6 +401,13 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
                   data.sector.id
                 }] ${salvageCreatedSummaryString(data.salvage_details)}`,
               });
+
+              gameStore.addToast({
+                type: "salvage.created",
+                meta: {
+                  salvage: data.salvage_details as Salvage,
+                },
+              });
               break;
             }
 
@@ -402,6 +422,12 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
                 }] ${salvageCollectedSummaryString(data.salvage_details)}`,
               });
 
+              gameStore.addToast({
+                type: "salvage.collected",
+                meta: {
+                  salvage: data.salvage_details as Salvage,
+                },
+              });
               break;
             }
 
@@ -438,12 +464,27 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
             case "trade.executed": {
               console.debug("[GAME EVENT] Trade executed", gameEvent.payload);
+              const data = gameEvent.payload as TradeExecutedMessage;
 
-              // @TODO: implement
-              // Note: status.update is dispatched immediately after
+              gameStore.addActivityLogEntry({
+                type: "trade.executed",
+                message: `Trade executed: ${
+                  data.trade.trade_type === "buy" ? "Bought" : "Sold"
+                } ${data.trade.units} [${data.trade.commodity}] for [CR ${
+                  data.trade.total_price
+                }]`,
+              });
 
+              gameStore.addToast({
+                type: "trade.executed",
+                meta: {
+                  ...data.trade,
+                  old_credits: gameStore.ship?.credits ?? 0,
+                },
+              });
               break;
             }
+
             case "port.update": {
               console.debug("[GAME EVENT] Port update", gameEvent.payload);
               const data = gameEvent.payload as PortUpdateMessage;
@@ -472,6 +513,18 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               gameStore.addActivityLogEntry({
                 type: "warp.purchase",
                 message: `Purchased [${data.units}] warp units for [${data.total_cost}] credits`,
+              });
+
+              gameStore.addToast({
+                type: "warp.purchase",
+                meta: {
+                  prev_amount: gameStore.ship?.warp_power ?? 0,
+                  new_amount: data.units,
+                  capacity: data.warp_power_capacity,
+                  cost: data.total_cost,
+                  new_credits: data.new_credits,
+                  prev_credits: gameStore.ship?.credits ?? 0,
+                },
               });
               break;
             }
@@ -503,6 +556,16 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               gameStore.addActivityLogEntry({
                 type: eventType,
                 message: transferSummaryString(data),
+              });
+
+              gameStore.addToast({
+                type: "transfer",
+                meta: {
+                  direction: data.transfer_direction,
+                  from: data.from,
+                  to: data.to,
+                  transfer_details: data.transfer_details,
+                },
               });
 
               break;

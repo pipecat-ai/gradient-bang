@@ -1,61 +1,70 @@
-import { Button, Input } from "@pipecat-ai/voice-ui-kit";
-import { ArrowRightIcon } from "lucide-react";
+import { Input } from "./primitives/Input";
 
-import {
-  usePipecatClient,
-  usePipecatClientTransportState,
-} from "@pipecat-ai/client-react";
+import { wait } from "@/utils/animation";
+import { PaperPlaneRightIcon } from "@phosphor-icons/react";
+import { usePipecatClientTransportState } from "@pipecat-ai/client-react";
+import { cn } from "@pipecat-ai/voice-ui-kit";
 import { useState } from "react";
+import { Button } from "./primitives/Button";
 
-export const TextInputControl = () => {
-  const client = usePipecatClient();
+const THROTTLE_DELAY_MS = 2000;
+
+export const TextInputControl = ({
+  onSend,
+  className,
+}: {
+  className?: string;
+  onSend: (text: string) => void;
+}) => {
   const transportState = usePipecatClientTransportState();
 
   const [command, setCommand] = useState("");
   const [isDispatching, setIsDispatching] = useState(false);
 
-  const dispatchCommand = () => {
-    if (!client || transportState !== "ready") return;
-
+  const handleSend = async (text: string) => {
+    if (isDispatching) return;
     setIsDispatching(true);
-
-    // Dispatch server message here...
-    client.sendClientMessage("custom-message", { text: command });
-
-    // Wrap in timeout to avoid spamming the server
-    setTimeout(() => {
-      setIsDispatching(false);
-      setCommand("");
-    }, 1000);
+    onSend(text);
+    setCommand("");
+    await wait(THROTTLE_DELAY_MS);
+    setIsDispatching(false);
   };
 
+  const isDisabled = isDispatching || transportState !== "ready";
+
   return (
-    <div className="flex-1 flex items-center min-w-2/3">
+    <div
+      className={cn(
+        "relative flex-1 flex flex-row items-center min-w-2/3",
+        className
+      )}
+    >
       <Input
-        variant="ghost"
-        size="lg"
-        className="rounded-none normal-case placeholder:opacity-50 placeholder:uppercase text-sm"
+        variant="default"
         placeholder="Enter command"
         value={command}
-        disabled={isDispatching || transportState !== "ready"}
+        disabled={isDisabled}
         onChange={(e) => setCommand(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && command.trim()) {
-            dispatchCommand();
+          if (e.key === "Enter" && command) {
+            handleSend(command);
           }
         }}
+        className="flex-1 pr-11"
       />
       <Button
-        isIcon={true}
-        disabled={isDispatching || transportState !== "ready"}
-        onClick={dispatchCommand}
-        variant="outline"
-        isLoading={isDispatching}
+        size="icon"
+        variant={isDisabled || !command ? "ghost" : "default"}
+        disabled={isDisabled}
+        onClick={() => handleSend(command)}
+        className={cn(
+          "absolute right-0 border-l-0 outline-none",
+          isDisabled || !command ? "hover:bg-transparent text-primary/50" : ""
+        )}
         loader="stripes"
-        size="lg"
-        className="border-l-0"
+        isLoading={isDispatching}
       >
-        <ArrowRightIcon />
+        <PaperPlaneRightIcon weight="bold" />
       </Button>
     </div>
   );

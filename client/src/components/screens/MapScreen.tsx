@@ -1,10 +1,10 @@
 import { GET_MAP_REGION } from "@/actions/dispatch";
 import { CoursePlotPanel } from "@/components/CoursePlotPanel";
-import MiniMap, { type MiniMapConfig } from "@/components/hud/MiniMap";
 import { MovementHistoryPanel } from "@/components/MovementHistoryPanel";
 import { Separator } from "@/components/primitives/Separator";
 import { useGameContext } from "@/hooks/useGameContext";
 import useGameStore from "@/stores/game";
+import MiniMap, { type MiniMapConfig } from "@hud/MiniMap";
 import { useEffect, useRef } from "react";
 
 const MAP_CONFIG: MiniMapConfig = {
@@ -24,6 +24,7 @@ export const MapScreen = () => {
 
   useEffect(() => {
     if (sector !== undefined && !throttleActive.current) {
+      console.debug("[GAME MAP SCREEN] Fetching", sector?.id);
       throttleActive.current = true;
 
       dispatchEvent({
@@ -44,13 +45,13 @@ export const MapScreen = () => {
   return (
     <div className="w-[calc(100vw-220px)] h-[calc(100vh-420px)]">
       <div className="flex flex-row gap-3 h-full">
-        <div className="w-full h-full">
+        <div className="w-[800px] h-[600px]">
           {mapData && (
             <MiniMap
               config={MAP_CONFIG}
               current_sector_id={sector?.id ?? 0}
               map_data={mapData}
-              maxDistance={100}
+              maxDistance={50}
               showLegend={false}
               coursePlot={coursePlot}
             />

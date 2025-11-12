@@ -2,9 +2,7 @@ import useGameStore from "@/stores/game";
 
 import { PanelTitle } from "@/components/PanelTitle";
 import { Card, CardContent, CardHeader } from "@/components/primitives/Card";
-import { Separator } from "@/components/primitives/Separator";
 import { useEffect, useRef } from "react";
-import { TaskStatusBadge } from "./TaskStatusBadge";
 
 const formatTimestamp = (isoString: string) => {
   return new Date(isoString).toLocaleString("en-GB", {
@@ -64,13 +62,12 @@ export const TaskOutputPanel = () => {
                   outputText={task.summary || ""}
                 />
               ))}
+
               <div ref={bottomRef} />
             </div>
           </div>
         </CardContent>
       </Card>
-      <Separator variant="dotted" className="w-full text-white/20 h-[12px]" />
-      <TaskStatusBadge />
     </div>
   );
 };

@@ -14,10 +14,11 @@ export class Clouds extends FX {
 
   constructor(uniformManager: UniformManager, scene: THREE.Scene) {
     super(uniformManager, scene);
-    this._noiseTexture = null;
     this._clouds = null;
     this._cloudsMaterial = null;
     this._config = null;
+    this._noiseTexture = null;
+    this.ensureNoiseTexture();
   }
 
   public create(config: GalaxyStarfieldConfig): void {
@@ -28,7 +29,7 @@ export class Clouds extends FX {
     }
 
     this._config = config;
-    const precomputedNoise = createNoiseTexture(512);
+    const noiseTexture = this.ensureNoiseTexture();
     const geo = new THREE.PlaneGeometry(2, 2);
     const mat = new THREE.ShaderMaterial({
       uniforms: {
@@ -68,7 +69,7 @@ export class Clouds extends FX {
         shakeWarpIntensity: { value: config.cloudsShakeWarpIntensity },
         shakeWarpRampTime: { value: config.cloudsShakeWarpRampTime },
         cloudsShakeProgress: { value: 0 },
-        noiseTexture: { value: precomputedNoise },
+        noiseTexture: { value: noiseTexture },
         noiseUse: { value: 1.0 },
         shadowCenter: { value: new THREE.Vector2(0.5, 0.5) },
         shadowRadius: { value: 0.15 },
@@ -79,6 +80,7 @@ export class Clouds extends FX {
             : 0.0,
         },
         noiseReduction: { value: config.cloudsNoiseReduction },
+        performanceMode: { value: config.performanceMode ? 1 : 0 },
       },
       vertexShader: cloudsVertexShader,
       fragmentShader: cloudsFragmentShader,
@@ -119,7 +121,10 @@ export class Clouds extends FX {
       shadowRadius: { type: "number", min: 0 },
       shadowSoftness: { type: "number", min: 0 },
       shadowStrength: { type: "number", min: 0, max: 1 },
+      performanceMode: { type: "number", min: 0, max: 1 },
     });
+
+    this.setPerformanceMode(config.performanceMode || false);
   }
 
   public destroy(): void {
@@ -150,13 +155,13 @@ export class Clouds extends FX {
   public restore(): void {
     console.debug("[CLOUDS] Restoring");
     if (!this._clouds) return;
-    if (this._noiseTexture) {
-      this._noiseTexture.dispose();
-      this._noiseTexture = createNoiseTexture(512);
-    }
-
     if (this._cloudsMaterial) {
-      this._cloudsMaterial.uniforms.noiseTexture.value = this._noiseTexture;
+      if (this._noiseTexture) {
+        this._noiseTexture.dispose();
+        this._noiseTexture = null;
+      }
+      const noiseTexture = this.ensureNoiseTexture();
+      this._cloudsMaterial.uniforms.noiseTexture.value = noiseTexture;
     }
   }
 
@@ -181,5 +186,37 @@ export class Clouds extends FX {
    */
   public getCloudsMaterial(): THREE.ShaderMaterial | null {
     return this._cloudsMaterial;
+  }
+
+  public setPerformanceMode(active: boolean): void {
+    if (!this._cloudsMaterial) return;
+    const basePrimary = this._config?.cloudsIterPrimary ?? 5;
+    const baseSecondary = this._config?.cloudsIterSecondary ?? 1;
+    const baseSpeed = this._config?.cloudsSpeed ?? 0.0025;
+    const baseWarp = this._config?.cloudsShakeWarpIntensity ?? 0;
+
+    const iterPrimary = active
+      ? Math.max(1, Math.floor(basePrimary * 0.6))
+      : basePrimary;
+    const iterSecondary = active
+      ? Math.max(1, Math.floor(baseSecondary * 0.5))
+      : baseSecondary;
+    const speed = active ? baseSpeed * 0.7 : baseSpeed;
+    const shakeWarpIntensity = active ? baseWarp * 0.5 : baseWarp;
+
+    this._uniformManager.updateUniforms("clouds", {
+      iterPrimary,
+      iterSecondary,
+      speed,
+      shakeWarpIntensity,
+      performanceMode: active ? 1 : 0,
+    });
+  }
+
+  private ensureNoiseTexture(): THREE.DataTexture {
+    if (!this._noiseTexture) {
+      this._noiseTexture = createNoiseTexture(512);
+    }
+    return this._noiseTexture;
   }
 }

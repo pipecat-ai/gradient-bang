@@ -123,8 +123,10 @@ export class WarpController {
       this.params.setShakeActive(false);
     }
 
+    this.clearCooldown();
     const cooldownMs = this.params.getCooldownMs();
     if (cooldownMs > 0) {
+      console.debug("[STARFIELD] Cooldown reset");
       this.cooldownTimer = window.setTimeout(() => {
         this.cooldownTimer = null;
       }, cooldownMs);

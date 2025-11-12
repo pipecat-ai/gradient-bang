@@ -2,19 +2,20 @@ import React, { useEffect, useMemo } from "react";
 
 import type { GlobalProvider, Meta } from "@ladle/react";
 import {
-  Badge,
-  Button,
   Divider,
   PipecatAppBase,
   usePipecatConnectionState,
   UserAudioControl,
 } from "@pipecat-ai/voice-ui-kit";
+import { Badge } from "../src/components/primitives/Badge";
+import { Button } from "../src/components/primitives/Button";
 
 import { GameProvider } from "./../src/GameContext";
-import Error from "./../src/views/Error";
+import Error from "./../src/components/views/Error";
 import { MessageSelect } from "./MessageSelect";
 
 import { PipecatClient } from "@pipecat-ai/client-js";
+import useGameStore from "../src/stores/game";
 import "./global.css";
 
 const StoryWrapper = ({
@@ -27,11 +28,11 @@ const StoryWrapper = ({
   children: React.ReactNode;
   handleConnect?: () => void;
   handleDisconnect?: () => void;
-  client?: PipecatClient | null;
+  client?: PipecatClient;
   storyMeta?: Meta;
 }) => {
   const { isConnected, isConnecting } = usePipecatConnectionState();
-
+  const setGameState = useGameStore.use.setGameState();
   const connecting = isConnecting || storyMeta?.connectOnMount;
 
   useEffect(() => {
@@ -40,6 +41,11 @@ const StoryWrapper = ({
     }
   }, [storyMeta?.enableMic, client]);
 
+  useEffect(() => {
+    if (!isConnected) return;
+    setGameState("ready");
+  }, [isConnected, setGameState]);
+
   return (
     <>
       {!storyMeta?.disconnectedStory && (
@@ -47,16 +53,11 @@ const StoryWrapper = ({
           <div className="story-connect-bar">
             <div>
               {!isConnected ? (
-                <Button
-                  onClick={handleConnect}
-                  disabled={connecting}
-                  isLoading={connecting}
-                  variant="active"
-                >
+                <Button onClick={handleConnect}>
                   {connecting ? "Connecting..." : "Connect [SPACE]"}
                 </Button>
               ) : (
-                <Button onClick={handleDisconnect} variant="inactive">
+                <Button onClick={handleDisconnect} variant="secondary">
                   Disconnected
                 </Button>
               )}
@@ -65,7 +66,7 @@ const StoryWrapper = ({
               {storyMeta?.enableMic ? (
                 <UserAudioControl />
               ) : (
-                <Badge buttonSizing={true} variant="elbow" color="secondary">
+                <Badge size="sm" border="elbow">
                   Audio Disabled
                 </Badge>
               )}
@@ -84,13 +85,6 @@ const StoryWrapper = ({
 };
 
 export const Provider: GlobalProvider = ({ children, storyMeta }) => {
-  const connectParams = useMemo(
-    () => ({
-      webrtcRequestParams: { endpoint: "api/offer" },
-    }),
-    []
-  );
-
   const clientOptions = useMemo(
     () => ({
       enableMic: storyMeta?.enableMic,
@@ -107,7 +101,12 @@ export const Provider: GlobalProvider = ({ children, storyMeta }) => {
 
   return (
     <PipecatAppBase
-      connectParams={connectParams}
+      startBotParams={{
+        endpoint: `${import.meta.env.VITE_BOT_URL}/start`,
+        requestData: {
+          start_on_join: false,
+        },
+      }}
       clientOptions={clientOptions}
       transportType="smallwebrtc"
       noThemeProvider={false}
@@ -121,7 +120,7 @@ export const Provider: GlobalProvider = ({ children, storyMeta }) => {
         ) : (
           <GameProvider>
             <StoryWrapper
-              client={client}
+              client={client as unknown as PipecatClient}
               storyMeta={storyMeta}
               handleConnect={handleConnect}
               handleDisconnect={handleDisconnect}

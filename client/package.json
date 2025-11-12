@@ -2,7 +2,7 @@
   "name": "gradient-bang-client",
   "description": "Gradient Bang is an online multiplayer universe where you explore, trade, battle, and collaborate with other players and with LLMs.",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -29,6 +29,7 @@
     "@radix-ui/react-slot": "^1.2.3",
     "@radix-ui/react-switch": "^1.2.6",
     "@radix-ui/react-toggle-group": "^1.1.11",
+    "@uidotdev/usehooks": "^2.4.1",
     "camera-controls": "^3.1.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

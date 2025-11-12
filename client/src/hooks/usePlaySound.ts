@@ -17,6 +17,7 @@ const soundTypes: Record<keyof typeof soundUrls, SoundType> = {
   chime6: "fx",
   text: "fx",
   ambience: "ambience",
+  currency: "fx",
 };
 
 type OnceSoundEntry = {
@@ -221,7 +222,16 @@ export const usePlaySound = () => {
     []
   );
 
-  return playSound;
+  const stopSound = useCallback((soundName: keyof typeof soundUrls) => {
+    const entry = activeOnceSounds.get(soundName);
+    if (entry) {
+      entry.audio.pause();
+      entry.audio.currentTime = 0;
+      activeOnceSounds.delete(soundName);
+    }
+  }, []);
+
+  return { playSound, stopSound };
 };
 
 export default usePlaySound;

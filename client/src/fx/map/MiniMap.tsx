@@ -16,6 +16,8 @@ export interface MiniMapConfigBase {
   show_partial_lanes: boolean;
   /** Maximum distance in hex tiles from current sector to include in bounds calculation. Sectors beyond this distance are ignored for framing but still rendered if within maxDistance hops. */
   max_bounds_distance?: number;
+  /** Maximum length (in pixels) for partial lanes to culled sectors. If undefined, lanes extend to the culled sector. */
+  partial_lane_max_length?: number;
   nodeStyles: NodeStyles;
   laneStyles: LaneStyles;
   labelStyles: LabelStyles;
@@ -39,6 +41,7 @@ export interface NodeStyles {
   coursePlotStart: NodeStyle;
   coursePlotEnd: NodeStyle;
   coursePlotMid: NodeStyle;
+  coursePlotPassed: NodeStyle;
   crossRegion: NodeStyle;
 }
 
@@ -91,6 +94,13 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     borderWidth: 3,
     outline: "none",
     outlineWidth: 0,
+  },
+  coursePlotPassed: {
+    fill: "rgba(255,165,0,0.6)",
+    border: "rgba(255,140,0,1)",
+    borderWidth: 2,
+    outline: "rgba(255,165,0,0.7)",
+    outlineWidth: 3,
   },
   crossRegion: {
     fill: "rgba(0,255,0,0.25)",
@@ -308,6 +318,7 @@ export const DEFAULT_MINIMAP_CONFIG: Omit<
   show_hyperlanes: false,
   show_partial_lanes: true,
   max_bounds_distance: 7,
+  partial_lane_max_length: 40,
   nodeStyles: DEFAULT_NODE_STYLES,
   laneStyles: DEFAULT_LANE_STYLES,
   labelStyles: DEFAULT_LABEL_STYLES,
@@ -832,7 +843,22 @@ function renderPartialLane(
   );
 
   const from = getHexEdgePoint(fromCenter, toCenter, hexSize);
-  const to = getHexEdgePoint(toCenter, fromCenter, hexSize);
+  let to = getHexEdgePoint(toCenter, fromCenter, hexSize);
+
+  // Clamp the lane length if max length is configured
+  if (config.partial_lane_max_length !== undefined) {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance > config.partial_lane_max_length) {
+      const ratio = config.partial_lane_max_length / distance;
+      to = {
+        x: from.x + dx * ratio,
+        y: from.y + dy * ratio,
+      };
+    }
+  }
 
   // Determine which style to use
   const isInPlot = coursePlotLanes
@@ -1049,12 +1075,30 @@ function renderSector(
 
   // Determine node type priority
   let nodeStyle: NodeStyle;
-  if (coursePlot && coursePlot.from_sector === node.id) {
-    nodeStyle = config.nodeStyles.coursePlotStart;
-  } else if (coursePlot && coursePlot.to_sector === node.id) {
-    nodeStyle = config.nodeStyles.coursePlotEnd;
-  } else if (coursePlot && isInPlot && coursePlot.path.includes(node.id)) {
-    nodeStyle = config.nodeStyles.coursePlotMid;
+  if (coursePlot && isInPlot) {
+    const currentIndex = coursePlot.path.indexOf(config.current_sector_id);
+    const nodeIndex = coursePlot.path.indexOf(node.id);
+
+    if (node.id === config.current_sector_id && nodeIndex !== -1) {
+      // Player is at this node in the course
+      nodeStyle = config.nodeStyles.coursePlotStart;
+    } else if (node.id === coursePlot.to_sector) {
+      // Final destination
+      nodeStyle = config.nodeStyles.coursePlotEnd;
+    } else if (
+      nodeIndex !== -1 &&
+      currentIndex !== -1 &&
+      nodeIndex < currentIndex
+    ) {
+      // Node is behind current position in course
+      nodeStyle = config.nodeStyles.coursePlotPassed;
+    } else if (nodeIndex !== -1) {
+      // Node is ahead in course
+      nodeStyle = config.nodeStyles.coursePlotMid;
+    } else {
+      // Fallback for nodes in plot set but not in path (shouldn't happen)
+      nodeStyle = config.nodeStyles.coursePlotMid;
+    }
   } else if (coursePlotSectors && !isInPlot) {
     nodeStyle = config.nodeStyles.muted;
   } else if (isCurrent) {

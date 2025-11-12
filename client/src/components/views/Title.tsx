@@ -5,11 +5,27 @@ import { Card, CardContent, CardHeader } from "@/components/primitives/Card";
 import { Separator } from "@/components/primitives/Separator";
 import useGameStore from "@/stores/game";
 
+import { Input } from "@/components/primitives/Input";
 import TitleVideo from "@assets/videos/title.mp4";
 import { ScrambleText } from "@fx/ScrambleText";
+import { AnimatePresence, motion } from "motion/react";
+import { useState } from "react";
 
-export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
+export const Title = ({
+  onViewNext,
+}: {
+  onViewNext: (characterName: string) => void;
+}) => {
   const setActiveModal = useGameStore.use.setActiveModal();
+  const setCharacterId = useGameStore.use.setCharacterId();
+  const [characterName, setCharacterName] = useState<string>("");
+  const [state, setState] = useState<"idle" | "join">("idle");
+
+  const handleViewNext = () => {
+    console.log("[TITLE] Joining with name:", characterName);
+
+    onViewNext(characterName);
+  };
 
   return (
     <div className="relative h-screen w-screen overflow-hidden">
@@ -39,25 +55,77 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
           </CardHeader>
           <Separator />
           <CardContent className="flex flex-col items-center justify-center gap-5">
-            <Button onClick={onViewNext} className="w-full" size="xl">
-              Join
-            </Button>
-            <Button
-              onClick={() => setActiveModal("leaderboard")}
-              variant="secondary"
-              size="xl"
-              className="w-full"
-            >
-              Leaderboard
-            </Button>
-            <Button
-              onClick={() => setActiveModal("settings")}
-              variant="secondary"
-              size="xl"
-              className="w-full"
-            >
-              Settings
-            </Button>
+            <AnimatePresence mode="wait">
+              {state === "idle" && (
+                <motion.div
+                  key="idle"
+                  initial={{ x: -50, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: -50, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: "easeInOut" }}
+                  className="w-full flex flex-col gap-5"
+                >
+                  <Button
+                    onClick={() => setState("join")}
+                    className="w-full"
+                    size="xl"
+                  >
+                    Start
+                  </Button>
+                  <Button
+                    onClick={() => setActiveModal("leaderboard")}
+                    variant="secondary"
+                    size="xl"
+                    className="w-full"
+                  >
+                    Leaderboard
+                  </Button>
+                  <Button
+                    onClick={() => setActiveModal("settings")}
+                    variant="secondary"
+                    size="xl"
+                    className="w-full"
+                  >
+                    Settings
+                  </Button>
+                </motion.div>
+              )}
+              {state === "join" && (
+                <motion.div
+                  key="join"
+                  initial={{ x: 50, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: 50, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: "easeInOut" }}
+                  className="w-full flex flex-col gap-5"
+                >
+                  <Input
+                    placeholder="Enter character name"
+                    className="w-full"
+                    size="xl"
+                    value={characterName}
+                    onChange={(e) => setCharacterName(e.target.value.trim())}
+                  />
+                  <Button
+                    onClick={handleViewNext}
+                    className="w-full"
+                    size="xl"
+                    disabled={!characterName}
+                  >
+                    Connect
+                  </Button>
+                  <Separator />
+                  <Button
+                    variant="secondary"
+                    onClick={() => setState("idle")}
+                    className="w-full"
+                    size="xl"
+                  >
+                    Back
+                  </Button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </CardContent>
           <div className="flex flex-row gap-5 text-center justify-center items-center px-6 border-t border-border pt-5">
             <div className="bg-dotted-sm bg-dotted-white/30 self-stretch flex-1" />

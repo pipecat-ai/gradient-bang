@@ -1,8 +1,9 @@
 import { PortPanel } from "@/components/PortPanel";
+import { MapScreen } from "@/components/screens/MapScreen";
 import useGameStore from "@/stores/game";
+import { useClickAway } from "@uidotdev/usehooks";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef } from "react";
-import { MapScreen } from "./MapScreen";
 
 const variants = {
   enter: {
@@ -14,7 +15,7 @@ const variants = {
 
 const ScreenBase = ({ children }: { children: React.ReactNode }) => {
   return (
-    <div className="screen focus:outline-none">
+    <div className="screen focus:outline-none pointer-events-auto">
       <div className="relative z-1 p-4">{children}</div>
     </div>
   );
@@ -22,11 +23,23 @@ const ScreenBase = ({ children }: { children: React.ReactNode }) => {
 
 export const ScreenContainer = () => {
   const containerRef = useRef<HTMLDivElement>(null);
+  //const screenRef = useRef<HTMLDivElement>(null);
 
   const activeScreen = useGameStore.use.activeScreen?.();
   const prevActiveScreenRef = useRef<UIScreen | undefined>(activeScreen);
   const diamondFXInstance = useGameStore.use.diamondFXInstance?.();
   const setActiveScreen = useGameStore.use.setActiveScreen?.();
+
+  const screenRef = useClickAway<HTMLDivElement>((e) => {
+    const target = e.target as HTMLElement;
+    const isMenuClick =
+      target.closest('[role="tab"]') ||
+      target.closest('button[aria-controls="#screen-container"]');
+
+    if (!isMenuClick && activeScreen) {
+      setActiveScreen(undefined);
+    }
+  });
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     e.preventDefault();
@@ -56,11 +69,11 @@ export const ScreenContainer = () => {
   }, [activeScreen]);
 
   return (
-    <div className="absolute inset-ui-lg z-(--z-screens) flex items-center justify-center">
+    <div className="absolute inset-ui-lg z-(--z-screens) flex items-center justify-center pointer-events-none">
       <div
         id="screen-container"
         className="relative max-h-min max-w-min focus:outline-none"
-        tabIndex={-1}
+        tabIndex={0}
         onKeyDown={handleKeyDown}
         ref={containerRef}
       >
@@ -80,6 +93,7 @@ export const ScreenContainer = () => {
             initial="exit"
             animate="enter"
             exit="exit"
+            ref={screenRef}
           >
             {activeScreen === "self" && <ScreenBase>Self</ScreenBase>}
             {activeScreen === "messaging" && <ScreenBase>Messaging</ScreenBase>}

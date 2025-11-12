@@ -203,6 +203,11 @@ export class GalaxyStarfield {
   private _isRendering: boolean = false;
   private _sceneReadyPending: boolean = false;
 
+  // Performance monitoring
+  private performanceModeActive: boolean;
+  private performanceSlowFrameCounter: number;
+  private performanceFastFrameCounter: number;
+
   // Warp management
   private warpController: WarpController;
   private sceneController: SceneController;
@@ -294,6 +299,7 @@ export class GalaxyStarfield {
       this.finalizeSceneReady();
       this.startRendering();
       this.resetNonAnimatedWarpState();
+      this.warpController.notifyWarpComplete();
     }
   }
 
@@ -305,6 +311,9 @@ export class GalaxyStarfield {
       targetElement ?? document.getElementById("starfield") ?? document.body;
 
     this.config = { ...DEFAULT_GALAXY_CONFIG, ...config };
+    this.performanceModeActive = this.config.performanceMode;
+    this.performanceSlowFrameCounter = 0;
+    this.performanceFastFrameCounter = 0;
 
     this.debugMode = config.debugMode !== undefined ? config.debugMode : false;
     this.emitter = mitt<GalaxyStarfieldEvents>();
@@ -325,7 +334,7 @@ export class GalaxyStarfield {
         }
       },
       onWindowBlur: () => {
-        if (!this._isRendering) {
+        if (!this._isRendering || !this.config.pauseOnBlur) {
           return;
         }
         if (!this.isPaused) {
@@ -336,6 +345,9 @@ export class GalaxyStarfield {
         }
       },
       onWindowFocus: () => {
+        if (!this.config.pauseOnBlur) {
+          return;
+        }
         if (!document.hidden && !this.isManuallyPaused) {
           this.forceResume();
         }
@@ -489,6 +501,7 @@ export class GalaxyStarfield {
 
     this.init();
     this.updateCachedConfig();
+    this.applyPerformanceModeUniform();
 
     this.lifecycleController.attach(this._targetElement);
 
@@ -646,6 +659,7 @@ export class GalaxyStarfield {
   private handleContextRestoration(): void {
     this._nebula?.restore();
     this._clouds?.restore();
+    this.applyPerformanceModeUniform();
 
     if (this.composer) {
       this.composer.render();
@@ -672,6 +686,113 @@ export class GalaxyStarfield {
         pauseBtn.classList.remove("active");
         pauseBtn.textContent = "PAUSE";
       }
+    }
+  }
+
+  // ============================================================================
+  // PERFORMANCE MODE HANDLING
+  // ============================================================================
+
+  private updatePerformanceTracking(frameTimeMs: number): void {
+    if (!this.config.performanceAutoToggle) {
+      return;
+    }
+
+    const slowThreshold =
+      this.config.performanceSlowFrameThresholdMs ?? 28;
+    const fastThreshold =
+      this.config.performanceFastFrameThresholdMs ?? 20;
+
+    if (!this.performanceModeActive) {
+      if (frameTimeMs > slowThreshold) {
+        this.performanceSlowFrameCounter += 1;
+        if (
+          this.performanceSlowFrameCounter >=
+          (this.config.performanceSlowFrameCount || 45)
+        ) {
+          this.setPerformanceModeActive(true);
+          this.performanceSlowFrameCounter = 0;
+        }
+      } else if (this.performanceSlowFrameCounter > 0) {
+        this.performanceSlowFrameCounter -= 1;
+      }
+      this.performanceFastFrameCounter = 0;
+    } else {
+      if (frameTimeMs < fastThreshold) {
+        this.performanceFastFrameCounter += 1;
+        if (
+          this.performanceFastFrameCounter >=
+          (this.config.performanceFastFrameCount || 120)
+        ) {
+          this.setPerformanceModeActive(false);
+          this.performanceFastFrameCounter = 0;
+        }
+      } else if (this.performanceFastFrameCounter > 0) {
+        this.performanceFastFrameCounter -= 1;
+      }
+      this.performanceSlowFrameCounter = 0;
+    }
+  }
+
+  private setPerformanceModeActive(active: boolean): void {
+    if (this.performanceModeActive === active) {
+      return;
+    }
+
+    this.performanceModeActive = active;
+    this.config.performanceMode = active;
+    this.performanceSlowFrameCounter = 0;
+    this.performanceFastFrameCounter = 0;
+
+    console.info(
+      `[STARFIELD] Performance mode ${active ? "enabled" : "disabled"}`
+    );
+
+    if (this.performanceMonitor && !this.isPaused) {
+      this.performanceMonitor.updateStatus(
+        active ? "Warning" : "Running"
+      );
+    }
+
+    this.applyPerformanceModeUniform();
+    this.emit("performanceModeChanged", { active });
+  }
+
+  private applyPerformanceModeUniform(): void {
+    const active = this.performanceModeActive;
+
+    if (this._nebula) {
+      this._nebula.setPerformanceMode(active);
+    } else if (this.uniformManager.hasMaterial("nebula")) {
+      this.uniformManager.updateUniforms("nebula", {
+        performanceMode: active ? 1 : 0,
+      });
+    }
+
+    if (this._clouds) {
+      this._clouds.setPerformanceMode(active);
+    } else if (this.uniformManager.hasMaterial("clouds")) {
+      const config = this.config;
+      const basePrimary = config.cloudsIterPrimary;
+      const baseSecondary = config.cloudsIterSecondary;
+      const baseSpeed = config.cloudsSpeed;
+      const baseWarp = config.cloudsShakeWarpIntensity;
+      const iterPrimary = active
+        ? Math.max(1, Math.floor(basePrimary * 0.6))
+        : basePrimary;
+      const iterSecondary = active
+        ? Math.max(1, Math.floor(baseSecondary * 0.5))
+        : baseSecondary;
+      const speed = active ? baseSpeed * 0.7 : baseSpeed;
+      const shakeWarpIntensity = active ? baseWarp * 0.5 : baseWarp;
+
+      this.uniformManager.updateUniforms("clouds", {
+        iterPrimary,
+        iterSecondary,
+        speed,
+        shakeWarpIntensity,
+        performanceMode: active ? 1 : 0,
+      });
     }
   }
 
@@ -1336,6 +1457,7 @@ export class GalaxyStarfield {
 
     const deltaSeconds = this.clock.getDelta();
     this.frameCount++;
+    this.updatePerformanceTracking(deltaSeconds * 1000);
 
     this.updateFrameUniforms();
 
@@ -1534,6 +1656,10 @@ export class GalaxyStarfield {
     }
 
     this.updateCachedConfig();
+
+    if ("performanceMode" in newConfig) {
+      this.setPerformanceModeActive(!!this.config.performanceMode);
+    }
   }
 
   private handleShadowSettings(
@@ -1752,6 +1878,13 @@ export class GalaxyStarfield {
    */
   public get isProcessingWarpQueue(): boolean {
     return this.warpController.isProcessing();
+  }
+
+  /**
+   * Determine if performance mode is currently active
+   */
+  public get isPerformanceMode(): boolean {
+    return this.performanceModeActive;
   }
 
   /**
@@ -2176,6 +2309,7 @@ export class GalaxyStarfield {
 
     if (this.config.nebulaEnabled) {
       this._nebula?.create(this.config);
+      this.applyPerformanceModeUniform();
     }
 
     if (this.config.cloudsEnabled) {

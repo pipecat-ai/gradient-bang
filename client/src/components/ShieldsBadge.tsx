@@ -13,7 +13,7 @@ export const ShieldsBadge = ({ className }: { className?: string }) => {
 
   return (
     <Badge
-      variant="glass"
+      variant="count"
       border="elbow"
       className={cn("flex-col gap-2 items-start", className)}
     >
@@ -22,7 +22,7 @@ export const ShieldsBadge = ({ className }: { className?: string }) => {
         <Progress
           color="success"
           value={shieldsPercentage}
-          className="h-[8px] w-full"
+          className="h-[10px] w-full"
         />
       </div>
     </Badge>

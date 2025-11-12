@@ -297,7 +297,6 @@ export class ConfigUniformMapper {
     // Clouds updates
     if (this.uniformManager.hasMaterial("clouds")) {
       updates.clouds = {
-        resolution: { x: window.innerWidth, y: window.innerHeight },
         cameraRotation: state.cameraRotation,
         intensity: this.calculateCloudsIntensity(
           state,

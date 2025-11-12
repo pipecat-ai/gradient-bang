@@ -415,7 +415,17 @@ const storyData2: MapData = [
   },
 ];
 
+const coursePlotMock: CoursePlot = {
+  from_sector: 0,
+  to_sector: 1284,
+  path: [0, 581, 1284],
+  distance: 2,
+};
+
 export const MiniMapMock: Story = () => {
+  const coursePlot = useGameStore.use.course_plot?.();
+  const setCoursePlot = useGameStore.use.setCoursePlot?.();
+  const clearCoursePlot = useGameStore.use.clearCoursePlot?.();
   const [currentSectorId, setCurrentSectorId] = useState<number>(0);
   const [maxDistance, setMaxDistance] = useState<number>(2);
   const [bypassAnimation, setBypassAnimation] = useState<boolean>(false);
@@ -441,6 +451,7 @@ export const MiniMapMock: Story = () => {
           width={440}
           height={440}
           maxDistance={maxDistance}
+          coursePlot={coursePlot}
         />
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-3">
@@ -486,6 +497,12 @@ export const MiniMapMock: Story = () => {
               }}
             >
               Load Story 2
+            </Button>
+            <Button size="sm" onClick={() => setCoursePlot(coursePlotMock)}>
+              Plot Course
+            </Button>
+            <Button size="sm" onClick={() => clearCoursePlot()}>
+              Clear Course
             </Button>
           </div>
         </div>

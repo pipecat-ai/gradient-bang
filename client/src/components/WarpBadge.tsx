@@ -27,7 +27,7 @@ export const WarpBadge = ({ className }: { className?: string }) => {
   }`;
   return (
     <Badge
-      variant="glass"
+      variant="count"
       border="bracket"
       className={cn("flex-col gap-2 w-full items-start", className)}
     >

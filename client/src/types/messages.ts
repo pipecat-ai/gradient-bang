@@ -111,6 +111,21 @@ export interface BankTransactionMessage extends ServerMessagePayload {
   credits_in_bank_after: number;
 }
 
+export interface TradeExecutedMessage extends ServerMessagePayload {
+  player: PlayerSelf;
+  ship: ShipSelf;
+  trade: {
+    trade_type: "buy" | "sell";
+    commodity: Resource;
+    units: number;
+    price_per_unit: number;
+    total_price: number;
+    new_credits: number;
+    new_cargo: Record<Resource, number>;
+    new_prices: Record<Resource, number>;
+  };
+}
+
 export interface SectorUpdateMessage extends ServerMessagePayload, Sector {}
 
 export interface SalvageCreatedMessage extends ServerMessagePayload {

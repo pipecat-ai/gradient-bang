@@ -53,7 +53,11 @@ export const ViewContainer = ({ error }: { error?: string | null }) => {
         className="relative h-screen w-screen overflow-hidden"
       >
         {viewState === "title" && (
-          <Title onViewNext={() => handleViewStateChange("preload")} />
+          <Title
+            onViewNext={() => {
+              handleViewStateChange("preload");
+            }}
+          />
         )}
         {viewState === "preload" && (
           <Preload onComplete={() => handleViewStateChange("game")} />

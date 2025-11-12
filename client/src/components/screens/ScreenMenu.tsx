@@ -95,7 +95,7 @@ export const ScreenMenu = () => {
   return (
     <div className="flex flex-col gap-1 items-center user-select-none relative">
       <div
-        className="mask-[linear-gradient(to_bottom,transparent_1px,black_20px)] pb-2"
+        className="mask-[linear-gradient(to_bottom,transparent_1px,black_20px)] px-1 pb-2"
         onMouseLeave={startFadeOutTimer}
       >
         <ButtonGroup className="relative flex flex-row gap-1 shadow-lg">
@@ -118,7 +118,7 @@ export const ScreenMenu = () => {
           ))}
         </ButtonGroup>
       </div>
-      <div className="text-xs uppercase tracking-widest font-bold text-center w-full">
+      <div className="text-xs uppercase tracking-widest font-bold text-center w-full px-1">
         <AnimatePresence>
           {hoveredTab && (
             <motion.div

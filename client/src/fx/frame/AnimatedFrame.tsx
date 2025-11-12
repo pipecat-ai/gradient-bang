@@ -164,7 +164,7 @@ const mergeDiamondConfig = deepmergeCustom({
  */
 export const AnimatedFrame = ({ config = {} }: AnimatedFrameProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const playSound = usePlaySound();
+  const { playSound } = usePlaySound();
 
   useEffect(() => {
     const state = useGameStore.getState();

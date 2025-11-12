@@ -26,11 +26,11 @@
   --destructive-foreground: oklch(93.6% 0.032 17.717);
   --destructive-background: oklch(44.4% 0.177 26.899);
   --warning: oklch(82.8% 0.189 84.429);
-  --warning-foreground: oklch(82.8% 0.189 84.429);
-  --warning-background: oklch(47.3% 0.137 46.201);
+  --warning-foreground: oklch(92.4% 0.12 95.746);
+  --warning-background: oklch(27.9% 0.077 45.635);
   --success: oklch(76.5% 0.177 163.223);
-  --success-foreground: oklch(97.9% 0.021 166.113);
-  --success-background: oklch(43.2% 0.095 166.913);
+  --success-foreground: oklch(95% 0.052 163.051);
+  --success-background: oklch(26.2% 0.051 172.552);
   --border: var(--color-neutral-600);
   --input: oklch(0.708 0 0);
   --ring: oklch(0.439 0 0);
@@ -58,6 +58,7 @@
   --z-starfield: 1;
   --z-visor: 2;
   --z-hud: 3;
+  --z-toasts: 4;
   --z-screens: 20;
 }
 
@@ -105,6 +106,7 @@
   --color-client: var(--color-sky-300);
 
   /** UI **/
+  --spacing-ui-xs: calc(var(--spacing) * 2);
   --spacing-ui-sm: calc(var(--spacing) * 4);
   --spacing-ui-md: calc(var(--spacing) * 6);
   --spacing-ui-lg: calc(var(--spacing) * 10);
@@ -114,8 +116,16 @@
   --spacing-screen-border-y: calc(var(--spacing) * 10);
   --spacing-screen-border-x: calc(var(--spacing) * 4);
 
-  --height-ui: 460px;
-  --width-ui: 400px;
+  --height-ui-hud: 460px;
+  --width-ui-hud-center: 500px;
+  --width-ui-hud-lhs: 400px;
+  --width-ui-hud-rhs: 400px;
+  --grid-cols-hud: minmax(var(--width-ui-hud-lhs), 700px)
+    minmax(var(--width-ui-hud-center), var(--width-ui-hud-center))
+    minmax(var(--width-ui-hud-rhs), 700px);
+
+  --height-toast: 160px;
+  --width-toast: 600px;
 
   --shadow-glow-sm: 0 0 10px 1px var(--color-primary);
   --text-shadow-hud: 0 0 12px rgba(0, 0, 0, 0.6);
@@ -614,53 +624,42 @@ button {
   animation: highlight-focus 1.2s ease-out forwards;
 }
 
-/* Numerical Badge Animations */
-@keyframes counter-tick {
+@keyframes flash-glow-increment {
   0% {
     transform: scale(1);
+    box-shadow: 0 0 0 0 var(--color-success);
   }
-  50% {
+  40% {
     transform: scale(1.05);
+    box-shadow: 0 0 0px 4px var(--color-success);
   }
   100% {
     transform: scale(1);
+    box-shadow: 0 0 0px 12px transparent;
   }
 }
 
-@keyframes flash-glow {
+@keyframes flash-glow-decrement {
   0% {
-    box-shadow: 0 0 0 0 var(--color-active);
+    transform: scale(1);
+    box-shadow: 0 0 0 0 var(--color-warning);
   }
-  50% {
-    box-shadow: 0 0 0 4px var(--color-active);
+  40% {
+    transform: scale(1.03);
+    box-shadow: 0 0 0px 4px var(--color-warning);
   }
   100% {
-    box-shadow: 0 0 0 0 var(--color-active);
+    transform: scale(1);
+    box-shadow: 0 0 0px 12px transparent;
   }
 }
 
-@keyframes flash-glow-inactive {
-  0% {
-    box-shadow: 0 0 0 0 var(--color-inactive);
-  }
-  50% {
-    box-shadow: 0 0 0 4px var(--color-inactive);
-  }
-  100% {
-    box-shadow: 0 0 0 0 var(--color-inactive);
-  }
+.numerical-badge-flashing-increment {
+  animation: flash-glow-increment 1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
-.numerical-badge-animating {
-  animation: counter-tick 0.1s ease-out;
-}
-
-.numerical-badge-flashing {
-  animation: flash-glow 0.8s ease-out;
-}
-
-.numerical-badge-flashing-inactive {
-  animation: flash-glow-inactive 0.8s ease-out;
+.numerical-badge-flashing-decrement {
+  animation: flash-glow-decrement 1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
 @import "./starfield.css";

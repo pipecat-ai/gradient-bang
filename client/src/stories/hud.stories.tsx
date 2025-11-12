@@ -16,6 +16,13 @@ export const TopBarStory: Story = () => {
       max_shields: 100,
       fighters: 100,
       max_fighters: 100,
+      cargo: {
+        quantum_foam: 0,
+        retro_organics: 0,
+        neuro_symbolics: 0,
+      },
+      cargo_capacity: 100,
+      empty_holds: 100,
     });
   }, [setShip]);
 
@@ -51,6 +58,54 @@ export const TopBarStory: Story = () => {
           }}
         >
           Decrement Shields
+        </Button>
+        <Button
+          onClick={() => {
+            setShip({
+              ...ship,
+              cargo: {
+                ...ship.cargo,
+                retro_organics: (ship.cargo.retro_organics ?? 0) + 1,
+              },
+              empty_holds: ship.empty_holds - 1,
+            });
+          }}
+        >
+          Increment RO + 1
+        </Button>
+        <Button
+          onClick={() => {
+            setShip({
+              ...ship,
+              cargo: {
+                ...ship.cargo,
+                retro_organics: (ship.cargo.retro_organics ?? 0) - 1,
+              },
+              empty_holds: ship.empty_holds + 1,
+            });
+          }}
+        >
+          Decrement RO - 1
+        </Button>
+        <Button
+          onClick={() => {
+            setShip({
+              ...ship,
+              credits: (ship.credits ?? 0) + 1000,
+            });
+          }}
+        >
+          Incremenet Credits + 1000
+        </Button>
+        <Button
+          onClick={() => {
+            setShip({
+              ...ship,
+              credits: (ship.credits ?? 0) - 1000,
+            });
+          }}
+        >
+          Decrement Credits - 1000
         </Button>
       </div>
     </div>
