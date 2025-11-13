@@ -1,0 +1,35 @@
+{
+    "$schema": "https://turborepo.com/schema.json",
+    "ui": "tui",
+    "tasks": {
+        "build": {
+            "dependsOn": [
+                "^build"
+            ],
+            "outputs": [
+                "dist/**",
+                ".vite/**"
+            ]
+        },
+        "preview": {
+            "dependsOn": [
+                "build"
+            ],
+            "cache": false,
+            "persistent": true
+        },
+        "dev": {
+            "cache": false,
+            "persistent": true
+        },
+        "lint": {
+            "dependsOn": [
+                "^build"
+            ]
+        },
+        "stories": {
+            "cache": false,
+            "persistent": true
+        }
+    }
+}

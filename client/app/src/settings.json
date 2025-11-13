@@ -1,0 +1,8 @@
+{
+    "startMuted": false,
+    "enableMic": true,
+    "disableRemoteAudio": false,
+    "saveSettings": true,
+    "bypassTitleScreen": false,
+    "showMobileWarning": true
+}
