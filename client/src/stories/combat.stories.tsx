@@ -1,4 +1,3 @@
-import { composeCombatAction } from "@/actions/combat";
 import { CaptainsLogPanel } from "@/components/CaptainsLogPanel";
 import { CombatTimerBadge } from "@/components/CombatTimerBadge";
 import { useGameContext } from "@/hooks/useGameContext";
@@ -23,7 +22,7 @@ export const Combat: Story = () => {
     undefined
   );
 
-  const { dispatchEvent, sendUserTextInput } = useGameContext();
+  const { sendUserTextInput } = useGameContext();
 
   return (
     <>
@@ -62,46 +61,26 @@ export const Combat: Story = () => {
             </Select>
             <div className="flex flex-col gap-2">
               <Button
-                onClick={() =>
-                  dispatchEvent(
-                    composeCombatAction({
-                      combat_id: activeCombatSession?.combat_id,
-                      action: "attack",
-                      target_id: "7c971d13-fa1f-4c18-8714-cf1721d4c338", //activeTarget
-                    })
-                  )
-                }
+                onClick={() => {
+                  console.log("Attack");
+                }}
                 disabled={!activeCombatSession}
               >
                 Attack
               </Button>
 
               <Button
-                onClick={() =>
-                  dispatchEvent(
-                    composeCombatAction({
-                      combat_id: activeCombatSession?.combat_id,
-                      action: "brace",
-                      commit: 1,
-                      round: activeCombatSession?.round,
-                    })
-                  )
-                }
+                onClick={() => {
+                  console.log("Brace");
+                }}
                 disabled={!activeCombatSession}
               >
                 Brace
               </Button>
               <Button
-                onClick={() =>
-                  dispatchEvent(
-                    composeCombatAction({
-                      combat_id: activeCombatSession?.combat_id,
-                      action: "flee",
-                      commit: 1,
-                      round: activeCombatSession?.round,
-                    })
-                  )
-                }
+                onClick={() => {
+                  console.log("Flee");
+                }}
                 disabled={!activeCombatSession}
               >
                 Flee

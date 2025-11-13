@@ -1,19 +1,18 @@
 import React, { useEffect, useMemo } from "react";
 
+import { UserMicControl } from "@/components/UserMicControl";
 import type { GlobalProvider, Meta } from "@ladle/react";
 import {
-  Divider,
   PipecatAppBase,
   usePipecatConnectionState,
-  UserAudioControl,
 } from "@pipecat-ai/voice-ui-kit";
-import { Badge } from "../src/components/primitives/Badge";
 import { Button } from "../src/components/primitives/Button";
 
 import { GameProvider } from "./../src/GameContext";
 import Error from "./../src/components/views/Error";
 import { MessageSelect } from "./MessageSelect";
 
+import { DotDivider } from "@/components/primitives/DotDivider";
 import { PipecatClient } from "@pipecat-ai/client-js";
 import useGameStore from "../src/stores/game";
 import "./global.css";
@@ -62,20 +61,18 @@ const StoryWrapper = ({
                 </Button>
               )}
             </div>
-            <div className="flex flex-row gap-2">
+            <div className="flex flex-row gap-2 items-center">
               {storyMeta?.enableMic ? (
-                <UserAudioControl />
+                <UserMicControl />
               ) : (
-                <Badge size="sm" border="elbow">
-                  Audio Disabled
-                </Badge>
+                <UserMicControl disabled />
               )}
+              <DotDivider />
               {storyMeta?.messages && (
                 <MessageSelect messages={storyMeta?.messages ?? []} />
               )}
             </div>
           </div>
-          <Divider decoration="plus" size="md" />
         </>
       )}
 

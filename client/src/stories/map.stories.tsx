@@ -6,13 +6,13 @@ import { Button } from "@/components/primitives/Button";
 import { Divider } from "@/components/primitives/Divider";
 import { MiniMap as MiniMapComponent, type MiniMapConfig } from "@hud/MiniMap";
 
-import { GET_MAP_REGION } from "@/actions/dispatch";
 import { useGameContext } from "@/hooks/useGameContext";
 import useGameStore from "@/stores/game";
+import type { GetMapRegionAction } from "@/types/actions";
 import { MapScreen } from "@screens/MapScreen";
 
 export const MapPanelStory: Story = () => {
-  const { dispatchEvent, sendUserTextInput } = useGameContext();
+  const { dispatchAction, sendUserTextInput } = useGameContext();
   const [maxHops, setMaxHops] = useState(50);
   const [fromSectorId, setFromSectorId] = useState(0);
   const [targetSectorId, setTargetSectorId] = useState<number>(0);
@@ -49,13 +49,14 @@ export const MapPanelStory: Story = () => {
         )}
         <Button
           onClick={() =>
-            dispatchEvent({
-              ...GET_MAP_REGION,
+            dispatchAction({
+              type: "get-my-map",
               payload: {
                 center_sector: fromSectorId,
                 max_hops: maxHops,
+                max_sectors: 1000,
               },
-            })
+            } as GetMapRegionAction)
           }
         >
           Get regional map

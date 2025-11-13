@@ -2,7 +2,6 @@ import { RTVIEvent } from "@pipecat-ai/client-js";
 import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react";
 import { useCallback, useRef, type ReactNode } from "react";
 
-import { startMoveToSector } from "@/actions";
 import { GameContext } from "@/hooks/useGameContext";
 import {
   type BankTransactionMessage,
@@ -37,7 +36,9 @@ import {
   transferSummaryString,
 } from "@/utils/game";
 import useGameStore, { GameInitStateMessage } from "@stores/game";
+import type { StarfieldSceneConfig } from "./fx/starfield";
 import GameInstanceManager from "./GameInstanceManager";
+import type { Action, StartAction } from "./types/actions";
 import { RESOURCE_SHORT_NAMES } from "./types/constants";
 
 interface GameProviderProps {
@@ -93,10 +94,10 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
   }
 
   /**
-   * Dispatch game event to server
+   * Dispatch game action to server
    */
-  const dispatchEvent = useCallback(
-    (e: { type: string; payload?: unknown }) => {
+  const dispatchAction = useCallback(
+    (action: Action) => {
       if (!client) {
         console.error("[GAME CONTEXT] Client not available");
         return;
@@ -107,8 +108,11 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
         );
         return;
       }
-      console.debug(`[GAME CONTEXT] Dispatching event: "${e.type}"`, e.payload);
-      client.sendClientMessage(e.type, e.payload ?? {});
+      console.debug(
+        `[GAME CONTEXT] Dispatching action: "${action.type}"`,
+        action.payload
+      );
+      client.sendClientMessage(action.type, action.payload ?? {});
     },
     [client]
   );
@@ -116,7 +120,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
   // Dev-only: Expose to console using globalThis
   if (import.meta.env.DEV) {
     // @ts-expect-error - Dev-only console helper
-    globalThis.dispatchEvent = dispatchEvent;
+    globalThis.dispatchAction = dispatchAction;
   }
 
   /**
@@ -166,8 +170,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
     await wait(1000);
 
     // 5. Dispatch start event to bot to kick off the conversation
-    dispatchEvent({ type: "start" });
-  }, [onConnect, gameStore, dispatchEvent, client]);
+    dispatchAction({ type: "start" } as StartAction);
+  }, [onConnect, gameStore, dispatchAction, client]);
 
   /**
    * Handle server message
@@ -256,10 +260,42 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             // ----- MOVEMENT
             case "movement.start": {
               console.debug("[GAME EVENT] Move started", gameEvent.payload);
+              const data = gameEvent.payload as MovementStartMessage;
 
-              startMoveToSector(
-                (gameEvent.payload as MovementStartMessage).sector
-              );
+              const gameStore = useGameStore.getState();
+
+              // Store a reference to the sector to be moved to
+              // We don't update client to reference the new sector yet
+              // to support animation sequencing and debouncing (task-based movement)
+              const newSector = data.sector;
+              gameStore.setSectorBuffer(newSector);
+
+              console.debug("[GAME] Starting movement action", newSector);
+
+              gameStore.setUIState("moving");
+
+              // @TODO: move this logic to the game instance manager
+              const starfield = gameStore.starfieldInstance;
+
+              if (!starfield || !gameStore.settings.renderStarfield) {
+                console.error(
+                  "[GAME] Starfield instance not found / disabled, skipping animation"
+                );
+                break;
+              }
+
+              console.debug("[GAME] Updating Starfield to", newSector);
+
+              starfield.warpToSector({
+                id: newSector.id.toString(),
+                sceneConfig:
+                  newSector.scene_config as Partial<StarfieldSceneConfig>,
+                gameObjects: newSector.port
+                  ? [{ id: "port", type: "port", name: "Port" }]
+                  : undefined,
+                bypassAnimation: gameStore.settings.fxBypassAnimation,
+                bypassFlash: gameStore.settings.fxBypassFlash,
+              });
 
               break;
             }
@@ -760,7 +796,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
   return (
     <GameContext.Provider
-      value={{ sendUserTextInput, dispatchEvent, initialize }}
+      value={{ sendUserTextInput, dispatchAction, initialize }}
     >
       {children}
     </GameContext.Provider>

@@ -1,20 +1,20 @@
+import { Button } from "@/components/primitives/Button";
 import {
-  Button,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@pipecat-ai/voice-ui-kit";
-import React, { useState } from "react";
-import { useGameContext } from "../src/hooks/useGameContext";
+} from "@/components/primitives/Select";
+import { useGameContext } from "@/hooks/useGameContext";
+import { useState } from "react";
 
 export const MessageSelect = ({ messages }: { messages: string[][] }) => {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const { sendUserTextInput } = useGameContext();
 
   return (
-    <div className="flex flex-row gap-2">
+    <div className="flex flex-row gap-2 items-center">
       <Select
         value={selectedIndex?.toString() ?? ""}
         onValueChange={(value) => {
@@ -24,7 +24,7 @@ export const MessageSelect = ({ messages }: { messages: string[][] }) => {
           }
         }}
       >
-        <SelectTrigger className="w-[200px]">
+        <SelectTrigger>
           <SelectValue
             aria-label={selectedIndex?.toString() ?? ""}
             placeholder="Select action"
@@ -32,7 +32,7 @@ export const MessageSelect = ({ messages }: { messages: string[][] }) => {
             {messages[selectedIndex ?? 0][0]}
           </SelectValue>
         </SelectTrigger>
-        <SelectContent className="w-[200px]">
+        <SelectContent>
           {messages.map(([title], index) => (
             <SelectItem key={index} value={index.toString()}>
               {title}
@@ -41,6 +41,7 @@ export const MessageSelect = ({ messages }: { messages: string[][] }) => {
         </SelectContent>
       </Select>
       <Button
+        variant="secondary"
         disabled={selectedIndex === null}
         onClick={() => {
           if (selectedIndex !== null) {

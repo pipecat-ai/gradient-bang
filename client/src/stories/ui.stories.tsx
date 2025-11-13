@@ -627,7 +627,7 @@ NumberCounter.meta = {
 
 export const UserMicControlStory: Story = () => (
   <div className="flex flex-col gap-4">
-    <UserMicControl />
+    <UserMicControl disabled />
   </div>
 );
 
