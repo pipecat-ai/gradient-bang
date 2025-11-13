@@ -1,7 +1,440 @@
 {
-  "admin_password_plain": "",
-  "password_hash": "",
   "characters": {
+    "00ae7352-504f-4d90-99b3-5b8e722853d1": {
+      "name": "Chatty Atlas",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "26f124f0-ce6b-4dca-af29-69759e2f37c1"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": "Chatty Atlas"
+      },
+      "created_at": "2025-11-10T06:16:36.512218+00:00",
+      "updated_at": "2025-11-10T06:16:36.512223+00:00"
+    },
+    "02092331-dc4a-4fd2-b8da-b518edb02146": {
+      "name": "Logging Atlas",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "8bcaeaee-5caa-4b41-9099-5e3a75cd7b36"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": "Logging Atlas"
+      },
+      "created_at": "2025-11-10T06:19:57.467799+00:00",
+      "updated_at": "2025-11-10T06:19:57.467815+00:00"
+    },
+    "1bd94067-823d-4064-a1f3-8206d4461428": {
+      "name": "Warp Atlas",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "2f903cd5-9c26-493a-bd4d-caf797a2f938"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": "Warp Atlas"
+      },
+      "created_at": "2025-11-10T06:16:11.029108+00:00",
+      "updated_at": "2025-11-10T06:16:11.029116+00:00"
+    },
+    "2c74b44e-16cd-42f0-8487-10bf6c9a8967": {
+      "name": "Auth Sweep Vessel",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "ee581a2a-30fa-480d-a17d-f41121609620"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": "Auth Sweep Vessel"
+      },
+      "created_at": "2025-11-10T06:19:31.034007+00:00",
+      "updated_at": "2025-11-10T06:19:31.034013+00:00"
+    },
+    "38cec9e5-9889-4757-bb62-21922d0dd234": {
+      "name": "Fleet Beta",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "3af7793b-8cbf-45ee-bfd7-ce7eef51abe2"
+      },
+      "ship": {
+        "ship_type": "kestrel_courier",
+        "name": "Fleet Beta"
+      },
+      "created_at": "2025-11-10T06:20:03.503008+00:00",
+      "updated_at": "2025-11-10T06:20:03.503015+00:00"
+    },
+    "4089418b-9b56-46e9-b7f8-24737f148e56": {
+      "name": "Atlas Hauler",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "5c308069-410e-4249-a220-88db3f621e0b"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": null
+      },
+      "created_at": "2025-11-10T06:15:03.188605+00:00",
+      "updated_at": "2025-11-10T06:15:03.188613+00:00"
+    },
+    "41359a34-d516-448c-b898-c3f3f9a34d56": {
+      "name": "Trader Atlas",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "7a094467-d464-4567-a4c5-3d787562c85b"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": "Trader Atlas"
+      },
+      "created_at": "2025-11-10T06:16:04.978857+00:00",
+      "updated_at": "2025-11-10T06:16:04.978862+00:00"
+    },
+    "4149385d-6de3-439c-a07a-47e6a3a20099": {
+      "name": "Guarded Atlas",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "3f77ae28-5427-4cfb-8cbb-63ef9710dd0a"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": "Guarded Atlas"
+      },
+      "created_at": "2025-11-10T06:19:27.964101+00:00",
+      "updated_at": "2025-11-10T06:19:27.964106+00:00"
+    },
+    "45c1ab50-2328-4d9d-80ee-97f64c5d9adf": {
+      "name": "Remote Atlas",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "a74a6bd6-754e-49ea-8bb6-b3bace2dc9eb"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": "Remote Atlas"
+      },
+      "created_at": "2025-11-10T06:15:55.285868+00:00",
+      "updated_at": "2025-11-10T06:15:55.285873+00:00"
+    },
+    "52b58d9a-4f1b-47da-9f6b-b98416c7ba20": {
+      "name": "Chatty Atlas",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "e255f488-6fcc-4148-8bfe-0b9a8663c8a6"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": "Chatty Atlas"
+      },
+      "created_at": "2025-11-10T06:19:43.746162+00:00",
+      "updated_at": "2025-11-10T06:19:43.746168+00:00"
+    },
+    "628bacf1-756b-46ad-b176-2e1bad77874d": {
+      "name": "War Atlas",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "a19524e9-4f81-42a4-8685-0a3714062b57"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": "War Atlas"
+      },
+      "created_at": "2025-11-10T06:23:52.670378+00:00",
+      "updated_at": "2025-11-10T06:23:52.670386+00:00"
+    },
+    "6df87d8e-2d10-4057-84cd-0fa7a066198f": {
+      "name": "Logging Atlas",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "4483f271-8d10-475c-89dd-8892c6be298f"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": "Logging Atlas"
+      },
+      "created_at": "2025-11-10T06:16:40.586434+00:00",
+      "updated_at": "2025-11-10T06:16:40.586440+00:00"
+    },
+    "701bdf5a-d7f2-43dd-9b3c-7e4b163a1bea": {
+      "name": "Fleet Beta",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "7e903e29-b02f-4d23-9349-5ad69f2fb824"
+      },
+      "ship": {
+        "ship_type": "kestrel_courier",
+        "name": "Fleet Beta"
+      },
+      "created_at": "2025-11-10T06:17:01.022119+00:00",
+      "updated_at": "2025-11-10T06:17:01.022125+00:00"
+    },
+    "76826aad-08f8-40f7-8fb6-087120bf4989": {
+      "name": "Warp Atlas",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "f20c7e20-fa69-4fdb-ad7d-b16a06c33b70"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": "Warp Atlas"
+      },
+      "created_at": "2025-11-10T06:19:09.466529+00:00",
+      "updated_at": "2025-11-10T06:19:09.466535+00:00"
+    },
+    "7f283abc-f98c-4a32-a7ed-38c8e9309db8": {
+      "name": "War Atlas",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "0ee35f81-789d-48da-8ddf-8dcef4f8006d"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": "War Atlas"
+      },
+      "created_at": "2025-11-10T06:16:25.422893+00:00",
+      "updated_at": "2025-11-10T06:16:25.422899+00:00"
+    },
+    "87946736-3b1d-46a4-af43-399efbecddc9": {
+      "name": "Ledger One",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "c27debd3-cde5-40a5-8aa1-420e59a8a87b"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": "Ledger One"
+      },
+      "created_at": "2025-11-10T06:17:32.849537+00:00",
+      "updated_at": "2025-11-10T06:17:32.849543+00:00"
+    },
+    "a7c5e664-670d-4348-bded-eaafc9c927f7": {
+      "name": "Ledger One",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "28e40015-ab1b-427a-b928-b2673da9f940"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": "Ledger One"
+      },
+      "created_at": "2025-11-10T06:21:12.447739+00:00",
+      "updated_at": "2025-11-10T06:21:12.447745+00:00"
+    },
+    "aa6dcdd5-fdd3-4cad-8fec-2ae6bcfac8c4": {
+      "name": "Guarded Atlas",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "b96a4036-2694-4073-9624-19c58df969d8"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": "Guarded Atlas"
+      },
+      "created_at": "2025-11-10T06:16:29.441654+00:00",
+      "updated_at": "2025-11-10T06:16:29.441660+00:00"
+    },
+    "b56e33cd-b5da-49ce-ae78-777baf1ea61f": {
+      "name": "War Atlas",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "cca9df1d-9bd8-425c-9dc1-2117f51ec2b5"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": "War Atlas"
+      },
+      "created_at": "2025-11-10T06:19:23.872353+00:00",
+      "updated_at": "2025-11-10T06:19:23.872359+00:00"
+    },
+    "bbe088e1-21ff-4c4e-a398-2457a15d2aac": {
+      "name": "Remote Atlas",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "b3871d0a-9004-4d78-909e-70659b5378c5"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": "Remote Atlas"
+      },
+      "created_at": "2025-11-10T06:18:53.743614+00:00",
+      "updated_at": "2025-11-10T06:18:53.743622+00:00"
+    },
+    "c5ac72e6-8d89-46d4-8e53-d52c624ea0eb": {
+      "name": "Trader Atlas",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "6033d069-39f7-4c59-8047-ee78c40aaf72"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": "Trader Atlas"
+      },
+      "created_at": "2025-11-10T06:19:03.441003+00:00",
+      "updated_at": "2025-11-10T06:19:03.441011+00:00"
+    },
+    "corp_events_founder_abandon": {
+      "name": "corp_events_founder_abandon",
+      "email": "corp_events_founder_abandon@test.com",
+      "password_hash": ""
+    },
+    "corp_events_founder_create": {
+      "name": "corp_events_founder_create",
+      "email": "corp_events_founder_create@test.com",
+      "password_hash": ""
+    },
+    "corp_events_founder_disband": {
+      "name": "corp_events_founder_disband",
+      "email": "corp_events_founder_disband@test.com",
+      "password_hash": ""
+    },
+    "corp_events_founder_join": {
+      "name": "corp_events_founder_join",
+      "email": "corp_events_founder_join@test.com",
+      "password_hash": ""
+    },
+    "corp_events_founder_kick": {
+      "name": "corp_events_founder_kick",
+      "email": "corp_events_founder_kick@test.com",
+      "password_hash": ""
+    },
+    "corp_events_founder_leave": {
+      "name": "corp_events_founder_leave",
+      "email": "corp_events_founder_leave@test.com",
+      "password_hash": ""
+    },
+    "corp_events_founder_log": {
+      "name": "corp_events_founder_log",
+      "email": "corp_events_founder_log@test.com",
+      "password_hash": ""
+    },
+    "corp_events_founder_logcheck": {
+      "name": "corp_events_founder_logcheck",
+      "email": "corp_events_founder_logcheck@test.com",
+      "password_hash": ""
+    },
+    "corp_events_founder_ship": {
+      "name": "corp_events_founder_ship",
+      "email": "corp_events_founder_ship@test.com",
+      "password_hash": ""
+    },
+    "corp_events_joiner": {
+      "name": "corp_events_joiner",
+      "email": "corp_events_joiner@test.com",
+      "password_hash": ""
+    },
+    "corp_events_log_joiner": {
+      "name": "corp_events_log_joiner",
+      "email": "corp_events_log_joiner@test.com",
+      "password_hash": ""
+    },
+    "corp_events_member_a": {
+      "name": "corp_events_member_a",
+      "email": "corp_events_member_a@test.com",
+      "password_hash": ""
+    },
+    "corp_events_member_b": {
+      "name": "corp_events_member_b",
+      "email": "corp_events_member_b@test.com",
+      "password_hash": ""
+    },
+    "corp_events_target": {
+      "name": "corp_events_target",
+      "email": "corp_events_target@test.com",
+      "password_hash": ""
+    },
+    "corp_filter_field_founder": {
+      "name": "corp_filter_field_founder",
+      "email": "corp_filter_field_founder@test.com",
+      "password_hash": ""
+    },
+    "corp_filter_field_member": {
+      "name": "corp_filter_field_member",
+      "email": "corp_filter_field_member@test.com",
+      "password_hash": ""
+    },
+    "corp_filter_founder": {
+      "name": "corp_filter_founder",
+      "email": "corp_filter_founder@test.com",
+      "password_hash": ""
+    },
+    "corp_filter_garrison_member": {
+      "name": "corp_filter_garrison_member",
+      "email": "corp_filter_garrison_member@test.com",
+      "password_hash": ""
+    },
+    "corp_filter_garrison_solo": {
+      "name": "corp_filter_garrison_solo",
+      "email": "corp_filter_garrison_solo@test.com",
+      "password_hash": ""
+    },
+    "corp_filter_joiner": {
+      "name": "corp_filter_joiner",
+      "email": "corp_filter_joiner@test.com",
+      "password_hash": ""
+    },
+    "corp_filter_sector_founder": {
+      "name": "corp_filter_sector_founder",
+      "email": "corp_filter_sector_founder@test.com",
+      "password_hash": ""
+    },
+    "corp_filter_ship_founder": {
+      "name": "corp_filter_ship_founder",
+      "email": "corp_filter_ship_founder@test.com",
+      "password_hash": ""
+    },
+    "e7dc55e0-c900-4212-81b4-48a829bd26ad": {
+      "name": "Fleet Alpha",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "7e903e29-b02f-4d23-9349-5ad69f2fb824"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": "Fleet Alpha"
+      },
+      "created_at": "2025-11-10T06:17:00.014367+00:00",
+      "updated_at": "2025-11-10T06:17:00.014372+00:00"
+    },
+    "ec38644d-4ae6-4254-a65f-f0b6da69feee": {
+      "name": "Auth Sweep Vessel",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "f941a652-9367-4fc8-a526-b823155d78c1"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": "Auth Sweep Vessel"
+      },
+      "created_at": "2025-11-10T06:16:32.494131+00:00",
+      "updated_at": "2025-11-10T06:16:32.494137+00:00"
+    },
+    "f2d2fede-f5a0-4706-9adb-ca919e832375": {
+      "name": "Atlas Hauler",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "600427fd-3a1c-43e8-b7a2-7d7976b172dc"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": null
+      },
+      "created_at": "2025-11-10T06:18:40.140433+00:00",
+      "updated_at": "2025-11-10T06:18:40.140439+00:00"
+    },
+    "f84e3111-1950-4b98-8c4d-e82de7b24ae5": {
+      "name": "Fleet Alpha",
+      "player": {
+        "type": "corporation_ship",
+        "owner_corp_id": "3af7793b-8cbf-45ee-bfd7-ce7eef51abe2"
+      },
+      "ship": {
+        "ship_type": "atlas_hauler",
+        "name": "Fleet Alpha"
+      },
+      "created_at": "2025-11-10T06:20:02.495819+00:00",
+      "updated_at": "2025-11-10T06:20:02.495824+00:00"
+    },
     "push_player": {
       "name": "push_player",
       "email": "push_player@test.com",
@@ -42,14 +475,384 @@
       "email": "test_abf_defender@test.com",
       "password_hash": ""
     },
+    "test_action_attacker": {
+      "name": "test_action_attacker",
+      "email": "test_action_attacker@test.com",
+      "password_hash": ""
+    },
+    "test_action_defender": {
+      "name": "test_action_defender",
+      "email": "test_action_defender@test.com",
+      "password_hash": ""
+    },
+    "test_admin_combined": {
+      "name": "test_admin_combined",
+      "email": "test_admin_combined@test.com",
+      "password_hash": ""
+    },
+    "test_admin_filter_char1": {
+      "name": "test_admin_filter_char1",
+      "email": "test_admin_filter_char1@test.com",
+      "password_hash": ""
+    },
+    "test_admin_filter_char2": {
+      "name": "test_admin_filter_char2",
+      "email": "test_admin_filter_char2@test.com",
+      "password_hash": ""
+    },
+    "test_admin_invalid": {
+      "name": "test_admin_invalid",
+      "email": "test_admin_invalid@test.com",
+      "password_hash": ""
+    },
+    "test_admin_query_char1": {
+      "name": "test_admin_query_char1",
+      "email": "test_admin_query_char1@test.com",
+      "password_hash": ""
+    },
+    "test_admin_query_char2": {
+      "name": "test_admin_query_char2",
+      "email": "test_admin_query_char2@test.com",
+      "password_hash": ""
+    },
+    "test_admin_sector_filter": {
+      "name": "test_admin_sector_filter",
+      "email": "test_admin_sector_filter@test.com",
+      "password_hash": ""
+    },
+    "test_api_combat_att": {
+      "name": "test_api_combat_att",
+      "email": "test_api_combat_att@test.com",
+      "password_hash": ""
+    },
+    "test_api_combat_def": {
+      "name": "test_api_combat_def",
+      "email": "test_api_combat_def@test.com",
+      "password_hash": ""
+    },
+    "test_api_flee_att": {
+      "name": "test_api_flee_att",
+      "email": "test_api_flee_att@test.com",
+      "password_hash": ""
+    },
+    "test_api_flee_def": {
+      "name": "test_api_flee_def",
+      "email": "test_api_flee_def@test.com",
+      "password_hash": ""
+    },
+    "test_api_garrison": {
+      "name": "test_api_garrison",
+      "email": "test_api_garrison@test.com",
+      "password_hash": ""
+    },
+    "test_api_join": {
+      "name": "test_api_join",
+      "email": "test_api_join@test.com",
+      "password_hash": ""
+    },
+    "test_api_list_ports": {
+      "name": "test_api_list_ports",
+      "email": "test_api_list_ports@test.com",
+      "password_hash": ""
+    },
+    "test_api_local_map": {
+      "name": "test_api_local_map",
+      "email": "test_api_local_map@test.com",
+      "password_hash": ""
+    },
+    "test_api_move": {
+      "name": "test_api_move",
+      "email": "test_api_move@test.com",
+      "password_hash": ""
+    },
+    "test_api_move_hyperspace": {
+      "name": "test_api_move_hyperspace",
+      "email": "test_api_move_hyperspace@test.com",
+      "password_hash": ""
+    },
+    "test_api_move_invalid": {
+      "name": "test_api_move_invalid",
+      "email": "test_api_move_invalid@test.com",
+      "password_hash": ""
+    },
+    "test_api_path_region": {
+      "name": "test_api_path_region",
+      "email": "test_api_path_region@test.com",
+      "password_hash": ""
+    },
+    "test_api_plot": {
+      "name": "test_api_plot",
+      "email": "test_api_plot@test.com",
+      "password_hash": ""
+    },
+    "test_api_purchase_fighters": {
+      "name": "test_api_purchase_fighters",
+      "email": "test_api_purchase_fighters@test.com",
+      "password_hash": ""
+    },
+    "test_api_recharge": {
+      "name": "test_api_recharge",
+      "email": "test_api_recharge@test.com",
+      "password_hash": ""
+    },
+    "test_api_salvage_collector": {
+      "name": "test_api_salvage_collector",
+      "email": "test_api_salvage_collector@test.com",
+      "password_hash": ""
+    },
+    "test_api_salvage_dumper": {
+      "name": "test_api_salvage_dumper",
+      "email": "test_api_salvage_dumper@test.com",
+      "password_hash": ""
+    },
+    "test_api_status": {
+      "name": "test_api_status",
+      "email": "test_api_status@test.com",
+      "password_hash": ""
+    },
+    "test_api_trade_buy": {
+      "name": "test_api_trade_buy",
+      "email": "test_api_trade_buy@test.com",
+      "password_hash": ""
+    },
+    "test_api_trade_fail": {
+      "name": "test_api_trade_fail",
+      "email": "test_api_trade_fail@test.com",
+      "password_hash": ""
+    },
+    "test_api_trade_sell": {
+      "name": "test_api_trade_sell",
+      "email": "test_api_trade_sell@test.com",
+      "password_hash": ""
+    },
+    "test_api_xfer_from": {
+      "name": "test_api_xfer_from",
+      "email": "test_api_xfer_from@test.com",
+      "password_hash": ""
+    },
+    "test_api_xfer_to": {
+      "name": "test_api_xfer_to",
+      "email": "test_api_xfer_to@test.com",
+      "password_hash": ""
+    },
+    "test_bad_params": {
+      "name": "test_bad_params",
+      "email": "test_bad_params@test.com",
+      "password_hash": ""
+    },
+    "test_bank_corp_founder": {
+      "name": "test_bank_corp_founder",
+      "email": "test_bank_corp_founder@test.com",
+      "password_hash": ""
+    },
+    "test_bank_corp_member": {
+      "name": "test_bank_corp_member",
+      "email": "test_bank_corp_member@test.com",
+      "password_hash": ""
+    },
+    "test_bank_corp_ship_founder": {
+      "name": "test_bank_corp_ship_founder",
+      "email": "test_bank_corp_ship_founder@test.com",
+      "password_hash": ""
+    },
+    "test_bank_corp_ship_member": {
+      "name": "test_bank_corp_ship_member",
+      "email": "test_bank_corp_ship_member@test.com",
+      "password_hash": ""
+    },
+    "test_bank_deposit": {
+      "name": "test_bank_deposit",
+      "email": "test_bank_deposit@test.com",
+      "password_hash": ""
+    },
+    "test_bank_deposit_exceed": {
+      "name": "test_bank_deposit_exceed",
+      "email": "test_bank_deposit_exceed@test.com",
+      "password_hash": ""
+    },
+    "test_bank_deposit_wrong_sector": {
+      "name": "test_bank_deposit_wrong_sector",
+      "email": "test_bank_deposit_wrong_sector@test.com",
+      "password_hash": ""
+    },
+    "test_bank_in_combat": {
+      "name": "test_bank_in_combat",
+      "email": "test_bank_in_combat@test.com",
+      "password_hash": ""
+    },
+    "test_bank_opponent": {
+      "name": "test_bank_opponent",
+      "email": "test_bank_opponent@test.com",
+      "password_hash": ""
+    },
+    "test_bank_withdraw": {
+      "name": "test_bank_withdraw",
+      "email": "test_bank_withdraw@test.com",
+      "password_hash": ""
+    },
+    "test_bank_withdraw_exceed": {
+      "name": "test_bank_withdraw_exceed",
+      "email": "test_bank_withdraw_exceed@test.com",
+      "password_hash": ""
+    },
+    "test_bank_withdraw_wrong_sector": {
+      "name": "test_bank_withdraw_wrong_sector",
+      "email": "test_bank_withdraw_wrong_sector@test.com",
+      "password_hash": ""
+    },
+    "test_bound_char": {
+      "name": "test_bound_char",
+      "email": "test_bound_char@test.com",
+      "password_hash": ""
+    },
+    "test_cache_coherence_1": {
+      "name": "test_cache_coherence_1",
+      "email": "test_cache_coherence_1@test.com",
+      "password_hash": ""
+    },
+    "test_cache_coherence_2": {
+      "name": "test_cache_coherence_2",
+      "email": "test_cache_coherence_2@test.com",
+      "password_hash": ""
+    },
+    "test_cache_coherence_3": {
+      "name": "test_cache_coherence_3",
+      "email": "test_cache_coherence_3@test.com",
+      "password_hash": ""
+    },
+    "test_cache_coherence_4": {
+      "name": "test_cache_coherence_4",
+      "email": "test_cache_coherence_4@test.com",
+      "password_hash": ""
+    },
+    "test_cache_coherence_5": {
+      "name": "test_cache_coherence_5",
+      "email": "test_cache_coherence_5@test.com",
+      "password_hash": ""
+    },
+    "test_cache_hit": {
+      "name": "test_cache_hit",
+      "email": "test_cache_hit@test.com",
+      "password_hash": ""
+    },
+    "test_cache_join": {
+      "name": "test_cache_join",
+      "email": "test_cache_join@test.com",
+      "password_hash": ""
+    },
+    "test_cache_move": {
+      "name": "test_cache_move",
+      "email": "test_cache_move@test.com",
+      "password_hash": ""
+    },
+    "test_cache_status": {
+      "name": "test_cache_status",
+      "email": "test_cache_status@test.com",
+      "password_hash": ""
+    },
+    "test_cache_visited": {
+      "name": "test_cache_visited",
+      "email": "test_cache_visited@test.com",
+      "password_hash": ""
+    },
+    "test_capacity_collector_1": {
+      "name": "test_capacity_collector_1",
+      "email": "test_capacity_collector_1@test.com",
+      "password_hash": ""
+    },
+    "test_capacity_collector_2": {
+      "name": "test_capacity_collector_2",
+      "email": "test_capacity_collector_2@test.com",
+      "password_hash": ""
+    },
+    "test_capacity_collector_3": {
+      "name": "test_capacity_collector_3",
+      "email": "test_capacity_collector_3@test.com",
+      "password_hash": ""
+    },
+    "test_capacity_collector_4": {
+      "name": "test_capacity_collector_4",
+      "email": "test_capacity_collector_4@test.com",
+      "password_hash": ""
+    },
+    "test_capacity_collector_5": {
+      "name": "test_capacity_collector_5",
+      "email": "test_capacity_collector_5@test.com",
+      "password_hash": ""
+    },
+    "test_capacity_collector_6": {
+      "name": "test_capacity_collector_6",
+      "email": "test_capacity_collector_6@test.com",
+      "password_hash": ""
+    },
+    "test_capacity_dumper_1": {
+      "name": "test_capacity_dumper_1",
+      "email": "test_capacity_dumper_1@test.com",
+      "password_hash": ""
+    },
+    "test_capacity_dumper_2": {
+      "name": "test_capacity_dumper_2",
+      "email": "test_capacity_dumper_2@test.com",
+      "password_hash": ""
+    },
+    "test_capacity_dumper_3": {
+      "name": "test_capacity_dumper_3",
+      "email": "test_capacity_dumper_3@test.com",
+      "password_hash": ""
+    },
+    "test_capacity_dumper_4": {
+      "name": "test_capacity_dumper_4",
+      "email": "test_capacity_dumper_4@test.com",
+      "password_hash": ""
+    },
+    "test_capacity_dumper_5": {
+      "name": "test_capacity_dumper_5",
+      "email": "test_capacity_dumper_5@test.com",
+      "password_hash": ""
+    },
+    "test_capacity_dumper_6": {
+      "name": "test_capacity_dumper_6",
+      "email": "test_capacity_dumper_6@test.com",
+      "password_hash": ""
+    },
     "test_char_2": {
       "name": "test_char_2",
       "email": "test_char_2@test.com",
       "password_hash": ""
     },
+    "test_char_empty_sector": {
+      "name": "test_char_empty_sector",
+      "email": "test_char_empty_sector@test.com",
+      "password_hash": ""
+    },
     "test_char_events": {
       "name": "test_char_events",
       "email": "test_char_events@test.com",
+      "password_hash": ""
+    },
+    "test_char_privacy1": {
+      "name": "test_char_privacy1",
+      "email": "test_char_privacy1@test.com",
+      "password_hash": ""
+    },
+    "test_char_privacy2": {
+      "name": "test_char_privacy2",
+      "email": "test_char_privacy2@test.com",
+      "password_hash": ""
+    },
+    "test_char_query_own": {
+      "name": "test_char_query_own",
+      "email": "test_char_query_own@test.com",
+      "password_hash": ""
+    },
+    "test_char_requires_id": {
+      "name": "test_char_requires_id",
+      "email": "test_char_requires_id@test.com",
+      "password_hash": ""
+    },
+    "test_char_sector_filter": {
+      "name": "test_char_sector_filter",
+      "email": "test_char_sector_filter@test.com",
       "password_hash": ""
     },
     "test_clean1": {
@@ -67,19 +870,269 @@
       "email": "test_client_char@test.com",
       "password_hash": ""
     },
+    "test_client_cleanup": {
+      "name": "test_client_cleanup",
+      "email": "test_client_cleanup@test.com",
+      "password_hash": ""
+    },
+    "test_client_connect": {
+      "name": "test_client_connect",
+      "email": "test_client_connect@test.com",
+      "password_hash": ""
+    },
+    "test_combat_atomic_1": {
+      "name": "test_combat_atomic_1",
+      "email": "test_combat_atomic_1@test.com",
+      "password_hash": ""
+    },
+    "test_combat_atomic_2": {
+      "name": "test_combat_atomic_2",
+      "email": "test_combat_atomic_2@test.com",
+      "password_hash": ""
+    },
+    "test_combat_attacker": {
+      "name": "test_combat_attacker",
+      "email": "test_combat_attacker@test.com",
+      "password_hash": ""
+    },
+    "test_combat_blocker_a": {
+      "name": "test_combat_blocker_a",
+      "email": "test_combat_blocker_a@test.com",
+      "password_hash": ""
+    },
+    "test_combat_blocker_b": {
+      "name": "test_combat_blocker_b",
+      "email": "test_combat_blocker_b@test.com",
+      "password_hash": ""
+    },
+    "test_combat_defender": {
+      "name": "test_combat_defender",
+      "email": "test_combat_defender@test.com",
+      "password_hash": ""
+    },
+    "test_combat_double_1": {
+      "name": "test_combat_double_1",
+      "email": "test_combat_double_1@test.com",
+      "password_hash": ""
+    },
+    "test_combat_double_2": {
+      "name": "test_combat_double_2",
+      "email": "test_combat_double_2@test.com",
+      "password_hash": ""
+    },
+    "test_combat_ended_attacker": {
+      "name": "test_combat_ended_attacker",
+      "email": "test_combat_ended_attacker@test.com",
+      "password_hash": ""
+    },
+    "test_combat_ended_victim": {
+      "name": "test_combat_ended_victim",
+      "email": "test_combat_ended_victim@test.com",
+      "password_hash": ""
+    },
+    "test_combat_lock_p1": {
+      "name": "test_combat_lock_p1",
+      "email": "test_combat_lock_p1@test.com",
+      "password_hash": ""
+    },
+    "test_combat_lock_p2": {
+      "name": "test_combat_lock_p2",
+      "email": "test_combat_lock_p2@test.com",
+      "password_hash": ""
+    },
+    "test_combat_privacy_fighter1": {
+      "name": "test_combat_privacy_fighter1",
+      "email": "test_combat_privacy_fighter1@test.com",
+      "password_hash": ""
+    },
+    "test_combat_privacy_fighter2": {
+      "name": "test_combat_privacy_fighter2",
+      "email": "test_combat_privacy_fighter2@test.com",
+      "password_hash": ""
+    },
+    "test_combat_privacy_outsider": {
+      "name": "test_combat_privacy_outsider",
+      "email": "test_combat_privacy_outsider@test.com",
+      "password_hash": ""
+    },
+    "test_combat_release_1": {
+      "name": "test_combat_release_1",
+      "email": "test_combat_release_1@test.com",
+      "password_hash": ""
+    },
+    "test_combat_release_2": {
+      "name": "test_combat_release_2",
+      "email": "test_combat_release_2@test.com",
+      "password_hash": ""
+    },
+    "test_combat_resolved_char1": {
+      "name": "test_combat_resolved_char1",
+      "email": "test_combat_resolved_char1@test.com",
+      "password_hash": ""
+    },
+    "test_combat_resolved_char2": {
+      "name": "test_combat_resolved_char2",
+      "email": "test_combat_resolved_char2@test.com",
+      "password_hash": ""
+    },
+    "test_combat_state_arrival": {
+      "name": "test_combat_state_arrival",
+      "email": "test_combat_state_arrival@test.com",
+      "password_hash": ""
+    },
+    "test_combat_state_owner": {
+      "name": "test_combat_state_owner",
+      "email": "test_combat_state_owner@test.com",
+      "password_hash": ""
+    },
+    "test_combat_waiting_char1": {
+      "name": "test_combat_waiting_char1",
+      "email": "test_combat_waiting_char1@test.com",
+      "password_hash": ""
+    },
+    "test_combat_waiting_char2": {
+      "name": "test_combat_waiting_char2",
+      "email": "test_combat_waiting_char2@test.com",
+      "password_hash": ""
+    },
+    "test_combat_zone_arrival": {
+      "name": "test_combat_zone_arrival",
+      "email": "test_combat_zone_arrival@test.com",
+      "password_hash": ""
+    },
+    "test_combat_zone_fighter1": {
+      "name": "test_combat_zone_fighter1",
+      "email": "test_combat_zone_fighter1@test.com",
+      "password_hash": ""
+    },
+    "test_combat_zone_fighter2": {
+      "name": "test_combat_zone_fighter2",
+      "email": "test_combat_zone_fighter2@test.com",
+      "password_hash": ""
+    },
+    "test_conc1a": {
+      "name": "test_conc1a",
+      "email": "test_conc1a@test.com",
+      "password_hash": ""
+    },
+    "test_conc1b": {
+      "name": "test_conc1b",
+      "email": "test_conc1b@test.com",
+      "password_hash": ""
+    },
+    "test_conc2a": {
+      "name": "test_conc2a",
+      "email": "test_conc2a@test.com",
+      "password_hash": ""
+    },
+    "test_conc2b": {
+      "name": "test_conc2b",
+      "email": "test_conc2b@test.com",
+      "password_hash": ""
+    },
+    "test_concurrent_1": {
+      "name": "test_concurrent_1",
+      "email": "test_concurrent_1@test.com",
+      "password_hash": ""
+    },
+    "test_concurrent_2": {
+      "name": "test_concurrent_2",
+      "email": "test_concurrent_2@test.com",
+      "password_hash": ""
+    },
+    "test_concurrent_event1": {
+      "name": "test_concurrent_event1",
+      "email": "test_concurrent_event1@test.com",
+      "password_hash": ""
+    },
+    "test_concurrent_event2": {
+      "name": "test_concurrent_event2",
+      "email": "test_concurrent_event2@test.com",
+      "password_hash": ""
+    },
+    "test_concurrent_trader1": {
+      "name": "test_concurrent_trader1",
+      "email": "test_concurrent_trader1@test.com",
+      "password_hash": ""
+    },
+    "test_concurrent_trader2": {
+      "name": "test_concurrent_trader2",
+      "email": "test_concurrent_trader2@test.com",
+      "password_hash": ""
+    },
+    "test_conn_refused": {
+      "name": "test_conn_refused",
+      "email": "test_conn_refused@test.com",
+      "password_hash": ""
+    },
+    "test_corp_founder": {
+      "name": "test_corp_founder",
+      "email": "test_corp_founder@test.com",
+      "password_hash": ""
+    },
+    "test_corp_founder_1": {
+      "name": "test_corp_founder_1",
+      "email": "test_corp_founder_1@test.com",
+      "password_hash": ""
+    },
+    "test_corp_founder_broke": {
+      "name": "test_corp_founder_broke",
+      "email": "test_corp_founder_broke@test.com",
+      "password_hash": ""
+    },
+    "test_corp_founder_credits": {
+      "name": "test_corp_founder_credits",
+      "email": "test_corp_founder_credits@test.com",
+      "password_hash": ""
+    },
+    "test_corp_invitee": {
+      "name": "test_corp_invitee",
+      "email": "test_corp_invitee@test.com",
+      "password_hash": ""
+    },
+    "test_corp_member_1": {
+      "name": "test_corp_member_1",
+      "email": "test_corp_member_1@test.com",
+      "password_hash": ""
+    },
+    "test_corp_member_2": {
+      "name": "test_corp_member_2",
+      "email": "test_corp_member_2@test.com",
+      "password_hash": ""
+    },
+    "test_corp_member_3": {
+      "name": "test_corp_member_3",
+      "email": "test_corp_member_3@test.com",
+      "password_hash": ""
+    },
+    "test_corp_outsider": {
+      "name": "test_corp_outsider",
+      "email": "test_corp_outsider@test.com",
+      "password_hash": ""
+    },
+    "test_corp_poor_player": {
+      "name": "test_corp_poor_player",
+      "email": "test_corp_poor_player@test.com",
+      "password_hash": ""
+    },
+    "test_corp_rival_founder": {
+      "name": "test_corp_rival_founder",
+      "email": "test_corp_rival_founder@test.com",
+      "password_hash": ""
+    },
     "test_corp_ui_founder": {
       "name": "test_corp_ui_founder",
       "email": "test_corp_ui_founder@test.com",
       "password_hash": ""
     },
-    "test_corp_ui_member": {
-      "name": "test_corp_ui_member",
-      "email": "test_corp_ui_member@test.com",
-      "password_hash": ""
-    },
     "test_corp_ui_founder_sector": {
       "name": "test_corp_ui_founder_sector",
       "email": "test_corp_ui_founder_sector@test.com",
+      "password_hash": ""
+    },
+    "test_corp_ui_member": {
+      "name": "test_corp_ui_member",
+      "email": "test_corp_ui_member@test.com",
       "password_hash": ""
     },
     "test_corp_ui_member_sector": {
@@ -92,114 +1145,359 @@
       "email": "test_corp_ui_outsider@test.com",
       "password_hash": ""
     },
-    "corp_events_founder_create": {
-      "name": "corp_events_founder_create",
-      "email": "corp_events_founder_create@test.com",
+    "test_crash_recovery_1": {
+      "name": "test_crash_recovery_1",
+      "email": "test_crash_recovery_1@test.com",
       "password_hash": ""
     },
-    "corp_events_founder_log": {
-      "name": "corp_events_founder_log",
-      "email": "corp_events_founder_log@test.com",
+    "test_crash_recovery_2": {
+      "name": "test_crash_recovery_2",
+      "email": "test_crash_recovery_2@test.com",
       "password_hash": ""
     },
-    "corp_events_founder_join": {
-      "name": "corp_events_founder_join",
-      "email": "corp_events_founder_join@test.com",
+    "test_crash_recovery_3a": {
+      "name": "test_crash_recovery_3a",
+      "email": "test_crash_recovery_3a@test.com",
       "password_hash": ""
     },
-    "corp_events_joiner": {
-      "name": "corp_events_joiner",
-      "email": "corp_events_joiner@test.com",
+    "test_crash_recovery_3b": {
+      "name": "test_crash_recovery_3b",
+      "email": "test_crash_recovery_3b@test.com",
       "password_hash": ""
     },
-    "corp_events_founder_leave": {
-      "name": "corp_events_founder_leave",
-      "email": "corp_events_founder_leave@test.com",
+    "test_crash_recovery_4": {
+      "name": "test_crash_recovery_4",
+      "email": "test_crash_recovery_4@test.com",
       "password_hash": ""
     },
-    "corp_events_member_a": {
-      "name": "corp_events_member_a",
-      "email": "corp_events_member_a@test.com",
+    "test_credit_atomic": {
+      "name": "test_credit_atomic",
+      "email": "test_credit_atomic@test.com",
       "password_hash": ""
     },
-    "corp_events_member_b": {
-      "name": "corp_events_member_b",
-      "email": "corp_events_member_b@test.com",
+    "test_credit_combat_receiver": {
+      "name": "test_credit_combat_receiver",
+      "email": "test_credit_combat_receiver@test.com",
       "password_hash": ""
     },
-    "corp_events_founder_kick": {
-      "name": "corp_events_founder_kick",
-      "email": "corp_events_founder_kick@test.com",
+    "test_credit_combat_sender": {
+      "name": "test_credit_combat_sender",
+      "email": "test_credit_combat_sender@test.com",
       "password_hash": ""
     },
-    "corp_events_target": {
-      "name": "corp_events_target",
-      "email": "corp_events_target@test.com",
+    "test_credit_combo": {
+      "name": "test_credit_combo",
+      "email": "test_credit_combo@test.com",
       "password_hash": ""
     },
-    "corp_events_founder_disband": {
-      "name": "corp_events_founder_disband",
-      "email": "corp_events_founder_disband@test.com",
+    "test_credit_diff_sector_receiver": {
+      "name": "test_credit_diff_sector_receiver",
+      "email": "test_credit_diff_sector_receiver@test.com",
       "password_hash": ""
     },
-    "corp_events_founder_ship": {
-      "name": "corp_events_founder_ship",
-      "email": "corp_events_founder_ship@test.com",
+    "test_credit_diff_sector_sender": {
+      "name": "test_credit_diff_sector_sender",
+      "email": "test_credit_diff_sector_sender@test.com",
       "password_hash": ""
     },
-    "corp_events_founder_abandon": {
-      "name": "corp_events_founder_abandon",
-      "email": "corp_events_founder_abandon@test.com",
+    "test_credit_exceed_receiver": {
+      "name": "test_credit_exceed_receiver",
+      "email": "test_credit_exceed_receiver@test.com",
       "password_hash": ""
     },
-    "corp_events_founder_logcheck": {
-      "name": "corp_events_founder_logcheck",
-      "email": "corp_events_founder_logcheck@test.com",
+    "test_credit_exceed_sender": {
+      "name": "test_credit_exceed_sender",
+      "email": "test_credit_exceed_sender@test.com",
       "password_hash": ""
     },
-    "corp_events_log_joiner": {
-      "name": "corp_events_log_joiner",
-      "email": "corp_events_log_joiner@test.com",
+    "test_credit_fail": {
+      "name": "test_credit_fail",
+      "email": "test_credit_fail@test.com",
       "password_hash": ""
     },
-    "corp_filter_garrison_member": {
-      "name": "corp_filter_garrison_member",
-      "email": "corp_filter_garrison_member@test.com",
+    "test_credit_ind_a": {
+      "name": "test_credit_ind_a",
+      "email": "test_credit_ind_a@test.com",
       "password_hash": ""
     },
-    "corp_filter_garrison_solo": {
-      "name": "corp_filter_garrison_solo",
-      "email": "corp_filter_garrison_solo@test.com",
+    "test_credit_ind_b": {
+      "name": "test_credit_ind_b",
+      "email": "test_credit_ind_b@test.com",
       "password_hash": ""
     },
-    "corp_filter_founder": {
-      "name": "corp_filter_founder",
-      "email": "corp_filter_founder@test.com",
+    "test_credit_lock_1": {
+      "name": "test_credit_lock_1",
+      "email": "test_credit_lock_1@test.com",
       "password_hash": ""
     },
-    "corp_filter_joiner": {
-      "name": "corp_filter_joiner",
-      "email": "corp_filter_joiner@test.com",
+    "test_credit_lock_2": {
+      "name": "test_credit_lock_2",
+      "email": "test_credit_lock_2@test.com",
       "password_hash": ""
     },
-    "corp_filter_sector_founder": {
-      "name": "corp_filter_sector_founder",
-      "email": "corp_filter_sector_founder@test.com",
+    "test_credit_nonexistent_sender": {
+      "name": "test_credit_nonexistent_sender",
+      "email": "test_credit_nonexistent_sender@test.com",
       "password_hash": ""
     },
-    "corp_filter_field_founder": {
-      "name": "corp_filter_field_founder",
-      "email": "corp_filter_field_founder@test.com",
+    "test_credit_receiver": {
+      "name": "test_credit_receiver",
+      "email": "test_credit_receiver@test.com",
       "password_hash": ""
     },
-    "corp_filter_field_member": {
-      "name": "corp_filter_field_member",
-      "email": "corp_filter_field_member@test.com",
+    "test_credit_resolve_receiver": {
+      "name": "test_credit_resolve_receiver",
+      "email": "test_credit_resolve_receiver@test.com",
       "password_hash": ""
     },
-    "corp_filter_ship_founder": {
-      "name": "corp_filter_ship_founder",
-      "email": "corp_filter_ship_founder@test.com",
+    "test_credit_resolve_sender": {
+      "name": "test_credit_resolve_sender",
+      "email": "test_credit_resolve_sender@test.com",
+      "password_hash": ""
+    },
+    "test_credit_self_sender": {
+      "name": "test_credit_self_sender",
+      "email": "test_credit_self_sender@test.com",
+      "password_hash": ""
+    },
+    "test_credit_sender": {
+      "name": "test_credit_sender",
+      "email": "test_credit_sender@test.com",
+      "password_hash": ""
+    },
+    "test_credit_transfer_1": {
+      "name": "test_credit_transfer_1",
+      "email": "test_credit_transfer_1@test.com",
+      "password_hash": ""
+    },
+    "test_credit_transfer_2": {
+      "name": "test_credit_transfer_2",
+      "email": "test_credit_transfer_2@test.com",
+      "password_hash": ""
+    },
+    "test_ctx_enter": {
+      "name": "test_ctx_enter",
+      "email": "test_ctx_enter@test.com",
+      "password_hash": ""
+    },
+    "test_ctx_exception": {
+      "name": "test_ctx_exception",
+      "email": "test_ctx_exception@test.com",
+      "password_hash": ""
+    },
+    "test_ctx_exit": {
+      "name": "test_ctx_exit",
+      "email": "test_ctx_exit@test.com",
+      "password_hash": ""
+    },
+    "test_def_deployer": {
+      "name": "test_def_deployer",
+      "email": "test_def_deployer@test.com",
+      "password_hash": ""
+    },
+    "test_def_victim": {
+      "name": "test_def_victim",
+      "email": "test_def_victim@test.com",
+      "password_hash": ""
+    },
+    "test_default_char": {
+      "name": "test_default_char",
+      "email": "test_default_char@test.com",
+      "password_hash": ""
+    },
+    "test_defensive_garrison_arrival": {
+      "name": "test_defensive_garrison_arrival",
+      "email": "test_defensive_garrison_arrival@test.com",
+      "password_hash": ""
+    },
+    "test_defensive_garrison_owner": {
+      "name": "test_defensive_garrison_owner",
+      "email": "test_defensive_garrison_owner@test.com",
+      "password_hash": ""
+    },
+    "test_depart_mover": {
+      "name": "test_depart_mover",
+      "email": "test_depart_mover@test.com",
+      "password_hash": ""
+    },
+    "test_depart_observer1": {
+      "name": "test_depart_observer1",
+      "email": "test_depart_observer1@test.com",
+      "password_hash": ""
+    },
+    "test_depart_observer2": {
+      "name": "test_depart_observer2",
+      "email": "test_depart_observer2@test.com",
+      "password_hash": ""
+    },
+    "test_dest_attacker": {
+      "name": "test_dest_attacker",
+      "email": "test_dest_attacker@test.com",
+      "password_hash": ""
+    },
+    "test_dest_victim": {
+      "name": "test_dest_victim",
+      "email": "test_dest_victim@test.com",
+      "password_hash": ""
+    },
+    "test_disband_founder": {
+      "name": "test_disband_founder",
+      "email": "test_disband_founder@test.com",
+      "password_hash": ""
+    },
+    "test_disc1": {
+      "name": "test_disc1",
+      "email": "test_disc1@test.com",
+      "password_hash": ""
+    },
+    "test_disc2": {
+      "name": "test_disc2",
+      "email": "test_disc2@test.com",
+      "password_hash": ""
+    },
+    "test_dmg_attacker": {
+      "name": "test_dmg_attacker",
+      "email": "test_dmg_attacker@test.com",
+      "password_hash": ""
+    },
+    "test_dmg_defender": {
+      "name": "test_dmg_defender",
+      "email": "test_dmg_defender@test.com",
+      "password_hash": ""
+    },
+    "test_empty_holds_char": {
+      "name": "test_empty_holds_char",
+      "email": "test_empty_holds_char@test.com",
+      "password_hash": ""
+    },
+    "test_empty_holds_edge": {
+      "name": "test_empty_holds_edge",
+      "email": "test_empty_holds_edge@test.com",
+      "password_hash": ""
+    },
+    "test_end_combatant1": {
+      "name": "test_end_combatant1",
+      "email": "test_end_combatant1@test.com",
+      "password_hash": ""
+    },
+    "test_end_combatant2": {
+      "name": "test_end_combatant2",
+      "email": "test_end_combatant2@test.com",
+      "password_hash": ""
+    },
+    "test_end_observer": {
+      "name": "test_end_observer",
+      "email": "test_end_observer@test.com",
+      "password_hash": ""
+    },
+    "test_ended_arrival": {
+      "name": "test_ended_arrival",
+      "email": "test_ended_arrival@test.com",
+      "password_hash": ""
+    },
+    "test_ended_fighter1": {
+      "name": "test_ended_fighter1",
+      "email": "test_ended_fighter1@test.com",
+      "password_hash": ""
+    },
+    "test_ended_fighter2": {
+      "name": "test_ended_fighter2",
+      "email": "test_ended_fighter2@test.com",
+      "password_hash": ""
+    },
+    "test_event_char_0": {
+      "name": "test_event_char_0",
+      "email": "test_event_char_0@test.com",
+      "password_hash": ""
+    },
+    "test_event_char_1": {
+      "name": "test_event_char_1",
+      "email": "test_event_char_1@test.com",
+      "password_hash": ""
+    },
+    "test_event_char_2": {
+      "name": "test_event_char_2",
+      "email": "test_event_char_2@test.com",
+      "password_hash": ""
+    },
+    "test_event_char_3": {
+      "name": "test_event_char_3",
+      "email": "test_event_char_3@test.com",
+      "password_hash": ""
+    },
+    "test_event_char_4": {
+      "name": "test_event_char_4",
+      "email": "test_event_char_4@test.com",
+      "password_hash": ""
+    },
+    "test_event_char_5": {
+      "name": "test_event_char_5",
+      "email": "test_event_char_5@test.com",
+      "password_hash": ""
+    },
+    "test_event_char_6": {
+      "name": "test_event_char_6",
+      "email": "test_event_char_6@test.com",
+      "password_hash": ""
+    },
+    "test_event_char_7": {
+      "name": "test_event_char_7",
+      "email": "test_event_char_7@test.com",
+      "password_hash": ""
+    },
+    "test_event_char_8": {
+      "name": "test_event_char_8",
+      "email": "test_event_char_8@test.com",
+      "password_hash": ""
+    },
+    "test_event_char_9": {
+      "name": "test_event_char_9",
+      "email": "test_event_char_9@test.com",
+      "password_hash": ""
+    },
+    "test_event_character": {
+      "name": "test_event_character",
+      "email": "test_event_character@test.com",
+      "password_hash": ""
+    },
+    "test_event_order_char1": {
+      "name": "test_event_order_char1",
+      "email": "test_event_order_char1@test.com",
+      "password_hash": ""
+    },
+    "test_event_order_char2": {
+      "name": "test_event_order_char2",
+      "email": "test_event_order_char2@test.com",
+      "password_hash": ""
+    },
+    "test_event_order_char3": {
+      "name": "test_event_order_char3",
+      "email": "test_event_order_char3@test.com",
+      "password_hash": ""
+    },
+    "test_fail_chaser": {
+      "name": "test_fail_chaser",
+      "email": "test_fail_chaser@test.com",
+      "password_hash": ""
+    },
+    "test_fail_runner": {
+      "name": "test_fail_runner",
+      "email": "test_fail_runner@test.com",
+      "password_hash": ""
+    },
+    "test_fanout_player1": {
+      "name": "test_fanout_player1",
+      "email": "test_fanout_player1@test.com",
+      "password_hash": ""
+    },
+    "test_fanout_player2": {
+      "name": "test_fanout_player2",
+      "email": "test_fanout_player2@test.com",
+      "password_hash": ""
+    },
+    "test_fanout_player3": {
+      "name": "test_fanout_player3",
+      "email": "test_fanout_player3@test.com",
       "password_hash": ""
     },
     "test_ff_attacker": {
@@ -247,91 +1545,6 @@
       "email": "test_ff_garrison_owner_block@test.com",
       "password_hash": ""
     },
-    "test_conc1a": {
-      "name": "test_conc1a",
-      "email": "test_conc1a@test.com",
-      "password_hash": ""
-    },
-    "test_conc1b": {
-      "name": "test_conc1b",
-      "email": "test_conc1b@test.com",
-      "password_hash": ""
-    },
-    "test_conc2a": {
-      "name": "test_conc2a",
-      "email": "test_conc2a@test.com",
-      "password_hash": ""
-    },
-    "test_conc2b": {
-      "name": "test_conc2b",
-      "email": "test_conc2b@test.com",
-      "password_hash": ""
-    },
-    "test_def_deployer": {
-      "name": "test_def_deployer",
-      "email": "test_def_deployer@test.com",
-      "password_hash": ""
-    },
-    "test_def_victim": {
-      "name": "test_def_victim",
-      "email": "test_def_victim@test.com",
-      "password_hash": ""
-    },
-    "test_dest_attacker": {
-      "name": "test_dest_attacker",
-      "email": "test_dest_attacker@test.com",
-      "password_hash": ""
-    },
-    "test_dest_victim": {
-      "name": "test_dest_victim",
-      "email": "test_dest_victim@test.com",
-      "password_hash": ""
-    },
-    "test_disc1": {
-      "name": "test_disc1",
-      "email": "test_disc1@test.com",
-      "password_hash": ""
-    },
-    "test_disc2": {
-      "name": "test_disc2",
-      "email": "test_disc2@test.com",
-      "password_hash": ""
-    },
-    "test_dmg_attacker": {
-      "name": "test_dmg_attacker",
-      "email": "test_dmg_attacker@test.com",
-      "password_hash": ""
-    },
-    "test_dmg_defender": {
-      "name": "test_dmg_defender",
-      "email": "test_dmg_defender@test.com",
-      "password_hash": ""
-    },
-    "test_end_combatant1": {
-      "name": "test_end_combatant1",
-      "email": "test_end_combatant1@test.com",
-      "password_hash": ""
-    },
-    "test_end_combatant2": {
-      "name": "test_end_combatant2",
-      "email": "test_end_combatant2@test.com",
-      "password_hash": ""
-    },
-    "test_end_observer": {
-      "name": "test_end_observer",
-      "email": "test_end_observer@test.com",
-      "password_hash": ""
-    },
-    "test_fail_chaser": {
-      "name": "test_fail_chaser",
-      "email": "test_fail_chaser@test.com",
-      "password_hash": ""
-    },
-    "test_fail_runner": {
-      "name": "test_fail_runner",
-      "email": "test_fail_runner@test.com",
-      "password_hash": ""
-    },
     "test_filt_observer": {
       "name": "test_filt_observer",
       "email": "test_filt_observer@test.com",
@@ -357,9 +1570,64 @@
       "email": "test_flee_runner@test.com",
       "password_hash": ""
     },
+    "test_garrison_ai_arrival": {
+      "name": "test_garrison_ai_arrival",
+      "email": "test_garrison_ai_arrival@test.com",
+      "password_hash": ""
+    },
+    "test_garrison_ai_owner": {
+      "name": "test_garrison_ai_owner",
+      "email": "test_garrison_ai_owner@test.com",
+      "password_hash": ""
+    },
+    "test_garrison_arrival_b": {
+      "name": "test_garrison_arrival_b",
+      "email": "test_garrison_arrival_b@test.com",
+      "password_hash": ""
+    },
+    "test_garrison_deployed_char": {
+      "name": "test_garrison_deployed_char",
+      "email": "test_garrison_deployed_char@test.com",
+      "password_hash": ""
+    },
+    "test_garrison_deployer": {
+      "name": "test_garrison_deployer",
+      "email": "test_garrison_deployer@test.com",
+      "password_hash": ""
+    },
+    "test_garrison_event_arrival": {
+      "name": "test_garrison_event_arrival",
+      "email": "test_garrison_event_arrival@test.com",
+      "password_hash": ""
+    },
+    "test_garrison_event_owner": {
+      "name": "test_garrison_event_owner",
+      "email": "test_garrison_event_owner@test.com",
+      "password_hash": ""
+    },
+    "test_garrison_observer": {
+      "name": "test_garrison_observer",
+      "email": "test_garrison_observer@test.com",
+      "password_hash": ""
+    },
+    "test_garrison_outsider": {
+      "name": "test_garrison_outsider",
+      "email": "test_garrison_outsider@test.com",
+      "password_hash": ""
+    },
+    "test_garrison_owner_a": {
+      "name": "test_garrison_owner_a",
+      "email": "test_garrison_owner_a@test.com",
+      "password_hash": ""
+    },
     "test_garrison_target": {
       "name": "test_garrison_target",
       "email": "test_garrison_target@test.com",
+      "password_hash": ""
+    },
+    "test_generic_client": {
+      "name": "test_generic_client",
+      "email": "test_generic_client@test.com",
       "password_hash": ""
     },
     "test_gow_enemy": {
@@ -392,6 +1660,21 @@
       "email": "test_hit_defender@test.com",
       "password_hash": ""
     },
+    "test_hyperspace_trader": {
+      "name": "test_hyperspace_trader",
+      "email": "test_hyperspace_trader@test.com",
+      "password_hash": ""
+    },
+    "test_initiator_char1": {
+      "name": "test_initiator_char1",
+      "email": "test_initiator_char1@test.com",
+      "password_hash": ""
+    },
+    "test_initiator_char2": {
+      "name": "test_initiator_char2",
+      "email": "test_initiator_char2@test.com",
+      "password_hash": ""
+    },
     "test_inv_attacker": {
       "name": "test_inv_attacker",
       "email": "test_inv_attacker@test.com",
@@ -400,6 +1683,126 @@
     "test_inv_victim": {
       "name": "test_inv_victim",
       "email": "test_inv_victim@test.com",
+      "password_hash": ""
+    },
+    "test_invalid_endpoint": {
+      "name": "test_invalid_endpoint",
+      "email": "test_invalid_endpoint@test.com",
+      "password_hash": ""
+    },
+    "test_join_again_founder": {
+      "name": "test_join_again_founder",
+      "email": "test_join_again_founder@test.com",
+      "password_hash": ""
+    },
+    "test_join_again_member": {
+      "name": "test_join_again_member",
+      "email": "test_join_again_member@test.com",
+      "password_hash": ""
+    },
+    "test_join_case_founder": {
+      "name": "test_join_case_founder",
+      "email": "test_join_case_founder@test.com",
+      "password_hash": ""
+    },
+    "test_join_case_member": {
+      "name": "test_join_case_member",
+      "email": "test_join_case_member@test.com",
+      "password_hash": ""
+    },
+    "test_join_create": {
+      "name": "test_join_create",
+      "email": "test_join_create@test.com",
+      "password_hash": ""
+    },
+    "test_join_event": {
+      "name": "test_join_event",
+      "email": "test_join_event@test.com",
+      "password_hash": ""
+    },
+    "test_join_existing_arrival": {
+      "name": "test_join_existing_arrival",
+      "email": "test_join_existing_arrival@test.com",
+      "password_hash": ""
+    },
+    "test_join_existing_fighter1": {
+      "name": "test_join_existing_fighter1",
+      "email": "test_join_existing_fighter1@test.com",
+      "password_hash": ""
+    },
+    "test_join_existing_fighter2": {
+      "name": "test_join_existing_fighter2",
+      "email": "test_join_existing_fighter2@test.com",
+      "password_hash": ""
+    },
+    "test_join_founder": {
+      "name": "test_join_founder",
+      "email": "test_join_founder@test.com",
+      "password_hash": ""
+    },
+    "test_join_invalid_founder": {
+      "name": "test_join_invalid_founder",
+      "email": "test_join_invalid_founder@test.com",
+      "password_hash": ""
+    },
+    "test_join_invalid_member": {
+      "name": "test_join_invalid_member",
+      "email": "test_join_invalid_member@test.com",
+      "password_hash": ""
+    },
+    "test_join_member": {
+      "name": "test_join_member",
+      "email": "test_join_member@test.com",
+      "password_hash": ""
+    },
+    "test_join_zone_arrival": {
+      "name": "test_join_zone_arrival",
+      "email": "test_join_zone_arrival@test.com",
+      "password_hash": ""
+    },
+    "test_join_zone_fighter1": {
+      "name": "test_join_zone_fighter1",
+      "email": "test_join_zone_fighter1@test.com",
+      "password_hash": ""
+    },
+    "test_join_zone_fighter2": {
+      "name": "test_join_zone_fighter2",
+      "email": "test_join_zone_fighter2@test.com",
+      "password_hash": ""
+    },
+    "test_jsonl_append": {
+      "name": "test_jsonl_append",
+      "email": "test_jsonl_append@test.com",
+      "password_hash": ""
+    },
+    "test_jsonl_format": {
+      "name": "test_jsonl_format",
+      "email": "test_jsonl_format@test.com",
+      "password_hash": ""
+    },
+    "test_jsonl_logging": {
+      "name": "test_jsonl_logging",
+      "email": "test_jsonl_logging@test.com",
+      "password_hash": ""
+    },
+    "test_jsonl_parseable": {
+      "name": "test_jsonl_parseable",
+      "email": "test_jsonl_parseable@test.com",
+      "password_hash": ""
+    },
+    "test_kick_founder": {
+      "name": "test_kick_founder",
+      "email": "test_kick_founder@test.com",
+      "password_hash": ""
+    },
+    "test_kick_member": {
+      "name": "test_kick_member",
+      "email": "test_kick_member@test.com",
+      "password_hash": ""
+    },
+    "test_kick_self": {
+      "name": "test_kick_self",
+      "email": "test_kick_self@test.com",
       "password_hash": ""
     },
     "test_launch1": {
@@ -412,6 +1815,86 @@
       "email": "test_launch2@test.com",
       "password_hash": ""
     },
+    "test_leave_founder": {
+      "name": "test_leave_founder",
+      "email": "test_leave_founder@test.com",
+      "password_hash": ""
+    },
+    "test_leave_member": {
+      "name": "test_leave_member",
+      "email": "test_leave_member@test.com",
+      "password_hash": ""
+    },
+    "test_lock_char": {
+      "name": "test_lock_char",
+      "email": "test_lock_char@test.com",
+      "password_hash": ""
+    },
+    "test_lock_char_a": {
+      "name": "test_lock_char_a",
+      "email": "test_lock_char_a@test.com",
+      "password_hash": ""
+    },
+    "test_lock_char_b": {
+      "name": "test_lock_char_b",
+      "email": "test_lock_char_b@test.com",
+      "password_hash": ""
+    },
+    "test_lock_timeout": {
+      "name": "test_lock_timeout",
+      "email": "test_lock_timeout@test.com",
+      "password_hash": ""
+    },
+    "test_message_outsider": {
+      "name": "Message Outsider",
+      "email": "test_message_outsider@test.com",
+      "password_hash": ""
+    },
+    "test_message_recipient": {
+      "name": "Message Recipient",
+      "email": "test_message_recipient@test.com",
+      "password_hash": ""
+    },
+    "test_message_sender": {
+      "name": "Message Sender",
+      "email": "test_message_sender@test.com",
+      "password_hash": ""
+    },
+    "test_mismatch": {
+      "name": "test_mismatch",
+      "email": "test_mismatch@test.com",
+      "password_hash": ""
+    },
+    "test_move_adjacent": {
+      "name": "test_move_adjacent",
+      "email": "test_move_adjacent@test.com",
+      "password_hash": ""
+    },
+    "test_movement_low_warp": {
+      "name": "test_movement_low_warp",
+      "email": "test_movement_low_warp@test.com",
+      "password_hash": ""
+    },
+    "test_movement_player1": {
+      "name": "test_movement_player1",
+      "email": "test_movement_player1@test.com",
+      "password_hash": ""
+    },
+    "test_movement_player2": {
+      "name": "test_movement_player2",
+      "email": "test_movement_player2@test.com",
+      "password_hash": ""
+    },
+    "test_multi_char1": {
+      "name": "test_multi_char1",
+      "email": "test_multi_char1@test.com",
+      "password_hash": ""
+    },
+    "test_multi_char2": {
+      "name": "test_multi_char2",
+      "email": "test_multi_char2@test.com",
+      "password_hash": ""
+    },
     "test_multi_strong": {
       "name": "test_multi_strong",
       "email": "test_multi_strong@test.com",
@@ -420,6 +1903,16 @@
     "test_multi_weak": {
       "name": "test_multi_weak",
       "email": "test_multi_weak@test.com",
+      "password_hash": ""
+    },
+    "test_my_status": {
+      "name": "test_my_status",
+      "email": "test_my_status@test.com",
+      "password_hash": ""
+    },
+    "test_network_error": {
+      "name": "test_network_error",
+      "email": "test_network_error@test.com",
       "password_hash": ""
     },
     "test_off_deployer": {
@@ -447,6 +1940,76 @@
       "email": "test_opponent3@test.com",
       "password_hash": ""
     },
+    "test_persistence_attacker": {
+      "name": "test_persistence_attacker",
+      "email": "test_persistence_attacker@test.com",
+      "password_hash": ""
+    },
+    "test_persistence_char1": {
+      "name": "test_persistence_char1",
+      "email": "test_persistence_char1@test.com",
+      "password_hash": ""
+    },
+    "test_persistence_client": {
+      "name": "test_persistence_client",
+      "email": "test_persistence_client@test.com",
+      "password_hash": ""
+    },
+    "test_persistence_defender": {
+      "name": "test_persistence_defender",
+      "email": "test_persistence_defender@test.com",
+      "password_hash": ""
+    },
+    "test_persistence_flee_attacker": {
+      "name": "test_persistence_flee_attacker",
+      "email": "test_persistence_flee_attacker@test.com",
+      "password_hash": ""
+    },
+    "test_persistence_flee_attacker2": {
+      "name": "test_persistence_flee_attacker2",
+      "email": "test_persistence_flee_attacker2@test.com",
+      "password_hash": ""
+    },
+    "test_persistence_flee_defender": {
+      "name": "test_persistence_flee_defender",
+      "email": "test_persistence_flee_defender@test.com",
+      "password_hash": ""
+    },
+    "test_persistence_flee_defender2": {
+      "name": "test_persistence_flee_defender2",
+      "email": "test_persistence_flee_defender2@test.com",
+      "password_hash": ""
+    },
+    "test_persistence_garrison2": {
+      "name": "test_persistence_garrison2",
+      "email": "test_persistence_garrison2@test.com",
+      "password_hash": ""
+    },
+    "test_persistence_garrison_owner": {
+      "name": "test_persistence_garrison_owner",
+      "email": "test_persistence_garrison_owner@test.com",
+      "password_hash": ""
+    },
+    "test_persistence_multi1": {
+      "name": "test_persistence_multi1",
+      "email": "test_persistence_multi1@test.com",
+      "password_hash": ""
+    },
+    "test_persistence_multi2": {
+      "name": "test_persistence_multi2",
+      "email": "test_persistence_multi2@test.com",
+      "password_hash": ""
+    },
+    "test_persistence_newcomer": {
+      "name": "test_persistence_newcomer",
+      "email": "test_persistence_newcomer@test.com",
+      "password_hash": ""
+    },
+    "test_plot_course": {
+      "name": "test_plot_course",
+      "email": "test_plot_course@test.com",
+      "password_hash": ""
+    },
     "test_pod_strong": {
       "name": "test_pod_strong",
       "email": "test_pod_strong@test.com",
@@ -455,211 +2018,6 @@
     "test_pod_weak": {
       "name": "test_pod_weak",
       "email": "test_pod_weak@test.com",
-      "password_hash": ""
-    },
-    "test_prob_chaser": {
-      "name": "test_prob_chaser",
-      "email": "test_prob_chaser@test.com",
-      "password_hash": ""
-    },
-    "test_prob_runner": {
-      "name": "test_prob_runner",
-      "email": "test_prob_runner@test.com",
-      "password_hash": ""
-    },
-    "test_salv_attacker": {
-      "name": "test_salv_attacker",
-      "email": "test_salv_attacker@test.com",
-      "password_hash": ""
-    },
-    "test_salv_loser": {
-      "name": "test_salv_loser",
-      "email": "test_salv_loser@test.com",
-      "password_hash": ""
-    },
-    "test_salv_observer": {
-      "name": "test_salv_observer",
-      "email": "test_salv_observer@test.com",
-      "password_hash": ""
-    },
-    "test_salv_victim": {
-      "name": "test_salv_victim",
-      "email": "test_salv_victim@test.com",
-      "password_hash": ""
-    },
-    "test_salv_winner": {
-      "name": "test_salv_winner",
-      "email": "test_salv_winner@test.com",
-      "password_hash": ""
-    },
-    "test_shield1": {
-      "name": "test_shield1",
-      "email": "test_shield1@test.com",
-      "password_hash": ""
-    },
-    "test_shield2": {
-      "name": "test_shield2",
-      "email": "test_shield2@test.com",
-      "password_hash": ""
-    },
-    "test_state1": {
-      "name": "test_state1",
-      "email": "test_state1@test.com",
-      "password_hash": ""
-    },
-    "test_state2": {
-      "name": "test_state2",
-      "email": "test_state2@test.com",
-      "password_hash": ""
-    },
-    "test_submit1": {
-      "name": "test_submit1",
-      "email": "test_submit1@test.com",
-      "password_hash": ""
-    },
-    "test_submit2": {
-      "name": "test_submit2",
-      "email": "test_submit2@test.com",
-      "password_hash": ""
-    },
-    "test_summary1": {
-      "name": "test_summary1",
-      "email": "test_summary1@test.com",
-      "password_hash": ""
-    },
-    "test_summary2": {
-      "name": "test_summary2",
-      "email": "test_summary2@test.com",
-      "password_hash": ""
-    },
-    "test_timeout1": {
-      "name": "test_timeout1",
-      "email": "test_timeout1@test.com",
-      "password_hash": ""
-    },
-    "test_timeout2": {
-      "name": "test_timeout2",
-      "email": "test_timeout2@test.com",
-      "password_hash": ""
-    },
-    "test_toll_deployer": {
-      "name": "test_toll_deployer",
-      "email": "test_toll_deployer@test.com",
-      "password_hash": ""
-    },
-    "test_toll_payer": {
-      "name": "test_toll_payer",
-      "email": "test_toll_payer@test.com",
-      "password_hash": ""
-    },
-    "test_warp_chaser": {
-      "name": "test_warp_chaser",
-      "email": "test_warp_chaser@test.com",
-      "password_hash": ""
-    },
-    "test_warp_runner": {
-      "name": "test_warp_runner",
-      "email": "test_warp_runner@test.com",
-      "password_hash": ""
-    },
-    "test_weak_opponent": {
-      "name": "test_weak_opponent",
-      "email": "test_weak_opponent@test.com",
-      "password_hash": ""
-    },
-    "test_win_loser": {
-      "name": "test_win_loser",
-      "email": "test_win_loser@test.com",
-      "password_hash": ""
-    },
-    "test_win_winner": {
-      "name": "test_win_winner",
-      "email": "test_win_winner@test.com",
-      "password_hash": ""
-    },
-    "ws_player": {
-      "name": "ws_player",
-      "email": "ws_player@test.com",
-      "password_hash": ""
-    },
-    "test_concurrent_1": {
-      "name": "test_concurrent_1",
-      "email": "test_concurrent_1@test.com",
-      "password_hash": ""
-    },
-    "test_concurrent_2": {
-      "name": "test_concurrent_2",
-      "email": "test_concurrent_2@test.com",
-      "password_hash": ""
-    },
-    "test_lock_char": {
-      "name": "test_lock_char",
-      "email": "test_lock_char@test.com",
-      "password_hash": ""
-    },
-    "test_port_trader_1": {
-      "name": "test_port_trader_1",
-      "email": "test_port_trader_1@test.com",
-      "password_hash": ""
-    },
-    "test_port_trader_2": {
-      "name": "test_port_trader_2",
-      "email": "test_port_trader_2@test.com",
-      "password_hash": ""
-    },
-    "test_port_trader_3": {
-      "name": "test_port_trader_3",
-      "email": "test_port_trader_3@test.com",
-      "password_hash": ""
-    },
-    "test_credit_lock_1": {
-      "name": "test_credit_lock_1",
-      "email": "test_credit_lock_1@test.com",
-      "password_hash": ""
-    },
-    "test_credit_lock_2": {
-      "name": "test_credit_lock_2",
-      "email": "test_credit_lock_2@test.com",
-      "password_hash": ""
-    },
-    "test_combat_lock_p1": {
-      "name": "test_combat_lock_p1",
-      "email": "test_combat_lock_p1@test.com",
-      "password_hash": ""
-    },
-    "test_combat_lock_p2": {
-      "name": "test_combat_lock_p2",
-      "email": "test_combat_lock_p2@test.com",
-      "password_hash": ""
-    },
-    "test_race_move": {
-      "name": "test_race_move",
-      "email": "test_race_move@test.com",
-      "password_hash": ""
-    },
-    "test_race_spend": {
-      "name": "test_race_spend",
-      "email": "test_race_spend@test.com",
-      "password_hash": ""
-    },
-    "test_race_trade": {
-      "name": "test_race_trade",
-      "email": "test_race_trade@test.com",
-      "password_hash": ""
-    },
-    "test_lock_timeout": {
-      "name": "test_lock_timeout",
-      "email": "test_lock_timeout@test.com",
-      "password_hash": ""
-    },
-    "test_lock_char_a": {
-      "name": "test_lock_char_a",
-      "email": "test_lock_char_a@test.com",
-      "password_hash": ""
-    },
-    "test_lock_char_b": {
-      "name": "test_lock_char_b",
-      "email": "test_lock_char_b@test.com",
       "password_hash": ""
     },
     "test_port_corruption_1": {
@@ -692,514 +2050,19 @@
       "email": "test_port_timeout@test.com",
       "password_hash": ""
     },
-    "test_credit_atomic": {
-      "name": "test_credit_atomic",
-      "email": "test_credit_atomic@test.com",
+    "test_port_trader_1": {
+      "name": "test_port_trader_1",
+      "email": "test_port_trader_1@test.com",
       "password_hash": ""
     },
-    "test_credit_combo": {
-      "name": "test_credit_combo",
-      "email": "test_credit_combo@test.com",
+    "test_port_trader_2": {
+      "name": "test_port_trader_2",
+      "email": "test_port_trader_2@test.com",
       "password_hash": ""
     },
-    "test_credit_fail": {
-      "name": "test_credit_fail",
-      "email": "test_credit_fail@test.com",
-      "password_hash": ""
-    },
-    "test_credit_ind_a": {
-      "name": "test_credit_ind_a",
-      "email": "test_credit_ind_a@test.com",
-      "password_hash": ""
-    },
-    "test_credit_ind_b": {
-      "name": "test_credit_ind_b",
-      "email": "test_credit_ind_b@test.com",
-      "password_hash": ""
-    },
-    "test_credit_transfer_1": {
-      "name": "test_credit_transfer_1",
-      "email": "test_credit_transfer_1@test.com",
-      "password_hash": ""
-    },
-    "test_credit_transfer_2": {
-      "name": "test_credit_transfer_2",
-      "email": "test_credit_transfer_2@test.com",
-      "password_hash": ""
-    },
-    "test_combat_atomic_1": {
-      "name": "test_combat_atomic_1",
-      "email": "test_combat_atomic_1@test.com",
-      "password_hash": ""
-    },
-    "test_combat_atomic_2": {
-      "name": "test_combat_atomic_2",
-      "email": "test_combat_atomic_2@test.com",
-      "password_hash": ""
-    },
-    "test_combat_double_1": {
-      "name": "test_combat_double_1",
-      "email": "test_combat_double_1@test.com",
-      "password_hash": ""
-    },
-    "test_combat_double_2": {
-      "name": "test_combat_double_2",
-      "email": "test_combat_double_2@test.com",
-      "password_hash": ""
-    },
-    "test_combat_release_1": {
-      "name": "test_combat_release_1",
-      "email": "test_combat_release_1@test.com",
-      "password_hash": ""
-    },
-    "test_combat_release_2": {
-      "name": "test_combat_release_2",
-      "email": "test_combat_release_2@test.com",
-      "password_hash": ""
-    },
-    "test_race_garrison_1": {
-      "name": "test_race_garrison_1",
-      "email": "test_race_garrison_1@test.com",
-      "password_hash": ""
-    },
-    "test_race_garrison_2": {
-      "name": "test_race_garrison_2",
-      "email": "test_race_garrison_2@test.com",
-      "password_hash": ""
-    },
-    "test_stress_rapid": {
-      "name": "test_stress_rapid",
-      "email": "test_stress_rapid@test.com",
-      "password_hash": ""
-    },
-    "test_combat_zone_fighter1": {
-      "name": "test_combat_zone_fighter1",
-      "email": "test_combat_zone_fighter1@test.com",
-      "password_hash": ""
-    },
-    "test_combat_zone_fighter2": {
-      "name": "test_combat_zone_fighter2",
-      "email": "test_combat_zone_fighter2@test.com",
-      "password_hash": ""
-    },
-    "test_combat_zone_arrival": {
-      "name": "test_combat_zone_arrival",
-      "email": "test_combat_zone_arrival@test.com",
-      "password_hash": ""
-    },
-    "test_join_zone_fighter1": {
-      "name": "test_join_zone_fighter1",
-      "email": "test_join_zone_fighter1@test.com",
-      "password_hash": ""
-    },
-    "test_join_zone_fighter2": {
-      "name": "test_join_zone_fighter2",
-      "email": "test_join_zone_fighter2@test.com",
-      "password_hash": ""
-    },
-    "test_join_zone_arrival": {
-      "name": "test_join_zone_arrival",
-      "email": "test_join_zone_arrival@test.com",
-      "password_hash": ""
-    },
-    "test_join_existing_fighter1": {
-      "name": "test_join_existing_fighter1",
-      "email": "test_join_existing_fighter1@test.com",
-      "password_hash": ""
-    },
-    "test_join_existing_fighter2": {
-      "name": "test_join_existing_fighter2",
-      "email": "test_join_existing_fighter2@test.com",
-      "password_hash": ""
-    },
-    "test_join_existing_arrival": {
-      "name": "test_join_existing_arrival",
-      "email": "test_join_existing_arrival@test.com",
-      "password_hash": ""
-    },
-    "test_ended_fighter1": {
-      "name": "test_ended_fighter1",
-      "email": "test_ended_fighter1@test.com",
-      "password_hash": ""
-    },
-    "test_ended_fighter2": {
-      "name": "test_ended_fighter2",
-      "email": "test_ended_fighter2@test.com",
-      "password_hash": ""
-    },
-    "test_ended_arrival": {
-      "name": "test_ended_arrival",
-      "email": "test_ended_arrival@test.com",
-      "password_hash": ""
-    },
-    "test_event_character": {
-      "name": "test_event_character",
-      "email": "test_event_character@test.com",
-      "password_hash": ""
-    },
-    "test_join_event": {
-      "name": "test_join_event",
-      "email": "test_join_event@test.com",
-      "password_hash": ""
-    },
-    "test_movement_player1": {
-      "name": "test_movement_player1",
-      "email": "test_movement_player1@test.com",
-      "password_hash": ""
-    },
-    "test_movement_player2": {
-      "name": "test_movement_player2",
-      "email": "test_movement_player2@test.com",
-      "password_hash": ""
-    },
-    "test_movement_low_warp": {
-      "name": "test_movement_low_warp",
-      "email": "test_movement_low_warp@test.com",
-      "password_hash": ""
-    },
-    "test_generic_client": {
-      "name": "test_generic_client",
-      "email": "test_generic_client@test.com",
-      "password_hash": ""
-    },
-    "test_trader_at_port": {
-      "name": "test_trader_at_port",
-      "email": "test_trader_at_port@test.com",
-      "password_hash": ""
-    },
-    "test_trader_with_cargo": {
-      "name": "test_trader_with_cargo",
-      "email": "test_trader_with_cargo@test.com",
-      "password_hash": ""
-    },
-    "test_trader_no_port": {
-      "name": "test_trader_no_port",
-      "email": "test_trader_no_port@test.com",
-      "password_hash": ""
-    },
-    "test_rich_trader": {
-      "name": "test_rich_trader",
-      "email": "test_rich_trader@test.com",
-      "password_hash": ""
-    },
-    "test_hyperspace_trader": {
-      "name": "test_hyperspace_trader",
-      "email": "test_hyperspace_trader@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_0": {
-      "name": "test_stress_move_0",
-      "email": "test_stress_move_0@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_1": {
-      "name": "test_stress_move_1",
-      "email": "test_stress_move_1@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_0": {
-      "name": "test_stress_trade_0",
-      "email": "test_stress_trade_0@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_1": {
-      "name": "test_stress_trade_1",
-      "email": "test_stress_trade_1@test.com",
-      "password_hash": ""
-    },
-    "test_stress_combat_0": {
-      "name": "test_stress_combat_0",
-      "email": "test_stress_combat_0@test.com",
-      "password_hash": ""
-    },
-    "test_stress_combat_1": {
-      "name": "test_stress_combat_1",
-      "email": "test_stress_combat_1@test.com",
-      "password_hash": ""
-    },
-    "test_stress_corruption_0": {
-      "name": "test_stress_corruption_0",
-      "email": "test_stress_corruption_0@test.com",
-      "password_hash": ""
-    },
-    "test_stress_corruption_1": {
-      "name": "test_stress_corruption_1",
-      "email": "test_stress_corruption_1@test.com",
-      "password_hash": ""
-    },
-    "test_persistence_client": {
-      "name": "test_persistence_client",
-      "email": "test_persistence_client@test.com",
-      "password_hash": ""
-    },
-    "test_persistence_char1": {
-      "name": "test_persistence_char1",
-      "email": "test_persistence_char1@test.com",
-      "password_hash": ""
-    },
-    "test_persistence_multi1": {
-      "name": "test_persistence_multi1",
-      "email": "test_persistence_multi1@test.com",
-      "password_hash": ""
-    },
-    "test_persistence_multi2": {
-      "name": "test_persistence_multi2",
-      "email": "test_persistence_multi2@test.com",
-      "password_hash": ""
-    },
-    "test_persistence_attacker": {
-      "name": "test_persistence_attacker",
-      "email": "test_persistence_attacker@test.com",
-      "password_hash": ""
-    },
-    "test_persistence_defender": {
-      "name": "test_persistence_defender",
-      "email": "test_persistence_defender@test.com",
-      "password_hash": ""
-    },
-    "test_persistence_garrison2": {
-      "name": "test_persistence_garrison2",
-      "email": "test_persistence_garrison2@test.com",
-      "password_hash": ""
-    },
-    "test_persistence_garrison_owner": {
-      "name": "test_persistence_garrison_owner",
-      "email": "test_persistence_garrison_owner@test.com",
-      "password_hash": ""
-    },
-    "test_persistence_newcomer": {
-      "name": "test_persistence_newcomer",
-      "email": "test_persistence_newcomer@test.com",
-      "password_hash": ""
-    },
-    "test_persistence_flee_attacker": {
-      "name": "test_persistence_flee_attacker",
-      "email": "test_persistence_flee_attacker@test.com",
-      "password_hash": ""
-    },
-    "test_persistence_flee_defender": {
-      "name": "test_persistence_flee_defender",
-      "email": "test_persistence_flee_defender@test.com",
-      "password_hash": ""
-    },
-    "test_persistence_flee_attacker2": {
-      "name": "test_persistence_flee_attacker2",
-      "email": "test_persistence_flee_attacker2@test.com",
-      "password_hash": ""
-    },
-    "test_persistence_flee_defender2": {
-      "name": "test_persistence_flee_defender2",
-      "email": "test_persistence_flee_defender2@test.com",
-      "password_hash": ""
-    },
-    "test_reset_runner": {
-      "name": "test_reset_runner",
-      "email": "test_reset_runner@test.com",
-      "password_hash": ""
-    },
-    "test_cache_coherence_1": {
-      "name": "test_cache_coherence_1",
-      "email": "test_cache_coherence_1@test.com",
-      "password_hash": ""
-    },
-    "test_cache_coherence_2": {
-      "name": "test_cache_coherence_2",
-      "email": "test_cache_coherence_2@test.com",
-      "password_hash": ""
-    },
-    "test_cache_coherence_3": {
-      "name": "test_cache_coherence_3",
-      "email": "test_cache_coherence_3@test.com",
-      "password_hash": ""
-    },
-    "test_cache_coherence_4": {
-      "name": "test_cache_coherence_4",
-      "email": "test_cache_coherence_4@test.com",
-      "password_hash": ""
-    },
-    "test_cache_coherence_5": {
-      "name": "test_cache_coherence_5",
-      "email": "test_cache_coherence_5@test.com",
-      "password_hash": ""
-    },
-    "test_crash_recovery_1": {
-      "name": "test_crash_recovery_1",
-      "email": "test_crash_recovery_1@test.com",
-      "password_hash": ""
-    },
-    "test_crash_recovery_2": {
-      "name": "test_crash_recovery_2",
-      "email": "test_crash_recovery_2@test.com",
-      "password_hash": ""
-    },
-    "test_crash_recovery_3a": {
-      "name": "test_crash_recovery_3a",
-      "email": "test_crash_recovery_3a@test.com",
-      "password_hash": ""
-    },
-    "test_crash_recovery_3b": {
-      "name": "test_crash_recovery_3b",
-      "email": "test_crash_recovery_3b@test.com",
-      "password_hash": ""
-    },
-    "test_crash_recovery_4": {
-      "name": "test_crash_recovery_4",
-      "email": "test_crash_recovery_4@test.com",
-      "password_hash": ""
-    },
-    "test_supabase_schema_1": {
-      "name": "test_supabase_schema_1",
-      "email": "test_supabase_schema_1@test.com",
-      "password_hash": ""
-    },
-    "test_supabase_schema_2": {
-      "name": "test_supabase_schema_2",
-      "email": "test_supabase_schema_2@test.com",
-      "password_hash": ""
-    },
-    "test_supabase_schema_3": {
-      "name": "test_supabase_schema_3",
-      "email": "test_supabase_schema_3@test.com",
-      "password_hash": ""
-    },
-    "test_supabase_schema_5": {
-      "name": "test_supabase_schema_5",
-      "email": "test_supabase_schema_5@test.com",
-      "password_hash": ""
-    },
-    "test_trading_client": {
-      "name": "test_trading_client",
-      "email": "test_trading_client@test.com",
-      "password_hash": ""
-    },
-    "test_concurrent_trader1": {
-      "name": "test_concurrent_trader1",
-      "email": "test_concurrent_trader1@test.com",
-      "password_hash": ""
-    },
-    "test_concurrent_trader2": {
-      "name": "test_concurrent_trader2",
-      "email": "test_concurrent_trader2@test.com",
-      "password_hash": ""
-    },
-    "test_concurrent_event1": {
-      "name": "test_concurrent_event1",
-      "email": "test_concurrent_event1@test.com",
-      "password_hash": ""
-    },
-    "test_concurrent_event2": {
-      "name": "test_concurrent_event2",
-      "email": "test_concurrent_event2@test.com",
-      "password_hash": ""
-    },
-    "test_public_event1": {
-      "name": "test_public_event1",
-      "email": "test_public_event1@test.com",
-      "password_hash": ""
-    },
-    "test_public_event2": {
-      "name": "test_public_event2",
-      "email": "test_public_event2@test.com",
-      "password_hash": ""
-    },
-    "test_jsonl_logging": {
-      "name": "test_jsonl_logging",
-      "email": "test_jsonl_logging@test.com",
-      "password_hash": ""
-    },
-    "test_jsonl_format": {
-      "name": "test_jsonl_format",
-      "email": "test_jsonl_format@test.com",
-      "password_hash": ""
-    },
-    "test_jsonl_parseable": {
-      "name": "test_jsonl_parseable",
-      "email": "test_jsonl_parseable@test.com",
-      "password_hash": ""
-    },
-    "test_jsonl_append": {
-      "name": "test_jsonl_append",
-      "email": "test_jsonl_append@test.com",
-      "password_hash": ""
-    },
-    "test_admin_query_char1": {
-      "name": "test_admin_query_char1",
-      "email": "test_admin_query_char1@test.com",
-      "password_hash": ""
-    },
-    "test_admin_query_char2": {
-      "name": "test_admin_query_char2",
-      "email": "test_admin_query_char2@test.com",
-      "password_hash": ""
-    },
-    "test_admin_filter_char1": {
-      "name": "test_admin_filter_char1",
-      "email": "test_admin_filter_char1@test.com",
-      "password_hash": ""
-    },
-    "test_admin_filter_char2": {
-      "name": "test_admin_filter_char2",
-      "email": "test_admin_filter_char2@test.com",
-      "password_hash": ""
-    },
-    "test_admin_sector_filter": {
-      "name": "test_admin_sector_filter",
-      "email": "test_admin_sector_filter@test.com",
-      "password_hash": ""
-    },
-    "test_admin_combined": {
-      "name": "test_admin_combined",
-      "email": "test_admin_combined@test.com",
-      "password_hash": ""
-    },
-    "test_admin_invalid": {
-      "name": "test_admin_invalid",
-      "email": "test_admin_invalid@test.com",
-      "password_hash": ""
-    },
-    "test_char_query_own": {
-      "name": "test_char_query_own",
-      "email": "test_char_query_own@test.com",
-      "password_hash": ""
-    },
-    "test_char_privacy1": {
-      "name": "test_char_privacy1",
-      "email": "test_char_privacy1@test.com",
-      "password_hash": ""
-    },
-    "test_char_privacy2": {
-      "name": "test_char_privacy2",
-      "email": "test_char_privacy2@test.com",
-      "password_hash": ""
-    },
-    "test_char_sector_filter": {
-      "name": "test_char_sector_filter",
-      "email": "test_char_sector_filter@test.com",
-      "password_hash": ""
-    },
-    "test_char_empty_sector": {
-      "name": "test_char_empty_sector",
-      "email": "test_char_empty_sector@test.com",
-      "password_hash": ""
-    },
-    "test_char_requires_id": {
-      "name": "test_char_requires_id",
-      "email": "test_char_requires_id@test.com",
-      "password_hash": ""
-    },
-    "test_fanout_player1": {
-      "name": "test_fanout_player1",
-      "email": "test_fanout_player1@test.com",
-      "password_hash": ""
-    },
-    "test_fanout_player2": {
-      "name": "test_fanout_player2",
-      "email": "test_fanout_player2@test.com",
-      "password_hash": ""
-    },
-    "test_fanout_player3": {
-      "name": "test_fanout_player3",
-      "email": "test_fanout_player3@test.com",
+    "test_port_trader_3": {
+      "name": "test_port_trader_3",
+      "email": "test_port_trader_3@test.com",
       "password_hash": ""
     },
     "test_private_char1": {
@@ -1210,6 +2073,16 @@
     "test_private_char2": {
       "name": "test_private_char2",
       "email": "test_private_char2@test.com",
+      "password_hash": ""
+    },
+    "test_prob_chaser": {
+      "name": "test_prob_chaser",
+      "email": "test_prob_chaser@test.com",
+      "password_hash": ""
+    },
+    "test_prob_runner": {
+      "name": "test_prob_runner",
+      "email": "test_prob_runner@test.com",
       "password_hash": ""
     },
     "test_public_char1": {
@@ -1227,824 +2100,44 @@
       "email": "test_public_char3@test.com",
       "password_hash": ""
     },
-    "test_message_sender": {
-      "name": "Message Sender",
-      "email": "test_message_sender@test.com",
+    "test_public_event1": {
+      "name": "test_public_event1",
+      "email": "test_public_event1@test.com",
       "password_hash": ""
     },
-    "test_message_recipient": {
-      "name": "Message Recipient",
-      "email": "test_message_recipient@test.com",
+    "test_public_event2": {
+      "name": "test_public_event2",
+      "email": "test_public_event2@test.com",
       "password_hash": ""
     },
-    "test_message_outsider": {
-      "name": "Message Outsider",
-      "email": "test_message_outsider@test.com",
+    "test_race_garrison_1": {
+      "name": "test_race_garrison_1",
+      "email": "test_race_garrison_1@test.com",
       "password_hash": ""
     },
-    "test_depart_observer1": {
-      "name": "test_depart_observer1",
-      "email": "test_depart_observer1@test.com",
+    "test_race_garrison_2": {
+      "name": "test_race_garrison_2",
+      "email": "test_race_garrison_2@test.com",
       "password_hash": ""
     },
-    "test_depart_observer2": {
-      "name": "test_depart_observer2",
-      "email": "test_depart_observer2@test.com",
+    "test_race_move": {
+      "name": "test_race_move",
+      "email": "test_race_move@test.com",
       "password_hash": ""
     },
-    "test_depart_mover": {
-      "name": "test_depart_mover",
-      "email": "test_depart_mover@test.com",
+    "test_race_spend": {
+      "name": "test_race_spend",
+      "email": "test_race_spend@test.com",
       "password_hash": ""
     },
-    "test_trade_trader": {
-      "name": "test_trade_trader",
-      "email": "test_trade_trader@test.com",
-      "password_hash": ""
-    },
-    "test_trade_observer": {
-      "name": "test_trade_observer",
-      "email": "test_trade_observer@test.com",
-      "password_hash": ""
-    },
-    "test_client_connect": {
-      "name": "test_client_connect",
-      "email": "test_client_connect@test.com",
-      "password_hash": ""
-    },
-    "test_client_cleanup": {
-      "name": "test_client_cleanup",
-      "email": "test_client_cleanup@test.com",
-      "password_hash": ""
-    },
-    "test_cache_hit": {
-      "name": "test_cache_hit",
-      "email": "test_cache_hit@test.com",
-      "password_hash": ""
-    },
-    "test_cache_move": {
-      "name": "test_cache_move",
-      "email": "test_cache_move@test.com",
-      "password_hash": ""
-    },
-    "test_cache_status": {
-      "name": "test_cache_status",
-      "email": "test_cache_status@test.com",
-      "password_hash": ""
-    },
-    "test_cache_visited": {
-      "name": "test_cache_visited",
-      "email": "test_cache_visited@test.com",
-      "password_hash": ""
-    },
-    "test_cache_join": {
-      "name": "test_cache_join",
-      "email": "test_cache_join@test.com",
-      "password_hash": ""
-    },
-    "test_join_create": {
-      "name": "test_join_create",
-      "email": "test_join_create@test.com",
-      "password_hash": ""
-    },
-    "test_move_adjacent": {
-      "name": "test_move_adjacent",
-      "email": "test_move_adjacent@test.com",
-      "password_hash": ""
-    },
-    "test_plot_course": {
-      "name": "test_plot_course",
-      "email": "test_plot_course@test.com",
-      "password_hash": ""
-    },
-    "test_trade_buy": {
-      "name": "test_trade_buy",
-      "email": "test_trade_buy@test.com",
-      "password_hash": ""
-    },
-    "test_trade_sell": {
-      "name": "test_trade_sell",
-      "email": "test_trade_sell@test.com",
-      "password_hash": ""
-    },
-    "test_combat_attacker": {
-      "name": "test_combat_attacker",
-      "email": "test_combat_attacker@test.com",
-      "password_hash": ""
-    },
-    "test_combat_defender": {
-      "name": "test_combat_defender",
-      "email": "test_combat_defender@test.com",
-      "password_hash": ""
-    },
-    "test_action_attacker": {
-      "name": "test_action_attacker",
-      "email": "test_action_attacker@test.com",
-      "password_hash": ""
-    },
-    "test_action_defender": {
-      "name": "test_action_defender",
-      "email": "test_action_defender@test.com",
+    "test_race_trade": {
+      "name": "test_race_trade",
+      "email": "test_race_trade@test.com",
       "password_hash": ""
     },
     "test_recharge": {
       "name": "test_recharge",
       "email": "test_recharge@test.com",
-      "password_hash": ""
-    },
-    "test_transfer_from": {
-      "name": "test_transfer_from",
-      "email": "test_transfer_from@test.com",
-      "password_hash": ""
-    },
-    "test_transfer_to": {
-      "name": "test_transfer_to",
-      "email": "test_transfer_to@test.com",
-      "password_hash": ""
-    },
-    "test_my_status": {
-      "name": "test_my_status",
-      "email": "test_my_status@test.com",
-      "password_hash": ""
-    },
-    "test_network_error": {
-      "name": "test_network_error",
-      "email": "test_network_error@test.com",
-      "password_hash": ""
-    },
-    "test_timeout": {
-      "name": "test_timeout",
-      "email": "test_timeout@test.com",
-      "password_hash": ""
-    },
-    "test_server_error": {
-      "name": "test_server_error",
-      "email": "test_server_error@test.com",
-      "password_hash": ""
-    },
-    "test_invalid_endpoint": {
-      "name": "test_invalid_endpoint",
-      "email": "test_invalid_endpoint@test.com",
-      "password_hash": ""
-    },
-    "test_bad_params": {
-      "name": "test_bad_params",
-      "email": "test_bad_params@test.com",
-      "password_hash": ""
-    },
-    "test_conn_refused": {
-      "name": "test_conn_refused",
-      "email": "test_conn_refused@test.com",
-      "password_hash": ""
-    },
-    "test_default_char": {
-      "name": "test_default_char",
-      "email": "test_default_char@test.com",
-      "password_hash": ""
-    },
-    "test_bound_char": {
-      "name": "test_bound_char",
-      "email": "test_bound_char@test.com",
-      "password_hash": ""
-    },
-    "test_multi_char1": {
-      "name": "test_multi_char1",
-      "email": "test_multi_char1@test.com",
-      "password_hash": ""
-    },
-    "test_multi_char2": {
-      "name": "test_multi_char2",
-      "email": "test_multi_char2@test.com",
-      "password_hash": ""
-    },
-    "test_mismatch": {
-      "name": "test_mismatch",
-      "email": "test_mismatch@test.com",
-      "password_hash": ""
-    },
-    "test_req_char_id": {
-      "name": "test_req_char_id",
-      "email": "test_req_char_id@test.com",
-      "password_hash": ""
-    },
-    "test_ctx_enter": {
-      "name": "test_ctx_enter",
-      "email": "test_ctx_enter@test.com",
-      "password_hash": ""
-    },
-    "test_ctx_exit": {
-      "name": "test_ctx_exit",
-      "email": "test_ctx_exit@test.com",
-      "password_hash": ""
-    },
-    "test_ctx_exception": {
-      "name": "test_ctx_exception",
-      "email": "test_ctx_exception@test.com",
-      "password_hash": ""
-    },
-    "test_api_join": {
-      "name": "test_api_join",
-      "email": "test_api_join@test.com",
-      "password_hash": ""
-    },
-    "test_api_status": {
-      "name": "test_api_status",
-      "email": "test_api_status@test.com",
-      "password_hash": ""
-    },
-    "test_api_move": {
-      "name": "test_api_move",
-      "email": "test_api_move@test.com",
-      "password_hash": ""
-    },
-    "test_api_move_invalid": {
-      "name": "test_api_move_invalid",
-      "email": "test_api_move_invalid@test.com",
-      "password_hash": ""
-    },
-    "test_api_move_hyperspace": {
-      "name": "test_api_move_hyperspace",
-      "email": "test_api_move_hyperspace@test.com",
-      "password_hash": ""
-    },
-    "test_api_plot": {
-      "name": "test_api_plot",
-      "email": "test_api_plot@test.com",
-      "password_hash": ""
-    },
-    "test_api_local_map": {
-      "name": "test_api_local_map",
-      "email": "test_api_local_map@test.com",
-      "password_hash": ""
-    },
-    "test_api_list_ports": {
-      "name": "test_api_list_ports",
-      "email": "test_api_list_ports@test.com",
-      "password_hash": ""
-    },
-    "test_api_path_region": {
-      "name": "test_api_path_region",
-      "email": "test_api_path_region@test.com",
-      "password_hash": ""
-    },
-    "test_api_trade_buy": {
-      "name": "test_api_trade_buy",
-      "email": "test_api_trade_buy@test.com",
-      "password_hash": ""
-    },
-    "test_api_trade_sell": {
-      "name": "test_api_trade_sell",
-      "email": "test_api_trade_sell@test.com",
-      "password_hash": ""
-    },
-    "test_api_trade_fail": {
-      "name": "test_api_trade_fail",
-      "email": "test_api_trade_fail@test.com",
-      "password_hash": ""
-    },
-    "test_api_combat_att": {
-      "name": "test_api_combat_att",
-      "email": "test_api_combat_att@test.com",
-      "password_hash": ""
-    },
-    "test_api_combat_def": {
-      "name": "test_api_combat_def",
-      "email": "test_api_combat_def@test.com",
-      "password_hash": ""
-    },
-    "test_api_flee_att": {
-      "name": "test_api_flee_att",
-      "email": "test_api_flee_att@test.com",
-      "password_hash": ""
-    },
-    "test_api_flee_def": {
-      "name": "test_api_flee_def",
-      "email": "test_api_flee_def@test.com",
-      "password_hash": ""
-    },
-    "test_api_garrison": {
-      "name": "test_api_garrison",
-      "email": "test_api_garrison@test.com",
-      "password_hash": ""
-    },
-    "test_api_recharge": {
-      "name": "test_api_recharge",
-      "email": "test_api_recharge@test.com",
-      "password_hash": ""
-    },
-    "test_api_xfer_from": {
-      "name": "test_api_xfer_from",
-      "email": "test_api_xfer_from@test.com",
-      "password_hash": ""
-    },
-    "test_api_xfer_to": {
-      "name": "test_api_xfer_to",
-      "email": "test_api_xfer_to@test.com",
-      "password_hash": ""
-    },
-    "test_combat_waiting_char1": {
-      "name": "test_combat_waiting_char1",
-      "email": "test_combat_waiting_char1@test.com",
-      "password_hash": ""
-    },
-    "test_combat_waiting_char2": {
-      "name": "test_combat_waiting_char2",
-      "email": "test_combat_waiting_char2@test.com",
-      "password_hash": ""
-    },
-    "test_combat_resolved_char1": {
-      "name": "test_combat_resolved_char1",
-      "email": "test_combat_resolved_char1@test.com",
-      "password_hash": ""
-    },
-    "test_combat_resolved_char2": {
-      "name": "test_combat_resolved_char2",
-      "email": "test_combat_resolved_char2@test.com",
-      "password_hash": ""
-    },
-    "test_combat_ended_attacker": {
-      "name": "test_combat_ended_attacker",
-      "email": "test_combat_ended_attacker@test.com",
-      "password_hash": ""
-    },
-    "test_combat_ended_victim": {
-      "name": "test_combat_ended_victim",
-      "email": "test_combat_ended_victim@test.com",
-      "password_hash": ""
-    },
-    "test_ship_destroyed_attacker": {
-      "name": "test_ship_destroyed_attacker",
-      "email": "test_ship_destroyed_attacker@test.com",
-      "password_hash": ""
-    },
-    "test_ship_destroyed_victim": {
-      "name": "test_ship_destroyed_victim",
-      "email": "test_ship_destroyed_victim@test.com",
-      "password_hash": ""
-    },
-    "test_combat_privacy_fighter1": {
-      "name": "test_combat_privacy_fighter1",
-      "email": "test_combat_privacy_fighter1@test.com",
-      "password_hash": ""
-    },
-    "test_combat_privacy_fighter2": {
-      "name": "test_combat_privacy_fighter2",
-      "email": "test_combat_privacy_fighter2@test.com",
-      "password_hash": ""
-    },
-    "test_combat_privacy_outsider": {
-      "name": "test_combat_privacy_outsider",
-      "email": "test_combat_privacy_outsider@test.com",
-      "password_hash": ""
-    },
-    "test_trade_executed_trader": {
-      "name": "test_trade_executed_trader",
-      "email": "test_trade_executed_trader@test.com",
-      "password_hash": ""
-    },
-    "test_trade_visibility_trader": {
-      "name": "test_trade_visibility_trader",
-      "email": "test_trade_visibility_trader@test.com",
-      "password_hash": ""
-    },
-    "test_trade_visibility_outsider": {
-      "name": "test_trade_visibility_outsider",
-      "email": "test_trade_visibility_outsider@test.com",
-      "password_hash": ""
-    },
-    "test_garrison_deployed_char": {
-      "name": "test_garrison_deployed_char",
-      "email": "test_garrison_deployed_char@test.com",
-      "password_hash": ""
-    },
-    "test_garrison_deployer": {
-      "name": "test_garrison_deployer",
-      "email": "test_garrison_deployer@test.com",
-      "password_hash": ""
-    },
-    "test_garrison_observer": {
-      "name": "test_garrison_observer",
-      "email": "test_garrison_observer@test.com",
-      "password_hash": ""
-    },
-    "test_garrison_outsider": {
-      "name": "test_garrison_outsider",
-      "email": "test_garrison_outsider@test.com",
-      "password_hash": ""
-    },
-    "test_salvage_collector": {
-      "name": "test_salvage_collector",
-      "email": "test_salvage_collector@test.com",
-      "password_hash": ""
-    },
-    "test_salvage_victim": {
-      "name": "test_salvage_victim",
-      "email": "test_salvage_victim@test.com",
-      "password_hash": ""
-    },
-    "test_salvage_observer": {
-      "name": "test_salvage_observer",
-      "email": "test_salvage_observer@test.com",
-      "password_hash": ""
-    },
-    "test_garrison_owner_a": {
-      "name": "test_garrison_owner_a",
-      "email": "test_garrison_owner_a@test.com",
-      "password_hash": ""
-    },
-    "test_garrison_arrival_b": {
-      "name": "test_garrison_arrival_b",
-      "email": "test_garrison_arrival_b@test.com",
-      "password_hash": ""
-    },
-    "test_garrison_event_owner": {
-      "name": "test_garrison_event_owner",
-      "email": "test_garrison_event_owner@test.com",
-      "password_hash": ""
-    },
-    "test_garrison_event_arrival": {
-      "name": "test_garrison_event_arrival",
-      "email": "test_garrison_event_arrival@test.com",
-      "password_hash": ""
-    },
-    "test_combat_state_owner": {
-      "name": "test_combat_state_owner",
-      "email": "test_combat_state_owner@test.com",
-      "password_hash": ""
-    },
-    "test_combat_state_arrival": {
-      "name": "test_combat_state_arrival",
-      "email": "test_combat_state_arrival@test.com",
-      "password_hash": ""
-    },
-    "test_combat_blocker_a": {
-      "name": "test_combat_blocker_a",
-      "email": "test_combat_blocker_a@test.com",
-      "password_hash": ""
-    },
-    "test_combat_blocker_b": {
-      "name": "test_combat_blocker_b",
-      "email": "test_combat_blocker_b@test.com",
-      "password_hash": ""
-    },
-    "test_garrison_ai_owner": {
-      "name": "test_garrison_ai_owner",
-      "email": "test_garrison_ai_owner@test.com",
-      "password_hash": ""
-    },
-    "test_garrison_ai_arrival": {
-      "name": "test_garrison_ai_arrival",
-      "email": "test_garrison_ai_arrival@test.com",
-      "password_hash": ""
-    },
-    "test_defensive_garrison_owner": {
-      "name": "test_defensive_garrison_owner",
-      "email": "test_defensive_garrison_owner@test.com",
-      "password_hash": ""
-    },
-    "test_defensive_garrison_arrival": {
-      "name": "test_defensive_garrison_arrival",
-      "email": "test_defensive_garrison_arrival@test.com",
-      "password_hash": ""
-    },
-    "test_toll_garrison_owner": {
-      "name": "test_toll_garrison_owner",
-      "email": "test_toll_garrison_owner@test.com",
-      "password_hash": ""
-    },
-    "test_toll_collection_owner": {
-      "name": "test_toll_collection_owner",
-      "email": "test_toll_collection_owner@test.com",
-      "password_hash": ""
-    },
-    "test_toll_collection_payer": {
-      "name": "test_toll_collection_payer",
-      "email": "test_toll_collection_payer@test.com",
-      "password_hash": ""
-    },
-    "test_bank_deposit": {
-      "name": "test_bank_deposit",
-      "email": "test_bank_deposit@test.com",
-      "password_hash": ""
-    },
-    "test_bank_withdraw": {
-      "name": "test_bank_withdraw",
-      "email": "test_bank_withdraw@test.com",
-      "password_hash": ""
-    },
-    "test_bank_deposit_exceed": {
-      "name": "test_bank_deposit_exceed",
-      "email": "test_bank_deposit_exceed@test.com",
-      "password_hash": ""
-    },
-    "test_bank_withdraw_exceed": {
-      "name": "test_bank_withdraw_exceed",
-      "email": "test_bank_withdraw_exceed@test.com",
-      "password_hash": ""
-    },
-    "test_bank_deposit_wrong_sector": {
-      "name": "test_bank_deposit_wrong_sector",
-      "email": "test_bank_deposit_wrong_sector@test.com",
-      "password_hash": ""
-    },
-    "test_bank_withdraw_wrong_sector": {
-      "name": "test_bank_withdraw_wrong_sector",
-      "email": "test_bank_withdraw_wrong_sector@test.com",
-      "password_hash": ""
-    },
-    "test_bank_in_combat": {
-      "name": "test_bank_in_combat",
-      "email": "test_bank_in_combat@test.com",
-      "password_hash": ""
-    },
-    "test_bank_opponent": {
-      "name": "test_bank_opponent",
-      "email": "test_bank_opponent@test.com",
-      "password_hash": ""
-    },
-    "test_bank_corp_founder": {
-      "name": "test_bank_corp_founder",
-      "email": "test_bank_corp_founder@test.com",
-      "password_hash": ""
-    },
-    "test_bank_corp_member": {
-      "name": "test_bank_corp_member",
-      "email": "test_bank_corp_member@test.com",
-      "password_hash": ""
-    },
-    "test_bank_corp_ship_founder": {
-      "name": "test_bank_corp_ship_founder",
-      "email": "test_bank_corp_ship_founder@test.com",
-      "password_hash": ""
-    },
-    "test_bank_corp_ship_member": {
-      "name": "test_bank_corp_ship_member",
-      "email": "test_bank_corp_ship_member@test.com",
-      "password_hash": ""
-    },
-    "test_credit_sender": {
-      "name": "test_credit_sender",
-      "email": "test_credit_sender@test.com",
-      "password_hash": ""
-    },
-    "test_credit_receiver": {
-      "name": "test_credit_receiver",
-      "email": "test_credit_receiver@test.com",
-      "password_hash": ""
-    },
-    "test_credit_exceed_sender": {
-      "name": "test_credit_exceed_sender",
-      "email": "test_credit_exceed_sender@test.com",
-      "password_hash": ""
-    },
-    "test_credit_exceed_receiver": {
-      "name": "test_credit_exceed_receiver",
-      "email": "test_credit_exceed_receiver@test.com",
-      "password_hash": ""
-    },
-    "test_credit_diff_sector_sender": {
-      "name": "test_credit_diff_sector_sender",
-      "email": "test_credit_diff_sector_sender@test.com",
-      "password_hash": ""
-    },
-    "test_credit_diff_sector_receiver": {
-      "name": "test_credit_diff_sector_receiver",
-      "email": "test_credit_diff_sector_receiver@test.com",
-      "password_hash": ""
-    },
-    "test_credit_nonexistent_sender": {
-      "name": "test_credit_nonexistent_sender",
-      "email": "test_credit_nonexistent_sender@test.com",
-      "password_hash": ""
-    },
-    "test_credit_self_sender": {
-      "name": "test_credit_self_sender",
-      "email": "test_credit_self_sender@test.com",
-      "password_hash": ""
-    },
-    "test_credit_combat_sender": {
-      "name": "test_credit_combat_sender",
-      "email": "test_credit_combat_sender@test.com",
-      "password_hash": ""
-    },
-    "test_credit_combat_receiver": {
-      "name": "test_credit_combat_receiver",
-      "email": "test_credit_combat_receiver@test.com",
-      "password_hash": ""
-    },
-    "test_credit_resolve_sender": {
-      "name": "test_credit_resolve_sender",
-      "email": "test_credit_resolve_sender@test.com",
-      "password_hash": ""
-    },
-    "test_credit_resolve_receiver": {
-      "name": "test_credit_resolve_receiver",
-      "email": "test_credit_resolve_receiver@test.com",
-      "password_hash": ""
-    },
-    "test_salvage_dumper": {
-      "name": "test_salvage_dumper",
-      "email": "test_salvage_dumper@test.com",
-      "password_hash": ""
-    },
-    "test_salvage_collector_own": {
-      "name": "test_salvage_collector_own",
-      "email": "test_salvage_collector_own@test.com",
-      "password_hash": ""
-    },
-    "test_salvage_collector_other": {
-      "name": "test_salvage_collector_other",
-      "email": "test_salvage_collector_other@test.com",
-      "password_hash": ""
-    },
-    "test_salvage_late_arrival": {
-      "name": "test_salvage_late_arrival",
-      "email": "test_salvage_late_arrival@test.com",
-      "password_hash": ""
-    },
-    "test_salvage_exceed_dumper": {
-      "name": "test_salvage_exceed_dumper",
-      "email": "test_salvage_exceed_dumper@test.com",
-      "password_hash": ""
-    },
-    "test_salvage_combat_dumper": {
-      "name": "test_salvage_combat_dumper",
-      "email": "test_salvage_combat_dumper@test.com",
-      "password_hash": ""
-    },
-    "test_salvage_combat_opponent": {
-      "name": "test_salvage_combat_opponent",
-      "email": "test_salvage_combat_opponent@test.com",
-      "password_hash": ""
-    },
-    "test_salvage_zero_dumper": {
-      "name": "test_salvage_zero_dumper",
-      "email": "test_salvage_zero_dumper@test.com",
-      "password_hash": ""
-    },
-    "test_salvage_invalid_dumper": {
-      "name": "test_salvage_invalid_dumper",
-      "email": "test_salvage_invalid_dumper@test.com",
-      "password_hash": ""
-    },
-    "test_capacity_dumper_1": {
-      "name": "test_capacity_dumper_1",
-      "email": "test_capacity_dumper_1@test.com",
-      "password_hash": ""
-    },
-    "test_capacity_collector_1": {
-      "name": "test_capacity_collector_1",
-      "email": "test_capacity_collector_1@test.com",
-      "password_hash": ""
-    },
-    "test_capacity_dumper_2": {
-      "name": "test_capacity_dumper_2",
-      "email": "test_capacity_dumper_2@test.com",
-      "password_hash": ""
-    },
-    "test_capacity_collector_2": {
-      "name": "test_capacity_collector_2",
-      "email": "test_capacity_collector_2@test.com",
-      "password_hash": ""
-    },
-    "test_capacity_dumper_3": {
-      "name": "test_capacity_dumper_3",
-      "email": "test_capacity_dumper_3@test.com",
-      "password_hash": ""
-    },
-    "test_capacity_collector_3": {
-      "name": "test_capacity_collector_3",
-      "email": "test_capacity_collector_3@test.com",
-      "password_hash": ""
-    },
-    "test_capacity_dumper_4": {
-      "name": "test_capacity_dumper_4",
-      "email": "test_capacity_dumper_4@test.com",
-      "password_hash": ""
-    },
-    "test_capacity_collector_4": {
-      "name": "test_capacity_collector_4",
-      "email": "test_capacity_collector_4@test.com",
-      "password_hash": ""
-    },
-    "test_capacity_dumper_5": {
-      "name": "test_capacity_dumper_5",
-      "email": "test_capacity_dumper_5@test.com",
-      "password_hash": ""
-    },
-    "test_capacity_collector_5": {
-      "name": "test_capacity_collector_5",
-      "email": "test_capacity_collector_5@test.com",
-      "password_hash": ""
-    },
-    "test_capacity_dumper_6": {
-      "name": "test_capacity_dumper_6",
-      "email": "test_capacity_dumper_6@test.com",
-      "password_hash": ""
-    },
-    "test_capacity_collector_6": {
-      "name": "test_capacity_collector_6",
-      "email": "test_capacity_collector_6@test.com",
-      "password_hash": ""
-    },
-    "test_api_salvage_dumper": {
-      "name": "test_api_salvage_dumper",
-      "email": "test_api_salvage_dumper@test.com",
-      "password_hash": ""
-    },
-    "test_api_salvage_collector": {
-      "name": "test_api_salvage_collector",
-      "email": "test_api_salvage_collector@test.com",
-      "password_hash": ""
-    },
-    "test_initiator_char1": {
-      "name": "test_initiator_char1",
-      "email": "test_initiator_char1@test.com",
-      "password_hash": ""
-    },
-    "test_initiator_char2": {
-      "name": "test_initiator_char2",
-      "email": "test_initiator_char2@test.com",
-      "password_hash": ""
-    },
-    "test_event_order_char1": {
-      "name": "test_event_order_char1",
-      "email": "test_event_order_char1@test.com",
-      "password_hash": ""
-    },
-    "test_event_order_char2": {
-      "name": "test_event_order_char2",
-      "email": "test_event_order_char2@test.com",
-      "password_hash": ""
-    },
-    "test_event_order_char3": {
-      "name": "test_event_order_char3",
-      "email": "test_event_order_char3@test.com",
-      "password_hash": ""
-    },
-    "test_empty_holds_char": {
-      "name": "test_empty_holds_char",
-      "email": "test_empty_holds_char@test.com",
-      "password_hash": ""
-    },
-    "test_empty_holds_edge": {
-      "name": "test_empty_holds_edge",
-      "email": "test_empty_holds_edge@test.com",
-      "password_hash": ""
-    },
-    "test_corp_founder_1": {
-      "name": "test_corp_founder_1",
-      "email": "test_corp_founder_1@test.com",
-      "password_hash": ""
-    },
-    "test_corp_founder_credits": {
-      "name": "test_corp_founder_credits",
-      "email": "test_corp_founder_credits@test.com",
-      "password_hash": ""
-    },
-    "test_corp_founder_broke": {
-      "name": "test_corp_founder_broke",
-      "email": "test_corp_founder_broke@test.com",
-      "password_hash": ""
-    },
-    "test_join_founder": {
-      "name": "test_join_founder",
-      "email": "test_join_founder@test.com",
-      "password_hash": ""
-    },
-    "test_join_member": {
-      "name": "test_join_member",
-      "email": "test_join_member@test.com",
-      "password_hash": ""
-    },
-    "test_join_invalid_founder": {
-      "name": "test_join_invalid_founder",
-      "email": "test_join_invalid_founder@test.com",
-      "password_hash": ""
-    },
-    "test_join_invalid_member": {
-      "name": "test_join_invalid_member",
-      "email": "test_join_invalid_member@test.com",
-      "password_hash": ""
-    },
-    "test_join_case_founder": {
-      "name": "test_join_case_founder",
-      "email": "test_join_case_founder@test.com",
-      "password_hash": ""
-    },
-    "test_join_case_member": {
-      "name": "test_join_case_member",
-      "email": "test_join_case_member@test.com",
-      "password_hash": ""
-    },
-    "test_join_again_founder": {
-      "name": "test_join_again_founder",
-      "email": "test_join_again_founder@test.com",
-      "password_hash": ""
-    },
-    "test_join_again_member": {
-      "name": "test_join_again_member",
-      "email": "test_join_again_member@test.com",
       "password_hash": ""
     },
     "test_regen_founder": {
@@ -2062,594 +2155,149 @@
       "email": "test_regen_invalid_joiner@test.com",
       "password_hash": ""
     },
-    "test_leave_founder": {
-      "name": "test_leave_founder",
-      "email": "test_leave_founder@test.com",
+    "test_req_char_id": {
+      "name": "test_req_char_id",
+      "email": "test_req_char_id@test.com",
       "password_hash": ""
     },
-    "test_leave_member": {
-      "name": "test_leave_member",
-      "email": "test_leave_member@test.com",
+    "test_reset_runner": {
+      "name": "test_reset_runner",
+      "email": "test_reset_runner@test.com",
       "password_hash": ""
     },
-    "test_disband_founder": {
-      "name": "test_disband_founder",
-      "email": "test_disband_founder@test.com",
+    "test_rich_trader": {
+      "name": "test_rich_trader",
+      "email": "test_rich_trader@test.com",
       "password_hash": ""
     },
-    "test_kick_founder": {
-      "name": "test_kick_founder",
-      "email": "test_kick_founder@test.com",
+    "test_salv_attacker": {
+      "name": "test_salv_attacker",
+      "email": "test_salv_attacker@test.com",
       "password_hash": ""
     },
-    "test_kick_member": {
-      "name": "test_kick_member",
-      "email": "test_kick_member@test.com",
+    "test_salv_loser": {
+      "name": "test_salv_loser",
+      "email": "test_salv_loser@test.com",
       "password_hash": ""
     },
-    "test_kick_self": {
-      "name": "test_kick_self",
-      "email": "test_kick_self@test.com",
+    "test_salv_observer": {
+      "name": "test_salv_observer",
+      "email": "test_salv_observer@test.com",
       "password_hash": ""
     },
-    "test_corp_founder": {
-      "name": "test_corp_founder",
-      "email": "test_corp_founder@test.com",
+    "test_salv_victim": {
+      "name": "test_salv_victim",
+      "email": "test_salv_victim@test.com",
       "password_hash": ""
     },
-    "test_corp_member_1": {
-      "name": "test_corp_member_1",
-      "email": "test_corp_member_1@test.com",
+    "test_salv_winner": {
+      "name": "test_salv_winner",
+      "email": "test_salv_winner@test.com",
       "password_hash": ""
     },
-    "test_corp_member_2": {
-      "name": "test_corp_member_2",
-      "email": "test_corp_member_2@test.com",
+    "test_salvage_collector": {
+      "name": "test_salvage_collector",
+      "email": "test_salvage_collector@test.com",
       "password_hash": ""
     },
-    "test_corp_member_3": {
-      "name": "test_corp_member_3",
-      "email": "test_corp_member_3@test.com",
+    "test_salvage_collector_other": {
+      "name": "test_salvage_collector_other",
+      "email": "test_salvage_collector_other@test.com",
       "password_hash": ""
     },
-    "test_corp_outsider": {
-      "name": "test_corp_outsider",
-      "email": "test_corp_outsider@test.com",
+    "test_salvage_collector_own": {
+      "name": "test_salvage_collector_own",
+      "email": "test_salvage_collector_own@test.com",
       "password_hash": ""
     },
-    "test_corp_poor_player": {
-      "name": "test_corp_poor_player",
-      "email": "test_corp_poor_player@test.com",
+    "test_salvage_combat_dumper": {
+      "name": "test_salvage_combat_dumper",
+      "email": "test_salvage_combat_dumper@test.com",
       "password_hash": ""
     },
-    "test_corp_invitee": {
-      "name": "test_corp_invitee",
-      "email": "test_corp_invitee@test.com",
+    "test_salvage_combat_opponent": {
+      "name": "test_salvage_combat_opponent",
+      "email": "test_salvage_combat_opponent@test.com",
       "password_hash": ""
     },
-    "test_corp_rival_founder": {
-      "name": "test_corp_rival_founder",
-      "email": "test_corp_rival_founder@test.com",
+    "test_salvage_dumper": {
+      "name": "test_salvage_dumper",
+      "email": "test_salvage_dumper@test.com",
       "password_hash": ""
     },
-    "test_stress_move_2": {
-      "name": "test_stress_move_2",
-      "email": "test_stress_move_2@test.com",
+    "test_salvage_exceed_dumper": {
+      "name": "test_salvage_exceed_dumper",
+      "email": "test_salvage_exceed_dumper@test.com",
       "password_hash": ""
     },
-    "test_stress_move_3": {
-      "name": "test_stress_move_3",
-      "email": "test_stress_move_3@test.com",
+    "test_salvage_invalid_dumper": {
+      "name": "test_salvage_invalid_dumper",
+      "email": "test_salvage_invalid_dumper@test.com",
       "password_hash": ""
     },
-    "test_stress_move_4": {
-      "name": "test_stress_move_4",
-      "email": "test_stress_move_4@test.com",
+    "test_salvage_late_arrival": {
+      "name": "test_salvage_late_arrival",
+      "email": "test_salvage_late_arrival@test.com",
       "password_hash": ""
     },
-    "test_stress_move_5": {
-      "name": "test_stress_move_5",
-      "email": "test_stress_move_5@test.com",
+    "test_salvage_observer": {
+      "name": "test_salvage_observer",
+      "email": "test_salvage_observer@test.com",
       "password_hash": ""
     },
-    "test_stress_move_6": {
-      "name": "test_stress_move_6",
-      "email": "test_stress_move_6@test.com",
+    "test_salvage_victim": {
+      "name": "test_salvage_victim",
+      "email": "test_salvage_victim@test.com",
       "password_hash": ""
     },
-    "test_stress_move_7": {
-      "name": "test_stress_move_7",
-      "email": "test_stress_move_7@test.com",
+    "test_salvage_zero_dumper": {
+      "name": "test_salvage_zero_dumper",
+      "email": "test_salvage_zero_dumper@test.com",
       "password_hash": ""
     },
-    "test_stress_move_8": {
-      "name": "test_stress_move_8",
-      "email": "test_stress_move_8@test.com",
+    "test_server_error": {
+      "name": "test_server_error",
+      "email": "test_server_error@test.com",
       "password_hash": ""
     },
-    "test_stress_move_9": {
-      "name": "test_stress_move_9",
-      "email": "test_stress_move_9@test.com",
+    "test_shield1": {
+      "name": "test_shield1",
+      "email": "test_shield1@test.com",
       "password_hash": ""
     },
-    "test_stress_move_10": {
-      "name": "test_stress_move_10",
-      "email": "test_stress_move_10@test.com",
+    "test_shield2": {
+      "name": "test_shield2",
+      "email": "test_shield2@test.com",
       "password_hash": ""
     },
-    "test_stress_move_11": {
-      "name": "test_stress_move_11",
-      "email": "test_stress_move_11@test.com",
+    "test_ship_destroyed_attacker": {
+      "name": "test_ship_destroyed_attacker",
+      "email": "test_ship_destroyed_attacker@test.com",
       "password_hash": ""
     },
-    "test_stress_move_12": {
-      "name": "test_stress_move_12",
-      "email": "test_stress_move_12@test.com",
+    "test_ship_destroyed_victim": {
+      "name": "test_ship_destroyed_victim",
+      "email": "test_ship_destroyed_victim@test.com",
       "password_hash": ""
     },
-    "test_stress_move_13": {
-      "name": "test_stress_move_13",
-      "email": "test_stress_move_13@test.com",
+    "test_state1": {
+      "name": "test_state1",
+      "email": "test_state1@test.com",
       "password_hash": ""
     },
-    "test_stress_move_14": {
-      "name": "test_stress_move_14",
-      "email": "test_stress_move_14@test.com",
+    "test_state2": {
+      "name": "test_state2",
+      "email": "test_state2@test.com",
       "password_hash": ""
     },
-    "test_stress_move_15": {
-      "name": "test_stress_move_15",
-      "email": "test_stress_move_15@test.com",
+    "test_stress_combat_0": {
+      "name": "test_stress_combat_0",
+      "email": "test_stress_combat_0@test.com",
       "password_hash": ""
     },
-    "test_stress_move_16": {
-      "name": "test_stress_move_16",
-      "email": "test_stress_move_16@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_17": {
-      "name": "test_stress_move_17",
-      "email": "test_stress_move_17@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_18": {
-      "name": "test_stress_move_18",
-      "email": "test_stress_move_18@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_19": {
-      "name": "test_stress_move_19",
-      "email": "test_stress_move_19@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_20": {
-      "name": "test_stress_move_20",
-      "email": "test_stress_move_20@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_21": {
-      "name": "test_stress_move_21",
-      "email": "test_stress_move_21@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_22": {
-      "name": "test_stress_move_22",
-      "email": "test_stress_move_22@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_23": {
-      "name": "test_stress_move_23",
-      "email": "test_stress_move_23@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_24": {
-      "name": "test_stress_move_24",
-      "email": "test_stress_move_24@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_25": {
-      "name": "test_stress_move_25",
-      "email": "test_stress_move_25@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_26": {
-      "name": "test_stress_move_26",
-      "email": "test_stress_move_26@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_27": {
-      "name": "test_stress_move_27",
-      "email": "test_stress_move_27@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_28": {
-      "name": "test_stress_move_28",
-      "email": "test_stress_move_28@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_29": {
-      "name": "test_stress_move_29",
-      "email": "test_stress_move_29@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_30": {
-      "name": "test_stress_move_30",
-      "email": "test_stress_move_30@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_31": {
-      "name": "test_stress_move_31",
-      "email": "test_stress_move_31@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_32": {
-      "name": "test_stress_move_32",
-      "email": "test_stress_move_32@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_33": {
-      "name": "test_stress_move_33",
-      "email": "test_stress_move_33@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_34": {
-      "name": "test_stress_move_34",
-      "email": "test_stress_move_34@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_35": {
-      "name": "test_stress_move_35",
-      "email": "test_stress_move_35@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_36": {
-      "name": "test_stress_move_36",
-      "email": "test_stress_move_36@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_37": {
-      "name": "test_stress_move_37",
-      "email": "test_stress_move_37@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_38": {
-      "name": "test_stress_move_38",
-      "email": "test_stress_move_38@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_39": {
-      "name": "test_stress_move_39",
-      "email": "test_stress_move_39@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_40": {
-      "name": "test_stress_move_40",
-      "email": "test_stress_move_40@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_41": {
-      "name": "test_stress_move_41",
-      "email": "test_stress_move_41@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_42": {
-      "name": "test_stress_move_42",
-      "email": "test_stress_move_42@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_43": {
-      "name": "test_stress_move_43",
-      "email": "test_stress_move_43@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_44": {
-      "name": "test_stress_move_44",
-      "email": "test_stress_move_44@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_45": {
-      "name": "test_stress_move_45",
-      "email": "test_stress_move_45@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_46": {
-      "name": "test_stress_move_46",
-      "email": "test_stress_move_46@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_47": {
-      "name": "test_stress_move_47",
-      "email": "test_stress_move_47@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_48": {
-      "name": "test_stress_move_48",
-      "email": "test_stress_move_48@test.com",
-      "password_hash": ""
-    },
-    "test_stress_move_49": {
-      "name": "test_stress_move_49",
-      "email": "test_stress_move_49@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_2": {
-      "name": "test_stress_trade_2",
-      "email": "test_stress_trade_2@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_3": {
-      "name": "test_stress_trade_3",
-      "email": "test_stress_trade_3@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_4": {
-      "name": "test_stress_trade_4",
-      "email": "test_stress_trade_4@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_5": {
-      "name": "test_stress_trade_5",
-      "email": "test_stress_trade_5@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_6": {
-      "name": "test_stress_trade_6",
-      "email": "test_stress_trade_6@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_7": {
-      "name": "test_stress_trade_7",
-      "email": "test_stress_trade_7@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_8": {
-      "name": "test_stress_trade_8",
-      "email": "test_stress_trade_8@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_9": {
-      "name": "test_stress_trade_9",
-      "email": "test_stress_trade_9@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_10": {
-      "name": "test_stress_trade_10",
-      "email": "test_stress_trade_10@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_11": {
-      "name": "test_stress_trade_11",
-      "email": "test_stress_trade_11@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_12": {
-      "name": "test_stress_trade_12",
-      "email": "test_stress_trade_12@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_13": {
-      "name": "test_stress_trade_13",
-      "email": "test_stress_trade_13@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_14": {
-      "name": "test_stress_trade_14",
-      "email": "test_stress_trade_14@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_15": {
-      "name": "test_stress_trade_15",
-      "email": "test_stress_trade_15@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_16": {
-      "name": "test_stress_trade_16",
-      "email": "test_stress_trade_16@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_17": {
-      "name": "test_stress_trade_17",
-      "email": "test_stress_trade_17@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_18": {
-      "name": "test_stress_trade_18",
-      "email": "test_stress_trade_18@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_19": {
-      "name": "test_stress_trade_19",
-      "email": "test_stress_trade_19@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_20": {
-      "name": "test_stress_trade_20",
-      "email": "test_stress_trade_20@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_21": {
-      "name": "test_stress_trade_21",
-      "email": "test_stress_trade_21@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_22": {
-      "name": "test_stress_trade_22",
-      "email": "test_stress_trade_22@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_23": {
-      "name": "test_stress_trade_23",
-      "email": "test_stress_trade_23@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_24": {
-      "name": "test_stress_trade_24",
-      "email": "test_stress_trade_24@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_25": {
-      "name": "test_stress_trade_25",
-      "email": "test_stress_trade_25@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_26": {
-      "name": "test_stress_trade_26",
-      "email": "test_stress_trade_26@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_27": {
-      "name": "test_stress_trade_27",
-      "email": "test_stress_trade_27@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_28": {
-      "name": "test_stress_trade_28",
-      "email": "test_stress_trade_28@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_29": {
-      "name": "test_stress_trade_29",
-      "email": "test_stress_trade_29@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_30": {
-      "name": "test_stress_trade_30",
-      "email": "test_stress_trade_30@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_31": {
-      "name": "test_stress_trade_31",
-      "email": "test_stress_trade_31@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_32": {
-      "name": "test_stress_trade_32",
-      "email": "test_stress_trade_32@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_33": {
-      "name": "test_stress_trade_33",
-      "email": "test_stress_trade_33@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_34": {
-      "name": "test_stress_trade_34",
-      "email": "test_stress_trade_34@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_35": {
-      "name": "test_stress_trade_35",
-      "email": "test_stress_trade_35@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_36": {
-      "name": "test_stress_trade_36",
-      "email": "test_stress_trade_36@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_37": {
-      "name": "test_stress_trade_37",
-      "email": "test_stress_trade_37@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_38": {
-      "name": "test_stress_trade_38",
-      "email": "test_stress_trade_38@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_39": {
-      "name": "test_stress_trade_39",
-      "email": "test_stress_trade_39@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_40": {
-      "name": "test_stress_trade_40",
-      "email": "test_stress_trade_40@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_41": {
-      "name": "test_stress_trade_41",
-      "email": "test_stress_trade_41@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_42": {
-      "name": "test_stress_trade_42",
-      "email": "test_stress_trade_42@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_43": {
-      "name": "test_stress_trade_43",
-      "email": "test_stress_trade_43@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_44": {
-      "name": "test_stress_trade_44",
-      "email": "test_stress_trade_44@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_45": {
-      "name": "test_stress_trade_45",
-      "email": "test_stress_trade_45@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_46": {
-      "name": "test_stress_trade_46",
-      "email": "test_stress_trade_46@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_47": {
-      "name": "test_stress_trade_47",
-      "email": "test_stress_trade_47@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_48": {
-      "name": "test_stress_trade_48",
-      "email": "test_stress_trade_48@test.com",
-      "password_hash": ""
-    },
-    "test_stress_trade_49": {
-      "name": "test_stress_trade_49",
-      "email": "test_stress_trade_49@test.com",
-      "password_hash": ""
-    },
-    "test_stress_combat_2": {
-      "name": "test_stress_combat_2",
-      "email": "test_stress_combat_2@test.com",
-      "password_hash": ""
-    },
-    "test_stress_combat_3": {
-      "name": "test_stress_combat_3",
-      "email": "test_stress_combat_3@test.com",
-      "password_hash": ""
-    },
-    "test_stress_combat_4": {
-      "name": "test_stress_combat_4",
-      "email": "test_stress_combat_4@test.com",
-      "password_hash": ""
-    },
-    "test_stress_combat_5": {
-      "name": "test_stress_combat_5",
-      "email": "test_stress_combat_5@test.com",
-      "password_hash": ""
-    },
-    "test_stress_combat_6": {
-      "name": "test_stress_combat_6",
-      "email": "test_stress_combat_6@test.com",
-      "password_hash": ""
-    },
-    "test_stress_combat_7": {
-      "name": "test_stress_combat_7",
-      "email": "test_stress_combat_7@test.com",
-      "password_hash": ""
-    },
-    "test_stress_combat_8": {
-      "name": "test_stress_combat_8",
-      "email": "test_stress_combat_8@test.com",
-      "password_hash": ""
-    },
-    "test_stress_combat_9": {
-      "name": "test_stress_combat_9",
-      "email": "test_stress_combat_9@test.com",
+    "test_stress_combat_1": {
+      "name": "test_stress_combat_1",
+      "email": "test_stress_combat_1@test.com",
       "password_hash": ""
     },
     "test_stress_combat_10": {
@@ -2702,6 +2350,56 @@
       "email": "test_stress_combat_19@test.com",
       "password_hash": ""
     },
+    "test_stress_combat_2": {
+      "name": "test_stress_combat_2",
+      "email": "test_stress_combat_2@test.com",
+      "password_hash": ""
+    },
+    "test_stress_combat_3": {
+      "name": "test_stress_combat_3",
+      "email": "test_stress_combat_3@test.com",
+      "password_hash": ""
+    },
+    "test_stress_combat_4": {
+      "name": "test_stress_combat_4",
+      "email": "test_stress_combat_4@test.com",
+      "password_hash": ""
+    },
+    "test_stress_combat_5": {
+      "name": "test_stress_combat_5",
+      "email": "test_stress_combat_5@test.com",
+      "password_hash": ""
+    },
+    "test_stress_combat_6": {
+      "name": "test_stress_combat_6",
+      "email": "test_stress_combat_6@test.com",
+      "password_hash": ""
+    },
+    "test_stress_combat_7": {
+      "name": "test_stress_combat_7",
+      "email": "test_stress_combat_7@test.com",
+      "password_hash": ""
+    },
+    "test_stress_combat_8": {
+      "name": "test_stress_combat_8",
+      "email": "test_stress_combat_8@test.com",
+      "password_hash": ""
+    },
+    "test_stress_combat_9": {
+      "name": "test_stress_combat_9",
+      "email": "test_stress_combat_9@test.com",
+      "password_hash": ""
+    },
+    "test_stress_corruption_0": {
+      "name": "test_stress_corruption_0",
+      "email": "test_stress_corruption_0@test.com",
+      "password_hash": ""
+    },
+    "test_stress_corruption_1": {
+      "name": "test_stress_corruption_1",
+      "email": "test_stress_corruption_1@test.com",
+      "password_hash": ""
+    },
     "test_stress_mixed_0": {
       "name": "test_stress_mixed_0",
       "email": "test_stress_mixed_0@test.com",
@@ -2710,46 +2408,6 @@
     "test_stress_mixed_1": {
       "name": "test_stress_mixed_1",
       "email": "test_stress_mixed_1@test.com",
-      "password_hash": ""
-    },
-    "test_stress_mixed_2": {
-      "name": "test_stress_mixed_2",
-      "email": "test_stress_mixed_2@test.com",
-      "password_hash": ""
-    },
-    "test_stress_mixed_3": {
-      "name": "test_stress_mixed_3",
-      "email": "test_stress_mixed_3@test.com",
-      "password_hash": ""
-    },
-    "test_stress_mixed_4": {
-      "name": "test_stress_mixed_4",
-      "email": "test_stress_mixed_4@test.com",
-      "password_hash": ""
-    },
-    "test_stress_mixed_5": {
-      "name": "test_stress_mixed_5",
-      "email": "test_stress_mixed_5@test.com",
-      "password_hash": ""
-    },
-    "test_stress_mixed_6": {
-      "name": "test_stress_mixed_6",
-      "email": "test_stress_mixed_6@test.com",
-      "password_hash": ""
-    },
-    "test_stress_mixed_7": {
-      "name": "test_stress_mixed_7",
-      "email": "test_stress_mixed_7@test.com",
-      "password_hash": ""
-    },
-    "test_stress_mixed_8": {
-      "name": "test_stress_mixed_8",
-      "email": "test_stress_mixed_8@test.com",
-      "password_hash": ""
-    },
-    "test_stress_mixed_9": {
-      "name": "test_stress_mixed_9",
-      "email": "test_stress_mixed_9@test.com",
       "password_hash": ""
     },
     "test_stress_mixed_10": {
@@ -2802,6 +2460,11 @@
       "email": "test_stress_mixed_19@test.com",
       "password_hash": ""
     },
+    "test_stress_mixed_2": {
+      "name": "test_stress_mixed_2",
+      "email": "test_stress_mixed_2@test.com",
+      "password_hash": ""
+    },
     "test_stress_mixed_20": {
       "name": "test_stress_mixed_20",
       "email": "test_stress_mixed_20@test.com",
@@ -2850,6 +2513,11 @@
     "test_stress_mixed_29": {
       "name": "test_stress_mixed_29",
       "email": "test_stress_mixed_29@test.com",
+      "password_hash": ""
+    },
+    "test_stress_mixed_3": {
+      "name": "test_stress_mixed_3",
+      "email": "test_stress_mixed_3@test.com",
       "password_hash": ""
     },
     "test_stress_mixed_30": {
@@ -2902,6 +2570,11 @@
       "email": "test_stress_mixed_39@test.com",
       "password_hash": ""
     },
+    "test_stress_mixed_4": {
+      "name": "test_stress_mixed_4",
+      "email": "test_stress_mixed_4@test.com",
+      "password_hash": ""
+    },
     "test_stress_mixed_40": {
       "name": "test_stress_mixed_40",
       "email": "test_stress_mixed_40@test.com",
@@ -2952,6 +2625,286 @@
       "email": "test_stress_mixed_49@test.com",
       "password_hash": ""
     },
+    "test_stress_mixed_5": {
+      "name": "test_stress_mixed_5",
+      "email": "test_stress_mixed_5@test.com",
+      "password_hash": ""
+    },
+    "test_stress_mixed_6": {
+      "name": "test_stress_mixed_6",
+      "email": "test_stress_mixed_6@test.com",
+      "password_hash": ""
+    },
+    "test_stress_mixed_7": {
+      "name": "test_stress_mixed_7",
+      "email": "test_stress_mixed_7@test.com",
+      "password_hash": ""
+    },
+    "test_stress_mixed_8": {
+      "name": "test_stress_mixed_8",
+      "email": "test_stress_mixed_8@test.com",
+      "password_hash": ""
+    },
+    "test_stress_mixed_9": {
+      "name": "test_stress_mixed_9",
+      "email": "test_stress_mixed_9@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_0": {
+      "name": "test_stress_move_0",
+      "email": "test_stress_move_0@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_1": {
+      "name": "test_stress_move_1",
+      "email": "test_stress_move_1@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_10": {
+      "name": "test_stress_move_10",
+      "email": "test_stress_move_10@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_11": {
+      "name": "test_stress_move_11",
+      "email": "test_stress_move_11@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_12": {
+      "name": "test_stress_move_12",
+      "email": "test_stress_move_12@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_13": {
+      "name": "test_stress_move_13",
+      "email": "test_stress_move_13@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_14": {
+      "name": "test_stress_move_14",
+      "email": "test_stress_move_14@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_15": {
+      "name": "test_stress_move_15",
+      "email": "test_stress_move_15@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_16": {
+      "name": "test_stress_move_16",
+      "email": "test_stress_move_16@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_17": {
+      "name": "test_stress_move_17",
+      "email": "test_stress_move_17@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_18": {
+      "name": "test_stress_move_18",
+      "email": "test_stress_move_18@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_19": {
+      "name": "test_stress_move_19",
+      "email": "test_stress_move_19@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_2": {
+      "name": "test_stress_move_2",
+      "email": "test_stress_move_2@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_20": {
+      "name": "test_stress_move_20",
+      "email": "test_stress_move_20@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_21": {
+      "name": "test_stress_move_21",
+      "email": "test_stress_move_21@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_22": {
+      "name": "test_stress_move_22",
+      "email": "test_stress_move_22@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_23": {
+      "name": "test_stress_move_23",
+      "email": "test_stress_move_23@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_24": {
+      "name": "test_stress_move_24",
+      "email": "test_stress_move_24@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_25": {
+      "name": "test_stress_move_25",
+      "email": "test_stress_move_25@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_26": {
+      "name": "test_stress_move_26",
+      "email": "test_stress_move_26@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_27": {
+      "name": "test_stress_move_27",
+      "email": "test_stress_move_27@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_28": {
+      "name": "test_stress_move_28",
+      "email": "test_stress_move_28@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_29": {
+      "name": "test_stress_move_29",
+      "email": "test_stress_move_29@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_3": {
+      "name": "test_stress_move_3",
+      "email": "test_stress_move_3@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_30": {
+      "name": "test_stress_move_30",
+      "email": "test_stress_move_30@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_31": {
+      "name": "test_stress_move_31",
+      "email": "test_stress_move_31@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_32": {
+      "name": "test_stress_move_32",
+      "email": "test_stress_move_32@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_33": {
+      "name": "test_stress_move_33",
+      "email": "test_stress_move_33@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_34": {
+      "name": "test_stress_move_34",
+      "email": "test_stress_move_34@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_35": {
+      "name": "test_stress_move_35",
+      "email": "test_stress_move_35@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_36": {
+      "name": "test_stress_move_36",
+      "email": "test_stress_move_36@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_37": {
+      "name": "test_stress_move_37",
+      "email": "test_stress_move_37@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_38": {
+      "name": "test_stress_move_38",
+      "email": "test_stress_move_38@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_39": {
+      "name": "test_stress_move_39",
+      "email": "test_stress_move_39@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_4": {
+      "name": "test_stress_move_4",
+      "email": "test_stress_move_4@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_40": {
+      "name": "test_stress_move_40",
+      "email": "test_stress_move_40@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_41": {
+      "name": "test_stress_move_41",
+      "email": "test_stress_move_41@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_42": {
+      "name": "test_stress_move_42",
+      "email": "test_stress_move_42@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_43": {
+      "name": "test_stress_move_43",
+      "email": "test_stress_move_43@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_44": {
+      "name": "test_stress_move_44",
+      "email": "test_stress_move_44@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_45": {
+      "name": "test_stress_move_45",
+      "email": "test_stress_move_45@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_46": {
+      "name": "test_stress_move_46",
+      "email": "test_stress_move_46@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_47": {
+      "name": "test_stress_move_47",
+      "email": "test_stress_move_47@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_48": {
+      "name": "test_stress_move_48",
+      "email": "test_stress_move_48@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_49": {
+      "name": "test_stress_move_49",
+      "email": "test_stress_move_49@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_5": {
+      "name": "test_stress_move_5",
+      "email": "test_stress_move_5@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_6": {
+      "name": "test_stress_move_6",
+      "email": "test_stress_move_6@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_7": {
+      "name": "test_stress_move_7",
+      "email": "test_stress_move_7@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_8": {
+      "name": "test_stress_move_8",
+      "email": "test_stress_move_8@test.com",
+      "password_hash": ""
+    },
+    "test_stress_move_9": {
+      "name": "test_stress_move_9",
+      "email": "test_stress_move_9@test.com",
+      "password_hash": ""
+    },
+    "test_stress_rapid": {
+      "name": "test_stress_rapid",
+      "email": "test_stress_rapid@test.com",
+      "password_hash": ""
+    },
     "test_stress_rapid_0": {
       "name": "test_stress_rapid_0",
       "email": "test_stress_rapid_0@test.com",
@@ -2977,54 +2930,429 @@
       "email": "test_stress_rapid_4@test.com",
       "password_hash": ""
     },
-    "test_event_char_0": {
-      "name": "test_event_char_0",
-      "email": "test_event_char_0@test.com",
+    "test_stress_trade_0": {
+      "name": "test_stress_trade_0",
+      "email": "test_stress_trade_0@test.com",
       "password_hash": ""
     },
-    "test_event_char_1": {
-      "name": "test_event_char_1",
-      "email": "test_event_char_1@test.com",
+    "test_stress_trade_1": {
+      "name": "test_stress_trade_1",
+      "email": "test_stress_trade_1@test.com",
       "password_hash": ""
     },
-    "test_event_char_2": {
-      "name": "test_event_char_2",
-      "email": "test_event_char_2@test.com",
+    "test_stress_trade_10": {
+      "name": "test_stress_trade_10",
+      "email": "test_stress_trade_10@test.com",
       "password_hash": ""
     },
-    "test_event_char_3": {
-      "name": "test_event_char_3",
-      "email": "test_event_char_3@test.com",
+    "test_stress_trade_11": {
+      "name": "test_stress_trade_11",
+      "email": "test_stress_trade_11@test.com",
       "password_hash": ""
     },
-    "test_event_char_4": {
-      "name": "test_event_char_4",
-      "email": "test_event_char_4@test.com",
+    "test_stress_trade_12": {
+      "name": "test_stress_trade_12",
+      "email": "test_stress_trade_12@test.com",
       "password_hash": ""
     },
-    "test_event_char_5": {
-      "name": "test_event_char_5",
-      "email": "test_event_char_5@test.com",
+    "test_stress_trade_13": {
+      "name": "test_stress_trade_13",
+      "email": "test_stress_trade_13@test.com",
       "password_hash": ""
     },
-    "test_event_char_6": {
-      "name": "test_event_char_6",
-      "email": "test_event_char_6@test.com",
+    "test_stress_trade_14": {
+      "name": "test_stress_trade_14",
+      "email": "test_stress_trade_14@test.com",
       "password_hash": ""
     },
-    "test_event_char_7": {
-      "name": "test_event_char_7",
-      "email": "test_event_char_7@test.com",
+    "test_stress_trade_15": {
+      "name": "test_stress_trade_15",
+      "email": "test_stress_trade_15@test.com",
       "password_hash": ""
     },
-    "test_event_char_8": {
-      "name": "test_event_char_8",
-      "email": "test_event_char_8@test.com",
+    "test_stress_trade_16": {
+      "name": "test_stress_trade_16",
+      "email": "test_stress_trade_16@test.com",
       "password_hash": ""
     },
-    "test_event_char_9": {
-      "name": "test_event_char_9",
-      "email": "test_event_char_9@test.com",
+    "test_stress_trade_17": {
+      "name": "test_stress_trade_17",
+      "email": "test_stress_trade_17@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_18": {
+      "name": "test_stress_trade_18",
+      "email": "test_stress_trade_18@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_19": {
+      "name": "test_stress_trade_19",
+      "email": "test_stress_trade_19@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_2": {
+      "name": "test_stress_trade_2",
+      "email": "test_stress_trade_2@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_20": {
+      "name": "test_stress_trade_20",
+      "email": "test_stress_trade_20@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_21": {
+      "name": "test_stress_trade_21",
+      "email": "test_stress_trade_21@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_22": {
+      "name": "test_stress_trade_22",
+      "email": "test_stress_trade_22@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_23": {
+      "name": "test_stress_trade_23",
+      "email": "test_stress_trade_23@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_24": {
+      "name": "test_stress_trade_24",
+      "email": "test_stress_trade_24@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_25": {
+      "name": "test_stress_trade_25",
+      "email": "test_stress_trade_25@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_26": {
+      "name": "test_stress_trade_26",
+      "email": "test_stress_trade_26@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_27": {
+      "name": "test_stress_trade_27",
+      "email": "test_stress_trade_27@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_28": {
+      "name": "test_stress_trade_28",
+      "email": "test_stress_trade_28@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_29": {
+      "name": "test_stress_trade_29",
+      "email": "test_stress_trade_29@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_3": {
+      "name": "test_stress_trade_3",
+      "email": "test_stress_trade_3@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_30": {
+      "name": "test_stress_trade_30",
+      "email": "test_stress_trade_30@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_31": {
+      "name": "test_stress_trade_31",
+      "email": "test_stress_trade_31@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_32": {
+      "name": "test_stress_trade_32",
+      "email": "test_stress_trade_32@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_33": {
+      "name": "test_stress_trade_33",
+      "email": "test_stress_trade_33@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_34": {
+      "name": "test_stress_trade_34",
+      "email": "test_stress_trade_34@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_35": {
+      "name": "test_stress_trade_35",
+      "email": "test_stress_trade_35@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_36": {
+      "name": "test_stress_trade_36",
+      "email": "test_stress_trade_36@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_37": {
+      "name": "test_stress_trade_37",
+      "email": "test_stress_trade_37@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_38": {
+      "name": "test_stress_trade_38",
+      "email": "test_stress_trade_38@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_39": {
+      "name": "test_stress_trade_39",
+      "email": "test_stress_trade_39@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_4": {
+      "name": "test_stress_trade_4",
+      "email": "test_stress_trade_4@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_40": {
+      "name": "test_stress_trade_40",
+      "email": "test_stress_trade_40@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_41": {
+      "name": "test_stress_trade_41",
+      "email": "test_stress_trade_41@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_42": {
+      "name": "test_stress_trade_42",
+      "email": "test_stress_trade_42@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_43": {
+      "name": "test_stress_trade_43",
+      "email": "test_stress_trade_43@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_44": {
+      "name": "test_stress_trade_44",
+      "email": "test_stress_trade_44@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_45": {
+      "name": "test_stress_trade_45",
+      "email": "test_stress_trade_45@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_46": {
+      "name": "test_stress_trade_46",
+      "email": "test_stress_trade_46@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_47": {
+      "name": "test_stress_trade_47",
+      "email": "test_stress_trade_47@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_48": {
+      "name": "test_stress_trade_48",
+      "email": "test_stress_trade_48@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_49": {
+      "name": "test_stress_trade_49",
+      "email": "test_stress_trade_49@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_5": {
+      "name": "test_stress_trade_5",
+      "email": "test_stress_trade_5@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_6": {
+      "name": "test_stress_trade_6",
+      "email": "test_stress_trade_6@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_7": {
+      "name": "test_stress_trade_7",
+      "email": "test_stress_trade_7@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_8": {
+      "name": "test_stress_trade_8",
+      "email": "test_stress_trade_8@test.com",
+      "password_hash": ""
+    },
+    "test_stress_trade_9": {
+      "name": "test_stress_trade_9",
+      "email": "test_stress_trade_9@test.com",
+      "password_hash": ""
+    },
+    "test_submit1": {
+      "name": "test_submit1",
+      "email": "test_submit1@test.com",
+      "password_hash": ""
+    },
+    "test_submit2": {
+      "name": "test_submit2",
+      "email": "test_submit2@test.com",
+      "password_hash": ""
+    },
+    "test_summary1": {
+      "name": "test_summary1",
+      "email": "test_summary1@test.com",
+      "password_hash": ""
+    },
+    "test_summary2": {
+      "name": "test_summary2",
+      "email": "test_summary2@test.com",
+      "password_hash": ""
+    },
+    "test_supabase_schema_1": {
+      "name": "test_supabase_schema_1",
+      "email": "test_supabase_schema_1@test.com",
+      "password_hash": ""
+    },
+    "test_supabase_schema_2": {
+      "name": "test_supabase_schema_2",
+      "email": "test_supabase_schema_2@test.com",
+      "password_hash": ""
+    },
+    "test_supabase_schema_3": {
+      "name": "test_supabase_schema_3",
+      "email": "test_supabase_schema_3@test.com",
+      "password_hash": ""
+    },
+    "test_supabase_schema_5": {
+      "name": "test_supabase_schema_5",
+      "email": "test_supabase_schema_5@test.com",
+      "password_hash": ""
+    },
+    "test_timeout": {
+      "name": "test_timeout",
+      "email": "test_timeout@test.com",
+      "password_hash": ""
+    },
+    "test_timeout1": {
+      "name": "test_timeout1",
+      "email": "test_timeout1@test.com",
+      "password_hash": ""
+    },
+    "test_timeout2": {
+      "name": "test_timeout2",
+      "email": "test_timeout2@test.com",
+      "password_hash": ""
+    },
+    "test_toll_collection_owner": {
+      "name": "test_toll_collection_owner",
+      "email": "test_toll_collection_owner@test.com",
+      "password_hash": ""
+    },
+    "test_toll_collection_payer": {
+      "name": "test_toll_collection_payer",
+      "email": "test_toll_collection_payer@test.com",
+      "password_hash": ""
+    },
+    "test_toll_deployer": {
+      "name": "test_toll_deployer",
+      "email": "test_toll_deployer@test.com",
+      "password_hash": ""
+    },
+    "test_toll_garrison_owner": {
+      "name": "test_toll_garrison_owner",
+      "email": "test_toll_garrison_owner@test.com",
+      "password_hash": ""
+    },
+    "test_toll_payer": {
+      "name": "test_toll_payer",
+      "email": "test_toll_payer@test.com",
+      "password_hash": ""
+    },
+    "test_trade_buy": {
+      "name": "test_trade_buy",
+      "email": "test_trade_buy@test.com",
+      "password_hash": ""
+    },
+    "test_trade_executed_trader": {
+      "name": "test_trade_executed_trader",
+      "email": "test_trade_executed_trader@test.com",
+      "password_hash": ""
+    },
+    "test_trade_observer": {
+      "name": "test_trade_observer",
+      "email": "test_trade_observer@test.com",
+      "password_hash": ""
+    },
+    "test_trade_sell": {
+      "name": "test_trade_sell",
+      "email": "test_trade_sell@test.com",
+      "password_hash": ""
+    },
+    "test_trade_trader": {
+      "name": "test_trade_trader",
+      "email": "test_trade_trader@test.com",
+      "password_hash": ""
+    },
+    "test_trade_visibility_outsider": {
+      "name": "test_trade_visibility_outsider",
+      "email": "test_trade_visibility_outsider@test.com",
+      "password_hash": ""
+    },
+    "test_trade_visibility_trader": {
+      "name": "test_trade_visibility_trader",
+      "email": "test_trade_visibility_trader@test.com",
+      "password_hash": ""
+    },
+    "test_trader_at_port": {
+      "name": "test_trader_at_port",
+      "email": "test_trader_at_port@test.com",
+      "password_hash": ""
+    },
+    "test_trader_no_port": {
+      "name": "test_trader_no_port",
+      "email": "test_trader_no_port@test.com",
+      "password_hash": ""
+    },
+    "test_trader_with_cargo": {
+      "name": "test_trader_with_cargo",
+      "email": "test_trader_with_cargo@test.com",
+      "password_hash": ""
+    },
+    "test_trading_client": {
+      "name": "test_trading_client",
+      "email": "test_trading_client@test.com",
+      "password_hash": ""
+    },
+    "test_transfer_from": {
+      "name": "test_transfer_from",
+      "email": "test_transfer_from@test.com",
+      "password_hash": ""
+    },
+    "test_transfer_to": {
+      "name": "test_transfer_to",
+      "email": "test_transfer_to@test.com",
+      "password_hash": ""
+    },
+    "test_warp_chaser": {
+      "name": "test_warp_chaser",
+      "email": "test_warp_chaser@test.com",
+      "password_hash": ""
+    },
+    "test_warp_runner": {
+      "name": "test_warp_runner",
+      "email": "test_warp_runner@test.com",
+      "password_hash": ""
+    },
+    "test_weak_opponent": {
+      "name": "test_weak_opponent",
+      "email": "test_weak_opponent@test.com",
+      "password_hash": ""
+    },
+    "test_win_loser": {
+      "name": "test_win_loser",
+      "email": "test_win_loser@test.com",
+      "password_hash": ""
+    },
+    "test_win_winner": {
+      "name": "test_win_winner",
+      "email": "test_win_winner@test.com",
+      "password_hash": ""
+    },
+    "ws_player": {
+      "name": "ws_player",
+      "email": "ws_player@test.com",
       "password_hash": ""
     }
   }

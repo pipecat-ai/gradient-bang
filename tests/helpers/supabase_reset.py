@@ -119,19 +119,25 @@ def _load_character_registry() -> Dict[str, Dict[str, Any]]:
 
 
 def _load_character_ids() -> List[str]:
+    """Load ALL character IDs from registry.
+
+    We seed all characters from the registry so that tests work.
+    Map knowledge will be loaded from files where available, or use
+    minimal defaults for characters without knowledge files.
+    """
     registry = _load_character_registry()
     selected: List[str] = []
+
+    # Include all characters from the registry
     for legacy_id in registry.keys():
         try:
-            canonical = canonicalize_character_id(legacy_id)
-        except ValueError:
-            continue
-        # Check both canonical UUID name and legacy ID name
-        canonical_path = CHARACTER_KNOWLEDGE_DIR / f"{canonical}.json"
-        legacy_path = CHARACTER_KNOWLEDGE_DIR / f"{legacy_id}.json"
-        if canonical_path.exists() or legacy_path.exists():
+            canonicalize_character_id(legacy_id)  # Validate it's a valid ID
             selected.append(legacy_id)
+        except ValueError:
+            # Skip invalid character IDs
+            continue
 
+    # Add any extra characters that aren't already included
     for extra in EXTRA_CHARACTERS:
         if extra not in selected and extra in registry:
             selected.append(extra)
