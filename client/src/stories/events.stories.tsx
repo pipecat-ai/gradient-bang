@@ -1,4 +1,5 @@
 import { useGameContext } from "@/hooks/useGameContext";
+import type { Action, ActionType } from "@/types/actions";
 import type { Story } from "@ladle/react";
 import {
   Button,
@@ -12,7 +13,7 @@ import {
 import { useState } from "react";
 
 export const EventDispatcher: Story = () => {
-  const { dispatchEvent } = useGameContext();
+  const { dispatchAction } = useGameContext();
   const [selectedEventType, setSelectedEventType] = useState<string | null>(
     null
   );
@@ -40,7 +41,10 @@ export const EventDispatcher: Story = () => {
       }
     }
 
-    dispatchEvent({ type: selectedEventType, payload: parsedPayload });
+    dispatchAction({
+      type: selectedEventType as ActionType,
+      payload: parsedPayload,
+    } as Action);
   };
 
   return (

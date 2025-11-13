@@ -4,6 +4,23 @@ import {
   type WarpTransferMessage,
 } from "../types/messages";
 
+/**
+ * Formats a transfer message (credits or warp) into a human-readable summary string.
+ *
+ * @param transfer - The transfer message containing direction, details, and participant info
+ * @returns A formatted string like "Received [credits: 1000] from [PlayerName]" or "Sent [warp_points: 5] to [PlayerName]"
+ *
+ * @example
+ * ```ts
+ * const summary = transferSummaryString({
+ *   transfer_direction: "received",
+ *   transfer_details: { credits: 1000 },
+ *   from: { name: "Alice" },
+ *   to: { name: "Bob" }
+ * });
+ * // Returns: "Received [credits: 1000] from [Alice]"
+ * ```
+ */
 export function transferSummaryString(
   transfer: CreditsTransferMessage | WarpTransferMessage
 ) {
@@ -31,6 +48,24 @@ export function transferSummaryString(
   } [${data.player_name}]`;
 }
 
+/**
+ * Formats collected salvage data into a human-readable summary string.
+ * Includes cargo items (using short names) and credits that were collected.
+ *
+ * @param salvage - The salvage object containing collected cargo and credits
+ * @returns A formatted string like " [QF: 10] [Credits: 500]" or " " if no salvage or error
+ *
+ * @example
+ * ```ts
+ * const summary = salvageCollectedSummaryString({
+ *   collected: {
+ *     cargo: { quantum_foam: 10, retro_organics: 5 },
+ *     credits: 500
+ *   }
+ * });
+ * // Returns: " [QF: 10] [RO: 5] [Credits: 500]"
+ * ```
+ */
 export function salvageCollectedSummaryString(salvage: Salvage) {
   try {
     const parts: string[] = [];
@@ -57,6 +92,23 @@ export function salvageCollectedSummaryString(salvage: Salvage) {
   }
 }
 
+/**
+ * Formats newly created salvage data into a human-readable summary string.
+ * Includes cargo items (using short names), scrap, and credits from destroyed ships or objects.
+ *
+ * @param salvage - Object containing optional cargo, scrap, and credits from salvage creation
+ * @returns A formatted string like " [QF: 10] [Scrap: 25] [Credits: 500]" or " " if no salvage or error
+ *
+ * @example
+ * ```ts
+ * const summary = salvageCreatedSummaryString({
+ *   cargo: { quantum_foam: 10 },
+ *   scrap: 25,
+ *   credits: 500
+ * });
+ * // Returns: " [QF: 10] [Scrap: 25] [Credits: 500]"
+ * ```
+ */
 export function salvageCreatedSummaryString(salvage: {
   cargo?: Record<string, number>;
   scrap?: number;
@@ -88,6 +140,23 @@ export function salvageCreatedSummaryString(salvage: {
   }
 }
 
+/**
+ * Safely extracts a typed value from a meta object.
+ * Helper function for accessing metadata properties with type safety.
+ *
+ * @template T - The expected type of the value
+ * @param meta - The metadata object to extract from, may be undefined
+ * @param key - The key to lookup in the meta object
+ * @returns The value cast to type T if found, otherwise undefined
+ *
+ * @example
+ * ```ts
+ * const meta = { signature_prefix: "combat:", round: 5 };
+ * const prefix = getMetaValue<string>(meta, "signature_prefix"); // "combat:"
+ * const round = getMetaValue<number>(meta, "round"); // 5
+ * const missing = getMetaValue<string>(meta, "nonexistent"); // undefined
+ * ```
+ */
 function getMetaValue<T>(
   meta: Record<string, unknown> | undefined,
   key: string
@@ -99,6 +168,27 @@ function getMetaValue<T>(
   return meta[key] as T | undefined;
 }
 
+/**
+ * Normalizes various data types into a consistent string format for signature creation.
+ * Handles strings, numbers, booleans, Dates, objects, and null/undefined values.
+ *
+ * @param part - The value to normalize, can be of any type
+ * @returns A normalized string representation:
+ *   - Strings are trimmed and lowercased
+ *   - Numbers and booleans are converted to strings
+ *   - Dates are converted to ISO strings
+ *   - Objects are JSON stringified
+ *   - null/undefined return empty string
+ *
+ * @example
+ * ```ts
+ * normalizeSignaturePart("  Hello  "); // "hello"
+ * normalizeSignaturePart(42); // "42"
+ * normalizeSignaturePart(true); // "true"
+ * normalizeSignaturePart(new Date("2025-01-01")); // "2025-01-01T00:00:00.000Z"
+ * normalizeSignaturePart(null); // ""
+ * ```
+ */
 function normalizeSignaturePart(part: unknown) {
   if (part === undefined || part === null) {
     return "";
@@ -122,6 +212,37 @@ function normalizeSignaturePart(part: unknown) {
   return String(part);
 }
 
+/**
+ * Creates a unique signature string for a log entry based on its type and metadata.
+ * Used for deduplication and identification of log entries.
+ *
+ * The signature is created using one of two methods:
+ * 1. If meta contains `signature_prefix` and `signature_keys`, combines them as "prefix|key1|key2|..."
+ * 2. For "chat.direct" entries, creates a signature from the sender's name as "chat.direct:name"
+ *
+ * @param entry - A log entry object with at least type and meta properties
+ * @returns A unique signature string if one can be created, otherwise undefined
+ *
+ * @example
+ * ```ts
+ * // Using signature_prefix and signature_keys
+ * const entry1 = {
+ *   type: "combat.round",
+ *   meta: {
+ *     signature_prefix: "combat:",
+ *     signature_keys: ["round_5", "sector_123"]
+ *   }
+ * };
+ * createLogEntrySignature(entry1); // "combat:round_5|sector_123"
+ *
+ * // Using chat.direct fallback
+ * const entry2 = {
+ *   type: "chat.direct",
+ *   meta: { from_name: "Alice" }
+ * };
+ * createLogEntrySignature(entry2); // "chat.direct:alice"
+ * ```
+ */
 export function createLogEntrySignature(
   entry: Pick<LogEntry, "type" | "meta">
 ): string | undefined {
@@ -160,6 +281,30 @@ export function createLogEntrySignature(
   return undefined;
 }
 
+/**
+ * Checks if a ship's current position has deviated from its plotted course.
+ * A deviation occurs when the current sector is not in the planned path.
+ *
+ * @param coursePlot - The plotted course containing the path and destination, can be null/undefined
+ * @param current_sector_id - The ID of the sector the ship is currently in
+ * @param falseIfFinished - If true, returns false when at destination (default: false)
+ * @returns true if the ship is off course, false if on course, at destination (when falseIfFinished=true), or no course is plotted
+ *
+ * @example
+ * ```ts
+ * const plot = {
+ *   from_sector: 1,
+ *   to_sector: 5,
+ *   path: [1, 2, 3, 4, 5]
+ * };
+ *
+ * hasDeviatedFromCoursePlot(plot, 3, false); // false - on course
+ * hasDeviatedFromCoursePlot(plot, 10, false); // true - off course
+ * hasDeviatedFromCoursePlot(plot, 5, true); // false - at destination
+ * hasDeviatedFromCoursePlot(plot, 5, false); // false - still on path
+ * hasDeviatedFromCoursePlot(null, 3, false); // false - no plot
+ * ```
+ */
 export const hasDeviatedFromCoursePlot = (
   coursePlot: CoursePlot | null | undefined,
   current_sector_id: number,
@@ -172,4 +317,43 @@ export const hasDeviatedFromCoursePlot = (
     return false;
   }
   return !coursePlot.path.includes(current_sector_id);
+};
+
+/**
+ * Compares previous and new map data to find newly discovered sectors.
+ * A sector is considered newly discovered when its `visited` property changes
+ * from unvisited (undefined/null/empty) to visited (timestamp string).
+ *
+ * @param prevMapData - The previous map data state
+ * @param newMapData - The new map data state
+ * @returns Array of newly discovered MapSectorNode objects
+ */
+export const checkForNewSectors = (
+  prevMapData: MapData | null,
+  newMapData: MapData
+): MapSectorNode[] => {
+  // If there's no previous map data, no sectors can be "newly" discovered
+  if (!prevMapData) {
+    return [];
+  }
+
+  const newlyDiscovered: MapSectorNode[] = [];
+
+  // Check each sector in the new map data
+  for (const newSector of newMapData) {
+    // Find the corresponding sector in the previous map data
+    const prevSector = prevMapData.find((s) => s.id === newSector.id);
+
+    // If the sector exists in both maps, check if visited changed from empty to timestamp
+    if (prevSector) {
+      const wasUnvisited = !prevSector.visited; // falsy (undefined/null/empty)
+      const isNowVisited = !!newSector.visited; // truthy (timestamp string)
+
+      if (wasUnvisited && isNowVisited) {
+        newlyDiscovered.push(newSector);
+      }
+    }
+  }
+
+  return newlyDiscovered;
 };

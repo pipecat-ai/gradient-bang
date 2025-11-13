@@ -1,3 +1,5 @@
+// --- Server / Inbound Messages
+
 export interface ServerMessage {
   event: string;
   payload: ServerMessagePayload;

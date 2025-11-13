@@ -1,8 +1,3 @@
-import {
-  GET_KNOWN_PORT_LIST,
-  GET_MAP_REGION,
-  GET_MY_STATUS_MESSAGE,
-} from "@/actions/dispatch";
 import { CoursePlotPanel } from "@/components/CoursePlotPanel";
 import { ActivityStream } from "@/components/hud/ActivityStream";
 import MiniMap from "@/components/hud/MiniMap";
@@ -30,7 +25,7 @@ export const Init: Story = () => {
   const messages = useGameStore.use.messages();
   useNotificationSound();
 
-  const { dispatchEvent, sendUserTextInput } = useGameContext();
+  const { dispatchAction, sendUserTextInput } = useGameContext();
 
   // Filter in the component
   const directMessages = useMemo(
@@ -54,13 +49,13 @@ export const Init: Story = () => {
         />
         <Divider />
 
-        <Button onClick={() => dispatchEvent(GET_MY_STATUS_MESSAGE)}>
+        <Button onClick={() => dispatchAction({ type: "get-my-status" })}>
           Get My Status
         </Button>
-        <Button onClick={() => dispatchEvent(GET_KNOWN_PORT_LIST)}>
+        <Button onClick={() => dispatchAction({ type: "get-known-ports" })}>
           Get Known Port List
         </Button>
-        <Button onClick={() => dispatchEvent(GET_MAP_REGION)}>
+        <Button onClick={() => dispatchAction({ type: "get-my-map" })}>
           Get my map
         </Button>
       </div>

@@ -1,7 +1,7 @@
+import { NumericalBadge } from "@/components/NumericalBadge";
+import useGameStore from "@/stores/game";
 import { cn } from "@/utils/tailwind";
 import { CoinVerticalIcon } from "@phosphor-icons/react";
-import useGameStore from "../stores/game";
-import { NumericalBadge } from "./NumericalBadge";
 
 export const CreditsOnHandBadge = ({ className }: { className?: string }) => {
   const ship = useGameStore.use.ship();

@@ -62,11 +62,15 @@ export const UserMicControl: React.FC<PipecatClientMicToggleProps> = ({
         onClick={handleToggleMic}
         disabled={disabled || initializing}
         loader="icon"
-        isLoading={initializing}
+        isLoading={initializing && !disabled}
         className={cn("flex flex-row gap-2 items-center shrink-0", className)}
       >
-        {initializing ? (
-          <></>
+        {initializing || disabled ? (
+          disabled ? (
+            <MicrophoneSlashIcon weight="bold" />
+          ) : (
+            <></>
+          )
         ) : (
           <>
             {isMicEnabled ? (
