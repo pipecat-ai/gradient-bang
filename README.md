@@ -1,3 +1,18 @@
+# Voice AI Meetup - November 25
+
+**Slides**
+
+https://drive.google.com/file/d/1AEb5_ljHXQao-dw1Na_KWZlDb05mDEuu/view?usp=sharing
+
+**Panel**
+
+* [Arjun Desai](https://x.com/jundesai)
+* [John Alioto](https://x.com/jpalioto)
+* [Taruni Paleru](https://x.com/tarunipaleru)
+* [Kwindla Hultman Kramer](https://x.com/kwindla)
+
+----
+
 <img width="640" src="docs/image.png" style="margin-bottom:20px;" />
 
 
