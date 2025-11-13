@@ -25,6 +25,29 @@ export const Game = () => {
     }
   }, [playSound, gameState]);
 
+  useEffect(() => {
+    const handleKeyPress = (event: KeyboardEvent) => {
+      if (event.key === "p" || event.key === "P") {
+        const sector = useGameStore.getState().sector;
+        if (sector?.port) {
+          const starfieldInstance = useGameStore.getState().starfieldInstance;
+          if (starfieldInstance) {
+            starfieldInstance.selectGameObject("port");
+          }
+        }
+      }
+      if (event.key === "c" || event.key === "c") {
+        const starfieldInstance = useGameStore.getState().starfieldInstance;
+        if (starfieldInstance) {
+          starfieldInstance.clearGameObjectSelection();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyPress);
+    return () => window.removeEventListener("keydown", handleKeyPress);
+  }, []);
+
   return (
     <>
       <div className="h-full grid grid-rows-[auto_1fr_auto] w-full z-10 relative">

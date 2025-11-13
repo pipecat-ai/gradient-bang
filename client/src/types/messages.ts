@@ -82,12 +82,12 @@ export interface PortUpdateMessage extends ServerMessagePayload {
 }
 
 export interface CharacterMovedMessage extends ServerMessagePayload {
-  name: string;
-  ship_type: string;
+  player: Player;
+  ship: Ship;
   timestamp: string;
   move_type: string;
+  name: string;
   movement?: "depart" | "arrive";
-  player_type?: "npc" | "human";
 }
 
 export interface KnownPortListMessage extends ServerMessagePayload {

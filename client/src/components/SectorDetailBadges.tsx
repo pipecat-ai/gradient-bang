@@ -7,16 +7,26 @@ import {
   UserIcon,
   WarningDiamondIcon,
 } from "@phosphor-icons/react";
+import { useMemo } from "react";
 import { Badge, BadgeTitle } from "./primitives/Badge";
 import { Separator } from "./primitives/Separator";
 
 export const SectorDetailBadges = () => {
   const sector = useGameStore.use.sector?.();
+  const messages = useGameStore.use.messages();
 
   const playerCount = sector?.players?.length ?? 0;
   const salvageCount = sector?.salvage?.length ?? 0;
   const laneCount = sector?.adjacent_sectors?.length ?? 0;
 
+  const directMessages = useMemo(
+    () =>
+      messages
+        .filter((message) => message.type === "direct")
+        .sort((a, b) => a.timestamp.localeCompare(b.timestamp)),
+    [messages]
+  );
+  const messageCount = directMessages.length;
   return (
     <div className="flex flex-col gap-3 min-w-30 flex-1 max-w-44">
       <div className="flex flex-col gap-1.5 flex-1">
@@ -58,7 +68,7 @@ export const SectorDetailBadges = () => {
           className="w-full elbow-offset-0 justify-between bg-background/60"
         >
           <EnvelopeSimpleIcon />
-          <BadgeTitle>0</BadgeTitle>
+          <BadgeTitle>{messageCount ?? 0}</BadgeTitle>
         </Badge>
       </div>
       <Separator variant="dotted" className="w-full text-white/20 h-[12px]" />
