@@ -17,7 +17,9 @@ const Settings = useGameStore.getState().settings;
 const queryParams = new URLSearchParams(window.location.search);
 const transport = queryParams.get("transport") || "smallwebrtc";
 const endpoint =
-  queryParams.get("server") || `${import.meta.env.VITE_BOT_URL}/start`;
+  queryParams.get("server") ||
+  `${import.meta.env.VITE_BOT_URL}/start` ||
+  "http://localhost:7860/start";
 
 const requestBodyEntries = [...queryParams.entries()].filter(
   ([key]) => key !== "server" && key !== "transport"
@@ -34,8 +36,6 @@ const startRequestData = {
   },
   body: { ...requestBody, start_on_join: false },
 };
-
-// createDailyRoom: false, enableDefaultIceServers: true
 
 console.debug("[MAIN] Pipecat Configuration:", endpoint, transport);
 

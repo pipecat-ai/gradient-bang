@@ -77,11 +77,12 @@ ScreenMenuUI.meta = {
 export const GameUI: Story = () => {
   const addToast = useGameStore.use.addToast();
   const addEntry = useGameStore.use.addActivityLogEntry();
+
   return (
     <div className="relative w-full h-screen">
       <Game />
       <AnimatedFrame />
-      <div className="fixed bottom-0 right-0 p-ui-sm z-9999">
+      <div className="fixed bottom-0 right-0 p-ui-sm z-9999 ">
         <div className="flex flex-row gap-4">
           <Button
             onClick={() => {

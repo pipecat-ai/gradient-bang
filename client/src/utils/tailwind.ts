@@ -21,6 +21,11 @@ const customTwMerge = extendTailwindMerge({
           ],
         },
       ],
+      "elbow-offset": [
+        {
+          "elbow-offset": [(value: string) => !isNaN(Number(value))],
+        },
+      ],
     },
     theme: {
       spacing: ["ui-xs", "ui-md", "ui-sm", "ui-lg", "ui-xl", "ui-2xl"],

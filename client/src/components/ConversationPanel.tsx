@@ -113,13 +113,13 @@ export const ConversationPanel = () => {
     setBufferedClientText(event.text);
   });
 
-  const clxConnected =
-    "flex-1 h-full bg-card/50 backdrop-blur-sm border border-border";
+  const clxConnected = "flex-1 h-full bg-card/60 border border-border";
   const clxDisconnected =
     "flex-1 h-full opacity-40 stripe-frame-white/30 border border-border";
 
   return (
     <Card
+      size="sm"
       variant={isConnected ? "default" : "stripes"}
       className={isConnected ? clxConnected : clxDisconnected}
     >

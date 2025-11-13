@@ -225,9 +225,20 @@ declare global {
 
   // --- MISC
 
+  type TaskType =
+    | "STEP"
+    | "ACTION"
+    | "EVENT"
+    | "MESSAGE"
+    | "ERROR"
+    | "FAILED"
+    | "COMPLETE"
+    | "FINISHED";
+
   interface Task {
     id: string;
     summary: string;
+    type: TaskType;
     timestamp: string;
   }
 

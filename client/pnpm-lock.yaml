@@ -4,9 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  '@pipecat-ai/voice-ui-kit': link:../../../Library/pnpm/global/5/node_modules/@pipecat-ai/voice-ui-kit
-
 importers:
 
   .:
@@ -27,14 +24,17 @@ importers:
         specifier: ^1.7.0
         version: 1.7.0(@pipecat-ai/client-js@1.4.1)
       '@pipecat-ai/voice-ui-kit':
-        specifier: link:../../../Library/pnpm/global/5/node_modules/@pipecat-ai/voice-ui-kit
-        version: link:../../../Library/pnpm/global/5/node_modules/@pipecat-ai/voice-ui-kit
+        specifier: ^0.5.1-rc.1
+        version: 0.5.1-rc.1(@daily-co/daily-js@0.84.0)(@pipecat-ai/client-js@1.4.1)(@pipecat-ai/client-react@1.1.0(@babel/core@7.28.5)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.4.1)(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@pipecat-ai/daily-transport@1.4.1(@pipecat-ai/client-js@1.4.1))(@pipecat-ai/small-webrtc-transport@1.7.0(@pipecat-ai/client-js@1.4.1))(@types/react-dom@19.2.2(@types/react@19.2.2))(@types/react@19.2.2)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(three@0.180.0)(use-sync-external-store@1.6.0(react@19.2.0))
       '@radix-ui/react-collapsible':
         specifier: ^1.1.12
         version: 1.1.12(@types/react-dom@19.2.2(@types/react@19.2.2))(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@radix-ui/react-dialog':
         specifier: ^1.1.15
         version: 1.1.15(@types/react-dom@19.2.2(@types/react@19.2.2))(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@radix-ui/react-dropdown-menu':
+        specifier: ^2.1.16
+        version: 2.1.16(@types/react-dom@19.2.2(@types/react@19.2.2))(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@radix-ui/react-label':
         specifier: ^2.1.7
         version: 2.1.8(@types/react-dom@19.2.2(@types/react@19.2.2))(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -131,9 +131,6 @@ importers:
       use-stick-to-bottom:
         specifier: ^1.1.1
         version: 1.1.1(react@19.2.0)
-      usehooks-ts:
-        specifier: ^3.1.1
-        version: 3.1.1(react@19.2.0)
       zustand:
         specifier: ^5.0.8
         version: 5.0.8(@types/react@19.2.2)(immer@10.2.0)(react@19.2.0)(use-sync-external-store@1.6.0(react@19.2.0))
@@ -1110,6 +1107,9 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
+  '@kurkle/color@0.3.4':
+    resolution: {integrity: sha512-M5UknZPHRu3DEDWoipU6sE8PdkZ6Z/S+v4dD+Ke8IaNlpdSQah50lz1KtcFBa2vsdOnwbbnxJwVM4wty6udA5w==}
+
   '@ladle/react-context@1.0.1':
     resolution: {integrity: sha512-xVQ8siyOEQG6e4Knibes1uA3PTyXnqiMmfSmd5pIbkzeDty8NCBtYHhTXSlfmcDNEsw/G8OzNWo4VbyQAVDl2A==}
     peerDependencies:
@@ -1184,6 +1184,26 @@ packages:
     resolution: {integrity: sha512-yMBHWla22S3sIfo0kckyj6AJsZms3syRja1IDXc1NOC/v0iNVGlJ5EbeWrup5zJdVc4bc8JQ9kZYI5jQYP219Q==}
     peerDependencies:
       '@pipecat-ai/client-js': ~1.4.0
+
+  '@pipecat-ai/voice-ui-kit@0.5.1-rc.1':
+    resolution: {integrity: sha512-Qm1QpuAqZVC8Y1rfaRXDGxmWAETky/BKQTP7uif1DdLvB4bC6tymVQoQSAdwBCAB7puTgmbrQx9rWgehpkNOYQ==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@daily-co/daily-js': '>=0.84.0'
+      '@pipecat-ai/client-js': '>=1.4.0'
+      '@pipecat-ai/client-react': '>=1.1.0'
+      '@pipecat-ai/daily-transport': '>=1.2.1'
+      '@pipecat-ai/small-webrtc-transport': '>=1.7.0'
+      react: '>=16.8.0 || >=17.0.0 || >=18.0.0'
+      react-dom: '>=16.8.0 || >=17.0.0 || >=18.0.0'
+      three: '>=0.140.0'
+    peerDependenciesMeta:
+      '@pipecat-ai/daily-transport':
+        optional: true
+      '@pipecat-ai/small-webrtc-transport':
+        optional: true
+      three:
+        optional: true
 
   '@radix-ui/number@1.1.1':
     resolution: {integrity: sha512-MkKCwxlXTgz6CFoJx3pCwn07GKp36+aZyu/u2Ln2VrA5DcdyCZkASEDBTd8x5whTQQL5CiYf4prXKLcgQdv29g==}
@@ -2914,6 +2934,10 @@ packages:
   character-reference-invalid@2.0.1:
     resolution: {integrity: sha512-iBZ4F4wRbyORVsu0jPV7gXkOsGYjGHPmAyv+HiHG8gi5PtC9KI2j1+v8/tlibRvjoWX027ypmG/n0HtO5t7unw==}
 
+  chart.js@4.5.1:
+    resolution: {integrity: sha512-GIjfiT9dbmHRiYi6Nl2yFCq7kkwdkp1W/lp2J99rX0yo9tgJGn3lKQATztIjb5tVtevcBtIdICNWqlq5+E8/Pw==}
+    engines: {pnpm: '>=8'}
+
   chokidar@4.0.3:
     resolution: {integrity: sha512-Qgzu8kfBvo+cA4962jnP1KkS6Dop5NS6g7R5LFYJr4b8Ub94PPQXUksCw9PvXoeXPRRddRNC5C1JQUR2SMGtnA==}
     engines: {node: '>= 14.16.0'}
@@ -4129,6 +4153,11 @@ packages:
   lru-cache@5.1.1:
     resolution: {integrity: sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w==}
 
+  lucide-react@0.511.0:
+    resolution: {integrity: sha512-VK5a2ydJ7xm8GvBeKLS9mu1pVK6ucef9780JVUjw6bAjJL/QXnd4Y0p7SPeOUMC27YhzNCZvm5d/QX0Tp3rc0w==}
+    peerDependencies:
+      react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
   lucide-react@0.539.0:
     resolution: {integrity: sha512-VVISr+VF2krO91FeuCrm1rSOLACQUYVy7NQkzrOty52Y8TlTPcXcMdQFj9bYzBgXbWCiywlwSZ3Z8u6a+6bMlg==}
     peerDependencies:
@@ -4697,6 +4726,12 @@ packages:
     resolution: {integrity: sha512-Hrgsx+orqoygnmhFbKaHE6c296J+HTAQXoxEF6gNupROmmGJRoyzfG3ccAveqCBrwr/2yxQ5BVd/GTl5agOwSg==}
     engines: {node: '>= 0.6'}
 
+  react-chartjs-2@5.3.1:
+    resolution: {integrity: sha512-h5IPXKg9EXpjoBzUfyWJvllMjG2mQ4EiuHQFhms/AjUm0XSZHhyRy2xVmLXHKrtcdrPO4mnGqRtYoD0vp95A0A==}
+    peerDependencies:
+      chart.js: ^4.1.1
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
   react-devtools-core@6.1.5:
     resolution: {integrity: sha512-ePrwPfxAnB+7hgnEr8vpKxL9cmnp7F322t8oqcPshbIQQhDKgFDW4tjhF2wjVbdXF9O/nyuy3sQWd9JGpiLPvA==}
 
@@ -4790,6 +4825,12 @@ packages:
     peerDependenciesMeta:
       '@types/react':
         optional: true
+
+  react-resizable-panels@3.0.6:
+    resolution: {integrity: sha512-b3qKHQ3MLqOgSS+FRYKapNkJZf5EQzuf6+RLiq1/IlTHw99YrZ2NJZLk4hQIzTnnIkRg2LUqyVinu6YWWpUYew==}
+    peerDependencies:
+      react: ^16.14.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc
+      react-dom: ^16.14.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc
 
   react-spring@10.0.3:
     resolution: {integrity: sha512-opangIUqCLmkf7+AJZAlM4fLlvzdzWOG/yqAzylKjUoe97Tsjgouz1PsDLu6C9uckvcaMfb4wS/VXiU6dULz5A==}
@@ -5484,12 +5525,6 @@ packages:
     resolution: {integrity: sha512-Pp6GSwGP/NrPIrxVFAIkOQeyw8lFenOHijQWkUTrDvrF4ALqylP2C/KCkeS9dpUM3KvYRQhna5vt7IL95+ZQ9w==}
     peerDependencies:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
-
-  usehooks-ts@3.1.1:
-    resolution: {integrity: sha512-I4diPp9Cq6ieSUH2wu+fDAVQO43xwtulo+fKEidHUwZPnYImbtkTjzIJYcDcJqxgmX31GVqNFURodvcgHcW0pA==}
-    engines: {node: '>=16.15.0'}
-    peerDependencies:
-      react: ^16.8.0  || ^17 || ^18 || ^19 || ^19.0.0-rc
 
   utils-merge@1.0.1:
     resolution: {integrity: sha512-pMZTvIkT1d+TFGvDOqodOclx0QWkkgi6Tdoa8gC8ffGAAqz9pzPTZWAybbsHHoED/ztMtkv/VoYTYyShUn81hA==}
@@ -6840,6 +6875,8 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
+  '@kurkle/color@0.3.4': {}
+
   '@ladle/react-context@1.0.1(react-dom@19.2.0(react@19.2.0))(react@19.2.0)':
     dependencies:
       react: 19.2.0
@@ -7006,6 +7043,40 @@ snapshots:
       '@pipecat-ai/client-js': 1.4.1
       dequal: 2.0.3
       lodash: 4.17.21
+
+  '@pipecat-ai/voice-ui-kit@0.5.1-rc.1(@daily-co/daily-js@0.84.0)(@pipecat-ai/client-js@1.4.1)(@pipecat-ai/client-react@1.1.0(@babel/core@7.28.5)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.4.1)(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@pipecat-ai/daily-transport@1.4.1(@pipecat-ai/client-js@1.4.1))(@pipecat-ai/small-webrtc-transport@1.7.0(@pipecat-ai/client-js@1.4.1))(@types/react-dom@19.2.2(@types/react@19.2.2))(@types/react@19.2.2)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(three@0.180.0)(use-sync-external-store@1.6.0(react@19.2.0))':
+    dependencies:
+      '@daily-co/daily-js': 0.84.0
+      '@pipecat-ai/client-js': 1.4.1
+      '@pipecat-ai/client-react': 1.1.0(@babel/core@7.28.5)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.4.1)(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@radix-ui/react-dropdown-menu': 2.1.16(@types/react-dom@19.2.2(@types/react@19.2.2))(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@radix-ui/react-popover': 1.1.15(@types/react-dom@19.2.2(@types/react@19.2.2))(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@radix-ui/react-progress': 1.1.8(@types/react-dom@19.2.2(@types/react@19.2.2))(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@radix-ui/react-select': 2.2.6(@types/react-dom@19.2.2(@types/react@19.2.2))(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@radix-ui/react-slot': 1.2.4(@types/react@19.2.2)(react@19.2.0)
+      '@radix-ui/react-tabs': 1.1.13(@types/react-dom@19.2.2(@types/react@19.2.2))(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@radix-ui/react-tooltip': 1.2.8(@types/react-dom@19.2.2(@types/react@19.2.2))(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@radix-ui/react-use-controllable-state': 1.2.2(@types/react@19.2.2)(react@19.2.0)
+      chart.js: 4.5.1
+      class-variance-authority: 0.7.1
+      clsx: 2.1.1
+      fast-deep-equal: 3.1.3
+      lucide-react: 0.511.0(react@19.2.0)
+      react: 19.2.0
+      react-chartjs-2: 5.3.1(chart.js@4.5.1)(react@19.2.0)
+      react-dom: 19.2.0(react@19.2.0)
+      react-resizable-panels: 3.0.6(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      tailwind-merge: 3.3.1
+      zustand: 5.0.8(@types/react@19.2.2)(immer@10.2.0)(react@19.2.0)(use-sync-external-store@1.6.0(react@19.2.0))
+    optionalDependencies:
+      '@pipecat-ai/daily-transport': 1.4.1(@pipecat-ai/client-js@1.4.1)
+      '@pipecat-ai/small-webrtc-transport': 1.7.0(@pipecat-ai/client-js@1.4.1)
+      three: 0.180.0
+    transitivePeerDependencies:
+      - '@types/react'
+      - '@types/react-dom'
+      - immer
+      - use-sync-external-store
 
   '@radix-ui/number@1.1.1': {}
 
@@ -8800,6 +8871,10 @@ snapshots:
 
   character-reference-invalid@2.0.1: {}
 
+  chart.js@4.5.1:
+    dependencies:
+      '@kurkle/color': 0.3.4
+
   chokidar@4.0.3:
     dependencies:
       readdirp: 4.1.2
@@ -10159,6 +10234,10 @@ snapshots:
     dependencies:
       yallist: 3.1.1
 
+  lucide-react@0.511.0(react@19.2.0):
+    dependencies:
+      react: 19.2.0
+
   lucide-react@0.539.0(react@19.2.0):
     dependencies:
       react: 19.2.0
@@ -11138,6 +11217,11 @@ snapshots:
 
   range-parser@1.2.1: {}
 
+  react-chartjs-2@5.3.1(chart.js@4.5.1)(react@19.2.0):
+    dependencies:
+      chart.js: 4.5.1
+      react: 19.2.0
+
   react-devtools-core@6.1.5:
     dependencies:
       shell-quote: 1.8.3
@@ -11280,6 +11364,11 @@ snapshots:
       use-sidecar: 1.1.3(@types/react@19.2.2)(react@19.2.0)
     optionalDependencies:
       '@types/react': 19.2.2
+
+  react-resizable-panels@3.0.6(react-dom@19.2.0(react@19.2.0))(react@19.2.0):
+    dependencies:
+      react: 19.2.0
+      react-dom: 19.2.0(react@19.2.0)
 
   react-spring@10.0.3(@react-three/fiber@9.4.0(@types/react@19.2.2)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react-native@0.82.1(@babel/core@7.28.5)(@types/react@19.2.2)(react@19.2.0))(react@19.2.0)(three@0.180.0))(konva@10.0.8)(react-dom@19.2.0(react@19.2.0))(react-konva@19.2.0(@types/react@19.2.2)(konva@10.0.8)(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react-native@0.82.1(@babel/core@7.28.5)(@types/react@19.2.2)(react@19.2.0))(react-zdog@1.2.2)(react@19.2.0)(three@0.180.0)(zdog@1.1.3):
     dependencies:
@@ -12076,11 +12165,6 @@ snapshots:
 
   use-sync-external-store@1.6.0(react@19.2.0):
     dependencies:
-      react: 19.2.0
-
-  usehooks-ts@3.1.1(react@19.2.0):
-    dependencies:
-      lodash.debounce: 4.0.8
       react: 19.2.0
 
   utils-merge@1.0.1: {}

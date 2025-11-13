@@ -50,38 +50,46 @@ export const UserMicControl: React.FC<PipecatClientMicToggleProps> = ({
   }, [disabled, enableMic, isMicEnabled, onMicEnabledChanged]);
 
   return (
-    <Button
-      variant={
-        initializing ? "secondary" : isMicEnabled ? "micEnabled" : "micDisabled"
-      }
-      onClick={handleToggleMic}
-      disabled={disabled || initializing}
-      loader="icon"
-      isLoading={initializing}
-      className={cn("flex flex-row gap-2 items-center shrink-0", className)}
-    >
-      {initializing ? (
-        <></>
-      ) : (
-        <>
-          {isMicEnabled ? (
-            <MicrophoneIcon weight="bold" />
-          ) : (
-            <MicrophoneSlashIcon weight="bold" />
-          )}
-          <VoiceVisualizer
-            participantType="local"
-            backgroundColor="transparent"
-            barCount={8}
-            barGap={3}
-            barMaxHeight={28}
-            barOrigin="center"
-            barWidth={3}
-            barColor={isMicEnabled ? "--color-success" : "--color-destructive"}
-            className="mx-auto"
-          />
-        </>
-      )}
-    </Button>
+    <>
+      <Button
+        variant={
+          initializing
+            ? "secondary"
+            : isMicEnabled
+            ? "micEnabled"
+            : "micDisabled"
+        }
+        onClick={handleToggleMic}
+        disabled={disabled || initializing}
+        loader="icon"
+        isLoading={initializing}
+        className={cn("flex flex-row gap-2 items-center shrink-0", className)}
+      >
+        {initializing ? (
+          <></>
+        ) : (
+          <>
+            {isMicEnabled ? (
+              <MicrophoneIcon weight="bold" />
+            ) : (
+              <MicrophoneSlashIcon weight="bold" />
+            )}
+            <VoiceVisualizer
+              participantType="local"
+              backgroundColor="transparent"
+              barCount={8}
+              barGap={3}
+              barMaxHeight={28}
+              barOrigin="center"
+              barWidth={3}
+              barColor={
+                isMicEnabled ? "--color-success" : "--color-destructive"
+              }
+              className="mx-auto"
+            />
+          </>
+        )}
+      </Button>
+    </>
   );
 };

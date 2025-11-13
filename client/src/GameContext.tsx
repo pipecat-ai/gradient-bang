@@ -1,6 +1,6 @@
 import { RTVIEvent } from "@pipecat-ai/client-js";
 import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react";
-import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useRef, type ReactNode } from "react";
 
 import { startMoveToSector } from "@/actions";
 import { GameContext } from "@/hooks/useGameContext";
@@ -23,6 +23,7 @@ import {
   type SectorUpdateMessage,
   type ServerMessage,
   type StatusMessage,
+  type TaskCompleteMessage,
   type TaskOutputMessage,
   type TradeExecutedMessage,
   type WarpPurchaseMessage,
@@ -37,6 +38,7 @@ import {
 } from "@/utils/game";
 import useGameStore, { GameInitStateMessage } from "@stores/game";
 import GameInstanceManager from "./GameInstanceManager";
+import { RESOURCE_SHORT_NAMES } from "./types/constants";
 
 interface GameProviderProps {
   children: ReactNode;
@@ -62,14 +64,6 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
   const client = usePipecatClient();
 
   const instanceManagerRef = useRef<GameInstanceManager | null>(null);
-
-  useEffect(() => {
-    if (!client) return;
-
-    if (!instanceManagerRef.current) {
-      instanceManagerRef.current = new GameInstanceManager();
-    }
-  }, [client]);
 
   /**
    * Send user text input to server
@@ -131,9 +125,10 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
   const initialize = useCallback(async () => {
     console.debug("[GAME CONTEXT] Initializing...");
 
+    // Create the instance manager if it doesn't exist
     if (!instanceManagerRef.current) {
-      console.error("[GAME CONTEXT] Game instance manager not found");
-      return;
+      console.debug("[GAME CONTEXT] Creating game instance manager");
+      instanceManagerRef.current = new GameInstanceManager();
     }
 
     gameStore.setGameStateMessage(GameInitStateMessage.INIT);
@@ -222,30 +217,32 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               console.debug("[GAME EVENT] Character moved", gameEvent.payload);
               const data = gameEvent.payload as CharacterMovedMessage;
 
-              // Update sector contents with new player
-              // @TODO: update to use new event shape when available
-              const tempDataRemap: Player = {
-                id: data.name,
-                name: data.name,
-                player_type: data.player_type ?? "npc",
-                ship: {
-                  ship_name: data.ship_type,
-                  ship_type: data.ship_type,
-                } as Ship,
-              };
-
               if (data.movement === "arrive") {
                 console.debug(
                   "[GAME EVENT] Adding player to sector",
                   gameEvent.payload
                 );
-                gameStore.addSectorPlayer(tempDataRemap);
+                gameStore.addSectorPlayer(data.player);
+                gameStore.addActivityLogEntry({
+                  type: "character.moved",
+                  message: `[${data.player.name}] arrived in sector`,
+                  meta: {
+                    silent: true,
+                  },
+                });
               } else if (data.movement === "depart") {
                 console.debug(
                   "[GAME EVENT] Removing player from sector",
                   gameEvent.payload
                 );
-                gameStore.removeSectorPlayer(tempDataRemap);
+                gameStore.removeSectorPlayer(data.player);
+                gameStore.addActivityLogEntry({
+                  type: "character.moved",
+                  message: `[${data.player.name}] departed from sector`,
+                  meta: {
+                    silent: true,
+                  },
+                });
               } else {
                 console.warn(
                   "[GAME EVENT] Unknown movement type",
@@ -431,6 +428,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               break;
             }
 
+            case "path.region":
             case "course.plot": {
               console.debug("[GAME EVENT] Course plot", gameEvent.payload);
               const data = gameEvent.payload as CoursePlotMessage;
@@ -470,9 +468,9 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
                 type: "trade.executed",
                 message: `Trade executed: ${
                   data.trade.trade_type === "buy" ? "Bought" : "Sold"
-                } ${data.trade.units} [${data.trade.commodity}] for [CR ${
-                  data.trade.total_price
-                }]`,
+                } ${data.trade.units} [${
+                  RESOURCE_SHORT_NAMES[data.trade.commodity]
+                }] for [CR ${data.trade.total_price}]`,
               });
 
               gameStore.addToast({
@@ -519,7 +517,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
                 type: "warp.purchase",
                 meta: {
                   prev_amount: gameStore.ship?.warp_power ?? 0,
-                  new_amount: data.units,
+                  new_amount: data.new_warp_power,
                   capacity: data.warp_power_capacity,
                   cost: data.total_cost,
                   new_credits: data.new_credits,
@@ -690,32 +688,49 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               break;
             }
 
-            //@TODO: remove this
             case "ui-action": {
               console.debug("[GAME EVENT] UI action", gameEvent.payload);
 
-              const starfield = gameStore.starfieldInstance;
+              /*const starfield = gameStore.starfieldInstance;
               if (starfield) {
                 starfield.selectGameObject("port");
               }
 
-              gameStore.setActiveScreen("trading");
+              gameStore.setActiveScreen("trading");*/
 
               break;
             }
 
-            //@TODO: improve this
             case "task_output": {
               console.debug("[GAME EVENT] Task output", gameEvent.payload);
               const data = gameEvent.payload as TaskOutputMessage;
               gameStore.setTaskInProgress(true);
-              gameStore.addTask(data.text);
+              gameStore.addTask(data.text, data.task_message_type);
+
+              // @TODO Properly handle task failure.
+              // Right now, we treat them as cancellations
+              if (data.task_message_type === "FAILED") {
+                gameStore.setTaskWasCancelled(true);
+              }
               break;
             }
 
             case "task_complete": {
               console.debug("[GAME EVENT] Task complete", gameEvent.payload);
+              const data = gameEvent.payload as TaskCompleteMessage;
+
               gameStore.setTaskInProgress(false);
+              gameStore.addActivityLogEntry({
+                type: "task.complete",
+                message: `${
+                  data.was_cancelled ? "Task cancelled" : "Task completed"
+                }`,
+              });
+
+              //@TODO Properly handle task failures
+              if (data.was_cancelled) {
+                gameStore.setTaskWasCancelled(true);
+              }
               break;
             }
 

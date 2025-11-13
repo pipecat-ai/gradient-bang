@@ -1,56 +1,89 @@
 import useGameStore from "@/stores/game";
 import { formatDate, formatTimeAgoOrDate } from "@/utils/date";
-import { cn } from "@/utils/tailwind";
 import { CheckIcon } from "@phosphor-icons/react";
+import { Card, CardContent } from "./primitives/Card";
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  PanelTitle,
-} from "@pipecat-ai/voice-ui-kit";
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableHeadText,
+  TableRow,
+} from "./primitives/Table";
 
 const MovementHistoryRow = ({ item }: { item: MovementHistory }) => {
   return (
-    <tr className={cn(!item.last_visited && "bg-muted")}>
-      <td className="py-0.5 text-subtle">[{formatDate(item.timestamp)}]</td>
-      <td className="py-0.5">{item.from}</td>
-      <td className="py-0.5">{item.to}</td>
-      <td className="py-0.5 text-agent">
-        {!!item.port && <CheckIcon size={16} />}
-      </td>
-      <td className="py-0.5 text-agent">
+    <TableRow block className="text-muted-foreground">
+      <TableCell block>{formatDate(item.timestamp)}</TableCell>
+      <TableCell block className="text-center">
+        {item.from}
+      </TableCell>
+      <TableCell block className="text-center">
+        {item.to}
+      </TableCell>
+      <TableCell block className="text-fuel text-center">
+        {!!item.port && <CheckIcon size={16} className="mx-auto" />}
+      </TableCell>
+      <TableCell block className="">
         {item.last_visited
           ? formatTimeAgoOrDate(item.last_visited)
           : "Discovered"}
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 };
 
 export const MovementHistoryPanel = () => {
   const movementHistory = useGameStore((state) => state.movement_history);
+
   return (
-    <Card withElbows={true} className="flex w-full h-full bg-black">
-      <CardHeader>
-        <PanelTitle>Movement History</PanelTitle>
-      </CardHeader>
+    <Card className="flex w-full h-full bg-black" size="none">
       <CardContent className="flex flex-col gap-2 overflow-y-auto">
-        <table className="w-full text-xs">
-          <thead className="text-left bg-background border-b border-border">
-            <tr>
-              <th className="py-1 uppercase">Timestamp</th>
-              <th className="py-1 uppercase">From</th>
-              <th className="py-1 uppercase">To</th>
-              <th className="py-1 uppercase">Port</th>
-              <th className="py-1 uppercase">Last Visited</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[...movementHistory].reverse().map((movement: MovementHistory) => (
-              <MovementHistoryRow key={movement.timestamp} item={movement} />
-            ))}
-          </tbody>
-        </table>
+        <Table block className="text-xs">
+          <TableHeader block>
+            <TableRow>
+              <TableHead
+                block
+                className="uppercase bg-card border-b border-white"
+              >
+                Arrival
+              </TableHead>
+              <TableHead
+                block
+                className="uppercase bg-card border-b border-white"
+              >
+                <TableHeadText>From</TableHeadText>
+              </TableHead>
+              <TableHead
+                block
+                className="uppercase bg-card border-b border-white"
+              >
+                <TableHeadText>To</TableHeadText>
+              </TableHead>
+              <TableHead
+                block
+                className="uppercase bg-card border-b border-white"
+              >
+                <TableHeadText>Port</TableHeadText>
+              </TableHead>
+              <TableHead
+                block
+                className="uppercase bg-card border-b border-white"
+              >
+                Previous Visit
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {[...movementHistory]
+              .slice(-20)
+              .reverse()
+              .map((movement: MovementHistory) => (
+                <MovementHistoryRow key={movement.timestamp} item={movement} />
+              ))}
+          </TableBody>
+        </Table>
       </CardContent>
     </Card>
   );

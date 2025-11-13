@@ -38,7 +38,8 @@
   --terminal: #dcfd38;
   --terminal-foreground: #f5ffc6;
   --fuel: oklch(86.5% 0.127 207.078);
-  --fuel-foreground: oklch(98.4% 0.019 200.873);
+  --fuel-background: oklch(30.2% 0.056 229.695);
+  --fuel-foreground: oklch(95.6% 0.045 203.388);
 
   --grid-opacity: 0.25;
   --screen-bg-feather: 20px;
@@ -101,6 +102,7 @@
   --color-screen-foreground: rgba(255, 255, 255, 1);
   --color-fuel: var(--fuel);
   --color-fuel-foreground: var(--fuel-foreground);
+  --color-fuel-background: var(--fuel-background);
 
   --color-agent: var(--color-teal-300);
   --color-client: var(--color-sky-300);
@@ -121,7 +123,7 @@
   --width-ui-hud-lhs: 400px;
   --width-ui-hud-rhs: 400px;
   --grid-cols-hud: minmax(var(--width-ui-hud-lhs), 700px)
-    minmax(var(--width-ui-hud-center), var(--width-ui-hud-center))
+    minmax(240px, var(--width-ui-hud-center))
     minmax(var(--width-ui-hud-rhs), 700px);
 
   --height-toast: 160px;
@@ -660,6 +662,53 @@ button {
 
 .numerical-badge-flashing-decrement {
   animation: flash-glow-decrement 1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* Tracing border animation */
+@property --border-angle {
+  syntax: "<angle>";
+  inherits: true;
+  initial-value: 0turn;
+}
+
+@keyframes border-spin {
+  to {
+    --border-angle: 1turn;
+  }
+}
+
+.tracing-border-wrapper {
+  position: relative;
+  --border-angle: 0turn;
+}
+
+.tracing-border-wrapper::before {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: inherit;
+  padding: 2px;
+  background: conic-gradient(
+    from var(--border-angle),
+    transparent 50%,
+    var(--color-success) 80%,
+    var(--color-success-foreground) 95%,
+    transparent
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  filter: drop-shadow(0 0 2px var(--color-success-foreground));
+  animation: border-spin 2s linear infinite;
+  opacity: 0;
+  transition: opacity 0.5s ease-out;
+}
+
+.tracing-border-wrapper-active::before {
+  opacity: 1;
+  transition: opacity 0.3s ease-in;
 }
 
 @import "./starfield.css";

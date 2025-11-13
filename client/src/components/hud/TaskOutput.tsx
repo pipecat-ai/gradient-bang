@@ -3,7 +3,7 @@ import { TaskOutputStream } from "@hud/TaskOutputStream";
 
 export const TaskOutput = () => {
   return (
-    <div className="flex flex-col gap-2 justify-end h-full">
+    <div className="flex flex-col gap-4 justify-end h-full">
       <TaskOutputStream />
       <TaskStatusBadge />
     </div>
