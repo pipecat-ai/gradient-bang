@@ -136,10 +136,8 @@ serve(async (req: Request): Promise<Response> => {
 });
 
 async function resetSupabaseState(params: { characterIds: string[] | null }): Promise<Record<string, unknown>> {
-  const characterIds = params.characterIds ?? (await loadDefaultCharacterIds());
-  if (!characterIds.length) {
-    throw new TestResetError('No character IDs available for reseed', 500);
-  }
+  // Default to empty array - tests should create characters via join() calls
+  const characterIds = params.characterIds ?? [];
 
   const { universeStructure, sectorContents, availableSectors } = await loadUniverseData();
   if (!universeStructure) {
