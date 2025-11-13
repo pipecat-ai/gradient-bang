@@ -7,10 +7,6 @@ settings:
 importers:
 
   .:
-    dependencies:
-      '@vercel/blob':
-        specifier: ^2.0.0
-        version: 2.0.0
     devDependencies:
       '@eslint/js':
         specifier: ^9.30.1
@@ -18,6 +14,9 @@ importers:
       '@ianvs/prettier-plugin-sort-imports':
         specifier: ^3.7.2
         version: 3.7.2(prettier@3.6.2)
+      '@vercel/blob':
+        specifier: ^2.0.0
+        version: 2.0.0
       eslint:
         specifier: ^9.30.1
         version: 9.39.1(jiti@2.6.1)

@@ -15,6 +15,10 @@ https://drive.google.com/file/d/1AEb5_ljHXQao-dw1Na_KWZlDb05mDEuu/view?usp=shari
 
 <img width="640" src="docs/image.png" style="margin-bottom:20px;" />
 
+Gradient Bang is an online multiplayer universe where you explore, trade, battle, and collaborate with other players and with LLMs. Everything in the game is an AI agent, including the ship you command.
+
+The projects demonstrates the full capabilities of realtime agentic workflows, such as multi-tasking, advanced tool calling and low latency voice.
+
 
 # Quickstart
 
@@ -275,3 +279,12 @@ uv run npc/simple_tui.py --character-id 2b4ff0c2-1234-5678-90ab-1cd2ef345678 --s
 ```
 
 The Simple TUI pulls display names from `status.snapshot`, so the UI shows names even though all RPCs keep using the UUID behind the scenes.
+
+
+## License
+
+The **source code** for Gradient Bang is licensed under the [Apache License 2.0](LICENSE), making it fully open source for commercial and non-commercial use.
+
+**Visual assets, artwork, and audio** are licensed under the [Creative Commons Attribution 4.0 International License (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/), allowing free use with attribution.
+
+The **Gradient Bang name, logo, and brand identity** are proprietary trademarks and not covered by the open source licenses. If you fork this project, you must rename it and create your own brand identity. See [TRADEMARKS.md](TRADEMARKS.md) for complete details.

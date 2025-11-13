@@ -34,22 +34,24 @@ If you fork this project or create a derivative work, you **must**:
 
 ## Creative Assets License
 
-Visual assets, artwork, and audio files in this repository (including but not limited to images, graphics, sound effects, and music) are made available under the following terms:
+Visual assets, artwork, and audio files in this repository (including but not limited to images, graphics, sound effects, and music) are licensed under the [**Creative Commons Attribution 4.0 International License (CC BY 4.0)**](https://creativecommons.org/licenses/by/4.0/).
 
-### ✅ Permissions:
-- **Use** - You may use these assets in your own projects, including commercial projects
-- **Modify** - You may create derivative works based on these assets
-- **Distribute** - You may share and redistribute these assets
+### What This Means:
 
-### 📋 Requirements:
-- **Attribution** - You must provide appropriate credit to Gradient Bang
-  - Example: "Artwork from Gradient Bang (https://github.com/[your-repo])"
-- **Retain copyright notices** - Keep any existing copyright notices intact
+**✅ You are free to:**
+- **Share** — copy and redistribute the material in any medium or format for any purpose, even commercially
+- **Adapt** — remix, transform, and build upon the material for any purpose, even commercially
 
-### ❌ Restrictions:
-- **No ownership claims** - You may not claim ownership of the original assets
-- **No trademark use** - Attribution does not grant you the right to use Gradient Bang trademarks
-- **No warranty** - Assets are provided "as is" without warranty of any kind
+**📋 Under the following terms:**
+- **Attribution** — You must give appropriate credit, provide a link to the license, and indicate if changes were made. You may do so in any reasonable manner, but not in any way that suggests the licensor endorses you or your use.
+  - Example: "Artwork from Gradient Bang (https://github.com/[your-repo]) licensed under CC BY 4.0"
+
+**Important Notes:**
+- Attribution does **not** grant you the right to use Gradient Bang trademarks
+- No warranties are given; assets are provided "as is"
+- Other rights such as publicity, privacy, or moral rights may limit how you use the material
+
+For the complete legal terms, see the [CC BY 4.0 Legal Code](https://creativecommons.org/licenses/by/4.0/legalcode).
 
 ## Third-Party Assets
 

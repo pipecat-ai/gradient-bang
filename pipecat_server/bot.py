@@ -89,9 +89,15 @@ def _lookup_character_display_name(character_id: str) -> str | None:
     return None
 
 
-def _resolve_character_identity() -> tuple[str, str]:
+def _resolve_character_identity(character_id: str | None) -> tuple[str, str]:
     """Resolve the character UUID and display name for the voice bot."""
-    character_id = os.getenv("PIPECAT_CHARACTER_ID") or os.getenv("NPC_CHARACTER_ID")
+
+    if character_id:
+        logger.info(f"Resolving character identity for character_id: {character_id}")
+    else:
+        logger.info("No character_id provided, using environment variables")
+        character_id = os.getenv("PIPECAT_CHARACTER_ID") or os.getenv("NPC_CHARACTER_ID")
+
     if not character_id:
         raise RuntimeError(
             "Set PIPECAT_CHARACTER_ID (or NPC_CHARACTER_ID) in the environment before starting the bot."
@@ -137,6 +143,7 @@ def create_chat_system_prompt() -> str:
 
 async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     """Main bot function that creates and runs the pipeline."""
+    
     # Create RTVI processor with config
     rtvi = RTVIProcessor(config=RTVIConfig(config=[]))
 
@@ -172,7 +179,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
         asyncio.create_task(_complete())
 
-    character_id, character_display_name = _resolve_character_identity()
+    character_id, character_display_name = _resolve_character_identity(runner_args.body.get("character_id", None))
     logger.info(
         "Initializing VoiceTaskManager with character_id=%s display_name=%s",
         character_id,
@@ -198,7 +205,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     if not cartesia_key:
         logger.warning("CARTESIA_API_KEY is not set; TTS may fail.")
     tts = CartesiaTTSService(
-        api_key=cartesia_key, voice_id="d7862948-75c3-4c7c-ae28-2959fe166f49"
+        api_key=cartesia_key, voice_id="ec1e269e-9ca0-402f-8a18-58e0e022355a"
     )
 
     # Initialize LLM service
@@ -264,7 +271,8 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             await task_manager.game_client.resume_event_delivery()
 
         asyncio.create_task(_join())
-        await rtvi.set_bot_ready()
+        if runner_args.body.get("start_on_join", True):
+            await rtvi.set_bot_ready()
 
     @rtvi.event_handler("on_client_message")
     async def on_client_message(rtvi, message):
@@ -277,6 +285,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
         # Start (for web client)
         if msg_type == "start":
+            await rtvi.set_bot_ready()
             await task.queue_frames([LLMRunFrame()])
             return
 
@@ -426,6 +435,9 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 async def bot(runner_args):
     """Main bot entry point compatible with standard bot starters, including Pipecat Cloud."""
 
+    logger.info(f"Bot started with runner_args: {runner_args}")
+
+    
     transport_params = {
         "daily": lambda: DailyParams(
             audio_in_enabled=True,
