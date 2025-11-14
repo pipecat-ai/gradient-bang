@@ -27,14 +27,16 @@ Follow these steps **in order** for every remaining RPC. Do not move to the next
 3. **Local implementation**
    - Edit `supabase/functions/<function>/index.ts` plus shared helpers only.
    - Run fast feedback: `uv run pytest tests/unit -k <function>` (legacy path) and any targeted helper tests.
-4. **Edge + DB verification**
+4. **Edge + DB verification (LOCAL ONLY - no Realtime)**
    - `npx supabase db reset` (local) → `npx supabase functions serve --env-file .env.supabase --no-verify-jwt`.
    - `USE_SUPABASE_TESTS=1 uv run pytest tests/edge/test_<function>.py -q` (or create the test per §5 in MIG plan).
    - Validate event + recipient rows via SQL queries (e.g., `select event_type, scope, reason from events join event_character_recipients ...`).
-5. **Cloud deployment + parity run**
+   - **⚠️ IMPORTANT**: Local CLI Realtime is broken (`:error_generating_signer`). Edge tests work, but integration tests requiring Realtime event delivery will fail. Use cloud for all Realtime-dependent tests.
+5. **Cloud deployment + parity run (REQUIRED for Realtime)**
    - `npx supabase functions deploy <function> --project-ref pqmccexihlpnljcjfght --no-verify-jwt`.
    - `source .env.cloud` → `uv run python scripts/double_run_payload_parity.py tests/integration/test_game_server_api.py::test_<function>`.
    - Artifacts: `logs/payload-parity/.../step5_compare.log` stored with the date stamp.
+   - **Cloud Realtime works correctly** - all payload parity tests must run against cloud.
 6. **Regression gates & documentation**
    - Supabase + legacy integration tests for the function family (e.g., `-k move`, corp suites) must pass under `USE_SUPABASE_TESTS=1` and default mode.
    - Update relevant planning docs with status, edge cases learned, and follow-up work (telemetry, RLS, observer docs).
@@ -195,9 +197,12 @@ These require separate fixes: comparator improvements (ignore name format differ
 - ⏳ Not yet implemented
 - N/A Not applicable
 
-**Universal Blockers (affect all edge tests):**
-1. **Edge test auth infrastructure**: `.env.cloud` EDGE_API_TOKEN is JWT but cloud expects hash (identified 2025-11-13 18:00 UTC)
-2. **Local CLI Realtime**: Cannot deliver `public:events` due to `:error_generating_signer` (all parity must use cloud, 2025-11-12 06:10 UTC)
+**Universal Blockers:**
+1. **Edge test auth infrastructure**: `.env.cloud` EDGE_API_TOKEN is JWT but cloud expects hash (identified 2025-11-13 18:00 UTC) - affects edge test suites
+2. **Local CLI Realtime is BROKEN**: Cannot deliver `public:events` due to `:error_generating_signer` (identified 2025-11-12 06:10 UTC)
+   - **Impact**: Local edge tests work (direct function calls), but integration tests requiring Realtime event delivery will fail
+   - **Workaround**: ALL payload parity tests and integration tests requiring events MUST use cloud (`.env.cloud`)
+   - **Status**: Supabase CLI bug, waiting for upstream fix
 
 **Test Infrastructure Achievements:**
 - ✅ `test_reset` bridge layer: Credits/fighters/bank defaults now match Legacy runtime behavior
