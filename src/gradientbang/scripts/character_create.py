@@ -9,6 +9,8 @@ import getpass
 import sys
 from typing import Any, Dict, Optional
 
+import httpx
+
 from gradientbang.game_server.core.character_registry import CharacterRegistry
 from gradientbang.game_server.ships import ShipType
 from gradientbang.utils.api_client import AsyncGameClient, RPCError
@@ -122,6 +124,39 @@ def _admin_password_required() -> bool:
     return bool(registry.admin_password_plain or registry.password_hash)
 
 
+async def _server_is_running(base_url: str) -> bool:
+    """Return True if the game server responds successfully."""
+
+    server_url = base_url.rstrip("/") or base_url
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            response = await client.get(server_url)
+            response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        print(
+            f"Game server at {server_url} responded with {exc.response.status_code}. "
+            "Is it running?"
+        )
+        return False
+    except httpx.RequestError as exc:
+        print(f"Unable to reach game server at {server_url}: {exc}")
+        return False
+
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+
+    status = payload.get("status") if isinstance(payload, dict) else None
+    if status and status != "running":
+        print(
+            f"Game server at {server_url} reports status '{status}'. "
+            "Wait for it to finish starting up."
+        )
+        return False
+    return True
+
+
 async def _execute_create_request(
     client: AsyncGameClient,
     *,
@@ -225,6 +260,9 @@ async def main_async() -> int:
     )
 
     args = parser.parse_args()
+
+    if not await _server_is_running(args.server):
+        return 1
 
     # Determine if we're in interactive or non-interactive mode
     non_interactive = args.name is not None

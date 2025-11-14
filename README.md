@@ -25,7 +25,6 @@ The projects demonstrates the full capabilities of realtime agentic workflows, s
 #### 1. Run Universe Bang to generate a world
 
 ```bash
-mkdir world-data
 uv run universe-bang 5000 1234
 
 # Optional: validate 
