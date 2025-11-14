@@ -26,19 +26,22 @@ The projects demonstrates the full capabilities of realtime agentic workflows, s
 
 ```bash
 mkdir world-data
-uv run scripts/universe-bang.py 5000 1234
+uv run universe-bang 5000 1234
+
+# Optional: validate 
+uv run -m gradientbang.scripts.universe_test
 ```
 
 #### 1. Start the game server
 
 ```bash
-uv run game-server/server.py
+uv run game-server
 ```
 
 #### 3. Create your character (note: game server must be running!)
 
 ```bash
-uv run scripts/character_create.py
+uv run character-create
 ```
 
 #### 4. Optional: Create a `.env` file and restart game server:
@@ -47,13 +50,13 @@ uv run scripts/character_create.py
 mv env.example .env
 # Set all fields
 # Get character_id from world-data/characters.json
-uv run game-server/server.py
+uv run game-server
 ```
 
 #### 5. Run the Pipecat agent
 
 ```bash
-uv run pipecat_server/bot.py
+uv run bot
 ```
 
 #### 6. Run the web client
@@ -68,13 +71,13 @@ pnpm run dev
 
 ```bash
 # Create a new player
-uv run scripts/character_create.py 
+uv run character-create
 
 # Test alle is gud by looking up the character
-uv run -m scripts.character_lookup "TestPlayer"
+uv run character-lookup "TestPlayer"
 
 # Run the NPC and tell it what to do
-uv run npc/run_npc.py <character_id> "Travel to sector 0 and send a message to player TraderP saying hello!"
+uv run npc-run <character_id> "Travel to sector 0 and send a message to player TraderP saying hello!"
 ```
 
 # Notes
@@ -136,7 +139,7 @@ uv run game-server/server.py
 
 ## Bot that sends RTVI messages
 
-This bot implements some of the task handling and RTVI messages needed to implement the same functionality as the TUI. Configure the pilot it controls with environment variables before launching:
+This bot implements some of the task handling and RTVI messages needed to implement the same functionality as the TUI. Configure the pilot inpc/t controls with environment variables before launching:
 
 ```
 export PIPECAT_CHARACTER_ID="uuid-from-registry"
@@ -196,7 +199,7 @@ uv run python -m game-server
 **In a separate terminal, run the tests:**
 
 ```bash
-uv run pytest tests/test_async_game_client.py -v
+uv run pytest -k async_game_client -v
 ```
 
 The test suite includes 25 tests covering:

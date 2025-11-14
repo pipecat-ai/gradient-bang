@@ -2,6 +2,7 @@
 name = "gradient-bang"
 version = "0.1.0"
 description = "Game of the Millennium"
+license = { file = "LICENSE" }
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.27.0", # Relax version
@@ -18,6 +19,31 @@ dependencies = [
     "pyperclip>=1.11.0",
 ]
 
+[project.scripts]
+# Servers
+game-server = "gradientbang.game_server.server:main"
+bot = "gradientbang.pipecat_server.bot:main"
+
+# NPCs
+npc-run = "gradientbang.npc.run_npc:main"
+npc-long = "gradientbang.npc.run_long_npc:main"
+npc-task = "gradientbang.npc.run_experimental_task:main"
+npc-test = "gradientbang.npc.test_npc_local:main"
+
+# Useful scripts
+universe-bang = "gradientbang.scripts.universe_bang:main"
+character-create = "gradientbang.scripts.character_create:main"
+character-lookup = "gradientbang.scripts.character_lookup:main"
+character-modify = "gradientbang.scripts.character_modify:main"
+simple-tui = "gradientbang.npc.simple_tui:main"
+
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [dependency-groups]
 dev = [
     "httpx>=0.27.0",  # Match main dependency
@@ -33,9 +59,12 @@ override-dependencies = [
     "numba==0.61.2",  # Pin to version that supports Python 3.12
     "openai==1.99.5",  
 ]
+package = true
+
+
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["src/gradientbang/tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
 # Exclude archived integration tests from default test runs
@@ -52,3 +81,10 @@ timeout = 30  # Max 30 seconds per test
 #   - Integration tests: 10 seconds (real server, events)
 #   - Unit tests: 5 seconds (fast, mocked operations)
 #   - Combat tests: 20 seconds (combat rounds can take 15s)
+
+[tool.ruff]
+exclude = [".git", "*_pb2.py"]
+line-length = 100
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
