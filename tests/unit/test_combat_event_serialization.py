@@ -86,7 +86,7 @@ class TestSerializeParticipantForEvent:
             ship_type="kestrel_courier",
         )
 
-        with patch("combat.utils.get_ship_stats") as mock_stats:
+        with patch("gradientbang.game_server.combat.utils.get_ship_stats") as mock_stats:
             mock_stats.return_value = MagicMock(name="Kestrel Courier")
             result = serialize_participant_for_event(
                 world, state, shield_integrity=100.0
@@ -130,7 +130,7 @@ class TestSerializeParticipantForEvent:
             ship_type="kestrel_courier",
         )
 
-        with patch("combat.utils.get_ship_stats") as mock_stats:
+        with patch("gradientbang.game_server.combat.utils.get_ship_stats") as mock_stats:
             ship_stats = MagicMock()
             ship_stats.name = "Kestrel Courier"
             mock_stats.return_value = ship_stats
@@ -295,7 +295,7 @@ class TestSerializeRoundWaitingEvent:
             "garrison:1203:garrison_owner": garrison_state,
         }
 
-        with patch("combat.utils.get_ship_stats") as mock_stats:
+        with patch("gradientbang.game_server.combat.utils.get_ship_stats") as mock_stats:
             mock_stats.return_value = MagicMock(name="Kestrel Courier")
             result = await serialize_round_waiting_event(world, encounter, viewer_id="char1")
 
@@ -444,7 +444,7 @@ class TestSerializeRoundResolvedEvent:
         outcome.round_result = "ongoing"
         outcome.effective_actions = {}
 
-        with patch("combat.utils.get_ship_stats") as mock_stats:
+        with patch("gradientbang.game_server.combat.utils.get_ship_stats") as mock_stats:
             mock_stats.return_value = MagicMock(name="Kestrel Courier")
             result = await serialize_round_resolved_event(
                 world,
