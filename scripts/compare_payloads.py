@@ -31,7 +31,9 @@ def load_events(path: Path) -> list[dict[str, Any]]:
                 continue
             if record.get("record_type") != "event":
                 continue
-            events.append(record["event"])
+
+            event = record["event"]
+            events.append(event)
 
     if mode == "supabase":
         def _event_sort_key(event: dict[str, Any]) -> tuple[int, int]:

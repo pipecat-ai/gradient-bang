@@ -142,7 +142,9 @@ class AsyncGameClient(LegacyAsyncGameClient):
         return  # Supabase transport does not use legacy websockets
 
     async def _request(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:  # type: ignore[override]
-        if endpoint != "get_character_jwt":
+        # Skip realtime listener setup only for get_character_jwt (to avoid recursion)
+        # For join, we establish Realtime BEFORE the RPC so join events are received
+        if endpoint not in ("get_character_jwt",):
             await self._ensure_realtime_listener()
         http_client = self._ensure_http_client()
 

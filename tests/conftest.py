@@ -694,15 +694,26 @@ def _stop_functions_proc() -> None:
 def _invoke_edge_test_reset() -> None:
     """Call the test_reset edge function to seed test data."""
     import httpx
+    import json
+    from pathlib import Path
 
     edge_url = _edge_base_url()
     headers = _edge_request_headers()
+
+    # Load character IDs from test registry to seed them
+    registry_path = Path("tests/test-world-data/characters.json")
+    character_ids = []
+    if registry_path.exists():
+        registry = json.loads(registry_path.read_text())
+        # The registry has a "characters" key with character entries
+        if "characters" in registry:
+            character_ids = list(registry["characters"].keys())
 
     try:
         resp = httpx.post(
             f"{edge_url}/test_reset",
             headers=headers,
-            json={},
+            json={"character_ids": character_ids},
             timeout=120.0,
         )
         resp.raise_for_status()

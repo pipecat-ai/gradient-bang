@@ -344,20 +344,23 @@ async def test_list_known_ports_filters_correctly(server_url, check_server_avail
     - Returned ports match filter criteria
     """
     char_id = "test_api_list_ports"
+
+    # Follow the working pattern: create listener first, then clear after join
     async with create_firehose_listener(server_url, char_id) as listener:
         async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
             await client.join(character_id=char_id)
+
+            # Clear join events - we only care about events after this point
+            listener.clear_events()
 
             # Move to sector 1 to discover port
             await client.move(to_sector=1, character_id=char_id)
             await asyncio.sleep(0.5)
 
-            listener.clear_events()
-
             # List known ports
             result = await client.list_known_ports(
-            character_id=char_id,
-            max_hops=10,
+                character_id=char_id,
+                max_hops=10,
             )
 
             # Validate API response

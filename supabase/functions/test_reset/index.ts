@@ -36,6 +36,7 @@ const DEFAULT_WARP = Number(Deno.env.get('SUPABASE_TEST_DEFAULT_WARP') ?? '300')
 const PINNED_SECTORS: Record<string, number> = {
   test_2p_player1: 0,
   test_2p_player2: 0,
+  test_api_list_ports: 0,
 };
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
