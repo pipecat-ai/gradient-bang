@@ -30,10 +30,7 @@ ENV/
 docs/
 
 # Tests
-src/gradientbang/tests/
-src/gradientbang/npc/
-src/gradientbang/pipecat_server/
-src/gradientbang/tools/
+tests/
 
 # Client
 client/
