@@ -2,91 +2,81 @@
 
 <img width="640" src="image.png" style="margin-bottom:20px;" />
 
-🚧 **Client is in active development and does not yet support smaller screens / mobile viewports.**
+> [!WARNING]
+> **Client is in active development and does not yet support smaller screens / mobile viewports.**
 
-🚧 **3D FX / starfield is mid-refactor. The current version is highly resource intensive! If your CPU is throttling or computer fans are at full spin, please disable the Starfield in settings (or set `bypassStarfield` in `settings.json`).**
+> [!WARNING]
+> **3D FX / starfield is very resource intensive!** A refactor will be merged soon which dramatically reduces overhead. If your CPU is throttling or computer fans are at full spin, please disable the Starfield in settings (or set `bypassStarfield` in `settings.json`).
+
 
 ## Quickstart
 
-*Note: The game client looks best with the beautiful [TX-02 Berkeley Mono](https://usgraphics.com/products/berkeley-mono) typeface. We recommend you grab a license and place it in `app/src/assets/fonts/tx-02.woff2`*
-
-#### Point client at server and bot URL (if not using default):
+> [!NOTE]
+> The game client looks best with the beautiful [TX-02 Berkeley Mono](https://usgraphics.com/products/berkeley-mono) typeface. We recommend you grab a license and place it in `app/src/assets/fonts/tx-02.woff2`
 
 ```bash
-cp app/env.example app/.env
-```
-
-#### Build and run:
-
-```bash 
+# Install and configure
 pnpm i
-pnpm run preview
+cp app/env.example app/.env
 
-# ...or for dev
-
+# Dev mode (with hot reload & devtools)
 pnpm run dev
+
+# Preview mode (optimized, production-like)
+pnpm run preview
 ```
 
-#### Dev vs Preview
+> [!NOTE]
+> **Prerequisites:** The game client requires both `game-server` and `pipecat-server` to be running. See the root README for setup instructions.
 
-Notable differences when in dev:
+### Dev vs Preview
 
-- Supports hot reloading
-- Overlays [Leva](https://github.com/pmndrs/leva) UI devtools
-- Disables the PWA service worker / asset caching [see here](#asset-caching--pwa)
-- Uses unoptimized device profiles
+- **Dev mode**: Hot reload, Leva devtools, no PWA, unoptimized profiles
+- **Preview mode**: Production build, asset caching enabled, optimized
 
-The DevTools controls provide triggers for mock events / local store mutations If you'd like to hide the panel, disable `useDevTools` in `app/src/settings.json`. This removes Leva entirely from the bundle.
+Leva dev tools provide triggers for mock events / local store mutations. Disable by setting `useDevTools: false` in `app/src/settings.json` (removes Leva from bundle).
 
+## Transport Options
 
-## Joining your game world
+The client uses WebRTC to connect to the Pipecat bot. Default is **SmallWebRTC** (recommended for local dev).
 
-The game client is designed around voice input. Unlike the Python TUI, you must run both the `game-server` and `pipecat-server` apps. 
+### SmallWebRTC (default)
 
-Assuming you have already run the universe-bang script and created a player, start the server and bot (from root):
-
-```shell
-uv run game-server/server.py
-uv run pipecat_server/bot.py 
+```bash
+# Start bot (from repo root)
+uv run pipecat_server/bot.py
 ```
 
-Take note of the URLs shown when starting each process, and update `client/app/.env` if they differ from the defaults.
+> [!NOTE]
+> **Troubleshooting CORS errors:** Try connecting to `http://0.0.0.0:5173` or modify the proxy target in `app/vite.config.ts`.
 
-Pipecat and client default to using [SmallWebRTC](https://docs.pipecat.ai/server/services/transport/small-webrtc), recommended for local development.
+### Daily (alternative)
 
+Requires a Daily API key. First install the transport package:
 
-### Using Daily
-
-You can use [Daily](https://www.daily.co) instead of SmallWebRTC by passing a query string to your client URL:
-
-*Note: the Daily transport client package is not installed by default. Please run `pnpm i @pipecat-ai/daily-transport`*
-
-```shell
-https://localhost:5173/?transport=daily
+```bash
+pnpm i @pipecat-ai/daily-transport
 ```
 
-... or by setting the transport env var:
+Then configure via environment variable:
 
-```shell
+```bash
 # client/app/.env
 VITE_PIPECAT_TRANSPORT=daily
 ```
 
-Start the Pipecat bot process specifying Daily:
+Or via query string: `http://localhost:5173/?transport=daily`
 
-```shell
+Start the bot with Daily:
+
+```bash
+# Requires DAILY_API_KEY in environment
 uv run pipecat_server/bot.py -t daily
 ```
 
-**Note: the bot will require a DAILY_API_KEY set in the server environment.**
+See [transport guide](https://docs.pipecat.ai/guides/learn/transports) for more details.
 
-Refer to [this guide](https://docs.pipecat.ai/guides/learn/transports) and [this](https://www.daily.co/blog/you-dont-need-a-webrtc-server-for-your-voice-agents/) blog post for more information about transports and their differences.
-
-### SmallWebRTC CORS errors
-
-Depending on your local setup, you may see CORs errors in the web console and fail to connect. You may need to connect over `0.0.0.0` or modify the proxy config in [vite.config.ts](vite.config.ts) in the app root.
-
-## Hacking on the client app
+## Development Guide
 
 ### Packages
 
@@ -104,8 +94,8 @@ Browser game client (Vite, React, TypeScript)
 
 3D (ThreeJS) space graphics used by the game client. Bundled via Rollup.
 
-**Note: This package is not published to NPM, so you will need to build it first in order to use it in game client app. Built automatically by Turbo workflow.**
-
+> [!NOTE]
+> This package is not published to NPM, so you will need to build it first in order to use it in game client app. Built automatically by Turbo workflow.
 
 ### Player Settings / Preferences
 
@@ -142,17 +132,17 @@ The following can not be changed at runtime:
 
 ```
 
-**Note: `settings.json` overrides apply when building too.**
+> [!NOTE]
+> `settings.json` overrides apply when building too.
 
 ### Storybook
 
-The `app` project uses [Ladle](https://ladle.dev) as a sandbox for testing various components and features in isolation. Run it with:
+The `app` project uses [Ladle](https://ladle.dev) as a sandbox for testing components in isolation.
 
 ```bash
 pnpm run dev:stories
 
-# or if you want both
-
+# or run both dev server and stories
 pnpm run dev:all
 ```
 
@@ -171,22 +161,17 @@ MyStory.meta = {
 
 TBD
 
-### Asset caching / PWA
+### Asset Caching / PWA
 
-To ensure a smooth and immersive space adventure, core game assets are preloaded and cached when a user first loads the client or cache is stale.
-
-Gameplay is fast! Players often hop between multiple sectors in succession, or render lazy loaded UI elements in response to the UI Agent.
-
-Preloading avoids runtime suspense / render blocking to minimize the client falling out of sync with the server (especially in low bandwidth scenarios.)
+Core game assets are preloaded and cached when a user first loads the client or cache is stale. This ensures smooth gameplay and prevents render blocking as players hop between sectors or trigger lazy-loaded UI elements.
 
 - Assets to preload are specified in `app/src/assets/index.ts`
 - Vite generates a manifest and PWA service worker
 - Asset filenames are hashed
 
-PWA caching is disabled when running in dev. You can also bypass runtime preloading and showing the preload view by setting `bypassAssetCache` in `settings.json`.
+PWA caching is disabled when running in dev. You can also bypass runtime preloading by setting `bypassAssetCache` in `settings.json`.
 
-
-## Hacking on the client
+## Architecture Reference
 
 ### Entry Point
 
@@ -217,8 +202,6 @@ PWA caching is disabled when running in dev. You can also bypass runtime preload
 ### Key Files
 
 **`GameContext.tsx`** — Primary context for managing game state, initialization flow and handling Pipecat connection. All incoming server data messages are handled here (for now!)
-
-**`DevTools.tsx`** - Conditionally rendered (dev only) LevaUI wrapper
 
 **`icons.ts`** — Exported references to icons within our chosen library [Phosphor Icons](https://phosphoricons.com/). Referencing here makes it easier to modify app-wide changes for game-centric iconography (such as cargo resources, HUD elements etc.)
 
