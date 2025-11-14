@@ -4,7 +4,7 @@ import asyncio
 import pytest
 import time
 
-from core.locks.base import TimedLock
+from gradientbang.game_server.core.locks.base import TimedLock
 
 
 @pytest.mark.asyncio

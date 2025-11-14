@@ -3,7 +3,6 @@ import json
 from copy import deepcopy
 from collections import deque
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Dict, Any, Iterable, Optional, TYPE_CHECKING, List
 
 from fastapi import HTTPException
@@ -12,6 +11,7 @@ from gradientbang.game_server.ships import ShipType, get_ship_stats
 from gradientbang.game_server.trading import get_port_prices, get_port_stock
 
 from gradientbang.game_server.rpc.events import EventLogContext
+from gradientbang.utils.config import get_world_data_path
 
 if TYPE_CHECKING:
     from gradientbang.game_server.combat.models import GarrisonState
@@ -419,9 +419,7 @@ def log_trade(
     credits_after: int,
 ) -> None:
     """Append a trade (or warp power) transaction to JSONL trade history."""
-    trade_log_path = (
-        Path(__file__).parent.parent.parent / "world-data" / "trade_history.jsonl"
-    )
+    trade_log_path = get_world_data_path() / "trade_history.jsonl"
 
     trade_record = {
         "timestamp": datetime.now(timezone.utc).isoformat(),

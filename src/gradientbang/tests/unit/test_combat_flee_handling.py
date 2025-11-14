@@ -3,8 +3,8 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
-from combat.callbacks import on_round_resolved, on_combat_ended
-from combat.models import CombatantAction, RoundAction
+from gradientbang.game_server.combat.callbacks import on_round_resolved, on_combat_ended
+from gradientbang.game_server.combat.models import CombatantAction, RoundAction
 
 
 def _sector_id(value):

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from server_logging.event_log import EventLogger, EventRecord, MAX_QUERY_RESULTS
-from rpc.events import EventDispatcher, EventLogContext
+from gradientbang.game_server.rpc.events import EventDispatcher, EventLogContext
 
 
 def test_event_logger_append_and_query(tmp_path):

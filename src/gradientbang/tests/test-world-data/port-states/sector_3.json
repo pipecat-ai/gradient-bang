@@ -1,0 +1,16 @@
+{
+  "sector_id": 3,
+  "port_class": 6,
+  "code": "BSS",
+  "stock": {
+    "QF": 300,
+    "RO": 700,
+    "NS": 700
+  },
+  "max_capacity": {
+    "QF": 1000,
+    "RO": 1000,
+    "NS": 1000
+  },
+  "last_updated": "2025-11-14T14:42:56.111577+00:00"
+}

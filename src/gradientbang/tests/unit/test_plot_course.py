@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 
-from api import plot_course
+from gradientbang.game_server.api import plot_course
 
 
 class DummyCharacter:

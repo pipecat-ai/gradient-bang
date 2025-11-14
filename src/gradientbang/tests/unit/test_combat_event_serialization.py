@@ -4,15 +4,15 @@ import pytest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, AsyncMock, patch
 
-from combat.utils import (
+from gradientbang.game_server.combat.utils import (
     serialize_participant_for_event,
     serialize_garrison_for_event,
     serialize_round_waiting_event,
     serialize_round_resolved_event,
     serialize_combat_ended_event,
 )
-from combat.models import CombatantState, GarrisonState
-from combat.salvage import SalvageContainer
+from gradientbang.game_server.combat.models import CombatantState, GarrisonState
+from gradientbang.game_server.combat.salvage import SalvageContainer
 
 
 def _make_ship_record(

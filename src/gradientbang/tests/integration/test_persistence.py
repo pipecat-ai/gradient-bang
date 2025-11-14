@@ -598,7 +598,7 @@ class TestCombatFleePersistence:
     @pytest.mark.asyncio
     async def test_flee_requires_destination_sector(self, server_url):
         """
-        Test that fleeing from combat requires a destination sector.
+        Test that fleeing from gradientbang.game_server.combat requires a destination sector.
         """
         attacker_id = "test_persistence_flee_attacker"
         defender_id = "test_persistence_flee_defender"

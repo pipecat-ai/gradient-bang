@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 
-from api import local_map_region
+from gradientbang.game_server.api import local_map_region
 
 
 class DummyKnowledge:

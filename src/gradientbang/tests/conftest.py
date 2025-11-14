@@ -12,16 +12,6 @@ from typing import Any, Awaitable, Callable, List, Optional
 TESTS_DIR = Path(__file__).resolve().parent
 WORLD_DATA_DIR = TESTS_DIR / "test-world-data"
 
-# Ensure legacy top-level imports used throughout tests (e.g. `import api`)
-# resolve correctly by adding the original module roots to sys.path.
-PROJECT_SRC_DIR = TESTS_DIR.parent
-GAME_SERVER_DIR = PROJECT_SRC_DIR / "game_server"
-
-for extra_path in (PROJECT_SRC_DIR, GAME_SERVER_DIR):
-    path_str = str(extra_path)
-    if extra_path.exists() and path_str not in sys.path:
-        sys.path.insert(0, path_str)
-
 
 def _ensure_openai_stub() -> None:
     if "openai" in sys.modules:

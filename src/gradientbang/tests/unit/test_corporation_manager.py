@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from core.corporation_manager import CorporationManager
+from gradientbang.game_server.core.corporation_manager import CorporationManager
 
 
 @pytest.fixture(scope="session", autouse=True)

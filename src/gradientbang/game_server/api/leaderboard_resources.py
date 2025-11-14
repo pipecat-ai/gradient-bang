@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
-from pathlib import Path
 
 from fastapi import HTTPException
 
@@ -19,13 +19,13 @@ from gradientbang.game_server.core.leaderboard import (
 
 logger = logging.getLogger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-REBUILD_SCRIPT = REPO_ROOT / "scripts" / "rebuild_leaderboard.py"
+REBUILD_MODULE = "gradientbang.scripts.rebuild_leaderboard"
 
 
 async def handle(request: dict, world) -> dict:
     force_refresh = bool(request.get("force_refresh"))
-    path = leaderboard_snapshot_path(get_world_data_path())
+    world_data_path = get_world_data_path()
+    path = leaderboard_snapshot_path(world_data_path)
 
     if force_refresh:
         clear_leaderboard_cache()
@@ -33,12 +33,16 @@ async def handle(request: dict, world) -> dict:
     # NOTE: During testing we always rebuild synchronously so the endpoint reflects
     # the latest data. Once cron/backfill infrastructure is ready we can remove this
     # subprocess hop and rely on the scheduled worker instead.
+    env = os.environ.copy()
+    env.setdefault("WORLD_DATA_DIR", str(world_data_path))
     try:
         process = await asyncio.create_subprocess_exec(
             sys.executable,
-            str(REBUILD_SCRIPT),
+            "-m",
+            REBUILD_MODULE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
         stdout, stderr = await process.communicate()
     except FileNotFoundError as exc:  # pragma: no cover - defensive guard

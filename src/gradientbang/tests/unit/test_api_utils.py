@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from api.utils import (
+from gradientbang.game_server.api.utils import (
     COMBAT_ACTION_REQUIRED,
     apply_port_observation,
     build_event_source,

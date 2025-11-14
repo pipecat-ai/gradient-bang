@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from messaging.handlers import handle_send_message
+from gradientbang.game_server.messaging.handlers import handle_send_message
 
 
 @pytest.mark.asyncio

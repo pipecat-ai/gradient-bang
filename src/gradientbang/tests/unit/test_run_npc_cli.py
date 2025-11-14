@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from npc import run_npc
+from gradientbang.npc import run_npc
 
 
 def test_parse_args_supports_ship_id(monkeypatch):

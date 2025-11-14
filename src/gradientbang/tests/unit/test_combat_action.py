@@ -3,8 +3,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from api import combat_action
-from combat.models import CombatantAction
+from gradientbang.game_server.api import combat_action
+from gradientbang.game_server.combat.models import CombatantAction
 
 
 @pytest.mark.asyncio

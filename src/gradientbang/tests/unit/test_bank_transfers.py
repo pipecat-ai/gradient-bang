@@ -6,9 +6,9 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from character_knowledge import CharacterKnowledgeManager, MapKnowledge
-from core.credits import transfer_credits_to_bank
-from core.ships_manager import ShipsManager
+from gradientbang.game_server.character_knowledge import CharacterKnowledgeManager, MapKnowledge
+from gradientbang.game_server.core.credits import transfer_credits_to_bank
+from gradientbang.game_server.core.ships_manager import ShipsManager
 
 
 @dataclass

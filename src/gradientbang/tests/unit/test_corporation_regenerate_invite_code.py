@@ -4,9 +4,9 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from api import corporation_regenerate_invite_code
-from character_knowledge import MapKnowledge
-from core.corporation_manager import CorporationManager
+from gradientbang.game_server.api import corporation_regenerate_invite_code
+from gradientbang.game_server.character_knowledge import MapKnowledge
+from gradientbang.game_server.core.corporation_manager import CorporationManager
 
 
 class StubKnowledgeManager:

@@ -290,3 +290,16 @@ The **source code** for Gradient Bang is licensed under the [Apache License 2.0]
 **Visual assets, artwork, and audio** are licensed under the [Creative Commons Attribution 4.0 International License (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/), allowing free use with attribution.
 
 The **Gradient Bang name, logo, and brand identity** are proprietary trademarks and not covered by the open source licenses. If you fork this project, you must rename it and create your own brand identity. See [TRADEMARKS.md](TRADEMARKS.md) for complete details.
+
+
+## Build
+
+docker build -t gradient-bang-server .
+
+docker run -d \
+  -p 8000:8000 \
+  -v $(pwd)/world-data:/app/world-data \
+  -e OPENAI_API_KEY=your_key_here \
+  gradient-bang-server
+
+docker run -p 8000:8000 gradient-bang-server

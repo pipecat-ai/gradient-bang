@@ -2,8 +2,8 @@ import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, call
 
-from core.world import Character
-from api import move
+from gradientbang.game_server.core.world import Character
+from gradientbang.game_server.api import move
 
 
 def _make_ship_record(character_id: str):
@@ -118,7 +118,7 @@ async def test_move_emits_combat_round_waiting(monkeypatch):
     monkeypatch.setattr(move.asyncio, "sleep", AsyncMock())
 
     # Ensure status payload builder doesn't exercise real dependencies
-    import api.utils as api_utils
+    import gradientbang.game_server.api.utils as api_utils
 
     monkeypatch.setattr(
         api_utils,
@@ -174,7 +174,7 @@ async def test_move_without_combat_does_not_emit(monkeypatch):
     monkeypatch.setattr(move.event_dispatcher, "emit", emit_mock)
     monkeypatch.setattr(move.asyncio, "sleep", AsyncMock())
 
-    import api.utils as api_utils
+    import gradientbang.game_server.api.utils as api_utils
 
     monkeypatch.setattr(
         api_utils,

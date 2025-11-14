@@ -361,7 +361,7 @@ async def test_corporation_ship_can_engage_in_combat(server_url, check_server_av
                 target_id=target_id,
             )
             combat_id = combat_result.get("combat_id")
-            assert combat_id, "Expected combat_id from combat initiation"
+            assert combat_id, "Expected combat_id from gradientbang.game_server.combat initiation"
 
             action_result = await ship_client.combat_action(
                 combat_id=combat_id,

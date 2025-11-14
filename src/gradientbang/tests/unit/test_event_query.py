@@ -4,8 +4,8 @@ import pytest
 
 from fastapi import HTTPException
 
-from api import event_query
-from core.character_registry import CharacterRegistry
+from gradientbang.game_server.api import event_query
+from gradientbang.game_server.core.character_registry import CharacterRegistry
 from server_logging.event_log import EventLogger, EventRecord, MAX_QUERY_RESULTS
 
 

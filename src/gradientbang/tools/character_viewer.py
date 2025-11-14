@@ -579,7 +579,7 @@ class CharacterViewer(App):
                 port_info = sector_contents.port
                 # Derive buys/sells from code using shared helpers
                 try:
-                    from utils.port_helpers import list_buys, list_sells
+                    from gradientbang.utils.port_helpers import list_buys, list_sells
                     buys_list = list_buys(port_info.model_dump())
                     sells_list = list_sells(port_info.model_dump())
                 except Exception:

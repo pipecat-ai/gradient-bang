@@ -5,14 +5,14 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from api import ship_purchase
-from api.utils import _build_corp_ship_summaries
-from character_knowledge import CharacterKnowledgeManager
-from core.corporation_manager import CorporationManager
-from core.locks.credit_locks import CreditLockManager
-from core.ships_manager import ShipsManager
-from core.world import Character
-from ships import ShipType, get_ship_stats
+from gradientbang.game_server.api import ship_purchase
+from gradientbang.game_server.api.utils import _build_corp_ship_summaries
+from gradientbang.game_server.character_knowledge import CharacterKnowledgeManager
+from gradientbang.game_server.core.corporation_manager import CorporationManager
+from gradientbang.game_server.core.locks.credit_locks import CreditLockManager
+from gradientbang.game_server.core.ships_manager import ShipsManager
+from gradientbang.game_server.core.world import Character
+from gradientbang.game_server.ships import ShipType, get_ship_stats
 
 
 def _create_world(tmp_path, *, character_id: str, credits: int, bank: int = 0, sector: int = 1, ship_type: str = "kestrel_courier"):

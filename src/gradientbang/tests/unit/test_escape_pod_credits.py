@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from core.ships_manager import ShipsManager
-from ships import ShipType
+from gradientbang.game_server.core.ships_manager import ShipsManager
+from gradientbang.game_server.ships import ShipType
 
 
 @pytest.fixture

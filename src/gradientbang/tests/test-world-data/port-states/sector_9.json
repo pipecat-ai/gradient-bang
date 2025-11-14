@@ -1,0 +1,16 @@
+{
+  "sector_id": 9,
+  "port_class": 8,
+  "code": "BBB",
+  "stock": {
+    "QF": 300,
+    "RO": 300,
+    "NS": 300
+  },
+  "max_capacity": {
+    "QF": 1000,
+    "RO": 1000,
+    "NS": 1000
+  },
+  "last_updated": "2025-11-14T14:42:56.111925+00:00"
+}

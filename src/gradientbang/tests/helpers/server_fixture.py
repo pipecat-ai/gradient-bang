@@ -72,7 +72,7 @@ def start_test_server(
     log_handle = open(log_file, "w")
 
     process = subprocess.Popen(
-        ["uv", "run", "python", "-m", "game-server"],
+        ["uv", "run", "python", "-m", "gradientbang.game_server.server"],
         cwd=str(PROJECT_ROOT),
         env={**subprocess.os.environ, **env},
         stdout=log_handle,

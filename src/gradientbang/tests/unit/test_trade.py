@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from api import trade
+from gradientbang.game_server.api import trade
 
 
 class DummyCharacter:

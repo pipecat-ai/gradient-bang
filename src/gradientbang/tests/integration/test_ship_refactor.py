@@ -6,13 +6,13 @@ from typing import Iterable, Optional
 
 import pytest
 
-from api import join, move, trade, utils
-from character_knowledge import CharacterKnowledgeManager
-from combat.callbacks import on_round_resolved
-from combat.models import CombatEncounter, CombatantState, CombatRoundOutcome
-from core.ships_manager import ShipsManager
-from core.world import GameWorld
-from rpc.events import event_dispatcher
+from gradientbang.game_server.api import join, move, trade, utils
+from gradientbang.game_server.character_knowledge import CharacterKnowledgeManager
+from gradientbang.game_server.combat.callbacks import on_round_resolved
+from gradientbang.game_server.combat.models import CombatEncounter, CombatantState, CombatRoundOutcome
+from gradientbang.game_server.core.ships_manager import ShipsManager
+from gradientbang.game_server.core.world import GameWorld
+from gradientbang.game_server.rpc.events import event_dispatcher
 
 
 TEST_WORLD_SOURCE = Path(__file__).parent.parent / "test-world-data"

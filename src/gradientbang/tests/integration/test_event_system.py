@@ -169,7 +169,7 @@ class TestEventEmission:
         """
         from datetime import datetime, timezone
         import asyncio
-        from tests.helpers.combat_helpers import create_test_character_knowledge
+        from gradientbang.tests.helpers.combat_helpers import create_test_character_knowledge
 
         char1_id = "test_combat_waiting_char1"
         char2_id = "test_combat_waiting_char2"
@@ -251,7 +251,7 @@ class TestEventEmission:
         """
         from datetime import datetime, timezone
         import asyncio
-        from tests.helpers.combat_helpers import create_test_character_knowledge
+        from gradientbang.tests.helpers.combat_helpers import create_test_character_knowledge
 
         char1_id = "test_combat_resolved_char1"
         char2_id = "test_combat_resolved_char2"
@@ -366,7 +366,7 @@ class TestEventEmission:
         """Test that combat.ended event is emitted with salvage when ships destroyed."""
         from datetime import datetime, timezone
         import asyncio
-        from tests.helpers.combat_helpers import (
+        from gradientbang.tests.helpers.combat_helpers import (
             create_strong_character,
             create_weak_character,
             set_character_cargo,
@@ -567,7 +567,7 @@ class TestEventEmission:
         """
         from datetime import datetime, timezone
         import asyncio
-        from tests.helpers.combat_helpers import create_test_character_knowledge
+        from gradientbang.tests.helpers.combat_helpers import create_test_character_knowledge
 
         char_id = "test_garrison_deployed_char"
 
@@ -675,7 +675,7 @@ class TestEventEmission:
         """
         from datetime import datetime, timezone
         import asyncio
-        from tests.helpers.combat_helpers import (
+        from gradientbang.tests.helpers.combat_helpers import (
             create_strong_character,
             create_weak_character,
         )
@@ -1258,7 +1258,7 @@ class TestCharacterFiltering:
         """
         from datetime import datetime, timezone
         import asyncio
-        from tests.helpers.combat_helpers import create_test_character_knowledge
+        from gradientbang.tests.helpers.combat_helpers import create_test_character_knowledge
 
         fighter1_id = "test_combat_privacy_fighter1"
         fighter2_id = "test_combat_privacy_fighter2"
@@ -1853,7 +1853,7 @@ class TestCharacterFiltering:
         """
         from datetime import datetime, timezone
         import asyncio
-        from tests.helpers.combat_helpers import create_test_character_knowledge
+        from gradientbang.tests.helpers.combat_helpers import create_test_character_knowledge
 
         deployer_id = "test_garrison_deployer"
         observer_id = "test_garrison_observer"
@@ -1989,7 +1989,7 @@ class TestCharacterFiltering:
         """
         from datetime import datetime, timezone
         import asyncio
-        from tests.helpers.combat_helpers import create_strong_character, create_weak_character, set_character_cargo
+        from gradientbang.tests.helpers.combat_helpers import create_strong_character, create_weak_character, set_character_cargo
 
         collector_id = "test_salvage_collector"
         victim_id = "test_salvage_victim"
@@ -2035,7 +2035,7 @@ class TestCharacterFiltering:
             await collector.combat_initiate(character_id=collector_id)
             await asyncio.sleep(2.0)
 
-            # Extract combat_id from combat.round_waiting event
+            # Extract combat_id from gradientbang.game_server.combat.round_waiting event
             waiting_events = [e for e in collector_events if e["event"] == "combat.round_waiting"]
             if len(waiting_events) == 0:
                 pytest.skip("Did not receive combat.round_waiting event")
@@ -2053,7 +2053,7 @@ class TestCharacterFiltering:
             )
             await asyncio.sleep(8.0)  # Wait longer for combat to end
 
-            # Get salvage_id from combat.ended event
+            # Get salvage_id from gradientbang.game_server.combat.ended event
             combat_ended = [e for e in collector_events if e["event"] == "combat.ended"]
             if len(combat_ended) == 0:
                 pytest.skip("Combat did not end with salvage creation")
@@ -3213,7 +3213,7 @@ class TestMultiCharacterEventFanout:
         """
         from datetime import datetime, timezone
         import asyncio
-        from tests.helpers.combat_helpers import create_test_character_knowledge
+        from gradientbang.tests.helpers.combat_helpers import create_test_character_knowledge
 
         trader_id = "test_trade_visibility_trader"
         outsider_id = "test_trade_visibility_outsider"
@@ -3305,7 +3305,7 @@ class TestMultiCharacterEventFanout:
         """
         from datetime import datetime, timezone
         import asyncio
-        from tests.helpers.combat_helpers import create_test_character_knowledge
+        from gradientbang.tests.helpers.combat_helpers import create_test_character_knowledge
 
         player1_id = "test_fanout_player1"
         player2_id = "test_fanout_player2"

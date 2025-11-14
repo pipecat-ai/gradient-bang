@@ -1606,7 +1606,7 @@ class TestCombatRoundMechanics:
 @pytest.mark.integration
 @pytest.mark.requires_server
 class TestFleeingMechanics:
-    """Test fleeing from combat."""
+    """Test fleeing from gradientbang.game_server.combat."""
 
     async def test_flee_success_exits_combat(self, test_server):
         """Test successful flee exits combat."""
