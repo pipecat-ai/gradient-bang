@@ -161,7 +161,7 @@ async function resetSupabaseState(params: { characterIds: string[] | null }): Pr
   const assignments = characterIds.map((id, idx) => PINNED_SECTORS[id] ?? chooseSector(idx, distribution, defaultSector));
 
   const nowIso = new Date().toISOString();
-  const characterRows = await buildCharacterRows(characterIds, assignments, nowIso);
+  const characterRows = await buildCharacterRows(characterIds, assignments, nowIso, universeStructure);
   const shipRows = await buildShipRows(characterIds, assignments);
 
   try {
@@ -306,13 +306,15 @@ async function seedUniverse(
     const portData = contentsBySector.get(sector.id);
     let portId: number | null = null;
     if (portData) {
+      // Port data can have either 'max_capacity' or 'stock_max' for max values
+      const maxData = portData['max_capacity'] ?? portData['stock_max'];
       const portResp = await supabaseRest('/ports?select=port_id', 'POST', {
         sector_id: sector.id,
         port_code: String((portData['code'] ?? 'PRT')).toUpperCase().slice(0, 3),
-        port_class: Number(portData['class'] ?? 1),
-        max_qf: bucketValue(portData['stock_max'], 'QF'),
-        max_ro: bucketValue(portData['stock_max'], 'RO'),
-        max_ns: bucketValue(portData['stock_max'], 'NS'),
+        port_class: Number(portData['class'] ?? portData['port_class'] ?? 1),
+        max_qf: bucketValue(maxData, 'QF'),
+        max_ro: bucketValue(maxData, 'RO'),
+        max_ns: bucketValue(maxData, 'NS'),
         stock_qf: bucketValue(portData['stock'], 'QF'),
         stock_ro: bucketValue(portData['stock'], 'RO'),
         stock_ns: bucketValue(portData['stock'], 'NS'),
@@ -339,15 +341,40 @@ async function seedUniverse(
   return sectorEntries.length;
 }
 
+// Map commodity names to their possible key formats (long-form and short-form)
+const COMMODITY_KEY_MAP: Record<string, string[]> = {
+  quantum_foam: ['quantum_foam', 'QF'],
+  retro_organics: ['retro_organics', 'RO'],
+  neuro_symbolics: ['neuro_symbolics', 'NS'],
+};
+
 function bucketValue(bucket: unknown, key: string): number {
   if (!bucket || typeof bucket !== 'object') {
     return 0;
   }
-  const value = (bucket as Record<string, unknown>)[key];
-  const parsed = Number(value ?? 0);
-  if (Number.isFinite(parsed)) {
-    return parsed;
+  const obj = bucket as Record<string, unknown>;
+
+  // Try the exact key first (for backward compatibility)
+  if (key in obj) {
+    const parsed = Number(obj[key] ?? 0);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
   }
+
+  // Try alternative key formats (long-form commodity names)
+  const possibleKeys = COMMODITY_KEY_MAP[key];
+  if (possibleKeys) {
+    for (const altKey of possibleKeys) {
+      if (altKey in obj) {
+        const parsed = Number(obj[altKey] ?? 0);
+        if (Number.isFinite(parsed)) {
+          return parsed;
+        }
+      }
+    }
+  }
+
   return 0;
 }
 
@@ -467,12 +494,12 @@ interface ShipRow {
   sector: number;
 }
 
-async function buildCharacterRows(ids: string[], sectors: number[], timestamp: string): Promise<CharacterRow[]> {
+async function buildCharacterRows(ids: string[], sectors: number[], timestamp: string, universeStructure: UniverseStructure): Promise<CharacterRow[]> {
   const rows = await Promise.all(
     ids.map(async (name, idx) => ({
       characterId: await canonicalizeCharacterId(name),
       name,
-      mapKnowledge: buildMapKnowledge(sectors[idx] ?? 0, timestamp),
+      mapKnowledge: buildMapKnowledge(sectors[idx] ?? 0, timestamp, universeStructure),
       timestamp,
     })),
   );
@@ -492,7 +519,12 @@ async function buildShipRows(ids: string[], sectors: number[]): Promise<ShipRow[
   return rows;
 }
 
-function buildMapKnowledge(sectorId: number, timestamp: string): Record<string, unknown> {
+function buildMapKnowledge(sectorId: number, timestamp: string, universeStructure: UniverseStructure): Record<string, unknown> {
+  // Look up actual sector position from universe structure
+  const sector = universeStructure.sectors?.find(s => Number(s.id) === sectorId);
+  const position = sector?.position ?? { x: 0, y: 0 };
+  const positionArray = [Number(position.x ?? 0), Number(position.y ?? 0)];
+
   return {
     current_sector: sectorId,
     total_sectors_visited: 1,
@@ -500,7 +532,7 @@ function buildMapKnowledge(sectorId: number, timestamp: string): Record<string, 
       [String(sectorId)]: {
         last_visited: timestamp,
         adjacent_sectors: [],
-        position: [0, 0],
+        position: positionArray,
       },
     },
   };

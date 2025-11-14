@@ -31,6 +31,102 @@ const COMMODITY_MAP: Record<string, number> = {
   neuro_symbolics: 2,
 };
 
+// Trading price calculation (ported from game-server/trading.py)
+const BASE_PRICES: Record<string, number> = {
+  quantum_foam: 25,
+  retro_organics: 10,
+  neuro_symbolics: 40,
+};
+
+const SELL_MIN = 0.75;  // Port sells to player at 75% when full stock
+const SELL_MAX = 1.10;  // Port sells to player at 110% when low stock
+const BUY_MIN = 0.90;   // Port buys from player at 90% when low demand
+const BUY_MAX = 1.30;   // Port buys from player at 130% when high demand
+
+/**
+ * Calculate price when port sells TO player.
+ * Price is LOW when stock is high (abundant), HIGH when stock is low (scarce).
+ */
+function calculatePriceSellToPlayer(commodity: string, stock: number, maxCapacity: number): number {
+  if (maxCapacity <= 0) return 0;
+  const fullness = stock / maxCapacity;
+  const scarcity = 1 - fullness;  // High stock = low scarcity = low price
+  const priceMultiplier = SELL_MIN + (SELL_MAX - SELL_MIN) * Math.sqrt(scarcity);
+  return Math.round(BASE_PRICES[commodity] * priceMultiplier);
+}
+
+/**
+ * Calculate price when port buys FROM player.
+ * Price is HIGH when stock is low (needs more), LOW when stock is high (saturated).
+ */
+function calculatePriceBuyFromPlayer(commodity: string, stock: number, maxCapacity: number): number {
+  if (maxCapacity <= 0) return 0;
+  const fullness = stock / maxCapacity;
+  const need = 1 - fullness;  // Low stock = high need = high price
+  const priceMultiplier = BUY_MIN + (BUY_MAX - BUY_MIN) * Math.sqrt(need);
+  return Math.round(BASE_PRICES[commodity] * priceMultiplier);
+}
+
+/**
+ * Decode port_code to determine what commodities are bought/sold.
+ * Format: BBB = all buy, SSS = all sell, BSS = buy QF, sell RO/NS, etc.
+ * Position 0 = quantum_foam, 1 = retro_organics, 2 = neuro_symbolics
+ */
+function decodePortCode(portCode: string): { buys: string[], sells: string[] } {
+  const commodities = ['quantum_foam', 'retro_organics', 'neuro_symbolics'];
+  const buys: string[] = [];
+  const sells: string[] = [];
+
+  for (let i = 0; i < 3 && i < portCode.length; i++) {
+    if (portCode[i] === 'B' || portCode[i] === 'b') {
+      buys.push(commodities[i]);
+    } else if (portCode[i] === 'S' || portCode[i] === 's') {
+      sells.push(commodities[i]);
+    }
+  }
+
+  return { buys, sells };
+}
+
+/**
+ * Calculate trading prices for all commodities at a port.
+ * Returns prices object with null for commodities not traded.
+ */
+function getPortPrices(
+  portCode: string,
+  stockQf: number,
+  stockRo: number,
+  stockNs: number,
+  maxQf: number,
+  maxRo: number,
+  maxNs: number
+): Record<string, number | null> {
+  const { buys, sells } = decodePortCode(portCode);
+  const stocks = { quantum_foam: stockQf, retro_organics: stockRo, neuro_symbolics: stockNs };
+  const maxes = { quantum_foam: maxQf, retro_organics: maxRo, neuro_symbolics: maxNs };
+
+  const prices: Record<string, number | null> = {
+    quantum_foam: null,
+    retro_organics: null,
+    neuro_symbolics: null,
+  };
+
+  for (const commodity of ['quantum_foam', 'retro_organics', 'neuro_symbolics']) {
+    const stock = stocks[commodity];
+    const maxCap = maxes[commodity];
+
+    if (sells.includes(commodity) && maxCap > 0) {
+      // Port sells this commodity (price is what player pays)
+      prices[commodity] = calculatePriceSellToPlayer(commodity, stock, maxCap);
+    } else if (buys.includes(commodity) && maxCap > 0 && stock < maxCap) {
+      // Port buys this commodity (price is what player receives)
+      prices[commodity] = calculatePriceBuyFromPlayer(commodity, stock, maxCap);
+    }
+  }
+
+  return prices;
+}
+
 serve(async (req: Request): Promise<Response> => {
   if (!validateApiToken(req)) {
     return unauthorizedResponse();
@@ -205,6 +301,7 @@ async function handleListKnownPorts(
   const visitedBfs = new Set<number>([fromSector]);
   let sectorsSearched = 0;
   const results: Array<PortResult> = [];
+  const rpcTimestamp = source.timestamp;
 
   while (queue.length > 0) {
     const current = queue.shift()!;
@@ -216,8 +313,7 @@ async function handleListKnownPorts(
       const inSector = typeof ship.current_sector === 'number'
         && ship.current_sector === current.sector
         && !ship.in_hyperspace;
-      const observationTimestamp = inSector ? null : new Date().toISOString();
-      results.push(buildPortResult(current, current.hops, portRow, knowledgeEntry, inSector, observationTimestamp));
+      results.push(buildPortResult(current, current.hops, portRow, knowledgeEntry, inSector, rpcTimestamp));
     }
 
     if (current.hops >= maxHops) {
@@ -346,23 +442,30 @@ function buildPortResult(
   portRow: PortRow,
   knowledgeEntry: { position?: [number, number]; last_visited?: string } | undefined,
   inSector: boolean,
-  observationTimestamp: string | null,
+  rpcTimestamp: string,
 ): PortResult {
   const position = knowledgeEntry?.position ?? [0, 0];
+
+  // Calculate trading prices based on current stock levels (matches Legacy behavior)
+  const prices = getPortPrices(
+    portRow.port_code,
+    portRow.stock_qf,
+    portRow.stock_ro,
+    portRow.stock_ns,
+    portRow.max_qf,
+    portRow.max_ro,
+    portRow.max_ns
+  );
+
   const portPayload = {
     code: portRow.port_code,
-    port_class: portRow.port_class,
     stock: {
       quantum_foam: portRow.stock_qf,
       retro_organics: portRow.stock_ro,
       neuro_symbolics: portRow.stock_ns,
     },
-    capacity: {
-      quantum_foam: portRow.max_qf,
-      retro_organics: portRow.max_ro,
-      neuro_symbolics: portRow.max_ns,
-    },
-    observed_at: inSector ? null : observationTimestamp,
+    prices,
+    observed_at: inSector ? null : rpcTimestamp,
   } as Record<string, unknown>;
 
   return {
@@ -371,7 +474,7 @@ function buildPortResult(
       position,
       port: portPayload,
     },
-    updated_at: inSector ? null : observationTimestamp,
+    updated_at: rpcTimestamp,
     hops_from_start: hops,
     last_visited: knowledgeEntry?.last_visited,
   };
