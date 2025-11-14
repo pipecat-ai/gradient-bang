@@ -5,6 +5,7 @@ import { getLocalSettings, setLocalSettings } from "@/utils/settings"
 
 export interface SettingsSlice {
   settings: {
+    useDevTools: boolean
     ambienceVolume: number
     disabledAmbience: boolean
     disabledSoundFX: boolean
@@ -27,6 +28,7 @@ export interface SettingsSlice {
 }
 
 const defaultSettings = {
+  useDevTools: true,
   ambienceVolume: 0.5,
   disabledAmbience: false,
   disabledSoundFX: false,

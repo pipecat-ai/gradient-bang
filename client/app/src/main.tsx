@@ -1,33 +1,34 @@
-import { PipecatAppBase } from "@pipecat-ai/voice-ui-kit";
-import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
+import { StrictMode } from "react"
+import { createRoot } from "react-dom/client"
+import { Leva } from "leva"
 
-import { TempMobileBlock } from "@/components/TempMobileBlock";
-import { ViewContainer } from "@/components/views/ViewContainer";
-import { GameProvider } from "@/GameContext";
-import { AnimatedFrame } from "@fx/frame";
-import useGameStore from "@stores/game";
+import { GameProvider } from "@/GameContext"
+import { TempMobileBlock } from "@/components/TempMobileBlock"
+import { ViewContainer } from "@/components/views/ViewContainer"
+import { AnimatedFrame } from "@fx/frame"
+import { PipecatAppBase } from "@pipecat-ai/voice-ui-kit"
+import useGameStore from "@stores/game"
 
-import "./css/index.css";
+import "./css/index.css"
 
 // Get settings from the initialized store (not from JSON directly)
-const Settings = useGameStore.getState().settings;
+const Settings = useGameStore.getState().settings
 
 // Parse query string parameters
-const queryParams = new URLSearchParams(window.location.search);
-const transport = queryParams.get("transport") || "smallwebrtc";
+const queryParams = new URLSearchParams(window.location.search)
+const transport = queryParams.get("transport") || "smallwebrtc"
 const endpoint =
   queryParams.get("server") ||
   `${import.meta.env.VITE_BOT_URL}/start` ||
-  "http://localhost:7860/start";
+  "http://localhost:7860/start"
 
 const requestBodyEntries = [...queryParams.entries()].filter(
   ([key]) => key !== "server" && key !== "transport"
-);
+)
 const requestBody = Object.fromEntries(requestBodyEntries) as Record<
   string,
   string
->;
+>
 const startRequestData = {
   createDailyRoom: true,
   dailyRoomProperties: {
@@ -35,9 +36,9 @@ const startRequestData = {
     eject_at_room_exp: true,
   },
   body: { ...requestBody, start_on_join: false },
-};
+}
 
-console.debug("[MAIN] Pipecat Configuration:", endpoint, transport);
+console.debug("[MAIN] Pipecat Configuration:", endpoint, transport)
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -63,8 +64,10 @@ createRoot(document.getElementById("root")!).render(
         </GameProvider>
       )}
     </PipecatAppBase>
+
     {/* HOC renderables */}
     <AnimatedFrame />
     {Settings.showMobileWarning && <TempMobileBlock />}
+    <Leva collapsed hidden={!Settings.useDevTools} />
   </StrictMode>
-);
+)

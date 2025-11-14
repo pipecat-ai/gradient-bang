@@ -212,17 +212,19 @@ PWA caching is disabled when running in dev. You can also bypass runtime preload
 | `/stories` | Ladle / Storybook stories for testing features in isolation. Note: excluded from build |
 | `/types` | TypeScript typings and interfaces. Primary game object typings are set globally (`global.d.ts`) |
 | `/utils` | Misc helpers and utils. Note: `tailwind.ts` replaces the typical `cn/utils` file created by ShadCN |
+| `/mocks` | Mock data objects and test stubs |
 
 ### Key Files
 
 **`GameContext.tsx`** — Primary context for managing game state, initialization flow and handling Pipecat connection. All incoming server data messages are handled here (for now!)
+
+**`DevTools.tsx`** - Conditionally rendered (dev only) LevaUI wrapper
 
 **`icons.ts`** — Exported references to icons within our chosen library [Phosphor Icons](https://phosphoricons.com/). Referencing here makes it easier to modify app-wide changes for game-centric iconography (such as cargo resources, HUD elements etc.)
 
 **To be deprecated:**
 
  **`GameInstanceManager.tsx`** — Singleton class that manages lifecycle of core game elements, such as the Starfield. Subscribes to any changes in the settings store and constructs / destroys accordingly. Soon to be removed!
-
 
 ## Deployment
 

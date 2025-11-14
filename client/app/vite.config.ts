@@ -1,13 +1,15 @@
-import tailwindcss from "@tailwindcss/vite";
-import react from "@vitejs/plugin-react";
-import path from "path";
-import { visualizer } from "rollup-plugin-visualizer";
-import { defineConfig, type PluginOption } from "vite";
-import { VitePWA } from "vite-plugin-pwa";
-import { version } from "./package.json";
+import path from "path"
+import { visualizer } from "rollup-plugin-visualizer"
+import { defineConfig, type PluginOption } from "vite"
+import { VitePWA } from "vite-plugin-pwa"
+
+import tailwindcss from "@tailwindcss/vite"
+import react from "@vitejs/plugin-react"
+
+import { version } from "./package.json"
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   define: {
     "import.meta.env.VITE_APP_VERSION": JSON.stringify(version),
   },
@@ -51,6 +53,10 @@ export default defineConfig({
       "@views": path.resolve(__dirname, "./src/components/views"),
       "@screens": path.resolve(__dirname, "./src/components/screens"),
       "@stores": path.resolve(__dirname, "./src/stores"),
+      "@mocks": path.resolve(__dirname, "./src/mocks"),
+      ...(mode === "production" && {
+        leva: path.resolve(__dirname, "./src/mocks/leva.mock.ts"),
+      }),
     },
   },
   server: {
@@ -66,4 +72,4 @@ export default defineConfig({
       },
     },
   },
-});
+}))

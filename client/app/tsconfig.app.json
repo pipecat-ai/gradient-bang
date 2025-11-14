@@ -25,6 +25,7 @@
       "@views/*": ["./src/components/views/*"],
       "@screens/*": ["./src/components/screens/*"],
       "@stores/*": ["./src/stores/*"],
+      "@mocks/*": ["./src/mocks/*"],
     },
 
     /* Linting */

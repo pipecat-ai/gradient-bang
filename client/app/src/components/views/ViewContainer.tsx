@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react"
+import { useControls } from "leva"
 import { AnimatePresence, motion } from "motion/react"
 
 import { useGameContext } from "@/hooks/useGameContext"
@@ -14,10 +15,16 @@ export const ViewContainer = ({ error }: { error?: string | null }) => {
   const settings = useGameStore.use.settings()
   const gameState = useGameStore.use.gameState()
   const { initialize } = useGameContext()
-
   const [viewState, setViewState] = useState<"title" | "preload" | "game">(
     "title"
   )
+
+  useControls("ViewContainer", {
+    viewState: {
+      value: viewState,
+      onChange: setViewState,
+    },
+  })
 
   const handleViewStateChange = useCallback(
     (state: "title" | "preload" | "game") => {
