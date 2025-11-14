@@ -1,28 +1,29 @@
-import { getLocalSettings, setLocalSettings } from "@/utils/settings";
-import { produce } from "immer";
-import { type StateCreator } from "zustand";
+import { produce } from "immer"
+import { type StateCreator } from "zustand"
+
+import { getLocalSettings, setLocalSettings } from "@/utils/settings"
 
 export interface SettingsSlice {
   settings: {
-    ambienceVolume: number;
-    disabledAmbience: boolean;
-    disabledSoundFX: boolean;
-    disableMusic: boolean;
-    disableRemoteAudio: boolean;
-    enableMic: boolean;
-    musicVolume: number;
-    remoteAudioVolume: number;
-    renderStarfield: boolean;
-    soundFXVolume: number;
-    startMuted: boolean;
-    fxBypassFlash: boolean;
-    fxBypassAnimation: boolean;
-    qualityPreset: "text" | "low" | "high";
-    saveSettings: boolean;
-    bypassTitleScreen: boolean;
-    showMobileWarning: boolean;
-  };
-  setSettings: (settings: SettingsSlice["settings"]) => void;
+    ambienceVolume: number
+    disabledAmbience: boolean
+    disabledSoundFX: boolean
+    disableMusic: boolean
+    disableRemoteAudio: boolean
+    enableMic: boolean
+    musicVolume: number
+    remoteAudioVolume: number
+    renderStarfield: boolean
+    soundFXVolume: number
+    startMuted: boolean
+    fxBypassFlash: boolean
+    fxBypassAnimation: boolean
+    qualityPreset: "text" | "low" | "high"
+    saveSettings: boolean
+    showMobileWarning: boolean
+    bypassAssetCache: boolean
+  }
+  setSettings: (settings: SettingsSlice["settings"]) => void
 }
 
 const defaultSettings = {
@@ -41,9 +42,9 @@ const defaultSettings = {
   fxBypassAnimation: false,
   qualityPreset: "high" as const,
   saveSettings: true,
-  bypassTitleScreen: false,
   showMobileWarning: true,
-};
+  bypassAssetCache: false,
+}
 
 export const createSettingsSlice: StateCreator<SettingsSlice> = (set) => ({
   settings: {
@@ -51,11 +52,11 @@ export const createSettingsSlice: StateCreator<SettingsSlice> = (set) => ({
     ...getLocalSettings(),
   },
   setSettings: (settings: SettingsSlice["settings"]) => {
-    setLocalSettings(settings);
+    setLocalSettings(settings)
     set(
       produce((state) => {
-        state.settings = settings;
+        state.settings = settings
       })
-    );
+    )
   },
-});
+})

@@ -3,6 +3,7 @@
     "enableMic": true,
     "disableRemoteAudio": false,
     "saveSettings": true,
-    "bypassTitleScreen": false,
-    "showMobileWarning": true
+    "bypassAssetCache": false,
+    "showMobileWarning": true,
+    "useDevTools": true
 }

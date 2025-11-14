@@ -1,6 +1,7 @@
-import { cn } from "@/utils/tailwind";
-import { PlusIcon } from "@phosphor-icons/react";
-import { cva, type VariantProps } from "class-variance-authority";
+import { cva, type VariantProps } from "class-variance-authority"
+
+import { cn } from "@/utils/tailwind"
+import { PlusIcon } from "@phosphor-icons/react"
 
 const dividerVariants = cva("relative items-center", {
   variants: {
@@ -113,7 +114,7 @@ const dividerVariants = cva("relative items-center", {
       className: "my-0",
     },
   ],
-});
+})
 
 const dividerChildrenVariants = cva("", {
   variants: {
@@ -126,7 +127,7 @@ const dividerChildrenVariants = cva("", {
       warning: "text-warning",
     },
   },
-});
+})
 
 const dividerDecorationVariants = cva("flex", {
   variants: {
@@ -151,15 +152,15 @@ const dividerDecorationVariants = cva("flex", {
       warning: "text-warning [&_svg]:text-warning",
     },
   },
-});
+})
 
 export interface DividerProps
   extends Omit<React.HTMLAttributes<HTMLDivElement>, "color">,
     VariantProps<typeof dividerVariants>,
     VariantProps<typeof dividerChildrenVariants> {
-  childrenClassName?: string;
-  color?: VariantProps<typeof dividerVariants>["color"];
-  decoration?: "none" | "plus";
+  childrenClassName?: string
+  color?: VariantProps<typeof dividerVariants>["color"]
+  decoration?: "none" | "plus"
 }
 
 export function Divider({
@@ -228,10 +229,10 @@ export function Divider({
       )}
       {...props}
     />
-  );
+  )
 
   if (decoration === "none") {
-    return innerContent;
+    return innerContent
   }
 
   return (
@@ -261,5 +262,5 @@ export function Divider({
         />
       </span>
     </div>
-  );
+  )
 }

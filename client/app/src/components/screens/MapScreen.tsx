@@ -1,10 +1,10 @@
-import { GET_MAP_REGION } from "@/actions/dispatch";
 import { CoursePlotPanel } from "@/components/CoursePlotPanel";
 import { MovementHistoryPanel } from "@/components/MovementHistoryPanel";
 import { Badge } from "@/components/primitives/Badge";
 import { Separator } from "@/components/primitives/Separator";
 import { useGameContext } from "@/hooks/useGameContext";
 import useGameStore from "@/stores/game";
+import type { GetMapRegionAction } from "@/types/actions";
 import PlanetLoader from "@assets/videos/planet-loader.mp4";
 import MiniMap, { type MiniMapConfig } from "@hud/MiniMap";
 import { useEffect, useRef } from "react";
@@ -22,7 +22,7 @@ export const MapScreen = () => {
   const sector = useGameStore.use.sector?.();
   const mapData = useGameStore.use.regional_map_data?.();
   const coursePlot = useGameStore.use.course_plot?.();
-  const { dispatchEvent } = useGameContext();
+  const { dispatchAction } = useGameContext();
 
   const throttleActive = useRef(false);
 
@@ -31,20 +31,20 @@ export const MapScreen = () => {
       console.debug("[GAME MAP SCREEN] Fetching", sector?.id);
       throttleActive.current = true;
 
-      dispatchEvent({
-        ...GET_MAP_REGION,
+      dispatchAction({
+        type: "get-my-map",
         payload: {
           center_sector: sector?.id ?? 0,
           max_hops: 50,
           max_sectors: 1000,
         },
-      });
+      } as GetMapRegionAction);
 
       setTimeout(() => {
         throttleActive.current = false;
       }, 250);
     }
-  }, [sector, dispatchEvent]);
+  }, [sector, dispatchAction]);
 
   return (
     <div className="flex flex-row gap-3 h-full relative">

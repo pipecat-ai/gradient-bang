@@ -1,9 +1,9 @@
-import { Slot } from "@radix-ui/react-slot";
-import { cva, type VariantProps } from "class-variance-authority";
-import * as React from "react";
+import * as React from "react"
+import { cva, type VariantProps } from "class-variance-authority"
 
-import { cn } from "@/utils/tailwind";
-import { SpinnerIcon } from "@phosphor-icons/react";
+import { cn } from "@/utils/tailwind"
+import { SpinnerIcon } from "@phosphor-icons/react"
+import { Slot } from "@radix-ui/react-slot"
 
 const buttonVariants = cva(
   "inline-flex items-center justify-center gap-2 whitespace-nowrap duration-300 ease-in-out text-sm font-medium disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
@@ -57,7 +57,7 @@ const buttonVariants = cva(
       active: false,
     },
   }
-);
+)
 
 function Button({
   className,
@@ -71,11 +71,11 @@ function Button({
   ...props
 }: React.ComponentProps<"button"> &
   VariantProps<typeof buttonVariants> & {
-    asChild?: boolean;
-    loader?: "none" | "stripes" | "icon";
-    isLoading?: boolean;
+    asChild?: boolean
+    loader?: "none" | "stripes" | "icon"
+    isLoading?: boolean
   }) {
-  const Comp = asChild ? Slot : "button";
+  const Comp = asChild ? Slot : "button"
 
   if (isLoading) {
     return (
@@ -93,9 +93,9 @@ function Button({
         {...props}
         disabled
       >
-        {loader === "icon" && <SpinnerIcon weight="bold"/>}
+        {loader === "icon" && <SpinnerIcon weight="bold" />}
       </Comp>
-    );
+    )
   }
 
   return (
@@ -113,7 +113,7 @@ function Button({
     >
       {children}
     </Comp>
-  );
+  )
 }
 
-export { Button };
+export { Button }

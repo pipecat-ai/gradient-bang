@@ -1,8 +1,7 @@
 import { Badge, BadgeTitle } from "@/components/primitives/Badge";
 import { Progress } from "@/components/primitives/Progress";
-
 import { cn } from "@/utils/tailwind";
-import useGameStore from "../stores/game";
+import useGameStore from "@stores/game";
 
 const incrementCx =
   "bg-warning-background stripe-bar stripe-bar-warning stripe-bar-8 stripe-bar-animate-1";
