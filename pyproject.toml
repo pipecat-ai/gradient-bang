@@ -22,7 +22,7 @@ dependencies = [
 [project.scripts]
 # Servers
 game-server = "gradientbang.game_server.server:main"
-bot = "gradientbang.pipecat_server.bot:main"
+bot = "gradientbang.pipecat_server.__main__:main"
 
 # NPCs
 npc-run = "gradientbang.npc.run_npc:main"

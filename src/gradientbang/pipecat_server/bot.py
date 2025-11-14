@@ -440,13 +440,6 @@ async def bot(runner_args):
     await run_bot(transport, runner_args)
 
 
-def main() -> None:
-    """Console-script entry point that wires our bot into the Pipecat runner."""
-    import sys
-    from pipecat.runner.run import main as runner_main
-
-    setattr(sys.modules["__main__"], "bot", bot)
-    runner_main()
-
 if __name__ == "__main__":
+    from pipecat.runner.run import main
     main()
