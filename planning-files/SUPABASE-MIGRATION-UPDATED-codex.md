@@ -132,6 +132,80 @@ Maintaining this per-function cadence keeps the migration auditable, limits blas
 
 **Progress (2025-11-13 19:30 UTC):** Verified `list_known_ports` implementation is complete and deployed to cloud. The function (`supabase/functions/list_known_ports/index.ts`, 379 lines) implements full BFS traversal with filters (port_type, commodity, trade_type), emits `ports.list` events, and matches legacy behavior. Created edge test suite (`tests/edge/test_list_known_ports.py`) covering 8 scenarios: basic listing, max_hops parameter, from_sector parameter, port_type/commodity/trade_type filters, and error cases (unvisited sectors, invalid parameters). Edge tests currently blocked by character registration infrastructure (see 18:00 UTC note about test_reset). Integration tests exist in `tests/integration/test_game_server_api.py::test_list_known_ports_filters_correctly` and can be used for validation once auth issues are resolved. Trade & Economy tranche (order 1) now complete: `trade`, `recharge_warp_power`, `dump_cargo`, and `list_known_ports` all implemented and deployed.
 
+**Progress (2025-11-14 15:54 UTC – Test Infrastructure Root Cause Fix):** Fixed the persistent credits/fighters/bank payload mismatches (present since 2025-11-12) by implementing a **Parameterized Test Bridge Layer** in `supabase/functions/test_reset/index.ts`.
+
+**Root cause analysis:** Legacy creates ships on-demand during `join()` using runtime defaults from `game-server/character_knowledge.py` (`MapKnowledge.credits=1000`, line 44) and `game-server/ships.py` (`ShipStats.KESTREL_COURIER.fighters=300`, line 53). Supabase pre-creates ships during `test_reset` using hardcoded constants that were set to production values (`DEFAULT_SHIP_CREDITS=25000`, `DEFAULT_FIGHTERS=250`) instead of matching Legacy's runtime behavior.
+
+**Solution:** Updated `test_reset` constants (lines 29-45) to use Legacy-compatible defaults:
+- `DEFAULT_SHIP_CREDITS`: 25000 → **1000** (matches MapKnowledge.credits default)
+- `DEFAULT_FIGHTERS`: 250 → **300** (matches KESTREL_COURIER default)
+- `DEFAULT_BANK_CREDITS`: new constant = **0** (matches MapKnowledge.credits_in_bank default)
+- Added comprehensive documentation explaining the rationale and source locations
+
+**Results:** Deployed to cloud via `npx supabase functions deploy test_reset` and reran payload parity test (`test_list_known_ports_filters_correctly`). **All credits/fighters/bank mismatches eliminated** - see comparison between logs:
+- Before fix (`20251114-070608`): 4 mismatches per event (credits, fighters, bank)
+- After fix (`20251114-154854`): ✅ Zero credits/fighters/bank mismatches
+
+**Remaining payload differences (different categories):**
+- Ship/character names: Supabase uses deterministic `{id}-ship` vs Legacy's generic "Kestrel Courier"
+- Player display names: Supabase uses UUIDs vs Legacy's names from registry
+- Sector player lists: Supabase missing 30+ pre-seeded characters (expected - only joined characters appear)
+- Port structure: Different data models (prices vs capacity, position values)
+
+These require separate fixes: comparator improvements (ignore name format differences), character name loading from registry (Supabase should populate display names), port structure normalization.
+
+**Design principle validated:** This "bridge layer" approach successfully maintains Legacy test data as gold standard while allowing Supabase edge functions to remain clean. Future test mismatches should be resolved via similar parameterization in `test_reset` rather than modifying Legacy fixtures or production code.
+
+### Implemented Edge Functions: Test Coverage Status (2025-11-14)
+
+| Edge Function | Deployment Status | Edge Tests | Integration Tests | Payload Parity | Remaining Issues | Notes |
+|---------------|-------------------|------------|-------------------|----------------|------------------|-------|
+| **join** | ✅ Cloud deployed | 🔄 Blocked (auth) | ✅ Passing | ✅ Verified | None | Foundation function; auth issues affect test infrastructure only |
+| **move** | ✅ Cloud deployed | 🔄 Blocked (auth) | ✅ Passing | ✅ Verified (20251111-175204) | None | Template function for single-function loop |
+| **my_status** | ✅ Cloud deployed | 🔄 Blocked (auth) | ✅ Passing | ✅ Verified | None | Works with join/move |
+| **get_character_jwt** | ✅ Cloud deployed | N/A (utility) | N/A | N/A | None | Auth infrastructure function |
+| **trade** | ✅ Cloud deployed | 🔄 Blocked (auth) | ✅ Passing | ✅ Verified (20251112-160909) | None | Buy/sell both verified; aligned fixture reset |
+| **recharge_warp_power** | ✅ Cloud deployed | 🔄 Blocked (auth) | ✅ Passing | ✅ Verified (20251112-010805) | None | Fixed AsyncGameClient exposure + realtime delivery |
+| **transfer_warp_power** | ✅ Cloud deployed | 🔄 Blocked (auth) | ✅ Passing | ✅ Verified (20251112-021356) | None | Uses shared public snapshot helpers |
+| **transfer_credits** | ✅ Cloud deployed | 🔄 Blocked (auth) | ✅ Passing | ✅ Verified (20251112-032612) | None | Canonical ID handling validated |
+| **bank_transfer** | ✅ Cloud deployed | 🔄 Blocked (auth) | ✅ Passing | ✅ Verified (20251112-045040) | None | Deposit + withdraw both tested |
+| **purchase_fighters** | ✅ Cloud deployed | 🔄 Blocked (auth) | ✅ Passing | ✅ Verified (20251112-060018) | None | Requires cloud Realtime (CLI broken) |
+| **dump_cargo** | ✅ Cloud deployed | 🔄 Blocked (auth) | ✅ Passing | 🔄 Partial (20251112-170957) | Salvage UUID determinism, sector snapshot size | Needs comparer updates |
+| **list_known_ports** | ✅ Cloud deployed | 🔄 Blocked (auth) | ✅ Passing | 🔄 In progress (20251114-154854) | Ship names, display names, port structure, sector player lists | **Test infrastructure fix complete** (credits/fighters/bank ✅) |
+
+**Legend:**
+- ✅ Complete & verified
+- 🔄 Implemented but blocked/partial
+- ⏳ Not yet implemented
+- N/A Not applicable
+
+**Universal Blockers (affect all edge tests):**
+1. **Edge test auth infrastructure**: `.env.cloud` EDGE_API_TOKEN is JWT but cloud expects hash (identified 2025-11-13 18:00 UTC)
+2. **Local CLI Realtime**: Cannot deliver `public:events` due to `:error_generating_signer` (all parity must use cloud, 2025-11-12 06:10 UTC)
+
+**Test Infrastructure Achievements:**
+- ✅ `test_reset` bridge layer: Credits/fighters/bank defaults now match Legacy runtime behavior
+- ✅ Payload parity harness: Double-run script captures Legacy vs Supabase events for automated comparison
+- ✅ Supabase AsyncGameClient: Sector subscriptions, event deduplication, JWT rotation working
+- ✅ Event delivery: `record_event_with_recipients` + postgres_changes fan-out validated for 12 functions
+
+**Remaining Payload Parity Issues (non-blocking for edge function development):**
+1. **Ship/character naming**: Supabase deterministic `{id}-ship` vs Legacy generic names → comparator should normalize
+2. **Display names**: Supabase UUIDs vs Legacy registry names → `test_reset` should load from `world-data/characters.json`
+3. **Port structure**: Different models (prices vs capacity) → comparator needs schema translation layer
+4. **Sector player lists**: Size differences expected (Supabase only shows joined characters, Legacy shows all pre-seeded) → comparator should filter
+
+**Definition of Done for Remaining Parity Issues:**
+- Update `scripts/compare_payloads.py` to normalize ship names and display names
+- Modify `test_reset` to populate character display names from registry (`buildCharacterRows` should include `name` field from `characters.json`)
+- Add port structure translation in comparator (map Legacy `prices` ↔ Supabase `capacity`)
+- Filter sector player lists to only active session characters before comparison
+
+**Next Implementation Targets (Order 2: Currency & Power Transfers - Complete; Order 3: Combat - Next):**
+- `combat_initiate`: Requires `_shared/combat.ts` + observer fan-out + garrison seeding
+- `combat_action`: Depends on combat_initiate completion
+- `combat_tick`: Auto-tick mechanism for delayed resolution
+
 **Ops note (2025-11-11 22:15 UTC):** Local `supabase functions serve` started crashing on `std@0.224.0` because the CLI's edge runtime image still can't load `.d.mts` modules. Temporarily pinned `[edge_runtime].deno_version = 1` in `supabase/config.toml` so the CLI can bootstrap the stack again. Revisit once Supabase ships a Deno 2-compatible edge runtime.
 
 ### Execution Order (agreed 2025-11-11 PM)

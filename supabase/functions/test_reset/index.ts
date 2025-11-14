@@ -28,8 +28,19 @@ const ALLOW_LEGACY_IDS = new Set(['1', 'true', 'on', 'yes']).has(legacyToggle);
 
 const DEFAULT_SHIP_TYPE = Deno.env.get('SUPABASE_TEST_SHIP_TYPE') ?? 'kestrel_courier';
 const DEFAULT_SHIP_SUFFIX = Deno.env.get('SUPABASE_TEST_SHIP_SUFFIX') ?? '-ship';
-const DEFAULT_SHIP_CREDITS = Number(Deno.env.get('SUPABASE_TEST_DEFAULT_SHIP_CREDITS') ?? '25000');
-const DEFAULT_FIGHTERS = Number(Deno.env.get('SUPABASE_TEST_DEFAULT_FIGHTERS') ?? '250');
+
+/**
+ * Test defaults match Legacy's runtime behavior for payload parity:
+ * - ship_credits=1000: From game-server/character_knowledge.py MapKnowledge.credits default (line 44)
+ * - fighters=300: From game-server/ships.py ShipStats.KESTREL_COURIER.fighters (line 53)
+ * - bank_credits=0: Legacy MapKnowledge.credits_in_bank default (line 45)
+ *
+ * These differ from production ship purchase prices (25000) because Legacy creates
+ * ships on-demand during join() using MapKnowledge defaults, not from fixture files.
+ */
+const DEFAULT_SHIP_CREDITS = Number(Deno.env.get('SUPABASE_TEST_DEFAULT_SHIP_CREDITS') ?? '1000');
+const DEFAULT_BANK_CREDITS = Number(Deno.env.get('SUPABASE_TEST_DEFAULT_BANK_CREDITS') ?? '0');
+const DEFAULT_FIGHTERS = Number(Deno.env.get('SUPABASE_TEST_DEFAULT_FIGHTERS') ?? '300');
 const DEFAULT_SHIELDS = Number(Deno.env.get('SUPABASE_TEST_DEFAULT_SHIELDS') ?? '150');
 const DEFAULT_WARP = Number(Deno.env.get('SUPABASE_TEST_DEFAULT_WARP') ?? '300');
 
@@ -355,7 +366,7 @@ async function insertCharacters(
       return {
         character_id: row.characterId,
         name: row.name,
-        credits_in_megabank: DEFAULT_SHIP_CREDITS,
+        credits_in_megabank: DEFAULT_BANK_CREDITS,
         map_knowledge: row.mapKnowledge,
         player_metadata: {},
         is_npc: false,
