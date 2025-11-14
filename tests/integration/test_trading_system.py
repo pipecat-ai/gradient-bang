@@ -14,22 +14,21 @@ These tests require a test server running on port 8002.
 """
 
 import asyncio
-import pytest
-import sys
 from datetime import datetime, timezone
-from pathlib import Path
 
-# Add project paths
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+import pytest
 
-from utils.api_client import AsyncGameClient, RPCError
-from helpers.event_capture import EventListener, create_firehose_listener
 from helpers.assertions import (
     assert_event_emitted,
     assert_event_payload,
     assert_no_event_emitted,
 )
 from helpers.combat_helpers import create_test_character_knowledge
+from helpers.event_capture import (
+    EventListener,
+    create_firehose_listener,
+)
+from gradientbang.utils.api_client import AsyncGameClient, RPCError
 
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]

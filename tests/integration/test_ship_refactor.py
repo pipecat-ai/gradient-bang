@@ -6,13 +6,13 @@ from typing import Iterable, Optional
 
 import pytest
 
-from api import join, move, trade, utils
-from character_knowledge import CharacterKnowledgeManager
-from combat.callbacks import on_round_resolved
-from combat.models import CombatEncounter, CombatantState, CombatRoundOutcome
-from core.ships_manager import ShipsManager
-from core.world import GameWorld
-from rpc.events import event_dispatcher
+from gradientbang.game_server.api import join, move, trade, utils
+from gradientbang.game_server.character_knowledge import CharacterKnowledgeManager
+from gradientbang.game_server.combat.callbacks import on_round_resolved
+from gradientbang.game_server.combat.models import CombatEncounter, CombatantState, CombatRoundOutcome
+from gradientbang.game_server.core.ships_manager import ShipsManager
+from gradientbang.game_server.core.world import GameWorld
+from gradientbang.game_server.rpc.events import event_dispatcher
 
 
 TEST_WORLD_SOURCE = Path(__file__).parent.parent / "test-world-data"
@@ -266,7 +266,7 @@ async def test_ship_combat_updates(world_factory, monkeypatch):
     async def _noop_emit(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr("combat.utils._list_sector_garrisons", _empty_garrisons)
+    monkeypatch.setattr("gradientbang.game_server.combat.utils._list_sector_garrisons", _empty_garrisons)
     monkeypatch.setattr(event_dispatcher, "emit", _noop_emit)
 
     await on_round_resolved(encounter, outcome, world, event_dispatcher)

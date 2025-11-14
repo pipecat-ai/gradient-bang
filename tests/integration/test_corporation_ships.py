@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
-from utils.api_client import AsyncGameClient, RPCError
-from helpers.corporation_utils import managed_client, reset_corporation_test_state
+from helpers.corporation_utils import (
+    managed_client,
+    reset_corporation_test_state,
+)
+from gradientbang.utils.api_client import AsyncGameClient, RPCError
 
 
 pytestmark = [
@@ -20,7 +23,9 @@ pytestmark = [
     pytest.mark.timeout(60),
 ]
 
-SHIPS_PATH = Path("tests/test-world-data/ships.json")
+from config import TEST_WORLD_DATA_DIR as DEFAULT_WORLD_DATA_DIR
+
+SHIPS_PATH = DEFAULT_WORLD_DATA_DIR / "ships.json"
 
 
 @pytest.fixture(autouse=True)
@@ -357,7 +362,7 @@ async def test_corporation_ship_can_engage_in_combat(server_url, check_server_av
                 target_id=target_id,
             )
             combat_id = combat_result.get("combat_id")
-            assert combat_id, "Expected combat_id from combat initiation"
+            assert combat_id, "Expected combat_id from gradientbang.game_server.combat initiation"
 
             action_result = await ship_client.combat_action(
                 combat_id=combat_id,

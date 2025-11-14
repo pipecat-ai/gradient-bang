@@ -9,21 +9,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Awaitable, Callable, List, Optional
 
-# Add project root to Python path for utils module
-_project_root = Path(__file__).parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
-
-# Add game-server directory to Python path for unit tests
-_game_server_path = _project_root / "game-server"
-if str(_game_server_path) not in sys.path:
-    sys.path.insert(0, str(_game_server_path))
-
-# Add tests directory to Python path for test helpers
-_tests_path = Path(__file__).parent
-if str(_tests_path) not in sys.path:
-    sys.path.insert(0, str(_tests_path))
-
+from config import TEST_WORLD_DATA_DIR
 
 def _ensure_openai_stub() -> None:
     if "openai" in sys.modules:
@@ -281,10 +267,11 @@ _ensure_pipecat_stub()
 # =============================================================================
 
 import json
-import pytest
-import httpx
 import logging
-from pathlib import Path
+
+import httpx
+import pytest
+
 from helpers.character_setup import register_all_test_characters
 from helpers.server_fixture import (
     start_test_server,
@@ -293,7 +280,7 @@ from helpers.server_fixture import (
 )
 
 # Import AsyncGameClient for test reset calls
-from utils.api_client import AsyncGameClient
+from gradientbang.utils.api_client import AsyncGameClient
 
 logger = logging.getLogger(__name__)
 
@@ -311,13 +298,12 @@ def setup_test_characters():
     """
     register_all_test_characters()
 
-    world_data_dir = Path("tests/test-world-data")
-    corps_dir = world_data_dir / "corporations"
+    corps_dir = TEST_WORLD_DATA_DIR / "corporations"
     if corps_dir.exists():
         for corp_file in corps_dir.glob("*.json"):
             corp_file.unlink()
 
-    registry_path = world_data_dir / "corporation_registry.json"
+    registry_path = TEST_WORLD_DATA_DIR / "corporation_registry.json"
     registry_payload = {"by_name": {}}
     registry_path.write_text(json.dumps(registry_payload, indent=2))
 
@@ -389,7 +375,7 @@ async def test_server(server_url):
         The test_server fixture ensures server is running for entire session
     """
     # Start the server
-    process = start_test_server(port=8002, world_data_dir="tests/test-world-data")
+    process = start_test_server(port=8002, world_data_dir=str(TEST_WORLD_DATA_DIR))
 
     try:
         # Wait for server to be ready (pass process for better error messages)

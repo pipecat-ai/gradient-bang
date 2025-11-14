@@ -12,7 +12,7 @@ from contextlib import suppress
 
 import pytest
 
-from utils.api_client import AsyncGameClient, RPCError
+from gradientbang.utils.api_client import AsyncGameClient, RPCError
 from helpers.combat_helpers import create_test_character_knowledge
 
 

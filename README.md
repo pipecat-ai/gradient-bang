@@ -15,41 +15,47 @@ https://drive.google.com/file/d/1AEb5_ljHXQao-dw1Na_KWZlDb05mDEuu/view?usp=shari
 
 <img width="640" src="docs/image.png" style="margin-bottom:20px;" />
 
+Gradient Bang is an online multiplayer universe where you explore, trade, battle, and collaborate with other players and with LLMs. Everything in the game is an AI agent, including the ship you command.
+
+The projects demonstrates the full capabilities of realtime agentic workflows, such as multi-tasking, advanced tool calling and low latency voice.
+
 
 # Quickstart
 
 #### 1. Run Universe Bang to generate a world
 
 ```bash
-mkdir world-data
-uv run scripts/universe-bang.py 5000 1234
+uv run universe-bang 5000 1234
+
+# Optional: validate 
+uv run -m gradientbang.scripts.universe_test
 ```
 
 #### 1. Start the game server
 
 ```bash
-uv run game-server/server.py
+uv run game-server
 ```
 
 #### 3. Create your character (note: game server must be running!)
 
 ```bash
-uv run scripts/character_create.py
+uv run character-create
 ```
 
-#### 4. Optional: Create a `.env` file and restart game server:
+#### 4. Create a `.env` file and restart game server:
 
 ```bash
 mv env.example .env
 # Set all fields
 # Get character_id from world-data/characters.json
-uv run game-server/server.py
+uv run game-server
 ```
 
 #### 5. Run the Pipecat agent
 
 ```bash
-uv run pipecat_server/bot.py
+uv run bot
 ```
 
 #### 6. Run the web client
@@ -57,20 +63,25 @@ uv run pipecat_server/bot.py
 ```bash
 cd client/
 pnpm i
-pnpm run dev
+pnpm run preview
+# or 
+pnpm run dev 
 ```
+
+See [client README](/client/) for more details
+
 
 #### 7. Spawn NPCs to interact with
 
 ```bash
 # Create a new player
-uv run scripts/character_create.py 
+uv run character-create
 
 # Test alle is gud by looking up the character
-uv run -m scripts.character_lookup "TestPlayer"
+uv run character-lookup "TestPlayer"
 
 # Run the NPC and tell it what to do
-uv run npc/run_npc.py <character_id> "Travel to sector 0 and send a message to player TraderP saying hello!"
+uv run npc-run <character_id> "Travel to sector 0 and send a message to player TraderP saying hello!"
 ```
 
 # Notes
@@ -132,7 +143,7 @@ uv run game-server/server.py
 
 ## Bot that sends RTVI messages
 
-This bot implements some of the task handling and RTVI messages needed to implement the same functionality as the TUI. Configure the pilot it controls with environment variables before launching:
+This bot implements some of the task handling and RTVI messages needed to implement the same functionality as the TUI. Configure the pilot inpc/t controls with environment variables before launching:
 
 ```
 export PIPECAT_CHARACTER_ID="uuid-from-registry"
@@ -192,7 +203,7 @@ uv run python -m game-server
 **In a separate terminal, run the tests:**
 
 ```bash
-uv run pytest tests/test_async_game_client.py -v
+uv run pytest -k async_game_client -v
 ```
 
 The test suite includes 25 tests covering:
@@ -275,3 +286,26 @@ uv run npc/simple_tui.py --character-id 2b4ff0c2-1234-5678-90ab-1cd2ef345678 --s
 ```
 
 The Simple TUI pulls display names from `status.snapshot`, so the UI shows names even though all RPCs keep using the UUID behind the scenes.
+
+
+## License
+
+The **source code** for Gradient Bang is licensed under the [Apache License 2.0](LICENSE), making it fully open source for commercial and non-commercial use.
+
+**Visual assets, artwork, and audio** are licensed under the [Creative Commons Attribution 4.0 International License (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/), allowing free use with attribution.
+
+The **Gradient Bang name, logo, and brand identity** are proprietary trademarks and not covered by the open source licenses. If you fork this project, you must rename it and create your own brand identity. See [TRADEMARKS.md](TRADEMARKS.md) for complete details.
+
+
+## Build
+
+docker build -t gradient-bang-server .
+
+docker run -p 8000:8000 gradient-bang-server
+
+docker run -d \
+  -p 8000:8000 \
+  -v $(pwd)/world-data:/app/world-data \
+  -e OPENAI_API_KEY=your_key_here \
+  gradient-bang-server
+

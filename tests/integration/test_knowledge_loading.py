@@ -1,13 +1,10 @@
 """Test to verify join() loads existing character knowledge."""
 import asyncio
+
 import pytest
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
-from utils.api_client import AsyncGameClient
 from helpers.combat_helpers import create_test_character_knowledge
+from gradientbang.utils.api_client import AsyncGameClient
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
 

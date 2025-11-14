@@ -3,7 +3,7 @@
 import asyncio
 import pytest
 
-from core.locks.port_locks import PortLockManager
+from gradientbang.game_server.core.locks.port_locks import PortLockManager
 
 
 @pytest.mark.asyncio

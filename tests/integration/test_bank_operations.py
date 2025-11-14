@@ -14,18 +14,19 @@ These tests require a test server running on port 8002.
 
 import asyncio
 import json
-import pytest
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Add project paths
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+import pytest
 
-from utils.api_client import AsyncGameClient, RPCError
 from helpers.combat_helpers import create_test_character_knowledge
-from helpers.corporation_utils import managed_client, reset_corporation_test_state
+from helpers.corporation_utils import (
+    managed_client,
+    reset_corporation_test_state,
+)
+from gradientbang.utils.api_client import AsyncGameClient, RPCError
 
+from config import TEST_WORLD_DATA_DIR
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
 
@@ -54,7 +55,7 @@ async def get_status(client, character_id):
 
 
 def _set_ship_credits(ship_id: str, credits: int) -> None:
-    ships_path = Path("tests/test-world-data/ships.json")
+    ships_path = TEST_WORLD_DATA_DIR / "ships.json"
     if not ships_path.exists():
         raise AssertionError("ships.json not found; ensure test fixtures created ships")
     with ships_path.open("r", encoding="utf-8") as handle:
@@ -557,7 +558,7 @@ class TestCorporationBanking:
                 status_after = await get_status(member, member_id)
                 assert status_after["player"]["credits_in_bank"] == 15_000
 
-                ships_path = Path("tests/test-world-data/ships.json")
+                ships_path = TEST_WORLD_DATA_DIR / "ships.json"
                 with ships_path.open("r", encoding="utf-8") as handle:
                     data = json.load(handle)
                 corp_ship = data[corp_ship_id]

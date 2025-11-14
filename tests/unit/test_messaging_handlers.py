@@ -3,14 +3,14 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from messaging.handlers import handle_send_message
+from gradientbang.game_server.messaging.handlers import handle_send_message
 
 
 @pytest.mark.asyncio
 class TestHandleSendMessage:
     """Tests for handle_send_message function."""
 
-    @patch("messaging.handlers.api_send_message")
+    @patch("gradientbang.game_server.messaging.handlers.api_send_message")
     async def test_broadcast_message_emits_to_all(self, mock_api):
         """Test broadcast message emits to all characters without filter."""
         # Mock API response
@@ -66,7 +66,7 @@ class TestHandleSendMessage:
         assert log_context.sender == "alice"
         assert log_context.sector == 5
 
-    @patch("messaging.handlers.api_send_message")
+    @patch("gradientbang.game_server.messaging.handlers.api_send_message")
     async def test_direct_message_emits_to_sender_and_recipient(self, mock_api):
         """Test direct message emits only to sender and recipient."""
         # Mock API response
@@ -123,7 +123,7 @@ class TestHandleSendMessage:
         assert log_context.sender == "alice"
         assert log_context.corporation_id == "corp-1"
 
-    @patch("messaging.handlers.api_send_message")
+    @patch("gradientbang.game_server.messaging.handlers.api_send_message")
     async def test_direct_message_handles_missing_character_ids(self, mock_api):
         """Test direct message handles None character IDs gracefully."""
         # Mock API response with one missing ID
@@ -162,7 +162,7 @@ class TestHandleSendMessage:
         assert log_context is not None
         assert log_context.sender == "alice"
 
-    @patch("messaging.handlers.api_send_message")
+    @patch("gradientbang.game_server.messaging.handlers.api_send_message")
     async def test_api_exception_propagates(self, mock_api):
         """Test that API handler exceptions propagate correctly."""
         # Mock API to raise exception
@@ -182,7 +182,7 @@ class TestHandleSendMessage:
         # Verify event was NOT emitted
         event_dispatcher.emit.assert_not_called()
 
-    @patch("messaging.handlers.api_send_message")
+    @patch("gradientbang.game_server.messaging.handlers.api_send_message")
     async def test_rate_limit_check_is_none(self, mock_api):
         """Test that rate_limit_check is always None (handled by wrapper)."""
         mock_api.handle = AsyncMock(

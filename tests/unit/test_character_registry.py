@@ -1,4 +1,4 @@
-from core.character_registry import CharacterRegistry, CharacterProfile
+from gradientbang.game_server.core.character_registry import CharacterRegistry, CharacterProfile
 
 
 def test_character_registry_password_validation(tmp_path):

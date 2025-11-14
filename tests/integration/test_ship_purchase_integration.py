@@ -8,13 +8,17 @@ from pathlib import Path
 
 import pytest
 
-from utils.api_client import RPCError
-from helpers.corporation_utils import managed_client, reset_corporation_test_state
+from helpers.corporation_utils import (
+    managed_client,
+    reset_corporation_test_state,
+)
+from gradientbang.utils.api_client import RPCError
 
+from config import TEST_WORLD_DATA_DIR as DEFAULT_WORLD_DATA_DIR
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
 
-SHIPS_PATH = Path("tests/test-world-data/ships.json")
+SHIPS_PATH = DEFAULT_WORLD_DATA_DIR / "ships.json"
 
 
 @pytest.fixture(autouse=True)

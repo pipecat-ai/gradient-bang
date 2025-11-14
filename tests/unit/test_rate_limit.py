@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 import tempfile
 
-from rpc.rate_limit import RateLimiter, RateLimitConfig
+from gradientbang.game_server.rpc.rate_limit import RateLimiter, RateLimitConfig
 
 
 class TestRateLimitConfig:
@@ -134,7 +134,7 @@ class TestRateLimiter:
 
         # Manually create a timed-out request
         queue = await limiter._get_queue("char1")
-        from rpc.rate_limit import QueuedRequest
+        from gradientbang.game_server.rpc.rate_limit import QueuedRequest
         future = asyncio.Future()
         old_request = QueuedRequest(
             handler=handler,

@@ -13,16 +13,12 @@ These tests require a test server running on port 8002.
 """
 
 import asyncio
-import pytest
-import sys
+from unittest.mock import AsyncMock, patch
+
 import httpx
-from pathlib import Path
-from unittest.mock import patch, AsyncMock
+import pytest
 
-# Add project paths
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
-from utils.api_client import AsyncGameClient, RPCError
+from gradientbang.utils.api_client import AsyncGameClient, RPCError
 
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]

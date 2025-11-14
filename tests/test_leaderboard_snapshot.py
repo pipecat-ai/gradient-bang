@@ -3,15 +3,10 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-import sys
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-GAME_SERVER_DIR = REPO_ROOT / "game-server"
-sys.path.insert(0, str(GAME_SERVER_DIR))
-
-from core.leaderboard import (
+from gradientbang.game_server.core.leaderboard import (
     LeaderboardSnapshotError,
     clear_leaderboard_cache,
     get_cached_leaderboard,

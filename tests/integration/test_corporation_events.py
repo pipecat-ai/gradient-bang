@@ -9,11 +9,15 @@ from pathlib import Path
 
 import pytest
 
-from helpers.corporation_utils import managed_client, reset_corporation_test_state
+from helpers.corporation_utils import (
+    managed_client,
+    reset_corporation_test_state,
+)
 
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
 
+from config import TEST_WORLD_DATA_DIR
 
 @pytest.fixture(autouse=True)
 async def reset_corp_state(server_url):
@@ -337,7 +341,7 @@ async def test_events_logged_to_jsonl(server_url, check_server_available):
         await asyncio.sleep(0.3)
         end = datetime.now(timezone.utc) + timedelta(seconds=1)
 
-        log_path = Path("tests/test-world-data/event-log.jsonl")
+        log_path = TEST_WORLD_DATA_DIR / "event-log.jsonl"
         assert log_path.exists(), "event-log.jsonl should exist"
 
         matching_events = []

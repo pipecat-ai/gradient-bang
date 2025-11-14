@@ -15,22 +15,25 @@ These tests require a test server running on port 8002.
 import asyncio
 import json
 import os
-import pytest
-import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-# Add project paths
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+import pytest
 
-from utils.api_client import AsyncGameClient, RPCError
-from helpers.event_capture import EventListener, create_firehose_listener
 from helpers.assertions import (
     assert_event_emitted,
     assert_event_order,
     assert_event_payload,
     assert_events_chronological,
 )
+from helpers.event_capture import (
+    EventListener,
+    create_firehose_listener,
+)
+from gradientbang.utils.api_client import AsyncGameClient, RPCError
+
+from config import TEST_WORLD_DATA_DIR
+
 
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
@@ -595,7 +598,7 @@ class TestCombatFleePersistence:
     @pytest.mark.asyncio
     async def test_flee_requires_destination_sector(self, server_url):
         """
-        Test that fleeing from combat requires a destination sector.
+        Test that fleeing from gradientbang.game_server.combat requires a destination sector.
         """
         attacker_id = "test_persistence_flee_attacker"
         defender_id = "test_persistence_flee_defender"
@@ -718,13 +721,13 @@ class TestCacheCoherence:
             status = await get_status(client, char_id)
 
             # Read character knowledge from disk
-            knowledge_path = Path("tests/test-world-data/character-map-knowledge") / f"{char_id}.json"
+            knowledge_path = TEST_WORLD_DATA_DIR / "character-map-knowledge" / f"{char_id}.json"
             assert knowledge_path.exists(), f"Character knowledge file should exist at {knowledge_path}"
 
             with open(knowledge_path, "r") as f:
                 disk_data = json.load(f)
 
-            ships_path = Path("tests/test-world-data/ships.json")
+            ships_path = TEST_WORLD_DATA_DIR / "ships.json"
             assert ships_path.exists()
             ships = json.loads(ships_path.read_text())
             ship = ships[disk_data["current_ship_id"]]
@@ -779,7 +782,7 @@ class TestCacheCoherence:
             final_status = await get_status(client, char_id)
 
             # Read from disk
-            knowledge_path = Path("tests/test-world-data/character-map-knowledge") / f"{char_id}.json"
+            knowledge_path = TEST_WORLD_DATA_DIR / "character-map-knowledge" / f"{char_id}.json"
             with open(knowledge_path, "r") as f:
                 disk_data = json.load(f)
 
@@ -1008,7 +1011,7 @@ class TestCrashRecovery:
         char_id = "test_crash_recovery_4"
 
         # Create a corrupted knowledge file
-        knowledge_path = Path("tests/test-world-data/character-map-knowledge") / f"{char_id}.json"
+        knowledge_path = TEST_WORLD_DATA_DIR / "character-map-knowledge" / f"{char_id}.json"
         knowledge_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Write invalid JSON
@@ -1169,7 +1172,7 @@ class TestSupabaseSchemaValidation:
         Verify sectors, warps, ports structure.
         """
         # Read universe structure from test data
-        universe_file = Path("tests/test-world-data/universe_structure.json")
+        universe_file = TEST_WORLD_DATA_DIR / "universe_structure.json"
         assert universe_file.exists()
 
         with open(universe_file, "r") as f:
@@ -1249,7 +1252,7 @@ class TestSupabaseSchemaValidation:
             status = await get_status(client, char_id)
 
             # Read knowledge file
-            knowledge_path = Path("tests/test-world-data/character-map-knowledge") / f"{char_id}.json"
+            knowledge_path = TEST_WORLD_DATA_DIR / "character-map-knowledge" / f"{char_id}.json"
             if knowledge_path.exists():
                 with open(knowledge_path, "r") as f:
                     knowledge_json = json.load(f)

@@ -1,10 +1,13 @@
 world-data/
 
 # Test artifacts - ALL runtime files in test-world-data except source data
-tests/test-world-data/*
+tests/test-world-data/**/*
 !tests/test-world-data/universe_structure.json
 !tests/test-world-data/sector_contents.json
 !tests/test-world-data/README.md
+
+# Test logs
+tests/logs
 
 # Python-generated files
 __pycache__/
@@ -27,6 +30,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 .playwright-mcp/
+.pytest_cache/
 
 # Environments
 .env

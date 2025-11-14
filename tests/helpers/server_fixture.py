@@ -7,16 +7,17 @@ during integration tests.
 
 import asyncio
 import subprocess
-import signal
 import time
 from pathlib import Path
 from typing import Optional
+
 import httpx
 
+from config import PROJECT_ROOT, TEST_WORLD_DATA_DIR as DEFAULT_WORLD_DATA_DIR, TEST_LOG_DIR
 
 def start_test_server(
     port: int = 8002,
-    world_data_dir: str = "tests/test-world-data",
+    world_data_dir: str = DEFAULT_WORLD_DATA_DIR,
     timeout: float = 10.0
 ) -> subprocess.Popen:
     """
@@ -54,9 +55,6 @@ def start_test_server(
         # lsof might not be available, continue anyway
         pass
 
-    project_root = Path(__file__).parent.parent.parent
-    game_server_path = project_root / "game-server"
-
     # Set environment variables for the server
     env = {
         "PORT": str(port),
@@ -65,13 +63,13 @@ def start_test_server(
     }
 
     # Start the server process (log output to file for debugging)
-    log_file = project_root / "logs" / f"test-server-{port}.log"
+    log_file = TEST_LOG_DIR / f"test-server-{port}.log"
     log_file.parent.mkdir(parents=True, exist_ok=True)
     log_handle = open(log_file, "w")
 
     process = subprocess.Popen(
-        ["uv", "run", "python", "-m", "game-server"],
-        cwd=str(project_root),
+        ["uv", "run", "python", "-m", "gradientbang.game_server.server"],
+        cwd=str(PROJECT_ROOT),
         env={**subprocess.os.environ, **env},
         stdout=log_handle,
         stderr=subprocess.STDOUT,  # Merge stderr into stdout

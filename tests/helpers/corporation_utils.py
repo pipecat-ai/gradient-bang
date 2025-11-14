@@ -6,10 +6,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
 
-from utils.api_client import AsyncGameClient
 from helpers.combat_helpers import create_test_character_knowledge
+from gradientbang.utils.api_client import AsyncGameClient
 
-
+from config import TEST_WORLD_DATA_DIR
 RESET_PREFIXES = ["corp_events_", "corp_filter_"]
 
 
@@ -29,7 +29,7 @@ async def reset_corporation_test_state(server_url: str) -> None:
     finally:
         await client.close()
 
-    ships_path = Path("tests/test-world-data/ships.json")
+    ships_path = TEST_WORLD_DATA_DIR / "ships.json"
     ships_path.parent.mkdir(parents=True, exist_ok=True)
     ships_path.write_text("{}\n", encoding="utf-8")
 

@@ -11,14 +11,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from ships import ShipType, get_ship_stats
+from gradientbang.game_server.ships import ShipType, get_ship_stats
+
+from config import TEST_WORLD_DATA_DIR as DEFAULT_WORLD_DATA_DIR
 
 # Use test-world-data directory for test scenarios
-TEST_WORLD_DATA_DIR = Path(__file__).parent.parent / "test-world-data"
-KNOWLEDGE_DIR = TEST_WORLD_DATA_DIR / "character-map-knowledge"
-SHIPS_FILE = TEST_WORLD_DATA_DIR / "ships.json"
-UNIVERSE_FILE = TEST_WORLD_DATA_DIR / "universe_structure.json"
-SECTOR_CONTENTS_FILE = TEST_WORLD_DATA_DIR / "sector_contents.json"
+KNOWLEDGE_DIR = DEFAULT_WORLD_DATA_DIR / "character-map-knowledge"
+SHIPS_FILE = DEFAULT_WORLD_DATA_DIR / "ships.json"
+UNIVERSE_FILE = DEFAULT_WORLD_DATA_DIR / "universe_structure.json"
+SECTOR_CONTENTS_FILE = DEFAULT_WORLD_DATA_DIR / "sector_contents.json"
 
 # Load universe data for adjacent sectors
 _universe_data = None

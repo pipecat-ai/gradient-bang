@@ -8,7 +8,7 @@ import contextlib
 import pytest
 
 from helpers.combat_helpers import create_test_character_knowledge
-from utils.api_client import AsyncGameClient
+from gradientbang.utils.api_client import AsyncGameClient
 
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]

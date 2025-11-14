@@ -5,12 +5,12 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from api import purchase_fighters
-from character_knowledge import CharacterKnowledgeManager
-from core.world import Character
-from core.locks.credit_locks import CreditLockManager
-from core.ships_manager import ShipsManager
-from ships import ShipType, get_ship_stats
+from gradientbang.game_server.api import purchase_fighters
+from gradientbang.game_server.character_knowledge import CharacterKnowledgeManager
+from gradientbang.game_server.core.world import Character
+from gradientbang.game_server.core.locks.credit_locks import CreditLockManager
+from gradientbang.game_server.core.ships_manager import ShipsManager
+from gradientbang.game_server.ships import ShipType, get_ship_stats
 
 
 def _create_world(

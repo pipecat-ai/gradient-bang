@@ -15,21 +15,17 @@ Start the server with:
 """
 
 import asyncio
+
 import pytest
-import sys
-from pathlib import Path
 
-# Add project paths for imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
-from utils.api_client import AsyncGameClient, RPCError
-from tests.helpers.combat_helpers import (
+from helpers.combat_helpers import (
     create_test_character_knowledge,
     create_weak_character,
     create_strong_character,
     create_balanced_character,
     set_character_cargo,
 )
+from gradientbang.utils.api_client import AsyncGameClient, RPCError
 
 
 class EventCollector:
@@ -1610,7 +1606,7 @@ class TestCombatRoundMechanics:
 @pytest.mark.integration
 @pytest.mark.requires_server
 class TestFleeingMechanics:
-    """Test fleeing from combat."""
+    """Test fleeing from gradientbang.game_server.combat."""
 
     async def test_flee_success_exits_combat(self, test_server):
         """Test successful flee exits combat."""

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from helpers.combat_helpers import create_test_character_knowledge
-from utils.api_client import AsyncGameClient, RPCError
+from gradientbang.utils.api_client import AsyncGameClient, RPCError
 
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]

@@ -3,12 +3,12 @@ from datetime import datetime, timezone
 
 import pytest
 
-from core.character_registry import CharacterRegistry, CharacterProfile
-from core.world import Character
-from core.ships_manager import ShipsManager
-from core.corporation_manager import CorporationManager
-from character_knowledge import CharacterKnowledgeManager
-from api import character_create, character_modify, character_delete
+from gradientbang.game_server.core.character_registry import CharacterRegistry, CharacterProfile
+from gradientbang.game_server.core.world import Character
+from gradientbang.game_server.core.ships_manager import ShipsManager
+from gradientbang.game_server.core.corporation_manager import CorporationManager
+from gradientbang.game_server.character_knowledge import CharacterKnowledgeManager
+from gradientbang.game_server.api import character_create, character_modify, character_delete
 
 
 @pytest.fixture
