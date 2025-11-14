@@ -44,8 +44,7 @@ from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnal
 from pipecat.audio.vad.vad_analyzer import VADParams
 
 from gradientbang.utils.prompts import GAME_DESCRIPTION, CHAT_INSTRUCTIONS, VOICE_INSTRUCTIONS
-from gradientbang.utils.character_registry import CharacterRegistry
-from gradientbang.utils.config import get_world_data_path
+from gradientbang.utils.api_client import AsyncGameClient
 
 from gradientbang.pipecat_server.voice_task_manager import VoiceTaskManager
 
@@ -57,25 +56,39 @@ logger.remove()
 logger.add(sys.stderr, level="INFO")
 
 
-def _lookup_character_display_name(character_id: str) -> str | None:
-    """Return the stored display name for a character ID, if available."""
-    registry_path = get_world_data_path() / "characters.json"
-    registry = CharacterRegistry(registry_path)
+async def _lookup_character_display_name(character_id: str, server_url: str) -> str | None:
+    """Return the stored display name for a character ID via API lookup.
+
+    Args:
+        character_id: Character UUID to look up
+        server_url: Game server base URL
+
+    Returns:
+        Character display name or None if not found
+    """
     try:
-        registry.load()
-    except Exception:
-        logger.warning("Unable to load character registry from %s", registry_path)
+        async with AsyncGameClient(
+            base_url=server_url,
+            character_id=character_id,
+            transport="websocket"
+        ) as client:
+            result = await client.character_info(character_id=character_id)
+            return result.get("name")
+    except Exception as exc:
+        logger.warning("Unable to lookup character %s from server: %s", character_id, exc)
         return None
-    profile = registry.get_profile(character_id)
-    if profile:
-        return profile.name
-    logger.warning("Character ID %s not found in registry", character_id)
-    return None
 
 
-def _resolve_character_identity(character_id: str | None) -> tuple[str, str]:
-    """Resolve the character UUID and display name for the voice bot."""
+async def _resolve_character_identity(character_id: str | None, server_url: str) -> tuple[str, str]:
+    """Resolve the character UUID and display name for the voice bot.
 
+    Args:
+        character_id: Optional character ID (will use env vars if not provided)
+        server_url: Game server base URL for API lookups
+
+    Returns:
+        Tuple of (character_id, display_name)
+    """
     if character_id:
         logger.info(f"Resolving character identity for character_id: {character_id}")
     else:
@@ -89,7 +102,7 @@ def _resolve_character_identity(character_id: str | None) -> tuple[str, str]:
     display_name = (
         os.getenv("PIPECAT_CHARACTER_NAME")
         or os.getenv("NPC_CHARACTER_NAME")
-        or _lookup_character_display_name(character_id)
+        or await _lookup_character_display_name(character_id, server_url)
         or character_id
     )
     return character_id, display_name
@@ -163,7 +176,13 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
         asyncio.create_task(_complete())
 
-    character_id, character_display_name = _resolve_character_identity(runner_args.body.get("character_id", None))
+    # Get server URL from environment or use default
+    server_url = os.getenv("GAME_SERVER_URL", "http://localhost:8000")
+
+    character_id, character_display_name = await _resolve_character_identity(
+        runner_args.body.get("character_id", None),
+        server_url
+    )
     logger.info(
         "Initializing VoiceTaskManager with character_id=%s display_name=%s",
         character_id,
@@ -175,6 +194,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         character_id=character_id,
         rtvi_processor=rtvi,
         task_complete_callback=task_complete_callback,
+        base_url=server_url,
     )
 
     # Initialize STT service
