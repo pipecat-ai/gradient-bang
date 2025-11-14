@@ -1,14 +1,16 @@
+import { SlidersHorizontalIcon } from "@phosphor-icons/react";
+import { CardContent, Divider } from "@pipecat-ai/voice-ui-kit";
+
 import { ConversationPanel } from "@/components/ConversationPanel";
 import { ShipOSDPanel } from "@/components/ShipOSDPanel";
 import { useGameContext } from "@/hooks/useGameContext";
-import { SlidersHorizontalIcon } from "@phosphor-icons/react";
-import { CardContent, Divider } from "@pipecat-ai/voice-ui-kit";
+
 import DeviceDropDown from "../DeviceDropDown";
-import { TextInputControl } from "../TextInputControl";
-import { UserMicControl } from "../UserMicControl";
 import { Button } from "../primitives/Button";
 import { DotDivider } from "../primitives/DotDivider";
 import { Separator } from "../primitives/Separator";
+import { TextInputControl } from "../TextInputControl";
+import { UserMicControl } from "../UserMicControl";
 
 export const RHS = () => {
   const { sendUserTextInput } = useGameContext();

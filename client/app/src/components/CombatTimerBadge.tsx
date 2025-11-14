@@ -1,7 +1,9 @@
-import useGameStore from "@/stores/game";
-import { Badge } from "@pipecat-ai/voice-ui-kit";
-import { differenceInSeconds } from "date-fns";
 import { useEffect, useRef, useState } from "react";
+
+import { differenceInSeconds } from "date-fns";
+import { Badge } from "@pipecat-ai/voice-ui-kit";
+
+import useGameStore from "@/stores/game";
 
 export const CombatTimerBadge = () => {
   const activeCombatSession = useGameStore.use.activeCombatSession();

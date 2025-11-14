@@ -1,8 +1,9 @@
+import { DroneIcon } from "@phosphor-icons/react";
+
 import { Badge } from "@/components/primitives/Badge";
 import { Progress } from "@/components/primitives/Progress";
-
 import { cn } from "@/utils/tailwind";
-import { DroneIcon } from "@phosphor-icons/react";
+
 import useGameStore from "../stores/game";
 
 export const FightersBadge = ({ className }: { className?: string }) => {

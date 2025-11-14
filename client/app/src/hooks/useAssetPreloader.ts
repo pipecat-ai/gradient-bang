@@ -1,5 +1,6 @@
-import { chunks, images, sounds, videos } from "@/assets";
 import { useCallback, useState } from "react";
+
+import { chunks, images, sounds, videos } from "@/assets";
 
 export type AssetType = "chunk" | "image" | "video" | "sound";
 

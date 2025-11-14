@@ -1,8 +1,6 @@
-import { Button } from "@/components/primitives/Button";
-import { ButtonGroup } from "@/components/primitives/ButtonGroup";
-import { Separator } from "@/components/primitives/Separator";
-import useGameStore from "@/stores/game";
-import { cn } from "@/utils/tailwind";
+import * as React from "react";
+
+import { AnimatePresence, motion } from "motion/react";
 import {
   ChatTeardropDotsIcon,
   CheckSquareOffsetIcon,
@@ -11,9 +9,12 @@ import {
   RocketLaunchIcon,
   SwapIcon,
 } from "@phosphor-icons/react";
-import { AnimatePresence, motion } from "motion/react";
 
-import * as React from "react";
+import { Button } from "@/components/primitives/Button";
+import { ButtonGroup } from "@/components/primitives/ButtonGroup";
+import { Separator } from "@/components/primitives/Separator";
+import useGameStore from "@/stores/game";
+import { cn } from "@/utils/tailwind";
 
 export const ScreenMenuItem = ({
   children,

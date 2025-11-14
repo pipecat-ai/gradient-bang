@@ -1,3 +1,7 @@
+import { useEffect, useState } from "react";
+
+import { CardContent, CardFooter } from "@pipecat-ai/voice-ui-kit";
+
 import { Button } from "@/components/primitives/Button";
 import { ScrollArea } from "@/components/primitives/ScrollArea";
 import {
@@ -11,8 +15,7 @@ import { SliderControl } from "@/components/primitives/SliderControl";
 import { ToggleControl } from "@/components/primitives/ToggleControl";
 import useGameStore from "@/stores/game";
 import type { SettingsSlice } from "@/stores/settingsSlice";
-import { CardContent, CardFooter } from "@pipecat-ai/voice-ui-kit";
-import { useEffect, useState } from "react";
+
 import { Divider } from "./primitives/Divider";
 import {
   Field,

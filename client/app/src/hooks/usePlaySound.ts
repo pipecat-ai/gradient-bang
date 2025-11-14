@@ -1,8 +1,9 @@
-import { sounds as soundUrls } from "@/assets";
-import useGameStore from "@stores/game";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react"
 
-type SoundType = "fx" | "ambience" | "music";
+import { sounds as soundUrls } from "@/assets"
+import useGameStore from "@/stores/game"
+
+type SoundType = "fx" | "ambience" | "music"
 
 // Type metadata for each sound (keep this here since it's audio-specific)
 const soundTypes: Record<keyof typeof soundUrls, SoundType> = {
@@ -18,33 +19,30 @@ const soundTypes: Record<keyof typeof soundUrls, SoundType> = {
   text: "fx",
   ambience: "ambience",
   currency: "fx",
-};
+}
 
 type OnceSoundEntry = {
-  audio: HTMLAudioElement;
-  baseVolume: number;
-  soundType: SoundType;
-  suspended: boolean;
-};
+  audio: HTMLAudioElement
+  baseVolume: number
+  soundType: SoundType
+  suspended: boolean
+}
 
 // Persist across hot module reloads using a global singleton
 const _g = globalThis as typeof globalThis & {
-  __gb_activeOnceSounds?: Map<string, OnceSoundEntry>;
-  __gb_soundCache?: Map<string, HTMLAudioElement>;
-};
+  __gb_activeOnceSounds?: Map<string, OnceSoundEntry>
+  __gb_soundCache?: Map<string, HTMLAudioElement>
+}
 _g.__gb_activeOnceSounds =
-  _g.__gb_activeOnceSounds || new Map<string, OnceSoundEntry>();
-const activeOnceSounds = _g.__gb_activeOnceSounds as Map<
-  string,
-  OnceSoundEntry
->;
+  _g.__gb_activeOnceSounds || new Map<string, OnceSoundEntry>()
+const activeOnceSounds = _g.__gb_activeOnceSounds as Map<string, OnceSoundEntry>
 
 // Global cache for sounds (persists across HMR)
-_g.__gb_soundCache = _g.__gb_soundCache || new Map<string, HTMLAudioElement>();
-const soundCache = _g.__gb_soundCache as Map<string, HTMLAudioElement>;
+_g.__gb_soundCache = _g.__gb_soundCache || new Map<string, HTMLAudioElement>()
+const soundCache = _g.__gb_soundCache as Map<string, HTMLAudioElement>
 
 export const usePlaySound = () => {
-  const settings = useGameStore.use.settings();
+  const settings = useGameStore.use.settings()
   const {
     ambienceVolume,
     soundFXVolume,
@@ -52,7 +50,7 @@ export const usePlaySound = () => {
     disabledAmbience,
     disabledSoundFX,
     disableMusic,
-  } = settings;
+  } = settings
 
   // Store latest settings in a ref so playSound callback can access them
   const settingsRef = useRef({
@@ -62,7 +60,7 @@ export const usePlaySound = () => {
     disabledAmbience,
     disabledSoundFX,
     disableMusic,
-  });
+  })
 
   // Keep ref up to date
   useEffect(() => {
@@ -73,7 +71,7 @@ export const usePlaySound = () => {
       disabledAmbience,
       disabledSoundFX,
       disableMusic,
-    };
+    }
   }, [
     ambienceVolume,
     soundFXVolume,
@@ -81,45 +79,45 @@ export const usePlaySound = () => {
     disabledAmbience,
     disabledSoundFX,
     disableMusic,
-  ]);
+  ])
 
   // Handle volume/mute changes for active once sounds
   useEffect(() => {
     activeOnceSounds.forEach((entry) => {
-      const { audio, baseVolume, soundType } = entry;
+      const { audio, baseVolume, soundType } = entry
 
-      let finalVolume = baseVolume;
+      let finalVolume = baseVolume
       if (soundType === "ambience") {
-        finalVolume = baseVolume * ambienceVolume;
+        finalVolume = baseVolume * ambienceVolume
       } else if (soundType === "fx") {
-        finalVolume = baseVolume * soundFXVolume;
+        finalVolume = baseVolume * soundFXVolume
       } else if (soundType === "music") {
-        finalVolume = baseVolume * musicVolume;
+        finalVolume = baseVolume * musicVolume
       }
-      audio.volume = finalVolume;
+      audio.volume = finalVolume
 
       const disabled =
         (soundType === "ambience" && disabledAmbience) ||
         (soundType === "fx" && disabledSoundFX) ||
-        (soundType === "music" && disableMusic);
+        (soundType === "music" && disableMusic)
 
       if (disabled) {
         if (!audio.paused) {
-          audio.pause();
+          audio.pause()
         }
-        entry.suspended = true;
+        entry.suspended = true
       } else {
         if (audio.paused && entry.suspended) {
-          const p = audio.play();
+          const p = audio.play()
           if (p) {
             p.catch(() => {
               // ignore play errors, e.g. autoplay restrictions
-            });
+            })
           }
-          entry.suspended = false;
+          entry.suspended = false
         }
       }
-    });
+    })
   }, [
     ambienceVolume,
     soundFXVolume,
@@ -127,7 +125,7 @@ export const usePlaySound = () => {
     disabledAmbience,
     disabledSoundFX,
     disableMusic,
-  ]);
+  ])
 
   const playSound = useCallback(
     (
@@ -135,15 +133,15 @@ export const usePlaySound = () => {
       options?: { volume?: number; loop?: boolean; once?: boolean }
     ) => {
       if (options?.once && activeOnceSounds.has(soundName)) {
-        return; // Already playing as "once"
+        return // Already playing as "once"
       }
 
-      const soundUrl = soundUrls[soundName];
-      const soundType = soundTypes[soundName];
+      const soundUrl = soundUrls[soundName]
+      const soundType = soundTypes[soundName]
 
       if (!soundUrl || !soundType) {
-        console.warn(`[SOUND] Unknown sound: ${soundName}`);
-        return;
+        console.warn(`[SOUND] Unknown sound: ${soundName}`)
+        return
       }
 
       const {
@@ -153,50 +151,50 @@ export const usePlaySound = () => {
         disabledAmbience: currentDisabledAmbience,
         disabledSoundFX: currentDisabledSoundFX,
         disableMusic: currentDisableMusic,
-      } = settingsRef.current;
+      } = settingsRef.current
 
       const isDisabled =
         (soundType === "ambience" && currentDisabledAmbience) ||
         (soundType === "fx" && currentDisabledSoundFX) ||
-        (soundType === "music" && currentDisableMusic);
+        (soundType === "music" && currentDisableMusic)
 
       if (!options?.once && isDisabled) {
-        return; // Don't play if disabled
+        return // Don't play if disabled
       }
 
       // Use cached audio if available; clone for concurrent non-loop plays
-      const cached = soundCache.get(soundName);
-      let audio: HTMLAudioElement;
+      const cached = soundCache.get(soundName)
+      let audio: HTMLAudioElement
 
       if (cached) {
         if (!options?.once && !options?.loop) {
-          audio = cached.cloneNode() as HTMLAudioElement;
+          audio = cached.cloneNode() as HTMLAudioElement
         } else {
-          audio = cached;
+          audio = cached
         }
       } else {
         // Create new Audio - will be cached by browser/SW from preload
-        audio = new Audio(soundUrl);
-        soundCache.set(soundName, audio);
+        audio = new Audio(soundUrl)
+        soundCache.set(soundName, audio)
       }
 
-      audio.currentTime = 0;
+      audio.currentTime = 0
 
       // Calculate volume
-      const baseVolume = options?.volume ?? 1;
-      let finalVolume = baseVolume;
+      const baseVolume = options?.volume ?? 1
+      let finalVolume = baseVolume
       if (soundType === "ambience") {
-        finalVolume = baseVolume * currentAmbienceVolume;
+        finalVolume = baseVolume * currentAmbienceVolume
       } else if (soundType === "fx") {
-        finalVolume = baseVolume * currentSoundFXVolume;
+        finalVolume = baseVolume * currentSoundFXVolume
       } else if (soundType === "music") {
-        finalVolume = baseVolume * currentMusicVolume;
+        finalVolume = baseVolume * currentMusicVolume
       }
-      audio.volume = finalVolume;
+      audio.volume = finalVolume
 
       // Set loop if needed
       if (options?.once || options?.loop) {
-        audio.loop = true;
+        audio.loop = true
       }
 
       // Track once sounds
@@ -206,32 +204,32 @@ export const usePlaySound = () => {
           baseVolume,
           soundType,
           suspended: isDisabled,
-        });
+        })
       }
 
       // Play if not disabled
       if (!isDisabled) {
-        const playPromise = audio.play();
+        const playPromise = audio.play()
         if (playPromise !== undefined) {
           playPromise.catch((error) => {
-            console.warn(`[SOUND] Failed to play ${soundName}:`, error);
-          });
+            console.warn(`[SOUND] Failed to play ${soundName}:`, error)
+          })
         }
       }
     },
     []
-  );
+  )
 
   const stopSound = useCallback((soundName: keyof typeof soundUrls) => {
-    const entry = activeOnceSounds.get(soundName);
+    const entry = activeOnceSounds.get(soundName)
     if (entry) {
-      entry.audio.pause();
-      entry.audio.currentTime = 0;
-      activeOnceSounds.delete(soundName);
+      entry.audio.pause()
+      entry.audio.currentTime = 0
+      activeOnceSounds.delete(soundName)
     }
-  }, []);
+  }, [])
 
-  return { playSound, stopSound };
-};
+  return { playSound, stopSound }
+}
 
-export default usePlaySound;
+export default usePlaySound

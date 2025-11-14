@@ -1,5 +1,4 @@
 import React, { useCallback } from "react";
-import { Button } from "./primitives/Button";
 
 import { MicrophoneIcon, MicrophoneSlashIcon } from "@phosphor-icons/react";
 import {
@@ -7,6 +6,8 @@ import {
   usePipecatClientTransportState,
 } from "@pipecat-ai/client-react";
 import { cn, VoiceVisualizer } from "@pipecat-ai/voice-ui-kit";
+
+import { Button } from "./primitives/Button";
 
 export interface PipecatClientMicToggleProps {
   /**

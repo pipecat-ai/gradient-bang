@@ -9,33 +9,33 @@
 
 /** Number formatting options */
 export interface NumberFormatOptions {
-  decimals?: number;
-  suffix?: string;
-  prefix?: string;
-  useThousandsSeparator?: boolean;
+  decimals?: number
+  suffix?: string
+  prefix?: string
+  useThousandsSeparator?: boolean
 }
 
 /** Time formatting options */
 export interface TimeFormatOptions {
-  includeMilliseconds?: boolean;
-  shortFormat?: boolean;
-  maxUnit?: "seconds" | "minutes" | "hours" | "days";
+  includeMilliseconds?: boolean
+  shortFormat?: boolean
+  maxUnit?: "seconds" | "minutes" | "hours" | "days"
 }
 
 /** Percentage formatting options */
 export interface PercentageFormatOptions {
-  decimals?: number;
-  includeSign?: boolean;
+  decimals?: number
+  includeSign?: boolean
 }
 
 /** Byte size units */
-export type ByteSizeUnit = "B" | "KB" | "MB" | "GB" | "TB";
+export type ByteSizeUnit = "B" | "KB" | "MB" | "GB" | "TB"
 
 /** File size formatting result */
 export interface FileSizeFormat {
-  value: number;
-  unit: ByteSizeUnit;
-  formatted: string;
+  value: number
+  unit: ByteSizeUnit
+  formatted: string
 }
 
 // ============================================================================
@@ -54,36 +54,36 @@ export function formatNumber(
     prefix = "",
     suffix = "",
     useThousandsSeparator = false,
-  } = options;
+  } = options
 
   if (!isFinite(num)) {
-    return "∞";
+    return "∞"
   }
 
-  let formattedNum: string;
-  let unitSuffix = "";
+  let formattedNum: string
+  let unitSuffix = ""
 
   if (Math.abs(num) >= 1_000_000_000) {
-    formattedNum = (num / 1_000_000_000).toFixed(decimals);
-    unitSuffix = "B";
+    formattedNum = (num / 1_000_000_000).toFixed(decimals)
+    unitSuffix = "B"
   } else if (Math.abs(num) >= 1_000_000) {
-    formattedNum = (num / 1_000_000).toFixed(decimals);
-    unitSuffix = "M";
+    formattedNum = (num / 1_000_000).toFixed(decimals)
+    unitSuffix = "M"
   } else if (Math.abs(num) >= 1_000) {
-    formattedNum = (num / 1_000).toFixed(decimals);
-    unitSuffix = "K";
+    formattedNum = (num / 1_000).toFixed(decimals)
+    unitSuffix = "K"
   } else {
     formattedNum = useThousandsSeparator
       ? num.toLocaleString(undefined, { maximumFractionDigits: decimals })
-      : num.toFixed(decimals);
+      : num.toFixed(decimals)
   }
 
   // Remove trailing zeros after decimal point
   if (formattedNum.includes(".")) {
-    formattedNum = formattedNum.replace(/\.?0+$/, "");
+    formattedNum = formattedNum.replace(/\.?0+$/, "")
   }
 
-  return `${prefix}${formattedNum}${unitSuffix}${suffix}`;
+  return `${prefix}${formattedNum}${unitSuffix}${suffix}`
 }
 
 /**
@@ -93,16 +93,16 @@ export function formatPercentage(
   value: number,
   options: PercentageFormatOptions = {}
 ): string {
-  const { decimals = 0, includeSign = false } = options;
+  const { decimals = 0, includeSign = false } = options
 
   if (!isFinite(value)) {
-    return "∞%";
+    return "∞%"
   }
 
-  const percentage = value * 100;
-  const sign = includeSign && percentage > 0 ? "+" : "";
+  const percentage = value * 100
+  const sign = includeSign && percentage > 0 ? "+" : ""
 
-  return `${sign}${percentage.toFixed(decimals)}%`;
+  return `${sign}${percentage.toFixed(decimals)}%`
 }
 
 /**
@@ -110,10 +110,10 @@ export function formatPercentage(
  */
 export function formatDecimal(num: number, decimals: number = 2): string {
   if (!isFinite(num)) {
-    return "∞";
+    return "∞"
   }
 
-  return num.toFixed(decimals);
+  return num.toFixed(decimals)
 }
 
 /**
@@ -121,20 +121,21 @@ export function formatDecimal(num: number, decimals: number = 2): string {
  */
 export function formatWithSeparators(
   num: number,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _separator: string = ",",
   decimals?: number
 ): string {
   if (!isFinite(num)) {
-    return "∞";
+    return "∞"
   }
 
-  const options: Intl.NumberFormatOptions = {};
+  const options: Intl.NumberFormatOptions = {}
   if (decimals !== undefined) {
-    options.minimumFractionDigits = decimals;
-    options.maximumFractionDigits = decimals;
+    options.minimumFractionDigits = decimals
+    options.maximumFractionDigits = decimals
   }
 
-  return num.toLocaleString(undefined, options);
+  return num.toLocaleString(undefined, options)
 }
 
 // ============================================================================
@@ -152,33 +153,31 @@ export function formatTime(
     includeMilliseconds = false,
     shortFormat = false,
     maxUnit = "hours",
-  } = options;
+  } = options
 
   if (!isFinite(seconds) || seconds < 0) {
-    return "0s";
+    return "0s"
   }
 
-  const ms = Math.floor((seconds % 1) * 1000);
-  const totalSeconds = Math.floor(seconds);
+  const ms = Math.floor((seconds % 1) * 1000)
+  const totalSeconds = Math.floor(seconds)
 
-  const days = Math.floor(totalSeconds / 86400);
-  const hours = Math.floor((totalSeconds % 86400) / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const secs = totalSeconds % 60;
+  const days = Math.floor(totalSeconds / 86400)
+  const hours = Math.floor((totalSeconds % 86400) / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const secs = totalSeconds % 60
 
-  const parts: string[] = [];
+  const parts: string[] = []
 
   // Add time components based on maxUnit
   if (maxUnit === "days" && days > 0) {
-    parts.push(
-      `${days}${shortFormat ? "d" : " day" + (days !== 1 ? "s" : "")}`
-    );
+    parts.push(`${days}${shortFormat ? "d" : " day" + (days !== 1 ? "s" : "")}`)
   }
 
   if ((maxUnit === "days" || maxUnit === "hours") && (hours > 0 || days > 0)) {
     parts.push(
       `${hours}${shortFormat ? "h" : " hour" + (hours !== 1 ? "s" : "")}`
-    );
+    )
   }
 
   if (
@@ -187,7 +186,7 @@ export function formatTime(
   ) {
     parts.push(
       `${minutes}${shortFormat ? "m" : " minute" + (minutes !== 1 ? "s" : "")}`
-    );
+    )
   }
 
   // Always include seconds
@@ -196,23 +195,23 @@ export function formatTime(
       `${secs}.${ms.toString().padStart(3, "0")}${
         shortFormat ? "s" : " second" + (secs !== 1 ? "s" : "")
       }`
-    );
+    )
   } else {
     parts.push(
       `${secs}${shortFormat ? "s" : " second" + (secs !== 1 ? "s" : "")}`
-    );
+    )
   }
 
   // Return appropriate format
   if (shortFormat) {
-    return parts.join(" ");
+    return parts.join(" ")
   } else {
     if (parts.length === 1) {
-      return parts[0];
+      return parts[0]
     } else if (parts.length === 2) {
-      return parts.join(" and ");
+      return parts.join(" and ")
     } else {
-      return parts.slice(0, -1).join(", ") + ", and " + parts[parts.length - 1];
+      return parts.slice(0, -1).join(", ") + ", and " + parts[parts.length - 1]
     }
   }
 }
@@ -224,7 +223,7 @@ export function formatMilliseconds(
   ms: number,
   shortFormat: boolean = true
 ): string {
-  return formatTime(ms / 1000, { includeMilliseconds: true, shortFormat });
+  return formatTime(ms / 1000, { includeMilliseconds: true, shortFormat })
 }
 
 /**
@@ -234,8 +233,8 @@ export function formatDuration(
   startTime: number,
   endTime: number = Date.now()
 ): string {
-  const durationMs = endTime - startTime;
-  return formatTime(durationMs / 1000, { shortFormat: true });
+  const durationMs = endTime - startTime
+  return formatTime(durationMs / 1000, { shortFormat: true })
 }
 
 // ============================================================================
@@ -250,27 +249,27 @@ export function formatBytes(
   decimals: number = 1
 ): FileSizeFormat {
   if (!isFinite(bytes) || bytes < 0) {
-    return { value: 0, unit: "B", formatted: "0 B" };
+    return { value: 0, unit: "B", formatted: "0 B" }
   }
 
-  const units: ByteSizeUnit[] = ["B", "KB", "MB", "GB", "TB"];
-  let unitIndex = 0;
-  let value = bytes;
+  const units: ByteSizeUnit[] = ["B", "KB", "MB", "GB", "TB"]
+  let unitIndex = 0
+  let value = bytes
 
   while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex++;
+    value /= 1024
+    unitIndex++
   }
 
-  const unit = units[unitIndex];
+  const unit = units[unitIndex]
   const formattedValue =
-    unitIndex === 0 ? value.toString() : value.toFixed(decimals);
+    unitIndex === 0 ? value.toString() : value.toFixed(decimals)
 
   return {
     value: parseFloat(formattedValue),
     unit,
     formatted: `${formattedValue} ${unit}`,
-  };
+  }
 }
 
 // ============================================================================
@@ -281,45 +280,45 @@ export function formatBytes(
  * Clamps a number between min and max values
  */
 export function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
+  return Math.min(Math.max(value, min), max)
 }
 
 /**
  * Rounds a number to the nearest specified precision
  */
 export function roundToPrecision(value: number, precision: number): number {
-  const factor = Math.pow(10, precision);
-  return Math.round(value * factor) / factor;
+  const factor = Math.pow(10, precision)
+  return Math.round(value * factor) / factor
 }
 
 /**
  * Formats a number as an ordinal (1st, 2nd, 3rd, etc.)
  */
 export function formatOrdinal(num: number): string {
-  const absNum = Math.abs(num);
-  const lastDigit = absNum % 10;
-  const lastTwoDigits = absNum % 100;
+  const absNum = Math.abs(num)
+  const lastDigit = absNum % 10
+  const lastTwoDigits = absNum % 100
 
-  let suffix: string;
+  let suffix: string
   if (lastTwoDigits >= 11 && lastTwoDigits <= 13) {
-    suffix = "th";
+    suffix = "th"
   } else {
     switch (lastDigit) {
       case 1:
-        suffix = "st";
-        break;
+        suffix = "st"
+        break
       case 2:
-        suffix = "nd";
-        break;
+        suffix = "nd"
+        break
       case 3:
-        suffix = "rd";
-        break;
+        suffix = "rd"
+        break
       default:
-        suffix = "th";
+        suffix = "th"
     }
   }
 
-  return `${num}${suffix}`;
+  return `${num}${suffix}`
 }
 
 /**
@@ -331,22 +330,22 @@ export function formatRange(
   separator: string = " - "
 ): string {
   if (min === max) {
-    return formatNumber(min);
+    return formatNumber(min)
   }
-  return `${formatNumber(min)}${separator}${formatNumber(max)}`;
+  return `${formatNumber(min)}${separator}${formatNumber(max)}`
 }
 
 /**
  * Formats a coordinate pair
  */
 export function formatCoordinate(x: number, y: number, z?: number): string {
-  const coords = [formatDecimal(x, 1), formatDecimal(y, 1)];
+  const coords = [formatDecimal(x, 1), formatDecimal(y, 1)]
 
   if (z !== undefined) {
-    coords.push(formatDecimal(z, 1));
+    coords.push(formatDecimal(z, 1))
   }
 
-  return `(${coords.join(", ")})`;
+  return `(${coords.join(", ")})`
 }
 
 /**
@@ -358,8 +357,8 @@ export function truncateText(
   ellipsis: string = "..."
 ): string {
   if (text.length <= maxLength) {
-    return text;
+    return text
   }
 
-  return text.slice(0, maxLength - ellipsis.length) + ellipsis;
+  return text.slice(0, maxLength - ellipsis.length) + ellipsis
 }

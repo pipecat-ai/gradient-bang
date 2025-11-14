@@ -5,10 +5,10 @@
 
 import {
   DEFAULT_GALAXY_CONFIG,
-  NEBULA_PALETTES,
-  PLANET_IMAGES,
   type GalaxyStarfieldConfig,
+  NEBULA_PALETTES,
   type NebulaPalette,
+  PLANET_IMAGES,
   type StarfieldSceneConfig,
 } from "../constants";
 import customDeepmerge from "../utils/merge";

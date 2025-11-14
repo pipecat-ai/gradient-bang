@@ -1,4 +1,10 @@
+import {
+  type OptionalMediaDeviceInfo,
+  usePipecatClientMediaDevices,
+} from "@pipecat-ai/client-react";
+
 import { cn } from "@/utils/tailwind";
+
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -7,11 +13,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./primitives/DropdownMenu";
-
-import {
-  type OptionalMediaDeviceInfo,
-  usePipecatClientMediaDevices,
-} from "@pipecat-ai/client-react";
 
 /**
  * Props for the headless DeviceDropDown component that accepts device data and callbacks as props.

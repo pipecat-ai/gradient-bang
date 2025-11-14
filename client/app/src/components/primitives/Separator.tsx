@@ -1,10 +1,11 @@
 "use client";
 
-import * as SeparatorPrimitive from "@radix-ui/react-separator";
 import * as React from "react";
 
-import { cn } from "@/utils/tailwind";
 import { cva, type VariantProps } from "class-variance-authority";
+import * as SeparatorPrimitive from "@radix-ui/react-separator";
+
+import { cn } from "@/utils/tailwind";
 
 const separatorVariants = cva("bg-border text-muted-foreground/30 shrink-0", {
   variants: {

@@ -1,5 +1,6 @@
-import { Button } from "@/components/primitives/Button";
 import { ChatIcon, CheckSquareOffsetIcon } from "@phosphor-icons/react";
+
+import { Button } from "@/components/primitives/Button";
 
 export type PanelMenuItem = "conversation" | "task_output";
 

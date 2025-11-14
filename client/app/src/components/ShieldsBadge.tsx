@@ -1,8 +1,9 @@
+import { ShieldIcon } from "@phosphor-icons/react";
+
 import { Badge } from "@/components/primitives/Badge";
 import { Progress } from "@/components/primitives/Progress";
-
 import { cn } from "@/utils/tailwind";
-import { ShieldIcon } from "@phosphor-icons/react";
+
 import useGameStore from "../stores/game";
 
 export const ShieldsBadge = ({ className }: { className?: string }) => {

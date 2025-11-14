@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react"
+
 import { button, useControls } from "leva"
 import { AnimatePresence, motion } from "motion/react"
 
-import type { Toast } from "@/types/toasts"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
-import mockToasts from "@mocks/toasts.mock"
 
 import { BankTransactionToast } from "./BankTransactionToast"
 import { FuelPurchasedToast } from "./FuelPurchasedToast"
@@ -13,6 +12,11 @@ import { SalvageCollectedToast } from "./SalvageCollectedToast"
 import { SalvageCreatedToast } from "./SalvageCreatedToast"
 import { TradeExecutedToast } from "./TradeExecutedToast"
 import { TransferToast } from "./TransferToast"
+
+import type { Toast } from "@/types/toasts"
+// #if DEV
+import mockToasts from "@/mocks/toasts.mock"
+// #endif
 
 const TOAST_DURATION_MS = 3500
 
@@ -27,6 +31,7 @@ export const ToastContainer = () => {
 
   const currentToast = getNextToast()
 
+  // #if DEV
   useControls(
     "Toasts",
     {
@@ -38,6 +43,7 @@ export const ToastContainer = () => {
     },
     { collapsed: true }
   )
+  // #endif
 
   // Lock the toast when it becomes current
   useEffect(() => {

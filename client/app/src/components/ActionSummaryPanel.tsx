@@ -1,12 +1,13 @@
-import useGameStore from "@/stores/game";
-import type { Task } from "@/stores/taskSlice";
+import { StickToBottom } from "use-stick-to-bottom";
 import {
   Card,
   CardContent,
   CardHeader,
   PanelTitle,
 } from "@pipecat-ai/voice-ui-kit";
-import { StickToBottom } from "use-stick-to-bottom";
+
+import useGameStore from "@/stores/game";
+import type { Task } from "@/stores/taskSlice";
 
 const ActionSummaryRow = ({ task }: { task: Task }) => {
   return <div className="text-xs normal-case">{task.summary}</div>;

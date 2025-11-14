@@ -1,9 +1,11 @@
+import { useEffect, useRef } from "react";
+
+import { AnimatePresence, motion } from "motion/react";
+import { useClickAway } from "@uidotdev/usehooks";
+
 import { PortPanel } from "@/components/PortPanel";
 import { MapScreen } from "@/components/screens/MapScreen";
 import useGameStore from "@/stores/game";
-import { useClickAway } from "@uidotdev/usehooks";
-import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useRef } from "react";
 
 const variants = {
   enter: {

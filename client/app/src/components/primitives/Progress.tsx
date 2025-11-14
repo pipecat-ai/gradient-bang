@@ -1,10 +1,11 @@
 "use client";
 
-import * as ProgressPrimitive from "@radix-ui/react-progress";
 import * as React from "react";
 
-import { cn } from "@/utils/tailwind";
 import { cva, type VariantProps } from "class-variance-authority";
+import * as ProgressPrimitive from "@radix-ui/react-progress";
+
+import { cn } from "@/utils/tailwind";
 
 const progressVariants = cva("relative min-w-10 h-2 w-full overflow-hidden", {
   variants: {

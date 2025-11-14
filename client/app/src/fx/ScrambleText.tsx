@@ -1,12 +1,12 @@
 import React, {
+  type ComponentPropsWithoutRef,
+  type ElementType,
   forwardRef,
   memo,
   useCallback,
   useEffect,
   useImperativeHandle,
   useRef,
-  type ComponentPropsWithoutRef,
-  type ElementType,
 } from "react";
 
 interface ScrambleTextProps<T extends ElementType = "span"> {

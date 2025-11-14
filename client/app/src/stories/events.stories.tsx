@@ -1,5 +1,5 @@
-import { useGameContext } from "@/hooks/useGameContext";
-import type { Action, ActionType } from "@/types/actions";
+import { useState } from "react";
+
 import type { Story } from "@ladle/react";
 import {
   Button,
@@ -10,7 +10,10 @@ import {
   SelectValue,
   Textarea,
 } from "@pipecat-ai/voice-ui-kit";
-import { useState } from "react";
+
+import { useGameContext } from "@/hooks/useGameContext";
+
+import type { Action, ActionType } from "@/types/actions";
 
 export const EventDispatcher: Story = () => {
   const { dispatchAction } = useGameContext();

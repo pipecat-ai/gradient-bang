@@ -1,3 +1,5 @@
+import { MedalIcon } from "@phosphor-icons/react";
+
 import {
   Table,
   TableBody,
@@ -9,7 +11,6 @@ import {
   TableRow,
 } from "@/components/primitives/Table";
 import { formatCurrency } from "@/utils/formatting";
-import { MedalIcon } from "@phosphor-icons/react";
 
 export const LeaderboardTable = ({
   leaderboardData,

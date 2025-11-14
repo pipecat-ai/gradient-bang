@@ -1,96 +1,95 @@
-import { produce } from "immer";
+import { produce } from "immer"
 import {
   create,
   type StateCreator,
   type StoreApi,
   type UseBoundStore,
-} from "zustand";
-import { subscribeWithSelector } from "zustand/middleware";
+} from "zustand"
+import { subscribeWithSelector } from "zustand/middleware"
 
-import type { DiamondFXController } from "@fx/frame";
-import type { GalaxyStarfield } from "@fx/starfield";
-import { createCombatSlice, type CombatSlice } from "./combatSlice";
-import { createHistorySlice, type HistorySlice } from "./historySlice";
-import { createSettingsSlice, type SettingsSlice } from "./settingsSlice";
-import { createTaskSlice, type TaskSlice } from "./taskSlice";
-import { createUISlice, type UISlice } from "./uiSlice";
+import type { DiamondFXController } from "@/fx/frame"
+import type { GalaxyStarfield } from "@/fx/starfield"
+
+import { type CombatSlice,createCombatSlice } from "./combatSlice"
+import { createHistorySlice, type HistorySlice } from "./historySlice"
+import { createSettingsSlice, type SettingsSlice } from "./settingsSlice"
+import { createTaskSlice, type TaskSlice } from "./taskSlice"
+import { createUISlice, type UISlice } from "./uiSlice"
 
 type WithSelectors<S> = S extends { getState: () => infer T }
   ? S & { use: { [K in keyof T]: () => T[K] } }
-  : never;
+  : never
 
 const createSelectors = <S extends UseBoundStore<StoreApi<object>>>(
   _store: S
 ) => {
-  const store = _store as WithSelectors<typeof _store>;
-  store.use = {};
+  const store = _store as WithSelectors<typeof _store>
+  store.use = {}
   for (const k of Object.keys(store.getState())) {
-    (store.use as Record<string, () => unknown>)[k] = () =>
-      store((s) => s[k as keyof typeof s]);
+    ;(store.use as Record<string, () => unknown>)[k] = () =>
+      store((s) => s[k as keyof typeof s])
   }
 
-  return store;
-};
+  return store
+}
 
-type GameInitState = "not_ready" | "initializing" | "ready" | "error";
-type AlertTypes = "transfer";
+type GameInitState = "not_ready" | "initializing" | "ready" | "error"
+type AlertTypes = "transfer"
 
 export const GameInitStateMessage = {
   INIT: "Initializing game instances...",
   CONNECTING: "Connecting to server...",
   STARTING: "Rendering scene...",
   READY: "Game ready!",
-} as const;
+} as const
 
 export interface GameState {
-  player: PlayerSelf;
-  character_id?: string;
-  ship: ShipSelf;
-  sector?: Sector;
-  local_map_data?: MapData;
-  regional_map_data?: MapData;
-  course_plot?: CoursePlot;
-  messages: ChatMessage[];
+  player: PlayerSelf
+  character_id?: string
+  ship: ShipSelf
+  sector?: Sector
+  local_map_data?: MapData
+  regional_map_data?: MapData
+  course_plot?: CoursePlot
+  messages: ChatMessage[]
 
   /* Singleton Instances */
-  starfieldInstance?: GalaxyStarfield;
-  diamondFXInstance?: DiamondFXController;
+  starfieldInstance?: GalaxyStarfield
+  diamondFXInstance?: DiamondFXController
 
   /* Buffers & Caches & Miscs */
-  sectorBuffer?: Sector;
-  alertTransfer: number;
+  sectorBuffer?: Sector
+  alertTransfer: number
 
   /* Game State */
-  gameState: GameInitState;
-  gameStateMessage?: string;
+  gameState: GameInitState
+  gameStateMessage?: string
 }
 
 export interface GameSlice extends GameState {
-  setState: (newState: Partial<GameState>) => void;
-  setCharacterId: (characterId: string) => void;
-  addMessage: (message: ChatMessage) => void;
-  setPlayer: (player: Partial<PlayerSelf>) => void;
-  setSector: (sector: Sector) => void;
-  updateSector: (sector: Partial<Sector>) => void;
-  addSectorPlayer: (player: Player) => void;
-  removeSectorPlayer: (player: Player) => void;
-  setSectorBuffer: (sector: Sector) => void;
-  setShip: (ship: Partial<ShipSelf>) => void;
-  setLocalMapData: (localMapData: MapData) => void;
-  setRegionalMapData: (regionalMapData: MapData) => void;
-  setCoursePlot: (coursePlot: CoursePlot) => void;
-  clearCoursePlot: () => void;
-  setStarfieldInstance: (
-    starfieldInstance: GalaxyStarfield | undefined
-  ) => void;
+  setState: (newState: Partial<GameState>) => void
+  setCharacterId: (characterId: string) => void
+  addMessage: (message: ChatMessage) => void
+  setPlayer: (player: Partial<PlayerSelf>) => void
+  setSector: (sector: Sector) => void
+  updateSector: (sector: Partial<Sector>) => void
+  addSectorPlayer: (player: Player) => void
+  removeSectorPlayer: (player: Player) => void
+  setSectorBuffer: (sector: Sector) => void
+  setShip: (ship: Partial<ShipSelf>) => void
+  setLocalMapData: (localMapData: MapData) => void
+  setRegionalMapData: (regionalMapData: MapData) => void
+  setCoursePlot: (coursePlot: CoursePlot) => void
+  clearCoursePlot: () => void
+  setStarfieldInstance: (starfieldInstance: GalaxyStarfield | undefined) => void
   setDiamondFXInstance: (
     diamondFXInstance: DiamondFXController | undefined
-  ) => void;
-  getIncomingMessageLength: () => number;
+  ) => void
+  getIncomingMessageLength: () => number
 
-  triggerAlert: (_ype: AlertTypes) => void;
-  setGameState: (gameState: GameInitState) => void;
-  setGameStateMessage: (gameStateMessage: string) => void;
+  triggerAlert: (_ype: AlertTypes) => void
+  setGameState: (gameState: GameInitState) => void
+  setGameStateMessage: (gameStateMessage: string) => void
 }
 
 const createGameSlice: StateCreator<
@@ -123,7 +122,7 @@ const createGameSlice: StateCreator<
   setPlayer: (player: Partial<PlayerSelf>) =>
     set(
       produce((state) => {
-        state.player = { ...state.player, ...player };
+        state.player = { ...state.player, ...player }
       })
     ),
 
@@ -138,14 +137,14 @@ const createGameSlice: StateCreator<
       produce((state) => {
         state.messages.push({
           ...message,
-        });
+        })
       })
     ),
 
   setSector: (sector: Sector) =>
     set(
       produce((state) => {
-        state.sector = sector;
+        state.sector = sector
       })
     ),
 
@@ -156,7 +155,7 @@ const createGameSlice: StateCreator<
           state.sector?.id !== undefined &&
           sectorUpdate.id === state.sector.id
         ) {
-          state.sector = { ...state.sector, ...sectorUpdate };
+          state.sector = { ...state.sector, ...sectorUpdate }
         }
       })
     ),
@@ -167,11 +166,11 @@ const createGameSlice: StateCreator<
         if (state.sector?.players) {
           const index = state.sector.players.findIndex(
             (p: Player) => p.id === player.id
-          );
+          )
           if (index !== -1) {
-            state.sector.players[index] = player;
+            state.sector.players[index] = player
           } else {
-            state.sector.players.push(player);
+            state.sector.players.push(player)
           }
         }
       })
@@ -183,7 +182,7 @@ const createGameSlice: StateCreator<
         if (state.sector?.players) {
           state.sector.players = state.sector.players.filter(
             (p: Player) => p.id !== player.id
-          );
+          )
         }
       })
     ),
@@ -191,21 +190,21 @@ const createGameSlice: StateCreator<
   setSectorBuffer: (sector: Sector) =>
     set(
       produce((state) => {
-        state.sectorBuffer = sector;
+        state.sectorBuffer = sector
       })
     ),
 
   setLocalMapData: (localMapData: MapData) =>
     set(
       produce((state) => {
-        state.local_map_data = localMapData;
+        state.local_map_data = localMapData
       })
     ),
 
   setRegionalMapData: (regionalMapData: MapData) =>
     set(
       produce((state) => {
-        state.regional_map_data = regionalMapData;
+        state.regional_map_data = regionalMapData
       })
     ),
 
@@ -213,9 +212,9 @@ const createGameSlice: StateCreator<
     set(
       produce((state) => {
         if (state.ship) {
-          Object.assign(state.ship, ship);
+          Object.assign(state.ship, ship)
         } else {
-          state.ship = ship as Ship;
+          state.ship = ship as Ship
         }
       })
     ),
@@ -223,14 +222,14 @@ const createGameSlice: StateCreator<
   setCoursePlot: (coursePlot: CoursePlot) =>
     set(
       produce((state) => {
-        state.course_plot = coursePlot;
+        state.course_plot = coursePlot
       })
     ),
 
   clearCoursePlot: () =>
     set(
       produce((state) => {
-        state.course_plot = undefined;
+        state.course_plot = undefined
       })
     ),
 
@@ -247,7 +246,7 @@ const createGameSlice: StateCreator<
     ).length,
 
   setGameState: (gameState: GameInitState) => set({ gameState }),
-});
+})
 
 const useGameStoreBase = create<
   GameSlice & CombatSlice & HistorySlice & TaskSlice & SettingsSlice & UISlice
@@ -260,9 +259,9 @@ const useGameStoreBase = create<
     ...createSettingsSlice(...a),
     ...createUISlice(...a),
   }))
-);
+)
 
-const useGameStore = createSelectors(useGameStoreBase);
+const useGameStore = createSelectors(useGameStoreBase)
 
-export type GameStore = ReturnType<typeof useGameStoreBase>;
-export default useGameStore;
+export type GameStore = ReturnType<typeof useGameStoreBase>
+export default useGameStore

@@ -1,4 +1,5 @@
 import useGameStore from "@/stores/game";
+
 import { NumericalBadge } from "./NumericalBadge";
 
 export const SectorPlayersBadge = () => {

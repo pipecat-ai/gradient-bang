@@ -5,11 +5,13 @@ import {
   RetroOrganicsIcon,
   ScrapIcon,
 } from "@/icons";
-import { RESOURCE_SHORT_NAMES } from "@/types/constants";
-import type { Toast } from "@/types/toasts";
+
 import { Card, CardContent } from "../primitives/Card";
 import { Separator } from "../primitives/Separator";
 import { ToastBase, ToastResourceTile, ToastTitle } from "./ToastBase";
+
+import { RESOURCE_SHORT_NAMES } from "@/types/constants";
+import type { Toast } from "@/types/toasts";
 
 interface SalvageCollectedToastProps {
   toast: Toast & { type: "salvage.collected" };

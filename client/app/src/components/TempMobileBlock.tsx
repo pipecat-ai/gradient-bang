@@ -1,10 +1,11 @@
+import { DeviceMobileSlashIcon } from "@phosphor-icons/react";
+
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
 } from "@/components/primitives/Card";
-import { DeviceMobileSlashIcon } from "@phosphor-icons/react";
 
 export const TempMobileBlock = () => {
   return (

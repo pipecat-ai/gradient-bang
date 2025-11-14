@@ -1,8 +1,8 @@
-import useGameStore from "@/stores/game";
+import { useEffect, useRef } from "react";
 
 import { PanelTitle } from "@/components/PanelTitle";
 import { Card, CardContent, CardHeader } from "@/components/primitives/Card";
-import { useEffect, useRef } from "react";
+import useGameStore from "@/stores/game";
 
 const formatTimestamp = (isoString: string) => {
   return new Date(isoString).toLocaleString("en-GB", {

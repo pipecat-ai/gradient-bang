@@ -1,14 +1,15 @@
+import { useEffect, useState } from "react";
+
+import { CoinVerticalIcon } from "@phosphor-icons/react";
+
 import {
   NeuroSymbolicsIcon,
   QuantumFoamIcon,
   RetroOrganicsIcon,
 } from "@/icons";
-import { RESOURCE_SHORT_NAMES } from "@/types/constants";
-import type { Toast } from "@/types/toasts";
 import { wait } from "@/utils/animation";
 import { cn } from "@/utils/tailwind";
-import { CoinVerticalIcon } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
+
 import { CurrencyCounter } from "../CurrencyCounter";
 import { Card, CardContent } from "../primitives/Card";
 import { Separator } from "../primitives/Separator";
@@ -18,6 +19,9 @@ import {
   ToastTitle,
   ToastValue,
 } from "./ToastBase";
+
+import { RESOURCE_SHORT_NAMES } from "@/types/constants";
+import type { Toast } from "@/types/toasts";
 
 interface TradeExecutedToastProps {
   toast: Toast & { type: "trade.executed" };

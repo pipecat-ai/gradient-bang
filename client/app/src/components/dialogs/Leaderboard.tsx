@@ -1,3 +1,8 @@
+import { useEffect, useState } from "react";
+
+import { AnimatePresence, motion } from "motion/react";
+import { Dialog } from "radix-ui";
+
 import { Button } from "@/components/primitives/Button";
 import {
   Card,
@@ -9,9 +14,7 @@ import {
 import { Divider } from "@/components/primitives/Divider";
 import { ScrollArea } from "@/components/primitives/ScrollArea";
 import useGameStore from "@/stores/game";
-import { AnimatePresence, motion } from "motion/react";
-import { Dialog } from "radix-ui";
-import { useEffect, useState } from "react";
+
 import { LeaderboardTable } from "../LeaderboardTable";
 
 const LEADERBOARD_URL =

@@ -1,8 +1,9 @@
+import { AnimatePresence, motion } from "motion/react";
+import { Dialog } from "radix-ui";
+
 import { Card, CardHeader, CardTitle } from "@/components/primitives/Card";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import useGameStore from "@/stores/game";
-import { AnimatePresence, motion } from "motion/react";
-import { Dialog } from "radix-ui";
 
 export const Settings = () => {
   const setActiveModal = useGameStore.use.setActiveModal();

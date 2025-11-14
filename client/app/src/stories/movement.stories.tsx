@@ -1,22 +1,23 @@
-import MiniMap from "@/components/hud/MiniMap";
-import { MovementHistoryPanel } from "@/components/MovementHistoryPanel";
-import { WarpBadge } from "@/components/WarpBadge";
-import { useGameContext } from "@/hooks/useGameContext";
-import useGameStore from "@/stores/game";
-import { StarField } from "@hud/StarField";
-import type { Story } from "@ladle/react";
+import type { Story } from "@ladle/react"
 import {
   Badge,
   Button,
   TextInputComponent,
   usePipecatConnectionState,
-} from "@pipecat-ai/voice-ui-kit";
+} from "@pipecat-ai/voice-ui-kit"
+
+import MiniMap from "@/components/hud/MiniMap"
+import { MovementHistoryPanel } from "@/components/MovementHistoryPanel"
+import { WarpBadge } from "@/components/WarpBadge"
+import { useGameContext } from "@/hooks/useGameContext"
+import { StarField } from "@/hud/StarField"
+import useGameStore from "@/stores/game"
 
 export const Sequencing: Story = () => {
-  const sector = useGameStore((state) => state.sector);
-  const localMapData = useGameStore((state) => state.local_map_data);
-  const uiState = useGameStore.use.uiState();
-  const { sendUserTextInput } = useGameContext();
+  const sector = useGameStore((state) => state.sector)
+  const localMapData = useGameStore((state) => state.local_map_data)
+  const uiState = useGameStore.use.uiState()
+  const { sendUserTextInput } = useGameContext()
 
   return (
     <div className="flex flex-col gap-3">
@@ -25,7 +26,7 @@ export const Sequencing: Story = () => {
           onSend={(text) => {
             sendUserTextInput?.(
               `Plan a route and move to sector ${text} immediately.`
-            );
+            )
           }}
           placeholder="Enter sector to travel to"
         />
@@ -72,8 +73,8 @@ export const Sequencing: Story = () => {
         </div>
       </div>
     </div>
-  );
-};
+  )
+}
 
 Sequencing.meta = {
   connectOnMount: false,
@@ -93,12 +94,12 @@ Sequencing.meta = {
       "Hop 3 times across random adjacent sectors immediately.",
     ],
   ],
-};
+}
 
 export const MovementWithStarfield: Story = () => {
-  const { isConnected } = usePipecatConnectionState();
-  const sector = useGameStore((state) => state.sector);
-  const localMapData = useGameStore((state) => state.local_map_data);
+  const { isConnected } = usePipecatConnectionState()
+  const sector = useGameStore((state) => state.sector)
+  const localMapData = useGameStore((state) => state.local_map_data)
 
   return (
     <div className="relative w-full h-full bg-card">
@@ -117,8 +118,8 @@ export const MovementWithStarfield: Story = () => {
       </div>
       {isConnected && <StarField />}
     </div>
-  );
-};
+  )
+}
 
 MovementWithStarfield.meta = {
   connectOnMount: false,
@@ -138,10 +139,10 @@ MovementWithStarfield.meta = {
       "Plot a course to a randomsector 2-3 hops away from our current position and move to it immediately. Do not hop more than 3 times.",
     ],
   ],
-};
+}
 
 export const MovementHistory: Story = () => {
-  const addMovementHistory = useGameStore((state) => state.addMovementHistory);
+  const addMovementHistory = useGameStore((state) => state.addMovementHistory)
 
   return (
     <div className="flex flex-col gap-3">
@@ -158,8 +159,8 @@ export const MovementHistory: Story = () => {
       </Button>
       <MovementHistoryPanel />
     </div>
-  );
-};
+  )
+}
 
 MovementHistory.meta = {
   connectOnMount: false,
@@ -179,4 +180,4 @@ MovementHistory.meta = {
       "Plot a course to a randomsector 2-3 hops away from our current position and move to it immediately. Do not hop more than 3 times.",
     ],
   ],
-};
+}

@@ -1,12 +1,14 @@
-import { Settings } from "@/components/dialogs/Settings";
-import useGameStore from "@/stores/game";
-import { StarField } from "@hud/StarField";
-import type { Story } from "@ladle/react";
-import { useEffect, useState } from "react";
+import { useEffect, useState } from "react"
 
-import "@/css/starfield-ui.css";
-import "@/css/starfield.css";
-import { GalaxyStarfield } from "@/fx/starfield";
+import type { Story } from "@ladle/react"
+
+import { Settings } from "@/components/dialogs/Settings"
+import { GalaxyStarfield } from "@/fx/starfield"
+import { StarField } from "@/hud/StarField"
+import useGameStore from "@/stores/game"
+
+import "@/css/starfield-ui.css"
+import "@/css/starfield.css"
 
 const TEST_SECTOR: Sector = {
   id: 0,
@@ -39,11 +41,11 @@ const TEST_SECTOR: Sector = {
   ],
   garrisons: [],
   salvage: [],
-};
+}
 
 export const Starfield: Story = () => {
-  const starfieldInstance = useGameStore.use.starfieldInstance?.();
-  const setActiveModal = useGameStore.use.setActiveModal();
+  const starfieldInstance = useGameStore.use.starfieldInstance?.()
+  const setActiveModal = useGameStore.use.setActiveModal()
 
   return (
     <>
@@ -52,12 +54,12 @@ export const Starfield: Story = () => {
 
         <button
           onClick={() => {
-            const starfield = new GalaxyStarfield({ debugMode: true });
+            const starfield = new GalaxyStarfield({ debugMode: true })
             useGameStore.setState({
               starfieldInstance: starfield,
               gameState: "ready",
-            });
-            starfield?.initializeScene({});
+            })
+            starfield?.initializeScene({})
           }}
         >
           Start
@@ -68,8 +70,8 @@ export const Starfield: Story = () => {
             await starfieldInstance?.warpToSector({
               id: Math.floor(Math.random() * 10000).toString(),
               sceneConfig: {},
-            });
-            console.log("[WARP COMPLETE]");
+            })
+            console.log("[WARP COMPLETE]")
           }}
         >
           Change Scene
@@ -78,25 +80,25 @@ export const Starfield: Story = () => {
         <button onClick={() => starfieldInstance?.startShake()}>Shake</button>
         <button
           onClick={async () => {
-            const gameObjects = starfieldInstance?.getAllGameObjects();
-            console.log("All game objects:", gameObjects);
+            const gameObjects = starfieldInstance?.getAllGameObjects()
+            console.log("All game objects:", gameObjects)
 
             if (gameObjects && gameObjects.length > 0) {
               // Select the first game object (this triggers dimming and starts look-at animation)
-              const firstObject = gameObjects[0];
+              const firstObject = gameObjects[0]
               console.log(
                 "Selecting game object:",
                 firstObject.name,
                 firstObject.id
-              );
-              console.log("Selection and look-at animation started");
+              )
+              console.log("Selection and look-at animation started")
               await starfieldInstance?.selectGameObject(firstObject.id, {
                 zoom: true,
                 zoomFactor: 0.5,
-              });
-              console.log("Selection and look-at animation completed");
+              })
+              console.log("Selection and look-at animation completed")
             } else {
-              console.log("No game objects found");
+              console.log("No game objects found")
             }
           }}
         >
@@ -105,9 +107,9 @@ export const Starfield: Story = () => {
 
         <button
           onClick={() => {
-            const cleared = starfieldInstance?.clearGameObjectSelection();
-            starfieldInstance?.stopShake();
-            console.log("Clear selection result:", cleared);
+            const cleared = starfieldInstance?.clearGameObjectSelection()
+            starfieldInstance?.stopShake()
+            console.log("Clear selection result:", cleared)
           }}
         >
           Clear Selection / Shake
@@ -116,9 +118,9 @@ export const Starfield: Story = () => {
         <button
           onClick={() => {
             // Add a random NPC (random position auto-generated)
-            const id = `npc_${Math.floor(Math.random() * 10000)}`;
-            starfieldInstance?.addGameObject({ id, type: "npc", name: "NPC" });
-            console.log("Added game object:", id);
+            const id = `npc_${Math.floor(Math.random() * 10000)}`
+            starfieldInstance?.addGameObject({ id, type: "npc", name: "NPC" })
+            console.log("Added game object:", id)
           }}
         >
           Add NPC
@@ -126,14 +128,14 @@ export const Starfield: Story = () => {
 
         <button
           onClick={() => {
-            const objects = starfieldInstance?.getAllGameObjects() || [];
+            const objects = starfieldInstance?.getAllGameObjects() || []
             if (objects.length === 0) {
-              console.log("No objects to remove");
-              return;
+              console.log("No objects to remove")
+              return
             }
-            const target = objects[0];
-            const removed = starfieldInstance?.removeGameObject(target.id);
-            console.log("Removed object:", target.id, "=>", removed);
+            const target = objects[0]
+            const removed = starfieldInstance?.removeGameObject(target.id)
+            console.log("Removed object:", target.id, "=>", removed)
           }}
         >
           Remove First GO
@@ -143,14 +145,14 @@ export const Starfield: Story = () => {
             starfieldInstance?.warpToSector({
               id: TEST_SECTOR.id.toString(),
               gameObjects: [{ id: "port", type: "port", name: "Port" }],
-            });
+            })
           }}
         >
           Warp to test sector
         </button>
         <button
           onClick={() => {
-            starfieldInstance?.selectGameObject("port");
+            starfieldInstance?.selectGameObject("port")
           }}
         >
           Look at port
@@ -159,84 +161,84 @@ export const Starfield: Story = () => {
       <StarField />
       <Settings />
     </>
-  );
-};
+  )
+}
 
 Starfield.meta = {
   connectOnMount: false,
   enableMic: false,
   disableAudioOutput: true,
   disconnectedStory: true,
-};
+}
 
 export const StarFieldSequence: Story = () => {
-  const [start, setStart] = useState(false);
-  const [status, setStatus] = useState("");
-  const [bypassFlash, setBypassFlash] = useState(false);
-  const starfieldInstance = useGameStore.use.starfieldInstance?.();
-  const setStarfieldInstance = useGameStore.use.setStarfieldInstance();
-  const setGameState = useGameStore.use.setGameState();
+  const [start, setStart] = useState(false)
+  const [status, setStatus] = useState("")
+  const [bypassFlash, setBypassFlash] = useState(false)
+  const starfieldInstance = useGameStore.use.starfieldInstance?.()
+  const setStarfieldInstance = useGameStore.use.setStarfieldInstance()
+  const setGameState = useGameStore.use.setGameState()
 
   const generateRandomSectorId = () =>
-    Math.floor(Math.random() * 10000).toString();
+    Math.floor(Math.random() * 10000).toString()
 
   const resetState = () => {
-    starfieldInstance?.clearWarpQueue();
-    starfieldInstance?.clearWarpCooldown();
-    console.log("[STORY] 🔄 Reset state (cleared queue and cooldown)");
-  };
+    starfieldInstance?.clearWarpQueue()
+    starfieldInstance?.clearWarpCooldown()
+    console.log("[STORY] 🔄 Reset state (cleared queue and cooldown)")
+  }
 
   // Update status every 100ms
   useEffect(() => {
-    if (!starfieldInstance || !start) return;
+    if (!starfieldInstance || !start) return
 
     const updateStatus = () => {
-      const queueLength = starfieldInstance.getWarpQueueLength();
-      const isInQueue = starfieldInstance.isProcessingWarpQueue;
-      const isCooldown = starfieldInstance.isWarpCooldownActive;
+      const queueLength = starfieldInstance.getWarpQueueLength()
+      const isInQueue = starfieldInstance.isProcessingWarpQueue
+      const isCooldown = starfieldInstance.isWarpCooldownActive
       setStatus(
         `Queue: ${queueLength} | Processing: ${isInQueue} | Cooldown: ${isCooldown}`
-      );
-    };
+      )
+    }
 
-    const interval = setInterval(updateStatus, 100);
-    updateStatus();
+    const interval = setInterval(updateStatus, 100)
+    updateStatus()
 
-    return () => clearInterval(interval);
-  }, [starfieldInstance, start]);
+    return () => clearInterval(interval)
+  }, [starfieldInstance, start])
 
   useEffect(() => {
-    if (!starfieldInstance || !start) return;
+    if (!starfieldInstance || !start) return
 
     starfieldInstance.on("sceneReady", (event) => {
-      console.log("[STARFIELD EVENT] Scene ready:", event);
-    });
+      console.log("[STARFIELD EVENT] Scene ready:", event)
+    })
 
     return () => {
       starfieldInstance.off("sceneReady", (event) => {
-        console.log("[STARFIELD EVENT] Scene ready:", event);
-      });
-    };
-  }, [starfieldInstance, start]);
+        console.log("[STARFIELD EVENT] Scene ready:", event)
+      })
+    }
+  }, [starfieldInstance, start])
 
   const testScenarios = {
     // Scenario 1: Single warp (should play animation)
     singleWarp: () => {
-      console.log("\n[STORY] 🧪 TEST: Single Warp");
+      console.log("\n[STORY] 🧪 TEST: Single Warp")
       starfieldInstance?.warpToSector({
         id: generateRandomSectorId(),
         bypassFlash,
-      });
+      })
     },
 
     // Scenario 2: Rapid fire during animation (should queue)
     rapidFireDuringAnimation: () => {
-      resetState();
-      console.log("\n[STORY] 🧪 TEST: Rapid Fire During Animation");
+      resetState()
+      console.log("\n[STORY] 🧪 TEST: Rapid Fire During Animation")
       starfieldInstance?.warpToSector({
         id: generateRandomSectorId(),
         bypassFlash,
-      });
+      })
       setTimeout(
         () =>
           starfieldInstance?.warpToSector({
@@ -244,7 +246,7 @@ export const StarFieldSequence: Story = () => {
             bypassFlash,
           }),
         500
-      );
+      )
       setTimeout(
         () =>
           starfieldInstance?.warpToSector({
@@ -252,7 +254,7 @@ export const StarFieldSequence: Story = () => {
             bypassFlash,
           }),
         1000
-      );
+      )
       setTimeout(
         () =>
           starfieldInstance?.warpToSector({
@@ -260,141 +262,141 @@ export const StarFieldSequence: Story = () => {
             bypassFlash,
           }),
         1500
-      );
+      )
     },
 
     // Scenario 3: Call during cooldown (should queue)
     callDuringCooldown: () => {
-      resetState();
-      console.log("\n[STORY] 🧪 TEST: Call During Cooldown");
+      resetState()
+      console.log("\n[STORY] 🧪 TEST: Call During Cooldown")
       starfieldInstance?.warpToSector({
         id: generateRandomSectorId(),
         bypassFlash,
-      });
+      })
       // Wait for animation to complete (5s) + 1s, then call (should be in cooldown)
       setTimeout(() => {
-        console.log("[STORY] Calling during cooldown period...");
+        console.log("[STORY] Calling during cooldown period...")
         starfieldInstance?.warpToSector({
           id: generateRandomSectorId(),
           bypassFlash,
-        });
-      }, 6000);
+        })
+      }, 6000)
     },
 
     // Scenario 4: Bypass animation (should load directly)
     bypassAnimation: () => {
-      console.log("\n[STORY] 🧪 TEST: Bypass Animation");
+      console.log("\n[STORY] 🧪 TEST: Bypass Animation")
       starfieldInstance?.warpToSector({
         id: generateRandomSectorId(),
         bypassAnimation: true,
-      });
+      })
     },
 
     // Scenario 5: Bypass flash (no visual transition)
     bypassFlash: () => {
-      console.log("\n[STORY] 🧪 TEST: Bypass Flash");
+      console.log("\n[STORY] 🧪 TEST: Bypass Flash")
       starfieldInstance?.warpToSector({
         id: generateRandomSectorId(),
         bypassAnimation: true,
         bypassFlash: true,
-      });
+      })
     },
 
     // Scenario 6: Queue buildup then process
     queueBuildup: () => {
-      resetState();
-      console.log("\n[STORY] 🧪 TEST: Queue Buildup");
+      resetState()
+      console.log("\n[STORY] 🧪 TEST: Queue Buildup")
       // Start animation
       starfieldInstance?.warpToSector({
         id: generateRandomSectorId(),
         bypassFlash,
-      });
+      })
       // Queue 5 more during animation
       setTimeout(() => {
         for (let i = 0; i < 5; i++) {
           starfieldInstance?.warpToSector({
             id: generateRandomSectorId(),
             bypassFlash,
-          });
+          })
         }
-      }, 1000);
+      }, 1000)
     },
 
     // Scenario 7: Clear cooldown and warp immediately
     clearCooldownTest: () => {
-      resetState();
-      console.log("\n[STORY] 🧪 TEST: Clear Cooldown");
+      resetState()
+      console.log("\n[STORY] 🧪 TEST: Clear Cooldown")
       starfieldInstance?.warpToSector({
         id: generateRandomSectorId(),
         bypassFlash,
-      });
+      })
       // Wait 6s (animation done, cooldown active), clear cooldown, then warp
       setTimeout(() => {
-        console.log("[STORY] Clearing cooldown...");
-        starfieldInstance?.clearWarpCooldown();
+        console.log("[STORY] Clearing cooldown...")
+        starfieldInstance?.clearWarpCooldown()
         setTimeout(() => {
-          console.log("[STORY] Warping after cooldown clear (should animate)");
+          console.log("[STORY] Warping after cooldown clear (should animate)")
           starfieldInstance?.warpToSector({
             id: generateRandomSectorId(),
             bypassFlash,
-          });
-        }, 100);
-      }, 6000);
+          })
+        }, 100)
+      }, 6000)
     },
 
     // Scenario 8: Clear queue mid-processing
     clearQueueTest: () => {
-      resetState();
-      console.log("\n[STORY] 🧪 TEST: Clear Queue");
+      resetState()
+      console.log("\n[STORY] 🧪 TEST: Clear Queue")
       starfieldInstance?.warpToSector({
         id: generateRandomSectorId(),
         bypassFlash,
-      });
+      })
       setTimeout(() => {
         for (let i = 0; i < 3; i++) {
           starfieldInstance?.warpToSector({
             id: generateRandomSectorId(),
             bypassFlash,
-          });
+          })
         }
-        console.log("[STORY] Queue built, clearing in 2s...");
+        console.log("[STORY] Queue built, clearing in 2s...")
         setTimeout(() => {
-          starfieldInstance?.clearWarpQueue();
-          console.log("[STORY] Queue cleared");
-        }, 2000);
-      }, 1000);
+          starfieldInstance?.clearWarpQueue()
+          console.log("[STORY] Queue cleared")
+        }, 2000)
+      }, 1000)
     },
 
     // Scenario 9: Full cycle test (animation → queue → cooldown expire → animate again)
     fullCycleTest: () => {
-      resetState();
-      console.log("\n[STORY] 🧪 TEST: Full Cycle");
+      resetState()
+      console.log("\n[STORY] 🧪 TEST: Full Cycle")
       // Initial animation
       starfieldInstance?.warpToSector({
         id: generateRandomSectorId(),
         bypassFlash,
-      });
+      })
       // Queue 2 items during animation
       setTimeout(() => {
         starfieldInstance?.warpToSector({
           id: generateRandomSectorId(),
           bypassFlash,
-        });
+        })
         starfieldInstance?.warpToSector({
           id: generateRandomSectorId(),
           bypassFlash,
-        });
-      }, 1000);
+        })
+      }, 1000)
       // After cooldown expires (animation 5s + cooldown 15s = 20s), warp again
       setTimeout(() => {
-        console.log("[STORY] Cooldown should be expired, animating again...");
+        console.log("[STORY] Cooldown should be expired, animating again...")
         starfieldInstance?.warpToSector({
           id: generateRandomSectorId(),
           bypassFlash,
-        });
-      }, 21000);
+        })
+      }, 21000)
     },
-  };
+  }
 
   return (
     <div className="relative w-full h-full bg-card">
@@ -486,9 +488,9 @@ export const StarFieldSequence: Story = () => {
           <button
             className="w-full px-3 py-2 bg-red-600 hover:bg-red-700 rounded text-sm"
             onClick={() => {
-              starfieldInstance?.clearWarpQueue();
-              starfieldInstance?.clearWarpCooldown();
-              console.log("[STORY] 🧹 Cleared queue and cooldown");
+              starfieldInstance?.clearWarpQueue()
+              starfieldInstance?.clearWarpCooldown()
+              console.log("[STORY] 🧹 Cleared queue and cooldown")
             }}
           >
             Reset (Clear Queue + Cooldown)
@@ -502,7 +504,7 @@ export const StarFieldSequence: Story = () => {
                 id: TEST_SECTOR.id.toString(),
                 bypassFlash,
                 gameObjects: [{ id: "port", type: "port", name: "Port" }],
-              });
+              })
             }}
           >
             Warp to test sector
@@ -510,12 +512,12 @@ export const StarFieldSequence: Story = () => {
           <button
             className="w-full px-3 py-2 rounded text-sm"
             onClick={() => {
-              const starfield = new GalaxyStarfield();
-              setStarfieldInstance(starfield);
+              const starfield = new GalaxyStarfield()
+              setStarfieldInstance(starfield)
 
-              starfield.initializeScene();
-              setStart(true);
-              setGameState("ready");
+              starfield.initializeScene()
+              setStart(true)
+              setGameState("ready")
             }}
           >
             Start Starfield
@@ -525,12 +527,12 @@ export const StarFieldSequence: Story = () => {
 
       <StarField />
     </div>
-  );
-};
+  )
+}
 
 StarFieldSequence.meta = {
   disconnectedStory: true,
   connectOnMount: false,
   enableMic: false,
   disableAudioOutput: true,
-};
+}

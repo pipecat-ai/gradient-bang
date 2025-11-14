@@ -13,10 +13,10 @@ export function createNoiseTexture(size: number = 512): THREE.DataTexture {
       const nx = x / size;
       const ny = y / size;
 
-      let r = noise.noise(nx * scales[0], ny * scales[0], z);
-      let g = noise.noise(nx * scales[1], ny * scales[1], z + 37.1);
-      let b = noise.noise(nx * scales[2], ny * scales[2], z + 71.7);
-      let a = noise.noise(nx * scales[3], ny * scales[3], z + 123.4);
+      const r = noise.noise(nx * scales[0], ny * scales[0], z);
+      const g = noise.noise(nx * scales[1], ny * scales[1], z + 37.1);
+      const b = noise.noise(nx * scales[2], ny * scales[2], z + 71.7);
+      const a = noise.noise(nx * scales[3], ny * scales[3], z + 123.4);
 
       data[idx + 0] = Math.max(
         0,

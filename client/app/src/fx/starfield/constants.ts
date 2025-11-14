@@ -1,5 +1,7 @@
-import { images } from "@/assets";
 import * as THREE from "three";
+
+import { images } from "@/assets";
+
 import {
   type GameObjectSpawnRules,
   type GameObjectTypes,

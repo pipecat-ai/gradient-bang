@@ -1,12 +1,14 @@
-import { Button } from "@/components/primitives/Button";
-import useGameStore from "@/stores/game";
-import { TopBar } from "@hud/TopBar";
-import type { Story } from "@ladle/react";
-import { useEffect } from "react";
+import { useEffect } from "react"
+
+import type { Story } from "@ladle/react"
+
+import { Button } from "@/components/primitives/Button"
+import { TopBar } from "@/hud/TopBar"
+import useGameStore from "@/stores/game"
 
 export const TopBarStory: Story = () => {
-  const setShip = useGameStore.use.setShip();
-  const ship = useGameStore.use.ship();
+  const setShip = useGameStore.use.setShip()
+  const ship = useGameStore.use.ship()
 
   useEffect(() => {
     setShip({
@@ -23,8 +25,8 @@ export const TopBarStory: Story = () => {
       },
       cargo_capacity: 100,
       empty_holds: 100,
-    });
-  }, [setShip]);
+    })
+  }, [setShip])
 
   return (
     <div className="relative w-full h-screen bg-gray-500">
@@ -33,28 +35,28 @@ export const TopBarStory: Story = () => {
       <div className="flex flex-col gap-2">
         <Button
           onClick={() => {
-            setShip({ warp_power: ship.warp_power + 10 });
+            setShip({ warp_power: ship.warp_power + 10 })
           }}
         >
           Increment Fuel
         </Button>
         <Button
           onClick={() => {
-            setShip({ warp_power: ship.warp_power - 10 });
+            setShip({ warp_power: ship.warp_power - 10 })
           }}
         >
           Decrement Fuel
         </Button>
         <Button
           onClick={() => {
-            setShip({ shields: ship.shields! + 10 });
+            setShip({ shields: ship.shields! + 10 })
           }}
         >
           Increment Shields
         </Button>
         <Button
           onClick={() => {
-            setShip({ shields: ship.shields! - 10 });
+            setShip({ shields: ship.shields! - 10 })
           }}
         >
           Decrement Shields
@@ -68,7 +70,7 @@ export const TopBarStory: Story = () => {
                 retro_organics: (ship.cargo.retro_organics ?? 0) + 1,
               },
               empty_holds: ship.empty_holds - 1,
-            });
+            })
           }}
         >
           Increment RO + 1
@@ -82,7 +84,7 @@ export const TopBarStory: Story = () => {
                 retro_organics: (ship.cargo.retro_organics ?? 0) - 1,
               },
               empty_holds: ship.empty_holds + 1,
-            });
+            })
           }}
         >
           Decrement RO - 1
@@ -92,7 +94,7 @@ export const TopBarStory: Story = () => {
             setShip({
               ...ship,
               credits: (ship.credits ?? 0) + 1000,
-            });
+            })
           }}
         >
           Incremenet Credits + 1000
@@ -102,12 +104,12 @@ export const TopBarStory: Story = () => {
             setShip({
               ...ship,
               credits: (ship.credits ?? 0) - 1000,
-            });
+            })
           }}
         >
           Decrement Credits - 1000
         </Button>
       </div>
     </div>
-  );
-};
+  )
+}

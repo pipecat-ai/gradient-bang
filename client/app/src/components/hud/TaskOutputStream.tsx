@@ -1,9 +1,10 @@
+import { useEffect, useRef, useState } from "react";
+
 import { Card, CardContent } from "@/components/primitives/Card";
 import { ScrollArea } from "@/components/primitives/ScrollArea";
 import { Separator } from "@/components/primitives/Separator";
 import useGameStore from "@/stores/game";
 import { cn } from "@/utils/tailwind";
-import { useEffect, useRef, useState } from "react";
 
 const MAX_TASK_SUMMARY_LENGTH = 100;
 

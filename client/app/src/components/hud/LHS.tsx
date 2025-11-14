@@ -1,14 +1,15 @@
-import { PortBadge } from "@/components/PortBadge";
-import { Card } from "@/components/primitives/Card";
-import { SectorBadge } from "@/components/SectorBadge";
-import useGameStore from "@/stores/game";
-import MiniMap from "@hud/MiniMap";
-import { Separator } from "../primitives/Separator";
-import { SectorDetailBadges } from "../SectorDetailBadges";
+import { PortBadge } from "@/components/PortBadge"
+import { Card } from "@/components/primitives/Card"
+import { SectorBadge } from "@/components/SectorBadge"
+import MiniMap from "@/hud/MiniMap"
+import useGameStore from "@/stores/game"
+
+import { Separator } from "../primitives/Separator"
+import { SectorDetailBadges } from "../SectorDetailBadges"
 
 export const LHS = () => {
-  const sector = useGameStore((state) => state.sector);
-  const localMapData = useGameStore((state) => state.local_map_data);
+  const sector = useGameStore((state) => state.sector)
+  const localMapData = useGameStore((state) => state.local_map_data)
 
   return (
     <div className="lhs-perspective flex flex-col gap-3 justify-end">
@@ -35,5 +36,5 @@ export const LHS = () => {
         <PortBadge className="w-full" />
       </footer>
     </div>
-  );
-};
+  )
+}

@@ -1,13 +1,14 @@
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
-import { Leva } from "leva"
 
-import { GameProvider } from "@/GameContext"
+import { Leva } from "leva"
+import { PipecatAppBase } from "@pipecat-ai/voice-ui-kit"
+
 import { TempMobileBlock } from "@/components/TempMobileBlock"
 import { ViewContainer } from "@/components/views/ViewContainer"
-import { AnimatedFrame } from "@fx/frame"
-import { PipecatAppBase } from "@pipecat-ai/voice-ui-kit"
-import useGameStore from "@stores/game"
+import { AnimatedFrame } from "@/fx/frame"
+import { GameProvider } from "@/GameContext"
+import useGameStore from "@/stores/game"
 
 import "./css/index.css"
 
@@ -68,6 +69,7 @@ createRoot(document.getElementById("root")!).render(
     {/* HOC renderables */}
     <AnimatedFrame />
     {Settings.showMobileWarning && <TempMobileBlock />}
-    <Leva collapsed hidden={!Settings.useDevTools} />
+
+    {import.meta.env.DEV && <Leva collapsed hidden={!Settings.useDevTools} />}
   </StrictMode>
 )

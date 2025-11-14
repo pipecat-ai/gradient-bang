@@ -2,9 +2,10 @@
 
 import * as React from "react"
 
-import { cn } from "@/utils/tailwind"
 import { CaretRightIcon, CheckIcon, CircleIcon } from "@phosphor-icons/react"
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu"
+
+import { cn } from "@/utils/tailwind"
 
 function DropdownMenu({
   ...props

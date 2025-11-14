@@ -1,6 +1,7 @@
+import { useEffect, useRef, useState } from "react";
+
 import type { AnimationPlaybackControls, Easing } from "motion/react";
 import { animate, useMotionValue, useTransform } from "motion/react";
-import { useEffect, useRef, useState } from "react";
 
 /**
  * Hook that animates a numerical value using Motion's animate function.

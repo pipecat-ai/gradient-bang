@@ -1,13 +1,16 @@
-import type { Toast } from "@/types/toasts";
-import { cn } from "@/utils/tailwind";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
   CoinVerticalIcon,
   GasCanIcon,
 } from "@phosphor-icons/react";
+
+import { cn } from "@/utils/tailwind";
+
 import { Card, CardContent } from "../primitives/Card";
 import { ToastBase, ToastTitle, ToastValue } from "./ToastBase";
+
+import type { Toast } from "@/types/toasts";
 
 interface TransferToastProps {
   toast: Toast & { type: "transfer" };

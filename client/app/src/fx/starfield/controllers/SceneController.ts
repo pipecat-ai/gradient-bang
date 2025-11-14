@@ -1,6 +1,6 @@
 import type { GalaxyStarfieldConfig } from "../constants";
-import type { GameObjectBaseConfig } from "../types";
 import type { SceneManager } from "../managers/SceneManager";
+import type { GameObjectBaseConfig } from "../types";
 
 interface SceneControllerHost {
   reloadConfig: (

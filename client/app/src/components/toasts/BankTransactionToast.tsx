@@ -1,15 +1,19 @@
-import type { Toast } from "@/types/toasts";
-import { wait } from "@/utils/animation";
-import { cn } from "@/utils/tailwind";
+import { useEffect, useState } from "react";
+
 import {
   ArrowsLeftRightIcon,
   HandCoinsIcon,
   VaultIcon,
 } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
+
+import { wait } from "@/utils/animation";
+import { cn } from "@/utils/tailwind";
+
 import { CurrencyCounter } from "../CurrencyCounter";
 import { Card, CardContent } from "../primitives/Card";
 import { ToastBase, ToastTitle, ToastValue } from "./ToastBase";
+
+import type { Toast } from "@/types/toasts";
 
 interface BankTransactionToastProps {
   toast: Toast & { type: "bank.transaction" };

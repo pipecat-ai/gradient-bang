@@ -1,4 +1,5 @@
-import useGameStore from "@/stores/game";
+import { useMemo } from "react";
+
 import {
   EnvelopeSimpleIcon,
   GearSixIcon,
@@ -7,7 +8,9 @@ import {
   UserIcon,
   WarningDiamondIcon,
 } from "@phosphor-icons/react";
-import { useMemo } from "react";
+
+import useGameStore from "@/stores/game";
+
 import { Badge, BadgeTitle } from "./primitives/Badge";
 import { Separator } from "./primitives/Separator";
 

@@ -1,5 +1,6 @@
-import type { Action } from "@/types/actions";
 import { createContext, useContext } from "react";
+
+import type { Action } from "@/types/actions";
 
 /**
  * Game context

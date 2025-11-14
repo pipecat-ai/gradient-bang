@@ -1,16 +1,18 @@
-import useGameStore from "@/stores/game";
-import { AnimatedFrame, PERFORMANCE_PRESETS } from "@fx/frame";
-import type { Story } from "@ladle/react";
-import { useEffect, useState } from "react";
+import { useEffect, useState } from "react"
+
+import type { Story } from "@ladle/react"
+
+import { AnimatedFrame, PERFORMANCE_PRESETS } from "@/fx/frame"
+import useGameStore from "@/stores/game"
 
 export const DiamondAnimation: Story = () => {
-  const [started, setStarted] = useState(false);
+  const [started, setStarted] = useState(false)
 
   const startAnimation = (wait = false, config?: object) => {
-    const fx = useGameStore.getState().diamondFXInstance;
-    fx?.start("demo-panel", wait, true, config);
-    setStarted(true);
-  };
+    const fx = useGameStore.getState().diamondFXInstance
+    fx?.start("demo-panel", wait, true, config)
+    setStarted(true)
+  }
 
   return (
     <div className="relative w-full h-screen bg-black">
@@ -72,12 +74,12 @@ export const DiamondAnimation: Story = () => {
         </div>
       </div>
     </div>
-  );
-};
+  )
+}
 
 DiamondAnimation.meta = {
   disconnectedStory: true,
-};
+}
 
 export const HalfMode: Story = () => {
   return (
@@ -109,12 +111,12 @@ export const HalfMode: Story = () => {
         </button>
       </div>
     </div>
-  );
-};
+  )
+}
 
 HalfMode.meta = {
   disconnectedStory: true,
-};
+}
 
 export const ColorVariations: Story = () => {
   return (
@@ -132,10 +134,10 @@ export const ColorVariations: Story = () => {
           </p>
           <button
             onClick={() => {
-              const fx = useGameStore.getState().diamondFXInstance;
+              const fx = useGameStore.getState().diamondFXInstance
               fx?.start("blue-panel", false, true, {
                 lineColor: "rgba(59, 130, 246, 0.95)",
-              });
+              })
             }}
             className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm"
           >
@@ -153,10 +155,10 @@ export const ColorVariations: Story = () => {
           </p>
           <button
             onClick={() => {
-              const fx = useGameStore.getState().diamondFXInstance;
+              const fx = useGameStore.getState().diamondFXInstance
               fx?.start("green-panel", false, true, {
                 lineColor: "rgba(34, 197, 94, 0.95)",
-              });
+              })
             }}
             className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm"
           >
@@ -174,10 +176,10 @@ export const ColorVariations: Story = () => {
           </p>
           <button
             onClick={() => {
-              const fx = useGameStore.getState().diamondFXInstance;
+              const fx = useGameStore.getState().diamondFXInstance
               fx?.start("red-panel", false, true, {
                 lineColor: "rgba(239, 68, 68, 0.95)",
-              });
+              })
             }}
             className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm"
           >
@@ -186,12 +188,12 @@ export const ColorVariations: Story = () => {
         </div>
       </div>
     </div>
-  );
-};
+  )
+}
 
 ColorVariations.meta = {
   disconnectedStory: true,
-};
+}
 
 export const PerformancePresets: Story = () => {
   return (
@@ -209,8 +211,8 @@ export const PerformancePresets: Story = () => {
           </p>
           <button
             onClick={() => {
-              const fx = useGameStore.getState().diamondFXInstance;
-              fx?.start("low-panel", false, true, PERFORMANCE_PRESETS.low);
+              const fx = useGameStore.getState().diamondFXInstance
+              fx?.start("low-panel", false, true, PERFORMANCE_PRESETS.low)
             }}
             className="w-full px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm"
           >
@@ -228,8 +230,8 @@ export const PerformancePresets: Story = () => {
           </p>
           <button
             onClick={() => {
-              const fx = useGameStore.getState().diamondFXInstance;
-              fx?.start("mid-panel", false, true, PERFORMANCE_PRESETS.mid);
+              const fx = useGameStore.getState().diamondFXInstance
+              fx?.start("mid-panel", false, true, PERFORMANCE_PRESETS.mid)
             }}
             className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm"
           >
@@ -247,8 +249,8 @@ export const PerformancePresets: Story = () => {
           </p>
           <button
             onClick={() => {
-              const fx = useGameStore.getState().diamondFXInstance;
-              fx?.start("high-panel", false, true, PERFORMANCE_PRESETS.high);
+              const fx = useGameStore.getState().diamondFXInstance
+              fx?.start("high-panel", false, true, PERFORMANCE_PRESETS.high)
             }}
             className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm"
           >
@@ -257,20 +259,20 @@ export const PerformancePresets: Story = () => {
         </div>
       </div>
     </div>
-  );
-};
+  )
+}
 
 PerformancePresets.meta = {
   disconnectedStory: true,
-};
+}
 
 export const TargetSwitching: Story = () => {
-  const [currentTarget, setCurrentTarget] = useState<string | null>(null);
+  const [currentTarget, setCurrentTarget] = useState<string | null>(null)
 
   const switchTo = (targetId: string, refresh = true) => {
-    useGameStore.getState().diamondFXInstance?.start(targetId, false, refresh);
-    setCurrentTarget(targetId);
-  };
+    useGameStore.getState().diamondFXInstance?.start(targetId, false, refresh)
+    setCurrentTarget(targetId)
+  }
 
   return (
     <div className="relative w-full h-screen bg-black">
@@ -332,25 +334,25 @@ export const TargetSwitching: Story = () => {
         </button>
       </div>
     </div>
-  );
-};
+  )
+}
 
 TargetSwitching.meta = {
   disconnectedStory: true,
-};
+}
 
 export const StoreBasedUsage: Story = () => {
-  const diamondFX = useGameStore((state) => state.diamondFXInstance);
+  const diamondFX = useGameStore((state) => state.diamondFXInstance)
 
   const startAnimation = () => {
-    const fx = useGameStore.getState().diamondFXInstance;
-    fx?.start("store-demo-panel", false, true);
-  };
+    const fx = useGameStore.getState().diamondFXInstance
+    fx?.start("store-demo-panel", false, true)
+  }
 
   const clearAnimation = () => {
-    const fx = useGameStore.getState().diamondFXInstance;
-    fx?.clear();
-  };
+    const fx = useGameStore.getState().diamondFXInstance
+    fx?.clear()
+  }
 
   return (
     <div className="relative w-full h-screen bg-black">
@@ -388,58 +390,58 @@ export const StoreBasedUsage: Story = () => {
         </div>
       </div>
     </div>
-  );
-};
+  )
+}
 
 StoreBasedUsage.meta = {
   disconnectedStory: true,
-};
+}
 
 export const AnimateOutDemo: Story = () => {
-  const [started, setStarted] = useState(false);
-  const [lastEvent, setLastEvent] = useState<string>("");
-  const diamondFX = useGameStore((state) => state.diamondFXInstance);
+  const [started, setStarted] = useState(false)
+  const [lastEvent, setLastEvent] = useState<string>("")
+  const diamondFX = useGameStore((state) => state.diamondFXInstance)
 
   useEffect(() => {
-    if (!diamondFX) return;
+    if (!diamondFX) return
 
     const handleComplete = (exit: boolean) => {
-      const label = exit ? "complete exit=true" : "complete exit=false";
-      setLastEvent(label);
-      console.log(`[AnimateOut] complete event exit=${exit}`);
-    };
+      const label = exit ? "complete exit=true" : "complete exit=false"
+      setLastEvent(label)
+      console.log(`[AnimateOut] complete event exit=${exit}`)
+    }
 
-    diamondFX.on("complete", handleComplete);
+    diamondFX.on("complete", handleComplete)
     return () => {
-      diamondFX.off("complete", handleComplete);
-    };
-  }, [diamondFX]);
+      diamondFX.off("complete", handleComplete)
+    }
+  }, [diamondFX])
 
   const startAnimation = () => {
-    const fx = useGameStore.getState().diamondFXInstance;
-    setStarted(true);
-    setLastEvent("");
-    fx?.start("animate-out-panel", false, true);
-  };
+    const fx = useGameStore.getState().diamondFXInstance
+    setStarted(true)
+    setLastEvent("")
+    fx?.start("animate-out-panel", false, true)
+  }
 
   const fadeOut = () => {
-    const fx = useGameStore.getState().diamondFXInstance;
-    fx?.clear(false);
-    setStarted(false);
-  };
+    const fx = useGameStore.getState().diamondFXInstance
+    fx?.clear(false)
+    setStarted(false)
+  }
 
   const animateOut = () => {
-    const fx = useGameStore.getState().diamondFXInstance;
-    fx?.clear(true);
-    setStarted(false);
-  };
+    const fx = useGameStore.getState().diamondFXInstance
+    fx?.clear(true)
+    setStarted(false)
+  }
 
   const clearDuringAnimation = () => {
     // This will immediately clear even with animateOut=true because animation is playing
-    const fx = useGameStore.getState().diamondFXInstance;
-    fx?.clear(true);
-    setStarted(false);
-  };
+    const fx = useGameStore.getState().diamondFXInstance
+    fx?.clear(true)
+    setStarted(false)
+  }
 
   return (
     <div className="relative w-full h-screen bg-black">
@@ -493,70 +495,68 @@ export const AnimateOutDemo: Story = () => {
         </div>
       </div>
     </div>
-  );
-};
+  )
+}
 
 AnimateOutDemo.meta = {
   disconnectedStory: true,
-};
+}
 
 export const EventListenersDemo: Story = () => {
-  const [events, setEvents] = useState<string[]>([]);
-  const [panelVisible, setPanelVisible] = useState(true);
-  const diamondFX = useGameStore((state) => state.diamondFXInstance);
+  const [events, setEvents] = useState<string[]>([])
+  const [panelVisible, setPanelVisible] = useState(true)
+  const diamondFX = useGameStore((state) => state.diamondFXInstance)
 
   useEffect(() => {
-    if (!diamondFX) return;
+    if (!diamondFX) return
 
     const recordEvent = (entry: string) =>
-      setEvents((prev) => [entry, ...prev].slice(0, 12));
+      setEvents((prev) => [entry, ...prev].slice(0, 12))
 
     const handlePhaseComplete = (phase: string) =>
-      recordEvent(`phaseComplete → ${phase}`);
+      recordEvent(`phaseComplete → ${phase}`)
     const handleComplete = (exit: boolean) =>
-      recordEvent(`complete → exit=${exit}`);
+      recordEvent(`complete → exit=${exit}`)
     const handleTargetRemoved = (targetId: string) =>
-      recordEvent(`targetRemoved → ${targetId}`);
+      recordEvent(`targetRemoved → ${targetId}`)
 
-    diamondFX.on("phaseComplete", handlePhaseComplete);
-    diamondFX.on("complete", handleComplete);
-    diamondFX.on("targetRemoved", handleTargetRemoved);
+    diamondFX.on("phaseComplete", handlePhaseComplete)
+    diamondFX.on("complete", handleComplete)
+    diamondFX.on("targetRemoved", handleTargetRemoved)
 
     return () => {
-      diamondFX.off("phaseComplete", handlePhaseComplete);
-      diamondFX.off("complete", handleComplete);
-      diamondFX.off("targetRemoved", handleTargetRemoved);
-    };
-  }, [diamondFX]);
+      diamondFX.off("phaseComplete", handlePhaseComplete)
+      diamondFX.off("complete", handleComplete)
+      diamondFX.off("targetRemoved", handleTargetRemoved)
+    }
+  }, [diamondFX])
 
   const startAnimation = () => {
-    useGameStore
-      .getState()
-      .diamondFXInstance?.start("event-panel", false, true);
-  };
+    useGameStore.getState().diamondFXInstance?.start("event-panel", false, true)
+  }
 
   const clearAnimation = () => {
-    useGameStore.getState().diamondFXInstance?.clear();
-  };
+    useGameStore.getState().diamondFXInstance?.clear()
+  }
 
   const animateOut = () => {
-    useGameStore.getState().diamondFXInstance?.clear(true);
-  };
+    useGameStore.getState().diamondFXInstance?.clear(true)
+  }
 
   const toggleTarget = () => {
     setPanelVisible((prev) => {
-      const next = !prev;
+      const next = !prev
       setEvents((log) =>
         [
           next ? "target restored (DOM added)" : "target removed (DOM removed)",
           ...log,
         ].slice(0, 12)
-      );
-      return next;
-    });
-  };
+      )
+      return next
+    })
+  }
 
-  const clearEvents = () => setEvents([]);
+  const clearEvents = () => setEvents([])
 
   return (
     <div className="relative w-full h-screen bg-black">
@@ -637,15 +637,15 @@ export const EventListenersDemo: Story = () => {
         </div>
       )}
     </div>
-  );
-};
+  )
+}
 
 EventListenersDemo.meta = {
   disconnectedStory: true,
-};
+}
 
 export const RefreshSameId: Story = () => {
-  const [started, setStarted] = useState(false);
+  const [started, setStarted] = useState(false)
 
   return (
     <div className="relative w-full h-screen bg-black">
@@ -661,9 +661,9 @@ export const RefreshSameId: Story = () => {
         <div className="flex gap-2 flex-wrap">
           <button
             onClick={() => {
-              const fx = useGameStore.getState().diamondFXInstance;
-              fx?.start("refresh-panel", false, true);
-              setStarted(true);
+              const fx = useGameStore.getState().diamondFXInstance
+              fx?.start("refresh-panel", false, true)
+              setStarted(true)
             }}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm"
           >
@@ -671,8 +671,8 @@ export const RefreshSameId: Story = () => {
           </button>
           <button
             onClick={() => {
-              const fx = useGameStore.getState().diamondFXInstance;
-              fx?.start("refresh-panel", false, true);
+              const fx = useGameStore.getState().diamondFXInstance
+              fx?.start("refresh-panel", false, true)
             }}
             disabled={!started}
             className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg text-sm"
@@ -682,15 +682,15 @@ export const RefreshSameId: Story = () => {
         </div>
       </div>
     </div>
-  );
-};
+  )
+}
 
 RefreshSameId.meta = {
   disconnectedStory: true,
-};
+}
 
 export const RefreshDifferentId: Story = () => {
-  const [started, setStarted] = useState(false);
+  const [started, setStarted] = useState(false)
 
   return (
     <div className="relative w-full h-screen bg-black">
@@ -706,9 +706,9 @@ export const RefreshDifferentId: Story = () => {
         <div className="flex gap-2 flex-wrap">
           <button
             onClick={() => {
-              const fx = useGameStore.getState().diamondFXInstance;
-              fx?.start("refresh-diff-1", false, true);
-              setStarted(true);
+              const fx = useGameStore.getState().diamondFXInstance
+              fx?.start("refresh-diff-1", false, true)
+              setStarted(true)
             }}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm"
           >
@@ -716,8 +716,8 @@ export const RefreshDifferentId: Story = () => {
           </button>
           <button
             onClick={() => {
-              const fx = useGameStore.getState().diamondFXInstance;
-              fx?.start("refresh-diff-2", false, true);
+              const fx = useGameStore.getState().diamondFXInstance
+              fx?.start("refresh-diff-2", false, true)
             }}
             disabled={!started}
             className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg text-sm"
@@ -734,12 +734,12 @@ export const RefreshDifferentId: Story = () => {
         <span className="text-white/80 text-xs">Target B</span>
       </div>
     </div>
-  );
-};
+  )
+}
 
 RefreshDifferentId.meta = {
   disconnectedStory: true,
-};
+}
 
 export const InlineConfigDemo: Story = () => {
   return (
@@ -767,7 +767,7 @@ export const InlineConfigDemo: Story = () => {
             </p>
             <button
               onClick={() => {
-                const fx = useGameStore.getState().diamondFXInstance;
+                const fx = useGameStore.getState().diamondFXInstance
                 fx?.start("fast-panel", false, true, {
                   timings: {
                     in: 200,
@@ -777,7 +777,7 @@ export const InlineConfigDemo: Story = () => {
                     split: 150,
                   },
                   shadowBlur: 0.5,
-                });
+                })
               }}
               className="w-full px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg text-sm"
             >
@@ -795,7 +795,7 @@ export const InlineConfigDemo: Story = () => {
             </p>
             <button
               onClick={() => {
-                const fx = useGameStore.getState().diamondFXInstance;
+                const fx = useGameStore.getState().diamondFXInstance
                 fx?.start("dramatic-panel", false, true, {
                   timings: {
                     in: 600,
@@ -806,7 +806,7 @@ export const InlineConfigDemo: Story = () => {
                   },
                   shadowBlur: 2.0,
                   lineColor: "rgba(255, 215, 0, 0.95)",
-                });
+                })
               }}
               className="w-full px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg text-sm"
             >
@@ -824,7 +824,7 @@ export const InlineConfigDemo: Story = () => {
             </p>
             <button
               onClick={() => {
-                const fx = useGameStore.getState().diamondFXInstance;
+                const fx = useGameStore.getState().diamondFXInstance
                 fx?.start("minimal-panel", false, true, {
                   half: true,
                   timings: {
@@ -836,7 +836,7 @@ export const InlineConfigDemo: Story = () => {
                   },
                   shadowBlur: 0,
                   lineColor: "rgba(200, 200, 200, 0.6)",
-                });
+                })
               }}
               className="w-full px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm"
             >
@@ -853,9 +853,9 @@ export const InlineConfigDemo: Story = () => {
         </div>
       </div>
     </div>
-  );
-};
+  )
+}
 
 InlineConfigDemo.meta = {
   disconnectedStory: true,
-};
+}

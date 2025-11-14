@@ -1,6 +1,6 @@
-import { Center } from "@hud/Center";
-import { LHS } from "@hud/LHS";
-import { RHS } from "@hud/RHS";
+import { Center } from "@/hud/Center"
+import { LHS } from "@/hud/LHS"
+import { RHS } from "@/hud/RHS"
 
 export const ShipHUD = () => {
   return (
@@ -11,5 +11,5 @@ export const ShipHUD = () => {
         <RHS />
       </div>
     </div>
-  );
-};
+  )
+}

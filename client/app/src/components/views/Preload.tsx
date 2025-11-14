@@ -1,11 +1,11 @@
 import { useEffect } from "react"
 
+import Splash from "@/assets/images/splash-1.png"
+import PlanetLoader from "@/assets/videos/planet-loader.mp4"
 import { Progress } from "@/components/primitives/Progress"
 import { useAssetPreloader } from "@/hooks/useAssetPreloader"
 import { wait } from "@/utils/animation"
 import { cn } from "@/utils/tailwind"
-import Splash from "@assets/images/splash-1.png"
-import PlanetLoader from "@assets/videos/planet-loader.mp4"
 
 import { Badge, BadgeTitle } from "../primitives/Badge"
 import { Card, CardContent } from "../primitives/Card"

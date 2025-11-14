@@ -5,6 +5,7 @@
  */
 
 import * as THREE from "three";
+
 import { hexToRgb, normalizeRgb, validateRgb } from "../utils/colors";
 
 // ============================================================================

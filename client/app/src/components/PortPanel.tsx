@@ -1,9 +1,12 @@
+import { useEffect } from "react";
+
+import { AtomIcon, LightningIcon, PlantIcon } from "@phosphor-icons/react";
+import { CardTitle, Divider } from "@pipecat-ai/voice-ui-kit";
+
 import { Badge } from "@/components/primitives/Badge";
 import { Card, CardContent, CardHeader } from "@/components/primitives/Card";
 import useGameStore from "@/stores/game";
-import { AtomIcon, LightningIcon, PlantIcon } from "@phosphor-icons/react";
-import { CardTitle, Divider } from "@pipecat-ai/voice-ui-kit";
-import { useEffect } from "react";
+
 import { PanelTitle } from "./PanelTitle";
 
 const IconMap = {

@@ -1,9 +1,10 @@
+import { ArrowFatRightIcon, CompassIcon } from "@phosphor-icons/react";
+
 import { PanelTitle } from "@/components/PanelTitle";
 import { Button } from "@/components/primitives/Button";
 import { Card, CardContent } from "@/components/primitives/Card";
 import useGameStore from "@/stores/game";
 import { cn } from "@/utils/tailwind";
-import { ArrowFatRightIcon, CompassIcon } from "@phosphor-icons/react";
 
 export const CoursePlotPanel = () => {
   const coursePlot = useGameStore.use.course_plot?.();

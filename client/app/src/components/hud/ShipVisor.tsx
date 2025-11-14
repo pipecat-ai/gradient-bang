@@ -1,6 +1,7 @@
+import { useEffect, useState } from "react";
+
 import { usePlaySound } from "@/hooks/usePlaySound";
 import useGameStore from "@/stores/game";
-import { useEffect, useState } from "react";
 
 export const ShipVisor = () => {
   const gameState = useGameStore.use.gameState();

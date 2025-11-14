@@ -1,27 +1,28 @@
-import type { Story } from "@ladle/react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react"
 
-import { DiscoveredPortsPanel } from "@/components/DiscoveredPortsPanel";
-import { Button } from "@/components/primitives/Button";
-import { Divider } from "@/components/primitives/Divider";
-import { MiniMap as MiniMapComponent, type MiniMapConfig } from "@hud/MiniMap";
+import type { Story } from "@ladle/react"
 
-import { useGameContext } from "@/hooks/useGameContext";
-import useGameStore from "@/stores/game";
-import type { GetMapRegionAction } from "@/types/actions";
-import { MapScreen } from "@screens/MapScreen";
+import { DiscoveredPortsPanel } from "@/components/DiscoveredPortsPanel"
+import { Button } from "@/components/primitives/Button"
+import { Divider } from "@/components/primitives/Divider"
+import { useGameContext } from "@/hooks/useGameContext"
+import { MiniMap as MiniMapComponent, type MiniMapConfig } from "@/hud/MiniMap"
+import { MapScreen } from "@/screens/MapScreen"
+import useGameStore from "@/stores/game"
+
+import type { GetMapRegionAction } from "@/types/actions"
 
 export const MapPanelStory: Story = () => {
-  const { dispatchAction, sendUserTextInput } = useGameContext();
-  const [maxHops, setMaxHops] = useState(50);
-  const [fromSectorId, setFromSectorId] = useState(0);
-  const [targetSectorId, setTargetSectorId] = useState<number>(0);
-  const sector = useGameStore.use.sector?.();
-  const clearCoursePlot = useGameStore.use.clearCoursePlot?.();
+  const { dispatchAction, sendUserTextInput } = useGameContext()
+  const [maxHops, setMaxHops] = useState(50)
+  const [fromSectorId, setFromSectorId] = useState(0)
+  const [targetSectorId, setTargetSectorId] = useState<number>(0)
+  const sector = useGameStore.use.sector?.()
+  const clearCoursePlot = useGameStore.use.clearCoursePlot?.()
 
   useEffect(() => {
-    setFromSectorId(sector?.id ?? 0);
-  }, [sector]);
+    setFromSectorId(sector?.id ?? 0)
+  }, [sector])
 
   return (
     <div className="flex flex-col gap-3">
@@ -81,13 +82,13 @@ export const MapPanelStory: Story = () => {
       <Divider />
       <MapScreen />
     </div>
-  );
-};
+  )
+}
 
 MapPanelStory.meta = {
   enableMic: false,
   disableAudioOutput: true,
-};
+}
 
 const storyData: MapData = [
   {
@@ -250,7 +251,7 @@ const storyData: MapData = [
       },
     ],
   },
-];
+]
 
 const storyData2: MapData = [
   {
@@ -414,33 +415,33 @@ const storyData2: MapData = [
       },
     ],
   },
-];
+]
 
 const coursePlotMock: CoursePlot = {
   from_sector: 0,
   to_sector: 1284,
   path: [0, 581, 1284],
   distance: 2,
-};
+}
 
 export const MiniMapMock: Story = () => {
-  const coursePlot = useGameStore.use.course_plot?.();
-  const setCoursePlot = useGameStore.use.setCoursePlot?.();
-  const clearCoursePlot = useGameStore.use.clearCoursePlot?.();
-  const [currentSectorId, setCurrentSectorId] = useState<number>(0);
-  const [maxDistance, setMaxDistance] = useState<number>(2);
-  const [bypassAnimation, setBypassAnimation] = useState<boolean>(false);
-  const [currentStoryData, setCurrentStoryData] = useState<MapData>(storyData);
+  const coursePlot = useGameStore.use.course_plot?.()
+  const setCoursePlot = useGameStore.use.setCoursePlot?.()
+  const clearCoursePlot = useGameStore.use.clearCoursePlot?.()
+  const [currentSectorId, setCurrentSectorId] = useState<number>(0)
+  const [maxDistance, setMaxDistance] = useState<number>(2)
+  const [bypassAnimation, setBypassAnimation] = useState<boolean>(false)
+  const [currentStoryData, setCurrentStoryData] = useState<MapData>(storyData)
 
   const handleSetSector = useCallback(
     (id: number) => setCurrentSectorId(id),
     []
-  );
+  )
 
   const config: MiniMapConfig = {
     bypass_animation: bypassAnimation,
     debug: true,
-  };
+  }
 
   return (
     <>
@@ -493,8 +494,8 @@ export const MiniMapMock: Story = () => {
             <Button
               size="sm"
               onClick={() => {
-                setCurrentStoryData(storyData2);
-                handleSetSector(1284);
+                setCurrentStoryData(storyData2)
+                handleSetSector(1284)
               }}
             >
               Load Story 2
@@ -509,25 +510,25 @@ export const MiniMapMock: Story = () => {
         </div>
       </div>
     </>
-  );
-};
+  )
+}
 
 MiniMapMock.meta = {
   connectOnMount: false,
   disableAudioOutput: true,
   enableMic: false,
   disconnectedStory: true,
-};
+}
 
 export const DiscoveredPorts: Story = () => {
   return (
     <div className="flex flex-col gap-3">
       <DiscoveredPortsPanel />
     </div>
-  );
-};
+  )
+}
 
 DiscoveredPorts.meta = {
   enableMic: false,
   disableAudioOutput: true,
-};
+}

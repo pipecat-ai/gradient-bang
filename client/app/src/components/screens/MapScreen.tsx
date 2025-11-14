@@ -1,35 +1,38 @@
-import { CoursePlotPanel } from "@/components/CoursePlotPanel";
-import { MovementHistoryPanel } from "@/components/MovementHistoryPanel";
-import { Badge } from "@/components/primitives/Badge";
-import { Separator } from "@/components/primitives/Separator";
-import { useGameContext } from "@/hooks/useGameContext";
-import useGameStore from "@/stores/game";
-import type { GetMapRegionAction } from "@/types/actions";
-import PlanetLoader from "@assets/videos/planet-loader.mp4";
-import MiniMap, { type MiniMapConfig } from "@hud/MiniMap";
-import { useEffect, useRef } from "react";
-import { CardContent, CardTitle } from "../primitives/Card";
-import { Progress } from "../primitives/Progress";
+import { useEffect, useRef } from "react"
+
+import PlanetLoader from "@/assets/videos/planet-loader.mp4"
+import { CoursePlotPanel } from "@/components/CoursePlotPanel"
+import { MovementHistoryPanel } from "@/components/MovementHistoryPanel"
+import { Badge } from "@/components/primitives/Badge"
+import { Separator } from "@/components/primitives/Separator"
+import { useGameContext } from "@/hooks/useGameContext"
+import MiniMap, { type MiniMapConfig } from "@/hud/MiniMap"
+import useGameStore from "@/stores/game"
+
+import { CardContent, CardTitle } from "../primitives/Card"
+import { Progress } from "../primitives/Progress"
+
+import type { GetMapRegionAction } from "@/types/actions"
 
 const MAP_CONFIG: MiniMapConfig = {
   max_bounds_distance: undefined,
   show_sector_ids: true,
   show_ports: true,
-};
+}
 
 export const MapScreen = () => {
-  const player = useGameStore((state) => state.player);
-  const sector = useGameStore.use.sector?.();
-  const mapData = useGameStore.use.regional_map_data?.();
-  const coursePlot = useGameStore.use.course_plot?.();
-  const { dispatchAction } = useGameContext();
+  const player = useGameStore((state) => state.player)
+  const sector = useGameStore.use.sector?.()
+  const mapData = useGameStore.use.regional_map_data?.()
+  const coursePlot = useGameStore.use.course_plot?.()
+  const { dispatchAction } = useGameContext()
 
-  const throttleActive = useRef(false);
+  const throttleActive = useRef(false)
 
   useEffect(() => {
     if (sector !== undefined && !throttleActive.current) {
-      console.debug("[GAME MAP SCREEN] Fetching", sector?.id);
-      throttleActive.current = true;
+      console.debug("[GAME MAP SCREEN] Fetching", sector?.id)
+      throttleActive.current = true
 
       dispatchAction({
         type: "get-my-map",
@@ -38,13 +41,13 @@ export const MapScreen = () => {
           max_hops: 50,
           max_sectors: 1000,
         },
-      } as GetMapRegionAction);
+      } as GetMapRegionAction)
 
       setTimeout(() => {
-        throttleActive.current = false;
-      }, 250);
+        throttleActive.current = false
+      }, 250)
     }
-  }, [sector, dispatchAction]);
+  }, [sector, dispatchAction])
 
   return (
     <div className="flex flex-row gap-3 h-full relative">
@@ -128,5 +131,5 @@ export const MapScreen = () => {
         <MovementHistoryPanel />
       </aside>
     </div>
-  );
-};
+  )
+}

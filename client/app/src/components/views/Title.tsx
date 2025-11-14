@@ -1,31 +1,33 @@
-import { Leaderboard } from "@/components/dialogs/Leaderboard";
-import { Settings } from "@/components/dialogs/Settings";
-import { Button } from "@/components/primitives/Button";
-import { Card, CardContent, CardHeader } from "@/components/primitives/Card";
-import { Separator } from "@/components/primitives/Separator";
-import useGameStore from "@/stores/game";
+import { useState } from "react"
 
-import { Input } from "@/components/primitives/Input";
-import TitleVideo from "@assets/videos/title.mp4";
-import { ScrambleText } from "@fx/ScrambleText";
-import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
+import { AnimatePresence, motion } from "motion/react"
+
+import TitleVideo from "@/assets/videos/title.mp4"
+import { Leaderboard } from "@/components/dialogs/Leaderboard"
+import { Settings } from "@/components/dialogs/Settings"
+import { Button } from "@/components/primitives/Button"
+import { Card, CardContent, CardHeader } from "@/components/primitives/Card"
+import { Input } from "@/components/primitives/Input"
+import { Separator } from "@/components/primitives/Separator"
+import { ScrambleText } from "@/fx/ScrambleText"
+import useGameStore from "@/stores/game"
 
 export const Title = ({
   onViewNext,
 }: {
-  onViewNext: (characterName: string) => void;
+  onViewNext: (characterName: string) => void
 }) => {
-  const setActiveModal = useGameStore.use.setActiveModal();
-  const setCharacterId = useGameStore.use.setCharacterId();
-  const [characterName, setCharacterName] = useState<string>("");
-  const [state, setState] = useState<"idle" | "join">("idle");
+  const setActiveModal = useGameStore.use.setActiveModal()
+  //const setCharacterId = useGameStore.use.setCharacterId()
+  const [characterName, setCharacterName] = useState<string>("")
+  const [state, setState] = useState<"idle" | "join">("idle")
 
+  
   const handleViewNext = () => {
-    console.log("[TITLE] Joining with name:", characterName);
+    console.log("[TITLE] Joining with name:", characterName)
 
-    onViewNext(characterName);
-  };
+    onViewNext(characterName)
+  }
 
   return (
     <div className="relative h-screen w-screen overflow-hidden">
@@ -139,7 +141,7 @@ export const Title = ({
       <Settings />
       <Leaderboard />
     </div>
-  );
-};
+  )
+}
 
-export default Title;
+export default Title

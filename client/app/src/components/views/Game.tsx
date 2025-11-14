@@ -5,12 +5,12 @@ import { ScreenContainer } from "@/components/screens/ScreenContainer"
 import { ToastContainer } from "@/components/toasts/ToastContainer"
 import { useNotificationSound } from "@/hooks/useNotificationSound"
 import { usePlaySound } from "@/hooks/usePlaySound"
+import { ActivityStream } from "@/hud/ActivityStream"
+import { ShipHUD } from "@/hud/ShipHUD"
+import { ShipVisor } from "@/hud/ShipVisor"
+import { StarField } from "@/hud/StarField"
+import { TopBar } from "@/hud/TopBar"
 import useGameStore from "@/stores/game"
-import { ActivityStream } from "@hud/ActivityStream"
-import { ShipHUD } from "@hud/ShipHUD"
-import { ShipVisor } from "@hud/ShipVisor"
-import { StarField } from "@hud/StarField"
-import { TopBar } from "@hud/TopBar"
 
 export const Game = () => {
   const { playSound } = usePlaySound()

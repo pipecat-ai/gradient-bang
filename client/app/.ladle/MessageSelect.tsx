@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { Button } from "@/components/primitives/Button";
 import {
   Select,
@@ -7,7 +9,6 @@ import {
   SelectValue,
 } from "@/components/primitives/Select";
 import { useGameContext } from "@/hooks/useGameContext";
-import { useState } from "react";
 
 export const MessageSelect = ({ messages }: { messages: string[][] }) => {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);

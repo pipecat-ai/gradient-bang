@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-import { PLANET_IMAGES, type GalaxyStarfieldConfig } from "../constants";
+import { type GalaxyStarfieldConfig,PLANET_IMAGES } from "../constants";
 import type { UniformManager } from "../managers/UniformManager";
 import {
   backgroundFragmentShader,

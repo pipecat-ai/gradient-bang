@@ -1,11 +1,29 @@
 import mitt, { type Emitter } from "mitt";
 import * as THREE from "three";
-
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 
+import { CameraLookAtAnimator } from "./animations/CameraLookAt";
+import { WarpOverlay } from "./animations/WarpOverlay";
+import { ConfigUniformMapper } from "./ConfigUniformMapper";
+import {
+  DEFAULT_GALAXY_CONFIG,
+  type GalaxyStarfieldConfig,
+  type StarfieldSceneConfig,
+  type WarpPhase,
+} from "./constants";
+import { LifecycleController } from "./controllers/LifecycleController";
+import { SceneController } from "./controllers/SceneController";
+import { WarpController, type WarpRequest } from "./controllers/WarpController";
+import { Background, Clouds, Nebula } from "./fx";
+import { GameObjectManager } from "./managers/GameObjectManager";
+import { LayerManager } from "./managers/LayerManager";
+import { SceneManager } from "./managers/SceneManager";
+import { ShadowManager } from "./managers/ShadowManager";
+import { StarLayerManager } from "./managers/StarLayerManager";
+import { UniformManager } from "./managers/UniformManager";
 import {
   colorAdjustFragmentShader,
   colorAdjustVertexShader,
@@ -15,28 +33,6 @@ import {
   terminalFragmentShader,
   terminalVertexShader,
 } from "./shaders/terminal";
-
-import { CameraLookAtAnimator } from "./animations/CameraLookAt";
-import { WarpOverlay } from "./animations/WarpOverlay";
-import { ConfigUniformMapper } from "./ConfigUniformMapper";
-import { LifecycleController } from "./controllers/LifecycleController";
-import { SceneController } from "./controllers/SceneController";
-import { WarpController, type WarpRequest } from "./controllers/WarpController";
-import { GameObjectManager } from "./managers/GameObjectManager";
-import { LayerManager } from "./managers/LayerManager";
-import { SceneManager } from "./managers/SceneManager";
-import { ShadowManager } from "./managers/ShadowManager";
-import { StarLayerManager } from "./managers/StarLayerManager";
-import { UniformManager } from "./managers/UniformManager";
-
-import {
-  DEFAULT_GALAXY_CONFIG,
-  type GalaxyStarfieldConfig,
-  type StarfieldSceneConfig,
-  type WarpPhase,
-} from "./constants";
-
-import { Background, Clouds, Nebula } from "./fx";
 import {
   type CachedConfig,
   type CachedUniforms,

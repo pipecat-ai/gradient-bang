@@ -1,11 +1,15 @@
-import type { Toast } from "@/types/toasts";
-import { wait } from "@/utils/animation";
-import { CoinVerticalIcon } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
+
+import { CoinVerticalIcon } from "@phosphor-icons/react";
+
+import { wait } from "@/utils/animation";
+
 import { CurrencyCounter } from "../CurrencyCounter";
 import { Card, CardContent } from "../primitives/Card";
 import { Progress } from "../primitives/Progress";
 import { ToastBase, ToastTitle, ToastValue } from "./ToastBase";
+
+import type { Toast } from "@/types/toasts";
 
 interface FuelPurchasedToastProps {
   toast: Toast & { type: "warp.purchase" };

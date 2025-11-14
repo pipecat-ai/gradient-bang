@@ -1,3 +1,7 @@
+import { useEffect, useMemo, useRef, useState } from "react"
+
+import { deepmerge } from "deepmerge-ts"
+
 import type {
   LabelStyles,
   LaneStyles,
@@ -6,13 +10,11 @@ import type {
   NodeStyles,
   PortStyles,
   UIStyles,
-} from "@fx/map/MiniMap";
+} from "@/fx/map/MiniMap"
 import {
   createMiniMapController,
   DEFAULT_MINIMAP_CONFIG,
-} from "@fx/map/MiniMap";
-import { deepmerge } from "deepmerge-ts";
-import { useEffect, useMemo, useRef, useState } from "react";
+} from "@/fx/map/MiniMap"
 
 export type MiniMapConfig = Partial<
   Omit<
@@ -26,57 +28,57 @@ export type MiniMapConfig = Partial<
   >
 > & {
   nodeStyles?: {
-    [K in keyof NodeStyles]?: Partial<NodeStyles[K]>;
-  };
+    [K in keyof NodeStyles]?: Partial<NodeStyles[K]>
+  }
   laneStyles?: {
-    [K in keyof LaneStyles]?: Partial<LaneStyles[K]>;
-  };
+    [K in keyof LaneStyles]?: Partial<LaneStyles[K]>
+  }
   labelStyles?: {
-    [K in keyof LabelStyles]?: Partial<LabelStyles[K]>;
-  };
+    [K in keyof LabelStyles]?: Partial<LabelStyles[K]>
+  }
   portStyles?: {
-    [K in keyof PortStyles]?: Partial<PortStyles[K]>;
-  };
-  uiStyles?: Partial<UIStyles>;
-};
+    [K in keyof PortStyles]?: Partial<PortStyles[K]>
+  }
+  uiStyles?: Partial<UIStyles>
+}
 
-const RESIZE_DELAY = 300;
+const RESIZE_DELAY = 300
 
 const mapTopologyChanged = (
   previous: MapData | null,
   next: MapData
 ): boolean => {
-  if (!previous) return true;
-  if (previous.length !== next.length) return true;
+  if (!previous) return true
+  if (previous.length !== next.length) return true
 
-  const previousHops = new Map<number, number | null>();
+  const previousHops = new Map<number, number | null>()
   previous.forEach((sector) => {
-    previousHops.set(sector.id, sector.hops_from_center ?? null);
-  });
+    previousHops.set(sector.id, sector.hops_from_center ?? null)
+  })
 
   for (const sector of next) {
     if (!previousHops.has(sector.id)) {
-      return true;
+      return true
     }
-    const previousHop = previousHops.get(sector.id);
-    const nextHop = sector.hops_from_center ?? null;
+    const previousHop = previousHops.get(sector.id)
+    const nextHop = sector.hops_from_center ?? null
     if (previousHop !== nextHop) {
-      return true;
+      return true
     }
-    previousHops.delete(sector.id);
+    previousHops.delete(sector.id)
   }
 
-  return previousHops.size > 0;
-};
+  return previousHops.size > 0
+}
 
 const courseplotsEqual = (
   a: CoursePlot | null | undefined,
   b: CoursePlot | null | undefined
 ): boolean => {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  return a.from_sector === b.from_sector && a.to_sector === b.to_sector;
-};
+  if (a === b) return true
+  if (!a || !b) return false
+  return a.from_sector === b.from_sector && a.to_sector === b.to_sector
+}
 
 export const MiniMap = ({
   current_sector_id,
@@ -88,50 +90,50 @@ export const MiniMap = ({
   showLegend = true,
   coursePlot,
 }: {
-  current_sector_id: number;
-  config?: MiniMapConfig;
-  map_data: MapData;
-  width?: number;
-  height?: number;
-  maxDistance?: number;
-  showLegend?: boolean;
-  debug?: boolean;
-  coursePlot?: CoursePlot | null;
+  current_sector_id: number
+  config?: MiniMapConfig
+  map_data: MapData
+  width?: number
+  height?: number
+  maxDistance?: number
+  showLegend?: boolean
+  debug?: boolean
+  coursePlot?: CoursePlot | null
 }) => {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const controllerRef = useRef<MiniMapController | null>(null);
-  const prevSectorIdRef = useRef<number>(current_sector_id);
-  const previousMapRef = useRef<MapData | null>(null);
-  const lastMaxDistanceRef = useRef<number | undefined>(maxDistance);
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const controllerRef = useRef<MiniMapController | null>(null)
+  const prevSectorIdRef = useRef<number>(current_sector_id)
+  const previousMapRef = useRef<MapData | null>(null)
+  const lastMaxDistanceRef = useRef<number | undefined>(maxDistance)
   const lastConfigRef = useRef<Omit<
     MiniMapConfigBase,
     "current_sector_id"
-  > | null>(null);
-  const lastCoursePlotRef = useRef<CoursePlot | null | undefined>(coursePlot);
+  > | null>(null)
+  const lastCoursePlotRef = useRef<CoursePlot | null | undefined>(coursePlot)
 
   const [measuredSize, setMeasuredSize] = useState<{
-    width: number;
-    height: number;
-  } | null>(null);
+    width: number
+    height: number
+  } | null>(null)
 
-  const isAutoSizing = width === undefined && height === undefined;
+  const isAutoSizing = width === undefined && height === undefined
 
   // Memoize effective dimensions to prevent unnecessary effect triggers
   const effectiveWidth = useMemo(
     () => width ?? measuredSize?.width ?? 440,
     [width, measuredSize?.width]
-  );
+  )
 
   const effectiveHeight = useMemo(
     () => height ?? measuredSize?.height ?? 440,
     [height, measuredSize?.height]
-  );
+  )
 
   const lastDimensionsRef = useRef<{ width: number; height: number }>({
     width: effectiveWidth,
     height: effectiveHeight,
-  });
+  })
 
   const baseConfig = useMemo<Omit<MiniMapConfigBase, "current_sector_id">>(
     () =>
@@ -139,72 +141,72 @@ export const MiniMap = ({
         ...config,
       }) as Omit<MiniMapConfigBase, "current_sector_id">,
     [config]
-  );
+  )
 
   // ResizeObserver effect for auto-sizing
   useEffect(() => {
-    if (!isAutoSizing || !containerRef.current) return;
+    if (!isAutoSizing || !containerRef.current) return
 
-    let timeoutId: number | null = null;
+    let timeoutId: number | null = null
     const observer = new ResizeObserver((entries) => {
       if (timeoutId !== null) {
-        clearTimeout(timeoutId);
+        clearTimeout(timeoutId)
       }
       timeoutId = window.setTimeout(() => {
-        const entry = entries[0];
+        const entry = entries[0]
         if (entry) {
-          const { width, height } = entry.contentRect;
-          console.debug("[MAP] Resizing", { width, height });
-          setMeasuredSize({ width, height });
+          const { width, height } = entry.contentRect
+          console.debug("[MAP] Resizing", { width, height })
+          setMeasuredSize({ width, height })
         }
-      }, RESIZE_DELAY);
-    });
+      }, RESIZE_DELAY)
+    })
 
-    observer.observe(containerRef.current);
+    observer.observe(containerRef.current)
 
     return () => {
       if (timeoutId !== null) {
-        clearTimeout(timeoutId);
+        clearTimeout(timeoutId)
       }
-      observer.disconnect();
-    };
-  }, [isAutoSizing]);
+      observer.disconnect()
+    }
+  }, [isAutoSizing])
 
   useEffect(() => {
-    const controller = controllerRef.current;
-    if (!controller) return; // Not initialized yet
+    const controller = controllerRef.current
+    if (!controller) return // Not initialized yet
 
     const dimensionsChanged =
       lastDimensionsRef.current.width !== effectiveWidth ||
-      lastDimensionsRef.current.height !== effectiveHeight;
+      lastDimensionsRef.current.height !== effectiveHeight
 
     if (dimensionsChanged) {
       console.debug("[GAME MINIMAP] Dimensions changed, updating", {
         from: lastDimensionsRef.current,
         to: { width: effectiveWidth, height: effectiveHeight },
-      });
+      })
 
       controller.updateProps({
         width: effectiveWidth,
         height: effectiveHeight,
-      });
-      controller.render();
+      })
+      controller.render()
 
       lastDimensionsRef.current = {
         width: effectiveWidth,
         height: effectiveHeight,
-      };
+      }
     }
-  }, [effectiveWidth, effectiveHeight]);
+  }, [effectiveWidth, effectiveHeight])
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const canvas = canvasRef.current
+    if (!canvas) return
 
-    let controller = controllerRef.current;
+    let controller = controllerRef.current
 
     if (!controller) {
-      console.debug("[GAME MINIMAP] Initializing MiniMap");
+      console.debug("[GAME MINIMAP] Initializing MiniMap")
 
       controller = createMiniMapController(canvas, {
         width: lastDimensionsRef.current.width,
@@ -213,35 +215,32 @@ export const MiniMap = ({
         config: { ...baseConfig, current_sector_id },
         maxDistance,
         coursePlot,
-      });
-      controllerRef.current = controller;
-      prevSectorIdRef.current = current_sector_id;
-      previousMapRef.current = map_data;
-      lastMaxDistanceRef.current = maxDistance;
-      lastConfigRef.current = baseConfig;
-      lastCoursePlotRef.current = coursePlot;
-      return;
+      })
+      controllerRef.current = controller
+      prevSectorIdRef.current = current_sector_id
+      previousMapRef.current = map_data
+      lastMaxDistanceRef.current = maxDistance
+      lastConfigRef.current = baseConfig
+      lastCoursePlotRef.current = coursePlot
+      return
     }
 
-    console.debug("[GAME MINIMAP] Updating MiniMap");
+    console.debug("[GAME MINIMAP] Updating MiniMap")
 
-    const topologyChanged = mapTopologyChanged(
-      previousMapRef.current,
-      map_data
-    );
-    const sectorChanged = current_sector_id !== prevSectorIdRef.current;
-    const maxDistanceChanged = lastMaxDistanceRef.current !== maxDistance;
-    const configChanged = lastConfigRef.current !== baseConfig;
+    const topologyChanged = mapTopologyChanged(previousMapRef.current, map_data)
+    const sectorChanged = current_sector_id !== prevSectorIdRef.current
+    const maxDistanceChanged = lastMaxDistanceRef.current !== maxDistance
+    const configChanged = lastConfigRef.current !== baseConfig
     const coursePlotChanged = !courseplotsEqual(
       lastCoursePlotRef.current,
       coursePlot
-    );
+    )
     controller.updateProps({
       maxDistance,
       ...(configChanged && { config: { ...baseConfig, current_sector_id } }),
       data: map_data,
       coursePlot,
-    });
+    })
 
     if (
       sectorChanged ||
@@ -249,26 +248,26 @@ export const MiniMap = ({
       maxDistanceChanged ||
       coursePlotChanged
     ) {
-      console.debug("[GAME MINIMAP] Moving to sector", current_sector_id);
-      controller.moveToSector(current_sector_id, map_data);
-      prevSectorIdRef.current = current_sector_id;
+      console.debug("[GAME MINIMAP] Moving to sector", current_sector_id)
+      controller.moveToSector(current_sector_id, map_data)
+      prevSectorIdRef.current = current_sector_id
     } else if (configChanged) {
-      console.debug("[GAME MINIMAP] Rendering MiniMap");
-      controller.render();
+      console.debug("[GAME MINIMAP] Rendering MiniMap")
+      controller.render()
     }
 
-    previousMapRef.current = map_data;
-    lastMaxDistanceRef.current = maxDistance;
-    lastConfigRef.current = baseConfig;
-    lastCoursePlotRef.current = coursePlot;
-  }, [current_sector_id, map_data, maxDistance, baseConfig, coursePlot]);
+    previousMapRef.current = map_data
+    lastMaxDistanceRef.current = maxDistance
+    lastConfigRef.current = baseConfig
+    lastCoursePlotRef.current = coursePlot
+  }, [current_sector_id, map_data, maxDistance, baseConfig, coursePlot])
 
   useEffect(() => {
     return () => {
-      console.debug("[GAME MINIMAP] Cleaning up MiniMap controller");
-      controllerRef.current = null;
-    };
-  }, []);
+      console.debug("[GAME MINIMAP] Cleaning up MiniMap controller")
+      controllerRef.current = null
+    }
+  }, [])
 
   return (
     <div
@@ -424,7 +423,7 @@ export const MiniMap = ({
         </div>
       )}
     </div>
-  );
-};
+  )
+}
 
-export default MiniMap;
+export default MiniMap

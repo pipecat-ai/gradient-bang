@@ -1,6 +1,8 @@
-import useGameStore from "@/stores/game";
-import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef } from "react";
+
+import { AnimatePresence, motion } from "motion/react";
+
+import useGameStore from "@/stores/game";
 
 export const JoinStatus = ({ handleStart }: { handleStart: () => void }) => {
   const gameState = useGameStore.use.gameState();

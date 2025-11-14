@@ -1,8 +1,11 @@
-import usePlaySound from "@/hooks/usePlaySound";
-import { cn } from "@/utils/tailwind";
+import { useEffect } from "react";
+
 import { cva } from "class-variance-authority";
 import { motion } from "motion/react";
-import { useEffect } from "react";
+
+import usePlaySound from "@/hooks/usePlaySound";
+import { cn } from "@/utils/tailwind";
+
 import { Separator } from "../primitives/Separator";
 
 interface ToastBaseProps {

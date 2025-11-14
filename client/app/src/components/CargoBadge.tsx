@@ -1,34 +1,34 @@
-import { Badge, BadgeTitle } from "@/components/primitives/Badge";
-import { Progress } from "@/components/primitives/Progress";
-import { cn } from "@/utils/tailwind";
-import useGameStore from "@stores/game";
+import { Badge, BadgeTitle } from "@/components/primitives/Badge"
+import { Progress } from "@/components/primitives/Progress"
+import useGameStore from "@/stores/game"
+import { cn } from "@/utils/tailwind"
 
 const incrementCx =
-  "bg-warning-background stripe-bar stripe-bar-warning stripe-bar-8 stripe-bar-animate-1";
+  "bg-warning-background stripe-bar stripe-bar-warning stripe-bar-8 stripe-bar-animate-1"
 
 const decrementCx =
-  "bg-success-background stripe-bar stripe-bar-success stripe-bar-8 stripe-bar-animate-1 stripe-bar-reverse";
+  "bg-success-background stripe-bar stripe-bar-success stripe-bar-8 stripe-bar-animate-1 stripe-bar-reverse"
 
 export const CargoBadge = ({ className }: { className?: string }) => {
-  const ship = useGameStore.use.ship();
+  const ship = useGameStore.use.ship()
 
   const cargoPercentage =
     (Math.max(0, (ship.cargo_capacity ?? 0) - (ship.empty_holds ?? 0)) /
       (ship.cargo_capacity ?? 0)) *
-    100;
+    100
 
   const color =
     cargoPercentage >= 95
       ? "destructive"
       : cargoPercentage >= 85
-      ? "warning"
-      : "primary";
+        ? "warning"
+        : "primary"
 
   const iCX = `${
     color === "destructive"
       ? "bg-destructive-background stripe-bar stripe-bar-destructive stripe-bar-8 stripe-bar-animate-1"
       : incrementCx
-  }`;
+  }`
 
   return (
     <Badge
@@ -61,5 +61,5 @@ export const CargoBadge = ({ className }: { className?: string }) => {
         />
       </div>
     </Badge>
-  );
-};
+  )
+}

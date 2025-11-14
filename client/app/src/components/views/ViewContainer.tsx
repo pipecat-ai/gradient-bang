@@ -1,15 +1,15 @@
 import { useCallback, useState } from "react"
-import { useControls } from "leva"
+
 import { AnimatePresence, motion } from "motion/react"
 
 import { useGameContext } from "@/hooks/useGameContext"
+import useGameStore from "@/stores/game"
 import { checkAssetsAreCached } from "@/utils/cache"
-import useGameStore from "@stores/game"
-import { Error } from "@views/Error"
-import { Game } from "@views/Game"
-import { JoinStatus } from "@views/JoinStatus"
-import { Preload } from "@views/Preload"
-import { Title } from "@views/Title"
+import { Error } from "@/views/Error"
+import { Game } from "@/views/Game"
+import { JoinStatus } from "@/views/JoinStatus"
+import { Preload } from "@/views/Preload"
+import { Title } from "@/views/Title"
 
 export const ViewContainer = ({ error }: { error?: string | null }) => {
   const settings = useGameStore.use.settings()
@@ -18,13 +18,6 @@ export const ViewContainer = ({ error }: { error?: string | null }) => {
   const [viewState, setViewState] = useState<"title" | "preload" | "game">(
     "title"
   )
-
-  useControls("ViewContainer", {
-    viewState: {
-      value: viewState,
-      onChange: setViewState,
-    },
-  })
 
   const handleViewStateChange = useCallback(
     (state: "title" | "preload" | "game") => {

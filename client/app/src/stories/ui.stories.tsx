@@ -1,7 +1,12 @@
-import { CurrencyCounter } from "@/components/CurrencyCounter";
-import { NumericalBadge } from "@/components/NumericalBadge";
-import { Badge } from "@/components/primitives/Badge";
-import { Button } from "@/components/primitives/Button";
+import React, { useState } from "react"
+
+import { Dialog } from "radix-ui"
+import type { Story } from "@ladle/react"
+
+import { CurrencyCounter } from "@/components/CurrencyCounter"
+import { NumericalBadge } from "@/components/NumericalBadge"
+import { Badge } from "@/components/primitives/Badge"
+import { Button } from "@/components/primitives/Button"
 import {
   Card,
   CardContent,
@@ -9,25 +14,22 @@ import {
   CardHeader,
   CardScrollable,
   CardTitle,
-} from "@/components/primitives/Card";
-import { Progress } from "@/components/primitives/Progress";
-import { ScrollArea } from "@/components/primitives/ScrollArea";
-import { Separator } from "@/components/primitives/Separator";
-import { ScreenContainer } from "@/components/screens/ScreenContainer";
-import { ScreenMenu } from "@/components/screens/ScreenMenu";
-import { TextInputControl } from "@/components/TextInputControl";
-import { UserMicControl } from "@/components/UserMicControl";
-import Error from "@/components/views/Error";
-import Game from "@/components/views/Game";
-import JoinStatus from "@/components/views/JoinStatus";
-import { Preload } from "@/components/views/Preload";
-import ViewContainer from "@/components/views/ViewContainer";
-import useGameStore from "@/stores/game";
-import { AnimatedFrame } from "@fx/frame";
-import { ActivityStream } from "@hud/ActivityStream";
-import type { Story } from "@ladle/react";
-import { Dialog } from "radix-ui";
-import React, { useState } from "react";
+} from "@/components/primitives/Card"
+import { Progress } from "@/components/primitives/Progress"
+import { ScrollArea } from "@/components/primitives/ScrollArea"
+import { Separator } from "@/components/primitives/Separator"
+import { ScreenContainer } from "@/components/screens/ScreenContainer"
+import { ScreenMenu } from "@/components/screens/ScreenMenu"
+import { TextInputControl } from "@/components/TextInputControl"
+import { UserMicControl } from "@/components/UserMicControl"
+import Error from "@/components/views/Error"
+import Game from "@/components/views/Game"
+import JoinStatus from "@/components/views/JoinStatus"
+import { Preload } from "@/components/views/Preload"
+import ViewContainer from "@/components/views/ViewContainer"
+import { AnimatedFrame } from "@/fx/frame"
+import { ActivityStream } from "@/hud/ActivityStream"
+import useGameStore from "@/stores/game"
 
 export const PreloadStory: Story = () => (
   <div className="relative w-full h-full">
@@ -37,20 +39,20 @@ export const PreloadStory: Story = () => (
       readyText="LOADING (T-24)"
     />
   </div>
-);
+)
 
 PreloadStory.meta = {
   disconnectedStory: true,
-};
+}
 export const DotStory: Story = () => (
   <div className="relative w-full h-screen">
     <div className="w-full h-full bg-dotted-sm bg-center">DOTS</div>
   </div>
-);
+)
 
 DotStory.meta = {
   disconnectedStory: true,
-};
+}
 
 export const ScreenUI: Story = () => (
   <div className="relative w-full h-screen flex flex-col items-center justify-center bg-slate-800">
@@ -58,25 +60,25 @@ export const ScreenUI: Story = () => (
     <ScreenContainer />
     <AnimatedFrame />
   </div>
-);
+)
 
 ScreenUI.meta = {
   disconnectedStory: true,
-};
+}
 
 export const ScreenMenuUI: Story = () => (
   <div className="relative w-full h-screen">
     <ScreenMenu />
   </div>
-);
+)
 
 ScreenMenuUI.meta = {
   disconnectedStory: true,
-};
+}
 
 export const GameUI: Story = () => {
-  const addToast = useGameStore.use.addToast();
-  const addEntry = useGameStore.use.addActivityLogEntry();
+  const addToast = useGameStore.use.addToast()
+  const addEntry = useGameStore.use.addActivityLogEntry()
 
   return (
     <div className="relative w-full h-screen">
@@ -88,7 +90,7 @@ export const GameUI: Story = () => {
             onClick={() => {
               addEntry({
                 ...DEBUG_ENTRIES[0],
-              });
+              })
             }}
           >
             Add Movement
@@ -97,7 +99,7 @@ export const GameUI: Story = () => {
             onClick={() => {
               addEntry({
                 ...DEBUG_ENTRIES[1],
-              });
+              })
             }}
           >
             DM John Doe
@@ -106,7 +108,7 @@ export const GameUI: Story = () => {
             onClick={() => {
               addEntry({
                 ...DEBUG_ENTRIES[2],
-              });
+              })
             }}
           >
             DM Foo Bar
@@ -124,7 +126,7 @@ export const GameUI: Story = () => {
                 new_credits: 890,
                 prev_credits: 1000,
               },
-            });
+            })
           }}
         >
           Warp Purchase Toast
@@ -142,7 +144,7 @@ export const GameUI: Story = () => {
                 credits_in_bank_before: 1000,
                 credits_in_bank_after: 2000,
               },
-            });
+            })
           }}
         >
           Bank Transaction Toast
@@ -176,7 +178,7 @@ export const GameUI: Story = () => {
                   credits: 1000,
                 },
               },
-            });
+            })
           }}
         >
           Received Credits Toast
@@ -210,7 +212,7 @@ export const GameUI: Story = () => {
                   warp_power: 1000,
                 },
               },
-            });
+            })
           }}
         >
           Sent Warp Power Toast
@@ -239,7 +241,7 @@ export const GameUI: Story = () => {
                   neuro_symbolics: 38,
                 },
               },
-            });
+            })
           }}
         >
           Trade Purchase Toast
@@ -268,7 +270,7 @@ export const GameUI: Story = () => {
                   neuro_symbolics: 38,
                 },
               },
-            });
+            })
           }}
         >
           Trade Sale Toast
@@ -292,7 +294,7 @@ export const GameUI: Story = () => {
                   },
                 },
               },
-            });
+            })
           }}
         >
           Salvage Collected Toast
@@ -314,44 +316,44 @@ export const GameUI: Story = () => {
                   credits: 100,
                 },
               },
-            });
+            })
           }}
         >
           Salvage Created Toast
         </Button>
       </div>
     </div>
-  );
-};
+  )
+}
 
 GameUI.meta = {
   disconnectedStory: true,
-};
+}
 
 export const ViewContainerUI: Story = () => (
   <div className="relative w-full h-screen">
     <ViewContainer />
   </div>
-);
+)
 
 ViewContainerUI.meta = {
   disconnectedStory: true,
-};
+}
 
 export const JoinStatusStory: Story = () => (
   <div className="relative w-full h-screen">
     <JoinStatus handleStart={() => {}} />
     <AnimatedFrame />
   </div>
-);
+)
 
 JoinStatusStory.meta = {
   disconnectedStory: true,
-};
+}
 
 const tags = Array.from({ length: 50 }).map(
   (_, i, a) => `v1.2.0-beta.${a.length - i}`
-);
+)
 
 export const ScrollAreaDemo: Story = () => {
   return (
@@ -366,12 +368,12 @@ export const ScrollAreaDemo: Story = () => {
         ))}
       </div>
     </ScrollArea>
-  );
-};
+  )
+}
 
 ScrollAreaDemo.meta = {
   disconnectedStory: true,
-};
+}
 
 export const ScrollableDialog: Story = () => {
   return (
@@ -404,12 +406,12 @@ export const ScrollableDialog: Story = () => {
         </Dialog.Overlay>
       </Dialog.Portal>
     </Dialog.Root>
-  );
-};
+  )
+}
 
 ScrollableDialog.meta = {
   disconnectedStory: true,
-};
+}
 
 export const ScrollableFooterDialog: Story = () => {
   return (
@@ -451,12 +453,12 @@ export const ScrollableFooterDialog: Story = () => {
         </Dialog.Overlay>
       </Dialog.Portal>
     </Dialog.Root>
-  );
-};
+  )
+}
 
 ScrollableFooterDialog.meta = {
   disconnectedStory: true,
-};
+}
 
 export const CardStory: Story = () => (
   <div className="flex flex-col gap-4">
@@ -483,17 +485,17 @@ export const CardStory: Story = () => (
       <CardContent>Custom stripe size override</CardContent>
     </Card>
   </div>
-);
+)
 
 CardStory.meta = {
   disconnectedStory: true,
-};
+}
 
-export const ErrorCardStory: Story = () => <Error>Connection Error</Error>;
+export const ErrorCardStory: Story = () => <Error>Connection Error</Error>
 
 ErrorCardStory.meta = {
   disconnectedStory: true,
-};
+}
 
 export const ButtonStory: Story = () => (
   <div className="flex flex-col gap-4">
@@ -509,11 +511,11 @@ export const ButtonStory: Story = () => (
       Loading
     </Button>
   </div>
-);
+)
 
 ButtonStory.meta = {
   disconnectedStory: true,
-};
+}
 
 export const BadgeStory: Story = () => (
   <div className="flex flex-col gap-4">
@@ -546,19 +548,19 @@ export const BadgeStory: Story = () => (
       Warp: <Progress value={50} color="fuel" />
     </Badge>
   </div>
-);
+)
 
 BadgeStory.meta = {
   disconnectedStory: true,
-};
+}
 
 export const ProgressStory: Story = () => {
-  const [progress, setProgress] = useState(0);
+  const [progress, setProgress] = useState(0)
 
   const incrementCx =
-    "bg-green-800 stripe-bar stripe-bar-green-500 stripe-bar-20 stripe-bar-animate-1";
+    "bg-green-800 stripe-bar stripe-bar-green-500 stripe-bar-20 stripe-bar-animate-1"
   const decrementCx =
-    "bg-red-900 stripe-bar stripe-bar-red-500 stripe-bar-20 stripe-bar-animate-1 stripe-bar-reverse";
+    "bg-red-900 stripe-bar stripe-bar-red-500 stripe-bar-20 stripe-bar-animate-1 stripe-bar-reverse"
 
   return (
     <div className="flex flex-col gap-4">
@@ -578,15 +580,15 @@ export const ProgressStory: Story = () => {
       <Button onClick={() => setProgress(progress + 10)}>Increment</Button>
       <Button onClick={() => setProgress(progress - 10)}>Decrement</Button>
     </div>
-  );
-};
+  )
+}
 
 ProgressStory.meta = {
   disconnectedStory: true,
-};
+}
 
 export const NumberCounter: Story = () => {
-  const [count, setCount] = useState(0);
+  const [count, setCount] = useState(0)
 
   return (
     <div className="flex flex-col gap-4">
@@ -618,36 +620,36 @@ export const NumberCounter: Story = () => {
         Badge
       </NumericalBadge>
     </div>
-  );
-};
+  )
+}
 
 NumberCounter.meta = {
   disconnectedStory: true,
-};
+}
 
 export const UserMicControlStory: Story = () => (
   <div className="flex flex-col gap-4">
     <UserMicControl disabled />
   </div>
-);
+)
 
 UserMicControlStory.meta = {
   enableMic: true,
-};
+}
 
 export const TextInputControlStory: Story = () => (
   <div className="flex flex-col gap-4">
     <TextInputControl
       onSend={(text) => {
-        console.log(text);
+        console.log(text)
       }}
     />
   </div>
-);
+)
 
 TextInputControlStory.meta = {
   disconnectedStory: true,
-};
+}
 
 const DEBUG_ENTRIES = [
   {
@@ -668,10 +670,10 @@ const DEBUG_ENTRIES = [
       from_name: "Foo Bar",
     },
   },
-];
+]
 
 export const ActivityStreamStory: Story = () => {
-  const addEntry = useGameStore.use.addActivityLogEntry();
+  const addEntry = useGameStore.use.addActivityLogEntry()
   return (
     <div className="flex flex-col gap-4">
       <div className="h-[400px] p-4 bg-red-500 w-1/2">
@@ -682,7 +684,7 @@ export const ActivityStreamStory: Story = () => {
           onClick={() => {
             addEntry({
               ...DEBUG_ENTRIES[0],
-            });
+            })
           }}
         >
           Add Movement
@@ -691,7 +693,7 @@ export const ActivityStreamStory: Story = () => {
           onClick={() => {
             addEntry({
               ...DEBUG_ENTRIES[1],
-            });
+            })
           }}
         >
           DM John Doe
@@ -700,16 +702,16 @@ export const ActivityStreamStory: Story = () => {
           onClick={() => {
             addEntry({
               ...DEBUG_ENTRIES[2],
-            });
+            })
           }}
         >
           DM Foo Bar
         </Button>
       </div>
     </div>
-  );
-};
+  )
+}
 
 ActivityStreamStory.meta = {
   disconnectedStory: true,
-};
+}

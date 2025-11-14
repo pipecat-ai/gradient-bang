@@ -19,13 +19,13 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
-      "@assets/*": ["./src/assets/*"],
-      "@fx/*": ["./src/fx/*"],
-      "@hud/*": ["./src/components/hud/*"],
-      "@views/*": ["./src/components/views/*"],
-      "@screens/*": ["./src/components/screens/*"],
-      "@stores/*": ["./src/stores/*"],
-      "@mocks/*": ["./src/mocks/*"],
+      "@/assets/*": ["./src/assets/*"],
+      "@/fx/*": ["./src/fx/*"],
+      "@/hud/*": ["./src/components/hud/*"],
+      "@/views/*": ["./src/components/views/*"],
+      "@/screens/*": ["./src/components/screens/*"],
+      "@/stores/*": ["./src/stores/*"],
+      "@/mocks/*": ["./src/mocks/*"],
     },
 
     /* Linting */

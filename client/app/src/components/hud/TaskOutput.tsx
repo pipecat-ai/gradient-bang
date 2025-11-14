@@ -1,5 +1,5 @@
-import { TaskStatusBadge } from "@/components/TaskStatusBadge";
-import { TaskOutputStream } from "@hud/TaskOutputStream";
+import { TaskStatusBadge } from "@/components/TaskStatusBadge"
+import { TaskOutputStream } from "@/hud/TaskOutputStream"
 
 export const TaskOutput = () => {
   return (
@@ -7,5 +7,5 @@ export const TaskOutput = () => {
       <TaskOutputStream />
       <TaskStatusBadge />
     </div>
-  );
-};
+  )
+}

@@ -1,6 +1,8 @@
+import { CheckIcon } from "@phosphor-icons/react";
+
 import useGameStore from "@/stores/game";
 import { formatDate, formatTimeAgoOrDate } from "@/utils/date";
-import { CheckIcon } from "@phosphor-icons/react";
+
 import { Card, CardContent } from "./primitives/Card";
 import {
   Table,

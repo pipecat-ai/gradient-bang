@@ -1,5 +1,6 @@
-import { Badge } from "@/components/primitives/Badge";
 import { usePipecatConnectionState } from "@pipecat-ai/voice-ui-kit";
+
+import { Badge } from "@/components/primitives/Badge";
 
 export const ConnectionStatusBadge = () => {
   const { state } = usePipecatConnectionState();

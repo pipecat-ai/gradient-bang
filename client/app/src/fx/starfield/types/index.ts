@@ -76,6 +76,7 @@ export interface LookAtOptions {
   [key: string]: unknown;
 }
 
+export type { RGBAColor, RGBColor } from "./color";
 export type {
   GameObjectBaseConfig,
   GameObjectConfig,
@@ -88,7 +89,4 @@ export type {
   ObjectTypeData,
   SelectionResult,
 } from "./GameObject";
-
-export type { RGBAColor, RGBColor } from "./color";
-
 export type { InitializeSceneOptions, WarpOptions } from "./Warp";

@@ -1,7 +1,5 @@
-import { CaptainsLogPanel } from "@/components/CaptainsLogPanel";
-import { CombatTimerBadge } from "@/components/CombatTimerBadge";
-import { useGameContext } from "@/hooks/useGameContext";
-import useGameStore from "@/stores/game";
+import { useState } from "react";
+
 import type { Story } from "@ladle/react";
 import {
   Button,
@@ -13,7 +11,10 @@ import {
   SelectValue,
   TextInput,
 } from "@pipecat-ai/voice-ui-kit";
-import { useState } from "react";
+
+import { CombatTimerBadge } from "@/components/CombatTimerBadge";
+import { useGameContext } from "@/hooks/useGameContext";
+import useGameStore from "@/stores/game";
 
 export const Combat: Story = () => {
   const uiState = useGameStore.use.uiState();
@@ -110,10 +111,6 @@ export const Combat: Story = () => {
             <li>Current Time: {activeCombatSession?.current_time}</li>
           </ul>
         )}
-      </div>
-      <div className="story-card">
-        <h3 className="story-heading">Combat Session</h3>
-        <CaptainsLogPanel />
       </div>
     </>
   );

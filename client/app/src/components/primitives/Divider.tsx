@@ -1,7 +1,7 @@
 import { cva, type VariantProps } from "class-variance-authority"
+import { PlusIcon } from "@phosphor-icons/react"
 
 import { cn } from "@/utils/tailwind"
-import { PlusIcon } from "@phosphor-icons/react"
 
 const dividerVariants = cva("relative items-center", {
   variants: {

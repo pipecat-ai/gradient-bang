@@ -1,9 +1,10 @@
-import { cn } from "@/utils/tailwind";
-import useGameStore from "@stores/game";
-import { CargoResourceBadge } from "./CargoResourceBadge";
+import useGameStore from "@/stores/game"
+import { cn } from "@/utils/tailwind"
+
+import { CargoResourceBadge } from "./CargoResourceBadge"
 
 export const CargoHoldsBadge = ({ className }: { className?: string }) => {
-  const ship = useGameStore.use.ship();
+  const ship = useGameStore.use.ship()
 
   return (
     <div className={cn("flex flex-row gap-1 items-center", className)}>
@@ -20,5 +21,5 @@ export const CargoHoldsBadge = ({ className }: { className?: string }) => {
         value={ship?.cargo?.neuro_symbolics ?? 0}
       />
     </div>
-  );
-};
+  )
+}

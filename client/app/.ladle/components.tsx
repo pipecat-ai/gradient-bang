@@ -1,20 +1,21 @@
 import React, { useEffect, useMemo } from "react";
 
-import { UserMicControl } from "@/components/UserMicControl";
 import type { GlobalProvider, Meta } from "@ladle/react";
+import { PipecatClient } from "@pipecat-ai/client-js";
 import {
   PipecatAppBase,
   usePipecatConnectionState,
 } from "@pipecat-ai/voice-ui-kit";
-import { Button } from "../src/components/primitives/Button";
-
-import { GameProvider } from "./../src/GameContext";
-import Error from "./../src/components/views/Error";
-import { MessageSelect } from "./MessageSelect";
 
 import { DotDivider } from "@/components/primitives/DotDivider";
-import { PipecatClient } from "@pipecat-ai/client-js";
+import { UserMicControl } from "@/components/UserMicControl";
+
+import { Button } from "../src/components/primitives/Button";
 import useGameStore from "../src/stores/game";
+import Error from "./../src/components/views/Error";
+import { GameProvider } from "./../src/GameContext";
+import { MessageSelect } from "./MessageSelect";
+
 import "./global.css";
 
 const StoryWrapper = ({

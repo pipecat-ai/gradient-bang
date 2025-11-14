@@ -1,4 +1,5 @@
 import * as THREE from "three";
+
 import type { GalaxyStarfieldConfig } from "../constants";
 import { UniformManager } from "./UniformManager";
 

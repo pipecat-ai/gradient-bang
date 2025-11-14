@@ -1,11 +1,13 @@
-import { Input } from "./primitives/Input";
+import { useState } from "react";
 
-import { wait } from "@/utils/animation";
 import { PaperPlaneRightIcon } from "@phosphor-icons/react";
 import { usePipecatClientTransportState } from "@pipecat-ai/client-react";
 import { cn } from "@pipecat-ai/voice-ui-kit";
-import { useState } from "react";
+
+import { wait } from "@/utils/animation";
+
 import { Button } from "./primitives/Button";
+import { Input } from "./primitives/Input";
 
 const THROTTLE_DELAY_MS = 2000;
 

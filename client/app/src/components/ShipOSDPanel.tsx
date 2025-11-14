@@ -1,5 +1,6 @@
 import { PanelTitle } from "@/components/PanelTitle";
 import { Card, CardContent, CardHeader } from "@/components/primitives/Card";
+
 import { ShipOSDVisualizer } from "./ShipOSDVisualizer";
 
 export const ShipOSDPanel = () => {

@@ -1,15 +1,17 @@
-import { Card, CardContent } from "@/components/primitives/Card";
+import { useCallback, useState } from "react";
+
+import { nanoid } from "nanoid";
+import Markdown from "react-markdown";
 import { PlugsIcon } from "@phosphor-icons/react";
 import {
-  RTVIEvent,
   type BotLLMTextData,
+  RTVIEvent,
   type TranscriptData,
 } from "@pipecat-ai/client-js";
 import { useRTVIClientEvent } from "@pipecat-ai/client-react";
 import { usePipecatConnectionState } from "@pipecat-ai/voice-ui-kit";
-import { nanoid } from "nanoid";
-import { useCallback, useState } from "react";
-import Markdown from "react-markdown";
+
+import { Card, CardContent } from "@/components/primitives/Card";
 
 const Sender = {
   AGENT: "Ship AI",

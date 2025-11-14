@@ -1,9 +1,11 @@
 "use client";
 
-import { cva, type VariantProps } from "class-variance-authority";
 import { useMemo } from "react";
 
+import { cva, type VariantProps } from "class-variance-authority";
+
 import { cn } from "@/utils/tailwind";
+
 import { Label } from "./Label";
 import { Separator } from "./Separator";
 

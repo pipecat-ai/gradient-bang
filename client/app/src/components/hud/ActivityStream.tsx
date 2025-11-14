@@ -1,8 +1,9 @@
-import { Card, CardContent } from "@/components/primitives/Card";
-import useGameStore from "@/stores/game";
+import * as React from "react";
+
 import { AnimatePresence, motion } from "motion/react";
 
-import * as React from "react";
+import { Card, CardContent } from "@/components/primitives/Card";
+import useGameStore from "@/stores/game";
 
 const MAX_VISIBLE_LOG_ENTRIES = 5;
 const STACK_PROCESS_WINDOW = 200;
