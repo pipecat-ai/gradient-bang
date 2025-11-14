@@ -6,7 +6,6 @@ during integration tests.
 """
 
 import asyncio
-import signal
 import subprocess
 import time
 from pathlib import Path
@@ -14,10 +13,7 @@ from typing import Optional
 
 import httpx
 
-TESTS_DIR = Path(__file__).resolve().parent.parent
-PROJECT_ROOT = TESTS_DIR.parent
-DEFAULT_WORLD_DATA_DIR = str(TESTS_DIR / "test-world-data")
-
+from gradientbang.tests.config import PROJECT_ROOT, TEST_WORLD_DATA_DIR as DEFAULT_WORLD_DATA_DIR, TEST_LOG_DIR
 
 def start_test_server(
     port: int = 8002,
@@ -67,7 +63,7 @@ def start_test_server(
     }
 
     # Start the server process (log output to file for debugging)
-    log_file = PROJECT_ROOT / "logs" / f"test-server-{port}.log"
+    log_file = TEST_LOG_DIR / f"test-server-{port}.log"
     log_file.parent.mkdir(parents=True, exist_ok=True)
     log_handle = open(log_file, "w")
 

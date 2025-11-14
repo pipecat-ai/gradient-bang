@@ -23,8 +23,9 @@ pytestmark = [
     pytest.mark.timeout(60),
 ]
 
-TESTS_DIR = Path(__file__).resolve().parents[1]
-SHIPS_PATH = TESTS_DIR / "test-world-data" / "ships.json"
+from gradientbang.tests.config import TEST_WORLD_DATA_DIR as DEFAULT_WORLD_DATA_DIR
+
+SHIPS_PATH = DEFAULT_WORLD_DATA_DIR / "ships.json"
 
 
 @pytest.fixture(autouse=True)

@@ -26,9 +26,7 @@ from gradientbang.tests.helpers.corporation_utils import (
 )
 from gradientbang.utils.api_client import AsyncGameClient, RPCError
 
-TESTS_DIR = Path(__file__).resolve().parents[1]
-TEST_WORLD_DATA_DIR = TESTS_DIR / "test-world-data"
-
+from gradientbang.tests.config import TEST_WORLD_DATA_DIR
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
 

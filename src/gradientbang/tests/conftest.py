@@ -9,9 +9,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Awaitable, Callable, List, Optional
 
-TESTS_DIR = Path(__file__).resolve().parent
-WORLD_DATA_DIR = TESTS_DIR / "test-world-data"
-
+from gradientbang.tests.config import TEST_WORLD_DATA_DIR
 
 def _ensure_openai_stub() -> None:
     if "openai" in sys.modules:
@@ -300,12 +298,12 @@ def setup_test_characters():
     """
     register_all_test_characters()
 
-    corps_dir = WORLD_DATA_DIR / "corporations"
+    corps_dir = TEST_WORLD_DATA_DIR / "corporations"
     if corps_dir.exists():
         for corp_file in corps_dir.glob("*.json"):
             corp_file.unlink()
 
-    registry_path = WORLD_DATA_DIR / "corporation_registry.json"
+    registry_path = TEST_WORLD_DATA_DIR / "corporation_registry.json"
     registry_payload = {"by_name": {}}
     registry_path.write_text(json.dumps(registry_payload, indent=2))
 
@@ -377,7 +375,7 @@ async def test_server(server_url):
         The test_server fixture ensures server is running for entire session
     """
     # Start the server
-    process = start_test_server(port=8002, world_data_dir=str(WORLD_DATA_DIR))
+    process = start_test_server(port=8002, world_data_dir=str(TEST_WORLD_DATA_DIR))
 
     try:
         # Wait for server to be ready (pass process for better error messages)

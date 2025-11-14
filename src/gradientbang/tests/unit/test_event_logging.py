@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from server_logging.event_log import EventLogger, EventRecord, MAX_QUERY_RESULTS
+from gradientbang.game_server.server_logging.event_log import EventLogger, EventRecord, MAX_QUERY_RESULTS
 from gradientbang.game_server.rpc.events import EventDispatcher, EventLogContext
 
 

@@ -11,8 +11,7 @@ from typing import Any, Dict
 
 from gradientbang.tests.helpers.combat_helpers import create_test_character_knowledge
 
-TESTS_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_WORLD_DATA_DIR = TESTS_DIR / "test-world-data"
+from gradientbang.tests.config import TEST_WORLD_DATA_DIR as DEFAULT_WORLD_DATA_DIR
 
 
 # All test character IDs found in integration tests

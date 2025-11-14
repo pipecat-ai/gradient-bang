@@ -14,11 +14,11 @@ from gradientbang.tests.helpers.corporation_utils import (
 )
 from gradientbang.utils.api_client import RPCError
 
+from gradientbang.tests.config import TEST_WORLD_DATA_DIR as DEFAULT_WORLD_DATA_DIR
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
 
-TESTS_DIR = Path(__file__).resolve().parents[1]
-SHIPS_PATH = TESTS_DIR / "test-world-data" / "ships.json"
+SHIPS_PATH = DEFAULT_WORLD_DATA_DIR / "ships.json"
 
 
 @pytest.fixture(autouse=True)

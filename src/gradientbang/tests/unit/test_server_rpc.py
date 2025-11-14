@@ -5,7 +5,7 @@ import pytest
 from fastapi import WebSocketDisconnect
 
 from gradientbang.game_server.rpc.events import event_dispatcher
-from server import RPC_HANDLERS, websocket_endpoint
+from gradientbang.game_server.server import RPC_HANDLERS, websocket_endpoint
 
 
 class DummyWebSocket:
