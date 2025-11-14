@@ -1,20 +1,21 @@
-import { Progress } from "@/components/primitives/Progress";
-import { useAssetPreloader } from "@/hooks/useAssetPreloader";
-import { wait } from "@/utils/animation";
-import { useEffect } from "react";
+import { useEffect } from "react"
 
-import { cn } from "@/utils/tailwind";
-import Splash from "@assets/images/splash-1.png";
-import PlanetLoader from "@assets/videos/planet-loader.mp4";
-import { Badge, BadgeTitle } from "../primitives/Badge";
-import { Card, CardContent } from "../primitives/Card";
-import { DotDivider } from "../primitives/DotDivider";
-import { Separator } from "../primitives/Separator";
+import { Progress } from "@/components/primitives/Progress"
+import { useAssetPreloader } from "@/hooks/useAssetPreloader"
+import { wait } from "@/utils/animation"
+import { cn } from "@/utils/tailwind"
+import Splash from "@assets/images/splash-1.png"
+import PlanetLoader from "@assets/videos/planet-loader.mp4"
+
+import { Badge, BadgeTitle } from "../primitives/Badge"
+import { Card, CardContent } from "../primitives/Card"
+import { DotDivider } from "../primitives/DotDivider"
+import { Separator } from "../primitives/Separator"
 
 interface PreloadProps {
-  onComplete: () => void;
-  className?: string;
-  readyText?: string;
+  onComplete: () => void
+  className?: string
+  readyText?: string
 }
 
 export const Preload = ({
@@ -22,19 +23,19 @@ export const Preload = ({
   className,
   readyText = "Download complete",
 }: PreloadProps) => {
-  const { preloadAll, progress, isComplete } = useAssetPreloader();
+  const { preloadAll, progress, isComplete } = useAssetPreloader()
 
   useEffect(() => {
-    preloadAll();
-  }, [preloadAll]);
+    preloadAll()
+  }, [preloadAll])
 
   useEffect(() => {
     if (isComplete) {
       wait(1000).then(() => {
-        onComplete();
-      });
+        onComplete()
+      })
     }
-  }, [isComplete, onComplete]);
+  }, [isComplete, onComplete])
 
   return (
     <div
@@ -107,5 +108,5 @@ export const Preload = ({
         </div>
       </footer>
     </div>
-  );
-};
+  )
+}

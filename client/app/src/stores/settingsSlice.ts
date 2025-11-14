@@ -18,7 +18,7 @@ export interface SettingsSlice {
     startMuted: boolean
     fxBypassFlash: boolean
     fxBypassAnimation: boolean
-    qualityPreset: "text" | "low" | "high"
+    qualityPreset: "text" | "low" | "high" | "auto"
     saveSettings: boolean
     showMobileWarning: boolean
     bypassAssetCache: boolean

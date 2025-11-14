@@ -1,52 +1,51 @@
-import { Settings } from "@/components/dialogs/Settings";
-import { ToastContainer } from "@/components/toasts/ToastContainer";
-import { useNotificationSound } from "@/hooks/useNotificationSound";
-import { usePlaySound } from "@/hooks/usePlaySound";
-import useGameStore from "@/stores/game";
-import { ShipVisor } from "@hud/ShipVisor";
+import { useEffect } from "react"
 
-import { ShipHUD } from "@hud/ShipHUD";
-import { StarField } from "@hud/StarField";
-import { TopBar } from "@hud/TopBar";
-
-import { ScreenContainer } from "@/components/screens/ScreenContainer";
-import { ActivityStream } from "@hud/ActivityStream";
-import { useEffect } from "react";
+import { Settings } from "@/components/dialogs/Settings"
+import { ScreenContainer } from "@/components/screens/ScreenContainer"
+import { ToastContainer } from "@/components/toasts/ToastContainer"
+import { useNotificationSound } from "@/hooks/useNotificationSound"
+import { usePlaySound } from "@/hooks/usePlaySound"
+import useGameStore from "@/stores/game"
+import { ActivityStream } from "@hud/ActivityStream"
+import { ShipHUD } from "@hud/ShipHUD"
+import { ShipVisor } from "@hud/ShipVisor"
+import { StarField } from "@hud/StarField"
+import { TopBar } from "@hud/TopBar"
 
 export const Game = () => {
-  const { playSound } = usePlaySound();
-  const gameState = useGameStore.use.gameState();
+  const { playSound } = usePlaySound()
+  const gameState = useGameStore.use.gameState()
 
-  useNotificationSound();
+  useNotificationSound()
 
   useEffect(() => {
     if (gameState === "ready") {
-      playSound("ambience", { loop: true, once: true, volume: 0.5 });
+      playSound("ambience", { loop: true, once: true, volume: 0.5 })
     }
-  }, [playSound, gameState]);
+  }, [playSound, gameState])
 
   useEffect(() => {
     const handleKeyPress = (event: KeyboardEvent) => {
       if (event.key === "p" || event.key === "P") {
-        const sector = useGameStore.getState().sector;
+        const sector = useGameStore.getState().sector
         if (sector?.port) {
-          const starfieldInstance = useGameStore.getState().starfieldInstance;
+          const starfieldInstance = useGameStore.getState().starfieldInstance
           if (starfieldInstance) {
-            starfieldInstance.selectGameObject("port");
+            starfieldInstance.selectGameObject("port")
           }
         }
       }
       if (event.key === "c" || event.key === "c") {
-        const starfieldInstance = useGameStore.getState().starfieldInstance;
+        const starfieldInstance = useGameStore.getState().starfieldInstance
         if (starfieldInstance) {
-          starfieldInstance.clearGameObjectSelection();
+          starfieldInstance.clearGameObjectSelection()
         }
       }
-    };
+    }
 
-    window.addEventListener("keydown", handleKeyPress);
-    return () => window.removeEventListener("keydown", handleKeyPress);
-  }, []);
+    window.addEventListener("keydown", handleKeyPress)
+    return () => window.removeEventListener("keydown", handleKeyPress)
+  }, [])
 
   return (
     <>
@@ -72,7 +71,7 @@ export const Game = () => {
       <StarField />
       <Settings />
     </>
-  );
-};
+  )
+}
 
-export default Game;
+export default Game
