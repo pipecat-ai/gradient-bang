@@ -4,8 +4,8 @@ import logging
 
 from fastapi import HTTPException
 
-from rpc.events import event_dispatcher
-from .utils import (
+from gradientbang.game_server.rpc.events import event_dispatcher
+from gradientbang.game_server.api.utils import (
     serialize_garrison_for_client,
     sector_contents,
     build_event_source,
@@ -13,7 +13,7 @@ from .utils import (
     enforce_actor_authorization,
     build_log_context,
 )
-from .combat_initiate import start_sector_combat
+from gradientbang.game_server.api.combat_initiate import start_sector_combat
 
 
 logger = logging.getLogger("gradient-bang.api.combat_leave_fighters")

@@ -6,16 +6,16 @@ from typing import Any, Dict
 
 from fastapi import HTTPException
 
-from core.character_registry import CharacterProfile
-from core.name_validation import ensure_safe_character_name
-from ships import validate_ship_type, ShipType
-from .character_create import (
+from gradientbang.game_server.core.character_registry import CharacterProfile
+from gradientbang.game_server.core.name_validation import ensure_safe_character_name
+from gradientbang.game_server.ships import validate_ship_type, ShipType
+from gradientbang.game_server.api.character_create import (
     sanitize_player_payload,
     sanitize_ship_payload,
     apply_player_overrides,
     apply_ship_overrides,
 )
-from .utils import rpc_success
+from gradientbang.game_server.api.utils import rpc_success
 
 
 async def handle(payload: Dict[str, Any], world) -> dict:

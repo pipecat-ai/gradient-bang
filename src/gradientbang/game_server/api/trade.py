@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
-from .utils import (
+from gradientbang.game_server.api.utils import (
     log_trade,
     ensure_not_in_combat,
     player_self,
@@ -15,9 +15,9 @@ from .utils import (
     enforce_actor_authorization,
     build_log_context,
 )
-from rpc.events import event_dispatcher
+from gradientbang.game_server.rpc.events import event_dispatcher
 from trading import TradingError
-from ships import ShipType, get_ship_stats
+from gradientbang.game_server.ships import ShipType, get_ship_stats
 
 
 async def handle(request: dict, world, port_locks=None) -> dict:

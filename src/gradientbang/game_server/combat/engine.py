@@ -7,7 +7,7 @@ import random
 from dataclasses import replace
 from typing import Dict, Tuple, List, Optional, Set
 
-from .models import (
+from gradientbang.game_server.combat.models import (
     CombatEncounter,
     CombatRoundOutcome,
     CombatantAction,

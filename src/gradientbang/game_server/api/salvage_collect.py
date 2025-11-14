@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from rpc.events import event_dispatcher
+from gradientbang.game_server.rpc.events import event_dispatcher
 from api.utils import (
     build_event_source,
     build_status_payload,
@@ -12,7 +12,7 @@ from api.utils import (
     enforce_actor_authorization,
     build_log_context,
 )
-from ships import ShipType
+from gradientbang.game_server.ships import ShipType
 
 VALID_COMMODITIES = {"quantum_foam", "retro_organics", "neuro_symbolics"}
 
@@ -58,7 +58,7 @@ async def handle(request: dict, world) -> dict:
         raise HTTPException(status_code=404, detail="Salvage not available")
 
     # Get ship stats for cargo capacity
-    from ships import get_ship_stats
+    from gradientbang.game_server.ships import get_ship_stats
 
     ship_stats = get_ship_stats(ship_type)
 

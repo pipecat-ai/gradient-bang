@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Mapping, MutableMapping, Optional
 
-from ships import FIGHTER_PRICE, calculate_trade_in_value
+from gradientbang.game_server.ships import FIGHTER_PRICE, calculate_trade_in_value
 
 
 LEADERBOARD_FILENAME = "leaderboard_resources.json"

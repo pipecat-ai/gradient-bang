@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from ships import ShipType, get_ship_stats
+from gradientbang.game_server.ships import ShipType, get_ship_stats
 
 _OWNER_TYPES = {"character", "corporation", "unowned"}
 _CARGO_KEYS = ("quantum_foam", "retro_organics", "neuro_symbolics")

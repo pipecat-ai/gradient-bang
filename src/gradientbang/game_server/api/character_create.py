@@ -7,10 +7,10 @@ from typing import Any, Dict
 
 from fastapi import HTTPException
 
-from core.character_registry import CharacterProfile
-from core.name_validation import ensure_safe_character_name
-from ships import ShipType, validate_ship_type
-from .utils import rpc_success
+from gradientbang.game_server.core.character_registry import CharacterProfile
+from gradientbang.game_server.core.name_validation import ensure_safe_character_name
+from gradientbang.game_server.ships import ShipType, validate_ship_type
+from gradientbang.game_server.api.utils import rpc_success
 
 
 ALLOWED_PLAYER_FIELDS = {"credits", "player_type"}

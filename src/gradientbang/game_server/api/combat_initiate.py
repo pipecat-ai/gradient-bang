@@ -7,16 +7,16 @@ from fastapi import HTTPException
 
 import logging
 
-from combat import CombatEncounter
+from gradientbang.game_server.combat import CombatEncounter
 
-from ships import ShipType
-from combat.utils import (
+from gradientbang.game_server.ships import ShipType
+from gradientbang.game_server.combat.utils import (
     build_character_combatant,
     build_garrison_combatant,
     new_combat_id,
     serialize_encounter,
 )
-from .utils import rpc_success, enforce_actor_authorization
+from gradientbang.game_server.api.utils import rpc_success, enforce_actor_authorization
 
 logger = logging.getLogger("gradient-bang.api.combat_initiate")
 

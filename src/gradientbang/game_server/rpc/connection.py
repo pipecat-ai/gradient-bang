@@ -6,8 +6,8 @@ import uuid
 
 from fastapi import HTTPException, WebSocket
 
-from .events import EventSink
-from api.utils import build_status_payload
+from gradientbang.game_server.rpc.events import EventSink
+from gradientbang.game_server.api.utils import build_status_payload
 
 logger = logging.getLogger("gradient-bang.server.connection")
 

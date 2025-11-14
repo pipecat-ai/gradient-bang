@@ -7,9 +7,9 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 
 from server_logging.event_log import EventLogger, MAX_QUERY_RESULTS
-from core.config import get_world_data_path
-from rpc.events import event_dispatcher
-from .utils import build_event_source, build_log_context
+from gradientbang.utils.config import get_world_data_path
+from gradientbang.game_server.rpc.events import event_dispatcher
+from gradientbang.game_server.api.utils import build_event_source, build_log_context
 
 
 def _parse_timestamp(value: str | None, label: str) -> datetime:

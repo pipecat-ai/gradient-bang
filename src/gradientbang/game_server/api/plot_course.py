@@ -2,14 +2,14 @@ from typing import Optional
 
 from fastapi import HTTPException
 
-from .utils import (
+from gradientbang.game_server.api.utils import (
     rpc_success,
     build_event_source,
     emit_error_event,
     enforce_actor_authorization,
     build_log_context,
 )
-from rpc.events import event_dispatcher
+from gradientbang.game_server.rpc.events import event_dispatcher
 
 
 async def _fail(

@@ -17,15 +17,15 @@ from api.utils import (
     build_event_source,
     resolve_character_name,
 )
-from combat.utils import (
+from gradientbang.game_server.combat.utils import (
     serialize_round_waiting_event,
     serialize_round_resolved_event,
     serialize_combat_ended_event,
     _list_sector_garrisons,
 )
-from combat.garrison_ai import auto_submit_garrison_actions
-from combat.finalization import finalize_combat
-from core.locks import CreditLockManager
+from gradientbang.game_server.combat.garrison_ai import auto_submit_garrison_actions
+from gradientbang.game_server.combat.finalization import finalize_combat
+from gradientbang.game_server.core.locks import CreditLockManager
 
 logger = logging.getLogger("gradient-bang.combat.callbacks")
 

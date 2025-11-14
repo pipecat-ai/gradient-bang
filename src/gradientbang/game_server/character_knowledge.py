@@ -18,8 +18,8 @@ from typing import Dict, Iterator, List, Set, Optional, Any, Tuple
 
 from pydantic import BaseModel, Field
 
-from ships import ShipType, get_ship_stats
-from core.config import get_world_data_path
+from gradientbang.game_server.ships import ShipType, get_ship_stats
+from gradientbang.utils.config import get_world_data_path
 
 
 class SectorKnowledge(BaseModel):

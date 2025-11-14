@@ -10,7 +10,7 @@ This module handles all post-combat finalization logic including:
 import logging
 from typing import List, Dict, Optional
 
-from ships import ShipType, get_ship_stats
+from gradientbang.game_server.ships import ShipType, get_ship_stats
 
 logger = logging.getLogger("gradient-bang.combat.finalization")
 

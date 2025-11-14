@@ -7,7 +7,7 @@ from typing import Dict, Mapping, Optional
 
 from fastapi import HTTPException
 
-from .utils import (
+from gradientbang.game_server.api.utils import (
     build_event_source,
     build_status_payload,
     emit_error_event,
@@ -17,7 +17,7 @@ from .utils import (
     enforce_actor_authorization,
     build_log_context,
 )
-from rpc.events import event_dispatcher
+from gradientbang.game_server.rpc.events import event_dispatcher
 
 VALID_COMMODITIES = {"quantum_foam", "retro_organics", "neuro_symbolics"}
 

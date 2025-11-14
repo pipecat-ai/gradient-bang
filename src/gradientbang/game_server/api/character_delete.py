@@ -6,7 +6,7 @@ from typing import Any, Dict
 
 from fastapi import HTTPException
 
-from .utils import rpc_success
+from gradientbang.game_server.api.utils import rpc_success
 
 
 async def handle(payload: Dict[str, Any], world) -> dict:

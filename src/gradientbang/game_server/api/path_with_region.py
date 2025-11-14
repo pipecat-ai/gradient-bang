@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional, Set
 
 from fastapi import HTTPException
 
-from .utils import (
+from gradientbang.game_server.api.utils import (
     sector_contents,
     rpc_success,
     build_event_source,
@@ -14,7 +14,7 @@ from .utils import (
     enforce_actor_authorization,
     build_log_context,
 )
-from rpc.events import event_dispatcher
+from gradientbang.game_server.rpc.events import event_dispatcher
 
 logger = logging.getLogger("gradient-bang.api.path_with_region")
 

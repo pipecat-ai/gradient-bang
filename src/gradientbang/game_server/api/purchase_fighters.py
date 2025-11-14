@@ -5,7 +5,7 @@ from contextlib import AbstractAsyncContextManager
 
 from fastapi import HTTPException
 
-from .utils import (
+from gradientbang.game_server.api.utils import (
     build_event_source,
     build_log_context,
     build_status_payload,
@@ -14,8 +14,8 @@ from .utils import (
     log_trade,
     rpc_success,
 )
-from ships import FIGHTER_PRICE, ShipType, get_ship_stats
-from rpc.events import event_dispatcher
+from gradientbang.game_server.ships import FIGHTER_PRICE, ShipType, get_ship_stats
+from gradientbang.game_server.rpc.events import event_dispatcher
 
 
 class _AsyncNoopLock(AbstractAsyncContextManager):

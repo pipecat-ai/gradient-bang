@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import HTTPException
 
-from .ships_manager import ShipsManager
+from gradientbang.game_server.core.ships_manager import ShipsManager
 
 
 def resolve_character_id_by_name(world: Any, target_player_name: str) -> str:

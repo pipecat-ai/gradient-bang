@@ -8,8 +8,8 @@ from typing import Optional
 
 from fastapi import HTTPException
 
-from ships import ShipType
-from .utils import (
+from gradientbang.game_server.ships import ShipType
+from gradientbang.game_server.api.utils import (
     build_event_source,
     build_public_player_data,
     build_status_payload,
@@ -20,7 +20,7 @@ from .utils import (
     enforce_actor_authorization,
     build_log_context,
 )
-from rpc.events import event_dispatcher
+from gradientbang.game_server.rpc.events import event_dispatcher
 
 
 async def _fail(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
-from .utils import (
+from gradientbang.game_server.api.utils import (
     rpc_success,
     build_corporation_public_payload,
     build_corporation_member_payload,

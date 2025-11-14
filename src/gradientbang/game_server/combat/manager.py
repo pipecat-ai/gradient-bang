@@ -9,15 +9,15 @@ from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field, replace
 from typing import Awaitable, Callable, Dict, Optional
 
-from .engine import resolve_round
-from .models import (
+from gradientbang.game_server.combat.engine import resolve_round
+from gradientbang.game_server.combat.models import (
     CombatEncounter,
     CombatRoundLog,
     CombatRoundOutcome,
     CombatantAction,
     RoundAction,
 )
-from .utils import compute_combatant_deltas
+from gradientbang.game_server.api.utils import compute_combatant_deltas
 
 RoundResolvedCallback = Callable[[CombatEncounter, CombatRoundOutcome], Awaitable[None]]
 RoundWaitingCallback = Callable[[CombatEncounter], Awaitable[None]]

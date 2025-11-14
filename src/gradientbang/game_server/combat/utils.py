@@ -8,9 +8,13 @@ from numbers import Number
 from datetime import datetime, timezone
 from typing import Dict, Iterable, Optional
 
-from ships import ShipType, get_ship_stats
-from api.utils import resolve_character_name, ship_self
-from .models import CombatEncounter, CombatantState, GarrisonState
+from gradientbang.game_server.ships import ShipType, get_ship_stats
+from gradientbang.game_server.api.utils import resolve_character_name, ship_self
+from gradientbang.game_server.combat.models import (
+    CombatEncounter,
+    CombatantState,
+    GarrisonState,
+)
 
 
 def new_combat_id() -> str:

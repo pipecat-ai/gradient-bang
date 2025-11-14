@@ -4,7 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Dict
 
-from .base import TimedLock
+from gradientbang.game_server.core.locks.base import TimedLock
 
 logger = logging.getLogger("gradient-bang.locks.credit")
 

@@ -14,8 +14,8 @@ from typing import Any, Dict
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from core.world import lifespan as world_lifespan, world
-from api import (
+from gradientbang.game_server.core.world import lifespan as world_lifespan, world
+from gradientbang.game_server.api import (
     character_create as api_character_create,
     character_delete as api_character_delete,
     character_modify as api_character_modify,
@@ -54,25 +54,25 @@ from api import (
     leaderboard_resources as api_leaderboard_resources,
     purchase_fighters as api_purchase_fighters,
 )
-from core.config import get_world_data_path
-from messaging.store import MessageStore
-from messaging.handlers import handle_send_message
-from combat.callbacks import (
+from gradientbang.utils.config import get_world_data_path
+from gradientbang.game_server.messaging.store import MessageStore
+from gradientbang.game_server.messaging.handlers import handle_send_message
+from gradientbang.game_server.combat.callbacks import (
     on_round_waiting,
     on_round_resolved,
     on_combat_ended,
     on_toll_payment,
 )
-from rpc import (
+from gradientbang.game_server.rpc import (
     event_dispatcher,
     rpc_error,
     rpc_success,
     RPCHandler,
     RateLimiter,
 )
-from rpc.connection import Connection, send_initial_status
-from core.locks import CreditLockManager, PortLockManager
-from server_logging.event_log import EventLogger
+from gradientbang.game_server.rpc.connection import Connection, send_initial_status
+from gradientbang.game_server.core.locks import CreditLockManager, PortLockManager
+from gradientbang.game_server.server_logging.event_log import EventLogger
 
 logger = logging.getLogger("gradient-bang.server")
 logging.basicConfig(level=logging.INFO)

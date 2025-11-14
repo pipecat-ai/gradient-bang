@@ -8,13 +8,13 @@ from typing import Dict, Any, Iterable, Optional, TYPE_CHECKING, List
 
 from fastapi import HTTPException
 
-from ships import ShipType, get_ship_stats
+from gradientbang.game_server.ships import ShipType, get_ship_stats
 from trading import get_port_prices, get_port_stock
 
-from rpc.events import EventLogContext
+from gradientbang.game_server.rpc.events import EventLogContext
 
 if TYPE_CHECKING:
-    from combat.models import GarrisonState
+    from gradientbang.game_server.combat.models import GarrisonState
 
 COMBAT_ACTION_REQUIRED = (
     "Cannot perform this action during combat. Submit attack/brace/flee instead."

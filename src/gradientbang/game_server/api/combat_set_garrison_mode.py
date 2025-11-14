@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
-from rpc.events import event_dispatcher
-from .utils import (
+from gradientbang.game_server.rpc.events import event_dispatcher
+from gradientbang.game_server.api.utils import (
     serialize_garrison_for_client,
     sector_contents,
     build_event_source,

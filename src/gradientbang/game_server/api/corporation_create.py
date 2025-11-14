@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
-from .utils import rpc_success, build_log_context
-from rpc.events import event_dispatcher
+from gradientbang.game_server.api.utils import rpc_success, build_log_context
+from gradientbang.game_server.rpc.events import event_dispatcher
 
 CORPORATION_CREATION_COST = 10_000
 

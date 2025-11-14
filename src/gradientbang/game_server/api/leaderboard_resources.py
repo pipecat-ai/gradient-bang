@@ -9,8 +9,8 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from core.config import get_world_data_path
-from core.leaderboard import (
+from gradientbang.utils.config import get_world_data_path
+from gradientbang.game_server.core.leaderboard import (
     LeaderboardSnapshotError,
     clear_leaderboard_cache,
     get_cached_leaderboard,

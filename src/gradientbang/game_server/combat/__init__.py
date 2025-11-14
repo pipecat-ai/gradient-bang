@@ -1,6 +1,6 @@
 """Combat subsystem for Gradient Bang."""
 
-from .models import (
+from gradientbang.game_server.combat.models import (
     CombatantState,
     CombatEncounter,
     CombatRoundLog,
@@ -8,10 +8,13 @@ from .models import (
     CombatRoundOutcome,
     GarrisonState,
 )
-from .engine import resolve_round
-from .manager import CombatManager
-from .garrisons import GarrisonStore
-from .salvage import SalvageManager, SalvageContainer
+from gradientbang.game_server.combat.engine import resolve_round
+from gradientbang.game_server.combat.manager import CombatManager
+from gradientbang.game_server.combat.garrisons import GarrisonStore
+from gradientbang.game_server.combat.salvage import (
+    SalvageManager,
+    SalvageContainer,
+)
 
 __all__ = [
     "CombatantState",

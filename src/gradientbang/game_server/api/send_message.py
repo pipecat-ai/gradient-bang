@@ -1,7 +1,7 @@
 from typing import Dict, Any, Optional
 from fastapi import HTTPException
 
-from .utils import resolve_character_name, enforce_actor_authorization
+from gradientbang.game_server.api.utils import resolve_character_name, enforce_actor_authorization
 
 
 async def handle(payload: Dict[str, Any], world, store, *, rate_limit_check=None) -> Dict[str, Any]:

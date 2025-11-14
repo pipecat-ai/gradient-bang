@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .utils import rpc_success
+from gradientbang.game_server.api.utils import rpc_success
 
 
 async def handle(request: dict, world) -> dict:  # noqa: ARG001 - request unused

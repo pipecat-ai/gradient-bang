@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from .models import GarrisonMode, GarrisonState
+from gradientbang.game_server.combat.models import GarrisonMode, GarrisonState
 
 
 class GarrisonStore:

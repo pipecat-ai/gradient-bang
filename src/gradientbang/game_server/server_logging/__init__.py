@@ -1,5 +1,5 @@
 """Logging utilities for the Gradient Bang game server."""
 
-from .event_log import EventLogger, EventRecord
+from gradientbang.game_server.server_logging.event_log import EventLogger, EventRecord
 
 __all__ = ["EventLogger", "EventRecord"]

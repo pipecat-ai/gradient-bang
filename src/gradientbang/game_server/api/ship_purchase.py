@@ -4,16 +4,16 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
-from ships import ShipType, get_ship_stats, calculate_trade_in_value
-from core.character_registry import CharacterProfile
-from .utils import (
+from gradientbang.game_server.ships import ShipType, get_ship_stats, calculate_trade_in_value
+from gradientbang.game_server.core.character_registry import CharacterProfile
+from gradientbang.game_server.api.utils import (
     rpc_success,
     build_status_payload,
     ensure_not_in_combat,
     resolve_character_name,
     build_log_context,
 )
-from rpc.events import event_dispatcher
+from gradientbang.game_server.rpc.events import event_dispatcher
 
 
 PERSONAL_PURCHASE = "personal"

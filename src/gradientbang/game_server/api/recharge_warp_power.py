@@ -1,7 +1,7 @@
 from typing import Optional
 
 from fastapi import HTTPException
-from .utils import (
+from gradientbang.game_server.api.utils import (
     log_trade,
     build_status_payload,
     rpc_success,
@@ -10,8 +10,8 @@ from .utils import (
     enforce_actor_authorization,
     build_log_context,
 )
-from ships import ShipType, get_ship_stats
-from rpc.events import event_dispatcher
+from gradientbang.game_server.ships import ShipType, get_ship_stats
+from gradientbang.game_server.rpc.events import event_dispatcher
 
 
 async def _fail(

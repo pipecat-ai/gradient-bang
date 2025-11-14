@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
-from combat.models import CombatantAction
+from gradientbang.game_server.combat.models import CombatantAction
 from api.move import parse_move_destination, validate_move_destination
-from .utils import (
+from gradientbang.game_server.api.utils import (
     rpc_success,
     build_event_source,
     enforce_actor_authorization,
     build_log_context,
 )
-from rpc.events import event_dispatcher
+from gradientbang.game_server.rpc.events import event_dispatcher
 
 
 async def handle(request: dict, world) -> dict:

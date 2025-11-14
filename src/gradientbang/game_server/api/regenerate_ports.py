@@ -1,8 +1,8 @@
 from fastapi import HTTPException
 from datetime import datetime, timezone
 
-from rpc.events import event_dispatcher
-from .utils import build_log_context
+from gradientbang.game_server.rpc.events import event_dispatcher
+from gradientbang.game_server.api.utils import build_log_context
 
 
 async def handle(request: dict, world) -> dict:

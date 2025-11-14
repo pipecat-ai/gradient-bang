@@ -1,7 +1,7 @@
 import logging
 from fastapi import HTTPException
 
-from .utils import (
+from gradientbang.game_server.api.utils import (
     build_status_payload,
     sector_contents,
     build_event_source,
@@ -12,9 +12,9 @@ from .utils import (
     enforce_actor_authorization,
     emit_garrison_character_moved_event,
 )
-from ships import ShipType, get_ship_stats, validate_ship_type
-from rpc.events import event_dispatcher
-from combat.utils import build_character_combatant, serialize_round_waiting_event
+from gradientbang.game_server.ships import ShipType, get_ship_stats, validate_ship_type
+from gradientbang.game_server.rpc.events import event_dispatcher
+from gradientbang.game_server.combat.utils import build_character_combatant, serialize_round_waiting_event
 from api.combat_initiate import start_sector_combat
 
 logger = logging.getLogger("gradient-bang.api.join")
@@ -74,7 +74,7 @@ async def handle(request: dict, world) -> dict:
                 status_code=400, detail=f"Invalid sector: {start_sector}"
             )
 
-        from core.world import Character
+        from gradientbang.game_server.core.world import Character
 
         if not has_saved:
             ship_type_enum = ShipType.KESTREL_COURIER

@@ -7,7 +7,7 @@ including offensive, defensive, and toll mode behaviors.
 import logging
 from typing import Dict, List, Optional
 
-from combat.models import CombatantAction
+from gradientbang.game_server.combat.models import CombatantAction
 
 logger = logging.getLogger("gradient-bang.combat.garrison_ai")
 

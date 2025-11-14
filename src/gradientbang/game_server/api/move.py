@@ -4,7 +4,7 @@ from typing import Tuple, TYPE_CHECKING
 
 from fastapi import HTTPException
 
-from .utils import (
+from gradientbang.game_server.api.utils import (
     sector_contents,
     ensure_not_in_combat,
     player_self,
@@ -17,14 +17,17 @@ from .utils import (
     build_log_context,
     emit_garrison_character_moved_event,
 )
-from ships import ShipType, get_ship_stats, ShipStats
-from rpc.events import event_dispatcher
-from combat.utils import build_character_combatant, serialize_round_waiting_event
-from api.combat_initiate import start_sector_combat
+from gradientbang.game_server.ships import ShipType, get_ship_stats, ShipStats
+from gradientbang.game_server.rpc.events import event_dispatcher
+from gradientbang.game_server.combat.utils import (
+    build_character_combatant,
+    serialize_round_waiting_event,
+)
+from gradientbang.game_server.api.combat_initiate import start_sector_combat
 
 if TYPE_CHECKING:
-    from core.world import Character
-    from character_knowledge import MapKnowledge
+    from gradientbang.game_server.core.world import Character
+    from gradientbang.game_server.character_knowledge import MapKnowledge
 
 logger = logging.getLogger("gradient-bang.api.move")
 

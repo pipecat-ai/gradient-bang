@@ -7,14 +7,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from character_knowledge import CharacterKnowledgeManager
-from port_manager import PortManager
-from .config import get_world_data_path
-from combat import CombatManager, GarrisonStore, SalvageManager
-from ships import ShipType, get_ship_stats
-from .character_registry import CharacterRegistry
-from .ships_manager import ShipsManager
-from .corporation_manager import CorporationManager
+from gradientbang.game_server.character_knowledge import CharacterKnowledgeManager
+from gradientbang.game_server.port_manager import PortManager
+from gradientbang.utils.config import get_world_data_path
+from gradientbang.game_server.combat import CombatManager, GarrisonStore, SalvageManager
+from gradientbang.game_server.ships import ShipType, get_ship_stats
+from gradientbang.game_server.core.character_registry import CharacterRegistry
+from gradientbang.game_server.core.ships_manager import ShipsManager
+from gradientbang.game_server.core.corporation_manager import CorporationManager
 
 
 class UniverseGraph:

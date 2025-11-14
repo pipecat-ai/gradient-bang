@@ -6,7 +6,7 @@ WARNING: This endpoint clears all game state and should only be used in test env
 import logging
 from pathlib import Path
 import json
-from core.config import get_world_data_path
+from gradientbang.utils.config import get_world_data_path
 
 logger = logging.getLogger("gradient-bang.api.test_reset")
 
