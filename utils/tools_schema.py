@@ -260,17 +260,19 @@ class Move(GameClientTool):
 
 
 class StartTask(GameClientTool):
-    def __call__(self, task_description, context=None):
+    def __call__(self, task_description, context=None, ship_id=None):
         kwargs = {"task_description": task_description}
         if context:
             kwargs["context"] = context
+        if ship_id:
+            kwargs["ship_id"] = ship_id
         return self.game_client.start_task(**kwargs)
 
     @classmethod
     def schema(cls):
         return FunctionSchema(
             name="start_task",
-            description="Start a complex multi-step task for navigation, trading, or exploration",
+            description="Start a complex multi-step task for navigation, trading, or exploration. Can control your own ship or a corporation ship. When tasking a corporation ship, provide its ship_id - the ship can be in any sector and will execute the task autonomously.",
             properties={
                 "task_description": {
                     "type": "string",
@@ -280,21 +282,33 @@ class StartTask(GameClientTool):
                     "type": "string",
                     "description": "Relevant conversation history or clarifications",
                 },
+                "ship_id": {
+                    "type": "string",
+                    "description": "Corporation ship ID (character_id) to control. Use corporation_info() to find ship IDs. Omit this parameter to control your own ship instead.",
+                },
             },
             required=["task_description"],
         )
 
 
 class StopTask(GameClientTool):
-    def __call__(self):
-        return self.game_client.stop_task()
+    def __call__(self, task_id=None):
+        kwargs = {}
+        if task_id:
+            kwargs["task_id"] = task_id
+        return self.game_client.stop_task(**kwargs)
 
     @classmethod
     def schema(cls):
         return FunctionSchema(
             name="stop_task",
-            description="Cancel the currently running task",
-            properties={},
+            description="Cancel a running task. If task_id is provided, cancels that specific task. Otherwise cancels your primary ship's task.",
+            properties={
+                "task_id": {
+                    "type": "string",
+                    "description": "Optional task ID to cancel a specific task (e.g., '0001'). If not provided, cancels your primary ship's task.",
+                },
+            },
             required=[],
         )
 
@@ -682,6 +696,46 @@ class PurchaseShip(GameClientTool):
                 },
             },
             required=["ship_type", "ship_name"],
+        )
+
+
+class CorporationInfo(GameClientTool):
+    def __call__(self, list_all=False):
+        """
+        Get corporation information including members and ships.
+
+        Args:
+            list_all: If True, list all corporations. Otherwise returns your corporation's info.
+        """
+        character_id = self.game_client.character_id
+
+        if list_all:
+            # List all corporations
+            result = self.game_client._request("corporation.list", {})
+            return result
+
+        # Get your corporation info (server auto-detects from character_id)
+        result = self.game_client._request(
+            "corporation.info",
+            {
+                "character_id": character_id,
+            },
+        )
+
+        return result
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="corporation_info",
+            description="Get information about your corporation including members and ships. Can also list all corporations in the game.",
+            properties={
+                "list_all": {
+                    "type": "boolean",
+                    "description": "Set to true to list all corporations instead of getting your corporation's detailed info",
+                },
+            },
+            required=[],
         )
 
 
