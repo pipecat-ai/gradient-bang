@@ -296,10 +296,11 @@ The **Gradient Bang name, logo, and brand identity** are proprietary trademarks 
 
 docker build -t gradient-bang-server .
 
+docker run -p 8000:8000 gradient-bang-server
+
 docker run -d \
   -p 8000:8000 \
   -v $(pwd)/world-data:/app/world-data \
   -e OPENAI_API_KEY=your_key_here \
   gradient-bang-server
 
-docker run -p 8000:8000 gradient-bang-server
