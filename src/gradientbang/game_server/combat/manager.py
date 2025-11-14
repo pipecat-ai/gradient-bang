@@ -17,7 +17,7 @@ from gradientbang.game_server.combat.models import (
     CombatantAction,
     RoundAction,
 )
-from gradientbang.game_server.api.utils import compute_combatant_deltas
+from gradientbang.game_server.combat.utils import compute_combatant_deltas
 
 RoundResolvedCallback = Callable[[CombatEncounter, CombatRoundOutcome], Awaitable[None]]
 RoundWaitingCallback = Callable[[CombatEncounter], Awaitable[None]]

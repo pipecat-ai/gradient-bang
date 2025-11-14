@@ -518,11 +518,16 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         await event_dispatcher.unregister(connection)
 
 
-if __name__ == "__main__":
-    # For direct execution: cd game-server && uv run python server.py
-    # Recommended: uv run python -m game-server (from project root)
-    import uvicorn
+def main() -> None:
+    """Launch the FastAPI server via uvicorn."""
     import os
+    import uvicorn
 
     port = int(os.environ.get("PORT", "8000"))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+
+if __name__ == "__main__":
+    # For direct execution: cd game-server && uv run python server.py
+    # Recommended: uv run python -m game-server (from project root)
+    main()

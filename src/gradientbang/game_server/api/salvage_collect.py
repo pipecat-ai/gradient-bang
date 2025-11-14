@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from gradientbang.game_server.rpc.events import event_dispatcher
-from api.utils import (
+from gradientbang.game_server.api.utils import (
     build_event_source,
     build_status_payload,
     rpc_success,

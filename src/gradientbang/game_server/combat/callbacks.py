@@ -10,8 +10,8 @@ from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
-from api import move as api_move
-from api.utils import (
+from gradientbang.game_server.api import move as api_move
+from gradientbang.game_server.api.utils import (
     build_status_payload,
     build_log_context,
     build_event_source,
@@ -413,7 +413,7 @@ async def on_combat_ended(encounter, outcome, world, event_dispatcher) -> None:
 
     # Emit sector.update to all characters in the sector
     # (combat ended changes sector state: salvage, escape pods, etc.)
-    from api.utils import sector_contents
+    from gradientbang.game_server.api.utils import sector_contents
 
     # Find all characters in this sector (including those who just fled)
     characters_in_sector = [

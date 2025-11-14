@@ -15,7 +15,7 @@ from gradientbang.game_server.api.utils import (
 from gradientbang.game_server.ships import ShipType, get_ship_stats, validate_ship_type
 from gradientbang.game_server.rpc.events import event_dispatcher
 from gradientbang.game_server.combat.utils import build_character_combatant, serialize_round_waiting_event
-from api.combat_initiate import start_sector_combat
+from gradientbang.game_server.api.combat_initiate import start_sector_combat
 
 logger = logging.getLogger("gradient-bang.api.join")
 

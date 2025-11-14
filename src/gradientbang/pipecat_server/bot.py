@@ -440,7 +440,9 @@ async def bot(runner_args):
     await run_bot(transport, runner_args)
 
 
-if __name__ == "__main__":
-    from pipecat.runner.run import main
+def main() -> None:
+    from pipecat.runner.run import main as runner_main
+    runner_main()
 
+if __name__ == "__main__":
     main()

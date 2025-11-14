@@ -10,7 +10,7 @@ import logging
 import traceback
 from typing import Any, Protocol, Sequence
 
-from server_logging.event_log import EventLogger, EventRecord
+from gradientbang.game_server.server_logging.event_log import EventLogger, EventRecord
 
 
 class EventSink(Protocol):

@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import HTTPException
 
 from gradientbang.game_server.combat.models import CombatantAction
-from api.move import parse_move_destination, validate_move_destination
+from gradientbang.game_server.api.move import parse_move_destination, validate_move_destination
 from gradientbang.game_server.api.utils import (
     rpc_success,
     build_event_source,

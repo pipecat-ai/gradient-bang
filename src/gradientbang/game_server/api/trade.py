@@ -16,7 +16,7 @@ from gradientbang.game_server.api.utils import (
     build_log_context,
 )
 from gradientbang.game_server.rpc.events import event_dispatcher
-from trading import TradingError
+from gradientbang.game_server.trading import TradingError
 from gradientbang.game_server.ships import ShipType, get_ship_stats
 
 
@@ -109,7 +109,7 @@ async def _execute_trade(
     request_id: str,
 ) -> dict:
     """Execute trade operation (must be called with port lock held)."""
-    from trading import (
+    from gradientbang.game_server.trading import (
         calculate_price_sell_to_player,
         calculate_price_buy_from_player,
         validate_buy_transaction,

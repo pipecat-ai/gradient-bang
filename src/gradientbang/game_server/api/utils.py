@@ -9,7 +9,7 @@ from typing import Dict, Any, Iterable, Optional, TYPE_CHECKING, List
 from fastapi import HTTPException
 
 from gradientbang.game_server.ships import ShipType, get_ship_stats
-from trading import get_port_prices, get_port_stock
+from gradientbang.game_server.trading import get_port_prices, get_port_stock
 
 from gradientbang.game_server.rpc.events import EventLogContext
 
