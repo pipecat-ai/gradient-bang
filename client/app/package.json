@@ -17,7 +17,7 @@
     "@pipecat-ai/client-js": "^1.4.1",
     "@pipecat-ai/client-react": "^1.1.0",
     "@pipecat-ai/small-webrtc-transport": "^1.7.0",
-    "@pipecat-ai/voice-ui-kit": "^0.5.1-rc.1",
+    "@pipecat-ai/voice-ui-kit": "^0.5.1-rc.2",
     "@radix-ui/react-collapsible": "^1.1.12",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
