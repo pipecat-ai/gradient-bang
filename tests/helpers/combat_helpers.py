@@ -13,7 +13,7 @@ from typing import Optional, Dict, Any
 
 from gradientbang.game_server.ships import ShipType, get_ship_stats
 
-from gradientbang.tests.config import TEST_WORLD_DATA_DIR as DEFAULT_WORLD_DATA_DIR
+from config import TEST_WORLD_DATA_DIR as DEFAULT_WORLD_DATA_DIR
 
 # Use test-world-data directory for test scenarios
 KNOWLEDGE_DIR = DEFAULT_WORLD_DATA_DIR / "character-map-knowledge"

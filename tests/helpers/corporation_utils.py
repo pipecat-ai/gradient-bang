@@ -6,10 +6,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
 
-from gradientbang.tests.helpers.combat_helpers import create_test_character_knowledge
+from helpers.combat_helpers import create_test_character_knowledge
 from gradientbang.utils.api_client import AsyncGameClient
 
-from gradientbang.tests.config import TEST_WORLD_DATA_DIR
+from config import TEST_WORLD_DATA_DIR
 RESET_PREFIXES = ["corp_events_", "corp_filter_"]
 
 

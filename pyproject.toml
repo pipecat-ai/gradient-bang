@@ -64,7 +64,7 @@ package = true
 
 
 [tool.pytest.ini_options]
-testpaths = ["src/gradientbang/tests"]
+testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
 # Exclude archived integration tests from default test runs

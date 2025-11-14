@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from gradientbang.tests.helpers.assertions import (
+from helpers.assertions import (
     assert_event_emitted,
     assert_event_order,
     assert_event_payload,
@@ -31,13 +31,13 @@ from gradientbang.tests.helpers.assertions import (
     assert_no_event_emitted,
     assert_events_chronological,
 )
-from gradientbang.tests.helpers.event_capture import (
+from helpers.event_capture import (
     EventListener,
     create_firehose_listener,
 )
 from gradientbang.utils.api_client import AsyncGameClient, RPCError
 
-from gradientbang.tests.config import TEST_WORLD_DATA_DIR
+from config import TEST_WORLD_DATA_DIR
 
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
@@ -169,7 +169,7 @@ class TestEventEmission:
         """
         from datetime import datetime, timezone
         import asyncio
-        from gradientbang.tests.helpers.combat_helpers import create_test_character_knowledge
+        from helpers.combat_helpers import create_test_character_knowledge
 
         char1_id = "test_combat_waiting_char1"
         char2_id = "test_combat_waiting_char2"
@@ -251,7 +251,7 @@ class TestEventEmission:
         """
         from datetime import datetime, timezone
         import asyncio
-        from gradientbang.tests.helpers.combat_helpers import create_test_character_knowledge
+        from helpers.combat_helpers import create_test_character_knowledge
 
         char1_id = "test_combat_resolved_char1"
         char2_id = "test_combat_resolved_char2"
@@ -366,7 +366,7 @@ class TestEventEmission:
         """Test that combat.ended event is emitted with salvage when ships destroyed."""
         from datetime import datetime, timezone
         import asyncio
-        from gradientbang.tests.helpers.combat_helpers import (
+        from helpers.combat_helpers import (
             create_strong_character,
             create_weak_character,
             set_character_cargo,
@@ -567,7 +567,7 @@ class TestEventEmission:
         """
         from datetime import datetime, timezone
         import asyncio
-        from gradientbang.tests.helpers.combat_helpers import create_test_character_knowledge
+        from helpers.combat_helpers import create_test_character_knowledge
 
         char_id = "test_garrison_deployed_char"
 
@@ -675,7 +675,7 @@ class TestEventEmission:
         """
         from datetime import datetime, timezone
         import asyncio
-        from gradientbang.tests.helpers.combat_helpers import (
+        from helpers.combat_helpers import (
             create_strong_character,
             create_weak_character,
         )
@@ -1258,7 +1258,7 @@ class TestCharacterFiltering:
         """
         from datetime import datetime, timezone
         import asyncio
-        from gradientbang.tests.helpers.combat_helpers import create_test_character_knowledge
+        from helpers.combat_helpers import create_test_character_knowledge
 
         fighter1_id = "test_combat_privacy_fighter1"
         fighter2_id = "test_combat_privacy_fighter2"
@@ -1853,7 +1853,7 @@ class TestCharacterFiltering:
         """
         from datetime import datetime, timezone
         import asyncio
-        from gradientbang.tests.helpers.combat_helpers import create_test_character_knowledge
+        from helpers.combat_helpers import create_test_character_knowledge
 
         deployer_id = "test_garrison_deployer"
         observer_id = "test_garrison_observer"
@@ -1989,7 +1989,7 @@ class TestCharacterFiltering:
         """
         from datetime import datetime, timezone
         import asyncio
-        from gradientbang.tests.helpers.combat_helpers import create_strong_character, create_weak_character, set_character_cargo
+        from helpers.combat_helpers import create_strong_character, create_weak_character, set_character_cargo
 
         collector_id = "test_salvage_collector"
         victim_id = "test_salvage_victim"
@@ -3213,7 +3213,7 @@ class TestMultiCharacterEventFanout:
         """
         from datetime import datetime, timezone
         import asyncio
-        from gradientbang.tests.helpers.combat_helpers import create_test_character_knowledge
+        from helpers.combat_helpers import create_test_character_knowledge
 
         trader_id = "test_trade_visibility_trader"
         outsider_id = "test_trade_visibility_outsider"
@@ -3305,7 +3305,7 @@ class TestMultiCharacterEventFanout:
         """
         from datetime import datetime, timezone
         import asyncio
-        from gradientbang.tests.helpers.combat_helpers import create_test_character_knowledge
+        from helpers.combat_helpers import create_test_character_knowledge
 
         player1_id = "test_fanout_player1"
         player2_id = "test_fanout_player2"

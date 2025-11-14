@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from gradientbang.tests.helpers.combat_helpers import create_test_character_knowledge
+from helpers.combat_helpers import create_test_character_knowledge
 from gradientbang.utils.api_client import AsyncGameClient, RPCError
 
 

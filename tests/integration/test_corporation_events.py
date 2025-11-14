@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from gradientbang.tests.helpers.corporation_utils import (
+from helpers.corporation_utils import (
     managed_client,
     reset_corporation_test_state,
 )
@@ -17,7 +17,7 @@ from gradientbang.tests.helpers.corporation_utils import (
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
 
-from gradientbang.tests.config import TEST_WORLD_DATA_DIR
+from config import TEST_WORLD_DATA_DIR
 
 @pytest.fixture(autouse=True)
 async def reset_corp_state(server_url):

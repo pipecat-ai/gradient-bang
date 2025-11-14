@@ -18,7 +18,7 @@ import asyncio
 
 import pytest
 
-from gradientbang.tests.helpers.combat_helpers import (
+from helpers.combat_helpers import (
     create_test_character_knowledge,
     create_weak_character,
     create_strong_character,

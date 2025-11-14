@@ -9,9 +9,9 @@ import json
 from pathlib import Path
 from typing import Any, Dict
 
-from gradientbang.tests.helpers.combat_helpers import create_test_character_knowledge
+from helpers.combat_helpers import create_test_character_knowledge
 
-from gradientbang.tests.config import TEST_WORLD_DATA_DIR as DEFAULT_WORLD_DATA_DIR
+from config import TEST_WORLD_DATA_DIR as DEFAULT_WORLD_DATA_DIR
 
 
 # All test character IDs found in integration tests

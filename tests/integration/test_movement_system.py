@@ -18,22 +18,22 @@ from datetime import datetime, timezone
 import pytest
 
 from gradientbang.utils.api_client import AsyncGameClient, RPCError
-from gradientbang.tests.helpers.assertions import (
+from helpers.assertions import (
     assert_event_emitted,
     assert_event_order,
     assert_event_payload,
     assert_events_chronological,
 )
-from gradientbang.tests.helpers.combat_helpers import (
+from helpers.combat_helpers import (
     create_test_character_knowledge,
     deploy_garrison,
     verify_garrison_combat,
 )
-from gradientbang.tests.helpers.event_capture import (
+from helpers.event_capture import (
     EventListener,
     create_firehose_listener,
 )
-from gradientbang.tests.integration.test_combat_system import EventCollector
+from integration.test_combat_system import EventCollector
 
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]

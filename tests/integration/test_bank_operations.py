@@ -19,14 +19,14 @@ from pathlib import Path
 
 import pytest
 
-from gradientbang.tests.helpers.combat_helpers import create_test_character_knowledge
-from gradientbang.tests.helpers.corporation_utils import (
+from helpers.combat_helpers import create_test_character_knowledge
+from helpers.corporation_utils import (
     managed_client,
     reset_corporation_test_state,
 )
 from gradientbang.utils.api_client import AsyncGameClient, RPCError
 
-from gradientbang.tests.config import TEST_WORLD_DATA_DIR
+from config import TEST_WORLD_DATA_DIR
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
 

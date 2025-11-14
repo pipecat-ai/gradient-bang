@@ -20,19 +20,19 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from gradientbang.tests.helpers.assertions import (
+from helpers.assertions import (
     assert_event_emitted,
     assert_event_order,
     assert_event_payload,
     assert_events_chronological,
 )
-from gradientbang.tests.helpers.event_capture import (
+from helpers.event_capture import (
     EventListener,
     create_firehose_listener,
 )
 from gradientbang.utils.api_client import AsyncGameClient, RPCError
 
-from gradientbang.tests.config import TEST_WORLD_DATA_DIR
+from config import TEST_WORLD_DATA_DIR
 
 
 

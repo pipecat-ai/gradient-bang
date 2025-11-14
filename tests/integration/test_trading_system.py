@@ -18,13 +18,13 @@ from datetime import datetime, timezone
 
 import pytest
 
-from gradientbang.tests.helpers.assertions import (
+from helpers.assertions import (
     assert_event_emitted,
     assert_event_payload,
     assert_no_event_emitted,
 )
-from gradientbang.tests.helpers.combat_helpers import create_test_character_knowledge
-from gradientbang.tests.helpers.event_capture import (
+from helpers.combat_helpers import create_test_character_knowledge
+from helpers.event_capture import (
     EventListener,
     create_firehose_listener,
 )

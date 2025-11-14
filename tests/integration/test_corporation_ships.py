@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from gradientbang.tests.helpers.corporation_utils import (
+from helpers.corporation_utils import (
     managed_client,
     reset_corporation_test_state,
 )
@@ -23,7 +23,7 @@ pytestmark = [
     pytest.mark.timeout(60),
 ]
 
-from gradientbang.tests.config import TEST_WORLD_DATA_DIR as DEFAULT_WORLD_DATA_DIR
+from config import TEST_WORLD_DATA_DIR as DEFAULT_WORLD_DATA_DIR
 
 SHIPS_PATH = DEFAULT_WORLD_DATA_DIR / "ships.json"
 

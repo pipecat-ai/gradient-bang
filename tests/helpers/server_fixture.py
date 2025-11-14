@@ -13,7 +13,7 @@ from typing import Optional
 
 import httpx
 
-from gradientbang.tests.config import PROJECT_ROOT, TEST_WORLD_DATA_DIR as DEFAULT_WORLD_DATA_DIR, TEST_LOG_DIR
+from config import PROJECT_ROOT, TEST_WORLD_DATA_DIR as DEFAULT_WORLD_DATA_DIR, TEST_LOG_DIR
 
 def start_test_server(
     port: int = 8002,

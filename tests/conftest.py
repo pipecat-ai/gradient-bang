@@ -9,7 +9,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Awaitable, Callable, List, Optional
 
-from gradientbang.tests.config import TEST_WORLD_DATA_DIR
+from config import TEST_WORLD_DATA_DIR
 
 def _ensure_openai_stub() -> None:
     if "openai" in sys.modules:
@@ -272,8 +272,8 @@ import logging
 import httpx
 import pytest
 
-from gradientbang.tests.helpers.character_setup import register_all_test_characters
-from gradientbang.tests.helpers.server_fixture import (
+from helpers.character_setup import register_all_test_characters
+from helpers.server_fixture import (
     start_test_server,
     stop_test_server,
     wait_for_server_ready,

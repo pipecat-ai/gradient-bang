@@ -33,7 +33,7 @@ import asyncio
 import pytest
 from typing import List, Dict, Any
 from gradientbang.utils.api_client import AsyncGameClient
-from gradientbang.tests.helpers.combat_helpers import create_test_character_knowledge
+from helpers.combat_helpers import create_test_character_knowledge
 
 
 # ============================================================================

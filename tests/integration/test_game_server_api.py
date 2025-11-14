@@ -20,8 +20,8 @@ import asyncio
 
 import pytest
 
-from gradientbang.tests.helpers.assertions import assert_event_emitted
-from gradientbang.tests.helpers.event_capture import create_firehose_listener
+from helpers.assertions import assert_event_emitted
+from helpers.event_capture import create_firehose_listener
 from gradientbang.utils.api_client import AsyncGameClient, RPCError
 
 

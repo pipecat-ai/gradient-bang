@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from gradientbang.utils.api_client import AsyncGameClient
-from gradientbang.tests.helpers.combat_helpers import (
+from helpers.combat_helpers import (
     create_strong_character,
     create_weak_character,
     set_character_cargo,
