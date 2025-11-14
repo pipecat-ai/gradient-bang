@@ -1,0 +1,16 @@
+# Build outputs
+dist/
+.turbo/
+node_modules/
+pnpm-lock.yaml
+
+# Generated files
+*.min.js
+*.min.css
+
+# Cache
+.vite/
+.cache/
+
+# Logs
+*.log
