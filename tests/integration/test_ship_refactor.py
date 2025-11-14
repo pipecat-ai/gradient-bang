@@ -266,7 +266,7 @@ async def test_ship_combat_updates(world_factory, monkeypatch):
     async def _noop_emit(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr("combat.utils._list_sector_garrisons", _empty_garrisons)
+    monkeypatch.setattr("gradientbang.game_server.combat.utils._list_sector_garrisons", _empty_garrisons)
     monkeypatch.setattr(event_dispatcher, "emit", _noop_emit)
 
     await on_round_resolved(encounter, outcome, world, event_dispatcher)

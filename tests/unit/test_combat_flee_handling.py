@@ -17,8 +17,8 @@ def _sector_id(value):
 class TestFleeHandling:
     """Tests for flee handling improvements."""
 
-    @patch("combat.callbacks.api_move")
-    @patch("combat.callbacks.emit_status_update")
+    @patch("gradientbang.game_server.combat.callbacks.api_move")
+    @patch("gradientbang.game_server.combat.callbacks.emit_status_update")
     async def test_fled_character_receives_immediate_combat_ended(
         self, mock_emit_status, mock_api_move
     ):
@@ -151,8 +151,8 @@ class TestFleeHandling:
         assert "char1" not in character_filter
         assert "char2" in character_filter
 
-    @patch("combat.callbacks.api_move")
-    @patch("combat.callbacks.emit_status_update")
+    @patch("gradientbang.game_server.combat.callbacks.api_move")
+    @patch("gradientbang.game_server.combat.callbacks.emit_status_update")
     async def test_multiple_fled_characters_receive_separate_events(
         self, mock_emit_status, mock_api_move
     ):
@@ -237,8 +237,8 @@ class TestFleeHandling:
         assert ["char1"] in char_filters
         assert ["char2"] in char_filters
 
-    @patch("combat.callbacks.api_move")
-    @patch("combat.callbacks.emit_status_update")
+    @patch("gradientbang.game_server.combat.callbacks.api_move")
+    @patch("gradientbang.game_server.combat.callbacks.emit_status_update")
     async def test_failed_flee_does_not_send_combat_ended(
         self, mock_emit_status, mock_api_move
     ):
