@@ -43,7 +43,7 @@ uv run game-server
 uv run character-create
 ```
 
-#### 4. Optional: Create a `.env` file and restart game server:
+#### 4. Create a `.env` file and restart game server:
 
 ```bash
 mv env.example .env
@@ -63,8 +63,13 @@ uv run bot
 ```bash
 cd client/
 pnpm i
-pnpm run dev
+pnpm run preview
+# or 
+pnpm run dev 
 ```
+
+See [client README](/client/) for more details
+
 
 #### 7. Spawn NPCs to interact with
 
