@@ -18,6 +18,7 @@ from gradientbang.game_server.core.world import lifespan as world_lifespan, worl
 from gradientbang.game_server.api import (
     character_create as api_character_create,
     character_delete as api_character_delete,
+    character_info as api_character_info,
     character_modify as api_character_modify,
     corporation_create as api_corporation_create,
     corporation_join as api_corporation_join,
@@ -274,6 +275,10 @@ RPC_HANDLERS: Dict[str, RPCHandler] = {
     "character.delete": _with_rate_limit(
         "character.delete",
         lambda payload: api_character_delete.handle(payload, world),
+    ),
+    "character.info": _with_rate_limit(
+        "character.info",
+        lambda payload: api_character_info.handle(payload, world),
     ),
     "combat.initiate": _with_rate_limit(
         "combat.initiate", lambda payload: api_combat_initiate.handle(payload, world)

@@ -899,6 +899,25 @@ class AsyncGameClient:
             payload["admin_password"] = admin_password
         return await self._request("character.delete", payload)
 
+    async def character_info(
+        self,
+        *,
+        character_id: str,
+    ) -> Dict[str, Any]:
+        """Look up character information by character_id.
+
+        This is a public endpoint that does not require admin password.
+        Returns basic character profile information including display name.
+
+        Args:
+            character_id: The character UUID to look up
+
+        Returns:
+            Dict with character_id, name, created_at, updated_at
+        """
+        payload: Dict[str, Any] = {"character_id": character_id}
+        return await self._request("character.info", payload)
+
     async def event_query(
         self,
         *,
