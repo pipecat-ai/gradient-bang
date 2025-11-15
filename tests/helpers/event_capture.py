@@ -3,19 +3,13 @@
 import asyncio
 import json
 import os
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Any, Dict, List, Optional
 
 import httpx
 import websockets
 
 from utils.legacy_ids import canonicalize_character_id
-
-try:
-    from realtime import AsyncRealtimeClient, RealtimeSubscribeStates
-except ImportError:  # pragma: no cover - realtime is available in test deps
-    AsyncRealtimeClient = None  # type: ignore
-    RealtimeSubscribeStates = None  # type: ignore
 
 
 _TRUTHY = {"1", "true", "on", "yes"}
@@ -39,10 +33,20 @@ class EventListener:
         self._listen_task: Optional[asyncio.Task] = None
         self._connected = False
         self._supabase_mode = USE_SUPABASE_TESTS
-        self._rt_client: Optional[AsyncRealtimeClient] = None
-        self._rt_channel = None
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._poll_task: Optional[asyncio.Task] = None
+        self._poll_stop_event: Optional[asyncio.Event] = None
+        self._http_client: Optional[httpx.AsyncClient] = None
+        self._last_event_id: Optional[int] = None
+        self._functions_url: Optional[str] = None
+        self._poll_interval = max(0.25, float(os.environ.get("SUPABASE_POLL_INTERVAL_SECONDS", "1.0")))
+        self._poll_limit = max(1, min(250, int(os.environ.get("SUPABASE_POLL_LIMIT", "100"))))
         self._canonical_character_id: Optional[str] = None
+        self._edge_api_token: Optional[str] = (
+            os.environ.get("EDGE_API_TOKEN")
+            or os.environ.get("SUPABASE_API_TOKEN")
+            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        )
+        self._anon_key = os.environ.get("SUPABASE_ANON_KEY", "anon-key")
         if self._supabase_mode:
             if not character_id:
                 raise ValueError(
@@ -130,135 +134,132 @@ class EventListener:
             pass
 
     async def _connect_supabase(self) -> None:
-        if AsyncRealtimeClient is None or RealtimeSubscribeStates is None:
-            raise RuntimeError(
-                "realtime library is unavailable; install dependencies or disable USE_SUPABASE_TESTS"
-            )
         if not self.character_id:
             raise ValueError(
                 "Supabase event capture requires character_id. Pass one to create_firehose_listener()."
             )
-
-        supabase_url = self.server_url or os.environ.get("SUPABASE_URL", "http://127.0.0.1:54321")
-        realtime_url = f"{supabase_url.rstrip('/')}/realtime/v1"
-        functions_url = f"{supabase_url.rstrip('/')}/functions/v1/get_character_jwt"
-        anon_key = os.environ.get("SUPABASE_ANON_KEY", "anon-key")
-        edge_token = (
-            os.environ.get("EDGE_API_TOKEN")
-            or os.environ.get("SUPABASE_API_TOKEN")
-            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-        )
-        if not edge_token:
+        if not self._edge_api_token:
             raise RuntimeError("EDGE_API_TOKEN (or SUPABASE_API_TOKEN) is required for Supabase event capture")
 
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.post(
-                functions_url,
-                json={"character_id": self._canonical_character_id},
-                headers={
-                    "Content-Type": "application/json",
-                    "apikey": anon_key,
-                    "Authorization": f"Bearer {anon_key}",
-                    "X-API-Token": edge_token,
-                },
-            )
-            response.raise_for_status()
-            payload = response.json()
-            jwt = payload.get("jwt")
-            if not isinstance(jwt, str) or not jwt:
-                raise RuntimeError("get_character_jwt returned an invalid response")
-
-        self._loop = asyncio.get_running_loop()
-        self._rt_client = AsyncRealtimeClient(
-            url=realtime_url,
-            token=anon_key,
-            auto_reconnect=True,
-        )
-        await self._rt_client.set_auth(jwt)
-
-        channel = self._rt_client.channel("public:events")
-        channel.on_postgres_changes(
-            event="INSERT",
-            schema="public",
-            table="events",
-            callback=self._handle_supabase_change,
-        )
-
-        loop = asyncio.get_running_loop()
-        subscribed = loop.create_future()
-
-        def _callback(state, error):
-            if subscribed.done():
-                return
-            if state == RealtimeSubscribeStates.SUBSCRIBED:
-                subscribed.set_result(None)
-            elif state in {
-                RealtimeSubscribeStates.CHANNEL_ERROR,
-                RealtimeSubscribeStates.TIMED_OUT,
-                RealtimeSubscribeStates.CLOSED,
-            }:
-                subscribed.set_exception(
-                    error
-                    or RuntimeError(f"Supabase realtime subscribe failed: {getattr(state, 'value', state)}")
-                )
-
-        await channel.subscribe(callback=_callback)
-        await asyncio.wait_for(subscribed, timeout=5.0)
-
-        self._rt_channel = channel
+        supabase_url = self.server_url or os.environ.get("SUPABASE_URL", "http://127.0.0.1:54321")
+        functions_base = os.environ.get("EDGE_FUNCTIONS_URL")
+        if not functions_base:
+            functions_base = f"{supabase_url.rstrip('/')}/functions/v1"
+        self._functions_url = functions_base.rstrip("/")
+        self._http_client = httpx.AsyncClient(timeout=10.0)
+        await self._initialize_polling_cursor()
+        self._poll_stop_event = asyncio.Event()
+        self._poll_task = asyncio.create_task(self._poll_supabase_events())
         self._connected = True
 
     async def _disconnect_supabase(self) -> None:
-        if self._rt_channel is not None:
+        if self._poll_stop_event is not None:
+            self._poll_stop_event.set()
+        if self._poll_task is not None:
+            self._poll_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._poll_task
+            self._poll_task = None
+        if self._http_client is not None:
+            await self._http_client.aclose()
+            self._http_client = None
+        self._poll_stop_event = None
+        self._last_event_id = None
+
+    async def _initialize_polling_cursor(self) -> None:
+        result = await self._call_events_since({
+            "character_id": self._canonical_character_id,
+            "initial_only": True,
+        })
+        last_id = result.get("last_event_id")
+        if isinstance(last_id, int):
+            self._last_event_id = last_id
+        else:
+            self._last_event_id = 0
+
+    async def _poll_supabase_events(self) -> None:
+        interval = max(0.25, float(self._poll_interval))
+        while self._poll_stop_event and not self._poll_stop_event.is_set():
             try:
-                await self._rt_channel.unsubscribe()
+                await self._poll_once()
+            except asyncio.CancelledError:
+                break
             except Exception:  # noqa: BLE001
-                pass
-            self._rt_channel = None
-        if self._rt_client is not None:
+                # Polling errors shouldn't crash tests; log and retry.
+                print("[event_capture] Supabase poll failed", flush=True)
             try:
-                await self._rt_client.close()
-            except Exception:  # noqa: BLE001
-                pass
-            self._rt_client = None
-        self._loop = None
+                await asyncio.wait_for(self._poll_stop_event.wait(), timeout=interval)
+                break
+            except asyncio.TimeoutError:
+                continue
 
-    def _handle_supabase_change(self, change: Dict[str, Any]) -> None:
-        # postgres_changes payload structure: {data: {new: {...}, old: {...}}}
-        data = change.get("data", {})
-        record = data.get("new") or data.get("record") or {}
-        if not isinstance(record, dict):
+    async def _poll_once(self) -> None:
+        if self._last_event_id is None:
             return
+        payload = {
+            "character_id": self._canonical_character_id,
+            "since_event_id": self._last_event_id,
+            "limit": max(1, self._poll_limit),
+        }
+        result = await self._call_events_since(payload)
+        events = result.get("events")
+        if isinstance(events, list):
+            for row in events:
+                event = self._normalize_polled_event(row)
+                if event:
+                    self._append_event_sorted(event)
+        last_id = result.get("last_event_id")
+        if isinstance(last_id, int):
+            self._last_event_id = last_id
+        elif isinstance(events, list) and events:
+            maybe = events[-1]
+            if isinstance(maybe, dict):
+                candidate = maybe.get("id")
+                if isinstance(candidate, int):
+                    self._last_event_id = candidate
 
-        # Transform database record to match legacy WebSocket event format
-        # Legacy format: {type: "event.name", payload: {...}, summary: "..."}
-        event_type = record.get("event_type")
-        if not event_type:
-            return
+    async def _call_events_since(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        if not self._http_client or not self._functions_url:
+            raise RuntimeError("Supabase HTTP client not initialized")
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self._anon_key}",
+            "apikey": self._anon_key,
+        }
+        if self._edge_api_token:
+            headers["x-api-token"] = self._edge_api_token
+        response = await self._http_client.post(
+            f"{self._functions_url}/events_since",
+            headers=headers,
+            json=payload,
+        )
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict):
+            raise RuntimeError("Invalid Supabase response")
+        if data.get("success") is False:
+            raise RuntimeError(data.get("error", "events_since failed"))
+        return data
 
-        payload = record.get("payload") or {}
+    def _normalize_polled_event(self, row: Any) -> Optional[Dict[str, Any]]:
+        if not isinstance(row, dict):
+            return None
+        event_type = row.get("event_type")
+        if not isinstance(event_type, str):
+            return None
+        payload = row.get("payload")
         if not isinstance(payload, dict):
             payload = {"value": payload}
-
-        event_id = None
-        context_event_id = record.get("event_id")
-        if isinstance(context_event_id, int):
-            event_id = context_event_id
-
-        event = {
+        event: Dict[str, Any] = {
             "type": event_type,
             "event": event_type,
             "payload": payload,
-            "summary": record.get("summary", ""),
+            "summary": row.get("meta", {}).get("summary") if isinstance(row.get("meta"), dict) else "",
         }
-        if event_id is not None:
+        event_id = row.get("id")
+        if isinstance(event_id, int):
             event["__event_id"] = event_id
-
-        loop = self._loop
-        if loop is not None:
-            loop.call_soon_threadsafe(self._append_event_sorted, event)
-        else:  # pragma: no cover - only for shutdown edge cases
-            self._append_event_sorted(event)
+        return event
 
     def _append_event_sorted(self, event: Dict[str, Any]) -> None:
         event_id = event.get("__event_id")

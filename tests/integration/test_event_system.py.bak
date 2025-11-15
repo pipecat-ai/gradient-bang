@@ -140,7 +140,7 @@ async def active_character(server_url, reset_test_state):
 async def firehose_listener(server_url):
     """Create a firehose listener for capturing all events."""
     async with create_firehose_listener(server_url) as listener:
-        await asyncio.sleep(EVENT_DELIVERY_WAIT)  # Let it connect
+        await asyncio.sleep(0.5)  # Let it connect
         yield listener
 
 
@@ -163,7 +163,7 @@ class TestEventEmission:
             client = AsyncGameClient(base_url=server_url, character_id=char_id)
             await client.join(character_id=char_id)
 
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             # Verify event emitted (event name may vary - status.snapshot is typical)
             # The actual join event depends on server implementation
@@ -560,7 +560,7 @@ class TestEventEmission:
                     trade_type="buy",
                     character_id=trader_id
                 )
-                await asyncio.sleep(EVENT_DELIVERY_WAIT)
+                await asyncio.sleep(1.0)
             except Exception as e:
                 pytest.skip(f"Trade failed: {e}")
 
@@ -635,7 +635,7 @@ class TestEventEmission:
             )
 
             # Wait for event propagation
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             end_time = datetime.now(timezone.utc)
 
@@ -697,7 +697,7 @@ class TestEventEmission:
                 character_id=char_id
             )
 
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             # Check for message event (event name may vary)
             # Actual event type depends on server implementation
@@ -903,7 +903,7 @@ class TestEventOrdering:
             await get_status(client, char_id)
             await asyncio.sleep(0.5)
             await get_status(client, char_id)
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             # Check timestamps
             timestamps = []
@@ -939,7 +939,7 @@ class TestEventOrdering:
                     client2.my_status(character_id=char2),
                 )
 
-                await asyncio.sleep(EVENT_DELIVERY_WAIT)
+                await asyncio.sleep(1.0)
 
                 # Verify events are properly timestamped
                 assert_events_chronological(listener.events)
@@ -960,7 +960,7 @@ class TestEventOrdering:
             await asyncio.sleep(0.5)
 
             status = await get_status(client, char_id)
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             # Verify status events appear in order
             status_events = listener.filter_events("status.snapshot")
@@ -1337,7 +1337,7 @@ class TestCharacterFiltering:
             await fighter2.move(to_sector=1, character_id=fighter2_id)
             await outsider.move(to_sector=2, character_id=outsider_id)
 
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             # Record start time
             start_time = datetime.now(timezone.utc)
@@ -1504,7 +1504,7 @@ class TestCharacterFiltering:
                     trade_type="buy",
                     character_id=trader_id
                 )
-                await asyncio.sleep(EVENT_DELIVERY_WAIT)
+                await asyncio.sleep(1.0)
             except Exception as e:
                 pytest.skip(f"Trade failed: {e}")
 
@@ -1615,7 +1615,7 @@ class TestCharacterFiltering:
                 to_name=recipient_display_name,  # Use display name, not character ID
                 character_id=sender_id
             )
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             end_time = datetime.now(timezone.utc)
 
@@ -1938,7 +1938,7 @@ class TestCharacterFiltering:
                 quantity=50,
                 mode="defensive"
             )
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             # 2. Change garrison mode → garrison.mode_changed event
             await deployer.combat_set_garrison_mode(
@@ -1947,7 +1947,7 @@ class TestCharacterFiltering:
                 mode="toll",
                 toll_amount=100
             )
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             # 3. Collect garrison → garrison.collected event
             await deployer.combat_collect_fighters(
@@ -1955,7 +1955,7 @@ class TestCharacterFiltering:
                 sector=1,
                 quantity=50
             )
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             end_time = datetime.now(timezone.utc)
 
@@ -2112,7 +2112,7 @@ class TestCharacterFiltering:
             )
 
             # Wait for event propagation
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             end_time = datetime.now(timezone.utc)
 
@@ -2182,7 +2182,7 @@ class TestWebSocketDelivery:
 
             # Generate event
             await get_status(client, char_id)
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             # Should have received events
             assert len(listener.events) > 0, "Firehose should receive events"
@@ -2202,7 +2202,7 @@ class TestWebSocketDelivery:
 
                 # Generate event
                 await get_status(client, char_id)
-                await asyncio.sleep(EVENT_DELIVERY_WAIT)
+                await asyncio.sleep(1.0)
 
                 # Both should have events
                 assert len(listener1.events) > 0, "Listener 1 should receive events"
@@ -2232,7 +2232,7 @@ class TestWebSocketDelivery:
             await asyncio.sleep(0.5)
 
             await get_status(client, char_id)
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             events_count_1 = len(listener1.events)
 
@@ -2241,7 +2241,7 @@ class TestWebSocketDelivery:
             await asyncio.sleep(0.5)
 
             await get_status(client, char_id)
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             # Should only receive new events, not duplicates
             # Each connection should receive its own events
@@ -2265,7 +2265,7 @@ class TestEventPayloadStructure:
             await asyncio.sleep(0.5)
 
             await get_status(client, char_id)
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             # Check each event has required fields
             for event in listener.events:
@@ -2281,7 +2281,7 @@ class TestEventPayloadStructure:
             await asyncio.sleep(0.5)
 
             status = await get_status(client, char_id)
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             # Find status event and validate structure
             status_events = listener.filter_events("status.snapshot")
@@ -2332,7 +2332,7 @@ class TestEventPayloadStructure:
             await asyncio.sleep(0.5)
 
             await get_status(client, char_id)
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             # All events should be JSON serializable
             for event in listener.events:
@@ -2370,7 +2370,7 @@ class TestJSONLAuditLog:
                 pytest.skip("No adjacent sectors for movement")
 
             await client.move(to_sector=adjacent[0], character_id=char_id)
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             end_time = datetime.now(timezone.utc)
 
@@ -2461,7 +2461,7 @@ class TestJSONLAuditLog:
             # Join and trigger an event
             await client.join(character_id=char_id)
             await get_status(client, char_id)
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             # Read log file directly
             log_path = Path("tests/test-world-data/event-log.jsonl")
@@ -2531,7 +2531,7 @@ class TestJSONLAuditLog:
 
             # Trigger new event
             await get_status(client, char_id)
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             # Read log again
             with log_path.open("r", encoding="utf-8") as f:
@@ -2592,7 +2592,7 @@ class TestAdminQueryMode:
             await get_status(client1, char1_id)
             await get_status(client2, char2_id)
 
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
             end_time = datetime.now(timezone.utc)
 
             # Admin query with no character_id filter (should see all events)
@@ -2636,7 +2636,7 @@ class TestAdminQueryMode:
             await get_status(client1, char1_id)
             await get_status(client2, char2_id)
 
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
             end_time = datetime.now(timezone.utc)
 
             # Admin query filtered by char1
@@ -2693,12 +2693,12 @@ class TestAdminQueryMode:
             # Move to sector2
             sector2 = adjacent[0]
             await client.move(to_sector=sector2, character_id=char_id)
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             # Trigger event in sector2
             await get_status(client, char_id)
 
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
             end_time = datetime.now(timezone.utc)
 
             # Admin query filtered by sector1
@@ -2747,12 +2747,12 @@ class TestAdminQueryMode:
             # Move to sector2
             sector2 = adjacent[0]
             await client.move(to_sector=sector2, character_id=char_id)
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             # Event in sector2
             await get_status(client, char_id)
 
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
             end_time = datetime.now(timezone.utc)
 
             # Query with both filters: character AND sector
@@ -2833,7 +2833,7 @@ class TestCharacterQueryMode:
             await client.join(character_id=char_id)
             await get_status(client, char_id)
 
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
             end_time = datetime.now(timezone.utc)
 
             # Character query (no admin_password)
@@ -2876,7 +2876,7 @@ class TestCharacterQueryMode:
             await get_status(client1, char1_id)
             await get_status(client2, char2_id)
 
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
             end_time = datetime.now(timezone.utc)
 
             # Char1 queries without admin password
@@ -2925,12 +2925,12 @@ class TestCharacterQueryMode:
             # Move to sector2
             sector2 = adjacent[0]
             await client.move(to_sector=sector2, character_id=char_id)
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             # Event in sector2
             await get_status(client, char_id)
 
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
             end_time = datetime.now(timezone.utc)
 
             # Character query filtered by sector2
@@ -2971,7 +2971,7 @@ class TestCharacterQueryMode:
             # Trigger some events
             await get_status(client, char_id)
 
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
             end_time = datetime.now(timezone.utc)
 
             # Query for sector 9999 (character hasn't been there)
@@ -3290,7 +3290,7 @@ class TestMultiCharacterEventFanout:
             )
 
             # Wait for event propagation
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             end_time = datetime.now(timezone.utc)
 
@@ -3450,7 +3450,7 @@ class TestEventEdgeCases:
 
             # Generate events (my_map removed - use get_status instead)
             await get_status(client, char_id)
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(1.0)
 
             # Verify events were received (even if large)
             assert len(listener.events) > 0

@@ -135,7 +135,7 @@ async def reset_test_world(server_url, supabase_environment):  # noqa: ARG001
         return
     """Reset world before and after each test using the test.reset endpoint."""
     reset_client = AsyncGameClient(
-        base_url="http://localhost:8002",
+        base_url=server_url,
         character_id="test_reset_client",
         transport="websocket",
     )
@@ -157,16 +157,20 @@ class TestBasicCombatScenarios:
 
     async def test_two_players_combat_attack_actions(self, test_server):
         """Test two players attacking each other."""
+        # Create test characters before initializing clients
+        create_test_character_knowledge("test_2p_player1", sector=0)
+        create_test_character_knowledge("test_2p_player2", sector=0)
+
         collector1 = EventCollector()
         collector2 = EventCollector()
 
         client1 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_2p_player1",
             transport="websocket",
         )
         client2 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_2p_player2",
             transport="websocket",
         )
@@ -239,7 +243,7 @@ class TestBasicCombatScenarios:
         for i in range(3):
             collector = EventCollector()
             client = AsyncGameClient(
-                base_url="http://localhost:8002",
+                base_url=test_server,
                 character_id=f"test_3p_player{i+1}",
                 transport="websocket",
             )
@@ -279,12 +283,12 @@ class TestBasicCombatScenarios:
         collector2 = EventCollector()
 
         client1 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_abf_attacker",
             transport="websocket",
         )
         client2 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_abf_defender",
             transport="websocket",
         )
@@ -362,6 +366,10 @@ class TestPlayerDestruction:
 
     async def test_destroy_player_creates_salvage(self, test_server):
         """Test that destroying a player creates salvage container."""
+        # Create test characters before initializing clients
+        create_test_character_knowledge("test_dest_attacker", sector=0)
+        create_test_character_knowledge("test_dest_victim", sector=0)
+
         # Create pre-configured characters
         create_weak_character("test_dest_victim", sector=0, fighters=5)
         create_strong_character("test_dest_attacker", sector=0, fighters=500)
@@ -373,12 +381,12 @@ class TestPlayerDestruction:
         collector_victim = EventCollector()
 
         client_attacker = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_dest_attacker",
             transport="websocket",
         )
         client_victim = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_dest_victim",
             transport="websocket",
         )
@@ -466,6 +474,10 @@ class TestPlayerDestruction:
 
     async def test_escape_pod_transition(self, test_server):
         """Test that defeated player becomes escape pod."""
+        # Create test characters before initializing clients
+        create_test_character_knowledge("test_pod_strong", sector=0)
+        create_test_character_knowledge("test_pod_weak", sector=0)
+
         # Create characters
         create_weak_character("test_pod_weak", sector=0, fighters=1)
         create_strong_character("test_pod_strong", sector=0, fighters=500)
@@ -473,12 +485,12 @@ class TestPlayerDestruction:
         collector_weak = EventCollector()
 
         client_strong = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_pod_strong",
             transport="websocket",
         )
         client_weak = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_pod_weak",
             transport="websocket",
         )
@@ -545,6 +557,11 @@ class TestSalvageCollection:
     @pytest.mark.timeout(60)  # This test waits for auto-brace mechanics (~36s minimum)
     async def test_salvage_collection_triggers_sector_update(self, test_server):
         """Test salvage creation, auto-brace mechanics, and sector.update propagation."""
+        # Create test characters before initializing clients
+        create_test_character_knowledge("test_salv_attacker", sector=0)
+        create_test_character_knowledge("test_salv_victim", sector=0)
+        create_test_character_knowledge("test_salv_observer", sector=0)
+
         # Create characters
         create_strong_character("test_salv_attacker", sector=0, fighters=200)
         create_weak_character("test_salv_victim", sector=0, fighters=5)
@@ -558,17 +575,17 @@ class TestSalvageCollection:
         collector_observer = EventCollector()
 
         client_attacker = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_salv_attacker",
             transport="websocket",
         )
         client_victim = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_salv_victim",
             transport="websocket",
         )
         client_observer = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_salv_observer",
             transport="websocket",
         )
@@ -681,6 +698,10 @@ class TestGarrisonScenarios:
 
     async def test_garrison_with_owner_in_sector(self, test_server):
         """Test garrison combat when owner is present."""
+        # Create test characters before initializing clients
+        create_test_character_knowledge("test_gow_owner", sector=0)
+        create_test_character_knowledge("test_gow_enemy", sector=0)
+
         create_balanced_character("test_gow_owner", sector=0)
         create_balanced_character("test_gow_enemy", sector=0)
 
@@ -688,12 +709,12 @@ class TestGarrisonScenarios:
         collector_enemy = EventCollector()
 
         client_owner = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_gow_owner",
             transport="websocket",
         )
         client_enemy = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_gow_enemy",
             transport="websocket",
         )
@@ -739,6 +760,10 @@ class TestGarrisonScenarios:
 
     async def test_garrison_without_owner_in_sector(self, test_server):
         """Test garrison combat when owner is not present."""
+        # Create test characters before initializing clients
+        create_test_character_knowledge("test_gwo_deployer", sector=0)
+        create_test_character_knowledge("test_gwo_victim", sector=0)
+
         create_balanced_character("test_gwo_deployer", sector=0)
         create_balanced_character("test_gwo_victim", sector=0)
 
@@ -746,12 +771,12 @@ class TestGarrisonScenarios:
         collector_victim = EventCollector()
 
         client_deployer = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_gwo_deployer",
             transport="websocket",
         )
         client_victim = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_gwo_victim",
             transport="websocket",
         )
@@ -804,18 +829,22 @@ class TestGarrisonModes:
 
     async def test_toll_mode_garrison(self, test_server):
         """Test garrison in toll mode demands payment."""
+        # Create test characters before initializing clients
+        create_test_character_knowledge("test_toll_deployer", sector=0)
+        create_test_character_knowledge("test_toll_payer", sector=0)
+
         create_balanced_character("test_toll_deployer", sector=0)
         create_balanced_character("test_toll_payer", sector=0)
 
         collector_payer = EventCollector()
 
         client_deployer = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_toll_deployer",
             transport="websocket",
         )
         client_payer = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_toll_payer",
             transport="websocket",
         )
@@ -888,18 +917,22 @@ class TestGarrisonModes:
 
     async def test_offensive_mode_garrison(self, test_server):
         """Test garrison in offensive mode auto-attacks."""
+        # Create test characters before initializing clients
+        create_test_character_knowledge("test_off_deployer", sector=0)
+        create_test_character_knowledge("test_off_victim", sector=0)
+
         create_balanced_character("test_off_deployer", sector=0)
         create_balanced_character("test_off_victim", sector=0)
 
         collector = EventCollector()
 
         client_deployer = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_off_deployer",
             transport="websocket",
         )
         client_victim = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_off_victim",
             transport="websocket",
         )
@@ -930,18 +963,22 @@ class TestGarrisonModes:
 
     async def test_defensive_mode_garrison(self, test_server):
         """Test garrison in defensive mode only fights when attacked."""
+        # Create test characters before initializing clients
+        create_test_character_knowledge("test_def_deployer", sector=0)
+        create_test_character_knowledge("test_def_victim", sector=0)
+
         create_balanced_character("test_def_deployer", sector=0)
         create_balanced_character("test_def_victim", sector=0)
 
         collector = EventCollector()
 
         client_deployer = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_def_deployer",
             transport="websocket",
         )
         client_victim = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_def_victim",
             transport="websocket",
         )
@@ -995,6 +1032,11 @@ class TestCombatEndedEvents:
 
     async def test_combat_ended_triggers_sector_update(self, test_server):
         """Test that combat.ended triggers sector.update for all in sector."""
+        # Create test characters before initializing clients
+        create_test_character_knowledge("test_end_combatant1", sector=0)
+        create_test_character_knowledge("test_end_combatant2", sector=0)
+        create_test_character_knowledge("test_end_observer", sector=0)
+
         create_balanced_character("test_end_combatant1", sector=0)
         create_balanced_character("test_end_combatant2", sector=0)
         create_balanced_character("test_end_observer", sector=0)
@@ -1004,17 +1046,17 @@ class TestCombatEndedEvents:
         observer_collector = EventCollector()
 
         client1 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_end_combatant1",
             transport="websocket",
         )
         client2 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_end_combatant2",
             transport="websocket",
         )
         observer = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_end_observer",
             transport="websocket",
         )
@@ -1073,18 +1115,22 @@ class TestCombatRoundMechanics:
 
     async def test_hit_calculation_uses_ship_stats(self, test_server):
         """Test that hit calculation uses fighter and shield stats."""
+        # Create test characters before initializing clients
+        create_test_character_knowledge("test_hit_attacker", sector=0)
+        create_test_character_knowledge("test_hit_defender", sector=0)
+
         create_strong_character("test_hit_attacker", sector=0, fighters=200)
         create_weak_character("test_hit_defender", sector=0, fighters=10)
 
         collector_attacker = EventCollector()
 
         client_attacker = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_hit_attacker",
             transport="websocket",
         )
         client_defender = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_hit_defender",
             transport="websocket",
         )
@@ -1144,12 +1190,12 @@ class TestCombatRoundMechanics:
         collector_attacker = EventCollector()
 
         client_attacker = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_dmg_attacker",
             transport="websocket",
         )
         client_defender = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_dmg_defender",
             transport="websocket",
         )
@@ -1206,12 +1252,12 @@ class TestCombatRoundMechanics:
         collector = EventCollector()
 
         client1 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_launch1",
             transport="websocket",
         )
         client2 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_launch2",
             transport="websocket",
         )
@@ -1269,12 +1315,12 @@ class TestCombatRoundMechanics:
         collector = EventCollector()
 
         client1 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_shield1",
             transport="websocket",
         )
         client2 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_shield2",
             transport="websocket",
         )
@@ -1357,12 +1403,12 @@ class TestCombatRoundMechanics:
         collector = EventCollector()
 
         client1 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_summary1",
             transport="websocket",
         )
         client2 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_summary2",
             transport="websocket",
         )
@@ -1421,12 +1467,12 @@ class TestCombatRoundMechanics:
         collector = EventCollector()
 
         client1 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_timeout1",
             transport="websocket",
         )
         client2 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_timeout2",
             transport="websocket",
         )
@@ -1462,18 +1508,22 @@ class TestCombatRoundMechanics:
 
     async def test_multiple_rounds_until_destruction(self, test_server):
         """Test combat lasting multiple rounds until ship destruction."""
+        # Create test characters before initializing clients
+        create_test_character_knowledge("test_multi_strong", sector=0)
+        create_test_character_knowledge("test_multi_weak", sector=0)
+
         create_strong_character("test_multi_strong", sector=0, fighters=300)
         create_weak_character("test_multi_weak", sector=0, fighters=50)
 
         collector = EventCollector()
 
         client_strong = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_multi_strong",
             transport="websocket",
         )
         client_weak = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_multi_weak",
             transport="websocket",
         )
@@ -1568,12 +1618,12 @@ class TestCombatRoundMechanics:
         collector = EventCollector()
 
         client1 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_submit1",
             transport="websocket",
         )
         client2 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_submit2",
             transport="websocket",
         )
@@ -1631,12 +1681,12 @@ class TestFleeingMechanics:
         collector_chaser = EventCollector()
 
         client_runner = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_flee_runner",
             transport="websocket",
         )
         client_chaser = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_flee_chaser",
             transport="websocket",
         )
@@ -1706,12 +1756,12 @@ class TestFleeingMechanics:
         collector = EventCollector()
 
         client_runner = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_warp_runner",
             transport="websocket",
         )
         client_chaser = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_warp_chaser",
             transport="websocket",
         )
@@ -1767,12 +1817,12 @@ class TestFleeingMechanics:
         collector = EventCollector()
 
         client_runner = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_fail_runner",
             transport="websocket",
         )
         client_chaser = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_fail_chaser",
             transport="websocket",
         )
@@ -1833,12 +1883,12 @@ class TestFleeingMechanics:
         collector = EventCollector()
 
         client_runner = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_prob_runner",
             transport="websocket",
         )
         client_chaser = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_prob_chaser",
             transport="websocket",
         )
@@ -1894,18 +1944,22 @@ class TestCombatEndedEventData:
 
     async def test_combat_ended_includes_winners_and_losers(self, test_server):
         """Test combat.ended event identifies winners and losers."""
+        # Create test characters before initializing clients
+        create_test_character_knowledge("test_win_winner", sector=0)
+        create_test_character_knowledge("test_win_loser", sector=0)
+
         create_strong_character("test_win_winner", sector=0, fighters=300)
         create_weak_character("test_win_loser", sector=0, fighters=10)
 
         collector = EventCollector()
 
         client_winner = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_win_winner",
             transport="websocket",
         )
         client_loser = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_win_loser",
             transport="websocket",
         )
@@ -1959,6 +2013,10 @@ class TestCombatEndedEventData:
 
     async def test_combat_ended_includes_salvage_info(self, test_server):
         """Test combat.ended event contains salvage data."""
+        # Create test characters before initializing clients
+        create_test_character_knowledge("test_salv_winner", sector=0)
+        create_test_character_knowledge("test_salv_loser", sector=0)
+
         create_strong_character("test_salv_winner", sector=0, fighters=300)
         create_weak_character("test_salv_loser", sector=0, fighters=10)
 
@@ -1968,12 +2026,12 @@ class TestCombatEndedEventData:
         collector = EventCollector()
 
         client_winner = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_salv_winner",
             transport="websocket",
         )
         client_loser = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_salv_loser",
             transport="websocket",
         )
@@ -2035,17 +2093,17 @@ class TestCombatEndedEventData:
         collector_obs = EventCollector()
 
         client1 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_filt_player1",
             transport="websocket",
         )
         client2 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_filt_player2",
             transport="websocket",
         )
         client_obs = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_filt_observer",
             transport="websocket",
         )
@@ -2093,12 +2151,12 @@ class TestCombatEndedEventData:
         collector = EventCollector()
 
         client1 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_state1",
             transport="websocket",
         )
         client2 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_state2",
             transport="websocket",
         )
@@ -2164,12 +2222,12 @@ class TestCombatEdgeCases:
         collector = EventCollector()
 
         client1 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_clean1",
             transport="websocket",
         )
         client2 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_clean2",
             transport="websocket",
         )
@@ -2222,24 +2280,24 @@ class TestCombatEdgeCases:
 
         # Clients for sector 1 combat
         client1a = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_conc1a",
             transport="websocket",
         )
         client1b = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_conc1b",
             transport="websocket",
         )
 
         # Clients for sector 2 combat
         client2a = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_conc2a",
             transport="websocket",
         )
         client2b = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_conc2b",
             transport="websocket",
         )
@@ -2292,12 +2350,12 @@ class TestCombatEdgeCases:
         collector = EventCollector()
 
         client_attacker = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_inv_attacker",
             transport="websocket",
         )
         client_victim = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_inv_victim",
             transport="websocket",
         )
@@ -2339,12 +2397,12 @@ class TestCombatEdgeCases:
         collector2 = EventCollector()
 
         client1 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_disc1",
             transport="websocket",
         )
         client2 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_disc2",
             transport="websocket",
         )
@@ -2410,17 +2468,17 @@ class TestCombatZoneRestrictions:
         collector_arrival = EventCollector()
 
         client1 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_combat_zone_fighter1",
             transport="websocket",
         )
         client2 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_combat_zone_fighter2",
             transport="websocket",
         )
         client_arrival = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_combat_zone_arrival",
             transport="websocket",
         )
@@ -2490,17 +2548,17 @@ class TestCombatZoneRestrictions:
         collector_arrival = EventCollector()
 
         client1 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_join_zone_fighter1",
             transport="websocket",
         )
         client2 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_join_zone_fighter2",
             transport="websocket",
         )
         client_arrival = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_join_zone_arrival",
             transport="websocket",
         )
@@ -2562,17 +2620,17 @@ class TestCombatZoneRestrictions:
         collector_arrival = EventCollector()
 
         client1 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_join_existing_fighter1",
             transport="websocket",
         )
         client2 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_join_existing_fighter2",
             transport="websocket",
         )
         client_arrival = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_join_existing_arrival",
             transport="websocket",
         )
@@ -2650,17 +2708,17 @@ class TestCombatZoneRestrictions:
         collector2 = EventCollector()
 
         client1 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_ended_fighter1",
             transport="websocket",
         )
         client2 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_ended_fighter2",
             transport="websocket",
         )
         client_arrival = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id="test_ended_arrival",
             transport="websocket",
         )
@@ -2736,12 +2794,12 @@ class TestCombatEventPayloads:
         char_id_2 = "test_initiator_char2"
 
         client1 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id=char_id_1,
             transport="websocket",
         )
         client2 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id=char_id_2,
             transport="websocket",
         )
@@ -2850,17 +2908,17 @@ class TestCombatEventPayloads:
         char_id_3 = "test_event_order_char3"
 
         client1 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id=char_id_1,
             transport="websocket",
         )
         client2 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id=char_id_2,
             transport="websocket",
         )
         client3 = AsyncGameClient(
-            base_url="http://localhost:8002",
+            base_url=test_server,
             character_id=char_id_3,
             transport="websocket",
         )

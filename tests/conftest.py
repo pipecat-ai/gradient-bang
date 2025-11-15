@@ -334,6 +334,10 @@ MANUAL_SUPABASE_STACK = _env_truthy("SUPABASE_MANUAL_STACK")
 USE_SUPABASE_TESTS = _env_truthy("USE_SUPABASE_TESTS")
 SUPABASE_BACKEND_ACTIVE = USE_SUPABASE_TESTS or bool(os.environ.get("SUPABASE_URL"))
 
+# Supabase polling: events arrive every POLL_INTERVAL, so tests must wait longer
+_POLL_INTERVAL = max(0.25, float(os.environ.get("SUPABASE_POLL_INTERVAL_SECONDS", "1.0")))
+EVENT_DELIVERY_WAIT = _POLL_INTERVAL + 0.5 if USE_SUPABASE_TESTS else 1.0
+
 
 def pytest_configure(config):
     for name, description in _CUSTOM_MARKERS.items():
@@ -692,22 +696,18 @@ def _stop_functions_proc() -> None:
 
 
 def _invoke_edge_test_reset() -> None:
-    """Call the test_reset edge function to seed test data."""
+    """Call the test_reset edge function to seed test data.
+
+    Starts with ZERO characters (matching Legacy behavior). Tests must explicitly create
+    characters they need using create_test_character_knowledge() or reset_character_state().
+    """
     import httpx
-    import json
-    from pathlib import Path
 
     edge_url = _edge_base_url()
     headers = _edge_request_headers()
 
-    # Load character IDs from test registry to seed them
-    registry_path = Path("tests/test-world-data/characters.json")
+    # Start with zero characters - tests will explicitly create what they need
     character_ids = []
-    if registry_path.exists():
-        registry = json.loads(registry_path.read_text())
-        # The registry has a "characters" key with character entries
-        if "characters" in registry:
-            character_ids = list(registry["characters"].keys())
 
     try:
         resp = httpx.post(

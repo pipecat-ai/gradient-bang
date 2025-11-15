@@ -591,3 +591,136 @@ def compare_bank_transaction(legacy_event: Dict[str, Any], supabase_event: Dict[
 
 
 COMPARERS["bank.transaction"] = compare_bank_transaction
+
+
+def compare_salvage_created(legacy_event: Dict[str, Any], supabase_event: Dict[str, Any]) -> ComparisonResult:
+    """Compare salvage.created events, tolerating UUID and timestamp differences."""
+    diffs: List[str] = []
+    leg_payload = legacy_event.get("payload", {})
+    sup_payload = supabase_event.get("payload", {})
+
+    # Compare action
+    if leg_payload.get("action") != sup_payload.get("action"):
+        diffs.append(f"action mismatch: {leg_payload.get('action')!r} != {sup_payload.get('action')!r}")
+
+    # Compare sector ID
+    leg_sector = leg_payload.get("sector", {})
+    sup_sector = sup_payload.get("sector", {})
+    if leg_sector.get("id") != sup_sector.get("id"):
+        diffs.append(f"sector.id mismatch: {leg_sector.get('id')!r} != {sup_sector.get('id')!r}")
+
+    # Compare salvage_details (functional data only, skip UUIDs/timestamps)
+    leg_details = leg_payload.get("salvage_details", {})
+    sup_details = sup_payload.get("salvage_details", {})
+
+    # Skip salvage_id (UUID - expected to differ)
+    # Skip expires_at (timestamp - expected to differ)
+    # Compare functional data
+    if leg_details.get("cargo") != sup_details.get("cargo"):
+        diffs.append(f"salvage_details.cargo mismatch: {leg_details.get('cargo')!r} != {sup_details.get('cargo')!r}")
+    if leg_details.get("credits") != sup_details.get("credits"):
+        diffs.append(f"salvage_details.credits mismatch: {leg_details.get('credits')!r} != {sup_details.get('credits')!r}")
+    if leg_details.get("scrap") != sup_details.get("scrap"):
+        diffs.append(f"salvage_details.scrap mismatch: {leg_details.get('scrap')!r} != {sup_details.get('scrap')!r}")
+
+    return ComparisonResult(diffs)
+
+
+COMPARERS["salvage.created"] = compare_salvage_created
+
+
+def compare_ports_list(legacy_event: Dict[str, Any], supabase_event: Dict[str, Any]) -> ComparisonResult:
+    """Compare ports.list events, tolerating timestamp and position differences."""
+    diffs: List[str] = []
+    leg_payload = legacy_event.get("payload", {})
+    sup_payload = supabase_event.get("payload", {})
+
+    # Compare functional counts
+    if leg_payload.get("total_ports_found") != sup_payload.get("total_ports_found"):
+        diffs.append(
+            f"total_ports_found mismatch: {leg_payload.get('total_ports_found')!r} != {sup_payload.get('total_ports_found')!r}"
+        )
+    if leg_payload.get("searched_sectors") != sup_payload.get("searched_sectors"):
+        diffs.append(
+            f"searched_sectors mismatch: {leg_payload.get('searched_sectors')!r} != {sup_payload.get('searched_sectors')!r}"
+        )
+    if leg_payload.get("from_sector") != sup_payload.get("from_sector"):
+        diffs.append(
+            f"from_sector mismatch: {leg_payload.get('from_sector')!r} != {sup_payload.get('from_sector')!r}"
+        )
+
+    # Compare ports array
+    leg_ports = leg_payload.get("ports", [])
+    sup_ports = sup_payload.get("ports", [])
+
+    if len(leg_ports) != len(sup_ports):
+        diffs.append(f"port count mismatch: {len(leg_ports)} != {len(sup_ports)}")
+        return ComparisonResult(diffs)
+
+    for i, (leg_port, sup_port) in enumerate(zip(leg_ports, sup_ports)):
+        # Compare hops_from_start (functional)
+        if leg_port.get("hops_from_start") != sup_port.get("hops_from_start"):
+            diffs.append(
+                f"port[{i}].hops_from_start mismatch: {leg_port.get('hops_from_start')!r} != {sup_port.get('hops_from_start')!r}"
+            )
+
+        # Skip last_visited and updated_at - timestamps expected to differ
+
+        # Compare sector
+        leg_sector = leg_port.get("sector", {})
+        sup_sector = sup_port.get("sector", {})
+
+        # Compare sector ID (functional)
+        if leg_sector.get("id") != sup_sector.get("id"):
+            diffs.append(
+                f"port[{i}].sector.id mismatch: {leg_sector.get('id')!r} != {sup_sector.get('id')!r}"
+            )
+
+        # Skip sector.position - universe seed difference (Legacy bug shows [0,0])
+
+        # Compare port data
+        leg_port_data = leg_sector.get("port", {})
+        sup_port_data = sup_sector.get("port", {})
+
+        # Compare port code (functional)
+        if leg_port_data.get("code") != sup_port_data.get("code"):
+            diffs.append(
+                f"port[{i}].port.code mismatch: {leg_port_data.get('code')!r} != {sup_port_data.get('code')!r}"
+            )
+
+        # Compare stock (functional)
+        leg_stock = leg_port_data.get("stock", {})
+        sup_stock = sup_port_data.get("stock", {})
+        for commodity in ["quantum_foam", "retro_organics", "neuro_symbolics"]:
+            if leg_stock.get(commodity) != sup_stock.get(commodity):
+                diffs.append(
+                    f"port[{i}].port.stock.{commodity} mismatch: {leg_stock.get(commodity)!r} != {sup_stock.get(commodity)!r}"
+                )
+
+        # Compare prices (functional)
+        leg_prices = leg_port_data.get("prices", {})
+        sup_prices = sup_port_data.get("prices", {})
+        for commodity in ["quantum_foam", "retro_organics", "neuro_symbolics"]:
+            if leg_prices.get(commodity) != sup_prices.get(commodity):
+                diffs.append(
+                    f"port[{i}].port.prices.{commodity} mismatch: {leg_prices.get(commodity)!r} != {sup_prices.get(commodity)!r}"
+                )
+
+        # Skip observed_at - timestamp expected to differ
+
+    return ComparisonResult(diffs)
+
+
+COMPARERS["ports.list"] = compare_ports_list
+
+
+def compare_sector_update(legacy_event: Dict[str, Any], supabase_event: Dict[str, Any]) -> ComparisonResult:
+    """Compare sector.update events using _compare_sector helper."""
+    diffs = _compare_sector(
+        legacy_event.get("payload"),
+        supabase_event.get("payload"),
+    )
+    return ComparisonResult(diffs)
+
+
+COMPARERS["sector.update"] = compare_sector_update

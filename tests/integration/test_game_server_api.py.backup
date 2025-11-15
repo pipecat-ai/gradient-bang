@@ -120,7 +120,7 @@ async def test_my_status_returns_current_state(server_url, check_server_availabl
             assert result.get("success") is True
 
             # Wait for events
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(0.2)
 
             # Validate event emission
             events = listener.events
@@ -184,7 +184,7 @@ async def test_move_to_adjacent_sector(server_url, payload_parity, check_server_
             assert result.get("success") is True
 
             # Wait for movement to complete (default hyperspace_time is 2 seconds)
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(2.5)
 
             # Validate event emission
             events = listener.events
@@ -219,7 +219,7 @@ async def test_move_to_invalid_sector_fails(server_url, check_server_available):
             assert exc_info.value.status >= 400
 
             # Validate no movement events
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(0.2)
             events = listener.events
             move_events = [e for e in events if "movement" in e.get("event")]
             assert len(move_events) == 0
@@ -252,7 +252,7 @@ async def test_move_while_in_hyperspace_fails(server_url, check_server_available
         assert exc_info.value.status >= 400
 
         # Wait for first move to complete
-        await asyncio.sleep(EVENT_DELIVERY_WAIT)
+        await asyncio.sleep(0.5)
 
         # Verify character completed first move
         status = await get_status(client, char_id)
@@ -294,7 +294,7 @@ async def test_plot_course_finds_path(server_url, check_server_available):
             assert result.get("success") is True
 
             # Wait for course.plot event
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(0.2)
 
             # Validate event emission
             events = listener.events
@@ -336,7 +336,7 @@ async def test_local_map_region_returns_nearby_sectors(server_url, check_server_
             assert result.get("success") is True
 
             # Wait for event
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(0.2)
 
             # Validate event emission (may be map.local or map.region)
             events = listener.events
@@ -372,7 +372,7 @@ async def test_list_known_ports_filters_correctly(server_url, check_server_avail
 
             # Move to sector 1 to discover port
             await client.move(to_sector=1, character_id=char_id)
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(0.5)
 
             # List known ports
             result = await client.list_known_ports(
@@ -384,7 +384,7 @@ async def test_list_known_ports_filters_correctly(server_url, check_server_avail
             assert result.get("success") is True
 
             # Wait for event
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(0.2)
 
             # Validate event emission
             events = listener.events
@@ -423,7 +423,7 @@ async def test_path_with_region_includes_context(server_url, check_server_availa
             assert result.get("success") is True
 
             # Wait for event
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(0.2)
 
             # Validate event emission
             events = listener.events
@@ -458,7 +458,7 @@ async def test_trade_buy_commodity(server_url, check_server_available):
 
             # Move to port sector
             await client.move(to_sector=1, character_id=char_id)
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(0.5)
 
             listener.clear_events()
 
@@ -474,7 +474,7 @@ async def test_trade_buy_commodity(server_url, check_server_available):
             assert result.get("success") is True
 
             # Wait for events
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(0.2)
 
             # Validate event emission
             events = listener.events
@@ -522,7 +522,7 @@ async def test_trade_sell_commodity(server_url, check_server_available):
             assert result.get("success") is True
 
             # Wait for events
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(0.2)
 
             # Validate event emission
             events = listener.events
@@ -551,7 +551,7 @@ async def test_trade_insufficient_credits_fails(server_url, check_server_availab
 
             # Move to port
             await client.move(to_sector=1, character_id=char_id)
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(0.5)
 
             listener.clear_events()
 
@@ -568,7 +568,7 @@ async def test_trade_insufficient_credits_fails(server_url, check_server_availab
             assert exc_info.value.status >= 400
 
             # Validate no trade event
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(0.2)
     events = listener.events
     trade_events = [e for e in events if e.get("event") == "trade.executed"]
     assert len(trade_events) == 0
@@ -605,7 +605,7 @@ async def test_purchase_fighters(server_url, payload_parity, check_server_availa
             assert result.get("success") is True
 
             # Wait for fighter.purchase + status.update fan-out
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(0.3)
 
             events = listener.events
             fighter_events = [e for e in events if e.get("event") == "fighter.purchase"]
@@ -661,7 +661,7 @@ async def test_attack_initiates_combat(server_url, check_server_available):
             assert "combat_id" in result or result.get("success") is True
 
             # Wait for events
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(0.3)
 
             # Validate event emission
             events = listener.events
@@ -718,7 +718,7 @@ async def test_flee_exits_combat(server_url, check_server_available):
             assert flee_result.get("success") is True or "round" in flee_result
 
             # Wait for events
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(0.5)
 
             # Character should have moved (if flee succeeded)
             status = await get_status(client, char1)
@@ -760,7 +760,7 @@ async def test_garrison_creates_defensive_force(server_url, check_server_availab
             assert result.get("success") is True
 
             # Wait for events
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(0.2)
 
             # Validate event emission
             events = listener.events
@@ -798,7 +798,7 @@ async def test_collect_salvage_picks_up_loot(server_url, check_server_available)
                 items=[{"commodity": "quantum_foam", "units": 10}],
                 character_id=dumper_id
             )
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(0.5)
 
             # Get salvage ID
             collector_status = await get_status(collector_client, collector_id)
@@ -824,7 +824,7 @@ async def test_collect_salvage_picks_up_loot(server_url, check_server_available)
             assert result["fully_collected"] is False
 
             # Validate salvage.collected event
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(0.5)
             events = listener.events
             salvage_events = [e for e in events if e.get("event") == "salvage.collected"]
             assert len(salvage_events) >= 1, "Should emit salvage.collected event"
@@ -870,9 +870,9 @@ async def test_recharge_warp_power_at_sector_zero(server_url, check_server_avail
 
             # Deplete warp power by moving
             await client.move(to_sector=1, character_id=char_id)
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)  # Wait for move to complete
+            await asyncio.sleep(0.5)  # Wait for move to complete
             await client.move(to_sector=0, character_id=char_id)
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)  # Wait for move to complete
+            await asyncio.sleep(0.5)  # Wait for move to complete
 
             # Get initial state
             status_before = await get_status(client, char_id)
@@ -891,7 +891,7 @@ async def test_recharge_warp_power_at_sector_zero(server_url, check_server_avail
             assert result.get("success") is True
 
             # Wait for events
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(0.2)
 
             # Validate event emission
             events = listener.events
@@ -943,7 +943,7 @@ async def test_transfer_warp_power_to_character(server_url, check_server_availab
             assert result.get("success") is True
 
             # Wait for events
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(0.2)
 
             # Validate event emission
             events = listener.events
@@ -1003,7 +1003,7 @@ async def test_ship_empty_holds_calculation(server_url):
 
         # STEP 2: Move to a port (sector 1 has port BBS)
         await client.move(to_sector=1, character_id=char_id)
-        await asyncio.sleep(EVENT_DELIVERY_WAIT)
+        await asyncio.sleep(0.5)
 
         status = await get_status(client, char_id)
         assert status["sector"]["id"] == 1
@@ -1018,7 +1018,7 @@ async def test_ship_empty_holds_calculation(server_url):
                 trade_type="buy",
                 character_id=char_id
             )
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(0.5)
 
             status = await get_status(client, char_id)
             ship = status["ship"]
@@ -1040,7 +1040,7 @@ async def test_ship_empty_holds_calculation(server_url):
                 items={"neuro_symbolics": 5},
                 character_id=char_id
             )
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+            await asyncio.sleep(0.5)
 
             status = await get_status(client, char_id)
             ship = status["ship"]

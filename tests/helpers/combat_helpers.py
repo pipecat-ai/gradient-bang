@@ -414,6 +414,14 @@ def set_character_cargo(
     _save_ships(ships)
     _update_last_seen(character_id)
 
+    if os.environ.get("USE_SUPABASE_TESTS", "").strip().lower() in {"1", "true", "on", "yes"}:
+        try:
+            from tests.edge.support.state import update_ship_state  # type: ignore
+        except Exception:  # noqa: BLE001
+            pass
+        else:
+            update_ship_state(character_id, cargo=cargo)
+
 
 def deploy_garrison_payload(
     owner_id: str,

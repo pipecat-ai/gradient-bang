@@ -574,11 +574,19 @@ def _seed_universe(cur) -> None:
 
 
 def reset_supabase_state(character_ids: Iterable[str] | None = None) -> None:
-    """Reset Supabase state directly via SQL using tests/test-world-data fixtures."""
+    """Reset Supabase state directly via SQL using tests/test-world-data fixtures.
+
+    Args:
+        character_ids: Optional list of character IDs to pre-seed. If None, starts with
+                      ZERO characters (matching Legacy behavior). Characters will be created
+                      on-demand when they first join.
+    """
 
     ids: List[str]
     if character_ids is None:
-        ids = _load_character_ids()
+        # Start with zero characters (matching Legacy behavior)
+        # Characters will be created on-demand via join edge function
+        ids = []
     else:
         ids = sorted(set(character_ids))
 
