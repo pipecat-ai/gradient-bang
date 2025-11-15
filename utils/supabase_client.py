@@ -7,6 +7,7 @@ import os
 import uuid
 import logging
 from collections import deque
+from contextlib import suppress
 from typing import Any, Deque, Dict, Mapping, Optional
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
@@ -27,6 +28,10 @@ CHARACTER_JWT_REFRESH_MARGIN_SECONDS = float(
     os.getenv("SUPABASE_CHARACTER_JWT_REFRESH_MARGIN", "60")
 )
 DEFAULT_CHARACTER_JWT_TTL_SECONDS = 60 * 60
+USE_POLLING_DEFAULT = os.getenv("SUPABASE_USE_POLLING", "").lower() in _TRUE_VALUES
+POLL_INTERVAL_SECONDS = max(0.25, float(os.getenv("SUPABASE_POLL_INTERVAL_SECONDS", "1.0")))
+POLL_LIMIT_DEFAULT = max(1, min(250, int(os.getenv("SUPABASE_POLL_LIMIT", "100"))))
+POLL_BACKOFF_MAX = max(1.0, float(os.getenv("SUPABASE_POLL_BACKOFF_MAX", "5.0")))
 # Enable verbose realtime logging by exporting SUPABASE_REALTIME_DEBUG=1
 logger.setLevel(logging.INFO if SUPABASE_REALTIME_DEBUG else logging.WARNING)
 
@@ -121,9 +126,18 @@ class AsyncGameClient(LegacyAsyncGameClient):
         self._character_jwt_expires_at: Optional[datetime] = None
         margin_seconds = max(5.0, CHARACTER_JWT_REFRESH_MARGIN_SECONDS)
         self._character_jwt_refresh_margin = timedelta(seconds=margin_seconds)
+        self._use_polling = USE_POLLING_DEFAULT
+        self._poll_interval = POLL_INTERVAL_SECONDS
+        self._poll_limit = POLL_LIMIT_DEFAULT
+        self._polling_task: Optional[asyncio.Task] = None
+        self._polling_stop_event = asyncio.Event()
+        self._polling_last_event_id: Optional[int] = None
+        self._polling_lock = asyncio.Lock()
+        self._polling_backoff = 0.0
 
     async def close(self):
         await super().close()
+        await self._stop_event_poller()
         if self._http:
             await self._http.aclose()
             self._http = None
@@ -141,11 +155,17 @@ class AsyncGameClient(LegacyAsyncGameClient):
     async def _ensure_ws(self):  # type: ignore[override]
         return  # Supabase transport does not use legacy websockets
 
-    async def _request(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:  # type: ignore[override]
+    async def _request(
+        self,
+        endpoint: str,
+        payload: Dict[str, Any],
+        *,
+        skip_event_delivery: bool = False,
+    ) -> Dict[str, Any]:  # type: ignore[override]
         # Skip realtime listener setup only for get_character_jwt (to avoid recursion)
         # For join, we establish Realtime BEFORE the RPC so join events are received
-        if endpoint not in ("get_character_jwt",):
-            await self._ensure_realtime_listener()
+        if endpoint not in ("get_character_jwt",) and not skip_event_delivery:
+            await self._ensure_event_delivery()
         http_client = self._ensure_http_client()
 
         req_id = str(uuid.uuid4())
@@ -492,8 +512,159 @@ class AsyncGameClient(LegacyAsyncGameClient):
             seconds = 60
         return now + timedelta(seconds=seconds)
 
+    async def _ensure_event_delivery(self) -> None:
+        if self._use_polling:
+            await self._ensure_event_poller()
+            return
+        await self._ensure_realtime_listener()
+
+    async def _ensure_event_poller(self) -> None:
+        async with self._polling_lock:
+            if self._polling_task and not self._polling_task.done():
+                return
+            if self._polling_task and self._polling_task.done():
+                with suppress(Exception):
+                    await self._polling_task
+                self._polling_task = None
+            if self._polling_stop_event.is_set():
+                self._polling_stop_event = asyncio.Event()
+            if self._polling_last_event_id is None:
+                await self._initialize_polling_cursor()
+            self._polling_task = asyncio.create_task(self._poll_events_loop())
+
+    async def _initialize_polling_cursor(self) -> None:
+        payload = {
+            "character_id": self._canonical_character_id,
+            "initial_only": True,
+        }
+        response = await self._request("events_since", payload, skip_event_delivery=True)
+        last_id = response.get("last_event_id")
+        if isinstance(last_id, int):
+            self._polling_last_event_id = last_id
+        else:
+            self._polling_last_event_id = 0
+
+    async def _poll_events_loop(self) -> None:
+        while not self._polling_stop_event.is_set():
+            try:
+                has_more = await self._poll_events_once()
+                self._polling_backoff = 0.0
+
+                # If there are more events available, poll immediately without delay
+                if has_more:
+                    continue
+            except asyncio.CancelledError:
+                break
+            except Exception:  # noqa: BLE001
+                logger.warning("supabase.poller.error", exc_info=True)
+                backoff = self._polling_backoff or self._poll_interval
+                backoff = min(backoff * 2 if self._polling_backoff else backoff, POLL_BACKOFF_MAX)
+                self._polling_backoff = backoff
+                try:
+                    await asyncio.wait_for(self._polling_stop_event.wait(), timeout=backoff)
+                    break
+                except asyncio.TimeoutError:
+                    continue
+            try:
+                await asyncio.wait_for(self._polling_stop_event.wait(), timeout=self._poll_interval)
+                break
+            except asyncio.TimeoutError:
+                continue
+
+    async def _poll_events_once(self) -> bool:
+        """Poll for events once. Returns True if more events are available."""
+        if self._polling_last_event_id is None:
+            await self._initialize_polling_cursor()
+            return False
+
+        payload = {
+            "character_id": self._canonical_character_id,
+            "since_event_id": self._polling_last_event_id,
+            "limit": self._poll_limit,
+        }
+        response = await self._request("events_since", payload, skip_event_delivery=True)
+        events = response.get("events")
+        if not isinstance(events, list):
+            events = []
+        for row in events:
+            await self._deliver_polled_event(row)
+        last_id = response.get("last_event_id")
+        if isinstance(last_id, int):
+            self._polling_last_event_id = last_id
+        elif events:
+            maybe = events[-1]
+            if isinstance(maybe, Mapping):
+                candidate = maybe.get("id")
+                if isinstance(candidate, int):
+                    self._polling_last_event_id = candidate
+
+        # Return True if there are more events waiting (hit the limit)
+        has_more = response.get("has_more")
+        return bool(has_more)
+
+    async def _deliver_polled_event(self, row: Mapping[str, Any]) -> None:
+        if not isinstance(row, Mapping):
+            return
+        event_name = row.get("event_type")
+        if not isinstance(event_name, str) or not event_name:
+            return
+        payload = self._build_polled_event_payload(row)
+
+        # Deduplicate events (same as realtime path)
+        if not self._record_event_id(payload):
+            return
+
+        await self._maybe_update_sector_from_event(event_name, payload)
+        await self._process_event(event_name, payload)
+
+        # Log events to JSONL audit log (same as realtime path)
+        self._append_event_log(event_name, payload)
+
+    def _build_polled_event_payload(self, row: Mapping[str, Any]) -> Dict[str, Any]:
+        raw_payload = row.get("payload")
+        if isinstance(raw_payload, Mapping):
+            payload = dict(raw_payload)
+        else:
+            payload = {"value": raw_payload}
+
+        meta = row.get("meta")
+        if isinstance(meta, Mapping) and "meta" not in payload:
+            payload["meta"] = dict(meta)
+
+        request_id = row.get("request_id")
+        if isinstance(request_id, str) and request_id and "request_id" not in payload:
+            payload["request_id"] = request_id
+
+        context = row.get("event_context")
+        if isinstance(context, Mapping):
+            context_data = dict(context)
+        else:
+            context_data = {}
+        for key in ("scope", "sector_id", "corp_id", "actor_character_id", "character_id", "direction"):
+            value = row.get(key)
+            if value is not None and key not in context_data:
+                context_data[key] = value
+        event_id = row.get("id")
+        if isinstance(event_id, int):
+            context_data["event_id"] = event_id
+        if context_data:
+            payload["__event_context"] = context_data
+        return payload
+
+    async def _stop_event_poller(self) -> None:
+        if not self._use_polling:
+            return
+        self._polling_stop_event.set()
+        if self._polling_task is not None:
+            self._polling_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._polling_task
+            self._polling_task = None
+
     async def _ensure_realtime_listener(self) -> None:
         character_jwt = await self._ensure_character_jwt()
+        if self._use_polling:
+            return
         listener = self._realtime_listener
         if (
             listener is None
@@ -577,6 +748,8 @@ class AsyncGameClient(LegacyAsyncGameClient):
         return self._http
 
     async def _ensure_sector_listener(self) -> None:
+        if self._use_polling:
+            return
         sector_id = self._current_sector_id
         if sector_id is None:
             await self._stop_sector_listener()
@@ -632,19 +805,22 @@ class AsyncGameClient(LegacyAsyncGameClient):
                 sector_id = self._coerce_sector_id_from_value(player.get("sector"))
         if sector_id is None:
             return
-        await self._set_current_sector(sector_id)
+        self._set_current_sector(sector_id)
 
     async def _maybe_update_sector_from_event(self, event_name: str, payload: Mapping[str, Any]) -> None:
         sector_id = self._extract_sector_id_from_event(event_name, payload)
         if sector_id is None:
             return
-        await self._set_current_sector(sector_id)
-
-    async def _set_current_sector(self, sector_id: Optional[int]) -> None:
+        self._set_current_sector(sector_id)
+    def _set_current_sector(self, sector_id: Optional[int]) -> None:
+        if sector_id is None:
+            return
+        super()._set_current_sector(sector_id)
         if sector_id == self._current_sector_id:
             return
         self._current_sector_id = sector_id
-        await self._ensure_sector_listener()
+        if not self._use_polling:
+            asyncio.create_task(self._ensure_sector_listener())
 
     def _extract_sector_id_from_event(self, event_name: str, payload: Mapping[str, Any]) -> Optional[int]:
         ctx = payload.get("__event_context") if isinstance(payload, Mapping) else None
@@ -706,10 +882,9 @@ class AsyncGameClient(LegacyAsyncGameClient):
         return None
 
     def _format_event(self, event_name: str, payload: Any) -> Dict[str, Any]:  # type: ignore[override]
-        event_id = None
+        # Remove internal tracking metadata before formatting
         if isinstance(payload, dict) and "__supabase_event_id" in payload:
-            event_id = payload.pop("__supabase_event_id", None)
+            payload.pop("__supabase_event_id", None)
+        # Do NOT add __event_id to the formatted event - it's internal metadata
         event_message = super()._format_event(event_name, payload)
-        if event_id is not None:
-            event_message["__event_id"] = event_id
         return event_message

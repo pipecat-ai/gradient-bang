@@ -21,7 +21,17 @@ SUPABASE_REALTIME_DEBUG = os.getenv("SUPABASE_REALTIME_DEBUG", "").lower() in {
     "true",
     "on",
 }
+SUPABASE_REALTIME_LOG_LEVEL = os.getenv("SUPABASE_REALTIME_LOG_LEVEL", "info").strip().lower()
 logger.setLevel(logging.DEBUG if SUPABASE_REALTIME_DEBUG else logging.WARNING)
+
+
+def realtime_client_params() -> Dict[str, Any]:
+    """Build the params dict that controls Supabase realtime logging."""
+
+    params: Dict[str, Any] = {}
+    if SUPABASE_REALTIME_LOG_LEVEL:
+        params["log_level"] = SUPABASE_REALTIME_LOG_LEVEL
+    return params
 
 EventHandler = Callable[[str, Dict[str, Any]], Awaitable[None] | None]
 StatusHandler = Callable[[RealtimeSubscribeStates, Optional[BaseException]], Awaitable[None] | None]
@@ -122,6 +132,7 @@ class SupabaseRealtimeListener:
                 url=f"{self._supabase_url}/realtime/v1",
                 token=self._anon_key,
                 auto_reconnect=True,
+                params=realtime_client_params(),
             )
             if self._access_token:
                 await client.set_auth(self._access_token)

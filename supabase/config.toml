@@ -124,7 +124,7 @@ additional_redirect_urls = ["https://127.0.0.1:3000"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # Path to JWT signing key. DO NOT commit your signing keys file to git.
-# signing_keys_path = "./signing_keys.json"
+signing_keys_path = "./signing_keys.json"
 # If disabled, the refresh token will never expire.
 enable_refresh_token_rotation = true
 # Allows refresh tokens to be reused after expiry, up to the specified interval in seconds.
@@ -328,6 +328,7 @@ deno_version = 1
 # secret_key = "env(SECRET_VALUE)"
 [edge_runtime.secrets]
 EDGE_JWT_SECRET = "super-secret-jwt-token-with-at-least-32-characters-long"
+CHARACTER_JWT_SIGNING_KEY = "{\"kty\":\"EC\",\"kid\":\"f48b2a5d-1a49-4551-bf33-44a832809b40\",\"use\":\"sig\",\"key_ops\":[\"sign\"],\"alg\":\"ES256\",\"ext\":true,\"d\":\"QdjUuSaIcFeopOHtxGWVeUhHUTH7BdYOlJLUwzon9-A\",\"crv\":\"P-256\",\"x\":\"m2IZuszBWg32XYXzjhOAtD2CZaxSBIms1andO4iYfZM\",\"y\":\"6hZqyhM6I1cFN47Rz4_j99X8OC0bxv3aGT7HtmgGyEI\"}"
 
 [analytics]
 enabled = true

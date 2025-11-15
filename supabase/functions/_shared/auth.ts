@@ -113,8 +113,10 @@ export async function generateCharacterJWT(options: CharacterJwtOptions): Promis
 
   const ttl = normalizeTtlSeconds(expiresInSeconds);
   const now = Math.floor(Date.now() / 1000);
+  const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
   const payload: Record<string, unknown> = {
     sub: characterId,
+    iss: supabaseUrl,
     role: 'authenticated',
     aud: audience,
     iat: now,

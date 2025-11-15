@@ -236,30 +236,70 @@ async function fetchEvents(options: {
   }
 
   const rows: EventRow[] = Array.isArray(data) ? (data as EventRow[]) : [];
+  const senderLookup = await loadCharacterNames(
+    supabase,
+    rows.flatMap((row) => [row.sender_id, row.character_id]),
+  );
   const filteredRows = stringMatch ? filterRowsByString(rows, stringMatch) : rows;
   const truncated = filteredRows.length > limit;
   const sliced = truncated ? filteredRows.slice(0, limit) : filteredRows;
-  const events = sliced.map(buildEventRecord);
+  const events = sliced.map((row) => buildEventRecord(row, senderLookup));
   return { events, truncated };
 }
 
-function buildEventRecord(row: EventRow): JsonRecord {
+function buildEventRecord(row: EventRow, nameLookup: Map<string, string>): JsonRecord {
   const payload = row.payload && typeof row.payload === 'object' ? row.payload : {};
   const meta = row.meta && typeof row.meta === 'object' ? row.meta : null;
   const corporationId = meta && typeof meta['corporation_id'] === 'string' ? (meta['corporation_id'] as string) : null;
+  const senderId = typeof row.sender_id === 'string' ? row.sender_id : null;
+  const receiverId = typeof row.character_id === 'string' ? row.character_id : null;
   return {
     timestamp: row.timestamp,
     direction: row.direction,
     event: row.event_type,
     payload,
-    sender: row.sender_id,
-    receiver: row.character_id,
+    sender: senderId ? nameLookup.get(senderId) ?? senderId : null,
+    receiver: receiverId ? nameLookup.get(receiverId) ?? receiverId : null,
     sector: row.sector_id,
     corporation_id: corporationId,
     ship_id: row.ship_id,
     request_id: row.request_id,
     meta,
   };
+}
+
+async function loadCharacterNames(
+  supabase: SupabaseClient,
+  candidates: Array<string | null>,
+): Promise<Map<string, string>> {
+  const unique = Array.from(
+    new Set(
+      candidates
+        .filter((value): value is string => typeof value === 'string' && value.length > 0),
+    ),
+  );
+  if (!unique.length) {
+    return new Map();
+  }
+
+  const { data, error } = await supabase
+    .from('characters')
+    .select('character_id,name')
+    .in('character_id', unique);
+  if (error) {
+    console.error('event_query.loadCharacterNames', error);
+    return new Map();
+  }
+
+  const map = new Map<string, string>();
+  for (const entry of data ?? []) {
+    const characterId = typeof entry.character_id === 'string' ? entry.character_id : null;
+    const name = typeof entry.name === 'string' ? entry.name : null;
+    if (characterId && name) {
+      map.set(characterId, name);
+    }
+  }
+  return map;
 }
 
 function parseTimestamp(value: unknown, label: string): Date {

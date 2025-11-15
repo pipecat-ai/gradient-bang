@@ -220,6 +220,7 @@ async function emitRoundWaitingEvents(
   const payload = buildRoundWaitingPayload(encounter);
   const source = buildEventSource('combat.round_waiting', requestId);
   payload.source = source;
+  const senderId = typeof encounter.context?.initiator === 'string' ? encounter.context.initiator : null;
 
   const recipients = Object.values(encounter.participants)
     .filter((participant) => participant.combatant_type === 'character')
@@ -234,6 +235,8 @@ async function emitRoundWaitingEvents(
         payload,
         sectorId: encounter.sector_id,
         requestId,
+        senderId,
+        actorCharacterId: recipient,
       }),
     ),
   );
@@ -244,5 +247,6 @@ async function emitRoundWaitingEvents(
     eventType: 'combat.round_waiting',
     payload,
     requestId,
+    senderId,
   });
 }

@@ -1,4 +1,5 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+import { create } from 'https://deno.land/x/djwt@v2.8/mod.ts';
 
 import {
   validateApiToken,

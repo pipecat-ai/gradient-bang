@@ -48,6 +48,7 @@ const PINNED_SECTORS: Record<string, number> = {
   test_2p_player1: 0,
   test_2p_player2: 0,
   test_api_list_ports: 0,
+  test_api_garrison: 4,
 };
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
@@ -225,6 +226,7 @@ async function truncateTables(): Promise<void> {
     ['corporation_ships', 'ship_id'],     // FK: ship_id → ship_instances, corp_id → corporations
     ['corporations', 'corp_id'],          // FK: founder_id → characters
     ['garrisons', 'sector_id'],           // FK: sector_id → universe_structure
+    ['port_transactions', 'id'],          // FK: ship_id → ship_instances, character_id → characters
     ['ship_instances', 'ship_id'],        // FK: owner_character_id → characters, current_sector → universe_structure
     ['characters', 'character_id'],       // FK: current_ship_id → ship_instances (now NULL'd)
     ['sector_contents', 'sector_id'],     // FK: sector_id → universe_structure, port_id → ports
@@ -646,8 +648,7 @@ function parseCharacterIds(value: unknown): string[] | null {
         .filter((entry) => entry.length > 0),
     ),
   ).sort();
-  if (!ids.length) {
-    throw new TestResetError('character_ids cannot be empty', 400);
-  }
+  // Allow empty arrays for "Option C" explicit test setup
+  // Tests will create characters on-demand via create_test_character_knowledge()
   return ids;
 }

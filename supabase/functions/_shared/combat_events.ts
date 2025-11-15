@@ -124,7 +124,14 @@ export function buildRoundWaitingPayload(encounter: CombatEncounterState): Recor
     }
   }
   if (encounter.round === 1 && typeof encounter.context?.initiator === 'string') {
-    payload['initiator'] = encounter.context.initiator;
+    const initiatorId = encounter.context.initiator;
+    const participant = encounter.participants[initiatorId];
+    const metadata = (participant?.metadata ?? {}) as Record<string, unknown>;
+    const legacyName =
+      typeof metadata.legacy_character_id === 'string'
+        ? metadata.legacy_character_id
+        : undefined;
+    payload['initiator'] = legacyName ?? participant?.name ?? initiatorId;
   }
   payload['participants'] = participants;
   payload['garrison'] = garrisonPayload;
