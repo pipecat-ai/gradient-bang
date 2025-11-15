@@ -14,6 +14,12 @@ from typing import Any, Dict
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+try:
+    from importlib.metadata import version
+    __version__ = version("gradient-bang")
+except Exception:
+    __version__ = "0.0.0"  # Fallback
+
 from gradientbang.game_server.core.world import lifespan as world_lifespan, world
 from gradientbang.game_server.api import (
     character_create as api_character_create,
@@ -104,7 +110,7 @@ async def app_lifespan(app: FastAPI):
         yield
 
 
-app = FastAPI(title="Gradient Bang", version="0.2.0", lifespan=app_lifespan)
+app = FastAPI(title="Gradient Bang", version=__version__, lifespan=app_lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:8080", "http://localhost:5173"],
@@ -126,10 +132,12 @@ port_locks = PortLockManager(timeout=30.0)
 
 
 async def _rpc_server_status(_: Dict[str, Any]) -> Dict[str, Any]:
+    world_loaded = world.universe_graph is not None
     return {
         "name": "Gradient Bang",
-        "version": "0.2.0",
-        "status": "running",
+        "version": __version__,
+        "status": "running" if world_loaded else "degraded",
+        "world_loaded": world_loaded,
         "sectors": world.universe_graph.sector_count if world.universe_graph else 0,
     }
 
@@ -313,12 +321,16 @@ RPC_HANDLERS: Dict[str, RPCHandler] = {
 
 @app.get("/")
 async def root() -> Dict[str, Any]:
-    return {
+    world_loaded = world.universe_graph is not None
+    response = {
         "name": "Gradient Bang",
-        "version": "0.2.0",
-        "status": "running",
+        "version": __version__,
+        "status": "running" if world_loaded else "degraded",
+        "world_loaded": world_loaded,
         "sectors": world.universe_graph.sector_count if world.universe_graph else 0,
     }
+    
+    return response
 
 
 @app.get("/leaderboard/resources")

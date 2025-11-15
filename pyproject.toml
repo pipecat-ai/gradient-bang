@@ -15,9 +15,6 @@ dependencies = [
     "textual>=6.1.0",
     "loguru>=0.7.0",
     "pyperclip>=1.11.0",
-    "numpy>=1.26.0",
-    "scipy>=1.11.0",
-    "networkx>=3.0",
 ]
 
 [dependency-groups]
@@ -25,6 +22,11 @@ dev = [
     "pytest>=8.4.1",
     "pytest-asyncio>=1.1.0",
     "pytest-timeout>=2.3.1",
+]
+worldgen = [
+    "numpy>=1.26.0",
+    "scipy>=1.11.0",
+    "networkx>=3.0",
 ]
 bot = [
     "pipecat-ai[deepgram,speechmatics,openai,daily,cartesia,webrtc,silero,local-smart-turn,rime,google,runner]==0.0.94",

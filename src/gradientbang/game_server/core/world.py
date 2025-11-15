@@ -6,6 +6,7 @@ from collections import deque, defaultdict
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from loguru import logger
 
 from gradientbang.game_server.character_knowledge import CharacterKnowledgeManager
 from gradientbang.game_server.port_manager import PortManager
@@ -262,9 +263,17 @@ world = GameWorld()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """
+    Note: world data check does not raise an exception 
+    so FastAPI process will remain active. This allows
+    manual universe-bang via ssh
+    """
     try:
         world.load_data()
+        logger.info("Game world loaded successfully")
+    except FileNotFoundError as e:
+        logger.error(f"World data not found: {e}")
+        logger.error("Server running without world data - manual universe-bang required")
     except Exception as e:
-        print(f"Failed to load game world: {e}")
-        raise
+        logger.error(f"Failed to load game world: {e}")
     yield

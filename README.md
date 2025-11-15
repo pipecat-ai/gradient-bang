@@ -296,15 +296,41 @@ The **source code** for Gradient Bang is licensed under the [Apache License 2.0]
 The **Gradient Bang name, logo, and brand identity** are proprietary trademarks and not covered by the open source licenses. If you fork this project, you must rename it and create your own brand identity. See [TRADEMARKS.md](TRADEMARKS.md) for complete details.
 
 
-## Build
+## Build and Deployment
 
-docker build -t gradient-bang-server . --platform linux/amd64
+> [!NOTE]
+> Ensure lockfile is updated to match any dependency changes first: `uv lock`
 
-docker run -p 8000:8000 gradient-bang-server
 
+### Docker Compose
+
+```bash
+# Build and start all services
+docker compose up --build
+
+# Start in background
+docker compose up -d
+
+# View logs
+docker compose logs -f game-server
+
+# Stop everything
+docker compose down
+
+# Fresh start (removes volumes)
+docker compose down -v
+```
+
+### Standalone Docker
+
+```bash
+# Build for production (linux/amd64)
+docker build -f deployment/Dockerfile.server -t gradient-bang-server --platform linux/amd64 .
+
+# Run with persistent data
 docker run -d \
   -p 8000:8000 \
-  -v $(pwd)/world-data:/app/world-data \
-  -e OPENAI_API_KEY=your_key_here \
+  -v gradient-bang-data:/var/data/world-data \
+  -e WORLD_DATA_DIR=/var/data/world-data \
   gradient-bang-server
-
+```
