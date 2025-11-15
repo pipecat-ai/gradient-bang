@@ -25,6 +25,7 @@ The projects demonstrates the full capabilities of realtime agentic workflows, s
 #### 1. Run Universe Bang to generate a world
 
 ```bash
+uv sync --all-groups
 uv run universe-bang 5000 1234
 
 # Optional: validate 
@@ -235,8 +236,6 @@ The delays are specified in VoiceTaskManager::TOOL_CALL_DELAYS.
 This should allow us to fix the warp overlay and other UI timing stuff, maybe.
 
 
-
-
 # OLD
 
 ## Open firehose viewer
@@ -301,7 +300,7 @@ The **Gradient Bang name, logo, and brand identity** are proprietary trademarks 
 
 docker build -t gradient-bang-server .
 
-docker run -p 8000:8000 gradient-bang-server
+docker run -p 8000:8000 gradient-bang-server --platform linux/amd64  
 
 docker run -d \
   -p 8000:8000 \

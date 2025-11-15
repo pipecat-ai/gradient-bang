@@ -1,47 +1,45 @@
-# syntax=docker/dockerfile:1
-FROM python:3.12-slim
-
-# Install system dependencies and create non-root user
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && useradd -m -u 1000 appuser
-
-# Install uv
-RUN pip install --no-cache-dir uv
+ARG PYTHON_VERSION=3.12
+FROM ghcr.io/astral-sh/uv:python${PYTHON_VERSION}-trixie-slim
 
 # Set working directory
 WORKDIR /app
 
-# Enable bytecode compilation for faster startup
+RUN apt-get update
+
+# Enable bytecode compilation
 ENV UV_COMPILE_BYTECODE=1
 
-# Use copy mode for better compatibility with Docker layers
+# Copy from the cache instead of linking since it's a mounted volume
 ENV UV_LINK_MODE=copy
 
 # Copy dependency files for installation
 COPY pyproject.toml uv.lock ./
 
-# Install dependencies first (cached layer, rarely changes)
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev
-
-# Copy source code (changes frequently)
+# Copy source code
 COPY LICENSE ./
 COPY src/gradientbang/__init__.py src/gradientbang/
 COPY src/gradientbang/game_server/ src/gradientbang/game_server/
 COPY src/gradientbang/utils/ src/gradientbang/utils/
 COPY src/gradientbang/scripts/ src/gradientbang/scripts/
 
-# Install the project itself
+# Place executables in the environment at the front of the path
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Install the project's dependencies using the lockfile and settings
+# --no-dev excludes dev dependencies; bot group is not included by default
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-install-project --no-dev
 
 # Create world-data directory
 RUN mkdir -p world-data
 
 # Generate universe data (baked into image for faster startup)
 RUN uv run universe-bang 5000 1234
+
+# Create non-root user
+RUN useradd -m -u 1000 appuser
 
 # Change ownership to non-root user
 RUN chown -R appuser:appuser /app

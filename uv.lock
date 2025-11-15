@@ -877,19 +877,23 @@ dependencies = [
     { name = "google-genai" },
     { name = "httpx" },
     { name = "loguru" },
-    { name = "pipecat-ai", extra = ["cartesia", "daily", "deepgram", "google", "local-smart-turn", "openai", "rime", "runner", "silero", "speechmatics", "webrtc"] },
-    { name = "pipecat-ai-small-webrtc-prebuilt" },
+    { name = "networkx" },
+    { name = "numpy" },
     { name = "pyperclip" },
     { name = "python-dotenv" },
     { name = "rich" },
+    { name = "scipy" },
     { name = "textual" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "websockets" },
 ]
 
 [package.dev-dependencies]
+bot = [
+    { name = "pipecat-ai", extra = ["cartesia", "daily", "deepgram", "google", "local-smart-turn", "openai", "rime", "runner", "silero", "speechmatics", "webrtc"] },
+    { name = "pipecat-ai-small-webrtc-prebuilt" },
+]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-timeout" },
@@ -901,19 +905,23 @@ requires-dist = [
     { name = "google-genai", specifier = ">=0.7.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "loguru", specifier = ">=0.7.0" },
-    { name = "pipecat-ai", extras = ["deepgram", "speechmatics", "openai", "daily", "cartesia", "webrtc", "silero", "local-smart-turn", "rime", "google", "runner"], specifier = "==0.0.94" },
-    { name = "pipecat-ai-small-webrtc-prebuilt" },
+    { name = "networkx", specifier = ">=3.0" },
+    { name = "numpy", specifier = ">=1.26.0" },
     { name = "pyperclip", specifier = ">=1.11.0" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
     { name = "rich", specifier = ">=13.0.0" },
+    { name = "scipy", specifier = ">=1.11.0" },
     { name = "textual", specifier = ">=6.1.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.35.0" },
     { name = "websockets", specifier = ">=13.1,<15.0" },
 ]
 
 [package.metadata.requires-dev]
+bot = [
+    { name = "pipecat-ai", extras = ["deepgram", "speechmatics", "openai", "daily", "cartesia", "webrtc", "silero", "local-smart-turn", "rime", "google", "runner"], specifier = "==0.0.94" },
+    { name = "pipecat-ai-small-webrtc-prebuilt" },
+]
 dev = [
-    { name = "httpx", specifier = ">=0.27.0" },
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytest-asyncio", specifier = ">=1.1.0" },
     { name = "pytest-timeout", specifier = ">=2.3.1" },
