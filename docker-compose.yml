@@ -16,6 +16,7 @@ services:
       - PORT=${PORT:-8000}
       - UNIVERSE_SECTOR_COUNT=${UNIVERSE_SECTOR_COUNT:-5000}
       - UNIVERSE_SEED=${UNIVERSE_SEED:-1234}
+      - GAME_SERVER_DEV_MODE=${GAME_SERVER_DEV_MODE:-false}
     restart: unless-stopped
     healthcheck:
       test:

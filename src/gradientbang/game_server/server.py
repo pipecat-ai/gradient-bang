@@ -5,14 +5,20 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import uuid
-from collections import deque
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field, field_validator
+
+# Load environment variables from .env file
+load_dotenv()
 
 try:
     from importlib.metadata import version
@@ -85,6 +91,24 @@ logger = logging.getLogger("gradient-bang.server")
 logging.basicConfig(level=logging.INFO)
 
 
+class CharacterCreateRequest(BaseModel):
+    """Request body for creating a new character."""
+    name: str = Field(
+        ..., 
+        description="Character display name (alphanumeric only, no spaces)",
+        min_length=1,
+        max_length=50
+    )
+
+    @field_validator('name')
+    @classmethod
+    def validate_alphanumeric(cls, v: str) -> str:
+        if not re.match(r'^[a-zA-Z0-9 ]+$', v):
+            raise ValueError(
+                f"Invalid name '{v}': only letters, numbers, and spaces are allowed"
+            )
+        return v
+
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
     async with world_lifespan(app):
@@ -110,7 +134,17 @@ async def app_lifespan(app: FastAPI):
         yield
 
 
-app = FastAPI(title="Gradient Bang", version=__version__, lifespan=app_lifespan)
+# Enable docs/redoc only if GAME_SERVER_DEV_MODE is set
+docs_url = "/docs" if os.getenv("GAME_SERVER_DEV_MODE") else None
+redoc_url = "/redoc" if os.getenv("GAME_SERVER_DEV_MODE") else None
+
+app = FastAPI(
+    title="Gradient Bang",
+    version=__version__,
+    lifespan=app_lifespan,
+    docs_url=docs_url,
+    redoc_url=redoc_url,
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:8080", "http://localhost:5173"],
@@ -332,6 +366,41 @@ async def root() -> Dict[str, Any]:
     
     return response
 
+@app.post("/player")
+async def http_character_create(request: CharacterCreateRequest) -> Dict[str, Any]:
+    """Create a new character with the specified name"""
+    payload = request.model_dump(exclude_none=True)
+    return await api_character_create.handle(payload, world)
+
+@app.get("/player")
+async def http_character_lookup(name: str) -> Dict[str, Any]:
+    """Look up a character by display name.
+    
+    Args:
+        name: The character's display name (case-insensitive, supports spaces and special characters)
+        
+    Returns:
+        Character information including name, and timestamps
+    """
+    registry = getattr(world, "character_registry", None)
+    if registry is None:
+        raise HTTPException(status_code=500, detail="Character registry unavailable")
+    
+    if not name:
+        raise HTTPException(status_code=400, detail="name query parameter is required")
+    
+    profile = registry.find_by_name(name)
+    if profile is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Character not found: {name}"
+        )
+    
+    return {
+        "name": profile.name,
+        "created_at": profile.created_at,
+        "updated_at": profile.updated_at,
+    }
 
 @app.get("/leaderboard/resources")
 async def http_leaderboard_resources(force_refresh: bool = False) -> Dict[str, Any]:

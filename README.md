@@ -38,6 +38,8 @@ uv run -m gradientbang.scripts.universe_test
 uv run game-server
 ```
 
+You can enable Swagger and Redocs by setting `GAME_SERVER_DEV_MODE` in your environment and then visit `http://localhost:8000/docs`
+
 #### 3. Create your character (note: game server must be running!)
 
 ```bash
