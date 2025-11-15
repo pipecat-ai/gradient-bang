@@ -39,7 +39,7 @@ RUN useradd -m -u 1000 appuser
 RUN chown -R appuser:appuser /app
 
 # Create world-data directory (if not mounted) and ensure ownership
-# RUN mkdir -p /app/world-data && chown appuser:appuser /app/world-data
+RUN mkdir -p /app/world-data && chown appuser:appuser /app/world-data
 
 # Switch to non-root user for security
 USER appuser
@@ -51,6 +51,9 @@ EXPOSE 8000
 ENV PYTHONUNBUFFERED=1 \
     WORLD_DATA_DIR=/app/world-data \
     PORT=8000
+
+# Generate universe data (skips if already exists on mounted disk)
+RUN uv run universe-bang 5000 1234
 
 # Add metadata labels
 LABEL org.opencontainers.image.title="Gradient Bang Game Server" \
@@ -64,5 +67,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Graceful shutdown signal
 STOPSIGNAL SIGTERM
 
-# Run startup check and server
-CMD ["sh", "-c", "if [ ! -f ${WORLD_DATA_DIR}/universe_structure.json ]; then echo 'Generating universe...'; uv run universe-bang 5000 1234; fi && uv run game-server"]
+# Run the server
+CMD ["uv", "run", "game-server"]

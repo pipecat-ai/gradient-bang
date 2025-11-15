@@ -298,9 +298,9 @@ The **Gradient Bang name, logo, and brand identity** are proprietary trademarks 
 
 ## Build
 
-docker build -t gradient-bang-server .
+docker build -t gradient-bang-server . --platform linux/amd64
 
-docker run -p 8000:8000 gradient-bang-server --platform linux/amd64  
+docker run -p 8000:8000 gradient-bang-server
 
 docker run -d \
   -p 8000:8000 \

@@ -39,12 +39,13 @@ Outputs:
 Usage:
   python generate_spatial_universe.py <sector_count> [seed]
 """
-import sys, json, random, math
+import sys, json, random, math, argparse
 import numpy as np
 from collections import deque
 from scipy.spatial import Delaunay
 import networkx as nx
 from typing import Dict, List, Set, Tuple, Optional
+from loguru import logger
 from gradientbang.scripts.scene_gen import generate_scene_variant
 from gradientbang.utils.config import get_world_data_path
 
@@ -499,7 +500,7 @@ def ensure_connectivity(
     components = list(nx.connected_components(G_undirected))
     
     if len(components) > 1:
-        print(f"Found {len(components)} disconnected components, connecting them...")
+        logger.info(f"Found {len(components)} disconnected components, connecting them...")
         
         # Sort by size - largest is main component
         components.sort(key=len, reverse=True)
@@ -524,14 +525,14 @@ def ensure_connectivity(
                 # Add bidirectional connection to ensure basic connectivity
                 warps[s1].add(s2)
                 warps[s2].add(s1)
-                print(f"  Connected component {comp_idx} ({len(component)} sectors) at distance {best_dist:.1f}")
+                logger.info(f"  Connected component {comp_idx} ({len(component)} sectors) at distance {best_dist:.1f}")
                 main_component = main_component.union(component)
             else:
-                print(f"  Warning: Component {comp_idx} too far to connect (distance: {best_dist:.1f})")
+                logger.warning(f"  Component {comp_idx} too far to connect (distance: {best_dist:.1f})")
     
     # Now check for dead-end paths and upgrade some one-way connections to two-way
     # This is less aggressive than full strong connectivity
-    print("Checking for accessibility issues...")
+    logger.info("Checking for accessibility issues...")
     
     G_directed = nx.DiGraph()
     G_directed.add_nodes_from(sectors)
@@ -548,7 +549,7 @@ def ensure_connectivity(
             problem_sectors.append(sector)
     
     if problem_sectors:
-        print(f"  Found {len(problem_sectors)} sectors with limited reachability")
+        logger.info(f"  Found {len(problem_sectors)} sectors with limited reachability")
         
         # For problem sectors, upgrade some of their connections to two-way
         upgrades_made = 0
@@ -564,7 +565,7 @@ def ensure_connectivity(
                         break  # Only upgrade one per problem sector
         
         if upgrades_made > 0:
-            print(f"  Upgraded {upgrades_made} connections to two-way")
+            logger.info(f"  Upgraded {upgrades_made} connections to two-way")
 
 def collect_two_way_pairs(warps: Dict[int, Set[int]]) -> Set[Tuple[int, int]]:
     """Collect all undirected pairs that currently have mutual links.
@@ -813,28 +814,49 @@ def tune_complementary_pairs(
 # ===================== Main Generation =====================
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python generate_spatial_universe.py <sector_count> [seed]")
+    parser = argparse.ArgumentParser(
+        description="Generate a spatially-aware universe with regional structure"
+    )
+    parser.add_argument("sector_count", type=int, help="Number of sectors to generate")
+    parser.add_argument("seed", type=int, nargs="?", help="Random seed (optional)")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force regeneration even if world data already exists"
+    )
+    
+    args = parser.parse_args()
+    
+    if args.sector_count <= 0:
+        logger.error("sector_count must be a positive integer.")
         sys.exit(1)
     
-    sector_count = int(sys.argv[1])
-    if sector_count <= 0:
-        print("sector_count must be a positive integer.")
-        sys.exit(1)
+    # Check if world data already exists
+    output_dir = get_world_data_path(ensure_exists=False)
+    universe_structure_path = output_dir / "universe_structure.json"
+    sector_contents_path = output_dir / "sector_contents.json"
+    
+    if universe_structure_path.exists() and sector_contents_path.exists():
+        if not args.force:
+            logger.info(f"World data already exists at {output_dir}")
+            logger.info("Use --force to regenerate and overwrite existing data")
+            sys.exit(0)
+        else:
+            logger.info(f"Forcing regeneration of world data at {output_dir}")
     
     # Set random seed
-    if len(sys.argv) >= 3:
-        seed = int(sys.argv[2])
+    if args.seed is not None:
+        seed = args.seed
     else:
         seed = random.randrange(0, 2**32 - 1)
     random.seed(seed)
     np.random.seed(seed)
     
-    print(f"Generating spatial universe with {sector_count} sectors...")
-    print(f"Random seed: {seed}")
+    logger.info(f"Generating spatial universe with {args.sector_count} sectors...")
+    logger.info(f"Random seed: {seed}")
     
     # Generate hex grid (oversized)
-    grid_size = int(math.sqrt(sector_count * 4))
+    grid_size = int(math.sqrt(args.sector_count * 4))
     hex_positions = generate_hex_grid(grid_size, grid_size)
     
     # Assign hexes to regions
@@ -842,10 +864,10 @@ def main():
     
     # Place sectors
     sector_positions, sector_regions = place_sectors_in_regions(
-        hex_positions, hex_to_region, sector_count, REGIONS
+        hex_positions, hex_to_region, args.sector_count, REGIONS
     )
     
-    print(f"Placed {len(sector_positions)} sectors across {len(REGIONS)} regions")
+    logger.info(f"Placed {len(sector_positions)} sectors across {len(REGIONS)} regions")
     
     # Generate connections
     warps, hyperlanes = generate_regional_connections(
@@ -862,7 +884,7 @@ def main():
         sector_positions, sector_regions, REGIONS, warps
     )
     
-    print(f"Placed {len(port_class_by_sector)} ports including mega port at sector {mega_port_sector}")
+    logger.info(f"Placed {len(port_class_by_sector)} ports including mega port at sector {mega_port_sector}")
     
     # Calculate statistics
     total_arcs = sum(len(v) for v in warps.values())
@@ -876,7 +898,7 @@ def main():
     # Build universe_structure.json
     universe_structure = {
         "meta": {
-            "sector_count": sector_count,
+            "sector_count": args.sector_count,
             "id_base": 0,
             "directed": True,
             "seed": seed,
@@ -894,7 +916,7 @@ def main():
         "sectors": []
     }
     
-    for s in range(sector_count):
+    for s in range(args.sector_count):
         if s in sector_positions:
             warp_list = []
             for t in sorted(warps.get(s, set())):
@@ -931,7 +953,7 @@ def main():
     
     # Build sector_contents.json
     contents_meta = {
-        "sector_count": sector_count,
+        "sector_count": args.sector_count,
         "seed": seed,
         "base_port_density": BASE_PORT_DENSITY,
         "initial_port_build_rate": INITIAL_PORT_BUILD_RATE,
@@ -954,7 +976,7 @@ def main():
     
     sector_contents_list = []
     
-    for s in range(sector_count):
+    for s in range(args.sector_count):
         if s not in sector_positions:
             continue
         
@@ -980,12 +1002,7 @@ def main():
     }
     
     # Write files to world-data directory (create if doesn't exist)
-    import os
-    output_dir = get_world_data_path(ensure_exists=False)
     output_dir.mkdir(parents=True, exist_ok=True)
-    
-    universe_structure_path = output_dir / "universe_structure.json"
-    sector_contents_path = output_dir / "sector_contents.json"
     
     with open(universe_structure_path, "w") as f:
         json.dump(universe_structure, f, indent=2)
@@ -993,11 +1010,11 @@ def main():
     with open(sector_contents_path, "w") as f:
         json.dump(universe_contents, f, indent=2)
     
-    print(f"Generated universe with {sector_count} sectors")
-    print(f"Two-way arcs: {two_way_fraction:.1%}")
-    print(f"Regions: {', '.join(r['name'] for r in REGIONS)}")
-    print(f"Mega port in {REGIONS[sector_regions[mega_port_sector]]['name']} at sector {mega_port_sector}")
-    print(f"Files created: {universe_structure_path}, {sector_contents_path}")
+    logger.info(f"Generated universe with {args.sector_count} sectors")
+    logger.info(f"Two-way arcs: {two_way_fraction:.1%}")
+    logger.info(f"Regions: {', '.join(r['name'] for r in REGIONS)}")
+    logger.info(f"Mega port in {REGIONS[sector_regions[mega_port_sector]]['name']} at sector {mega_port_sector}")
+    logger.info(f"Files created: {universe_structure_path}, {sector_contents_path}")
 
 if __name__ == "__main__":
     main()
