@@ -887,7 +887,7 @@ dependencies = [
 
 [package.dev-dependencies]
 bot = [
-    { name = "pipecat-ai", extra = ["cartesia", "daily", "deepgram", "google", "local-smart-turn", "openai", "rime", "runner", "silero", "speechmatics", "webrtc"] },
+    { name = "pipecat-ai", extra = ["cartesia", "daily", "deepgram", "google", "local-smart-turn", "runner", "silero", "webrtc"] },
     { name = "pipecat-ai-cli" },
 ]
 dev = [
@@ -917,7 +917,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 bot = [
-    { name = "pipecat-ai", extras = ["deepgram", "speechmatics", "openai", "daily", "cartesia", "webrtc", "silero", "local-smart-turn", "rime", "google", "runner"], specifier = "==0.0.94" },
+    { name = "pipecat-ai", extras = ["deepgram", "daily", "cartesia", "webrtc", "silero", "local-smart-turn", "google", "runner"], specifier = "==0.0.94" },
     { name = "pipecat-ai-cli" },
 ]
 dev = [
@@ -1884,12 +1884,6 @@ local-smart-turn = [
     { name = "torchaudio" },
     { name = "transformers" },
 ]
-openai = [
-    { name = "websockets" },
-]
-rime = [
-    { name = "websockets" },
-]
 runner = [
     { name = "fastapi" },
     { name = "pipecat-ai-small-webrtc-prebuilt" },
@@ -1898,9 +1892,6 @@ runner = [
 ]
 silero = [
     { name = "onnxruntime" },
-]
-speechmatics = [
-    { name = "speechmatics-rt" },
 ]
 webrtc = [
     { name = "aiortc" },
@@ -2722,18 +2713,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/b8/38/bad15a9e615215c8219652ca554b601663ac3b7ac82a284aca53ec2ff48c/soxr-0.5.0.post1-cp312-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:bd052a66471a7335b22a6208601a9d0df7b46b8d087dce4ff6e13eed6a33a2a1", size = 216564, upload-time = "2024-08-31T03:43:20.789Z" },
     { url = "https://files.pythonhosted.org/packages/e1/1a/569ea0420a0c4801c2c8dd40d8d544989522f6014d51def689125f3f2935/soxr-0.5.0.post1-cp312-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a3f16810dd649ab1f433991d2a9661e9e6a116c2b4101039b53b3c3e90a094fc", size = 248455, upload-time = "2024-08-31T03:43:22.165Z" },
     { url = "https://files.pythonhosted.org/packages/bc/10/440f1ba3d4955e0dc740bbe4ce8968c254a3d644d013eb75eea729becdb8/soxr-0.5.0.post1-cp312-abi3-win_amd64.whl", hash = "sha256:b1be9fee90afb38546bdbd7bde714d1d9a8c5a45137f97478a83b65e7f3146f6", size = 164937, upload-time = "2024-08-31T03:43:23.671Z" },
-]
-
-[[package]]
-name = "speechmatics-rt"
-version = "0.5.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "websockets" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/57/26/10359e1f16c2aa6a198eb11a9056f4a86a8bb8d4e610bbbe4a118b227b59/speechmatics_rt-0.5.0.tar.gz", hash = "sha256:ca974a186a012f946fd997deeaf3bf1c4f203f6d6e05a866172d27709183afc8", size = 26832, upload-time = "2025-10-15T15:54:25.695Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/47/2e/9931ebe9360e9d385c68826b33137c2c9a4cfa361cd929d1ac6e72ebfe53/speechmatics_rt-0.5.0-py3-none-any.whl", hash = "sha256:58151488f891fa00cf7054f0cfab1b1eb94b55c3441be587f7941c726caef991", size = 32850, upload-time = "2025-10-15T15:54:24.5Z" },
 ]
 
 [[package]]

@@ -43,10 +43,14 @@ from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.vad_analyzer import VADParams
 
+if os.getenv("BOT_USE_KRISP"):
+    from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
+
 from gradientbang.utils.prompts import GAME_DESCRIPTION, CHAT_INSTRUCTIONS, VOICE_INSTRUCTIONS
 from gradientbang.utils.api_client import AsyncGameClient
 
 from gradientbang.pipecat_server.voice_task_manager import VoiceTaskManager
+
 
 
 load_dotenv()
@@ -446,12 +450,15 @@ async def bot(runner_args):
         "daily": lambda: DailyParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
-            vad_analyzer=SileroVADAnalyzer(),
+            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
+            audio_in_filter=(KrispVivaFilter() if os.getenv("BOT_USE_KRISP") else None),
+            turn_analyzer=LocalSmartTurnAnalyzerV3(),
         ),
         "webrtc": lambda: TransportParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
             vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
+            audio_in_filter=(KrispVivaFilter() if os.getenv("BOT_USE_KRISP") else None),
             turn_analyzer=LocalSmartTurnAnalyzerV3(),
         ),
     }

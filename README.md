@@ -348,8 +348,9 @@ docker build -f deployment/Dockerfile.bot -t gradient-bang-bot .
 cd deployment/
 
 # Create secret set for bot
-pipecat cloud secrets set gb-secrets --file ../.env
-
-# Deploy!
+pipecat cloud secrets set gb-secrets --file ../.env 
+# Optional: enable Krisp for noise cancellation
+pipecat cloud secrets set gb-test-keys BOT_USE_KRISP=1
+# Deploy
 pipecat cloud deploy
 ```
