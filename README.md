@@ -301,7 +301,7 @@ The **Gradient Bang name, logo, and brand identity** are proprietary trademarks 
 ## Build and Deployment
 
 > [!NOTE]
-> Ensure lockfile is updated to match any dependency changes first: `uv lock`
+> Ensure uv lock file is updated to match any dependency changes first: `uv lock`
 
 
 ### Docker Compose
@@ -325,15 +325,31 @@ docker compose down -v
 
 ### Docker build
 
-```bash
-# Build for production 
-docker build -f deployment/Dockerfile.server -t gradient-bang-server --platform linux/amd64 .
-docker build -f deployment/Dockerfile.bot -t gradient-bang-bot --platform linux/amd64 .
+#### Game Server:
 
-# Run with persistent data
+```bash
+docker build -f deployment/Dockerfile.server -t gradient-bang-server --platform linux/amd64 .
+
 docker run -d \
   -p 8000:8000 \
   -v gradient-bang-data:/var/data/world-data \
   -e WORLD_DATA_DIR=/var/data/world-data \
   gradient-bang-server
+```
+
+#### Bot:
+
+Deploy to [Pipecat Cloud](https://pipecat.daily.co/)
+
+```bash
+docker build -f deployment/Dockerfile.bot -t gradient-bang-bot .
+
+# Note: following assume pcc-deploy.toml in deployment/ (see example)
+cd deployment/
+
+# Create secret set for bot
+pipecat cloud secrets set gb-secrets --file ../.env
+
+# Deploy!
+pipecat cloud deploy
 ```
