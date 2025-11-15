@@ -3,9 +3,10 @@ import {
   Environment,
   Lightformer,
   RandomizedLight,
-} from "@react-three/drei";
-import { FC, memo } from "react";
-import * as THREE from "three";
+} from "@react-three/drei"
+import { folder, useControls } from "leva"
+import { FC, memo } from "react"
+import * as THREE from "three"
 
 /**
  * Credits:
@@ -15,14 +16,14 @@ import * as THREE from "three";
  */
 
 interface RoomProps {
-  highlight: string;
+  highlight: string
 }
 
 // Reusable geometries and materials
-const boxGeometry = new THREE.BoxGeometry();
+const boxGeometry = new THREE.BoxGeometry()
 const whiteMaterial = new THREE.MeshStandardMaterial({
   color: new THREE.Color(1, 1, 1),
-});
+})
 
 /**
  * Room component with lighting setup
@@ -214,7 +215,7 @@ export function Room({ highlight }: RoomProps) {
         light={{ intensity: 100, distance: 28, decay: 2 }}
       />
     </group>
-  );
+  )
 }
 
 /**
@@ -232,21 +233,33 @@ export const Shadows: FC = memo(() => (
   >
     <RandomizedLight amount={8} radius={4} position={[1, 5.5, 1]} />
   </AccumulativeShadows>
-));
+))
 
 /**
  * Environment wrapper component
  * Configures the scene environment with lighting and room setup
  */
-export interface EnvironmentWrapperProps {
-  intensity: number;
-  highlight: string;
-}
 
-export function EnvironmentWrapper({
-  intensity,
-  highlight,
-}: EnvironmentWrapperProps) {
+export function EnvironmentWrapper() {
+  const { intensity, highlight } = useControls({
+    "Environment Settings": folder(
+      {
+        intensity: {
+          value: 1.5,
+          min: 0,
+          max: 5,
+          step: 0.1,
+          label: "Environment Intensity",
+        },
+        highlight: {
+          value: "#066aff",
+          label: "Highlight Color",
+        },
+      },
+      { collapsed: true }
+    ),
+  })
+
   return (
     <Environment
       resolution={1024}
@@ -255,5 +268,5 @@ export function EnvironmentWrapper({
     >
       <Room highlight={highlight} />
     </Environment>
-  );
+  )
 }

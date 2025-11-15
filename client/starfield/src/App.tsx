@@ -1,91 +1,69 @@
-import {
-  Center,
-  Float,
-  PerformanceMonitor,
-  useGLTF,
-  useProgress,
-} from "@react-three/drei";
-import { Canvas } from "@react-three/fiber";
-import { button, folder, Leva, useControls } from "leva";
-import {
-  FC,
-  memo,
-  Suspense,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-import * as THREE from "three";
-import { CameraController } from "./controllers/Camera";
-import { EnvironmentWrapper } from "./controllers/Environment";
-import { GameObjects } from "./controllers/GameObjects";
-import { PostProcessing } from "./controllers/PostProcessing";
-import {
-  SceneController,
-  SceneControllerRef,
-} from "./controllers/SceneController";
-import { Nebula, NebulaRef } from "./objects/Nebula";
-import { Stars, StarsRef } from "./objects/Stars";
-import { useGameStore } from "./stores/useGameStore";
-import { GameObject, SceneConfig } from "./types";
+import { Center, Float, PerformanceMonitor, useGLTF } from "@react-three/drei"
+import { Canvas } from "@react-three/fiber"
+import { button, folder, Leva, useControls } from "leva"
+import { memo, useCallback, useEffect, useRef, useState } from "react"
+import * as THREE from "three"
+import { CameraController } from "@/controllers/Camera"
+import { EnvironmentWrapper } from "@/controllers/Environment"
+import { PostProcessing } from "@/controllers/PostProcessing"
+import { useGameStore } from "@/useGameStore"
+import { TestObject } from "@/objects/Test"
+import { useSceneChange } from "@/hooks/useSceneChange"
+import { SceneController } from "@/controllers/SceneController"
+import type { GameObject, SceneConfig } from "@/types"
+import { RenderMonitor } from "./components/RenderMonitor"
 
-useGLTF.preload("/test-model.glb");
+useGLTF.preload("/test-model.glb")
 
 interface StarfieldProps {
-  debug?: boolean;
-  gameObjects?: GameObject[];
-  onReady?: () => void;
-  paused?: boolean;
-  sceneConfig?: SceneConfig;
+  debug?: boolean
+  gameObjects?: GameObject[]
+  onReady?: () => void
+  paused?: boolean
+  sceneConfig?: SceneConfig
 }
 
 /**
  * Main application component
  */
-export default function App({
-  debug = false,
-  gameObjects = [],
-  onReady,
-  paused = false,
-}: StarfieldProps) {
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const nebulaRef = useRef<NebulaRef>(null);
-  const starsRef = useRef<StarsRef>(null);
-  const sceneControllerRef = useRef<SceneControllerRef>(null);
+export default function App({ debug = false, sceneConfig }: StarfieldProps) {
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
+  const { changeScene } = useSceneChange()
 
-  const isPaused = useGameStore((state) => state.isPaused);
-  const togglePause = useGameStore((state) => state.togglePause);
+  useControls("Scene Settings", () => ({
+    "Scene Settings": folder({
+      sceneChange: button(() => {
+        changeScene({})
+      }),
+    }),
+  }))
 
-  const [{ bgColor, cameraFloatingEnabled }, setSceneSettings] = useControls(
-    () => ({
-      "Render Settings": folder(
-        {
-          [isPaused ? "Resume" : "Pause"]: button(() => {
-            togglePause();
-          }),
+  const isPaused = useGameStore((state) => state.isPaused)
+  const togglePause = useGameStore((state) => state.togglePause)
+
+  const [{ cameraFloatingEnabled }] = useControls(() => ({
+    "Render Settings": folder(
+      {
+        [isPaused ? "Resume" : "Pause"]: button(() => {
+          togglePause()
+        }),
+      },
+      { collapsed: true }
+    ),
+    "Scene Settings": folder(
+      {
+        isShaking: {
+          value: false,
+          label: "Shake",
         },
-        { collapsed: true }
-      ),
-      "Scene Settings": folder(
-        {
-          bgColor: {
-            value: "#000000",
-            label: "Background Color",
-          },
-          isShaking: {
-            value: false,
-            label: "Shake",
-          },
-          cameraFloatingEnabled: {
-            value: false,
-            label: "Camera Floating",
-          },
+        cameraFloatingEnabled: {
+          value: false,
+          label: "Camera Floating",
         },
-        { collapsed: true }
-      ),
-    })
-  );
+      },
+      { collapsed: true }
+    ),
+  }))
 
   const [{ dpr }, setPerformance] = useControls(
     "Performance Settings",
@@ -99,151 +77,97 @@ export default function App({
       },
     }),
     { collapsed: true }
-  );
+  )
 
-  const [modelScale, setModelScale] = useState(3);
-
-  const { intensity, highlight } = useControls({
-    "Environment Settings": folder(
-      {
-        intensity: {
-          value: 1.5,
-          min: 0,
-          max: 5,
-          step: 0.1,
-          label: "Environment Intensity",
-        },
-        highlight: {
-          value: "#066aff",
-          label: "Highlight Color",
-        },
-      },
-      { collapsed: true }
-    ),
-  });
-
-  // Update renderer clear color when background color changes
-  useEffect(() => {
-    if (rendererRef.current) {
-      rendererRef.current.setClearColor(new THREE.Color(bgColor));
-    }
-  }, [bgColor]);
+  const [modelScale, setModelScale] = useState(3)
 
   // Responsive adjustment handler for model scale
   const handleResize = useCallback(() => {
-    const isSmallScreen = window.innerWidth <= 768;
-    setModelScale(isSmallScreen ? 2.4 : 3);
-  }, []);
+    const isSmallScreen = window.innerWidth <= 768
+    setModelScale(isSmallScreen ? 2.4 : 3)
+  }, [])
 
   // Set up resize handling
   useEffect(() => {
-    handleResize();
+    handleResize()
 
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, [handleResize]);
+    window.addEventListener("resize", handleResize)
+    return () => window.removeEventListener("resize", handleResize)
+  }, [handleResize])
 
-  console.log("isPaused", isPaused);
+  console.debug("isPaused", isPaused)
+
   return (
     <>
       <Leva collapsed hidden={debug} />
+
       <Canvas
         frameloop={isPaused ? "never" : "demand"}
         dpr={dpr}
         shadows
-        camera={{ position: [0, -1, 4], fov: 65 }}
         gl={{
           alpha: false,
           antialias: false,
           depth: true,
         }}
         onCreated={({ gl }) => {
-          rendererRef.current = gl;
-          gl.setClearColor(new THREE.Color(bgColor));
+          rendererRef.current = gl
+          //gl.setClearColor(new THREE.Color("#000000"))
         }}
       >
         <PerformanceMonitor
           onIncline={() => setPerformance({ dpr: 2 })}
           onDecline={() => setPerformance({ dpr: 1 })}
         />
+        <RenderMonitor />
 
         <CameraController />
-        <SceneController
-          ref={sceneControllerRef}
-          nebulaRef={nebulaRef}
-          starsRef={starsRef}
-        />
-        <LoadingTracker onReady={onReady} />
+        <SceneController initialConfig={sceneConfig ?? {}} />
 
-        {/* Wrap async components in Suspense - blocks rendering until ready */}
-        <Suspense fallback={null}>
-          {/* Nebula background - rendered first and positioned at the back */}
-          <group position={[0, 0, -50]}>
-            <Nebula ref={nebulaRef} />
-          </group>
+        <TestObject />
 
-          <group position={[0, -0.5, 0]}>
-            <Float
-              enabled={cameraFloatingEnabled}
-              floatIntensity={0.5}
-              rotationIntensity={0.5}
-              speed={0.25}
-              autoInvalidate
-            >
-              <GameObjects gameObjects={gameObjects} />
-              <Stars ref={starsRef} />
-              <Center
-                scale={modelScale}
-                position={[0, 0.8, 0]}
-                rotation={[0, -Math.PI / 3.5, -0.4]}
-              >
-                <Helmet />
-              </Center>
-            </Float>
-          </group>
-        </Suspense>
+        {/* Nebula background - rendered first and positioned at the back */}
+        <group position={[0, 0, -50]}>{/* <Nebula ref={nebulaRef} /> */}</group>
 
-        <EnvironmentWrapper intensity={intensity} highlight={highlight} />
+        <group position={[0, 0, 0]}>
+          <Float
+            enabled={cameraFloatingEnabled}
+            floatIntensity={0.5}
+            rotationIntensity={0.5}
+            speed={0.25}
+            autoInvalidate
+          >
+            {/* Scene Elements */}
+            {/*<GameObjects gameObjects={gameObjects} />
+            <Stars ref={starsRef} />*/}
+            <Center scale={modelScale}>
+              <Helmet />
+            </Center>
+          </Float>
+        </group>
+
+        <EnvironmentWrapper />
         <Effects />
       </Canvas>
     </>
-  );
-}
-
-/**
- * Loading tracker component that fires onReady callback when loading is complete
- */
-function LoadingTracker({ onReady }: { onReady?: () => void }) {
-  const { active, progress } = useProgress();
-  const hasCalledReady = useRef(false);
-
-  useEffect(() => {
-    // Fire callback when loading is complete and we haven't called it yet
-    if (!active && progress === 100 && onReady && !hasCalledReady.current) {
-      hasCalledReady.current = true;
-      console.log("[STARFIELD] All assets loaded, scene ready");
-      onReady();
-    }
-  }, [active, progress, onReady]);
-
-  return null;
+  )
 }
 
 /**
  * Post-processing effects wrapper component
  * Memoized to prevent unnecessary re-renders
  */
-const Effects: FC = memo(() => <PostProcessing />);
+const Effects = memo(() => <PostProcessing />)
 
 interface HelmetProps {
-  [key: string]: any;
+  [key: string]: any
 }
 
 /**
  * 3D Helmet model component
  */
 function Helmet(props: HelmetProps) {
-  const { nodes, materials } = useGLTF("/test-model.glb") as any;
+  const { nodes, materials } = useGLTF("/test-model.glb") as any
   return (
     <group {...props} dispose={null}>
       <mesh
@@ -256,5 +180,5 @@ function Helmet(props: HelmetProps) {
         scale={0.038}
       />
     </group>
-  );
+  )
 }

@@ -1,62 +1,43 @@
-import { forwardRef, useImperativeHandle } from "react";
-import { NebulaRef } from "../objects/Nebula";
-import { StarsRef } from "../objects/Stars";
-import { SceneConfig } from "../types";
+import { useEffect, useRef } from "react"
+import { useThree } from "@react-three/fiber"
+import { useGameStore } from "@/useGameStore"
+import type { SceneConfig } from "@/types"
 
-/**
- * Ref type for SceneController component
- */
-export interface SceneControllerRef {
-  /**
-   * Load a new scene configuration asynchronously
-   * Pauses rendering, updates object configs, and resumes when ready
-   */
-  loadScene: (config: Partial<SceneConfig>) => Promise<void>;
-}
+export function SceneController({
+  initialConfig,
+}: {
+  initialConfig: SceneConfig
+}) {
+  const { invalidate } = useThree()
+  const transitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  )
 
-interface SceneControllerProps {
-  nebulaRef: React.RefObject<NebulaRef | null>;
-  starsRef: React.RefObject<StarsRef | null>;
-}
+  useEffect(() => {
+    console.log("INITIAL CONFIG", initialConfig)
+  }, [initialConfig])
 
-/**
- * SceneController manages scene transitions and configuration loading
- * Exposes loadScene method via imperative handle
- * Does not render any visual elements
- */
-export const SceneController = forwardRef<
-  SceneControllerRef,
-  SceneControllerProps
->(({ nebulaRef, starsRef }, ref) => {
-  useImperativeHandle(ref, () => ({
-    loadScene: async (config: Partial<SceneConfig>) => {
-      console.log("[STARFIELD] Starting scene transition...", config);
+  const { isSceneChanging, allComponentsReady, completeSceneChange } =
+    useGameStore()
 
-      // Pause rendering during transition
-      //onPauseChange(true);
+  // Monitor ready flags during transition
+  useEffect(() => {
+    if (isSceneChanging && allComponentsReady()) {
+      console.debug("[SCENE CONTROLLER] All components ready, resuming render")
 
-      const loadPromises: Promise<void>[] = [];
+      // Bit of air for pacing
+      transitionTimeoutRef.current = setTimeout(() => {
+        completeSceneChange()
+        invalidate()
+      }, 500)
+    }
 
-      // Load nebula config if provided
-      if (config.nebula && nebulaRef.current) {
-        loadPromises.push(nebulaRef.current.loadConfig(config.nebula));
+    return () => {
+      if (transitionTimeoutRef.current) {
+        clearTimeout(transitionTimeoutRef.current)
       }
+    }
+  }, [isSceneChanging, allComponentsReady, completeSceneChange, invalidate])
 
-      // Load stars config if provided
-      if (config.stars && starsRef.current) {
-        loadPromises.push(starsRef.current.loadConfig(config.stars));
-      }
-
-      // Wait for all objects to be ready
-      await Promise.all(loadPromises);
-
-      // Resume rendering
-      //onPauseChange(false);
-
-      console.log("[STARFIELD] Scene transition complete");
-    },
-  }));
-
-  // Controller component - no visual output
-  return null;
-});
+  return null
+}

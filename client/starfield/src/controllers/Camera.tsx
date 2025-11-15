@@ -1,42 +1,42 @@
-import { CameraControls as CameraControlsImpl } from "@react-three/drei";
-import { useThree } from "@react-three/fiber";
-import { button, folder, useControls } from "leva";
-import { useCallback, useRef, useState } from "react";
-import * as THREE from "three";
-import { useGameStore } from "../stores/useGameStore";
-import { PositionedGameObject } from "../types";
+import { CameraControls as CameraControlsImpl } from "@react-three/drei"
+import { useThree } from "@react-three/fiber"
+import { button, folder, useControls } from "leva"
+import { useCallback, useRef, useState } from "react"
+import * as THREE from "three"
+import { useGameStore } from "@/useGameStore"
+import type { PositionedGameObject } from "@/types"
 
-const DEFAULT_TARGET = new THREE.Vector3(0, -1, 4);
+const DEFAULT_POSITION = new THREE.Vector3(0, 0, 0)
 
 export function CameraController() {
-  const cameraControlsRef = useRef<CameraControlsImpl>(null);
-  const gameObjects = useGameStore((state) => state.positionedObjects);
-  const { invalidate } = useThree();
-  const [currentTarget, setCurrentTarget] = useState<THREE.Vector3 | null>(
+  const cameraControlsRef = useRef<CameraControlsImpl>(null)
+  const gameObjects = useGameStore((state) => state.positionedObjects)
+  const { invalidate } = useThree()
+  const [_currentTarget, setCurrentTarget] = useState<THREE.Vector3 | null>(
     null
-  );
+  )
 
   const lookAtTarget = useCallback(
     async (gameObjectId: string) => {
       const gameObject = gameObjects.find(
         (obj) => obj.id === gameObjectId
-      ) as PositionedGameObject;
+      ) as PositionedGameObject
 
-      if (!cameraControlsRef.current || !gameObject) return;
+      if (!cameraControlsRef.current || !gameObject) return
 
-      invalidate();
+      invalidate()
 
-      const cam = cameraControlsRef.current;
+      const cam = cameraControlsRef.current
       const direction = new THREE.Vector3()
         .subVectors(
           cam.camera.position,
           new THREE.Vector3(...gameObject.position)
         )
-        .normalize();
+        .normalize()
 
       const newCameraPosition = new THREE.Vector3(...gameObject.position).add(
         direction.multiplyScalar(config.lookAtDistance)
-      );
+      )
 
       requestAnimationFrame(() => {
         cam.setLookAt(
@@ -47,35 +47,35 @@ export function CameraController() {
           gameObject.position[1],
           gameObject.position[2],
           true
-        );
-        setCurrentTarget(newCameraPosition);
-      });
+        )
+        setCurrentTarget(newCameraPosition)
+      })
     },
     [invalidate, gameObjects]
-  );
+  )
 
   const resetTarget = useCallback(() => {
-    if (!cameraControlsRef.current) return;
+    if (!cameraControlsRef.current) return
 
-    const cam = cameraControlsRef.current;
+    const cam = cameraControlsRef.current
 
-    invalidate();
+    invalidate()
 
     requestAnimationFrame(() => {
       if (cam) {
         cam.setLookAt(
-          DEFAULT_TARGET.x,
-          DEFAULT_TARGET.y,
-          DEFAULT_TARGET.z,
+          DEFAULT_POSITION.x,
+          DEFAULT_POSITION.y,
+          DEFAULT_POSITION.z,
           0,
           0,
           0,
           true
-        );
+        )
       }
-      setCurrentTarget(null);
-    });
-  }, [invalidate]);
+      setCurrentTarget(null)
+    })
+  }, [invalidate])
 
   // Leva controls for camera configuration
   const config = useControls(
@@ -92,11 +92,11 @@ export function CameraController() {
             value: null,
             label: "Target",
             onChange: (value) => {
-              lookAtTarget(value);
+              lookAtTarget(value)
             },
           },
           "Clear Target": button(() => {
-            resetTarget();
+            resetTarget()
           }),
           lookAtDistance: {
             value: 8,
@@ -126,7 +126,7 @@ export function CameraController() {
       ),
     },
     [gameObjects]
-  );
+  )
 
   return (
     <CameraControlsImpl
@@ -139,14 +139,13 @@ export function CameraController() {
       polarRotateSpeed={11}
       azimuthRotateSpeed={1}
       onTransitionStart={() => {
-        console.debug("[STARFIELD CAMERA] Transition started");
+        console.debug("[STARFIELD CAMERA] Transition started")
       }}
       onRest={() => {
         console.debug(
           "[STARFIELD CAMERA] Transition complete, restoring render mode"
-        );
-        //restoreRenderMode();
+        )
       }}
     />
-  );
+  )
 }

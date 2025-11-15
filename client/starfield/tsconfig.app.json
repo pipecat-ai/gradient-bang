@@ -21,6 +21,14 @@
     "emitDeclarationOnly": true,
     "outDir": "./dist",
 
+     /* Path mapping */
+     "baseUrl": ".",
+     "paths": {
+       "@/*": ["./src/*"],
+       "@/assets/*": ["./src/assets/*"],
+     },
+
+     
     /* Linting */
     "strict": true,
     "noUnusedLocals": true,
