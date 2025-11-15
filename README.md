@@ -321,11 +321,12 @@ docker compose down
 docker compose down -v
 ```
 
-### Standalone Docker
+### Docker build
 
 ```bash
-# Build for production (linux/amd64)
+# Build for production 
 docker build -f deployment/Dockerfile.server -t gradient-bang-server --platform linux/amd64 .
+docker build -f deployment/Dockerfile.bot -t gradient-bang-bot --platform linux/amd64 .
 
 # Run with persistent data
 docker run -d \
