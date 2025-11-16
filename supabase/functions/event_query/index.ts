@@ -25,6 +25,7 @@ const ADMIN_PASSWORD_HASH = Deno.env.get('EDGE_ADMIN_PASSWORD_HASH')
 type JsonRecord = Record<string, unknown>;
 
 interface EventRow {
+  id: number;
   timestamp: string;
   direction: string;
   event_type: string;
@@ -232,16 +233,17 @@ async function fetchEvents(options: {
     // Admin mode: Query events directly without recipient filtering
     query = supabase
       .from('events')
-      .select('timestamp,direction,event_type,character_id,sender_id,sector_id,ship_id,request_id,payload,meta')
+      .select('id,timestamp,direction,event_type,character_id,sender_id,sector_id,ship_id,request_id,payload,meta')
       .gte('timestamp', start.toISOString())
       .lte('timestamp', end.toISOString())
-      .order('timestamp', { ascending })
+      .order('id', { ascending })
       .limit(dbLimit);
   } else {
     // Character/Corporation mode: JOIN to event_character_recipients for visibility
     query = supabase
       .from('events')
       .select(`
+        id,
         timestamp,
         direction,
         event_type,
@@ -256,7 +258,7 @@ async function fetchEvents(options: {
       `)
       .gte('timestamp', start.toISOString())
       .lte('timestamp', end.toISOString())
-      .order('timestamp', { ascending })
+      .order('id', { ascending })
       .limit(dbLimit);
 
     // Filter by recipient character_id or corporation member IDs
@@ -318,6 +320,7 @@ function buildEventRecord(row: EventRow, nameLookup: Map<string, string>): JsonR
   }
 
   return {
+    __event_id: row.id,
     timestamp: row.timestamp,
     direction: row.direction,
     event: row.event_type,
