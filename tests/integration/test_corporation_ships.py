@@ -15,7 +15,7 @@ from helpers.corporation_utils import (
     reset_corporation_test_state,
     REQUIRED_CORPORATION_FUNCTIONS,
 )
-
+from helpers.client_setup import register_characters_for_test
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -27,11 +27,9 @@ pytestmark = [
 
 SHIPS_PATH = Path("tests/test-world-data/ships.json")
 
-
 @pytest.fixture(autouse=True)
 async def reset_state(server_url):
     await reset_corporation_test_state(server_url)
-
 
 def _load_ship(ship_id: str) -> dict | None:
     if not SHIPS_PATH.exists():
@@ -40,13 +38,11 @@ def _load_ship(ship_id: str) -> dict | None:
         data = json.load(handle)
     return data.get(ship_id)
 
-
 async def _create_corp(client, *, character_id: str, name: str) -> dict:
     return await client._request(
         "corporation.create",
         {"character_id": character_id, "name": name},
     )
-
 
 async def _join_corp(client, *, character_id: str, corp: dict) -> dict:
     return await client._request(
@@ -57,7 +53,6 @@ async def _join_corp(client, *, character_id: str, corp: dict) -> dict:
             "invite_code": corp["invite_code"],
         },
     )
-
 
 async def _purchase_corp_ship(
     client,
@@ -78,7 +73,6 @@ async def _purchase_corp_ship(
         payload["initial_ship_credits"] = initial_ship_credits
     return await client._request("ship.purchase", payload)
 
-
 @pytest.mark.asyncio
 async def test_corporation_member_can_control_ship(server_url, check_server_available):
     actor_id = "test_corp_founder"
@@ -93,6 +87,7 @@ async def test_corporation_member_can_control_ship(server_url, check_server_avai
             ship_name="Remote Atlas",
         )
         ship_id = purchase["ship_id"]
+        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
 
         async with AsyncGameClient(
             base_url=server_url,
@@ -157,7 +152,6 @@ async def test_corporation_member_can_control_ship(server_url, check_server_avai
 
             assert followup_payload["sector"]["id"] == destination
 
-
 @pytest.mark.asyncio
 async def test_corporation_ship_can_trade(server_url, check_server_available):
     actor_id = "test_corp_founder"
@@ -174,6 +168,7 @@ async def test_corporation_ship_can_trade(server_url, check_server_available):
             initial_ship_credits=20_000,
         )
         ship_id = purchase["ship_id"]
+        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
 
         async with AsyncGameClient(
             base_url=server_url,
@@ -231,7 +226,6 @@ async def test_corporation_ship_can_trade(server_url, check_server_available):
             assert refreshed_ship["cargo"]["neuro_symbolics"] >= starting_cargo + purchase_qty
             assert refreshed_ship["credits"] < starting_credits
 
-
 @pytest.mark.asyncio
 async def test_corporation_ship_can_recharge_warp_power(server_url, check_server_available):
     actor_id = "test_corp_founder"
@@ -248,6 +242,7 @@ async def test_corporation_ship_can_recharge_warp_power(server_url, check_server
             initial_ship_credits=15_000,
         )
         ship_id = purchase["ship_id"]
+        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
 
         async with AsyncGameClient(
             base_url=server_url,
@@ -322,7 +317,6 @@ async def test_corporation_ship_can_recharge_warp_power(server_url, check_server
             assert warp_after > warp_before
             assert credits_after < credits_before
 
-
 @pytest.mark.asyncio
 async def test_corporation_ship_can_engage_in_combat(server_url, check_server_available):
     actor_id = "test_corp_founder"
@@ -340,6 +334,7 @@ async def test_corporation_ship_can_engage_in_combat(server_url, check_server_av
             ship_name="War Atlas",
         )
         ship_id = purchase["ship_id"]
+        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
 
         async with AsyncGameClient(
             base_url=server_url,
@@ -373,7 +368,6 @@ async def test_corporation_ship_can_engage_in_combat(server_url, check_server_av
             )
             assert "success" in action_result or "round" in action_result
 
-
 @pytest.mark.asyncio
 async def test_corporation_ship_rejects_unauthorized_actor(server_url, check_server_available):
     actor_id = "test_corp_founder"
@@ -389,6 +383,7 @@ async def test_corporation_ship_rejects_unauthorized_actor(server_url, check_ser
             ship_name="Guarded Atlas",
         )
         ship_id = purchase["ship_id"]
+        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
 
         async with AsyncGameClient(
             base_url=server_url,
@@ -400,7 +395,6 @@ async def test_corporation_ship_rejects_unauthorized_actor(server_url, check_ser
                 await ship_client.join(character_id=ship_id)
             assert excinfo.value.status == 403
             assert "not authorized" in excinfo.value.detail.lower()
-
 
 @pytest.mark.asyncio
 async def test_corporation_ship_invalid_id_rejected(server_url, check_server_available):
@@ -415,7 +409,6 @@ async def test_corporation_ship_invalid_id_rejected(server_url, check_server_ava
             await ship_client.join(character_id=invalid_ship_id)
         assert excinfo.value.status == 404
         assert "not registered" in excinfo.value.detail.lower()
-
 
 @pytest.mark.asyncio
 async def test_corporation_ship_actions_require_authorized_actor(server_url, check_server_available):
@@ -434,6 +427,7 @@ async def test_corporation_ship_actions_require_authorized_actor(server_url, che
             initial_ship_credits=50_000,
         )
         ship_id = purchase["ship_id"]
+        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
 
         async with AsyncGameClient(
             base_url=server_url,
@@ -528,7 +522,6 @@ async def test_corporation_ship_actions_require_authorized_actor(server_url, che
                 ),
             )
 
-
 @pytest.mark.asyncio
 async def test_corporation_ship_chat_requires_authorized_actor(server_url, check_server_available):
     actor_id = "test_corp_founder"
@@ -544,6 +537,7 @@ async def test_corporation_ship_chat_requires_authorized_actor(server_url, check
             ship_name="Chatty Atlas",
         )
         ship_id = purchase["ship_id"]
+        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
 
         async with AsyncGameClient(
             base_url=server_url,
@@ -570,7 +564,6 @@ async def test_corporation_ship_chat_requires_authorized_actor(server_url, check
             assert excinfo.value.status == 403
             assert "not authorized" in excinfo.value.detail.lower()
 
-
 @pytest.mark.asyncio
 async def test_corporation_event_log_records_fleet_activity(server_url, check_server_available):
     actor_id = "test_corp_founder"
@@ -587,6 +580,7 @@ async def test_corporation_event_log_records_fleet_activity(server_url, check_se
             initial_ship_credits=25_000,
         )
         ship_id = purchase["ship_id"]
+        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
 
         async with AsyncGameClient(
             base_url=server_url,
@@ -692,7 +686,6 @@ async def test_corporation_event_log_records_fleet_activity(server_url, check_se
         assert garrison_entry is not None, "garrison.deployed event missing from corp log"
         assert garrison_entry.get("corporation_id") == corp["corp_id"]
 
-
 @pytest.mark.asyncio
 async def test_multiple_corporation_ships_independent_control(server_url, check_server_available):
     actor_id = "test_corp_founder"
@@ -792,7 +785,6 @@ async def test_multiple_corporation_ships_independent_control(server_url, check_
                 assert final_sector_one != base_sector
                 assert final_sector_two != base_sector
 
-
 @pytest.mark.asyncio
 async def test_corp_ships_transferred_to_unowned_on_disband(server_url, check_server_available):
     async with managed_client(
@@ -806,6 +798,7 @@ async def test_corp_ships_transferred_to_unowned_on_disband(server_url, check_se
             ship_name="Corp Atlas",
         )
         ship_id = purchase["ship_id"]
+        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
 
         await founder._request("corporation.leave", {"character_id": "test_corp_founder"})
 
@@ -822,7 +815,6 @@ async def test_corp_ships_transferred_to_unowned_on_disband(server_url, check_se
         assert record.get("former_owner_name") == "Derelict Co"
         assert record.get("became_unowned") is not None
 
-
 @pytest.mark.asyncio
 async def test_unowned_ships_appear_in_sector_contents(server_url, check_server_available):
     async with managed_client(
@@ -835,6 +827,7 @@ async def test_unowned_ships_appear_in_sector_contents(server_url, check_server_
             ship_type="kestrel_courier",
         )
         ship_id = purchase["ship_id"]
+        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
 
         await founder._request("corporation.leave", {"character_id": "test_corp_founder"})
 
@@ -851,7 +844,6 @@ async def test_unowned_ships_appear_in_sector_contents(server_url, check_server_
         status_event = await status_task
         unowned = status_event["payload"]["sector"]["unowned_ships"]
         assert any(ship["ship_id"] == ship_id for ship in unowned)
-
 
 @pytest.mark.skip(reason="Temporarily skipped pending investigation of intermittent timeout")
 @pytest.mark.asyncio
@@ -874,7 +866,6 @@ async def test_ships_abandoned_event_emitted(server_url, check_server_available)
         ships = event["payload"]["ships"]
         assert ships
         assert all(entry.get("ship_id") for entry in ships)
-
 
 @pytest.mark.skip(reason="Temporarily skipped pending investigation of intermittent timeout")
 @pytest.mark.asyncio
@@ -900,7 +891,6 @@ async def test_multiple_ships_all_become_unowned(server_url, check_server_availa
             assert record is not None
             assert record.get("owner_type") == "unowned"
 
-
 @pytest.mark.asyncio
 async def test_ship_retains_state_when_unowned(server_url, check_server_available):
     async with managed_client(
@@ -913,6 +903,7 @@ async def test_ship_retains_state_when_unowned(server_url, check_server_availabl
             ship_type="kestrel_courier",
         )
         ship_id = purchase["ship_id"]
+        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
 
         # Trigger a sector update to ensure state flush and leave no modifications
         await founder._request("corporation.leave", {"character_id": "test_corp_founder"})
@@ -924,7 +915,6 @@ async def test_ship_retains_state_when_unowned(server_url, check_server_availabl
         # Default kestrel stats: fighters=300, shields=150 per ships data
         assert state.get("fighters") == 300
         assert state.get("shields") == 150
-
 
 @pytest.mark.asyncio
 async def test_unowned_ship_includes_former_corp_info(server_url, check_server_available):
@@ -938,6 +928,7 @@ async def test_unowned_ship_includes_former_corp_info(server_url, check_server_a
             ship_type="atlas_hauler",
         )
         ship_id = purchase["ship_id"]
+        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
 
         await founder._request("corporation.leave", {"character_id": "test_corp_founder"})
         await asyncio.sleep(0.2)
@@ -946,7 +937,6 @@ async def test_unowned_ship_includes_former_corp_info(server_url, check_server_a
         assert record is not None
         assert record.get("former_owner_name") == "History Corp"
         assert record.get("became_unowned") is not None
-
 
 @pytest.mark.asyncio
 async def test_unowned_ships_only_visible_in_their_sector(server_url, check_server_available):
@@ -962,6 +952,7 @@ async def test_unowned_ships_only_visible_in_their_sector(server_url, check_serv
             ship_type="kestrel_courier",
         )
         ship_id = purchase["ship_id"]
+        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
 
         await founder._request("corporation.leave", {"character_id": "test_corp_founder"})
 
@@ -993,7 +984,6 @@ async def test_unowned_ships_only_visible_in_their_sector(server_url, check_serv
         far_ships = far_event["payload"]["sector"]["unowned_ships"]
         assert all(ship["ship_id"] != ship_id for ship in far_ships)
 
-
 @pytest.mark.asyncio
 async def test_corporation_ship_purchase_adds_ship(server_url, check_server_available):
     async with managed_client(
@@ -1015,7 +1005,6 @@ async def test_corporation_ship_purchase_adds_ship(server_url, check_server_avai
         ships = info.get("ships", [])
         assert any(ship["ship_id"] == ship_id for ship in ships)
 
-
 @pytest.mark.asyncio
 async def test_corporation_ship_purchase_requires_bank_credits(server_url, check_server_available):
     async with managed_client(server_url, "test_corp_founder", bank=10_000) as founder:
@@ -1030,7 +1019,6 @@ async def test_corporation_ship_purchase_requires_bank_credits(server_url, check
 
         assert excinfo.value.status == 400
         assert "Insufficient bank balance" in excinfo.value.detail
-
 
 @pytest.mark.asyncio
 async def test_corp_ship_purchase_rejects_trade_in(server_url, check_server_available):

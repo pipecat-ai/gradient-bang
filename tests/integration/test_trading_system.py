@@ -30,15 +30,13 @@ from helpers.assertions import (
     assert_no_event_emitted,
 )
 from helpers.combat_helpers import create_test_character_knowledge
-
+from helpers.client_setup import create_client_with_character
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
-
 
 # =============================================================================
 # Helper Functions
 # =============================================================================
-
 
 async def get_status(client, character_id):
     """
@@ -66,25 +64,24 @@ async def get_status(client, character_id):
     finally:
         client.remove_event_handler(token)
 
-
 def get_ship_credits(status_payload):
     """Helper to read ship credits from a status payload."""
     ship_section = status_payload.get("ship") or {}
     return ship_section.get("credits", 0)
 
-
 # =============================================================================
 # Test Fixtures
 # =============================================================================
-
 
 @pytest.fixture
 async def client(server_url, check_server_available):
     """Create an AsyncGameClient connected to test server."""
     char_id = "test_trading_client"
-    async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
+    client = await create_client_with_character(server_url, char_id)
+    try:
         yield client
-
+    finally:
+        await client.close()
 
 @pytest.fixture
 async def trader_at_port(server_url):
@@ -95,64 +92,29 @@ async def trader_at_port(server_url):
     """
     char_id = "test_trader_at_port"
 
-    # Pre-create character knowledge with all port sectors visited
-    # This allows list_known_ports() to find ports without exploration
-    # We create this BEFORE calling join() so that join() loads existing knowledge
-    create_test_character_knowledge(
+    # Call create_client_with_character which will:
+    # 1. Create character with specified parameters
+    # 2. Initialize the client
+    # 3. Call join() to authenticate
+    client = await create_client_with_character(
+        server_url,
         char_id,
         sector=1,  # Start at a port sector for convenience
         visited_sectors=[0, 1, 3, 5, 9],  # All sectors with ports + start
         credits=100000,  # Plenty of credits for trading tests
     )
 
-    client = AsyncGameClient(base_url=server_url, character_id=char_id)
-
-    # Call join() which will:
-    # 1. Check character is registered (test_trader_at_port is in TEST_CHARACTER_IDS)
-    # 2. Check for knowledge file (we just created it)
-    # 3. Load existing knowledge instead of creating new character
-    await client.join(character_id=char_id)
-
-    # Verify knowledge was preserved by finding ports
-    # Set up event listener for ports.list event
-    ports_received = asyncio.Future()
-
-    def on_ports_list(event):
-        if not ports_received.done():
-            ports_received.set_result(event.get("payload", event))
-
-    token = client.add_event_handler("ports.list", on_ports_list)
-
-    try:
-        # Request list of known ports
-        await client.list_known_ports(character_id=char_id, max_hops=10)
-
-        # Wait for the ports.list event
-        ports_result = await asyncio.wait_for(ports_received, timeout=5.0)
-    finally:
-        client.remove_event_handler(token)
-
-    ports = ports_result.get("ports", [])
-
-    if not ports:
-        await client.close()
-        pytest.fail(f"No ports found even after pre-populating knowledge - test setup error")
-
-    # We already know about ports, pick sector 1 (has Port BBS)
-    port_sector = 1
-    port_info = next((p for p in ports if p.get("sector", {}).get("id") == port_sector), ports[0])
-
-    # Character is already at sector 1 (we created them there), so no navigation needed!
+    # Character is already at sector 1 (has Port BBS: Buys QF/RO, Sells NS)
+    # No need to verify ports list - we pre-populated visited_sectors
 
     yield {
         "character_id": char_id,
         "client": client,
-        "port_sector": port_sector,
-        "port_info": port_info,
+        "port_sector": 1,
+        "port_info": {"sector": {"id": 1}, "type": "BBS"},  # Port BBS info
     }
 
     await client.close()
-
 
 @pytest.fixture
 async def trader_with_cargo(server_url):
@@ -163,8 +125,9 @@ async def trader_with_cargo(server_url):
     """
     char_id = "test_trader_with_cargo"
 
-    # Pre-create knowledge with cargo
-    create_test_character_knowledge(
+    # Create client with character knowledge including cargo
+    client = await create_client_with_character(
+        server_url,
         char_id,
         sector=1,  # Port BBS: Buys QF/RO, Sells NS
         visited_sectors=[0, 1, 3, 5, 9],  # All port sectors
@@ -176,9 +139,6 @@ async def trader_with_cargo(server_url):
         }
     )
 
-    client = AsyncGameClient(base_url=server_url, character_id=char_id)
-    await client.join(character_id=char_id)
-
     yield {
         "character_id": char_id,
         "client": client,
@@ -187,15 +147,13 @@ async def trader_with_cargo(server_url):
 
     await client.close()
 
-
 @pytest.fixture
 async def rich_trader(server_url):
     """Create a character with high credits for buying."""
     # In actual implementation, would need admin API to set credits
     # For now, characters start with default credits
     char_id = "test_rich_trader"
-    client = AsyncGameClient(base_url=server_url, character_id=char_id)
-    await client.join(character_id=char_id)
+    client = await create_client_with_character(server_url, char_id)
 
     yield {
         "character_id": char_id,
@@ -204,11 +162,9 @@ async def rich_trader(server_url):
 
     await client.close()
 
-
 # =============================================================================
 # Trade Operation Tests (6 tests)
 # =============================================================================
-
 
 class TestTradeOperations:
     """Tests for basic buy/sell operations."""
@@ -330,10 +286,9 @@ class TestTradeOperations:
     async def test_trade_at_non_port_sector_fails(self, server_url):
         """Test that trading at a non-port sector fails."""
         char_id = "test_trader_no_port"
-        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+        client = await create_client_with_character(server_url, char_id)
 
         try:
-            await client.join(character_id=char_id)
 
             # Ensure we're not at a port (sector 0 typically isn't a port)
             status = await get_status(client, char_id)
@@ -369,11 +324,9 @@ class TestTradeOperations:
         # Should fail with capacity error
         assert exc_info.value.status in [400, 422]
 
-
 # =============================================================================
 # Pricing Formula Tests (6 tests)
 # =============================================================================
-
 
 class TestPricingFormulas:
     """Tests for trading pricing mechanics."""
@@ -406,11 +359,9 @@ class TestPricingFormulas:
         # This assumes there's a price query API
         pytest.skip("Requires price query API (if available)")
 
-
 # =============================================================================
 # Inventory Management Tests (6 tests)
 # =============================================================================
-
 
 class TestInventoryManagement:
     """Tests for cargo, credits, and port stock management."""
@@ -530,11 +481,9 @@ class TestInventoryManagement:
         except RPCError:
             pytest.skip("Trade not available")
 
-
 # =============================================================================
 # Atomicity and Concurrency Tests (6 tests)
 # =============================================================================
-
 
 class TestAtomicityAndConcurrency:
     """Tests for transaction atomicity and concurrent trade handling."""
@@ -587,11 +536,9 @@ class TestAtomicityAndConcurrency:
         """Test that server crash during trade is recoverable."""
         pytest.skip("Requires server crash simulation")
 
-
 # =============================================================================
 # Port Regeneration Tests (3 tests)
 # =============================================================================
-
 
 class TestPortRegeneration:
     """Tests for port stock regeneration over time."""
@@ -608,11 +555,9 @@ class TestPortRegeneration:
         """Test that port stock doesn't exceed maximum values."""
         pytest.skip("Requires long-term observation or stock inspection")
 
-
 # =============================================================================
 # Trade Event Tests (4 tests)
 # =============================================================================
-
 
 class TestTradeEvents:
     """Tests for trade event emission and structure."""
@@ -770,11 +715,9 @@ class TestTradeEvents:
         except RPCError as e:
             pytest.skip(f"Trade not available: {e}")
 
-
 # =============================================================================
 # Edge Case Tests (4 tests)
 # =============================================================================
-
 
 class TestTradeEdgeCases:
     """Tests for edge cases and error conditions."""
@@ -821,10 +764,9 @@ class TestTradeEdgeCases:
     async def test_trade_while_in_hyperspace_fails(self, server_url):
         """Test that trading while in hyperspace is blocked."""
         char_id = "test_hyperspace_trader"
-        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+        client = await create_client_with_character(server_url, char_id)
 
         try:
-            await client.join(character_id=char_id)
 
             # Get adjacent sector
             status = await get_status(client, char_id)

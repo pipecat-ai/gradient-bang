@@ -23,6 +23,7 @@ from unittest.mock import patch, AsyncMock
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from utils.api_client import AsyncGameClient, RPCError
+from helpers.client_setup import create_client_with_character
 
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]

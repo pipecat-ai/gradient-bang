@@ -26,14 +26,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from utils.api_client import AsyncGameClient, RPCError
 from helpers.combat_helpers import create_test_character_knowledge
 
-
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
-
 
 # =============================================================================
 # Helper Functions
 # =============================================================================
-
 
 async def get_status(client, character_id):
     """Get character status via status.snapshot event."""
@@ -52,11 +49,9 @@ async def get_status(client, character_id):
     finally:
         client.remove_event_handler(token)
 
-
 # =============================================================================
 # Test Credit Transfers - Happy Path
 # =============================================================================
-
 
 class TestCreditTransfers:
     """Tests for successful credit transfer operations."""
@@ -67,17 +62,15 @@ class TestCreditTransfers:
         receiver_id = "test_credit_receiver"
 
         # Create both characters in same sector with credits
-        create_test_character_knowledge(sender_id, sector=5, credits=1000)
-        create_test_character_knowledge(receiver_id, sector=5, credits=500)
 
         # Create both clients
-        sender_client = AsyncGameClient(base_url=server_url, character_id=sender_id)
-        receiver_client = AsyncGameClient(base_url=server_url, character_id=receiver_id)
+        sender_client = await create_client_with_character(server_url, sender_id, sector=5, credits=1000)
+        receiver_client = await create_client_with_character(server_url, receiver_id, sector=5, credits=500)
 
         try:
             # Join both characters
-            await sender_client.join(character_id=sender_id)
-            await receiver_client.join(character_id=receiver_id)
+            # Already joined via create_client_with_character()
+            # Already joined via create_client_with_character()
 
             # Setup event listeners on both clients
             sender_events = []
@@ -174,8 +167,8 @@ class TestCreditTransfers:
             await client.join(character_id=sender_id)
 
             # Join receiver
-            receiver_client = AsyncGameClient(base_url=server_url, character_id=receiver_id)
-            await receiver_client.join(character_id=receiver_id)
+            receiver_client = await create_client_with_character(server_url, receiver_id)
+            # Already joined via create_client_with_character()
 
             # Transfer using player name (not character_id parameter)
             result = await client.transfer_credits(
@@ -192,11 +185,9 @@ class TestCreditTransfers:
 
             await receiver_client.close()
 
-
 # =============================================================================
 # Test Credit Transfer Validation
 # =============================================================================
-
 
 class TestCreditTransferValidation:
     """Tests for credit transfer validation and error conditions."""
@@ -214,8 +205,8 @@ class TestCreditTransferValidation:
             await client.join(character_id=sender_id)
 
             # Join receiver
-            receiver_client = AsyncGameClient(base_url=server_url, character_id=receiver_id)
-            await receiver_client.join(character_id=receiver_id)
+            receiver_client = await create_client_with_character(server_url, receiver_id)
+            # Already joined via create_client_with_character()
 
             # Try to transfer more than available
             with pytest.raises(RPCError) as exc_info:
@@ -244,8 +235,8 @@ class TestCreditTransferValidation:
             await client.join(character_id=sender_id)
 
             # Join receiver in different sector
-            receiver_client = AsyncGameClient(base_url=server_url, character_id=receiver_id)
-            await receiver_client.join(character_id=receiver_id)
+            receiver_client = await create_client_with_character(server_url, receiver_id)
+            # Already joined via create_client_with_character()
 
             # Try to transfer across sectors
             with pytest.raises(RPCError) as exc_info:
@@ -316,8 +307,8 @@ class TestCreditTransferValidation:
             await client.join(character_id=sender_id)
 
             # Join receiver
-            receiver_client = AsyncGameClient(base_url=server_url, character_id=receiver_id)
-            await receiver_client.join(character_id=receiver_id)
+            receiver_client = await create_client_with_character(server_url, receiver_id)
+            # Already joined via create_client_with_character()
 
             # Deploy garrison to create combat
             await client.combat_leave_fighters(
@@ -355,8 +346,8 @@ class TestCreditTransferValidation:
         async with AsyncGameClient(base_url=server_url, character_id=sender_id) as sender_client:
             await sender_client.join(character_id=sender_id)
 
-            receiver_client = AsyncGameClient(base_url=server_url, character_id=receiver_id)
-            await receiver_client.join(character_id=receiver_id)
+            receiver_client = await create_client_with_character(server_url, receiver_id)
+            # Already joined via create_client_with_character()
 
             # Deploy garrison from receiver to create combat
             await receiver_client.combat_leave_fighters(

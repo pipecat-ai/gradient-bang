@@ -30,6 +30,9 @@ _TRUTHY = {"1", "true", "on", "yes"}
 async def reset_corporation_test_state(server_url: str) -> None:
     """Clear cached server state for corporation-focused integration tests."""
 
+    # Create character before join (required for Supabase mode)
+    create_test_character_knowledge("test_event_character", sector=0)
+
     client = _api_client_module.AsyncGameClient(base_url=server_url, character_id="test_event_character")
     try:
         await client.join(character_id="test_event_character")

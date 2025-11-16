@@ -38,22 +38,19 @@ from helpers.assertions import (
     assert_events_chronological,
 )
 from helpers.combat_helpers import create_test_character_knowledge
+from helpers.client_setup import create_client_with_character
 from conftest import EVENT_DELIVERY_WAIT
-
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
 
 _TRUE_VALUES = {"1", "true", "on", "yes"}
 
-
 def _supabase_mode_enabled() -> bool:
     return os.environ.get("USE_SUPABASE_TESTS", "").strip().lower() in _TRUE_VALUES
-
 
 # =============================================================================
 # Helper Functions
 # =============================================================================
-
 
 async def get_status(client, character_id):
     """
@@ -81,11 +78,9 @@ async def get_status(client, character_id):
     finally:
         client.remove_event_handler(token)
 
-
 # =============================================================================
 # Test Fixtures
 # =============================================================================
-
 
 @pytest.fixture
 async def client(server_url, check_server_available):
@@ -93,40 +88,13 @@ async def client(server_url, check_server_available):
     async with AsyncGameClient(base_url=server_url) as client:
         yield client
 
-
 @pytest.fixture
 async def active_character(server_url, reset_test_state):
     """Create an active test character."""
     char_id = "test_event_character"
-    knowledge_path = Path(create_test_character_knowledge(char_id, sector=0))
-    knowledge_data = None
-    if knowledge_path.exists():
-        try:
-            knowledge_data = json.loads(knowledge_path.read_text())
-        except json.JSONDecodeError:
-            knowledge_data = None
 
-    if _supabase_mode_enabled():
-        try:
-            from tests.edge.support.state import reset_character_state as supabase_reset_character_state
-        except ImportError as exc:  # pragma: no cover - required for Supabase tests
-            raise RuntimeError(
-                "Supabase state helpers are required when USE_SUPABASE_TESTS=1"
-            ) from exc
-
-        sector_value = int((knowledge_data or {}).get("current_sector") or 0)
-        credits_value = int((knowledge_data or {}).get("credits") or 1000)
-        bank_value = int((knowledge_data or {}).get("credits_in_bank") or 0)
-        supabase_reset_character_state(
-            char_id,
-            sector=sector_value,
-            credits=credits_value,
-            map_knowledge=knowledge_data,
-            bank_credits=bank_value,
-        )
-
-    client = AsyncGameClient(base_url=server_url, character_id=char_id)
-    await client.join(character_id=char_id)
+    # create_client_with_character handles both Legacy and Supabase registration
+    client = await create_client_with_character(server_url, char_id, sector=0)
 
     yield {
         "character_id": char_id,
@@ -135,7 +103,6 @@ async def active_character(server_url, reset_test_state):
 
     await client.close()
 
-
 @pytest.fixture
 async def firehose_listener(server_url):
     """Create a firehose listener for capturing all events."""
@@ -143,11 +110,9 @@ async def firehose_listener(server_url):
         await asyncio.sleep(EVENT_DELIVERY_WAIT)  # Let it connect
         yield listener
 
-
 # =============================================================================
 # Event Emission Tests (10 tests - one per major event type)
 # =============================================================================
-
 
 class TestEventEmission:
     """Tests that all major event types are properly emitted."""
@@ -155,13 +120,11 @@ class TestEventEmission:
     async def test_character_joined_event(self, server_url):
         """Test that character.joined event is emitted on join."""
         char_id = "test_join_event"
-        create_test_character_knowledge(char_id, sector=0)
         async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(0.5)
 
-            # Create client and join game
-            client = AsyncGameClient(base_url=server_url, character_id=char_id)
-            await client.join(character_id=char_id)
+            # Create client and join game (registration handled automatically)
+            client = await create_client_with_character(server_url, char_id, sector=0)
 
             await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
@@ -209,12 +172,9 @@ class TestEventEmission:
         char1_id = "test_combat_waiting_char1"
         char2_id = "test_combat_waiting_char2"
 
-        # Create characters at sector 0
-        create_test_character_knowledge(char1_id, sector=0, fighters=100, shields=100)
-        create_test_character_knowledge(char2_id, sector=0, fighters=100, shields=100)
-
-        client1 = AsyncGameClient(base_url=server_url, character_id=char1_id, transport="websocket")
-        client2 = AsyncGameClient(base_url=server_url, character_id=char2_id, transport="websocket")
+        # Create characters at sector 0 (registration handled automatically)
+        client1 = await create_client_with_character(server_url, char1_id, sector=0, fighters=100, shields=100)
+        client2 = await create_client_with_character(server_url, char2_id, sector=0, fighters=100, shields=100)
 
         # Setup event collectors
         char1_events = []
@@ -224,8 +184,7 @@ class TestEventEmission:
         client2.on("combat.round_waiting")(lambda p: char2_events.append({"event": "combat.round_waiting", "payload": p}))
 
         try:
-            await client1.join(character_id=char1_id)
-            await client2.join(character_id=char2_id)
+            # Already joined via create_client_with_character()
 
             # Record start time
             start_time = datetime.now(timezone.utc)
@@ -291,12 +250,9 @@ class TestEventEmission:
         char1_id = "test_combat_resolved_char1"
         char2_id = "test_combat_resolved_char2"
 
-        # Create characters at sector 0
-        create_test_character_knowledge(char1_id, sector=0, fighters=100, shields=100)
-        create_test_character_knowledge(char2_id, sector=0, fighters=100, shields=100)
-
-        client1 = AsyncGameClient(base_url=server_url, character_id=char1_id, transport="websocket")
-        client2 = AsyncGameClient(base_url=server_url, character_id=char2_id, transport="websocket")
+        # Create characters at sector 0 (registration handled automatically)
+        client1 = await create_client_with_character(server_url, char1_id, sector=0, fighters=100, shields=100)
+        client2 = await create_client_with_character(server_url, char2_id, sector=0, fighters=100, shields=100)
 
         # Setup event collectors
         char1_events = []
@@ -307,8 +263,7 @@ class TestEventEmission:
         client2.on("combat.round_resolved")(lambda p: char2_events.append({"event": "combat.round_resolved", "payload": p}))
 
         try:
-            await client1.join(character_id=char1_id)
-            await client2.join(character_id=char2_id)
+            # Already joined via create_client_with_character()
 
             # Record start time
             start_time = datetime.now(timezone.utc)
@@ -415,8 +370,8 @@ class TestEventEmission:
         create_weak_character(victim_id, sector=0, fighters=5)
         set_character_cargo(victim_id, quantum_foam=10, retro_organics=5, neuro_symbolics=2)
 
-        attacker = AsyncGameClient(base_url=server_url, character_id=attacker_id, transport="websocket")
-        victim = AsyncGameClient(base_url=server_url, character_id=victim_id, transport="websocket")
+        attacker = await create_client_with_character(server_url, attacker_id)
+        victim = await create_client_with_character(server_url, victim_id)
 
         # Setup event collectors
         attacker_events = []
@@ -428,8 +383,8 @@ class TestEventEmission:
         victim.on("combat.ended")(lambda p: victim_events.append({"event": "combat.ended", "payload": p}))
 
         try:
-            await attacker.join(character_id=attacker_id)
-            await victim.join(character_id=victim_id)
+            # Already joined via create_client_with_character()
+            # Already joined via create_client_with_character()
 
             # Record start time
             start_time = datetime.now(timezone.utc)
@@ -526,14 +481,14 @@ class TestEventEmission:
 
         trader_id = "test_trade_executed_trader"
 
-        trader = AsyncGameClient(base_url=server_url, character_id=trader_id, transport="websocket")
+        trader = await create_client_with_character(server_url, trader_id)
 
         # Setup event collector
         trader_events = []
         trader.on("trade.executed")(lambda p: trader_events.append({"event": "trade.executed", "payload": p}))
 
         try:
-            await trader.join(character_id=trader_id)
+            # Already joined via create_client_with_character()
 
             # Move to sector 1 (has a port that sells neuro_symbolics in test world)
             trader_status = await get_status(trader, trader_id)
@@ -607,16 +562,15 @@ class TestEventEmission:
         char_id = "test_garrison_deployed_char"
 
         # Create character at sector 0 with fighters
-        create_test_character_knowledge(char_id, sector=0, fighters=100, shields=100)
 
-        client = AsyncGameClient(base_url=server_url, character_id=char_id, transport="websocket")
+        client = await create_client_with_character(server_url, char_id, sector=0, fighters=100, shields=100)
 
         # Setup event collector
         garrison_events = []
         client.on("garrison.deployed")(lambda p: garrison_events.append({"event": "garrison.deployed", "payload": p}))
 
         try:
-            await client.join(character_id=char_id)
+            # Already joined via create_client_with_character()
 
             # Move to sector 1
             await client.move(to_sector=1, character_id=char_id)
@@ -722,8 +676,8 @@ class TestEventEmission:
         create_strong_character(attacker_id, sector=0, fighters=500)
         create_weak_character(victim_id, sector=0, fighters=5)
 
-        attacker = AsyncGameClient(base_url=server_url, character_id=attacker_id, transport="websocket")
-        victim = AsyncGameClient(base_url=server_url, character_id=victim_id, transport="websocket")
+        attacker = await create_client_with_character(server_url, attacker_id)
+        victim = await create_client_with_character(server_url, victim_id)
 
         # Setup event collectors
         attacker_events = []
@@ -735,8 +689,8 @@ class TestEventEmission:
         victim.on("combat.ended")(lambda p: victim_events.append({"event": "combat.ended", "payload": p}))
 
         try:
-            await attacker.join(character_id=attacker_id)
-            await victim.join(character_id=victim_id)
+            # Already joined via create_client_with_character()
+            # Already joined via create_client_with_character()
 
             # Record start time
             start_time = datetime.now(timezone.utc)
@@ -832,11 +786,9 @@ class TestEventEmission:
             await attacker.close()
             await victim.close()
 
-
 # =============================================================================
 # Event Ordering Tests (5 tests)
 # =============================================================================
-
 
 class TestEventOrdering:
     """Tests for event chronological and causal ordering."""
@@ -923,11 +875,11 @@ class TestEventOrdering:
         char1 = "test_concurrent_event1"
         char2 = "test_concurrent_event2"
 
-        client1 = AsyncGameClient(base_url=server_url, character_id=char1)
-        await client1.join(character_id=char1)
+        client1 = await create_client_with_character(server_url, char1)
+        # Already joined via create_client_with_character()
 
-        client2 = AsyncGameClient(base_url=server_url, character_id=char2)
-        await client2.join(character_id=char2)
+        client2 = await create_client_with_character(server_url, char2)
+        # Already joined via create_client_with_character()
 
         try:
             async with create_firehose_listener(server_url) as listener:
@@ -966,11 +918,9 @@ class TestEventOrdering:
             status_events = listener.filter_events("status.snapshot")
             assert len(status_events) >= 2, "Expected multiple status events"
 
-
 # =============================================================================
 # Character Filtering Tests (10 tests - CRITICAL for privacy)
 # =============================================================================
-
 
 class TestCharacterFiltering:
     """Tests for event privacy and filtering (WHO gets WHAT)."""
@@ -994,8 +944,8 @@ class TestCharacterFiltering:
         print(f"{'='*80}\n")
 
         # Create AsyncGameClients with WebSocket transport
-        client1 = AsyncGameClient(base_url=server_url, character_id=char1_id, transport="websocket")
-        client2 = AsyncGameClient(base_url=server_url, character_id=char2_id, transport="websocket")
+        client1 = await create_client_with_character(server_url, char1_id)
+        client2 = await create_client_with_character(server_url, char2_id)
 
         # Event collectors for status.snapshot events
         events_char1 = []
@@ -1008,8 +958,8 @@ class TestCharacterFiltering:
         try:
             # STEP 1: Both characters join
             print("STEP 1: Both characters join...")
-            await client1.join(character_id=char1_id)
-            await client2.join(character_id=char2_id)
+            # Already joined via create_client_with_character()
+            # Already joined via create_client_with_character()
             await asyncio.sleep(0.5)
 
             # Clear any join-related status events
@@ -1142,10 +1092,10 @@ class TestCharacterFiltering:
         print(f"Character 3 (observer): {char3_id}")
         print(f"{'='*80}\n")
 
-        # Create AsyncGameClients with WebSocket transport
-        client1 = AsyncGameClient(base_url=server_url, character_id=char1_id, transport="websocket")
-        client2 = AsyncGameClient(base_url=server_url, character_id=char2_id, transport="websocket")
-        client3 = AsyncGameClient(base_url=server_url, character_id=char3_id, transport="websocket")
+        # Create clients with character registration handled automatically
+        client1 = await create_client_with_character(server_url, char1_id)
+        client2 = await create_client_with_character(server_url, char2_id)
+        client3 = await create_client_with_character(server_url, char3_id)
 
         # Event collectors for character.moved events
         events_char1 = []
@@ -1158,11 +1108,8 @@ class TestCharacterFiltering:
         client3.on("character.moved")(lambda p: events_char3.append({"event": "character.moved", "payload": p}))
 
         try:
-            # STEP 1: All characters join
-            print("STEP 1: All characters join...")
-            await client1.join(character_id=char1_id)
-            await client2.join(character_id=char2_id)
-            await client3.join(character_id=char3_id)
+            # STEP 1: All characters already joined via create_client_with_character()
+            print("STEP 1: All characters joined...")
             await asyncio.sleep(0.5)
 
             # STEP 2: Position all characters in the same sector
@@ -1300,13 +1247,9 @@ class TestCharacterFiltering:
         outsider_id = "test_combat_privacy_outsider"
 
         # Create all characters at sector 0 (spawn sector), will move them after joining
-        create_test_character_knowledge(fighter1_id, sector=0, fighters=100, shields=100)
-        create_test_character_knowledge(fighter2_id, sector=0, fighters=100, shields=100)
-        create_test_character_knowledge(outsider_id, sector=0, fighters=100, shields=100)
-
-        fighter1 = AsyncGameClient(base_url=server_url, character_id=fighter1_id, transport="websocket")
-        fighter2 = AsyncGameClient(base_url=server_url, character_id=fighter2_id, transport="websocket")
-        outsider = AsyncGameClient(base_url=server_url, character_id=outsider_id, transport="websocket")
+        fighter1 = await create_client_with_character(server_url, fighter1_id, sector=0, fighters=100, shields=100)
+        fighter2 = await create_client_with_character(server_url, fighter2_id, sector=0, fighters=100, shields=100)
+        outsider = await create_client_with_character(server_url, outsider_id, sector=0, fighters=100, shields=100)
 
         # Setup event collectors
         fighter1_events = []
@@ -1328,10 +1271,8 @@ class TestCharacterFiltering:
         outsider.on("combat.ended")(lambda p: outsider_events.append({"event": "combat.ended", "payload": p}))
 
         try:
+            # Characters already joined via create_client_with_character()
             # Move characters to their designated sectors
-            await fighter1.join(character_id=fighter1_id)
-            await fighter2.join(character_id=fighter2_id)
-            await outsider.join(character_id=outsider_id)
 
             await fighter1.move(to_sector=1, character_id=fighter1_id)
             await fighter2.move(to_sector=1, character_id=fighter2_id)
@@ -1438,8 +1379,8 @@ class TestCharacterFiltering:
         print(f"{'='*80}\n")
 
         # Create AsyncGameClients with WebSocket transport
-        trader_client = AsyncGameClient(base_url=server_url, character_id=trader_id, transport="websocket")
-        observer_client = AsyncGameClient(base_url=server_url, character_id=observer_id, transport="websocket")
+        trader_client = await create_client_with_character(server_url, trader_id)
+        observer_client = await create_client_with_character(server_url, observer_id)
 
         # Event collectors for trade.executed events
         trader_events = []
@@ -1452,8 +1393,8 @@ class TestCharacterFiltering:
         try:
             # STEP 1: Both characters join
             print("STEP 1: Both characters join...")
-            await trader_client.join(character_id=trader_id)
-            await observer_client.join(character_id=observer_id)
+            # Already joined via create_client_with_character()
+            # Already joined via create_client_with_character()
             await asyncio.sleep(0.5)
 
             # STEP 2: Position both characters at sector 1 (which has a port in test world)
@@ -1578,10 +1519,10 @@ class TestCharacterFiltering:
         print(f"Outsider: {outsider_id}")
         print(f"{'='*80}\n")
 
-        # Create AsyncGameClients with WebSocket transport
-        sender_client = AsyncGameClient(base_url=server_url, character_id=sender_id, transport="websocket")
-        recipient_client = AsyncGameClient(base_url=server_url, character_id=recipient_id, transport="websocket")
-        outsider_client = AsyncGameClient(base_url=server_url, character_id=outsider_id, transport="websocket")
+        # Create clients with character registration handled automatically
+        sender_client = await create_client_with_character(server_url, sender_id)
+        recipient_client = await create_client_with_character(server_url, recipient_id)
+        outsider_client = await create_client_with_character(server_url, outsider_id)
 
         # Event collectors for chat.message events
         sender_events = []
@@ -1594,11 +1535,8 @@ class TestCharacterFiltering:
         outsider_client.on("chat.message")(lambda p: outsider_events.append({"event": "chat.message", "payload": p}))
 
         try:
-            # STEP 1: All characters join
-            print("STEP 1: All characters join...")
-            await sender_client.join(character_id=sender_id)
-            await recipient_client.join(character_id=recipient_id)
-            await outsider_client.join(character_id=outsider_id)
+            # STEP 1: All characters already joined via create_client_with_character()
+            print("STEP 1: All characters joined...")
             await asyncio.sleep(0.5)
 
             # Record start time
@@ -1739,10 +1677,10 @@ class TestCharacterFiltering:
         print(f"Observer 2 (staying): {observer2_id}")
         print(f"{'='*80}\n")
 
-        # Create AsyncGameClients with WebSocket transport
-        mover_client = AsyncGameClient(base_url=server_url, character_id=mover_id, transport="websocket")
-        observer1_client = AsyncGameClient(base_url=server_url, character_id=observer1_id, transport="websocket")
-        observer2_client = AsyncGameClient(base_url=server_url, character_id=observer2_id, transport="websocket")
+        # Create clients with character registration handled automatically
+        mover_client = await create_client_with_character(server_url, mover_id)
+        observer1_client = await create_client_with_character(server_url, observer1_id)
+        observer2_client = await create_client_with_character(server_url, observer2_id)
 
         # Event collectors for character.moved events
         mover_events = []
@@ -1755,11 +1693,8 @@ class TestCharacterFiltering:
         observer2_client.on("character.moved")(lambda p: observer2_events.append({"event": "character.moved", "payload": p}))
 
         try:
-            # STEP 1: All characters join
-            print("STEP 1: All characters join...")
-            await mover_client.join(character_id=mover_id)
-            await observer1_client.join(character_id=observer1_id)
-            await observer2_client.join(character_id=observer2_id)
+            # STEP 1: All characters already joined via create_client_with_character()
+            print("STEP 1: All characters joined...")
             await asyncio.sleep(0.5)
 
             # STEP 2: Position all characters in the same sector
@@ -1895,13 +1830,9 @@ class TestCharacterFiltering:
         outsider_id = "test_garrison_outsider"
 
         # Create all characters at sector 0
-        create_test_character_knowledge(deployer_id, sector=0, fighters=100, shields=100)
-        create_test_character_knowledge(observer_id, sector=0, fighters=100, shields=100)
-        create_test_character_knowledge(outsider_id, sector=0, fighters=100, shields=100)
-
-        deployer = AsyncGameClient(base_url=server_url, character_id=deployer_id, transport="websocket")
-        observer = AsyncGameClient(base_url=server_url, character_id=observer_id, transport="websocket")
-        outsider = AsyncGameClient(base_url=server_url, character_id=outsider_id, transport="websocket")
+        deployer = await create_client_with_character(server_url, deployer_id, sector=0, fighters=100, shields=100)
+        observer = await create_client_with_character(server_url, observer_id, sector=0, fighters=100, shields=100)
+        outsider = await create_client_with_character(server_url, outsider_id, sector=0, fighters=100, shields=100)
 
         # Setup event collectors for all 3 garrison events
         deployer_events = []
@@ -1916,9 +1847,7 @@ class TestCharacterFiltering:
             outsider.on(event_type)(lambda p, et=event_type: outsider_events.append({"event": et, "payload": p}))
 
         try:
-            await deployer.join(character_id=deployer_id)
-            await observer.join(character_id=observer_id)
-            await outsider.join(character_id=outsider_id)
+            # Characters already joined via create_client_with_character()
 
             # Move deployer and observer to sector 1 (same sector)
             # Move outsider to sector 2 (different sector)
@@ -2036,9 +1965,9 @@ class TestCharacterFiltering:
         set_character_cargo(victim_id, quantum_foam=10, retro_organics=5)
         create_strong_character(observer_id, sector=0, fighters=100)
 
-        collector = AsyncGameClient(base_url=server_url, character_id=collector_id, transport="websocket")
-        victim = AsyncGameClient(base_url=server_url, character_id=victim_id, transport="websocket")
-        observer = AsyncGameClient(base_url=server_url, character_id=observer_id, transport="websocket")
+        collector = await create_client_with_character(server_url, collector_id)
+        victim = await create_client_with_character(server_url, victim_id)
+        observer = await create_client_with_character(server_url, observer_id)
 
         # Setup event collectors
         collector_events = []
@@ -2050,9 +1979,9 @@ class TestCharacterFiltering:
         observer.on("salvage.collected")(lambda p: observer_salvage_events.append({"event": "salvage.collected", "payload": p}))
 
         try:
-            await collector.join(character_id=collector_id)
-            await victim.join(character_id=victim_id)  # Victim must join to be targetable
-            await observer.join(character_id=observer_id)
+            # Already joined via create_client_with_character()
+            # Already joined via create_client_with_character()
+            # Already joined via create_client_with_character()
 
             # Move collector and victim to sector 1 (they'll be forced into combat)
             # Move observer to sector 2 (different sector, NOT in combat)
@@ -2163,11 +2092,9 @@ class TestCharacterFiltering:
         # Try an invalid action
         pytest.skip("Requires character-specific filtering")
 
-
 # =============================================================================
 # WebSocket Delivery Tests (4 tests)
 # =============================================================================
-
 
 class TestWebSocketDelivery:
     """Tests for WebSocket event delivery mechanisms."""
@@ -2247,11 +2174,9 @@ class TestWebSocketDelivery:
             # Each connection should receive its own events
             assert len(listener2.events) > 0
 
-
 # =============================================================================
 # Event Payload Structure Tests (5 tests)
 # =============================================================================
-
 
 class TestEventPayloadStructure:
     """Tests for event payload schema and structure."""
@@ -2341,11 +2266,9 @@ class TestEventPayloadStructure:
                 except (TypeError, ValueError) as e:
                     pytest.fail(f"Event not JSON serializable: {event}, Error: {e}")
 
-
 # =============================================================================
 # JSONL Audit Log Tests (6 tests) - Task 2.4
 # =============================================================================
-
 
 class TestJSONLAuditLog:
     """Tests for JSONL event log persistence."""
@@ -2353,11 +2276,11 @@ class TestJSONLAuditLog:
     async def test_events_logged_to_jsonl_file(self, server_url):
         """Test that events are persisted to JSONL file and queryable via event.query API."""
         char_id = "test_jsonl_logging"
-        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+        client = await create_client_with_character(server_url, char_id)
 
         try:
-            # Join and trigger a movement event
-            await client.join(character_id=char_id)
+            # Character already joined via create_client_with_character()
+            # Trigger a movement event
 
             # Record start time for query
             start_time = datetime.now(timezone.utc)
@@ -2410,11 +2333,11 @@ class TestJSONLAuditLog:
     async def test_jsonl_one_event_per_line(self, server_url):
         """Test that JSONL has exactly one event per line."""
         char_id = "test_jsonl_format"
-        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+        client = await create_client_with_character(server_url, char_id)
 
         try:
-            # Join and trigger multiple events
-            await client.join(character_id=char_id)
+            # Character already joined via create_client_with_character()
+            # Trigger multiple events
 
             # Trigger 3 status checks (should generate events)
             for _ in range(3):
@@ -2455,11 +2378,11 @@ class TestJSONLAuditLog:
     async def test_jsonl_readable_and_parseable(self, server_url):
         """Test that JSONL log is readable and parseable with valid EventRecord structure."""
         char_id = "test_jsonl_parseable"
-        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+        client = await create_client_with_character(server_url, char_id)
 
         try:
-            # Join and trigger an event
-            await client.join(character_id=char_id)
+            # Character already joined via create_client_with_character()
+            # Trigger an event
             await get_status(client, char_id)
             await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
@@ -2501,11 +2424,10 @@ class TestJSONLAuditLog:
     async def test_jsonl_append_only(self, server_url):
         """Test that JSONL is append-only (no modification) with monotonic timestamps."""
         char_id = "test_jsonl_append"
-        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+        client = await create_client_with_character(server_url, char_id)
 
         try:
-            # Join character
-            await client.join(character_id=char_id)
+            # Character already joined via create_client_with_character()
 
             # Read initial log state
             log_path = Path("tests/test-world-data/event-log.jsonl")
@@ -2561,12 +2483,9 @@ class TestJSONLAuditLog:
         finally:
             await client.close()
 
-
-
 # =============================================================================
 # Admin Query Mode Tests (5 tests) - Phase 2
 # =============================================================================
-
 
 class TestAdminQueryMode:
     """Tests for admin query mode with event.query API."""
@@ -2577,8 +2496,8 @@ class TestAdminQueryMode:
         char1_id = "test_admin_query_char1"
         char2_id = "test_admin_query_char2"
 
-        client1 = AsyncGameClient(base_url=server_url, character_id=char1_id)
-        client2 = AsyncGameClient(base_url=server_url, character_id=char2_id)
+        client1 = await create_client_with_character(server_url, char1_id)
+        client2 = await create_client_with_character(server_url, char2_id)
 
         try:
             # Record start time
@@ -2586,8 +2505,8 @@ class TestAdminQueryMode:
             await asyncio.sleep(0.1)
 
             # Both characters join and trigger events
-            await client1.join(character_id=char1_id)
-            await client2.join(character_id=char2_id)
+            # Already joined via create_client_with_character()
+            # Already joined via create_client_with_character()
 
             await get_status(client1, char1_id)
             await get_status(client2, char2_id)
@@ -2622,16 +2541,16 @@ class TestAdminQueryMode:
         char1_id = "test_admin_filter_char1"
         char2_id = "test_admin_filter_char2"
 
-        client1 = AsyncGameClient(base_url=server_url, character_id=char1_id)
-        client2 = AsyncGameClient(base_url=server_url, character_id=char2_id)
+        client1 = await create_client_with_character(server_url, char1_id)
+        client2 = await create_client_with_character(server_url, char2_id)
 
         try:
             start_time = datetime.now(timezone.utc)
             await asyncio.sleep(0.1)
 
             # Both characters trigger events
-            await client1.join(character_id=char1_id)
-            await client2.join(character_id=char2_id)
+            # Already joined via create_client_with_character()
+            # Already joined via create_client_with_character()
 
             await get_status(client1, char1_id)
             await get_status(client2, char2_id)
@@ -2671,10 +2590,10 @@ class TestAdminQueryMode:
     async def test_admin_query_with_sector_filter(self, server_url):
         """Test that admin query with sector filter sees only events in that sector."""
         char_id = "test_admin_sector_filter"
-        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+        client = await create_client_with_character(server_url, char_id)
 
         try:
-            await client.join(character_id=char_id)
+            # Already joined via create_client_with_character()
 
             # Get current sector and move to another
             status = await get_status(client, char_id)
@@ -2726,10 +2645,10 @@ class TestAdminQueryMode:
     async def test_admin_query_combined_filters(self, server_url):
         """Test admin query with both character_id AND sector filters."""
         char_id = "test_admin_combined"
-        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+        client = await create_client_with_character(server_url, char_id)
 
         try:
-            await client.join(character_id=char_id)
+            # Already joined via create_client_with_character()
 
             status = await get_status(client, char_id)
             sector1 = status["sector"]["id"]
@@ -2811,11 +2730,9 @@ class TestAdminQueryMode:
         finally:
             await client.close()
 
-
 # =============================================================================
 # Character Query Mode Tests (5 tests) - Phase 3
 # =============================================================================
-
 
 class TestCharacterQueryMode:
     """Tests for character query mode (non-admin) with event.query API."""
@@ -2823,14 +2740,13 @@ class TestCharacterQueryMode:
     async def test_character_query_sees_own_events(self, server_url):
         """Test that character query (no admin password) sees only own events."""
         char_id = "test_char_query_own"
-        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+        client = await create_client_with_character(server_url, char_id)
 
         try:
             start_time = datetime.now(timezone.utc)
             await asyncio.sleep(0.1)
 
-            # Join and trigger events
-            await client.join(character_id=char_id)
+            # Character already joined via create_client_with_character()
             await get_status(client, char_id)
 
             await asyncio.sleep(EVENT_DELIVERY_WAIT)
@@ -2862,16 +2778,16 @@ class TestCharacterQueryMode:
         char1_id = "test_char_privacy1"
         char2_id = "test_char_privacy2"
 
-        client1 = AsyncGameClient(base_url=server_url, character_id=char1_id)
-        client2 = AsyncGameClient(base_url=server_url, character_id=char2_id)
+        client1 = await create_client_with_character(server_url, char1_id)
+        client2 = await create_client_with_character(server_url, char2_id)
 
         try:
             start_time = datetime.now(timezone.utc)
             await asyncio.sleep(0.1)
 
             # Both characters trigger events
-            await client1.join(character_id=char1_id)
-            await client2.join(character_id=char2_id)
+            # Already joined via create_client_with_character()
+            # Already joined via create_client_with_character()
 
             await get_status(client1, char1_id)
             await get_status(client2, char2_id)
@@ -2904,10 +2820,10 @@ class TestCharacterQueryMode:
     async def test_character_query_with_sector_filter(self, server_url):
         """Test that character query with sector filter sees only own events in that sector."""
         char_id = "test_char_sector_filter"
-        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+        client = await create_client_with_character(server_url, char_id)
 
         try:
-            await client.join(character_id=char_id)
+            # Already joined via create_client_with_character()
 
             status = await get_status(client, char_id)
             sector1 = status["sector"]["id"]
@@ -2960,10 +2876,10 @@ class TestCharacterQueryMode:
     async def test_character_query_empty_sector(self, server_url):
         """Test that querying a sector character wasn't in returns empty (not error)."""
         char_id = "test_char_empty_sector"
-        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+        client = await create_client_with_character(server_url, char_id)
 
         try:
-            await client.join(character_id=char_id)
+            # Already joined via create_client_with_character()
 
             start_time = datetime.now(timezone.utc)
             await asyncio.sleep(0.1)
@@ -3011,11 +2927,9 @@ class TestCharacterQueryMode:
         finally:
             await client.close()
 
-
 # =============================================================================
 # Multi-Character Event Fan-out Tests (3 tests) - Phase 4
 # =============================================================================
-
 
 class TestMultiCharacterEventFanout:
     """Tests for event fan-out to multiple characters."""
@@ -3043,9 +2957,9 @@ class TestMultiCharacterEventFanout:
         print(f"{'='*80}\n")
 
         # Create AsyncGameClients with WebSocket transport
-        client1 = AsyncGameClient(base_url=server_url, character_id=char1_id, transport="websocket")
-        client2 = AsyncGameClient(base_url=server_url, character_id=char2_id, transport="websocket")
-        client3 = AsyncGameClient(base_url=server_url, character_id=char3_id, transport="websocket")
+        # Create all clients with registration
+        client2 = await create_client_with_character(server_url, char2_id)
+        client3 = await create_client_with_character(server_url, char3_id)
 
         # Event collectors to capture events received by each client
         events_p2 = []
@@ -3058,8 +2972,8 @@ class TestMultiCharacterEventFanout:
         try:
             # STEP 1: Player 2 and Player 3 join
             print("STEP 1: Player 2 and Player 3 join...")
-            await client2.join(character_id=char2_id)
-            await client3.join(character_id=char3_id)
+            # Already joined via create_client_with_character()
+            # Already joined via create_client_with_character()
 
             # STEP 2: Position Player 3 in same sector as Player 2
             print("STEP 2: Positioning players in same sector...")
@@ -3092,7 +3006,7 @@ class TestMultiCharacterEventFanout:
 
             # STEP 3: Player 1 joins and moves to shared sector
             print(f"\nSTEP 3: Player 1 moves into sector {shared_sector}...")
-            await client1.join(character_id=char1_id)
+            client1 = await create_client_with_character(server_url, char1_id)
             status1 = await get_status(client1, char1_id)
             sector1 = status1["sector"]["id"]
             print(f"  Player 1 starts in sector {sector1}")
@@ -3254,11 +3168,9 @@ class TestMultiCharacterEventFanout:
         outsider_id = "test_trade_visibility_outsider"
 
         # Create both characters at sector 0
-        create_test_character_knowledge(trader_id, sector=0, credits=10000, fighters=100, shields=100)
-        create_test_character_knowledge(outsider_id, sector=0, credits=10000, fighters=100, shields=100)
 
-        trader = AsyncGameClient(base_url=server_url, character_id=trader_id, transport="websocket")
-        outsider = AsyncGameClient(base_url=server_url, character_id=outsider_id, transport="websocket")
+        trader = await create_client_with_character(server_url, trader_id, sector=0, credits=10000, fighters=100, shields=100)
+        outsider = await create_client_with_character(server_url, outsider_id, sector=0, credits=10000, fighters=100, shields=100)
 
         # Setup event collectors
         trader_events = []
@@ -3268,8 +3180,8 @@ class TestMultiCharacterEventFanout:
         outsider.on("trade.executed")(lambda p: outsider_events.append({"event": "trade.executed", "payload": p}))
 
         try:
-            await trader.join(character_id=trader_id)
-            await outsider.join(character_id=outsider_id)
+            # Already joined via create_client_with_character()
+            # Already joined via create_client_with_character()
 
             # Move trader to sector 1 (has port in test world)
             # Move outsider to sector 2 (different sector)
@@ -3347,13 +3259,9 @@ class TestMultiCharacterEventFanout:
         player3_id = "test_fanout_player3"
 
         # Create 3 players at sector 0
-        create_test_character_knowledge(player1_id, sector=0, fighters=100, shields=100)
-        create_test_character_knowledge(player2_id, sector=0, fighters=100, shields=100)
-        create_test_character_knowledge(player3_id, sector=0, fighters=100, shields=100)
-
-        player1 = AsyncGameClient(base_url=server_url, character_id=player1_id, transport="websocket")
-        player2 = AsyncGameClient(base_url=server_url, character_id=player2_id, transport="websocket")
-        player3 = AsyncGameClient(base_url=server_url, character_id=player3_id, transport="websocket")
+        player1 = await create_client_with_character(server_url, player1_id, sector=0, fighters=100, shields=100)
+        player2 = await create_client_with_character(server_url, player2_id, sector=0, fighters=100, shields=100)
+        player3 = await create_client_with_character(server_url, player3_id, sector=0, fighters=100, shields=100)
 
         # Setup event collectors
         player1_events = []
@@ -3370,9 +3278,7 @@ class TestMultiCharacterEventFanout:
         player3.on("combat.round_resolved")(lambda p: player3_events.append({"event": "combat.round_resolved", "payload": p}))
 
         try:
-            await player1.join(character_id=player1_id)
-            await player2.join(character_id=player2_id)
-            await player3.join(character_id=player3_id)
+            # Characters already joined via create_client_with_character()
 
             # Move all to sector 1 (forced into combat)
             await player1.move(to_sector=1, character_id=player1_id)
@@ -3430,11 +3336,9 @@ class TestMultiCharacterEventFanout:
             await player2.close()
             await player3.close()
 
-
 # =============================================================================
 # Edge Case Tests (4 tests)
 # =============================================================================
-
 
 class TestEventEdgeCases:
     """Tests for edge cases and error conditions."""

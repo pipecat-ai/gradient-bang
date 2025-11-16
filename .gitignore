@@ -45,6 +45,7 @@ supabase/.env
 planning-files/.secrets
 supabase/character_jwt_signing_key.json
 supabase/character_jwt_signing_key_*.json
+supabase/signing_keys.json
 
 # System
 .DS_Store

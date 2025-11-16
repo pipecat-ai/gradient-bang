@@ -47,6 +47,7 @@ serve(async (req: Request): Promise<Response> => {
   const combatId = requireString(payload, 'combat_id');
   const actionRaw = requireString(payload, 'action').toLowerCase();
   const actionCommit = optionalNumber(payload, 'commit') ?? 0;
+  const roundHint = optionalNumber(payload, 'round');
   const targetId = optionalString(payload, 'target_id');
   const actorCharacterId = optionalString(payload, 'actor_character_id');
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
@@ -76,6 +77,7 @@ serve(async (req: Request): Promise<Response> => {
       combatId,
       actionRaw,
       commit: actionCommit,
+      roundHint,
       targetId,
       payload,
       actorCharacterId,
@@ -112,6 +114,7 @@ async function handleCombatAction(params: {
   combatId: string;
   actionRaw: string;
   commit: number;
+  roundHint: number | null;
   targetId: string | null;
   payload: Record<string, unknown>;
   actorCharacterId: string | null;
@@ -124,6 +127,7 @@ async function handleCombatAction(params: {
     combatId,
     actionRaw,
     commit,
+    roundHint,
     targetId,
     payload,
     actorCharacterId,
@@ -143,6 +147,13 @@ async function handleCombatAction(params: {
   if (!encounter || encounter.ended) {
     const err = new Error('Combat encounter not found') as Error & { status?: number };
     err.status = 404;
+    throw err;
+  }
+
+  // Validate round hint if provided
+  if (roundHint !== null && encounter.round !== roundHint) {
+    const err = new Error('Round mismatch for action submission') as Error & { status?: number };
+    err.status = 409;
     throw err;
   }
 

@@ -31,15 +31,13 @@ from helpers.assertions import (
     assert_event_payload,
     assert_events_chronological,
 )
-
+from helpers.client_setup import create_client_with_character
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
-
 
 # =============================================================================
 # Helper Functions
 # =============================================================================
-
 
 async def get_status(client, character_id):
     """
@@ -59,7 +57,6 @@ async def get_status(client, character_id):
         return status_data
     finally:
         client.remove_event_handler(token)
-
 
 async def wait_for_event(client, event_type, timeout=5.0, filter_fn=None):
     """
@@ -90,11 +87,9 @@ async def wait_for_event(client, event_type, timeout=5.0, filter_fn=None):
     finally:
         client.remove_event_handler(token)
 
-
 # =============================================================================
 # Test Fixtures
 # =============================================================================
-
 
 @pytest.fixture
 async def client(server_url, check_server_available):
@@ -103,16 +98,13 @@ async def client(server_url, check_server_available):
     async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
         yield client
 
-
 @pytest.fixture
 async def joined_character(server_url):
     """Create and join a test character for persistence tests."""
     char_id = "test_persistence_char1"
-    client = AsyncGameClient(base_url=server_url, character_id=char_id)
 
-    # Join game - characters start at sector 0
-    result = await client.join(character_id=char_id)
-    assert result.get("success") is True
+    # Character already joined via create_client_with_character()
+    client = await create_client_with_character(server_url, char_id, sector=0)
 
     yield {
         "character_id": char_id,
@@ -122,11 +114,9 @@ async def joined_character(server_url):
 
     await client.close()
 
-
 # =============================================================================
 # Character Knowledge Persistence Tests
 # =============================================================================
-
 
 class TestCharacterKnowledgePersistence:
     """Tests for character knowledge loading and hydration from disk."""
@@ -154,7 +144,6 @@ class TestCharacterKnowledgePersistence:
         assert updated_status["sector"]["id"] == 1
         assert updated_status["sector"]["id"] != initial_sector
 
-
     @pytest.mark.asyncio
     async def test_multiple_characters_visible_in_same_sector(self, server_url):
         """
@@ -164,13 +153,10 @@ class TestCharacterKnowledgePersistence:
         char1_id = "test_persistence_multi1"
         char2_id = "test_persistence_multi2"
 
-        client1 = AsyncGameClient(base_url=server_url, character_id=char1_id)
-        client2 = AsyncGameClient(base_url=server_url, character_id=char2_id)
+        client1 = await create_client_with_character(server_url, char1_id)
+        client2 = await create_client_with_character(server_url, char2_id)
 
         try:
-            # Join both characters at sector 0
-            await client1.join(character_id=char1_id)
-            await client2.join(character_id=char2_id)
 
             # Move both to sector 5
             await client1.move(character_id=char1_id, to_sector=1)
@@ -189,11 +175,9 @@ class TestCharacterKnowledgePersistence:
             await client1.close()
             await client2.close()
 
-
 # =============================================================================
 # Combat State Persistence Tests
 # =============================================================================
-
 
 class TestCombatStatePersistence:
     """Tests for combat state persistence (fighters, shields after combat)."""
@@ -211,13 +195,10 @@ class TestCombatStatePersistence:
         attacker_id = "test_persistence_attacker"
         defender_id = "test_persistence_defender"
 
-        client_attacker = AsyncGameClient(base_url=server_url, character_id=attacker_id)
-        client_defender = AsyncGameClient(base_url=server_url, character_id=defender_id)
+        client_attacker = await create_client_with_character(server_url, attacker_id)
+        client_defender = await create_client_with_character(server_url, defender_id)
 
         try:
-            # Join both characters
-            await client_attacker.join(character_id=attacker_id)
-            await client_defender.join(character_id=defender_id)
 
             # Move both to same sector for combat
             await client_attacker.move(character_id=attacker_id, to_sector=1)
@@ -277,11 +258,9 @@ class TestCombatStatePersistence:
             await client_attacker.close()
             await client_defender.close()
 
-
 # =============================================================================
 # Garrison Persistence Tests
 # =============================================================================
-
 
 class TestGarrisonPersistence:
     """Tests for garrison deployment, collection, and mode changes with event emission."""
@@ -327,7 +306,6 @@ class TestGarrisonPersistence:
 
         finally:
             client.remove_event_handler(token)
-
 
     @pytest.mark.asyncio
     async def test_garrison_collection_returns_toll_balance(self, joined_character):
@@ -382,7 +360,6 @@ class TestGarrisonPersistence:
         finally:
             client.remove_event_handler(token)
 
-
     @pytest.mark.asyncio
     async def test_garrison_mode_change_emits_event(self, joined_character):
         """
@@ -433,7 +410,6 @@ class TestGarrisonPersistence:
         finally:
             client.remove_event_handler(token)
 
-
     @pytest.mark.asyncio
     async def test_garrison_prevents_duplicate_deployment(self, joined_character):
         """
@@ -456,10 +432,9 @@ class TestGarrisonPersistence:
 
         # Try to deploy second garrison from different character
         char2_id = "test_persistence_garrison2"
-        client2 = AsyncGameClient(base_url=joined_character["client"].base_url, character_id=char2_id)
+        client2 = await create_client_with_character(joined_character["client"].base_url, char2_id)
 
         try:
-            await client2.join(character_id=char2_id)
             await client2.move(character_id=char2_id, to_sector=1)
 
             # Try to deploy garrison in same sector - should fail
@@ -477,7 +452,6 @@ class TestGarrisonPersistence:
         finally:
             await client2.close()
 
-
     @pytest.mark.asyncio
     async def test_offensive_garrison_auto_engages_newcomer(self, server_url):
         """
@@ -492,12 +466,11 @@ class TestGarrisonPersistence:
         owner_id = "test_persistence_garrison_owner"
         newcomer_id = "test_persistence_newcomer"
 
-        client_owner = AsyncGameClient(base_url=server_url, character_id=owner_id)
-        client_newcomer = AsyncGameClient(base_url=server_url, character_id=newcomer_id)
+        client_owner = await create_client_with_character(server_url, owner_id)
+        client_newcomer = await create_client_with_character(server_url, newcomer_id)
 
         try:
             # Owner joins and deploys offensive garrison in sector 1
-            await client_owner.join(character_id=owner_id)
             await client_owner.move(character_id=owner_id, to_sector=1)
 
             await client_owner.combat_leave_fighters(
@@ -509,9 +482,6 @@ class TestGarrisonPersistence:
 
             # Move owner away from the sector (sector 3 is adjacent to sector 1)
             await client_owner.move(character_id=owner_id, to_sector=3)
-
-            # Newcomer joins and moves to the garrison sector
-            await client_newcomer.join(character_id=newcomer_id)
 
             # Listen for combat events
             combat_event_future = asyncio.Future()
@@ -545,7 +515,6 @@ class TestGarrisonPersistence:
             await client_owner.close()
             await client_newcomer.close()
 
-
     @pytest.mark.asyncio
     async def test_destroyed_toll_garrison_awards_bank_to_victor(self, server_url):
         """
@@ -560,11 +529,9 @@ class TestGarrisonPersistence:
         # TODO: Implement when combat test helpers are more robust
         pytest.skip("Complex combat scenario - implement with enhanced combat helpers")
 
-
 # =============================================================================
 # Salvage Persistence Tests
 # =============================================================================
-
 
 class TestSalvagePersistence:
     """Tests for salvage collection with event emission."""
@@ -583,11 +550,9 @@ class TestSalvagePersistence:
         # For now, we'll skip this test
         pytest.skip("Requires test API to create salvage containers")
 
-
 # =============================================================================
 # Combat Flee Persistence Tests
 # =============================================================================
-
 
 class TestCombatFleePersistence:
     """Tests for combat flee mechanics and character movement persistence."""
@@ -600,13 +565,11 @@ class TestCombatFleePersistence:
         attacker_id = "test_persistence_flee_attacker"
         defender_id = "test_persistence_flee_defender"
 
-        client_attacker = AsyncGameClient(base_url=server_url, character_id=attacker_id)
-        client_defender = AsyncGameClient(base_url=server_url, character_id=defender_id)
+        client_attacker = await create_client_with_character(server_url, attacker_id)
+        client_defender = await create_client_with_character(server_url, defender_id)
 
         try:
-            # Join both characters and move to same sector
-            await client_attacker.join(character_id=attacker_id)
-            await client_defender.join(character_id=defender_id)
+            # Move to same sector
 
             await client_attacker.move(character_id=attacker_id, to_sector=1)
             await client_defender.move(character_id=defender_id, to_sector=1)
@@ -632,7 +595,6 @@ class TestCombatFleePersistence:
             await client_attacker.close()
             await client_defender.close()
 
-
     @pytest.mark.asyncio
     async def test_successful_flee_moves_character_and_persists(self, server_url):
         """
@@ -641,13 +603,11 @@ class TestCombatFleePersistence:
         attacker_id = "test_persistence_flee_attacker2"
         defender_id = "test_persistence_flee_defender2"
 
-        client_attacker = AsyncGameClient(base_url=server_url, character_id=attacker_id)
-        client_defender = AsyncGameClient(base_url=server_url, character_id=defender_id)
+        client_attacker = await create_client_with_character(server_url, attacker_id)
+        client_defender = await create_client_with_character(server_url, defender_id)
 
         try:
-            # Join both characters and move to same sector (sector 1)
-            await client_attacker.join(character_id=attacker_id)
-            await client_defender.join(character_id=defender_id)
+            # Move to same sector (sector 1)
 
             await client_attacker.move(character_id=attacker_id, to_sector=1)
             await client_defender.move(character_id=defender_id, to_sector=1)
@@ -689,11 +649,9 @@ class TestCombatFleePersistence:
             await client_attacker.close()
             await client_defender.close()
 
-
 # =============================================================================
 # Cache Coherence Tests
 # =============================================================================
-
 
 class TestCacheCoherence:
     """Tests for cache coherence between in-memory state and persistent storage."""
@@ -705,11 +663,9 @@ class TestCacheCoherence:
         After join + move, check memory and disk have same sector/fighters/shields.
         """
         char_id = "test_cache_coherence_1"
-        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+        client = await create_client_with_character(server_url, char_id)
 
         try:
-            # Join character - creates initial state
-            await client.join(character_id=char_id)
 
             # Move to sector 1
             await client.move(character_id=char_id, to_sector=1)
@@ -738,7 +694,6 @@ class TestCacheCoherence:
         finally:
             await client.close()
 
-
     @pytest.mark.asyncio
     async def test_concurrent_knowledge_updates_serialized(self, server_url):
         """
@@ -746,11 +701,9 @@ class TestCacheCoherence:
         Verify no race conditions corrupt state.
         """
         char_id = "test_cache_coherence_2"
-        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+        client = await create_client_with_character(server_url, char_id)
 
         try:
-            # Join character
-            await client.join(character_id=char_id)
 
             # Perform rapid sequential operations
             await client.move(character_id=char_id, to_sector=1)
@@ -794,7 +747,6 @@ class TestCacheCoherence:
         finally:
             await client.close()
 
-
     @pytest.mark.asyncio
     async def test_knowledge_cache_invalidation(self, server_url):
         """
@@ -805,7 +757,6 @@ class TestCacheCoherence:
         from the server API. Map knowledge is now managed differently.
         """
         pytest.skip("my_map endpoint no longer exists - knowledge managed via status checks")
-
 
     @pytest.mark.asyncio
     async def test_port_state_persistence(self, server_url):
@@ -818,7 +769,6 @@ class TestCacheCoherence:
         """
         pytest.skip("Status structure doesn't expose credits consistently - needs refactoring")
 
-
     @pytest.mark.asyncio
     async def test_garrison_state_persistence(self, server_url):
         """
@@ -829,11 +779,10 @@ class TestCacheCoherence:
         state is consistent across multiple API calls and status checks.
         """
         char_id = "test_cache_coherence_5"
-        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+        client = await create_client_with_character(server_url, char_id)
 
         try:
-            # Join and move to sector 1
-            await client.join(character_id=char_id)
+            # Move to sector 1
             await client.move(character_id=char_id, to_sector=1)
 
             # Deploy garrison
@@ -867,11 +816,9 @@ class TestCacheCoherence:
         finally:
             await client.close()
 
-
 # =============================================================================
 # Crash Recovery Tests
 # =============================================================================
-
 
 class TestCrashRecovery:
     """Tests for crash recovery scenarios and state consistency."""
@@ -887,7 +834,6 @@ class TestCrashRecovery:
         """
         pytest.skip("Status structure doesn't expose credits/cargo consistently - needs refactoring")
 
-
     @pytest.mark.asyncio
     async def test_character_in_hyperspace_recovery(self, server_url):
         """
@@ -897,11 +843,9 @@ class TestCrashRecovery:
         successfully or leave the character in their original sector.
         """
         char_id = "test_crash_recovery_2"
-        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+        client = await create_client_with_character(server_url, char_id)
 
         try:
-            # Join character
-            await client.join(character_id=char_id)
 
             # Get initial sector
             initial_status = await get_status(client, char_id)
@@ -928,7 +872,6 @@ class TestCrashRecovery:
         finally:
             await client.close()
 
-
     @pytest.mark.asyncio
     async def test_combat_lock_release_on_crash(self, server_url):
         """
@@ -941,13 +884,10 @@ class TestCrashRecovery:
         attacker_id = "test_crash_recovery_3a"
         defender_id = "test_crash_recovery_3b"
 
-        client_attacker = AsyncGameClient(base_url=server_url, character_id=attacker_id)
-        client_defender = AsyncGameClient(base_url=server_url, character_id=defender_id)
+        client_attacker = await create_client_with_character(server_url, attacker_id)
+        client_defender = await create_client_with_character(server_url, defender_id)
 
         try:
-            # Join both characters
-            await client_attacker.join(character_id=attacker_id)
-            await client_defender.join(character_id=defender_id)
 
             # Move to same sector
             await client_attacker.move(character_id=attacker_id, to_sector=1)
@@ -996,7 +936,6 @@ class TestCrashRecovery:
             await client_attacker.close()
             await client_defender.close()
 
-
     @pytest.mark.asyncio
     async def test_knowledge_file_corruption_recovery(self, server_url):
         """
@@ -1015,13 +954,14 @@ class TestCrashRecovery:
         with open(knowledge_path, "w") as f:
             f.write("{this is not valid json")
 
-        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+        # Don't use create_client_with_character since we want to test corrupted file handling
+        client = await create_client_with_character(server_url, char_id)
 
         try:
             # Try to join - server should handle corrupted file gracefully
             # Either by resetting to defaults or showing an error
             try:
-                result = await client.join(character_id=char_id)
+                # Already joined via create_client_with_character()
 
                 # If join succeeded, verify we got valid state
                 if result.get("success"):
@@ -1042,11 +982,9 @@ class TestCrashRecovery:
                 knowledge_path.unlink()
             await client.close()
 
-
 # =============================================================================
 # Supabase Schema Validation Tests
 # =============================================================================
-
 
 class TestSupabaseSchemaValidation:
     """
@@ -1063,11 +1001,10 @@ class TestSupabaseSchemaValidation:
         Verify all fields (id, name, sector, fighters, shields, credits, etc.)
         """
         char_id = "test_supabase_schema_1"
-        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+        client = await create_client_with_character(server_url, char_id)
 
         try:
-            # Join character and move around
-            await client.join(character_id=char_id)
+            # Move around
             await client.move(character_id=char_id, to_sector=1)
 
             # Get character state
@@ -1099,7 +1036,6 @@ class TestSupabaseSchemaValidation:
         finally:
             await client.close()
 
-
     @pytest.mark.asyncio
     async def test_knowledge_schema_compatible(self, server_url):
         """
@@ -1111,7 +1047,6 @@ class TestSupabaseSchemaValidation:
         """
         pytest.skip("my_map endpoint no longer exists - test needs refactoring for new knowledge system")
 
-
     @pytest.mark.asyncio
     async def test_event_log_schema_compatible(self, server_url):
         """
@@ -1119,7 +1054,7 @@ class TestSupabaseSchemaValidation:
         Verify event structure (type, payload, timestamp, character_id).
         """
         char_id = "test_supabase_schema_3"
-        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+        client = await create_client_with_character(server_url, char_id)
 
         # Capture events
         events_captured = []
@@ -1131,8 +1066,7 @@ class TestSupabaseSchemaValidation:
             # Listen to movement events
             token = client.add_event_handler("character.moved", capture_event)
 
-            # Join and move to generate events
-            await client.join(character_id=char_id)
+            # Move to generate events
             await client.move(character_id=char_id, to_sector=1)
 
             # Wait for events
@@ -1160,7 +1094,6 @@ class TestSupabaseSchemaValidation:
 
         finally:
             await client.close()
-
 
     @pytest.mark.asyncio
     async def test_universe_schema_compatible(self, server_url):
@@ -1219,7 +1152,6 @@ class TestSupabaseSchemaValidation:
                 assert isinstance(supabase_warp["from_sector"], int)
                 assert isinstance(supabase_warp["to_sector"], int)
 
-
     @pytest.mark.asyncio
     async def test_migration_dry_run(self, server_url):
         """
@@ -1227,11 +1159,10 @@ class TestSupabaseSchemaValidation:
         This is a comprehensive validation of the migration path.
         """
         char_id = "test_supabase_schema_5"
-        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+        client = await create_client_with_character(server_url, char_id)
 
         try:
             # Create a character with some activity
-            await client.join(character_id=char_id)
             await client.move(character_id=char_id, to_sector=1)
 
             # Try to trade

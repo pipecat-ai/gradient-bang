@@ -144,6 +144,14 @@ async function handleCombatInitiate(params: {
   }
   const sectorId = ship.current_sector;
 
+  // Check initiator has fighters
+  const initiatorFighters = ship.current_fighters ?? 0;
+  if (initiatorFighters <= 0) {
+    const err = new Error('Cannot initiate combat while you have no fighters.') as Error & { status?: number };
+    err.status = 400;
+    throw err;
+  }
+
   const existingEncounter = await loadCombatForSector(supabase, sectorId);
   const participantStates = await loadCharacterCombatants(supabase, sectorId);
   const ownerNames = await loadCharacterNames(
@@ -151,6 +159,68 @@ async function handleCombatInitiate(params: {
     participantStates.map((state) => state.owner_character_id ?? state.combatant_id),
   );
   const garrisons = await loadGarrisonCombatants(supabase, sectorId, ownerNames);
+
+  // Get initiator's corporation membership
+  const { data: initiatorCorpData } = await supabase
+    .from('corporation_members')
+    .select('corp_id')
+    .eq('character_id', characterId)
+    .is('left_at', null)
+    .maybeSingle();
+  const initiatorCorpId = initiatorCorpData?.corp_id ?? null;
+
+  // Validate targetable opponents exist
+  let hasTargetableOpponent = false;
+
+  // Check characters
+  for (const participant of participantStates) {
+    if (participant.combatant_id === characterId) continue;
+    if (participant.is_escape_pod) continue;
+    if ((participant.fighters ?? 0) <= 0) continue;
+
+    // Check if same corporation
+    if (initiatorCorpId && participant.metadata?.corporation_id === initiatorCorpId) continue;
+
+    hasTargetableOpponent = true;
+    break;
+  }
+
+  // Check garrisons if no character targets
+  if (!hasTargetableOpponent && garrisons.length > 0) {
+    // Get corporation memberships for all garrison owners
+    const garrisonOwnerIds = garrisons.map(g => g.state.owner_character_id).filter((id): id is string => Boolean(id));
+    const { data: garrisonCorpData } = await supabase
+      .from('corporation_members')
+      .select('character_id, corp_id')
+      .in('character_id', garrisonOwnerIds)
+      .is('left_at', null);
+
+    const ownerCorpMap = new Map<string, string>();
+    for (const row of garrisonCorpData ?? []) {
+      if (row.character_id && row.corp_id) {
+        ownerCorpMap.set(row.character_id, row.corp_id);
+      }
+    }
+
+    for (const garrison of garrisons) {
+      const ownerId = garrison.state.owner_character_id;
+      if (!ownerId || ownerId === characterId) continue;
+      if ((garrison.state.fighters ?? 0) <= 0) continue;
+
+      // Check if garrison owner is in same corporation
+      const ownerCorpId = ownerCorpMap.get(ownerId);
+      if (initiatorCorpId && ownerCorpId === initiatorCorpId) continue;
+
+      hasTargetableOpponent = true;
+      break;
+    }
+  }
+
+  if (!hasTargetableOpponent) {
+    const err = new Error('No targetable opponents available to engage') as Error & { status?: number };
+    err.status = 409;
+    throw err;
+  }
 
   let encounter: CombatEncounterState;
   if (existingEncounter && !existingEncounter.ended) {

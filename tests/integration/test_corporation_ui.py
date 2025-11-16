@@ -9,6 +9,7 @@ import pytest
 
 from helpers.combat_helpers import create_test_character_knowledge
 from helpers.corporation_utils import REQUIRED_CORPORATION_FUNCTIONS
+from helpers.client_setup import create_client_with_character
 from utils.api_client import AsyncGameClient
 
 
@@ -28,14 +29,14 @@ async def _create_client(
     credits: int = 80_000,
     fighters: int = 300,
 ) -> AsyncGameClient:
-    create_test_character_knowledge(
+    # create_client_with_character handles both registration and join()
+    client = await create_client_with_character(
+        server_url,
         character_id,
         sector=sector,
         credits=credits,
         fighters=fighters,
     )
-    client = AsyncGameClient(base_url=server_url, character_id=character_id)
-    await client.join(character_id=character_id)
     return client
 
 

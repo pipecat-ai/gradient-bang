@@ -30,14 +30,11 @@ from helpers.assertions import assert_event_emitted
 from helpers.combat_helpers import create_test_character_knowledge
 from conftest import EVENT_DELIVERY_WAIT
 
-
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
-
 
 # =============================================================================
 # Helper Functions
 # =============================================================================
-
 
 async def get_status(client, character_id):
     """Get character status by calling my_status and waiting for status.snapshot event."""
@@ -56,11 +53,9 @@ async def get_status(client, character_id):
     finally:
         client.remove_event_handler(token)
 
-
 # =============================================================================
 # Character Endpoints Tests (5 tests)
 # =============================================================================
-
 
 async def test_join_creates_character(server_url, check_server_available):
     """
@@ -94,7 +89,6 @@ async def test_join_creates_character(server_url, check_server_available):
             assert status["sector"]["id"] == 0
             assert "ship" in status
             assert "player" in status
-
 
 async def test_my_status_returns_current_state(server_url, check_server_available):
     """
@@ -139,24 +133,20 @@ async def test_my_inventory_returns_cargo(server_url, check_server_available):
     # Placeholder for future implementation
     pass
 
-
 @pytest.mark.skip(reason="character_list endpoint needs verification of implementation")
 async def test_character_list_returns_all_characters(server_url, check_server_available):
     """Test character list endpoint."""
     # Would test server_status or dedicated character list endpoint
     pass
 
-
 @pytest.mark.skip(reason="whois endpoint not yet implemented")
 async def test_whois_returns_character_info(server_url, check_server_available):
     """Test whois endpoint returns character information."""
     pass
 
-
 # =============================================================================
 # Movement Endpoints Tests (3 tests)
 # =============================================================================
-
 
 async def test_move_to_adjacent_sector(server_url, payload_parity, check_server_available):
     """
@@ -258,17 +248,14 @@ async def test_move_while_in_hyperspace_fails(server_url, check_server_available
         status = await get_status(client, char_id)
         assert status["sector"]["id"] == 1
 
-
 # =============================================================================
 # Map Endpoints Tests (5 tests)
 # =============================================================================
-
 
 @pytest.mark.skip(reason="my_map endpoint deprecated, using local_map_region instead")
 async def test_my_map_returns_knowledge(server_url, check_server_available):
     """Test POST /api/my_map returns character knowledge."""
     pass
-
 
 async def test_plot_course_finds_path(server_url, check_server_available):
     """
@@ -438,7 +425,6 @@ async def test_path_with_region_includes_context(server_url, check_server_availa
 # Trading Endpoints Tests (3 tests)
 # =============================================================================
 
-
 async def test_trade_buy_commodity(server_url, check_server_available):
     """
     Test POST /api/trade (buy) executes purchase.
@@ -573,13 +559,11 @@ async def test_trade_insufficient_credits_fails(server_url, check_server_availab
     trade_events = [e for e in events if e.get("event") == "trade.executed"]
     assert len(trade_events) == 0
 
-
 # =============================================================================
 # Fighter Armory Tests
 # =============================================================================
 
-
-async def test_purchase_fighters(server_url, payload_parity, check_server_available):
+async def test_purchase_fighters(server_url, check_server_available):
     """Characters can buy fighters at the sector 0 armory."""
 
     from helpers.combat_helpers import create_test_character_knowledge
@@ -623,7 +607,6 @@ async def test_purchase_fighters(server_url, payload_parity, check_server_availa
 # Combat Endpoints Tests (5 tests)
 # =============================================================================
 
-
 async def test_attack_initiates_combat(server_url, check_server_available):
     """
     Test POST /api/combat.initiate starts combat session.
@@ -639,11 +622,10 @@ async def test_attack_initiates_combat(server_url, check_server_available):
 
     # Create combatants
     create_test_character_knowledge(char1, sector=2, fighters=100, shields=50)
-    create_test_character_knowledge(char2, sector=2, fighters=100, shields=50)
 
     # Join both characters first so they're available for combat
-    client2 = AsyncGameClient(base_url=server_url, character_id=char2)
-    await client2.join(character_id=char2)
+    client2 = await create_client_with_character(server_url, char2, sector=2, fighters=100, shields=50)
+    # Already joined via create_client_with_character()
 
     async with create_firehose_listener(server_url, char1) as listener:
         async with AsyncGameClient(base_url=server_url, character_id=char1) as client:
@@ -670,7 +652,6 @@ async def test_attack_initiates_combat(server_url, check_server_available):
 
     await client2.close()
 
-
 async def test_flee_exits_combat(server_url, check_server_available):
     """
     Test combat flee action exits combat.
@@ -686,11 +667,10 @@ async def test_flee_exits_combat(server_url, check_server_available):
 
     # Create combatants
     create_test_character_knowledge(char1, sector=3, fighters=50, shields=30)
-    create_test_character_knowledge(char2, sector=3, fighters=200, shields=100)
 
     # Join both characters first
-    client2 = AsyncGameClient(base_url=server_url, character_id=char2)
-    await client2.join(character_id=char2)
+    client2 = await create_client_with_character(server_url, char2, sector=3, fighters=200, shields=100)
+    # Already joined via create_client_with_character()
 
     async with create_firehose_listener(server_url, char1) as listener:
         async with AsyncGameClient(base_url=server_url, character_id=char1) as client:
@@ -726,7 +706,6 @@ async def test_flee_exits_combat(server_url, check_server_available):
             assert status["sector"]["id"] in [1, 3]
 
     await client2.close()
-
 
 async def test_garrison_creates_defensive_force(server_url, check_server_available):
     """
@@ -782,16 +761,16 @@ async def test_collect_salvage_picks_up_loot(server_url, check_server_available)
     collector_id = "test_api_salvage_collector"
 
     # Create dumper with cargo, collector with limited space
-    create_test_character_knowledge(dumper_id, sector=5, cargo={"quantum_foam": 20})
+
     create_test_character_knowledge(collector_id, sector=5, cargo={"retro_organics": 25})  # 25/30 holds used
 
     async with create_firehose_listener(server_url, collector_id) as listener:
-        dumper_client = AsyncGameClient(base_url=server_url, character_id=dumper_id)
-        collector_client = AsyncGameClient(base_url=server_url, character_id=collector_id)
+        dumper_client = await create_client_with_character(server_url, dumper_id, sector=5, cargo={"quantum_foam": 20})
+        collector_client = await create_client_with_character(server_url, collector_id)
 
         try:
-            await dumper_client.join(character_id=dumper_id)
-            await collector_client.join(character_id=collector_id)
+            # Already joined via create_client_with_character()
+            # Already joined via create_client_with_character()
 
             # Dump cargo to create salvage
             await dumper_client.dump_cargo(
@@ -839,17 +818,14 @@ async def test_collect_salvage_picks_up_loot(server_url, check_server_available)
             await dumper_client.close()
             await collector_client.close()
 
-
 @pytest.mark.skip(reason="Combat status endpoint needs implementation verification")
 async def test_combat_status_shows_round_state(server_url, check_server_available):
     """Test combat status endpoint returns current round state."""
     pass
 
-
 # =============================================================================
 # Warp/Message Endpoints Tests (4 tests)
 # =============================================================================
-
 
 async def test_recharge_warp_power_at_sector_zero(server_url, check_server_available):
     """
@@ -921,11 +897,10 @@ async def test_transfer_warp_power_to_character(server_url, check_server_availab
 
     # Create both characters with fuel
     create_test_character_knowledge(char1, sector=1, warp_power=100)
-    create_test_character_knowledge(char2, sector=1, warp_power=50)
 
     # Join both characters first
-    client2 = AsyncGameClient(base_url=server_url, character_id=char2)
-    await client2.join(character_id=char2)
+    client2 = await create_client_with_character(server_url, char2, sector=1, warp_power=50)
+    # Already joined via create_client_with_character()
 
     async with create_firehose_listener(server_url, char1) as listener:
         async with AsyncGameClient(base_url=server_url, character_id=char1) as client:
@@ -953,18 +928,15 @@ async def test_transfer_warp_power_to_character(server_url, check_server_availab
 
     await client2.close()
 
-
 @pytest.mark.skip(reason="send_message endpoint not yet implemented")
 async def test_send_message_to_character(server_url, check_server_available):
     """Test private message sending."""
     pass
 
-
 @pytest.mark.skip(reason="broadcast_message endpoint not yet implemented")
 async def test_broadcast_message_to_sector(server_url, check_server_available):
     """Test sector broadcast messaging."""
     pass
-
 
 @pytest.mark.asyncio
 async def test_ship_empty_holds_calculation(server_url):
@@ -979,11 +951,11 @@ async def test_ship_empty_holds_calculation(server_url):
     create_test_character_knowledge('test_empty_holds_char', sector=0)
 
     char_id = "test_empty_holds_char"
-    client = AsyncGameClient(base_url=server_url, character_id=char_id, transport="websocket")
+    client = await create_client_with_character(server_url, char_id)
 
     try:
         # STEP 1: Join and verify initial empty_holds
-        await client.join(character_id=char_id)
+        # Already joined via create_client_with_character()
         status = await get_status(client, char_id)
         ship = status["ship"]
 
@@ -1064,17 +1036,16 @@ async def test_ship_empty_holds_calculation(server_url):
     finally:
         await client.close()
 
-
 @pytest.mark.asyncio
 async def test_empty_holds_edge_cases(server_url):
     """Test empty_holds calculation with edge cases."""
     create_test_character_knowledge('test_empty_holds_edge', sector=0)
 
     char_id = "test_empty_holds_edge"
-    client = AsyncGameClient(base_url=server_url, character_id=char_id, transport="websocket")
+    client = await create_client_with_character(server_url, char_id)
 
     try:
-        await client.join(character_id=char_id)
+        # Already joined via create_client_with_character()
         status = await get_status(client, char_id)
         ship = status["ship"]
 

@@ -14,9 +14,7 @@ from core.ships_manager import ShipsManager
 from core.world import GameWorld
 from rpc.events import event_dispatcher
 
-
 TEST_WORLD_SOURCE = Path(__file__).parent.parent / "test-world-data"
-
 
 def _register_characters(world_dir: Path, character_ids: Iterable[str]) -> None:
     registry_path = world_dir / "characters.json"
@@ -39,7 +37,6 @@ def _register_characters(world_dir: Path, character_ids: Iterable[str]) -> None:
         json.dump(data, handle, indent=2)
     tmp_path.replace(registry_path)
 
-
 @pytest.fixture
 def world_factory(tmp_path_factory, monkeypatch):
     def _factory(*character_ids: str) -> tuple[GameWorld, Path]:
@@ -54,7 +51,6 @@ def world_factory(tmp_path_factory, monkeypatch):
 
     return _factory
 
-
 async def _join(world: GameWorld, character_id: str, *, sector: Optional[int] = None) -> None:
     request = {"character_id": character_id}
     if sector is not None:
@@ -62,13 +58,11 @@ async def _join(world: GameWorld, character_id: str, *, sector: Optional[int] = 
     response = await join.handle(request, world)
     assert response["success"] is True
 
-
 def _available_neighbor(world: GameWorld, sector: int) -> int:
     neighbors = sorted(world.universe_graph.neighbors(sector))
     if not neighbors:
         raise AssertionError(f"No neighboring sectors available from {sector}")
     return neighbors[0]
-
 
 @pytest.mark.asyncio
 async def test_ship_created_on_character_join(world_factory):
@@ -85,7 +79,6 @@ async def test_ship_created_on_character_join(world_factory):
     assert ship["owner_type"] == "character"
     assert ship["owner_id"] == character_id
     assert ship["ship_type"] == "kestrel_courier"
-
 
 @pytest.mark.asyncio
 async def test_ship_and_character_positions_sync(world_factory):
@@ -109,7 +102,6 @@ async def test_ship_and_character_positions_sync(world_factory):
     assert world.characters[character_id].sector == target_sector
     assert knowledge.current_sector == target_sector
     assert ship["sector"] == target_sector
-
 
 @pytest.mark.asyncio
 async def test_ship_state_persists(world_factory):
@@ -141,7 +133,6 @@ async def test_ship_state_persists(world_factory):
     knowledge = reloaded_knowledge.load_knowledge(character_id)
     assert knowledge.current_ship_id == ship_id
 
-
 @pytest.mark.asyncio
 async def test_credits_stay_with_character(world_factory):
     character_id = "test_ship_credits"
@@ -157,7 +148,6 @@ async def test_credits_stay_with_character(world_factory):
     assert ship.get("state", {}).get("credits") == 2500
     if hasattr(knowledge, "credits"):
         assert knowledge.credits == 2500
-
 
 @pytest.mark.asyncio
 async def test_api_responses_include_ship_data(world_factory):
@@ -176,7 +166,6 @@ async def test_api_responses_include_ship_data(world_factory):
     assert ship_status["fighters"] == ship_stats["fighters"]
     assert set(ship_status["cargo"].keys()) == {"quantum_foam", "retro_organics", "neuro_symbolics"}
 
-
 @pytest.mark.asyncio
 async def test_multiple_characters_multiple_ships(world_factory):
     char_one = "test_ship_multi_one"
@@ -192,7 +181,6 @@ async def test_multiple_characters_multiple_ships(world_factory):
     assert ship_one["ship_id"] != ship_two["ship_id"]
     assert ship_one["owner_id"] == char_one
     assert ship_two["owner_id"] == char_two
-
 
 @pytest.mark.asyncio
 async def test_ship_cargo_updates(world_factory):
@@ -216,7 +204,6 @@ async def test_ship_cargo_updates(world_factory):
 
     ship_after = world.knowledge_manager.get_ship(character_id)
     assert ship_after["state"]["cargo"]["neuro_symbolics"] == previous_cargo["neuro_symbolics"] + 5
-
 
 @pytest.mark.asyncio
 async def test_ship_combat_updates(world_factory, monkeypatch):

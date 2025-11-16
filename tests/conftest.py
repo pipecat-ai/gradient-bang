@@ -532,7 +532,15 @@ def _ensure_supabase_stack_running() -> None:
         return
 
     if _stack_running():
-        _stop_supabase_stack()
+        # Stack is running but may have stale database state - reset it
+        if SUPABASE_CLI_COMMAND and not _env_truthy("SUPABASE_SKIP_DB_RESET"):
+            print("\n[conftest] Resetting database to ensure clean state...")
+            result = _run_supabase_cli("db", "reset", "--local")
+            if result.returncode != 0:
+                print(f"[conftest] WARNING: DB reset failed: {result.stderr}")
+                # Continue anyway - test_reset will attempt cleanup
+        _SUPABASE_STACK_READY = True
+        return
 
     _start_supabase_stack()
     _SUPABASE_STACK_READY = True
@@ -629,6 +637,32 @@ REQUIRED_FUNCTIONS = (
 )
 
 
+def _kill_zombie_function_processes() -> None:
+    """Kill any zombie 'supabase functions serve' processes from previous runs.
+
+    This prevents accumulation of zombie processes when pytest is interrupted
+    or crashes without proper cleanup.
+    """
+    try:
+        # Find all supabase functions serve processes
+        result = subprocess.run(
+            ["pgrep", "-f", "supabase.*functions.*serve"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            pids = result.stdout.strip().split("\n")
+            print(f"\n[conftest] Found {len(pids)} zombie function serve process(es), cleaning up...")
+            for pid in pids:
+                try:
+                    subprocess.run(["kill", "-9", pid], check=False)
+                except Exception:
+                    pass
+    except Exception:
+        # If cleanup fails, continue anyway - not critical
+        pass
+
+
 def _ensure_functions_served_for_tests() -> None:
     global FUNCTION_PROC
     if not USE_SUPABASE_TESTS:
@@ -647,6 +681,9 @@ def _ensure_functions_served_for_tests() -> None:
         if all(_function_available(name) for name in REQUIRED_FUNCTIONS):
             return
         _stop_functions_proc()
+
+    # Kill any zombie function serve processes from previous runs
+    _kill_zombie_function_processes()
 
     _cleanup_edge_container()
     env_file = _write_function_env()

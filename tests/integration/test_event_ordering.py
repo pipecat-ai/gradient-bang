@@ -13,6 +13,7 @@ import asyncio
 import pytest
 from helpers.event_capture import create_firehose_listener
 from helpers.combat_helpers import create_test_character_knowledge
+from helpers.client_setup import create_client_with_character
 from utils.api_client import AsyncGameClient
 from conftest import EVENT_DELIVERY_WAIT
 
@@ -26,15 +27,16 @@ class TestEventOrdering:
     async def test_events_arrive_in_id_order(self, server_url):
         """Events should arrive in ascending events.id order (database sequence)."""
         char_id = "test_event_order"
+
+        # Create character knowledge first so firehose can connect
         create_test_character_knowledge(char_id, sector=0)
 
         async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
-            client = AsyncGameClient(base_url=server_url, character_id=char_id)
+            client = await create_client_with_character(server_url, char_id, sector=0)
             try:
                 # Generate multiple events in quick succession
-                await client.join(character_id=char_id)
                 await client.move(to_sector=1, character_id=char_id)
                 await client.move(to_sector=0, character_id=char_id)
 
@@ -62,15 +64,15 @@ class TestEventOrdering:
     async def test_movement_events_chronological(self, server_url):
         """Movement events must arrive in the order they occurred."""
         char_id = "test_movement_order"
+
+        # Create character knowledge first so firehose can connect
         create_test_character_knowledge(char_id, sector=0)
 
         async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
-            client = AsyncGameClient(base_url=server_url, character_id=char_id)
+            client = await create_client_with_character(server_url, char_id, sector=0)
             try:
-                await client.join(character_id=char_id)
-
                 # Move through a sequence: 0 -> 1 -> 0 -> 2
                 await client.move(to_sector=1, character_id=char_id)
                 await client.move(to_sector=0, character_id=char_id)
@@ -106,6 +108,8 @@ class TestEventOrdering:
         """
         char1 = "test_concurrent_1"
         char2 = "test_concurrent_2"
+
+        # Create both characters first so firehose can connect
         create_test_character_knowledge(char1, sector=0)
         create_test_character_knowledge(char2, sector=0)
 
@@ -113,15 +117,11 @@ class TestEventOrdering:
                    create_firehose_listener(server_url, char2) as listener2:
             await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
-            client1 = AsyncGameClient(base_url=server_url, character_id=char1)
-            client2 = AsyncGameClient(base_url=server_url, character_id=char2)
+            client1 = await create_client_with_character(server_url, char1, sector=0)
+            client2 = await create_client_with_character(server_url, char2, sector=0)
 
             try:
-                # Both characters join and move concurrently
-                await asyncio.gather(
-                    client1.join(character_id=char1),
-                    client2.join(character_id=char2),
-                )
+                # Both characters move concurrently
 
                 await asyncio.gather(
                     client1.move(to_sector=1, character_id=char1),
@@ -150,14 +150,15 @@ class TestEventOrdering:
     async def test_event_timestamps_increase(self, server_url):
         """Event timestamps should increase monotonically (or stay equal)."""
         char_id = "test_timestamp_order"
+
+        # Create character knowledge first so firehose can connect
         create_test_character_knowledge(char_id, sector=0)
 
         async with create_firehose_listener(server_url, char_id) as listener:
             await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
-            client = AsyncGameClient(base_url=server_url, character_id=char_id)
+            client = await create_client_with_character(server_url, char_id, sector=0)
             try:
-                await client.join(character_id=char_id)
                 await client.move(to_sector=1, character_id=char_id)
                 await client.move(to_sector=0, character_id=char_id)
 

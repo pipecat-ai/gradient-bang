@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from utils.api_client import AsyncGameClient, RPCError
 from helpers.combat_helpers import create_test_character_knowledge
 from helpers.corporation_utils import managed_client, reset_corporation_test_state
+from helpers.client_setup import create_client_with_character
 
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
@@ -80,16 +81,14 @@ class TestBankOperations:
         char_id = "test_bank_deposit"
 
         # Create character with credits in sector 0
-        create_test_character_knowledge(
+        client = await create_client_with_character(
+            server_url,
             char_id,
             sector=0,
             credits=1000,
             credits_in_bank=500
         )
-
-        async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
-            await client.join(character_id=char_id)
-
+        async with client:
             # Setup event listeners
             bank_events = []
             status_events = []
@@ -160,16 +159,14 @@ class TestBankOperations:
         char_id = "test_bank_withdraw"
 
         # Create character with bank balance in sector 0
-        create_test_character_knowledge(
+        client = await create_client_with_character(
+            server_url,
             char_id,
             sector=0,
             credits=500,
             credits_in_bank=1000
         )
-
-        async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
-            await client.join(character_id=char_id)
-
+        async with client:
             # Setup event listeners
             bank_events = []
             status_events = []
@@ -242,16 +239,14 @@ class TestBankValidation:
         char_id = "test_bank_deposit_exceed"
 
         # Create character with limited credits
-        create_test_character_knowledge(
+        client = await create_client_with_character(
+            server_url,
             char_id,
             sector=0,
             credits=100,
             credits_in_bank=0
         )
-
-        async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
-            await client.join(character_id=char_id)
-
+        async with client:
             # Try to deposit more than available
             with pytest.raises(RPCError) as exc_info:
                 await client.deposit_to_bank(
@@ -269,16 +264,14 @@ class TestBankValidation:
         char_id = "test_bank_withdraw_exceed"
 
         # Create character with limited bank balance
-        create_test_character_knowledge(
+        client = await create_client_with_character(
+            server_url,
             char_id,
             sector=0,
             credits=0,
             credits_in_bank=100
         )
-
-        async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
-            await client.join(character_id=char_id)
-
+        async with client:
             # Try to withdraw more than available
             with pytest.raises(RPCError) as exc_info:
                 await client.withdraw_from_bank(
@@ -295,16 +288,14 @@ class TestBankValidation:
         char_id = "test_bank_deposit_wrong_sector"
 
         # Create character in sector 5 (not sector 0)
-        create_test_character_knowledge(
+        client = await create_client_with_character(
+            server_url,
             char_id,
             sector=5,
             credits=1000,
             credits_in_bank=0
         )
-
-        async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
-            await client.join(character_id=char_id)
-
+        async with client:
             status_before = await get_status(client, char_id)
             ship_before = status_before["ship"]
             bank_before = status_before["player"]["credits_in_bank"]
@@ -326,16 +317,14 @@ class TestBankValidation:
         char_id = "test_bank_withdraw_wrong_sector"
 
         # Create character in sector 5 (not sector 0)
-        create_test_character_knowledge(
+        client = await create_client_with_character(
+            server_url,
             char_id,
             sector=5,
             credits=0,
             credits_in_bank=1000
         )
-
-        async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
-            await client.join(character_id=char_id)
-
+        async with client:
             # Try to withdraw from wrong sector
             with pytest.raises(RPCError) as exc_info:
                 await client.withdraw_from_bank(
@@ -353,26 +342,23 @@ class TestBankValidation:
         opponent_id = "test_bank_opponent"
 
         # Create two characters in sector 0 to trigger auto-combat
-        create_test_character_knowledge(
+        char_client = await create_client_with_character(
+            server_url,
             char_id,
             sector=0,
             credits=1000,
             credits_in_bank=500,
             fighters=100
         )
-        create_test_character_knowledge(
+        opponent_client = await create_client_with_character(
+            server_url,
             opponent_id,
             sector=0,
             credits=500,
             fighters=100
         )
 
-        char_client = AsyncGameClient(base_url=server_url, character_id=char_id)
-        opponent_client = AsyncGameClient(base_url=server_url, character_id=opponent_id)
-
         try:
-            await char_client.join(character_id=char_id)
-            await opponent_client.join(character_id=opponent_id)
 
             # Deploy garrison to trigger auto-combat
             await char_client.combat_leave_fighters(
