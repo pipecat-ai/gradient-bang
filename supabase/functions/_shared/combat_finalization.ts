@@ -208,6 +208,9 @@ export async function finalizeCombat(
     if (entry) {
       salvageEntries.push(entry);
     }
+    // Update participant state to reflect escape pod conversion for event payload
+    participant.ship_type = 'escape_pod';
+    participant.fighters = 0;
   }
 
   for (const [pid, participant] of Object.entries(encounter.participants)) {

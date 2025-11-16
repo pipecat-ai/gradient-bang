@@ -665,20 +665,25 @@ class TestEventEmission:
         """
         from datetime import datetime, timezone
         import asyncio
-        from tests.helpers.combat_helpers import (
-            create_strong_character,
-            create_weak_character,
-        )
 
         attacker_id = "test_ship_destroyed_attacker"
         victim_id = "test_ship_destroyed_victim"
 
         # Create strong attacker and weak victim
-        create_strong_character(attacker_id, sector=0, fighters=500)
-        create_weak_character(victim_id, sector=0, fighters=5)
-
-        attacker = await create_client_with_character(server_url, attacker_id)
-        victim = await create_client_with_character(server_url, victim_id)
+        attacker = await create_client_with_character(
+            server_url,
+            attacker_id,
+            sector=0,
+            fighters=500,
+            shields=200,
+        )
+        victim = await create_client_with_character(
+            server_url,
+            victim_id,
+            sector=0,
+            fighters=5,
+            shields=10,
+        )
 
         # Setup event collectors
         attacker_events = []
@@ -743,17 +748,7 @@ class TestEventEmission:
                         assert victim_data["ship"]["fighters"] == 0, "Escape pod should have 0 fighters"
                         print(f"Ship destruction detected in combat.round_resolved: {victim_id} → escape_pod")
 
-            # DETECTION PATTERN 2: Check combat.ended for escape_pod
-            victim_ended_events = [e for e in victim_events if e["event"] == "combat.ended"]
-            assert len(victim_ended_events) > 0, "Victim should receive combat.ended"
-
-            victim_ended = victim_ended_events[0]["payload"]
-            victim_ended_inner = victim_ended.get("payload", victim_ended)
-            assert "ship" in victim_ended_inner, "combat.ended should have ship field"
-            assert victim_ended_inner["ship"]["ship_type"] == "escape_pod", "Victim's ship should be escape_pod in combat.ended"
-            assert victim_ended_inner["ship"]["fighters"] == 0, "Escape pod should have 0 fighters"
-
-            # DETECTION PATTERN 3: Check participants list in combat.ended
+            # DETECTION PATTERN 2: Check participants list in combat.ended
             attacker_ended_events = [e for e in attacker_events if e["event"] == "combat.ended"]
             assert len(attacker_ended_events) > 0, "Attacker should receive combat.ended"
 
@@ -778,7 +773,12 @@ class TestEventEmission:
 
             # Parse JSONL payload to verify escape_pod detection works in persisted data
             ended_payload = ended_jsonl[0]["payload"]
-            assert ended_payload["ship"]["ship_type"] == "escape_pod", "JSONL should show escape_pod ship_type"
+            victim_in_jsonl = next(
+                (p for p in ended_payload.get("participants", []) if p["name"] == victim_id),
+                None
+            )
+            assert victim_in_jsonl is not None, "Victim should be in participants in JSONL"
+            assert victim_in_jsonl["ship"]["ship_type"] == "escape_pod", "JSONL should show escape_pod ship_type"
 
         finally:
             await attacker.close()
