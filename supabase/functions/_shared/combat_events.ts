@@ -57,7 +57,7 @@ function buildGarrisonPayload(
 ): Record<string, unknown> {
   const metadata = (participant.metadata ?? {}) as Record<string, unknown>;
   return {
-    owner_name: participant.owner_character_id ?? participant.combatant_id,
+    owner_name: participant.name ?? participant.owner_character_id ?? participant.combatant_id,  // Human-readable name, not UUID
     fighters: participant.fighters,
     fighter_loss: fighterLoss > 0 ? fighterLoss : null,
     mode: metadata.mode ?? 'offensive',

@@ -194,12 +194,13 @@ async function handleCombatSetGarrisonMode(params: {
 
   // Build garrison payload for event
   const garrisonPayload = {
-    owner_name: characterId,
+    owner_name: character.name,  // Human-readable name, not UUID
     fighters: updatedGarrison.fighters,
     fighter_loss: null,
     mode: updatedGarrison.mode,
     toll_amount: updatedGarrison.toll_amount,
     deployed_at: updatedGarrison.deployed_at,
+    is_friendly: true,  // Garrison is always friendly to its owner
   };
 
   // Emit garrison.mode_changed event to character

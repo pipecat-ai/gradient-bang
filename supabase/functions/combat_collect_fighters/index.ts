@@ -310,13 +310,21 @@ async function handleCombatCollectFighters(params: {
   }
 
   // Build garrison payload for event
+  // Fetch garrison owner's name for the event
+  let garrisonOwnerName: string | null = null;
+  if (updatedGarrison) {
+    const ownerChar = await loadCharacter(supabase, updatedGarrison.owner_id);
+    garrisonOwnerName = ownerChar.name;
+  }
+
   const garrisonPayload = updatedGarrison ? {
-    owner_name: updatedGarrison.owner_id,
+    owner_name: garrisonOwnerName!,  // Human-readable name, not UUID
     fighters: updatedGarrison.fighters,
     fighter_loss: null,
     mode: updatedGarrison.mode,
     toll_amount: updatedGarrison.toll_amount,
     deployed_at: updatedGarrison.deployed_at,
+    is_friendly: updatedGarrison.owner_id === characterId,  // Friendly if collector owns it
   } : null;
 
   // Emit garrison.collected event to character

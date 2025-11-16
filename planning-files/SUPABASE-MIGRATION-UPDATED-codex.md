@@ -1,7 +1,39 @@
 # Supabase Migration – HTTP Polling Architecture (Codex)
-**Last Updated:** 2025-11-16 01:00 UTC
+**Last Updated:** 2025-11-16 02:15 UTC
 **Architecture:** HTTP Polling Event Delivery (replaces Supabase Realtime)
 **Status:** 🎯 **51% Test Pass Rate** - 205/402 passing, character registration fixed ✅
+
+---
+
+## 🔑 CRITICAL DESIGN CONVENTION: Field Naming - `name` vs `id`
+
+**Rule**: Event payload field names indicate whether they contain human-readable names or UUIDs:
+
+- **Fields ending in `_name`** → Human-readable string (e.g., `"test_garrison_deployed_char"`)
+- **Fields ending in `_id`** → UUID (e.g., `"3f39f31c-ff94-548d-9ebf-4eac4878439e"`)
+
+**Examples**:
+```typescript
+// ✅ CORRECT
+{
+  owner_name: character.name,        // "Alice"
+  owner_id: character.character_id,  // "3f39f31c-..."
+  actor_name: actor.name,            // "Bob"
+  character_id: "uuid-here"          // UUID
+}
+
+// ❌ WRONG
+{
+  owner_name: characterId,  // UUID in _name field!
+}
+```
+
+**Why this matters**: Tests expect `owner_name` to match the character's display name, not their UUID. This convention ensures event payloads are human-readable and tests validate the correct data.
+
+**Fixed (2025-11-16)**:
+- `combat_leave_fighters/index.ts:256` - Changed `owner_name: characterId` → `owner_name: character.name`
+- `combat_collect_fighters/index.ts:321` - Changed `owner_name: updatedGarrison.owner_id` → `owner_name: garrisonOwnerName`
+- `combat_set_garrison_mode/index.ts:197` - Changed `owner_name: characterId` → `owner_name: character.name`
 
 ---
 
