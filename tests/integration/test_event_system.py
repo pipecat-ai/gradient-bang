@@ -356,22 +356,26 @@ class TestEventEmission:
         """Test that combat.ended event is emitted with salvage when ships destroyed."""
         from datetime import datetime, timezone
         import asyncio
-        from tests.helpers.combat_helpers import (
-            create_strong_character,
-            create_weak_character,
-            set_character_cargo,
-        )
 
         attacker_id = "test_combat_ended_attacker"
         victim_id = "test_combat_ended_victim"
 
         # Create strong attacker and weak victim with cargo
-        create_strong_character(attacker_id, sector=0, fighters=500)
-        create_weak_character(victim_id, sector=0, fighters=5)
-        set_character_cargo(victim_id, quantum_foam=10, retro_organics=5, neuro_symbolics=2)
-
-        attacker = await create_client_with_character(server_url, attacker_id)
-        victim = await create_client_with_character(server_url, victim_id)
+        attacker = await create_client_with_character(
+            server_url,
+            attacker_id,
+            sector=0,
+            fighters=500,
+            shields=200,
+        )
+        victim = await create_client_with_character(
+            server_url,
+            victim_id,
+            sector=0,
+            fighters=5,
+            shields=10,
+            cargo={"quantum_foam": 10, "retro_organics": 5, "neuro_symbolics": 2},
+        )
 
         # Setup event collectors
         attacker_events = []
@@ -383,9 +387,6 @@ class TestEventEmission:
         victim.on("combat.ended")(lambda p: victim_events.append({"event": "combat.ended", "payload": p}))
 
         try:
-            # Already joined via create_client_with_character()
-            # Already joined via create_client_with_character()
-
             # Record start time
             start_time = datetime.now(timezone.utc)
             await asyncio.sleep(0.1)
@@ -689,9 +690,6 @@ class TestEventEmission:
         victim.on("combat.ended")(lambda p: victim_events.append({"event": "combat.ended", "payload": p}))
 
         try:
-            # Already joined via create_client_with_character()
-            # Already joined via create_client_with_character()
-
             # Record start time
             start_time = datetime.now(timezone.utc)
             await asyncio.sleep(0.1)

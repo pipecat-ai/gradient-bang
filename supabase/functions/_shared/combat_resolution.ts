@@ -38,6 +38,14 @@ export async function resolveEncounterRound(options: {
 
   const outcome = resolveRound(encounter, combinedActions);
 
+  console.log('combat_resolution.outcome', {
+    combat_id: encounter.combat_id,
+    round: encounter.round,
+    end_state: outcome.end_state,
+    fighters_remaining: outcome.fighters_remaining,
+    destroyed: outcome.destroyed,
+  });
+
   // Check for toll satisfaction after resolution
   if (checkTollStanddown(encounter, outcome, combinedActions)) {
     outcome.end_state = 'toll_satisfied';
@@ -77,6 +85,7 @@ export async function resolveEncounterRound(options: {
   });
 
   if (outcome.end_state) {
+    console.log('combat_resolution.ending', { combat_id: encounter.combat_id, end_state: outcome.end_state });
     encounter.ended = true;
     encounter.end_state = outcome.end_state;
     encounter.deadline = null;
@@ -84,6 +93,8 @@ export async function resolveEncounterRound(options: {
     const salvage = await finalizeCombat(supabase, encounter, outcome);
     const endedPayload = buildCombatEndedPayload(encounter, outcome, salvage, encounter.logs ?? []);
     endedPayload.source = buildEventSource('combat.ended', requestId);
+
+    console.log('combat_resolution.broadcasting_ended', { combat_id: encounter.combat_id, recipients: recipients.length });
 
     await broadcastEvent({
       supabase,
@@ -94,6 +105,7 @@ export async function resolveEncounterRound(options: {
       requestId,
     });
   } else {
+    console.log('combat_resolution.continuing', { combat_id: encounter.combat_id, next_round: outcome.round_number + 1 });
     encounter.round = outcome.round_number + 1;
     encounter.deadline = computeNextCombatDeadline();
 
