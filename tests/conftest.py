@@ -83,6 +83,10 @@ def _ensure_pipecat_stub() -> None:
     class LLMTextFrame(Frame):
         pass
 
+    class MetricsFrame(Frame):
+        def __init__(self, data: Optional[List[Any]] = None):
+            self.data = data or []
+
     frames_mod.Frame = Frame
     frames_mod.FunctionCallResultProperties = FunctionCallResultProperties
     frames_mod.EndFrame = EndFrame
@@ -90,6 +94,35 @@ def _ensure_pipecat_stub() -> None:
     frames_mod.LLMMessagesAppendFrame = LLMMessagesAppendFrame
     frames_mod.LLMRunFrame = LLMRunFrame
     frames_mod.LLMTextFrame = LLMTextFrame
+    frames_mod.MetricsFrame = MetricsFrame
+
+    # Metrics
+    _create_module("pipecat.metrics", is_pkg=True)
+    metrics_mod = _create_module("pipecat.metrics.metrics")
+
+    class LLMTokenUsage:  # pragma: no cover - minimal stub
+        def __init__(
+            self,
+            prompt_tokens: int,
+            completion_tokens: int,
+            total_tokens: int,
+            cache_read_input_tokens: Optional[int] = None,
+            reasoning_tokens: Optional[int] = None,
+        ):
+            self.prompt_tokens = prompt_tokens
+            self.completion_tokens = completion_tokens
+            self.total_tokens = total_tokens
+            self.cache_read_input_tokens = cache_read_input_tokens
+            self.reasoning_tokens = reasoning_tokens
+
+    class LLMUsageMetricsData:  # pragma: no cover - minimal stub
+        def __init__(self, processor: str, model: Optional[str] = None, value: Optional[LLMTokenUsage] = None):
+            self.processor = processor
+            self.model = model
+            self.value = value
+
+    metrics_mod.LLMTokenUsage = LLMTokenUsage
+    metrics_mod.LLMUsageMetricsData = LLMUsageMetricsData
 
     # Pipeline
     _create_module("pipecat.pipeline", is_pkg=True)

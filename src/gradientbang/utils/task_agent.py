@@ -84,6 +84,7 @@ from gradientbang.utils.tools_schema import (
     CombatInitiate,
     CombatAction,
 )
+from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
 from gradientbang.utils.prompts import GAME_DESCRIPTION, TASK_EXECUTION_INSTRUCTIONS
 
 
@@ -209,8 +210,11 @@ class _GeminiThinkingModeTracker(FrameProcessor):
                     )
             else:
                 logger.debug(
-                    "No tool calls in _GeminiThinkingModeContentFrame. Not queuing inference."
+                    "No tool calls in _GeminiThinkingModeContentFrame. Scheduling follow-up inference."
                 )
+                self._agent._record_inference_reason("llm_continue")
+                if not self._agent._llm_inflight:
+                    self._agent._start_inference_watchdog()
 
         await self.push_frame(frame, direction)
 
@@ -862,10 +866,12 @@ class TaskAgent:
 
         aggregator_pair = LLMContextAggregatorPair(context)
         state_tracker = _GeminiThinkingModeTracker(self)
+        usage_metrics = TokenUsageMetricsProcessor(source="task")
         pipeline = Pipeline(
             [
                 aggregator_pair.user(),
                 llm_service,
+                usage_metrics,
                 state_tracker,
                 aggregator_pair.assistant(),
             ]
@@ -878,9 +884,8 @@ class TaskAgent:
             pipeline,
             params=PipelineParams(
                 allow_interruptions=False,
-                # todo: add metrics
-                enable_metrics=False,
-                enable_usage_metrics=False,
+                enable_metrics=True,
+                enable_usage_metrics=True,
             ),
             **pipeline_task_kwargs,
         )
