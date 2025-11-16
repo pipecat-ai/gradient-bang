@@ -191,7 +191,24 @@ async function handleCombatAction(params: {
     deadlineReached = Number.isFinite(deadlineMs) && now >= deadlineMs;
   }
 
+  console.log('combat_action.round_check', {
+    combat_id: encounter.combat_id,
+    round: encounter.round,
+    ready,
+    deadlineReached,
+    participants: Object.keys(encounter.participants).length,
+    pending_actions: Object.keys(encounter.pending_actions).length,
+    participant_details: Object.entries(encounter.participants).map(([pid, p]) => ({
+      pid,
+      type: p.combatant_type,
+      fighters: p.fighters,
+      is_escape_pod: p.is_escape_pod,
+      has_action: pid in encounter.pending_actions,
+    })),
+  });
+
   if (ready || deadlineReached) {
+    console.log('combat_action.resolving_round', { combat_id: encounter.combat_id, round: encounter.round });
     await resolveEncounterRound({
       supabase,
       encounter,
@@ -309,6 +326,10 @@ async function buildActionState(params: {
 function isRoundReady(encounter: CombatEncounterState): boolean {
   for (const [pid, participant] of Object.entries(encounter.participants)) {
     if (participant.combatant_type === 'garrison') {
+      continue;
+    }
+    // Skip escape pods - they cannot participate in combat
+    if (participant.is_escape_pod) {
       continue;
     }
     const remaining = encounter.pending_actions[pid];
