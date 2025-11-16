@@ -5,6 +5,8 @@ import { AnimatePresence, motion } from "motion/react"
 import TitleVideo from "@/assets/videos/title.mp4"
 import { Leaderboard } from "@/components/dialogs/Leaderboard"
 import { Settings } from "@/components/dialogs/Settings"
+import { Signup } from "@/components/dialogs/Signup"
+import PipecatSVG from "@/components/PipecatSVG"
 import { Button } from "@/components/primitives/Button"
 import { Card, CardContent, CardHeader } from "@/components/primitives/Card"
 import { Input } from "@/components/primitives/Input"
@@ -174,6 +176,16 @@ export const Title = ({
       </div>
       <Settings />
       <Leaderboard />
+      <Signup />
+      <div
+        className="absolute bottom-0 right-0 p-4 z-99 flex flex-row items-center gap-2 bg-background select-none"
+        onClick={() => setActiveModal("signup")}
+      >
+        <span className="text-xs text-muted-foreground uppercase tracking-wider">
+          Built by
+        </span>
+        <PipecatSVG className="h-[16px] text-white" />
+      </div>
     </div>
   )
 }
