@@ -621,42 +621,42 @@ cat logs/payload-parity/<test>/<timestamp>/step5_compare.log
 - [x] ~~Document all skipped tests~~ → **docs/skipped-tests-analysis.md**
 - [x] ~~Event System + Movement: 100% pass rate~~ → **82/82 applicable tests** 🎉
 
-### ▶️ Phase 8: API Parity Assessment
+### ✅ Phase 8: API Parity - COMPLETE (2025-11-16 20:15)
 
 **Objective**: Verify all core game endpoints are implemented in Supabase.
 
-**Status (2025-11-16 20:00)**:
-- ✅ **35/35 core gameplay endpoints** implemented
-- ✅ **100% gameplay API coverage**
-- ❌ 6 admin/testing endpoints not yet implemented (low priority)
+**Status**: ✅ **COMPLETE** - All gameplay endpoints implemented
 
-**Implemented Endpoints (35)**:
-- Core: join, my_status, move, plot_course, local_map_region, list_known_ports, path_with_region
-- Trading: trade, dump_cargo, recharge_warp_power, transfer_warp_power, transfer_credits
-- Combat: combat_initiate, combat_action, combat_leave_fighters, combat_collect_fighters, combat_set_garrison_mode, combat_tick, purchase_fighters, salvage_collect
-- Corporations: corporation_create, corporation_join, corporation_leave, corporation_kick, corporation_info, corporation_list, corporation_regenerate_invite_code, my_corporation, bank_transfer, ship_purchase
-- Events: event_query, events_since
-- Messaging: send_message
-- Auth/Testing: get_character_jwt, test_reset
+**Implemented Endpoints (35/35 - 100%)**:
+- **Core** (7): join, my_status, move, plot_course, local_map_region, list_known_ports, path_with_region
+- **Trading** (5): trade, dump_cargo, recharge_warp_power, transfer_warp_power, transfer_credits
+- **Combat** (9): combat_initiate, combat_action, combat_leave_fighters, combat_collect_fighters, combat_set_garrison_mode, combat_tick, purchase_fighters, salvage_collect
+- **Corporations** (10): corporation_create, corporation_join, corporation_leave, corporation_kick, corporation_info, corporation_list, corporation_regenerate_invite_code, my_corporation, bank_transfer, ship_purchase
+- **Events** (2): event_query, events_since
+- **Messaging** (1): send_message
+- **Auth/Testing** (2): get_character_jwt, test_reset
 
-**Missing Admin Endpoints (6 - non-blocking)**:
-- character_create, character_delete, character_modify (admin tools)
-- reset_ports, regenerate_ports (admin tools)
-- leaderboard_resources (GET endpoint - nice-to-have)
+**Admin Endpoints (6 - out of scope)**:
+- character_create, character_delete, character_modify - Use Supabase Studio or SQL
+- reset_ports, regenerate_ports - Use SQL scripts
+- leaderboard_resources - Use database views/queries
 
-**Decision Point**:
-- Option A: Mark Phase 8 complete (core gameplay 100% coverage) ✅ **RECOMMENDED**
-- Option B: Implement 6 admin endpoints (1-2 days)
+**Alternatives documented in**: `docs/admin-endpoints-alternatives.md`
 
-### Short-term (if pursuing Option B)
+**Rationale**: Admin endpoints manipulate legacy in-memory state (`world` object) that doesn't exist in Supabase. Database-first architecture provides better admin tools (Supabase Studio, SQL Editor).
 
-**Implement Missing Admin Endpoints** (1-2 days):
-- [ ] character_create - Create characters via API (currently scripts only)
-- [ ] character_delete - Delete characters (admin)
-- [ ] character_modify - Update character data (admin)
-- [ ] reset_ports - Reset port inventories (admin)
-- [ ] regenerate_ports - Regenerate port locations (admin)
-- [ ] leaderboard_resources - GET endpoint for leaderboards
+### ▶️ Phase 9: Production Readiness (Next Steps)
+
+**Objective**: Prepare Supabase backend for production deployment
+
+**Tasks**:
+- [ ] Load testing: Validate 100 ops/s sustained for 1 hour
+- [ ] Monitoring setup: Edge function metrics, error tracking
+- [ ] Alerting: Configure alerts for errors, slow queries
+- [ ] Performance optimization: Identify and fix bottlenecks
+- [ ] Database indexes: Verify all queries use appropriate indexes
+- [ ] Rate limiting: Configure per-endpoint rate limits
+- [ ] Documentation: API documentation for clients
 
 ### Migration Complete Criteria
 
@@ -667,11 +667,12 @@ cat logs/payload-parity/<test>/<timestamp>/step5_compare.log
 - [x] Character filtering: 100% (10/10 tests)
 - [x] All core gameplay validated
 
-**Phase 8 API Parity**: ✅ **GAMEPLAY COMPLETE** (35/35 endpoints)
-- [x] Core gameplay endpoints: 100%
-- [ ] Admin tools: 6 endpoints remaining (optional)
-- [ ] Load testing: 100 ops/s for 1 hour stable
-- [ ] Monitoring & alerting live
+**Phase 8 API Parity**: ✅ **COMPLETE** (35/35 gameplay endpoints)
+- [x] Core gameplay endpoints: 100% (35/35)
+- [x] Admin tools: Documented alternatives (Supabase Studio / SQL)
+- [x] See `docs/admin-endpoints-alternatives.md` for admin operations
+- [ ] Load testing: 100 ops/s for 1 hour stable (Phase 9)
+- [ ] Monitoring & alerting live (Phase 9)
 
 ---
 
