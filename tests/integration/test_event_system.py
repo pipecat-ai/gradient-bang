@@ -2151,6 +2151,8 @@ class TestWebSocketDelivery:
     @pytest.mark.skipif(_supabase_mode_enabled(), reason="Supabase uses HTTP polling, not WebSocket firehose - connection lifecycle already tested by 82 passing tests")
     async def test_firehose_client_disconnection_handling(self, server_url, check_server_available):
         """Test that firehose handles client disconnections gracefully."""
+        if _supabase_mode_enabled():
+            pytest.skip("Supabase mode uses per-character polling; legacy firehose websocket is not provided.")
         # Connect and disconnect
         listener = EventListener(server_url)
         await listener.connect()
