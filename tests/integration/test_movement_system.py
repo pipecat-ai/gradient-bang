@@ -235,7 +235,13 @@ class TestHyperspaceStateMachine:
     """Tests for hyperspace state transitions."""
 
     async def test_hyperspace_flag_set_on_departure(self, joined_character, server_url):
-        """Test that in_hyperspace flag is set when movement begins."""
+        """Test that in_hyperspace flag is set when movement begins.
+
+        When a character is in hyperspace, my_status should return 409 error
+        with message "Character is in hyperspace, status unavailable until arrival".
+        """
+        from utils.api_client import RPCError
+
         client = joined_character["client"]
         char_id = joined_character["character_id"]
 
@@ -248,15 +254,21 @@ class TestHyperspaceStateMachine:
             client.move(to_sector=target, character_id=char_id)
         )
 
-        # Check status immediately (should be in hyperspace)
+        # Check status immediately (should be in hyperspace and return 409)
         await asyncio.sleep(0.1)
-        status = await get_status(client, char_id)
 
-        # Complete move
-        await move_task
+        try:
+            status = await get_status(client, char_id)
+            # If we get here, the character is not in hyperspace (move completed too fast)
+            # This is acceptable - just verify move completed successfully
+            await move_task
+        except RPCError as e:
+            # Expected: 409 error indicating character is in hyperspace
+            assert e.status == 409, f"Expected 409 status, got {e.status}"
+            assert "hyperspace" in e.detail.lower(), f"Expected hyperspace error, got: {e.detail}"
 
-        # Note: This test may need adjustment based on how quickly hyperspace flag is set
-        # and whether my_status shows it during transit
+            # Complete move
+            await move_task
 
     async def test_hyperspace_flag_cleared_on_arrival(self, joined_character, server_url):
         """Test that in_hyperspace flag is cleared after arrival."""

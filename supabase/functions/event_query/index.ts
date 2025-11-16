@@ -35,6 +35,7 @@ interface EventRow {
   request_id: string | null;
   payload: Record<string, unknown> | null;
   meta: Record<string, unknown> | null;
+  event_character_recipients?: Array<{ character_id: string; reason: string }> | { character_id: string; reason: string };
 }
 
 interface EventQueryResult {
@@ -278,10 +279,19 @@ async function fetchEvents(options: {
 
   const rows: EventRow[] = Array.isArray(data) ? (data as EventRow[]) : [];
 
-  const senderLookup = await loadCharacterNames(
-    supabase,
-    rows.flatMap((row) => [row.sender_id, row.character_id]),
-  );
+  // Collect all character IDs for name lookup: senders, receivers, and joined recipients
+  const allCharacterIds = rows.flatMap((row) => {
+    const ids = [row.sender_id, row.character_id];
+    if (row.event_character_recipients) {
+      const recipients = Array.isArray(row.event_character_recipients)
+        ? row.event_character_recipients
+        : [row.event_character_recipients];
+      ids.push(...recipients.map(r => r.character_id));
+    }
+    return ids;
+  });
+
+  const senderLookup = await loadCharacterNames(supabase, allCharacterIds);
   const filteredRows = stringMatch ? filterRowsByString(rows, stringMatch) : rows;
   const truncated = filteredRows.length > limit;
   const sliced = truncated ? filteredRows.slice(0, limit) : filteredRows;
@@ -294,7 +304,19 @@ function buildEventRecord(row: EventRow, nameLookup: Map<string, string>): JsonR
   const meta = row.meta && typeof row.meta === 'object' ? row.meta : null;
   const corporationId = meta && typeof meta['corporation_id'] === 'string' ? (meta['corporation_id'] as string) : null;
   const senderId = typeof row.sender_id === 'string' ? row.sender_id : null;
-  const receiverId = typeof row.character_id === 'string' ? row.character_id : null;
+
+  // Extract receiver ID from joined event_character_recipients if available
+  let receiverId: string | null = null;
+  if (row.event_character_recipients) {
+    const recipients = Array.isArray(row.event_character_recipients)
+      ? row.event_character_recipients
+      : [row.event_character_recipients];
+    receiverId = recipients.length > 0 ? recipients[0].character_id : null;
+  } else {
+    // Fallback to events.character_id for admin mode queries
+    receiverId = typeof row.character_id === 'string' ? row.character_id : null;
+  }
+
   return {
     timestamp: row.timestamp,
     direction: row.direction,
