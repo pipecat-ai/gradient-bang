@@ -9,13 +9,18 @@ Usage:
 """
 import asyncio
 import argparse
+import os
 import sys
 from pathlib import Path
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from utils.api_client import AsyncGameClient
+# Conditional import: Use Supabase client if SUPABASE_URL is set, otherwise use legacy
+if os.getenv("SUPABASE_URL"):
+    from utils.supabase_client import AsyncGameClient
+else:
+    from utils.api_client import AsyncGameClient
 
 
 async def main():

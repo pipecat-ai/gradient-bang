@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 
 from pathlib import Path
@@ -16,7 +17,12 @@ sys.path.insert(0, str(REPO_ROOT / "game-server"))
 
 from core.character_registry import CharacterRegistry
 from core.config import get_world_data_path
-from utils.api_client import AsyncGameClient
+
+# Conditional import: Use Supabase client if SUPABASE_URL is set, otherwise use legacy
+if os.getenv("SUPABASE_URL"):
+    from utils.supabase_client import AsyncGameClient
+else:
+    from utils.api_client import AsyncGameClient
 
 
 async def main_async() -> int:

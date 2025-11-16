@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
@@ -14,7 +15,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "game-server"))
 
-from utils.api_client import AsyncGameClient, RPCError
+# Conditional import: Use Supabase client if SUPABASE_URL is set, otherwise use legacy
+if os.getenv("SUPABASE_URL"):
+    from utils.supabase_client import AsyncGameClient
+    from utils.api_client import RPCError
+else:
+    from utils.api_client import AsyncGameClient, RPCError
 
 
 COMMODITY_KEYS: Tuple[Tuple[str, str], ...] = (
