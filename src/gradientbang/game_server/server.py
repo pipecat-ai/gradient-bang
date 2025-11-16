@@ -415,7 +415,7 @@ async def http_character_create(request: CharacterCreateRequest) -> Dict[str, An
     return await api_character_create.handle(payload, world)
 
 @app.get("/player")
-async def http_character_lookup(name: str) -> Dict[str, Any]:
+async def http_character_lookup(character_id: str) -> Dict[str, Any]:
     """Look up a character by display name.
     
     Args:
@@ -428,14 +428,14 @@ async def http_character_lookup(name: str) -> Dict[str, Any]:
     if registry is None:
         raise HTTPException(status_code=500, detail="Character registry unavailable")
     
-    if not name:
+    if not character_id:
         raise HTTPException(status_code=400, detail="name query parameter is required")
     
-    profile = registry.find_by_name(name)
+    profile = registry.get_profile(character_id)
     if profile is None:
         raise HTTPException(
             status_code=404,
-            detail=f"Character not found: {name}"
+            detail=f"Character not found: {character_id}"
         )
     
     return {

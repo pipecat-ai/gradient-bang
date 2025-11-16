@@ -1,4 +1,4 @@
-import { MedalIcon } from "@phosphor-icons/react";
+import { MedalIcon } from "@phosphor-icons/react"
 
 import {
   Table,
@@ -9,15 +9,15 @@ import {
   TableHeader,
   TableHeadText,
   TableRow,
-} from "@/components/primitives/Table";
-import { formatCurrency } from "@/utils/formatting";
+} from "@/components/primitives/Table"
+import { formatCurrency } from "@/utils/formatting"
 
 export const LeaderboardTable = ({
   leaderboardData,
 }: {
-  leaderboardData: LeaderboardPlayer[];
+  leaderboardData: LeaderboardPlayer[]
 }) => {
-  const data = leaderboardData.sort((a, b) => a.rank - b.rank);
+  const data = leaderboardData.sort((a, b) => a.rank - b.rank)
 
   return (
     <Table block className="text-xs">
@@ -42,8 +42,8 @@ export const LeaderboardTable = ({
         </TableRow>
       </TableHeader>
       <TableBody>
-        {data.map((player) => (
-          <TableRow key={player.character_id} block>
+        {data.map((player, i) => (
+          <TableRow key={`character-${i}`} block>
             <TableCell
               block
               inset
@@ -73,5 +73,5 @@ export const LeaderboardTable = ({
         ))}
       </TableBody>
     </Table>
-  );
-};
+  )
+}

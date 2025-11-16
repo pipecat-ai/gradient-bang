@@ -11,6 +11,7 @@ import { Input } from "@/components/primitives/Input"
 import { Separator } from "@/components/primitives/Separator"
 import { ScrambleText } from "@/fx/ScrambleText"
 import useGameStore from "@/stores/game"
+import { wait } from "@/utils/animation"
 
 export const Title = ({
   onViewNext,
@@ -19,11 +20,29 @@ export const Title = ({
 }) => {
   const setActiveModal = useGameStore.use.setActiveModal()
   const [characterName, setCharacterName] = useState<string>("")
+  const [isLoading, setIsLoading] = useState<boolean>(false)
   const [state, setState] = useState<"idle" | "join">("idle")
+  const [error, setError] = useState<boolean>(false)
 
-  const handleViewNext = () => {
-    console.log("[TITLE] Joining with name:", characterName)
-    onViewNext(characterName)
+  const handleLookUpCharacter = async () => {
+    console.log("[TITLE] Looking up character:", characterName)
+    setIsLoading(true)
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_SERVER_URL}/player?character_id=${characterName}`
+      )
+      if (!response.ok) {
+        throw new Error("Failed to look up character")
+      }
+      const data = await response.json()
+      console.log("[TITLE] Character data:", data)
+      onViewNext(characterName)
+    } catch (error) {
+      setError(true)
+      console.error("[TITLE] Error looking up character:", error)
+    } finally {
+      await wait(500).then(() => setIsLoading(false))
+    }
   }
 
   return (
@@ -98,6 +117,22 @@ export const Title = ({
                   transition={{ duration: 0.2, ease: "easeInOut" }}
                   className="w-full flex flex-col gap-5"
                 >
+                  {error && (
+                    <Card
+                      variant="stripes"
+                      size="sm"
+                      className="bg-destructive/10 stripe-frame-2 stripe-frame-destructive animate-in motion-safe:fade-in-0 motion-safe:duration-1000"
+                    >
+                      <CardContent className="flex flex-col h-full justify-between items-center gap-1">
+                        <p className="uppercase text-sm tracking-wider">
+                          Character not found
+                        </p>
+                        <p className="text-sm text-destructive-foreground font-bold">
+                          {characterName}
+                        </p>
+                      </CardContent>
+                    </Card>
+                  )}
                   <Input
                     placeholder="Enter character ID"
                     className="w-full"
@@ -106,10 +141,12 @@ export const Title = ({
                     onChange={(e) => setCharacterName(e.target.value)}
                   />
                   <Button
-                    onClick={handleViewNext}
+                    onClick={handleLookUpCharacter}
+                    isLoading={isLoading}
                     className="w-full"
+                    loader="stripes"
                     size="xl"
-                    disabled={!characterName}
+                    disabled={!characterName || isLoading}
                   >
                     Connect
                   </Button>
