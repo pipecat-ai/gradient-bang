@@ -80,7 +80,7 @@ async def _lookup_character_display_name(character_id: str, server_url: str) -> 
             result = await client.character_info(character_id=character_id)
             return result.get("name")
     except Exception as exc:
-        logger.warning("Unable to lookup character %s from server: %s", character_id, exc)
+        logger.warning(f"Unable to lookup character {character_id} from server: {exc}")
         return None
 
 

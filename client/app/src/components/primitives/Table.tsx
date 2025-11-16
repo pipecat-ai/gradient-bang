@@ -1,8 +1,8 @@
-"use client";
+"use client"
 
-import * as React from "react";
+import * as React from "react"
 
-import { cn } from "@/utils/tailwind";
+import { cn } from "@/utils/tailwind"
 
 function Table({
   className,
@@ -24,7 +24,7 @@ function Table({
         {...props}
       />
     </div>
-  );
+  )
 }
 
 function TableHeader({
@@ -38,7 +38,7 @@ function TableHeader({
       className={cn("[&_tr]:border-b", block && "", className)}
       {...props}
     />
-  );
+  )
 }
 
 function TableBody({ className, ...props }: React.ComponentProps<"tbody">) {
@@ -48,7 +48,7 @@ function TableBody({ className, ...props }: React.ComponentProps<"tbody">) {
       className={cn("[&_tr:last-child]:border-0", className)}
       {...props}
     />
-  );
+  )
 }
 
 function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
@@ -61,7 +61,7 @@ function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
       )}
       {...props}
     />
-  );
+  )
 }
 
 function TableRow({
@@ -84,7 +84,7 @@ function TableRow({
       )}
       {...props}
     />
-  );
+  )
 }
 
 function TableHead({
@@ -102,7 +102,7 @@ function TableHead({
       )}
       {...props}
     />
-  );
+  )
 }
 
 function TableCellSeparator({
@@ -115,7 +115,7 @@ function TableCellSeparator({
       className={cn("w-px p-0 bg-transparent", className)}
       {...props}
     />
-  );
+  )
 }
 function TableCell({
   className,
@@ -134,7 +134,7 @@ function TableCell({
       )}
       {...props}
     />
-  );
+  )
 }
 
 function TableCaption({
@@ -147,17 +147,17 @@ function TableCaption({
       className={cn("text-muted-foreground mt-4 text-sm", className)}
       {...props}
     />
-  );
+  )
 }
 
 function TableHeadText({ className, ...props }: React.ComponentProps<"th">) {
   return (
-    <th
+    <span
       data-slot="table-head-title"
       className={cn("px-2", className)}
       {...props}
     />
-  );
+  )
 }
 
 export {
@@ -171,4 +171,4 @@ export {
   TableHeader,
   TableHeadText,
   TableRow,
-};
+}

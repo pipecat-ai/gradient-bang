@@ -1,4 +1,5 @@
 world-data/
+logs/
 
 # Test artifacts - ALL runtime files in test-world-data except source data
 tests/test-world-data/**/*

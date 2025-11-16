@@ -29,3 +29,4 @@ dev-dist
 
 # Fonts
 src/assets/fonts/*
+.vercel

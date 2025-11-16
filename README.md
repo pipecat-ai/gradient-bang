@@ -36,32 +36,33 @@ uv run -m gradientbang.scripts.universe_test
 
 ```bash
 uv run game-server
-```
 
-You can enable Swagger and Redocs by setting `GAME_SERVER_DEV_MODE` in your environment and then visit `http://localhost:8000/docs`
+# Or run with Swagger / Redoc enabled:
+GAME_SERVER_DEV_MODE=1 uv run game-server
+# >> http://localhost:8000/docs
+```
 
 #### 3. Create your character (note: game server must be running!)
 
 ```bash
 uv run character-create
+# ...or
+curl -X 'POST' \
+  'http://localhost:8000/player' \
+  -H 'accept: application/json' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "name": "SpacePirateJon"
+}'
 ```
 
-#### 4. Create a `.env` file and restart game server:
+#### 4. Run the Pipecat agent
 
 ```bash
-mv env.example .env
-# Set all fields
-# Get character_id from world-data/characters.json
-uv run game-server
+uv run bot 
 ```
 
-#### 5. Run the Pipecat agent
-
-```bash
-uv run bot
-```
-
-#### 6. Run the web client
+#### 5. Run the web client
 
 ```bash
 cd client/
@@ -74,7 +75,7 @@ pnpm run dev
 See [client README](/client/) for more details
 
 
-#### 7. Spawn NPCs to interact with
+#### 6. Spawn NPCs to interact with
 
 ```bash
 # Create a new player
@@ -238,45 +239,6 @@ The delays are specified in VoiceTaskManager::TOOL_CALL_DELAYS.
 This should allow us to fix the warp overlay and other UI timing stuff, maybe.
 
 
-# OLD
-
-## Open firehose viewer
-
-This is the stub for an admin tool.
-
-```
-uv run tools/firehose_viewer.py
-```
-
-## Open the character viewer
-
-Sort of another admin tool / maybe mostly just a way to test some of the Python client library code.
-
-```
-uv run tools/character_viewer.py
-```
-
-## Give an NPC something to do
-
-NPC runners must now authenticate with a real character UUID from the registry. Use the lookup/modify scripts described above to find or adjust entries (e.g., `uv run scripts/character_lookup.py "Trader P"`).
-
-Give that character something to do. GPT-5 will try to follow your instructions once `OPENAI_API_KEY` is set.
-
-```
-export GOOGLE_API_KEY=...
-```
-
-```
-uv run npc/run_npc.py 2b4ff0c2-1234-5678-90ab-1cd2ef345678 "Move to sector 1000. Once you get there, summarize everything you've seen along the way."
-```
-
-`npc/simple_tui.py` shares the same requirement. Pass `--character-id` (or set `NPC_CHARACTER_ID`) so the UI joins with the immutable identifier while the logs display the friendly name learned from status events.
-
-# Todo
-
-* [ ] universe-bang should create the world-data directory if necessary and write output files there.
-
-
 ## Textual UI for the game
 
 Once the console starts, close the debug panel (ctrl+d). Then try running a task like "Navigate on auto-pilot to sector 1000." Always provide the UUID:
@@ -327,9 +289,13 @@ docker compose down -v
 
 #### Game Server:
 
+GAME_SERVER_CORS_ALLOWED_ORIGINS
+
 ```bash
-docker build -f deployment/Dockerfile.server -t gradient-bang-server 
-# --platform linux/amd64 .
+docker build -f deployment/Dockerfile.server -t gradient-bang-server . 
+
+# Note: ensure target platform is correct for your host, e.g:
+# docker build -f deployment/Dockerfile.server -t gradient-bang-server --platform linux/amd64 .
 
 # Test
 docker run -d \
@@ -345,6 +311,16 @@ Deploy to [Pipecat Cloud](https://pipecat.daily.co/)
 
 > [!NOTE]
 > You can use [Integrated Key](https://docs.pipecat.ai/deployment/pipecat-cloud/guides/managed-api-keys) for some services
+
+1. Update game server env with `start/` route:
+
+```bash
+
+GAME_SERVER_AGENT_START_URL=https://api.pipecat.daily.co/v1/public/{AGENT_NAME}/start
+GAME_SERVER_AGENT_PUBLIC_KEY=pk_...
+```
+
+2. Build 
 
 ```bash
 docker build -f deployment/Dockerfile.bot -t gradient-bang-bot .

@@ -15,6 +15,7 @@ services:
       - UNIVERSE_SECTOR_COUNT=${UNIVERSE_SECTOR_COUNT:-5000}
       - UNIVERSE_SEED=${UNIVERSE_SEED:-1234}
       - GAME_SERVER_DEV_MODE=${GAME_SERVER_DEV_MODE:-false}
+      - GAME_SERVER_AGENT_START_URL=${GAME_SERVER_AGENT_START_URL:-http://localhost:7860/start}
     restart: unless-stopped
     healthcheck:
       test:
@@ -33,14 +34,14 @@ services:
     build:
       context: .
       dockerfile: deployment/Dockerfile.bot
-      image: gradient-bang-bot:latest
-      container_name: gradient-bang-bot
-      environment:
-        - GAME_SERVER_URL=http://game-server:8000
-      depends_on:
-        game-server:
-          condition: service_healthy
-      restart: unless-stopped
+    image: gradient-bang-bot:latest
+    container_name: gradient-bang-bot
+    environment:
+      - GAME_SERVER_URL=http://game-server:8000
+    depends_on:
+      game-server:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   world-data:

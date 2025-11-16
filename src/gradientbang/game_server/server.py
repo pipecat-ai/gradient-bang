@@ -8,6 +8,7 @@ import logging
 import os
 import uuid
 import re
+import httpx
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -109,6 +110,7 @@ class CharacterCreateRequest(BaseModel):
             )
         return v
 
+
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
     async with world_lifespan(app):
@@ -147,7 +149,8 @@ app = FastAPI(
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8080", "http://localhost:5173"],
+    allow_origins=[origin.strip() for origin in os.getenv("GAME_SERVER_CORS_ALLOWED_ORIGINS", "").split(",") if origin.strip()],
+    allow_origin_regex=r"https?://localhost(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -366,6 +369,45 @@ async def root() -> Dict[str, Any]:
     
     return response
 
+@app.post("/start")
+async def http_start_bot(request: Dict[str, Any]) -> Dict[str, Any]:
+    """Proxy route for starting bot process"""
+
+    body = request.get("body")
+    if not body:
+        raise HTTPException(status_code=400, detail="body is required")
+
+    character_id = body.get("character_id")
+    if not character_id:
+        raise HTTPException(status_code=400, detail="character_id is required")
+
+    # Look up the character_id in the character registry and validate first
+    # We do this here to bail early if the character is not registered
+    registry = getattr(world, "character_registry", None)
+    if registry is None:
+        raise HTTPException(status_code=500, detail="Character registry unavailable")
+    profile = registry.get_profile(character_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Character is not registered")
+
+    logger.info(f"Starting bot process for character_id: {character_id} - {profile.name}")
+
+    start_url = os.getenv("GAME_SERVER_AGENT_START_URL")
+    if not start_url:
+        raise HTTPException(status_code=500, detail="GAME_SERVER_AGENT_START_URL is not set")
+
+    headers = {"Content-Type": "application/json"}
+    # If endpoint is secured (e.g. PCC), add bearer token to headers
+    public_key = os.getenv("GAME_SERVER_AGENT_PUBLIC_KEY", None)
+    if public_key:
+        headers["Authorization"] = f"Bearer {public_key}"
+    
+    async with httpx.AsyncClient(timeout=3.0) as client:
+        response = await client.post(start_url, json=request, headers=headers)
+        response.raise_for_status()
+    return response.json()
+   
+
 @app.post("/player")
 async def http_character_create(request: CharacterCreateRequest) -> Dict[str, Any]:
     """Create a new character with the specified name"""
@@ -373,7 +415,7 @@ async def http_character_create(request: CharacterCreateRequest) -> Dict[str, An
     return await api_character_create.handle(payload, world)
 
 @app.get("/player")
-async def http_character_lookup(name: str) -> Dict[str, Any]:
+async def http_character_lookup(character_id: str) -> Dict[str, Any]:
     """Look up a character by display name.
     
     Args:
@@ -386,14 +428,14 @@ async def http_character_lookup(name: str) -> Dict[str, Any]:
     if registry is None:
         raise HTTPException(status_code=500, detail="Character registry unavailable")
     
-    if not name:
+    if not character_id:
         raise HTTPException(status_code=400, detail="name query parameter is required")
     
-    profile = registry.find_by_name(name)
+    profile = registry.get_profile(character_id)
     if profile is None:
         raise HTTPException(
             status_code=404,
-            detail=f"Character not found: {name}"
+            detail=f"Character not found: {character_id}"
         )
     
     return {

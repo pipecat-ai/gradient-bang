@@ -1,0 +1,5 @@
+{
+    "buildCommand": "turbo run build --filter=@gradient-bang/app",
+    "outputDirectory": "app/dist",
+    "installCommand": "pnpm install"
+}
