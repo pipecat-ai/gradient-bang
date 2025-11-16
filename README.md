@@ -331,6 +331,7 @@ docker compose down -v
 docker build -f deployment/Dockerfile.server -t gradient-bang-server 
 # --platform linux/amd64 .
 
+# Test
 docker run -d \
   -p 8000:8000 \
   -v gradient-bang-data:/var/data/world-data \
@@ -347,6 +348,9 @@ Deploy to [Pipecat Cloud](https://pipecat.daily.co/)
 
 ```bash
 docker build -f deployment/Dockerfile.bot -t gradient-bang-bot .
+
+# Test
+docker run --env-file .env gradient-bang-bot
 
 # Note: following assume pcc-deploy.toml in deployment/ (see example)
 cd deployment/

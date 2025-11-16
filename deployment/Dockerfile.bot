@@ -9,12 +9,22 @@ ENV UV_LINK_MODE=copy
 # Print a summary of the features available in the base image (for debugging)
 ENV PCC_LOG_FEATURES_SUMMARY=true
 
-# Install the project's dependencies using the lockfile and settings
+ENV PYTHONPATH=/app
+
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --locked --no-install-project --no-dev --group bot
 
+# Copy LICENSE (required by pyproject.toml)
+COPY LICENSE ./
+
 # Copy the application code
+RUN mkdir -p gradientbang && touch gradientbang/__init__.py
+COPY src/gradientbang/utils/ gradientbang/utils/
+COPY src/gradientbang/scripts/ gradientbang/scripts/
+COPY src/gradientbang/pipecat_server/voice_task_manager.py gradientbang/pipecat_server/voice_task_manager.py
+# @TODO: game_server code required right now as summary_formatter util depends on it
+COPY src/gradientbang/game_server/ gradientbang/game_server/
+
 COPY src/gradientbang/pipecat_server/bot.py bot.py
-COPY src/gradientbang/pipecat_server/voice_task_manager.py voice_task_manager.py
