@@ -31,6 +31,8 @@ import { canonicalizeCharacterId } from '../_shared/ids.ts';
 import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 import { type ObserverMetadata } from '../_shared/observers.ts';
 import { emitMovementObservers } from '../_shared/movement.ts';
+import { checkGarrisonAutoEngage } from '../_shared/garrison_combat.ts';
+import { loadCombatForSector } from '../_shared/combat_state.ts';
 
 const BASE_MOVE_DELAY = Number(Deno.env.get('MOVE_DELAY_SECONDS_PER_TURN') ?? (2 / 3));
 const MOVE_DELAY_SCALE = Number(Deno.env.get('MOVE_DELAY_SCALE') ?? '1');
@@ -177,6 +179,22 @@ async function handleMove({ supabase, characterId, destination, requestId, actor
 
   if (ship.current_sector === null) {
     return errorResponse('Character ship missing sector', 500);
+  }
+
+  // Check if character is in combat
+  const combat = await loadCombatForSector(supabase, ship.current_sector);
+  if (combat && !combat.ended) {
+    // Check if this character is a participant in the combat
+    if (characterId in combat.participants) {
+      await emitErrorEvent(supabase, {
+        characterId,
+        method: 'move',
+        requestId,
+        detail: 'Cannot move while in combat',
+        status: 409,
+      });
+      return errorResponse('cannot move while in combat', 409);
+    }
   }
 
   observerMetadata = {
@@ -408,6 +426,19 @@ async function completeMovement({
       source,
       requestId,
     });
+
+    // Check for garrison auto-combat after arrival
+    try {
+      await checkGarrisonAutoEngage({
+        supabase,
+        characterId,
+        sectorId: destination,
+        requestId,
+      });
+    } catch (garrisonError) {
+      // Log but don't fail the move if garrison combat fails
+      console.error('move.garrison_auto_engage', garrisonError);
+    }
   } catch (error) {
     console.error('move.async_completion', error);
     await emitErrorEvent(supabase, {

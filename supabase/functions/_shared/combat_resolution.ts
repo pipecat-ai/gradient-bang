@@ -37,6 +37,12 @@ export async function resolveEncounterRound(options: {
   };
 
   const outcome = resolveRound(encounter, combinedActions);
+
+  // Check for toll satisfaction after resolution
+  if (checkTollStanddown(encounter, outcome, combinedActions)) {
+    outcome.end_state = 'toll_satisfied';
+  }
+
   encounter.logs.push({
     round_number: outcome.round_number,
     actions: combinedActions,
@@ -187,4 +193,57 @@ async function broadcastEvent(params: {
     payload,
     requestId,
   });
+}
+
+function checkTollStanddown(
+  encounter: CombatEncounterState,
+  outcome: { round_number: number; end_state: string | null },
+  actions: Record<string, RoundActionState>,
+): boolean {
+  // Check if there's a toll registry in the context
+  const context = encounter.context as Record<string, unknown> | undefined;
+  if (!context) {
+    return false;
+  }
+  const tollRegistry = context.toll_registry as Record<string, unknown> | undefined;
+  if (!tollRegistry) {
+    return false;
+  }
+
+  // Check each garrison to see if toll was paid this round
+  for (const [garrisonId, entryRaw] of Object.entries(tollRegistry)) {
+    const entry = entryRaw as Record<string, unknown>;
+    if (!entry.paid) {
+      continue;
+    }
+    const paidRound = entry.paid_round as number | undefined;
+    // Use outcome.round_number instead of encounter.round
+    if (paidRound !== outcome.round_number) {
+      continue;
+    }
+
+    // Check if garrison braced or paid
+    const garrisonAction = actions[garrisonId];
+    if (garrisonAction && garrisonAction.action !== 'brace' && garrisonAction.action !== 'pay') {
+      continue;
+    }
+
+    // Check if all other participants braced or paid
+    let othersBraced = true;
+    for (const [pid, participantAction] of Object.entries(actions)) {
+      if (pid === garrisonId) {
+        continue;
+      }
+      if (participantAction.action !== 'brace' && participantAction.action !== 'pay') {
+        othersBraced = false;
+        break;
+      }
+    }
+
+    if (othersBraced) {
+      return true;
+    }
+  }
+
+  return false;
 }

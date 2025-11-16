@@ -277,6 +277,20 @@ async function buildActionState(params: {
       err.status = 400;
       throw err;
     }
+  } else if (action === 'pay') {
+    // Process toll payment
+    const success = await processTollPayment(
+      params.supabase,
+      params.encounter,
+      participant.combatant_id,
+      targetId,
+    );
+    if (!success) {
+      const err = new Error('Toll payment failed - no toll garrison found or insufficient credits') as Error & { status?: number };
+      err.status = 400;
+      throw err;
+    }
+    commit = 0;
   } else {
     commit = 0;
     targetId = null;
@@ -304,4 +318,150 @@ function isRoundReady(encounter: CombatEncounterState): boolean {
     }
   }
   return true;
+}
+
+async function processTollPayment(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  encounter: CombatEncounterState,
+  payerId: string,
+  targetId: string | null,
+): Promise<boolean> {
+  try {
+    // Check if there's a toll registry in the context
+    const context = encounter.context as Record<string, unknown> | undefined;
+    if (!context) {
+      return false;
+    }
+    const tollRegistry = context.toll_registry as Record<string, unknown> | undefined;
+    if (!tollRegistry) {
+      return false;
+    }
+
+    // Find the garrison to pay
+    let garrisonId: string | null = null;
+    if (targetId && targetId in tollRegistry) {
+      garrisonId = targetId;
+    } else {
+      // If no target specified, find the first garrison
+      for (const gid of Object.keys(tollRegistry)) {
+        garrisonId = gid;
+        break;
+      }
+    }
+
+    if (!garrisonId) {
+      return false;
+    }
+
+    const entry = tollRegistry[garrisonId] as Record<string, unknown>;
+    if (!entry) {
+      return false;
+    }
+
+    const amount = typeof entry.toll_amount === 'number' ? entry.toll_amount : 0;
+
+    // Deduct credits from payer if amount > 0
+    if (amount > 0) {
+      // Get payer's ship
+      const participant = encounter.participants[payerId];
+      if (!participant || participant.combatant_type !== 'character') {
+        return false;
+      }
+
+      // Load character to get their ship_id
+      const { data: characterData, error: characterError } = await supabase
+        .from('characters')
+        .select('current_ship_id')
+        .eq('character_id', payerId)
+        .single();
+
+      if (characterError || !characterData) {
+        return false;
+      }
+
+      const shipId = characterData.current_ship_id;
+
+      // Get the ship from database to check/deduct credits
+      const { data: shipData, error: shipError } = await supabase
+        .from('ship_instances')
+        .select('credits, ship_id')
+        .eq('ship_id', shipId)
+        .single();
+
+      if (shipError || !shipData) {
+        return false;
+      }
+
+      const currentCredits = shipData.credits ?? 0;
+
+      if (currentCredits < amount) {
+        return false; // Insufficient credits
+      }
+
+      // Deduct credits
+      const { error: updateError } = await supabase
+        .from('ship_instances')
+        .update({ credits: currentCredits - amount })
+        .eq('ship_id', shipId);
+
+      if (updateError) {
+        return false;
+      }
+    }
+
+    // Mark as paid
+    entry.paid = true;
+    entry.paid_round = encounter.round;
+    const currentBalance = typeof entry.toll_balance === 'number' ? entry.toll_balance : 0;
+    entry.toll_balance = currentBalance + amount;
+
+    // Record the payment
+    const payments = entry.payments as Array<unknown> | undefined;
+    if (Array.isArray(payments)) {
+      payments.push({
+        payer: payerId,
+        amount: amount,
+        round: encounter.round,
+      });
+    } else {
+      entry.payments = [{
+        payer: payerId,
+        amount: amount,
+        round: encounter.round,
+      }];
+    }
+
+    // Keep garrison source metadata in sync
+    const sources = context.garrison_sources as Array<Record<string, unknown>> | undefined;
+    const ownerId = typeof entry.owner_id === 'string' ? entry.owner_id : null;
+    if (Array.isArray(sources) && ownerId) {
+      for (const source of sources) {
+        if (source.owner_id === ownerId) {
+          source.toll_balance = entry.toll_balance;
+        }
+      }
+    }
+
+    // Update the garrison row in the database with the toll balance
+    if (ownerId) {
+      const { error: garrisonUpdateError } = await supabase
+        .from('garrisons')
+        .update({
+          toll_balance: entry.toll_balance,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('sector_id', encounter.sector_id)
+        .eq('owner_id', ownerId);
+
+      if (garrisonUpdateError) {
+        // Don't fail the payment if garrison update fails - the toll_registry is authoritative
+        console.error('processTollPayment.garrison_update', garrisonUpdateError);
+      }
+    }
+
+    return true;
+  } catch (err) {
+    console.error('processTollPayment.exception', err);
+    return false;
+  }
 }

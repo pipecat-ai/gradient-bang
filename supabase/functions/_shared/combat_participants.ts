@@ -94,10 +94,11 @@ export async function loadGarrisonCombatants(
   const rows = (data ?? []).filter((row) => row.fighters > 0);
   return rows.map((row) => {
     const combatantId = `garrison:${row.sector_id}:${row.owner_id}`;
+    const ownerName = ownerNames.get(row.owner_id) ?? row.owner_id;
     const state: CombatantState = {
       combatant_id: combatantId,
       combatant_type: 'garrison',
-      name: `${ownerNames.get(row.owner_id) ?? row.owner_id} Garrison`,
+      name: `${ownerName} Garrison`,
       fighters: row.fighters,
       shields: 0,
       turns_per_warp: 0,
@@ -112,6 +113,7 @@ export async function loadGarrisonCombatants(
         toll_balance: row.toll_balance,
         deployed_at: row.deployed_at,
         sector_id: row.sector_id,
+        owner_name: ownerName,  // Store human-readable owner name in metadata
       },
     };
     return { state, source: row };
