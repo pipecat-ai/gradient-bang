@@ -15,6 +15,7 @@ services:
       - UNIVERSE_SECTOR_COUNT=${UNIVERSE_SECTOR_COUNT:-5000}
       - UNIVERSE_SEED=${UNIVERSE_SEED:-1234}
       - GAME_SERVER_DEV_MODE=${GAME_SERVER_DEV_MODE:-false}
+      - GAME_SERVER_AGENT_START_URL=${GAME_SERVER_AGENT_START_URL:-http://localhost:7860/start}
     restart: unless-stopped
     healthcheck:
       test:

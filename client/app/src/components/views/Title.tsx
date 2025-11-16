@@ -99,7 +99,7 @@ export const Title = ({
                   className="w-full flex flex-col gap-5"
                 >
                   <Input
-                    placeholder="Enter character name"
+                    placeholder="Enter character ID"
                     className="w-full"
                     size="xl"
                     value={characterName}

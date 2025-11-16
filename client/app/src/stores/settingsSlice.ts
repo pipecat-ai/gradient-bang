@@ -92,7 +92,7 @@ export const createSettingsSlice: StateCreator<SettingsSlice> = (set, get) => ({
       })
     )
   },
-  getBotStartParams: (characterId: string, headers?: Headers): APIRequest => {
+  getBotStartParams: (characterId: string): APIRequest => {
     const params = get().botConfig.startBotParams
     const transportType = get().botConfig.transportType
     const requestData = {
@@ -108,11 +108,6 @@ export const createSettingsSlice: StateCreator<SettingsSlice> = (set, get) => ({
     }
     return {
       endpoint: params.endpoint,
-      headers:
-        headers ||
-        new Headers({
-          Authorization: `Bearer ${import.meta.env.VITE_PCC_API_KEY}`,
-        }),
       requestData: {
         ...requestData,
         body: {

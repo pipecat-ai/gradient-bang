@@ -8,6 +8,7 @@ import logging
 import os
 import uuid
 import re
+import httpx
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -108,6 +109,7 @@ class CharacterCreateRequest(BaseModel):
                 f"Invalid name '{v}': only letters, numbers, and spaces are allowed"
             )
         return v
+
 
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
@@ -365,6 +367,45 @@ async def root() -> Dict[str, Any]:
     }
     
     return response
+
+@app.post("/start")
+async def http_start_bot(request: Dict[str, Any]) -> Dict[str, Any]:
+    """Proxy route for starting bot process"""
+
+    body = request.get("body")
+    if not body:
+        raise HTTPException(status_code=400, detail="body is required")
+
+    character_id = body.get("character_id")
+    if not character_id:
+        raise HTTPException(status_code=400, detail="character_id is required")
+
+    # Look up the character_id in the character registry and validate first
+    # We do this here to bail early if the character is not registered
+    registry = getattr(world, "character_registry", None)
+    if registry is None:
+        raise HTTPException(status_code=500, detail="Character registry unavailable")
+    profile = registry.get_profile(character_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Character is not registered")
+
+    logger.info(f"Starting bot process for character_id: {character_id} - {profile.name}")
+
+    start_url = os.getenv("GAME_SERVER_AGENT_START_URL")
+    if not start_url:
+        raise HTTPException(status_code=500, detail="GAME_SERVER_AGENT_START_URL is not set")
+
+    headers = {"Content-Type": "application/json"}
+    # If endpoint is secured (e.g. PCC), add bearer token to headers
+    public_key = os.getenv("GAME_SERVER_AGENT_PUBLIC_KEY", None)
+    if public_key:
+        headers["Authorization"] = f"Bearer {public_key}"
+    
+    async with httpx.AsyncClient(timeout=3.0) as client:
+        response = await client.post(start_url, json=request, headers=headers)
+        response.raise_for_status()
+    return response.json()
+   
 
 @app.post("/player")
 async def http_character_create(request: CharacterCreateRequest) -> Dict[str, Any]:
