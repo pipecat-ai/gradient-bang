@@ -44,9 +44,6 @@ importers:
 
   app:
     dependencies:
-      '@gradient-bang/starfield':
-        specifier: workspace:*
-        version: link:../starfield
       '@phosphor-icons/react':
         specifier: ^2.1.10
         version: 2.1.10(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
