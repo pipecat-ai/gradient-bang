@@ -880,7 +880,8 @@ class TestEventOrdering:
         # Already joined via create_client_with_character()
 
         try:
-            async with create_firehose_listener(server_url) as listener:
+            # Use char1 as the firehose listener - in Supabase, firehose requires a character_id
+            async with create_firehose_listener(server_url, char1) as listener:
                 await asyncio.sleep(0.5)
 
                 # Both characters perform actions concurrently
