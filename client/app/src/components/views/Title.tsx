@@ -18,14 +18,11 @@ export const Title = ({
   onViewNext: (characterName: string) => void
 }) => {
   const setActiveModal = useGameStore.use.setActiveModal()
-  //const setCharacterId = useGameStore.use.setCharacterId()
   const [characterName, setCharacterName] = useState<string>("")
   const [state, setState] = useState<"idle" | "join">("idle")
 
-  
   const handleViewNext = () => {
     console.log("[TITLE] Joining with name:", characterName)
-
     onViewNext(characterName)
   }
 
@@ -106,7 +103,7 @@ export const Title = ({
                     className="w-full"
                     size="xl"
                     value={characterName}
-                    onChange={(e) => setCharacterName(e.target.value.trim())}
+                    onChange={(e) => setCharacterName(e.target.value)}
                   />
                   <Button
                     onClick={handleViewNext}

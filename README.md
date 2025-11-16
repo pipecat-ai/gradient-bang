@@ -25,6 +25,7 @@ The projects demonstrates the full capabilities of realtime agentic workflows, s
 #### 1. Run Universe Bang to generate a world
 
 ```bash
+uv sync --all-groups
 uv run universe-bang 5000 1234
 
 # Optional: validate 
@@ -36,6 +37,8 @@ uv run -m gradientbang.scripts.universe_test
 ```bash
 uv run game-server
 ```
+
+You can enable Swagger and Redocs by setting `GAME_SERVER_DEV_MODE` in your environment and then visit `http://localhost:8000/docs`
 
 #### 3. Create your character (note: game server must be running!)
 
@@ -235,8 +238,6 @@ The delays are specified in VoiceTaskManager::TOOL_CALL_DELAYS.
 This should allow us to fix the warp overlay and other UI timing stuff, maybe.
 
 
-
-
 # OLD
 
 ## Open firehose viewer
@@ -297,15 +298,72 @@ The **source code** for Gradient Bang is licensed under the [Apache License 2.0]
 The **Gradient Bang name, logo, and brand identity** are proprietary trademarks and not covered by the open source licenses. If you fork this project, you must rename it and create your own brand identity. See [TRADEMARKS.md](TRADEMARKS.md) for complete details.
 
 
-## Build
+## Build and Deployment
 
-docker build -t gradient-bang-server .
+> [!NOTE]
+> Ensure uv lock file is updated to match any dependency changes first: `uv lock`
 
-docker run -p 8000:8000 gradient-bang-server
 
+### Docker Compose
+
+```bash
+# Build and start all services
+docker compose up --build
+
+# Start in background
+docker compose up -d
+
+# View logs
+docker compose logs -f game-server
+
+# Stop everything
+docker compose down
+
+# Fresh start (removes volumes)
+docker compose down -v
+```
+
+### Docker build
+
+#### Game Server:
+
+```bash
+docker build -f deployment/Dockerfile.server -t gradient-bang-server 
+# --platform linux/amd64 .
+
+# Test
 docker run -d \
   -p 8000:8000 \
-  -v $(pwd)/world-data:/app/world-data \
-  -e OPENAI_API_KEY=your_key_here \
+  -v gradient-bang-data:/var/data/world-data \
+  -e WORLD_DATA_DIR=/var/data/world-data \
   gradient-bang-server
+```
 
+#### Bot:
+
+Deploy to [Pipecat Cloud](https://pipecat.daily.co/)
+
+> [!NOTE]
+> You can use [Integrated Key](https://docs.pipecat.ai/deployment/pipecat-cloud/guides/managed-api-keys) for some services
+
+```bash
+docker build -f deployment/Dockerfile.bot -t gradient-bang-bot .
+
+# Test
+docker run --env-file .env gradient-bang-bot
+
+# Note: following assume pcc-deploy.toml in deployment/ (see example)
+cd deployment/
+
+# Create secret set for bot
+pipecat cloud secrets set gb-secrets --file ../.env 
+# Required:
+# GAME_SERVER_URL (point to deployed game server instance URL)
+# DEEPGRAM_API_KEY 
+# CARTESIA_API_KEY
+# GOOGLE_API_KEY
+# BOT_USE_KRISP=1 (optional: enable Krisp for noise cancellation)
+
+# Deploy
+pipecat cloud deploy
+```

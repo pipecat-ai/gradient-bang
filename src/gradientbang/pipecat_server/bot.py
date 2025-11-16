@@ -43,10 +43,14 @@ from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.vad_analyzer import VADParams
 
+if os.getenv("BOT_USE_KRISP"):
+    from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
+
 from gradientbang.utils.prompts import GAME_DESCRIPTION, CHAT_INSTRUCTIONS, VOICE_INSTRUCTIONS
 from gradientbang.utils.api_client import AsyncGameClient
 
 from gradientbang.pipecat_server.voice_task_manager import VoiceTaskManager
+
 
 
 load_dotenv()
@@ -275,8 +279,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             await task_manager.game_client.resume_event_delivery()
 
         asyncio.create_task(_join())
-        if runner_args.body.get("start_on_join", True):
-            await rtvi.set_bot_ready()
+        await rtvi.set_bot_ready()
 
     @rtvi.event_handler("on_client_message")
     async def on_client_message(rtvi, message):
@@ -289,7 +292,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
 
         # Start (for web client)
         if msg_type == "start":
-            await rtvi.set_bot_ready()
+            logger.info("Received start message, running pipeline")
             await task.queue_frames([LLMRunFrame()])
             return
 
@@ -436,22 +439,24 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         logger.exception(f"Pipeline runner error: {e}")
 
 
-async def bot(runner_args):
-    """Main bot entry point compatible with standard bot starters, including Pipecat Cloud."""
+async def bot(runner_args: RunnerArguments):
+    """Main bot entry point"""
 
     logger.info(f"Bot started with runner_args: {runner_args}")
 
-    
     transport_params = {
         "daily": lambda: DailyParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
-            vad_analyzer=SileroVADAnalyzer(),
+            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
+            audio_in_filter=(KrispVivaFilter() if os.getenv("BOT_USE_KRISP") else None),
+            turn_analyzer=LocalSmartTurnAnalyzerV3(),
         ),
         "webrtc": lambda: TransportParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
             vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
+            audio_in_filter=(KrispVivaFilter() if os.getenv("BOT_USE_KRISP") else None),
             turn_analyzer=LocalSmartTurnAnalyzerV3(),
         ),
     }
