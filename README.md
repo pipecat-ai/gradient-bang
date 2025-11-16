@@ -328,7 +328,8 @@ docker compose down -v
 #### Game Server:
 
 ```bash
-docker build -f deployment/Dockerfile.server -t gradient-bang-server --platform linux/amd64 .
+docker build -f deployment/Dockerfile.server -t gradient-bang-server 
+# --platform linux/amd64 .
 
 docker run -d \
   -p 8000:8000 \
@@ -341,6 +342,9 @@ docker run -d \
 
 Deploy to [Pipecat Cloud](https://pipecat.daily.co/)
 
+> [!NOTE]
+> You can use [Integrated Key](https://docs.pipecat.ai/deployment/pipecat-cloud/guides/managed-api-keys) for some services
+
 ```bash
 docker build -f deployment/Dockerfile.bot -t gradient-bang-bot .
 
@@ -349,8 +353,13 @@ cd deployment/
 
 # Create secret set for bot
 pipecat cloud secrets set gb-secrets --file ../.env 
-# Optional: enable Krisp for noise cancellation
-pipecat cloud secrets set gb-test-keys BOT_USE_KRISP=1
+# Required:
+# GAME_SERVER_URL (point to deployed game server instance URL)
+# DEEPGRAM_API_KEY 
+# CARTESIA_API_KEY
+# GOOGLE_API_KEY
+# BOT_USE_KRISP=1 (optional: enable Krisp for noise cancellation)
+
 # Deploy
 pipecat cloud deploy
 ```

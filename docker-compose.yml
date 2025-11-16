@@ -3,8 +3,6 @@ services:
     build:
       context: .
       dockerfile: deployment/Dockerfile.server
-      platforms:
-        - linux/amd64
     image: gradient-bang-server:latest
     container_name: gradient-bang-server
     ports:
@@ -31,25 +29,18 @@ services:
       retries: 3
       start_period: 10s
 
-  # Uncomment when bot is ready
-  # bot:
-  #   build:
-  #     context: .
-  #     dockerfile: deployment/Dockerfile.bot
-  #     platforms:
-  #       - linux/amd64 # needed for SmartTurn
-  #   image: gradient-bang-bot:latest
-  #   container_name: gradient-bang-bot
-  #   env_file:
-  #     - .env
-  #   environment:
-  #     - PIPECAT_CHARACTER_ID=${BOT_CHARACTER_ID}
-  #     - OPENAI_API_KEY=${OPENAI_API_KEY}
-  #     - GAME_SERVER_URL=http://game-server:8000
-  #   depends_on:
-  #     game-server:
-  #       condition: service_healthy
-  #   restart: unless-stopped
+    bot:
+      build:
+        context: .
+        dockerfile: deployment/Dockerfile.bot
+        image: gradient-bang-bot:latest
+        container_name: gradient-bang-bot
+        environment:
+          - GAME_SERVER_URL=http://game-server:8000
+        depends_on:
+          game-server:
+            condition: service_healthy
+        restart: unless-stopped
 
 volumes:
   world-data:
