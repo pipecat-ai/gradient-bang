@@ -149,7 +149,8 @@ app = FastAPI(
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8080", "http://localhost:5173"],
+    allow_origins=[origin.strip() for origin in os.getenv("GAME_SERVER_CORS_ALLOWED_ORIGINS", "").split(",") if origin.strip()],
+    allow_origin_regex=r"https?://localhost(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

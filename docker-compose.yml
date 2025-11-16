@@ -34,14 +34,14 @@ services:
     build:
       context: .
       dockerfile: deployment/Dockerfile.bot
-      image: gradient-bang-bot:latest
-      container_name: gradient-bang-bot
-      environment:
-        - GAME_SERVER_URL=http://game-server:8000
-      depends_on:
-        game-server:
-          condition: service_healthy
-      restart: unless-stopped
+    image: gradient-bang-bot:latest
+    container_name: gradient-bang-bot
+    environment:
+      - GAME_SERVER_URL=http://game-server:8000
+    depends_on:
+      game-server:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   world-data:
