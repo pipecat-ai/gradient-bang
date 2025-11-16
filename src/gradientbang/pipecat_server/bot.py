@@ -45,6 +45,7 @@ from pipecat.audio.vad.vad_analyzer import VADParams
 
 from gradientbang.utils.prompts import GAME_DESCRIPTION, CHAT_INSTRUCTIONS, VOICE_INSTRUCTIONS
 from gradientbang.utils.api_client import AsyncGameClient
+from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
 
 from gradientbang.pipecat_server.voice_task_manager import VoiceTaskManager
 
@@ -221,6 +222,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     llm.register_function(None, task_manager.execute_tool_call)
 
     task_progress = TaskProgressInserter(task_manager)
+    token_usage_metrics = TokenUsageMetricsProcessor(source="bot")
 
     # System prompt
     messages = [
@@ -248,6 +250,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             context_aggregator.user(),
             task_progress,
             llm,
+            token_usage_metrics,
             tts,
             transport.output(),
             context_aggregator.assistant(),
@@ -260,8 +263,8 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         pipeline,
         params=PipelineParams(
             allow_interruptions=True,
-            enable_metrics=False,
-            enable_usage_metrics=False,
+            enable_metrics=True,
+            enable_usage_metrics=True,
         ),
         observers=[RTVIObserver(rtvi)],
     )
