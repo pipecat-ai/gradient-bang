@@ -1552,13 +1552,14 @@ class TestCharacterFiltering:
             await asyncio.sleep(0.1)
 
             # STEP 2: Sender sends direct message to recipient (using display name)
-            recipient_display_name = "Message Recipient"
+            # In Supabase tests, create_client_with_character uses character_id as display name
+            recipient_display_name = recipient_id  # Use character_id as display name
             print(f"\nSTEP 2: {sender_id} sends direct message to {recipient_display_name}...")
             message_content = "This is a private message for testing"
             await sender_client.send_message(
                 content=message_content,
                 msg_type="direct",
-                to_name=recipient_display_name,  # Use display name, not character ID
+                to_name=recipient_display_name,  # Use display name (same as character_id in tests)
                 character_id=sender_id
             )
             await asyncio.sleep(EVENT_DELIVERY_WAIT)
