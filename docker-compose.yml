@@ -22,25 +22,25 @@ services:
           "CMD",
           "python",
           "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:8000/').read()",
+          "import urllib.request; urllib.request.urlopen('http://localhost:${PORT:-8000}/').read()",
         ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
 
-    bot:
-      build:
-        context: .
-        dockerfile: deployment/Dockerfile.bot
-        image: gradient-bang-bot:latest
-        container_name: gradient-bang-bot
-        environment:
-          - GAME_SERVER_URL=http://game-server:8000
-        depends_on:
-          game-server:
-            condition: service_healthy
-        restart: unless-stopped
+  bot:
+    build:
+      context: .
+      dockerfile: deployment/Dockerfile.bot
+      image: gradient-bang-bot:latest
+      container_name: gradient-bang-bot
+      environment:
+        - GAME_SERVER_URL=http://game-server:8000
+      depends_on:
+        game-server:
+          condition: service_healthy
+      restart: unless-stopped
 
 volumes:
   world-data:
