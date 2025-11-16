@@ -20,13 +20,21 @@ export async function ensureActorAuthorization({
   requireActorForCorporationShip = true,
 }: {
   supabase: SupabaseClient;
-  ship: ShipRow;
+  ship: ShipRow | null;  // Allow null for operations that don't involve ships (e.g., messaging)
   actorCharacterId: string | null;
   adminOverride: boolean;
   targetCharacterId?: string | null;
   requireActorForCorporationShip?: boolean;
 }): Promise<void> {
   if (adminOverride) {
+    return;
+  }
+
+  // If no ship provided, only validate actor matches target (for non-ship operations like messaging)
+  if (!ship) {
+    if (actorCharacterId && targetCharacterId && actorCharacterId !== targetCharacterId) {
+      throw new ActorAuthorizationError('actor_character_id must match character_id unless admin_override is true', 403);
+    }
     return;
   }
 

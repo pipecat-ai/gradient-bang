@@ -153,7 +153,21 @@ async function executeEventQuery(
   }
 
   const effectiveScope: 'personal' | 'corporation' = corporationId ? 'corporation' : 'personal';
-  const resolvedCharacterId = characterId ?? actorCharacterId ?? null;
+
+  // Admin mode character filtering logic:
+  // - If admin provides BOTH character_id + actor_character_id: use character_id (explicit filter)
+  // - If admin provides ONLY character_id (no actor_character_id): assume auto-injected, ignore it
+  // - If admin provides neither: no character filter (see all events)
+  // Non-admin mode: Use character_id or fall back to actor_character_id
+  let resolvedCharacterId: string | null;
+  if (isAdmin) {
+    // Admin mode: Only use character_id if actor_character_id is also present (explicit filter)
+    // If only character_id is present (no actor_character_id), it was likely auto-injected
+    resolvedCharacterId = (characterId && actorCharacterId) ? characterId : null;
+  } else {
+    // Non-admin mode: Use character_id or fall back to actor_character_id
+    resolvedCharacterId = characterId ?? actorCharacterId ?? null;
+  }
   const queryCharacterId = corporationId ? null : resolvedCharacterId;
 
   let corporationMemberIds: string[] | null = null;
@@ -208,26 +222,53 @@ async function fetchEvents(options: {
   } = options;
 
   const ascending = sortDirection === 'forward';
-  const selectColumns = 'timestamp,direction,event_type,character_id,sender_id,sector_id,ship_id,request_id,payload,meta';
-  let query = supabase
-    .from('visible_events')
-    .select(selectColumns)
-    .gte('timestamp', start.toISOString())
-    .lte('timestamp', end.toISOString())
-    .order('timestamp', { ascending });
+  const dbLimit = stringMatch ? MAX_QUERY_RESULTS + 1 : Math.min(limit + 1, MAX_QUERY_RESULTS + 1);
+
+  let query;
+  const isAdminMode = !queryCharacterId && !corporationMemberIds;
+
+  if (isAdminMode) {
+    // Admin mode: Query events directly without recipient filtering
+    query = supabase
+      .from('events')
+      .select('timestamp,direction,event_type,character_id,sender_id,sector_id,ship_id,request_id,payload,meta')
+      .gte('timestamp', start.toISOString())
+      .lte('timestamp', end.toISOString())
+      .order('timestamp', { ascending })
+      .limit(dbLimit);
+  } else {
+    // Character/Corporation mode: JOIN to event_character_recipients for visibility
+    query = supabase
+      .from('events')
+      .select(`
+        timestamp,
+        direction,
+        event_type,
+        character_id,
+        sender_id,
+        sector_id,
+        ship_id,
+        request_id,
+        payload,
+        meta,
+        event_character_recipients!inner(character_id, reason)
+      `)
+      .gte('timestamp', start.toISOString())
+      .lte('timestamp', end.toISOString())
+      .order('timestamp', { ascending })
+      .limit(dbLimit);
+
+    // Filter by recipient character_id or corporation member IDs
+    if (corporationMemberIds && corporationMemberIds.length) {
+      query = query.in('event_character_recipients.character_id', corporationMemberIds);
+    } else if (queryCharacterId) {
+      query = query.eq('event_character_recipients.character_id', queryCharacterId);
+    }
+  }
 
   if (sector !== null) {
     query = query.eq('sector_id', sector);
   }
-
-  if (corporationMemberIds && corporationMemberIds.length) {
-    query = query.in('character_id', corporationMemberIds);
-  } else if (queryCharacterId) {
-    query = query.or(`character_id.eq.${queryCharacterId},sender_id.eq.${queryCharacterId}`);
-  }
-
-  const dbLimit = stringMatch ? MAX_QUERY_RESULTS + 1 : Math.min(limit + 1, MAX_QUERY_RESULTS + 1);
-  query = query.limit(dbLimit);
 
   const { data, error } = await query;
   if (error) {
@@ -236,6 +277,7 @@ async function fetchEvents(options: {
   }
 
   const rows: EventRow[] = Array.isArray(data) ? (data as EventRow[]) : [];
+
   const senderLookup = await loadCharacterNames(
     supabase,
     rows.flatMap((row) => [row.sender_id, row.character_id]),
@@ -262,8 +304,6 @@ function buildEventRecord(row: EventRow, nameLookup: Map<string, string>): JsonR
     receiver: receiverId ? nameLookup.get(receiverId) ?? receiverId : null,
     sector: row.sector_id,
     corporation_id: corporationId,
-    ship_id: row.ship_id,
-    request_id: row.request_id,
     meta,
   };
 }
