@@ -53,7 +53,7 @@ export const useGameStore = create<AppState>((set) => ({
     hyperspaceExitTime: 2000,
     hyperspaceDuration: 1000,
     hyperspaceCooldown: 10000,
-    hyperspaceCameraFovShift: 125,
+    hyperspaceCameraFovShift: 145,
     shakeIntensity: 1,
     shakeRelaxTime: 1000,
   },

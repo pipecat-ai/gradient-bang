@@ -49,7 +49,7 @@ export function AnimationController({ children }: PropsWithChildren) {
       isWarping
         ? {
             duration: hyperspaceEnterTime,
-            easing: easings.easeInCubic,
+            easing: easings.easeInQuad,
           }
         : {
             duration: hyperspaceExitTime,

@@ -1,28 +1,29 @@
-import { useThree } from "@react-three/fiber";
-import { folder, useControls } from "leva";
 import {
   forwardRef,
   useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
-} from "react";
-import * as THREE from "three";
-import { StarsConfig, WorldObject } from "../types";
+} from "react"
+import { useThree } from "@react-three/fiber"
+import { folder, useControls } from "leva"
+import * as THREE from "three"
+
+import type { StarsConfig, WorldObject } from "../types"
 
 /**
  * Ref type for Stars component
  */
-export type StarsRef = WorldObject<StarsConfig>;
+export type StarsRef = WorldObject<StarsConfig>
 
 /**
  * Pixelated starfield component with spherical distribution
  * All parameters controlled via Leva for live tweaking
  */
 export const Stars = forwardRef<StarsRef, {}>((props, ref) => {
-  const pointsRef = useRef<THREE.Points>(null);
-  const { scene } = useThree();
-  const setRef = useRef<((config: Partial<StarsConfig>) => void) | null>(null);
+  const pointsRef = useRef<THREE.Points>(null)
+  const { scene } = useThree()
+  const setRef = useRef<((config: Partial<StarsConfig>) => void) | null>(null)
 
   // Leva controls for starfield parameters
   const [
@@ -81,90 +82,87 @@ export const Stars = forwardRef<StarsRef, {}>((props, ref) => {
       },
       { collapsed: true }
     ),
-  }));
+  }))
 
   // Store the set function in a ref so loadConfig can use it
   useEffect(() => {
-    setRef.current = set;
-  }, [set]);
+    setRef.current = set
+  }, [set])
 
   // Expose loadConfig method via ref
   useImperativeHandle(ref, () => ({
     loadConfig: async (config: Partial<StarsConfig>) => {
-      console.log("[Stars] Loading new config:", config);
+      console.log("[Stars] Loading new config:", config)
 
       // Update Leva controls with new values
       if (setRef.current) {
-        setRef.current(config);
+        setRef.current(config)
       }
 
       // Wait for geometry and material updates to complete via useEffect
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0))
 
-      console.log("[Stars] Config loaded successfully");
+      console.log("[Stars] Config loaded successfully")
     },
-  }));
+  }))
 
   // Generate star positions in spherical distribution
   const positions = useMemo(() => {
-    const positionsArray = new Float32Array(count * 3);
+    const positionsArray = new Float32Array(count * 3)
 
     for (let i = 0; i < count; i++) {
       // Generate random spherical coordinates
       // Use cube root for uniform volume distribution (avoids center clustering)
-      const r = Math.cbrt(Math.random()) * radius;
-      const theta = Math.random() * Math.PI * 2; // Azimuthal angle (0 to 2π)
-      const phi = Math.acos(2 * Math.random() - 1); // Polar angle (0 to π) with uniform distribution
+      const r = Math.cbrt(Math.random()) * radius
+      const theta = Math.random() * Math.PI * 2 // Azimuthal angle (0 to 2π)
+      const phi = Math.acos(2 * Math.random() - 1) // Polar angle (0 to π) with uniform distribution
 
       // Convert spherical to Cartesian coordinates
-      const x = r * Math.sin(phi) * Math.cos(theta);
-      const y = r * Math.sin(phi) * Math.sin(theta);
-      const z = r * Math.cos(phi);
+      const x = r * Math.sin(phi) * Math.cos(theta)
+      const y = r * Math.sin(phi) * Math.sin(theta)
+      const z = r * Math.cos(phi)
 
-      positionsArray[i * 3] = x;
-      positionsArray[i * 3 + 1] = y;
-      positionsArray[i * 3 + 2] = z;
+      positionsArray[i * 3] = x
+      positionsArray[i * 3 + 1] = y
+      positionsArray[i * 3 + 2] = z
     }
 
-    return positionsArray;
-  }, [count, radius]);
+    return positionsArray
+  }, [count, radius])
 
   // Update geometry positions when count or radius changes
   useEffect(() => {
     if (pointsRef.current) {
-      const geometry = pointsRef.current.geometry;
-      geometry.setAttribute(
-        "position",
-        new THREE.BufferAttribute(positions, 3)
-      );
-      geometry.attributes.position.needsUpdate = true;
-      geometry.computeBoundingSphere();
+      const geometry = pointsRef.current.geometry
+      geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3))
+      geometry.attributes.position.needsUpdate = true
+      geometry.computeBoundingSphere()
     }
-  }, [positions]);
+  }, [positions])
 
   // Update material properties when color or size changes
   useEffect(() => {
     if (pointsRef.current) {
-      const material = pointsRef.current.material as THREE.PointsMaterial;
-      material.color.set(color);
-      material.size = size;
-      material.needsUpdate = true;
+      const material = pointsRef.current.material as THREE.PointsMaterial
+      material.color.set(color)
+      material.size = size
+      material.needsUpdate = true
     }
-  }, [color, size]);
+  }, [color, size])
 
   // Handle fog settings
   useEffect(() => {
     if (fogEnabled) {
-      scene.fog = new THREE.Fog(fogColor, fogNear, fogFar);
+      scene.fog = new THREE.Fog(fogColor, fogNear, fogFar)
     } else {
-      scene.fog = null;
+      scene.fog = null
     }
 
     // Cleanup on unmount
     return () => {
-      scene.fog = null;
-    };
-  }, [scene, fogEnabled, fogNear, fogFar, fogColor]);
+      scene.fog = null
+    }
+  }, [scene, fogEnabled, fogNear, fogFar, fogColor])
 
   return (
     <points ref={pointsRef}>
@@ -181,5 +179,5 @@ export const Stars = forwardRef<StarsRef, {}>((props, ref) => {
         fog={true}
       />
     </points>
-  );
-});
+  )
+})

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { easings } from "@react-spring/three"
 import { invalidate, useFrame } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import {
@@ -20,48 +21,48 @@ export const PostProcessing = () => {
   // References
   const composerRef = useRef<EffectComposer | null>(null)
   const ditheringEffectRef = useRef<DitheringEffect | null>(null)
-
+  const bloomEffectRef = useRef<BloomEffect | null>(null)
   const [scene, setScene] = useState<THREE.Scene | null>(null)
   const [camera, setCamera] = useState<THREE.Camera | null>(null)
 
   // Effect controls
-  const { bloom1Enabled, bloom1Threshold, bloom1Intensity, bloom1Radius } =
-    useControls(
-      {
-        "Bloom 1": folder({
-          bloom1Enabled: {
-            value: false,
-            label: "Enable Bloom 1 (Pre-Dithering)",
+  const { bloomEnabled, bloomThreshold, bloomIntensity, bloomRadius } =
+    useControls({
+      Bloom: folder(
+        {
+          bloomEnabled: {
+            value: true,
+            label: "Enable Bloom (Pre-Dithering)",
           },
-          bloom1Threshold: {
+          bloomThreshold: {
             value: 0.0,
             min: 0,
             max: 2,
             step: 0.01,
             label: "Threshold",
           },
-          bloom1Intensity: {
-            value: 2.0,
+          bloomIntensity: {
+            value: 0.0,
             min: 0,
             max: 50,
             step: 0.1,
             label: "Intensity",
           },
-          bloom1Radius: {
-            value: 0.6,
+          bloomRadius: {
+            value: 0.0,
             min: 0,
             max: 1,
             step: 0.1,
             label: "Radius",
           },
-        }),
-      },
-      { collapsed: true }
-    )
+        },
+        { collapsed: true }
+      ),
+    })
 
-  const { ditheringGridSize, pixelSizeRatio, grayscaleOnly } = useControls(
-    {
-      Dithering: folder({
+  const { ditheringGridSize, pixelSizeRatio, grayscaleOnly } = useControls({
+    Dithering: folder(
+      {
         ditheringGridSize: {
           value: 4,
           min: 1,
@@ -77,10 +78,10 @@ export const PostProcessing = () => {
           label: "Pixelation Strength",
         },
         grayscaleOnly: { value: false, label: "Grayscale Only" },
-      }),
-    },
-    { collapsed: true }
-  )
+      },
+      { collapsed: true }
+    ),
+  })
 
   useEffect(() => {
     invalidate()
@@ -110,18 +111,18 @@ export const PostProcessing = () => {
     const renderPass = new RenderPass(scene, camera)
     composer.addPass(renderPass)
 
-    if (bloom1Enabled) {
-      composer.addPass(
-        new EffectPass(
-          camera,
-          new BloomEffect({
-            luminanceThreshold: bloom1Threshold,
-            intensity: bloom1Intensity,
-            radius: bloom1Radius,
-            mipmapBlur: true,
-          })
-        )
-      )
+    if (bloomEnabled) {
+      const bloom = new BloomEffect({
+        luminanceThreshold: bloomThreshold,
+        intensity: bloomIntensity,
+        radius: bloomRadius,
+        mipmapBlur: true,
+      })
+      composer.addPass(new EffectPass(camera, bloom))
+      bloomEffectRef.current = bloom
+    } else {
+      bloomEffectRef.current?.dispose()
+      bloomEffectRef.current = null
     }
 
     // Dithering effect - always active
@@ -135,10 +136,10 @@ export const PostProcessing = () => {
   }, [
     scene,
     camera,
-    bloom1Enabled,
-    bloom1Threshold,
-    bloom1Intensity,
-    bloom1Radius,
+    bloomEnabled,
+    bloomThreshold,
+    bloomIntensity,
+    bloomRadius,
     ditheringGridSize,
     pixelSizeRatio,
     grayscaleOnly,
@@ -158,21 +159,37 @@ export const PostProcessing = () => {
     if (scene !== currentScene) setScene(currentScene)
     if (camera !== currentCamera) setCamera(currentCamera)
 
-    const effect = ditheringEffectRef.current
-    if (effect) {
-      const progress = warp.warpProgress.get()
-      effect.uniforms.get("gridSize")!.value = THREE.MathUtils.lerp(
+    const progress = warp.warpProgress.get()
+
+    const ditheringEffect = ditheringEffectRef.current
+    if (ditheringEffect) {
+      const delayedProgress = THREE.MathUtils.clamp(
+        (progress - 0.4) / (1 - 0.4),
+        0,
+        1
+      )
+      const easedProgress = warp.isWarping
+        ? easings.easeInCubic(delayedProgress)
+        : easings.easeOutExpo(delayedProgress)
+
+      ditheringEffect.uniforms.get("gridSize")!.value = THREE.MathUtils.lerp(
         ditheringGridSize,
         ditheringGridSize * 2,
-        progress
+        easedProgress
       )
-      effect.uniforms.get("pixelSizeRatio")!.value = THREE.MathUtils.lerp(
-        pixelSizeRatio,
-        pixelSizeRatio * 6,
+      ditheringEffect.uniforms.get("pixelSizeRatio")!.value =
+        THREE.MathUtils.lerp(pixelSizeRatio, pixelSizeRatio * 6, easedProgress)
+    }
+
+    const bloomEffect = bloomEffectRef.current
+    if (bloomEffect) {
+      bloomEffect.intensity = THREE.MathUtils.lerp(bloomIntensity, 50, progress)
+      bloomEffect.mipmapBlurPass.radius = THREE.MathUtils.lerp(
+        bloomRadius,
+        1,
         progress
       )
     }
-
     // Render the composer if available
     composerRef.current?.render()
   }, 1)

@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react"
+import { easings } from "@react-spring/three"
 import { CameraControls as CameraControlsImpl } from "@react-three/drei"
 import { useFrame, useThree } from "@react-three/fiber"
 import { button, folder, useControls } from "leva"
@@ -23,11 +24,8 @@ export function CameraController() {
   const { cameraBaseFov, hyperspaceCameraFovShift } = useGameStore(
     (state) => state.starfieldConfig
   )
-  const progressDelay = 0.25
+  const progressDelay = 0
   const epsilon = 0.05
-
-  const easeInCubic = (t: number) => t * t * t
-  const easeOutExpo = (t: number) => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * t))
 
   const lookAtTarget = useCallback(
     async (gameObjectId: string) => {
@@ -150,8 +148,8 @@ export function CameraController() {
     )
 
     const easedProgress = warp.isWarping
-      ? easeInCubic(delayedProgress)
-      : easeOutExpo(delayedProgress)
+      ? easings.easeInCubic(delayedProgress)
+      : easings.easeOutExpo(delayedProgress)
 
     const desiredFov = THREE.MathUtils.lerp(
       cameraBaseFov,

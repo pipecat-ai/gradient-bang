@@ -12,19 +12,21 @@ import {
   Float,
   Grid,
   PerformanceMonitor,
+  Stars,
+  Stats,
   useGLTF,
 } from "@react-three/drei"
 import { Canvas } from "@react-three/fiber"
 import { button, folder, Leva, useControls } from "leva"
 import * as THREE from "three"
 
-import { RenderMonitor } from "@/components/RenderMonitor"
 import { AnimationController } from "@/controllers/AnimationController"
 import { CameraController } from "@/controllers/Camera"
 import { EnvironmentWrapper } from "@/controllers/Environment"
 import { PostProcessing } from "@/controllers/PostProcessing"
 import { SceneController } from "@/controllers/SceneController"
 import { useSceneChange } from "@/hooks/useSceneChange"
+import { Dust } from "@/objects/Dust"
 import { TestObject } from "@/objects/Test"
 import { TestPlanet } from "@/objects/TestPlanet"
 import type { Scene, StarfieldConfig } from "@/types"
@@ -157,8 +159,7 @@ export default function App({ config, debug = false }: StarfieldProps) {
           onIncline={() => setPerformance({ dpr: 2 })}
           onDecline={() => setPerformance({ dpr: 1 })}
         />
-        <RenderMonitor />
-
+        <Stats />
         <SceneController />
 
         <AnimationController>
@@ -178,7 +179,16 @@ export default function App({ config, debug = false }: StarfieldProps) {
               >
                 {/* Scene Elements */}
                 <TestObject />
-
+                <Stars
+                  radius={50}
+                  depth={50}
+                  count={5000}
+                  factor={4}
+                  saturation={0}
+                  fade
+                  speed={0}
+                />
+                <Dust />
                 {/*<GameObjects gameObjects={gameObjects} />
             <Stars ref={starsRef} />*/}
                 <Center scale={modelScale}>
@@ -190,6 +200,7 @@ export default function App({ config, debug = false }: StarfieldProps) {
           </Suspense>
 
           <CameraController />
+
           <EnvironmentWrapper />
           <Effects />
         </AnimationController>
