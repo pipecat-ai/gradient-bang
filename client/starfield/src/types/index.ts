@@ -15,6 +15,7 @@ export interface StarfieldConfig {
   shakeIntensity?: number
   shakeRelaxTime?: number
   shockwaveSpeed?: number
+  shockwaveEnabled?: boolean
 }
 
 export type StarfieldState =

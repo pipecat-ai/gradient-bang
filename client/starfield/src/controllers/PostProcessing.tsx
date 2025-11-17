@@ -36,6 +36,7 @@ export const PostProcessing = () => {
     vignetteAmount,
     hyerpspaceUniforms,
     shockwaveSpeed: storedShockwaveSpeed,
+    shockwaveEnabled: storedShockwaveEnabled,
   } = useGameStore((state) => state.starfieldConfig)
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
 
@@ -78,7 +79,7 @@ export const PostProcessing = () => {
     Dithering: folder(
       {
         ditheringGridSize: {
-          value: 4,
+          value: 3,
           min: 1,
           max: 20,
           step: 1,
@@ -120,16 +121,25 @@ export const PostProcessing = () => {
     ),
   })
 
-  const {
-    shockwaveEnabled,
-    shockwaveMaxRadius,
-    shockwaveWaveSize,
-    shockwaveAmplitude,
-    shockwaveDistance,
-  } = useControls({
+  const [
+    {
+      shockwaveMaxRadius,
+      shockwaveWaveSize,
+      shockwaveAmplitude,
+      shockwaveDistance,
+    },
+    setShockwaveConfig,
+  ] = useControls(() => ({
     Shockwave: folder(
       {
-        shockwaveEnabled: { value: true, label: "Enable Shockwave" },
+        shockwaveEnabled: {
+          value: storedShockwaveEnabled ?? true,
+          label: "Enable Shockwave",
+          onChange: (value: boolean) => {
+            setStarfieldConfig({ shockwaveEnabled: value })
+          },
+          transient: true,
+        },
         shockwaveSpeed: {
           value: storedShockwaveSpeed ?? 1.25,
           min: 0.1,
@@ -171,7 +181,7 @@ export const PostProcessing = () => {
       },
       { collapsed: true }
     ),
-  })
+  }))
 
   useEffect(() => {
     invalidate()
@@ -216,7 +226,7 @@ export const PostProcessing = () => {
       bloomEffectRef.current = null
     }
 
-    if (shockwaveEnabled) {
+    if (storedShockwaveEnabled) {
       const durationSeconds = Math.max(storedShockwaveSpeed ?? 1.25, 0.001)
       const effectSpeed = shockwaveMaxRadius / durationSeconds
       const shockwave = new ShockWaveEffect(
@@ -271,7 +281,7 @@ export const PostProcessing = () => {
     vignetteEnabled,
     vignetteOffset,
     vignetteDarkness,
-    shockwaveEnabled,
+    storedShockwaveEnabled,
     shockwaveMaxRadius,
     shockwaveWaveSize,
     shockwaveAmplitude,

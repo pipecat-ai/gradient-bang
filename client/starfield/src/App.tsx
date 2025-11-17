@@ -17,24 +17,22 @@ import {
   useGLTF,
 } from "@react-three/drei"
 import { Canvas } from "@react-three/fiber"
-import { button, folder, Leva, useControls } from "leva"
+import { Leva } from "leva"
 import * as THREE from "three"
 
-import {
-  AnimationController,
-  useShockwave,
-} from "@/controllers/AnimationController"
+import { AnimationController } from "@/controllers/AnimationController"
 import { CameraController } from "@/controllers/Camera"
 import { EnvironmentWrapper } from "@/controllers/Environment"
-import { PostProcessing } from "@/controllers/PostProcessing"
 import { SceneController } from "@/controllers/SceneController"
-import { useSceneChange } from "@/hooks/useSceneChange"
 import { Dust } from "@/objects/Dust"
 import { TestObject } from "@/objects/Test"
 import type { Scene, StarfieldConfig } from "@/types"
 import { useGameStore } from "@/useGameStore"
 
-import { useAnimationStore } from "./useAnimationStore"
+import { RenderingIndicator } from "./components/RenderingIndicator"
+import { Effects } from "./controllers/Effects"
+import { PostProcessing } from "./controllers/PostProcessing"
+import { useDevControls } from "./hooks/useDevControls"
 
 useGLTF.preload("/test-model.glb")
 
@@ -51,68 +49,13 @@ interface StarfieldProps {
 export default function App({ config, debug = false }: StarfieldProps) {
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
   const isPaused = useGameStore((state) => state.isPaused)
-  const togglePause = useGameStore((state) => state.togglePause)
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
-  const { changeScene } = useSceneChange()
-  const { isWarping, startWarp, stopWarp } = useAnimationStore()
+  const { dpr, setPerformance } = useDevControls()
+  const [modelScale, setModelScale] = useState(3)
 
   useLayoutEffect(() => {
     setStarfieldConfig(config ?? {})
-  }, [config])
-
-  const [, setSceneControls] = useControls("Scene Settings", () => ({
-    ["Log Config"]: button(() => {
-      console.log("Config", useGameStore.getState().starfieldConfig)
-    }),
-    ["Random Scene Change"]: button(() => {
-      changeScene({
-        id: Math.random().toString(36).substring(2, 15),
-        gameObjects: [],
-        config: {},
-      })
-    }),
-    ["Scene 1 Change"]: button(() => {
-      changeScene({
-        id: "1",
-        gameObjects: [],
-        config: {},
-      })
-    }),
-    ["Start Warp"]: button(() => {
-      startWarp()
-    }),
-    ["Stop Warp"]: button(() => {
-      stopWarp()
-    }),
-    warpStatus: {
-      value: isWarping ? "Warping" : "Not Warping",
-      editable: false,
-    },
-  }))
-
-  useEffect(() => {
-    setSceneControls({ warpStatus: isWarping ? "Warping" : "Not Warping" })
-  }, [isWarping])
-
-  const [{ dpr }, setPerformance] = useControls(() => ({
-    "Render Settings": folder(
-      {
-        [isPaused ? "Resume" : "Pause"]: button(() => {
-          togglePause()
-        }),
-        dpr: {
-          value: 1.5,
-          min: 1,
-          max: 2,
-          step: 0.1,
-          label: "DPR",
-        },
-      },
-      { collapsed: true }
-    ),
-  }))
-
-  const [modelScale, setModelScale] = useState(3)
+  }, [config, setStarfieldConfig])
 
   // Responsive adjustment handler for model scale
   const handleResize = useCallback(() => {
@@ -122,8 +65,6 @@ export default function App({ config, debug = false }: StarfieldProps) {
 
   // Set up resize handling
   useEffect(() => {
-    handleResize()
-
     window.addEventListener("resize", handleResize)
     return () => window.removeEventListener("resize", handleResize)
   }, [handleResize])
@@ -150,11 +91,12 @@ export default function App({ config, debug = false }: StarfieldProps) {
           onIncline={() => setPerformance({ dpr: 2 })}
           onDecline={() => setPerformance({ dpr: 1 })}
         />
-        <Stats />
+        <Stats showPanel={0} />
+        <RenderingIndicator />
+
         <SceneController />
 
         <AnimationController>
-          <ShockwaveControls />
           <Suspense fallback={null}>
             {/* Nebula background - rendered first and positioned at the back */}
             <group position={[0, 0, -50]}>
@@ -194,6 +136,7 @@ export default function App({ config, debug = false }: StarfieldProps) {
           <CameraController />
 
           <EnvironmentWrapper />
+          <PostProcessingMemo />
           <Effects />
         </AnimationController>
       </Canvas>
@@ -201,37 +144,20 @@ export default function App({ config, debug = false }: StarfieldProps) {
   )
 }
 
-/**
- * Post-processing effects wrapper component
- * Memoized to prevent unnecessary re-renders
- */
-const Effects = memo(() => <PostProcessing />)
-
-const ShockwaveControls = () => {
-  const { triggerShockwave } = useShockwave()
-
-  useControls(
-    "Shockwave",
-    () => ({
-      ["Trigger Shockwave"]: button(() => {
-        triggerShockwave()
-      }),
-    }),
-    [triggerShockwave]
-  )
-
-  return null
-}
+export const PostProcessingMemo = memo(PostProcessing)
 
 interface HelmetProps {
-  [key: string]: any
+  [key: string]: unknown
 }
 
 /**
  * 3D Helmet model component
  */
 function Helmet(props: HelmetProps) {
-  const { nodes, materials } = useGLTF("/test-model.glb") as any
+  const { nodes, materials } = useGLTF("/test-model.glb") as unknown as {
+    nodes: Record<string, THREE.Mesh>
+    materials: Record<string, THREE.Material>
+  }
   return (
     <group {...props} dispose={null}>
       <mesh

@@ -57,7 +57,6 @@ export function AnimationController({ children }: PropsWithChildren) {
     [shockwaveSpeed]
   )
 
-  console.log("shockwaveActiveMs", shockwaveActiveMs)
   const runShockwaveLoop = useCallback(() => {
     const now = performance.now()
     shockwaveEndTimeRef.current = now + shockwaveActiveMs
@@ -184,4 +183,38 @@ export function useShockwave() {
     throw new Error("useShockwave must be used within AnimationController")
   }
   return context
+}
+
+export function useWarpExitEffect(callback: () => void, delay: number = 0) {
+  const { isWarping } = useWarpAnimation()
+  const previousWarpingRef = useRef(isWarping)
+  const timeoutRef = useRef<number | null>(null)
+  const callbackRef = useRef(callback)
+
+  useEffect(() => {
+    callbackRef.current = callback
+  }, [callback])
+
+  useEffect(() => {
+    if (previousWarpingRef.current && !isWarping) {
+      if (timeoutRef.current !== null) {
+        clearTimeout(timeoutRef.current)
+      }
+
+      const delayMs = Math.max(delay, 0)
+
+      timeoutRef.current = window.setTimeout(() => {
+        callbackRef.current()
+        timeoutRef.current = null
+      }, delayMs)
+    }
+
+    previousWarpingRef.current = isWarping
+
+    return () => {
+      if (timeoutRef.current !== null) {
+        clearTimeout(timeoutRef.current)
+      }
+    }
+  }, [isWarping, delay])
 }

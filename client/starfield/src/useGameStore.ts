@@ -49,8 +49,8 @@ interface AppState {
 export const useGameStore = create<AppState>((set) => ({
   starfieldConfig: {
     cameraBaseFov: 85,
-    vignetteAmount: 0.65,
-    hyperspaceEnterTime: 3000,
+    vignetteAmount: 0.5,
+    hyperspaceEnterTime: 2000,
     hyperspaceExitTime: 2000,
     hyperspaceDuration: 1000,
     hyperspaceCooldown: 10000,
@@ -63,7 +63,8 @@ export const useGameStore = create<AppState>((set) => ({
     },
     shakeIntensity: 1,
     shakeRelaxTime: 1000,
-    shockwaveSpeed: 3,
+    shockwaveSpeed: 1.5,
+    shockwaveEnabled: true,
   },
   setStarfieldConfig: (config: Partial<StarfieldConfig>) =>
     set(
