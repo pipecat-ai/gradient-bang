@@ -18,25 +18,13 @@ from gradientbang.utils.tools_schema import (
     PlotCourse,
     LocalMapRegion,
     ListKnownPorts,
-    PathWithRegion,
-    Move,
     StartTask,
     StopTask,
-    Trade,
-    RechargeWarpPower,
-    TransferWarpPower,
-    TransferCredits,
-    BankDeposit,
-    BankWithdraw,
-    DumpCargo,
     SendMessage,
-    PurchaseFighters,
     CombatInitiate,
     CombatAction,
-    PlaceFighters,
-    CollectFighters,
-    SalvageCollect,
     CorporationInfo,
+    #    PathWithRegion, # Advanced version of plot_course -- disabled for now
     UI_SHOW_PANEL_SCHEMA,
 )
 
@@ -149,9 +137,7 @@ class VoiceTaskManager:
         # Note: Most game_client methods require character_id, but the LLM tools
         # don't expose it. We wrap methods to inject self.character_id automatically.
         self._tool_dispatch = {
-            "my_status": lambda: self.game_client.my_status(
-                character_id=self.character_id
-            ),
+            "my_status": lambda: self.game_client.my_status(character_id=self.character_id),
             "leaderboard_resources": lambda **kwargs: self.game_client.leaderboard_resources(
                 character_id=self.character_id, **kwargs
             ),
@@ -164,37 +150,7 @@ class VoiceTaskManager:
             "list_known_ports": lambda **kwargs: self.game_client.list_known_ports(
                 character_id=self.character_id, **kwargs
             ),
-            "path_with_region": lambda **kwargs: self.game_client.path_with_region(
-                character_id=self.character_id, **kwargs
-            ),
-            "move": lambda to_sector: self.game_client.move(
-                to_sector=to_sector, character_id=self.character_id
-            ),
-            "trade": lambda **kwargs: self.game_client.trade(
-                character_id=self.character_id, **kwargs
-            ),
-            "purchase_fighters": lambda **kwargs: self.game_client.purchase_fighters(
-                character_id=self.character_id, **kwargs
-            ),
-            "dump_cargo": lambda **kwargs: self.game_client.dump_cargo(
-                character_id=self.character_id, **kwargs
-            ),
             "send_message": lambda **kwargs: self.game_client.send_message(
-                character_id=self.character_id, **kwargs
-            ),
-            "recharge_warp_power": lambda amount: self.game_client.recharge_warp_power(
-                character_id=self.character_id, amount=amount
-            ),
-            "transfer_warp_power": lambda **kwargs: self.game_client.transfer_warp_power(
-                character_id=self.character_id, **kwargs
-            ),
-            "transfer_credits": lambda **kwargs: self.game_client.transfer_credits(
-                character_id=self.character_id, **kwargs
-            ),
-            "bank_deposit": lambda **kwargs: self.game_client.deposit_to_bank(
-                character_id=self.character_id, **kwargs
-            ),
-            "bank_withdraw": lambda **kwargs: self.game_client.withdraw_from_bank(
                 character_id=self.character_id, **kwargs
             ),
             "combat_initiate": lambda **kwargs: self.game_client.combat_initiate(
@@ -203,18 +159,12 @@ class VoiceTaskManager:
             "combat_action": lambda **kwargs: self.game_client.combat_action(
                 character_id=self.character_id, **kwargs
             ),
-            "place_fighters": lambda **kwargs: self.game_client.combat_leave_fighters(
-                character_id=self.character_id, **kwargs
-            ),
-            "collect_fighters": lambda **kwargs: self.game_client.combat_collect_fighters(
-                character_id=self.character_id, **kwargs
-            ),
-            "salvage_collect": lambda **kwargs: self.game_client.salvage_collect(
-                character_id=self.character_id, **kwargs
-            ),
             "corporation_info": lambda **kwargs: self.game_client._request(
                 "corporation.list" if kwargs.get("list_all") else "corporation.info",
-                {} if kwargs.get("list_all") else {"character_id": self.character_id}
+                {} if kwargs.get("list_all") else {"character_id": self.character_id},
+            ),
+            "path_with_region": lambda **kwargs: self.game_client.path_with_region(
+                character_id=self.character_id, **kwargs
             ),
         }
 
@@ -345,19 +295,23 @@ class VoiceTaskManager:
 
     def _create_agent_output_callback(self, task_id: str, task_type: str) -> Callable:
         """Create a task-specific output callback that includes task_id and task_type."""
+
         def _handle_agent_output(text: str, message_type: Optional[str] = None) -> None:
             """Schedule processing of agent output asynchronously."""
             asyncio.create_task(self._task_output_handler(text, message_type, task_id, task_type))
+
         return _handle_agent_output
 
-    def _handle_agent_output(
-        self, text: str, message_type: Optional[str] = None
-    ) -> None:
+    def _handle_agent_output(self, text: str, message_type: Optional[str] = None) -> None:
         """Legacy callback for backwards compatibility - uses player_ship task type."""
         asyncio.create_task(self._task_output_handler(text, message_type, None, "player_ship"))
 
     async def _task_output_handler(
-        self, text: str, message_type: Optional[str] = None, task_id: Optional[str] = None, task_type: str = "player_ship"
+        self,
+        text: str,
+        message_type: Optional[str] = None,
+        task_id: Optional[str] = None,
+        task_type: str = "player_ship",
     ) -> None:
         """Handle output from the task agent.
 
@@ -367,7 +321,9 @@ class VoiceTaskManager:
             task_id: Optional task ID for multi-task tracking
             task_type: Type of task ("player_ship" or "corp_ship")
         """
-        logger.info(f"!!! task output: [{message_type}] task_id={task_id} task_type={task_type} {text}")
+        logger.info(
+            f"!!! task output: [{message_type}] task_id={task_id} task_type={task_type} {text}"
+        )
 
         # send everything from the task agent to the client to be displayed
         await self.rtvi_processor.push_frame(
@@ -413,9 +369,7 @@ class VoiceTaskManager:
 
         try:
             logger.info(f"!!! running task {task_id} ({task_type}): {task_description}")
-            success = await task_agent.run_task(
-                task=task_description, max_iterations=100
-            )
+            success = await task_agent.run_task(task=task_description, max_iterations=100)
             logger.info(f"!!! task {task_id} result: {success}")
 
             if success:
@@ -487,9 +441,7 @@ class VoiceTaskManager:
             self.current_task.cancel()
             self.task_running = False
             # Add immediate feedback
-            self._handle_agent_output(
-                "Cancellation requested - stopping task...", "cancelled"
-            )
+            self._handle_agent_output("Cancellation requested - stopping task...", "cancelled")
 
     async def execute_tool_call(self, params: FunctionCallParams):
         """Generic executor for all declared tools, for tool calls from the
@@ -501,9 +453,7 @@ class VoiceTaskManager:
         params.result_callback with the same payload.
         """
         # Try to discover the tool name from params (Pipecat provides name)
-        tool_name = getattr(params, "name", None) or getattr(
-            params, "function_name", None
-        )
+        tool_name = getattr(params, "name", None) or getattr(params, "function_name", None)
         if not tool_name:
             # Fallback: try to peek at arguments for an injected name (not expected)
             tool_name = "unknown"
@@ -551,7 +501,10 @@ class VoiceTaskManager:
 
             # Check if this specific ship already has a running task
             for task_id, task_info in self._active_tasks.items():
-                if task_info["target_character_id"] == target_character_id and not task_info["asyncio_task"].done():
+                if (
+                    task_info["target_character_id"] == target_character_id
+                    and not task_info["asyncio_task"].done()
+                ):
                     return {
                         "success": False,
                         "error": f"Ship {target_character_id[:8]}... already has task {task_id} running. Stop it first.",
@@ -669,7 +622,10 @@ class VoiceTaskManager:
                 # Cancel player ship task (backwards compatibility)
                 player_ship_task_id = None
                 for tid, task_info in self._active_tasks.items():
-                    if task_info["target_character_id"] == self.character_id and not task_info["asyncio_task"].done():
+                    if (
+                        task_info["target_character_id"] == self.character_id
+                        and not task_info["asyncio_task"].done()
+                    ):
                         player_ship_task_id = tid
                         break
 
@@ -679,7 +635,10 @@ class VoiceTaskManager:
                         self.current_task.cancel()
                         return {"success": True, "message": "Task cancelled"}
                     else:
-                        return {"success": False, "error": "No player ship task is currently running"}
+                        return {
+                            "success": False,
+                            "error": "No player ship task is currently running",
+                        }
 
                 task_info = self._active_tasks[player_ship_task_id]
                 task_agent = task_info["task_agent"]
@@ -702,8 +661,15 @@ class VoiceTaskManager:
         try:
             logger.info(f"show_panel: {params.arguments}")
             await params.llm.push_frame(
-                RTVIServerMessageFrame({"ui-action": "show_panel", **params.arguments})
+                RTVIServerMessageFrame(
+                    {
+                        "frame_type": "event",
+                        "event": "ui-action",
+                        "payload": {"action": "show_panel", **params.arguments},
+                    }
+                )
             )
+            logger.info(f"pushed via {params.llm}")
             return {"success": True, "message": "Panel shown"}
         except Exception as e:
             logger.error(f"ui_show_panel failed: {e}")
@@ -718,22 +684,9 @@ class VoiceTaskManager:
                 PlotCourse.schema(),
                 LocalMapRegion.schema(),
                 ListKnownPorts.schema(),
-                PathWithRegion.schema(),
-                Move.schema(),
-                Trade.schema(),
-                DumpCargo.schema(),
-                RechargeWarpPower.schema(),
-                TransferWarpPower.schema(),
-                TransferCredits.schema(),
-                PurchaseFighters.schema(),
-                BankDeposit.schema(),
-                BankWithdraw.schema(),
                 SendMessage.schema(),
                 CombatInitiate.schema(),
                 CombatAction.schema(),
-                PlaceFighters.schema(),
-                CollectFighters.schema(),
-                SalvageCollect.schema(),
                 CorporationInfo.schema(),
                 StartTask.schema(),
                 StopTask.schema(),
