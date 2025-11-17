@@ -201,7 +201,7 @@ async function handleMove({ supabase, characterId, destination, requestId, actor
     characterId: character.character_id,
     characterName: character.name,
     shipId: ship.ship_id,
-    shipName: ship.ship_name ?? shipDefinition.display_name,
+    shipName: shipDefinition.display_name,  // Always human-readable per codex convention
     shipType: ship.ship_type,
   };
 

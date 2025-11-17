@@ -5,6 +5,7 @@ import { buildGarrisonActions } from './combat_garrison.ts';
 import { resolveRound } from './combat_engine.ts';
 import { finalizeCombat } from './combat_finalization.ts';
 import { buildRoundResolvedPayload, buildRoundWaitingPayload, buildCombatEndedPayload } from './combat_events.ts';
+import { buildSectorSnapshot } from './map.ts';
 import {
   CombatEncounterState,
   RoundActionState,
@@ -103,6 +104,20 @@ export async function resolveEncounterRound(options: {
       eventType: 'combat.ended',
       payload: endedPayload,
       requestId,
+    });
+
+    // Emit sector.update to all sector occupants after combat ends
+    const sectorSnapshot = await buildSectorSnapshot(supabase, encounter.sector_id);
+    await emitSectorEnvelope({
+      supabase,
+      sectorId: encounter.sector_id,
+      eventType: 'sector.update',
+      payload: {
+        source: buildEventSource('combat.ended', requestId),
+        ...sectorSnapshot,
+      },
+      requestId,
+      actorCharacterId: null,
     });
   } else {
     console.log('combat_resolution.continuing', { combat_id: encounter.combat_id, next_round: outcome.round_number + 1 });

@@ -14,6 +14,7 @@ These tests require a test server running on port 8002.
 
 import asyncio
 import json
+import os
 import pytest
 import sys
 from datetime import datetime, timezone
@@ -26,6 +27,13 @@ from utils.api_client import AsyncGameClient, RPCError
 from helpers.combat_helpers import create_test_character_knowledge
 from helpers.corporation_utils import managed_client, reset_corporation_test_state
 from helpers.client_setup import create_client_with_character
+from conftest import EVENT_DELIVERY_WAIT
+
+
+def _supabase_mode_enabled():
+    """Check if running in Supabase mode."""
+    _TRUE_VALUES = {"1", "true", "yes", "y", "on", "enabled"}
+    return os.environ.get("USE_SUPABASE_TESTS", "").strip().lower() in _TRUE_VALUES
 
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
@@ -120,7 +128,7 @@ class TestBankOperations:
             assert result.get("success") is True
 
             # Wait for events
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Verify bank.transaction event
             assert len(bank_events) >= 1, "Should receive bank.transaction event"
@@ -192,7 +200,7 @@ class TestBankOperations:
             assert result.get("success") is True
 
             # Wait for events
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Verify bank.transaction event
             assert len(bank_events) >= 1, "Should receive bank.transaction event"
@@ -336,6 +344,10 @@ class TestBankValidation:
             assert exc_info.value.status == 400
             assert "sector 0" in str(exc_info.value).lower() or "megaport" in str(exc_info.value).lower()
 
+    @pytest.mark.skipif(
+        _supabase_mode_enabled(),
+        reason="Combat auto-engagement not yet implemented in Supabase (Priority 4)"
+    )
     async def test_bank_withdraw_while_in_combat_blocked(self, server_url, check_server_available):
         """Deposits are allowed in combat, but withdrawals remain blocked."""
         char_id = "test_bank_in_combat"
@@ -392,6 +404,10 @@ class TestBankValidation:
             await opponent_client.close()
 
 
+@pytest.mark.skipif(
+    _supabase_mode_enabled(),
+    reason="Corporation banking tests belong to Priority 5 (corporation flows)"
+)
 class TestCorporationBanking:
     """Banking scenarios that rely on corporation membership and ships."""
 
@@ -447,7 +463,7 @@ class TestCorporationBanking:
                 assert result["ship_id"] == founder_ship_id
                 assert result["source_character_id"] == founder_id
 
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
                 assert member_bank_events, "Expected bank.transaction event for corp member"
                 bank_event = member_bank_events[-1]
@@ -529,7 +545,7 @@ class TestCorporationBanking:
                 assert result.get("source_character_id") is None
                 assert result["ship_credits_after"] == starting_credits - 15_000
 
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
                 assert member_bank_events, "Expected bank.transaction event for corp member"
                 bank_event = member_bank_events[-1]

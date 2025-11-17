@@ -17,7 +17,7 @@ if str(REPO_ROOT) not in sys.path:
 from tests.helpers.payload_assertions import COMPARERS  # noqa: E402
 
 
-def load_events(path: Path) -> list[dict[str, Any]]:
+def load_events(path: Path, character_id: str | None = None) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     mode = "unknown"
     with path.open(encoding="utf-8") as fh:
@@ -31,6 +31,12 @@ def load_events(path: Path) -> list[dict[str, Any]]:
                 continue
             if record.get("record_type") != "event":
                 continue
+
+            # Filter by character_id if specified
+            if character_id is not None:
+                record_char_id = record.get("character_id")
+                if record_char_id != character_id:
+                    continue
 
             event = record["event"]
             events.append(event)
@@ -88,18 +94,20 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Compare AsyncGameClient payload dumps")
     parser.add_argument("legacy", type=Path)
     parser.add_argument("supabase", type=Path)
+    parser.add_argument("--character-id", help="Filter events to specific character_id")
     args = parser.parse_args(argv)
 
-    legacy_events = load_events(args.legacy)
-    supabase_events = load_events(args.supabase)
+    legacy_events = load_events(args.legacy, character_id=args.character_id)
+    supabase_events = load_events(args.supabase, character_id=args.character_id)
     diffs = compare(legacy_events, supabase_events)
     if diffs:
         print("Payload mismatch detected:")
         for diff in diffs:
             print(diff)
         return 1
+    filter_msg = f" for character {args.character_id}" if args.character_id else ""
     print(
-        f"Payloads match: {len(legacy_events)} events compared between {args.legacy} and {args.supabase}."
+        f"Payloads match{filter_msg}: {len(legacy_events)} events compared between {args.legacy} and {args.supabase}."
     )
     return 0
 

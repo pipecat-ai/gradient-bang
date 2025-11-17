@@ -6,6 +6,7 @@ import {
   emitCharacterEvent,
   emitErrorEvent,
   buildEventSource,
+  emitSectorEnvelope,
 } from '../_shared/events.ts';
 import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
 import {
@@ -16,13 +17,21 @@ import {
   resolveRequestId,
   respondWithError,
 } from '../_shared/request.ts';
-import { loadCharacter, loadShip, loadShipDefinition } from '../_shared/status.ts';
+import { loadCharacter, loadShip, loadShipDefinition, buildStatusPayload } from '../_shared/status.ts';
 import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 import { computeSectorVisibilityRecipients } from '../_shared/visibility.ts';
 import { recordEventWithRecipients } from '../_shared/events.ts';
 import type { SalvageEntry } from '../_shared/salvage.ts';
+import { buildSectorSnapshot } from '../_shared/map.ts';
 
 const VALID_COMMODITIES = new Set(['quantum_foam', 'retro_organics', 'neuro_symbolics']);
+
+// Mapping from full commodity names to database column suffixes
+const COMMODITY_TO_COLUMN: Record<string, string> = {
+  'quantum_foam': 'qf',
+  'retro_organics': 'ro',
+  'neuro_symbolics': 'ns',
+};
 
 serve(async (req: Request): Promise<Response> => {
   if (!validateApiToken(req)) {
@@ -197,7 +206,7 @@ async function handleSalvageCollect(params: {
 
   // Get ship capacity
   const shipDefinition = await loadShipDefinition(supabase, ship.ship_type);
-  const cargoUsed = (ship.cargo_quantum_foam ?? 0) + (ship.cargo_retro_organics ?? 0) + (ship.cargo_neuro_symbolics ?? 0);
+  const cargoUsed = (ship.cargo_qf ?? 0) + (ship.cargo_ro ?? 0) + (ship.cargo_ns ?? 0);
   let availableSpace = shipDefinition.cargo_holds - cargoUsed;
 
   // Track collection results
@@ -226,12 +235,12 @@ async function handleSalvageCollect(params: {
   // Collect scrap first (highest priority - converted to neuro_symbolics)
   if (container.scrap && availableSpace > 0) {
     const collectibleScrap = Math.min(container.scrap, availableSpace);
-    const currentNeuroSymbolics = ship.cargo_neuro_symbolics ?? 0;
+    const currentNeuroSymbolics = ship.cargo_ns ?? 0;
 
     const { error: cargoError } = await supabase
       .from('ship_instances')
       .update({
-        cargo_neuro_symbolics: currentNeuroSymbolics + collectibleScrap,
+        cargo_ns: currentNeuroSymbolics + collectibleScrap,
         updated_at: new Date().toISOString(),
       })
       .eq('ship_id', ship.ship_id);
@@ -264,7 +273,8 @@ async function handleSalvageCollect(params: {
     if (VALID_COMMODITIES.has(commodity)) {
       // Valid commodity - collect what fits
       const collectible = Math.min(amount, availableSpace);
-      const columnName = `cargo_${commodity}` as keyof typeof ship;
+      const columnSuffix = COMMODITY_TO_COLUMN[commodity];
+      const columnName = `cargo_${columnSuffix}` as keyof typeof ship;
       const currentAmount = (ship[columnName] as number) ?? 0;
 
       const { error: cargoError } = await supabase
@@ -291,12 +301,12 @@ async function handleSalvageCollect(params: {
     } else {
       // Unknown commodity - treat as neuro_symbolics scrap
       const collectible = Math.min(amount, availableSpace);
-      const currentNeuroSymbolics = ship.cargo_neuro_symbolics ?? 0;
+      const currentNeuroSymbolics = ship.cargo_ns ?? 0;
 
       const { error: cargoError } = await supabase
         .from('ship_instances')
         .update({
-          cargo_neuro_symbolics: currentNeuroSymbolics + collectible,
+          cargo_ns: currentNeuroSymbolics + collectible,
           updated_at: new Date().toISOString(),
         })
         .eq('ship_id', ship.ship_id);
@@ -396,53 +406,30 @@ async function handleSalvageCollect(params: {
     actorCharacterId: characterId,
   });
 
-  // Emit status.update
+  // Emit status.update with full status snapshot (for legacy parity)
+  const statusPayload = await buildStatusPayload(supabase, characterId);
+  statusPayload.source = buildEventSource('salvage.collect', requestId);
   await emitCharacterEvent({
     supabase,
     characterId,
     eventType: 'status.update',
-    payload: {
-      source: buildEventSource('salvage.collect', requestId),
-      sector: { id: sectorId },
-      ship: {
-        ship_id: ship.ship_id,
-        ship_type: ship.ship_type,
-        credits: ship.credits + collectedCredits,
-        cargo: {
-          quantum_foam: ship.cargo_quantum_foam ?? 0,
-          retro_organics: ship.cargo_retro_organics ?? 0,
-          neuro_symbolics: ship.cargo_neuro_symbolics ?? 0,
-          // Update with collected amounts
-          ...Object.fromEntries(
-            Object.entries(collectedCargo).map(([commodity, amount]) => [
-              commodity,
-              ((ship as any)[`cargo_${commodity}`] ?? 0) + amount,
-            ])
-          ),
-        },
-      },
-    },
+    payload: statusPayload,
     sectorId,
     requestId,
     actorCharacterId: characterId,
   });
 
-  // Emit sector.update to all sector occupants
-  const recipients = await computeSectorVisibilityRecipients(supabase, sectorId, []);
-  if (recipients.length > 0) {
-    await recordEventWithRecipients({
-      supabase,
-      eventType: 'sector.update',
-      payload: {
-        source: buildEventSource('salvage.collect', requestId),
-        sector: { id: sectorId },
-      },
-      recipients,
-      sectorId,
-      actorCharacterId: characterId,
-      requestId,
-    });
-  }
+  // Emit sector.update to all sector occupants with full sector snapshot (for legacy parity)
+  const sectorSnapshot = await buildSectorSnapshot(supabase, sectorId);
+  sectorSnapshot.source = buildEventSource('salvage.collect', requestId);
+  await emitSectorEnvelope({
+    supabase,
+    sectorId,
+    eventType: 'sector.update',
+    payload: sectorSnapshot,
+    requestId,
+    actorCharacterId: characterId,
+  });
 
   return successResponse({
     success: true,

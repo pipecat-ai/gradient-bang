@@ -233,9 +233,9 @@ class SupabaseRealtimeListener:
         if isinstance(meta, dict) and "meta" not in payload:
             payload["meta"] = meta
 
-        request_id = record.get("request_id")
-        if isinstance(request_id, str) and request_id and "request_id" not in payload:
-            payload["request_id"] = request_id
+        # Note: request_id and __event_context should NOT be added to payloads delivered to API consumers
+        # These are metadata fields available via separate envelope fields if needed by internal code
+        # Event payloads should only contain application data (request_id belongs in source.request_id if needed)
 
         inserted_id = record.get("id")
         event_id: Optional[int]
@@ -244,16 +244,8 @@ class SupabaseRealtimeListener:
         except (TypeError, ValueError):
             event_id = None
 
-        context: Dict[str, Any] = {}
-        for key in ("scope", "sector_id", "corp_id", "actor_character_id", "character_id", "direction"):
-            value = record.get(key)
-            if value is not None:
-                context[key] = value
-        if event_id is not None:
-            context["event_id"] = event_id
-        if context:
-            payload.setdefault("__event_context", context)
-
+        # Note: __event_context should NOT be added to payloads delivered to API consumers
+        # Context metadata is available via separate envelope fields if needed by internal code
         self._dispatch_event(event_name, payload, event_id)
 
     def _dispatch_event(self, event_name: str, payload: Dict[str, Any], event_id: Optional[int]) -> None:

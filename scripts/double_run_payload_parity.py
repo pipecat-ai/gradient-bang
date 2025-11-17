@@ -137,7 +137,7 @@ def main() -> int:
         {
             "ASYNC_CLIENT_PAYLOAD_DUMP": str(supabase_dump),
             "USE_SUPABASE_TESTS": "1",
-            "SUPABASE_TRANSPORT": "1",
+            "SUPABASE_USE_POLLING": "1",
             "SUPABASE_URL": args.supabase_url,
             "EDGE_API_TOKEN": args.edge_token,
             "SUPABASE_SERVICE_ROLE_KEY": args.service_role,

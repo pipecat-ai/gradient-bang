@@ -28,6 +28,7 @@ from utils.api_client import AsyncGameClient, RPCError
 from helpers.event_capture import create_firehose_listener
 from helpers.assertions import assert_event_emitted
 from helpers.combat_helpers import create_test_character_knowledge
+from helpers.client_setup import create_client_with_character
 from conftest import EVENT_DELIVERY_WAIT
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]

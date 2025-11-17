@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import sys
+import time
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -68,11 +70,13 @@ def _install_capture_patch(dump_path: Path, test_id: str) -> None:
         serialized_event = json.loads(
             json.dumps(event_message, default=_json_default)
         )
+        # Include character_id to enable filtering events by client instance
         record = {
             "record_type": "event",
             "index": counter["value"],
             "event_name": event_name,
             "event": serialized_event,
+            "character_id": getattr(self, "character_id", None),
         }
         counter["value"] += 1
         write_record(record)

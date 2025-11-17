@@ -7,6 +7,7 @@ import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
 import { buildStatusPayload, loadCharacter, loadShip } from '../_shared/status.ts';
 import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 import { canonicalizeCharacterId } from '../_shared/ids.ts';
+import { loadCombatForSector } from '../_shared/combat_state.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -15,6 +16,7 @@ import {
   optionalNumber,
   resolveRequestId,
   respondWithError,
+  RequestValidationError,
 } from '../_shared/request.ts';
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -58,6 +60,9 @@ serve(async (req: Request): Promise<Response> => {
   const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
+  // Try to get a character_id from the payload for error logging
+  const characterIdForErrors = optionalString(payload, 'character_id') ?? actorCharacterId;
+
   try {
     if (direction === 'deposit') {
       return await handleDeposit(supabase, payload, requestId, actorCharacterId, adminOverride);
@@ -67,27 +72,63 @@ serve(async (req: Request): Promise<Response> => {
     }
     throw new BankTransferError("direction must be 'deposit' or 'withdraw'", 400);
   } catch (err) {
+    // Only emit error event if we have a valid character ID
+    const shouldEmitError = characterIdForErrors !== null;
+
+    if (err instanceof RequestValidationError) {
+      if (shouldEmitError) {
+        try {
+          await emitErrorEvent(supabase, {
+            characterId: characterIdForErrors!,
+            method: 'bank_transfer',
+            requestId,
+            detail: err.message,
+            status: err.status,
+          });
+        } catch (emitErr) {
+          console.error('[bank_transfer] Failed to emit error event', { emitErr });
+        }
+      }
+      return errorResponse(err.message, err.status);
+    }
     if (err instanceof ActorAuthorizationError) {
-      await emitErrorEvent(supabase, {
-        characterId: actorCharacterId ?? 'unknown',
-        method: 'bank_transfer',
-        requestId,
-        detail: err.message,
-        status: err.status,
-      });
+      if (shouldEmitError) {
+        try {
+          await emitErrorEvent(supabase, {
+            characterId: characterIdForErrors!,
+            method: 'bank_transfer',
+            requestId,
+            detail: err.message,
+            status: err.status,
+          });
+        } catch (emitErr) {
+          console.error('[bank_transfer] Failed to emit error event', { emitErr });
+        }
+      }
       return errorResponse(err.message, err.status);
     }
     if (err instanceof BankTransferError) {
-      await emitErrorEvent(supabase, {
-        characterId: actorCharacterId ?? 'unknown',
-        method: 'bank_transfer',
-        requestId,
-        detail: err.message,
-        status: err.status,
-      });
+      if (shouldEmitError) {
+        try {
+          await emitErrorEvent(supabase, {
+            characterId: characterIdForErrors!,
+            method: 'bank_transfer',
+            requestId,
+            detail: err.message,
+            status: err.status,
+          });
+        } catch (emitErr) {
+          console.error('[bank_transfer] Failed to emit error event', { emitErr });
+        }
+      }
       return errorResponse(err.message, err.status);
     }
-    console.error('bank_transfer.unhandled', err);
+    console.error('bank_transfer.unhandled', {
+      error: err,
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      name: err instanceof Error ? err.name : undefined,
+    });
     return errorResponse('internal server error', 500);
   }
 });
@@ -99,31 +140,77 @@ async function handleDeposit(
   actorCharacterId: string | null,
   adminOverride: boolean,
 ): Promise<Response> {
-  const shipId = requireString(payload, 'ship_id');
+  console.log('[bank_transfer.deposit] Starting deposit handler', { requestId, payload });
+
+  const shipIdFromPayload = optionalString(payload, 'ship_id');
   const targetPlayerName = requireString(payload, 'target_player_name');
   const amount = requirePositiveInt(payload, 'amount');
   const sourceCharacterLabel = optionalString(payload, 'character_id');
   const sourceCharacterId = sourceCharacterLabel ? await canonicalizeCharacterId(sourceCharacterLabel) : null;
 
-  const ship = await loadShip(supabase, shipId);
-  await ensureActorAuthorization({
-    supabase,
-    ship,
-    actorCharacterId,
-    adminOverride,
-    targetCharacterId: sourceCharacterId ?? ship.owner_character_id ?? ship.owner_id ?? ship.ship_id,
-  });
-  if (ship.current_sector !== BANK_SECTOR || ship.in_hyperspace) {
-    throw new BankTransferError('Deposits require the ship to be docked at the Megaport (sector 0)', 400);
+  console.log('[bank_transfer.deposit] Parsed params', { shipIdFromPayload, targetPlayerName, amount, sourceCharacterId });
+
+  // Derive ship_id from character if not provided
+  let shipId: string;
+  if (shipIdFromPayload) {
+    shipId = shipIdFromPayload;
+    console.log('[bank_transfer.deposit] Using provided ship_id', { shipId });
+  } else if (sourceCharacterId) {
+    console.log('[bank_transfer.deposit] Deriving ship_id from character', { sourceCharacterId });
+    let sourceCharacter;
+    try {
+      sourceCharacter = await loadCharacter(supabase, sourceCharacterId);
+      console.log('[bank_transfer.deposit] Loaded source character', { current_ship_id: sourceCharacter.current_ship_id });
+    } catch (err) {
+      console.error('[bank_transfer.deposit] Failed to load character', { sourceCharacterId, err });
+      throw new BankTransferError('Character not found or has no ship', 404);
+    }
+    if (!sourceCharacter.current_ship_id) {
+      throw new BankTransferError('Character has no ship', 400);
+    }
+    shipId = sourceCharacter.current_ship_id;
+  } else {
+    throw new BankTransferError('Either ship_id or character_id must be provided', 400);
   }
 
-  const ownerId = ship.owner_character_id ?? ship.owner_id;
+  let ship;
+  try {
+    console.log('[bank_transfer.deposit] Loading ship', { shipId });
+    ship = await loadShip(supabase, shipId);
+    console.log('[bank_transfer.deposit] Loaded ship', { shipId, credits: ship.credits, sector: ship.current_sector });
+  } catch (err) {
+    console.error('[bank_transfer.deposit] Failed to load ship', { shipId, err });
+    throw new BankTransferError('Ship not found', 404);
+  }
 
+  try {
+    await ensureActorAuthorization({
+      supabase,
+      ship,
+      actorCharacterId,
+      adminOverride,
+      targetCharacterId: sourceCharacterId ?? ship.owner_character_id ?? ship.owner_id ?? ship.ship_id,
+    });
+    console.log('[bank_transfer.deposit] Authorization passed');
+  } catch (err) {
+    console.error('[bank_transfer.deposit] Authorization failed', { err });
+    throw err;
+  }
+
+  // Note: Deposits can happen from any sector (legacy parity)
+  // Only withdrawals require sector 0
+
+  const ownerId = ship.owner_character_id ?? ship.owner_id;
+  console.log('[bank_transfer.deposit] Resolved owner', { ownerId });
+
+  console.log('[bank_transfer.deposit] Looking up target player', { targetPlayerName });
   const target = await findCharacterByName(supabase, targetPlayerName);
   if (!target) {
+    console.error('[bank_transfer.deposit] Target player not found', { targetPlayerName });
     throw new BankTransferError('Target player not found', 404);
   }
   const targetCharacterId = target.character_id;
+  console.log('[bank_transfer.deposit] Found target', { targetCharacterId, targetName: target.name });
 
   try {
     await enforceRateLimit(supabase, ownerId ?? targetCharacterId, 'bank_transfer');
@@ -136,16 +223,28 @@ async function handleDeposit(
   }
 
   const shipCreditsBefore = ship.credits ?? 0;
+  console.log('[bank_transfer.deposit] Checking balance', {
+    shipCreditsBefore,
+    amount,
+    sufficient: shipCreditsBefore >= amount,
+    shipCreditsRaw: ship.credits,
+    shipObject: { ship_id: ship.ship_id, credits: ship.credits, owner: ship.owner_character_id }
+  });
   if (shipCreditsBefore < amount) {
+    console.log('[bank_transfer.deposit] THROWING insufficient credits error - this should be 400');
     throw new BankTransferError('Insufficient ship credits for deposit', 400);
   }
+  console.log('[bank_transfer.deposit] Balance check passed, proceeding with deposit');
 
+
+  console.log('[bank_transfer.deposit] Updating ship credits', { shipId, before: shipCreditsBefore, after: shipCreditsBefore - amount });
   await supabase
     .from('ship_instances')
     .update({ credits: shipCreditsBefore - amount })
     .eq('ship_id', shipId);
 
   const bankBefore = target.credits_in_megabank ?? 0;
+  console.log('[bank_transfer.deposit] Updating bank balance', { targetCharacterId, before: bankBefore, after: bankBefore + amount });
   await supabase
     .from('characters')
     .update({ credits_in_megabank: bankBefore + amount })
@@ -154,13 +253,30 @@ async function handleDeposit(
   const source = buildEventSource('bank_transfer', requestId);
   const timestamp = new Date().toISOString();
 
-  const targetStatus = await buildStatusPayload(supabase, targetCharacterId);
+  console.log('[bank_transfer.deposit] Building target status payload', { targetCharacterId });
+  let targetStatus;
+  try {
+    targetStatus = await buildStatusPayload(supabase, targetCharacterId);
+    console.log('[bank_transfer.deposit] Built target status payload');
+  } catch (err) {
+    console.error('[bank_transfer.deposit] Failed to build target status', { targetCharacterId, err });
+    throw err;
+  }
   const targetDisplayId = resolveDisplayIdFromStatus(targetStatus, target.name ?? targetPlayerName, targetCharacterId);
 
   const resolvedSourceCharacter = sourceCharacterId ?? ship.owner_character_id ?? targetCharacterId;
+  console.log('[bank_transfer.deposit] Resolved source character', { resolvedSourceCharacter, sourceCharacterId, owner: ship.owner_character_id });
+
   let sourceStatus: Record<string, unknown> | null = null;
   if (resolvedSourceCharacter && resolvedSourceCharacter !== targetCharacterId) {
-    sourceStatus = await buildStatusPayload(supabase, resolvedSourceCharacter);
+    console.log('[bank_transfer.deposit] Building source status payload', { resolvedSourceCharacter });
+    try {
+      sourceStatus = await buildStatusPayload(supabase, resolvedSourceCharacter);
+      console.log('[bank_transfer.deposit] Built source status payload');
+    } catch (err) {
+      console.error('[bank_transfer.deposit] Failed to build source status', { resolvedSourceCharacter, err });
+      throw err;
+    }
   }
   const sourceDisplayId =
     resolvedSourceCharacter === targetCharacterId
@@ -170,29 +286,37 @@ async function handleDeposit(
           sourceCharacterLabel,
           resolvedSourceCharacter ?? targetDisplayId,
         );
+  console.log('[bank_transfer.deposit] Display IDs resolved', { targetDisplayId, sourceDisplayId });
 
-  await emitBankTransaction(
-    supabase,
-    targetCharacterId,
-    buildDepositPayload({
-      source,
-      amount,
-      shipId: resolveLegacyShipId(targetStatus, shipId, targetDisplayId),
-      shipCreditsBefore,
-      shipCreditsAfter: shipCreditsBefore - amount,
-      bankBefore,
-      bankAfter: bankBefore + amount,
-      timestamp,
-      targetCharacterId: targetDisplayId,
-      sourceCharacterId: sourceDisplayId,
-    }),
-    {
-      requestId,
-      sectorId: BANK_SECTOR,
-      shipId,
-      actorCharacterId,
-    },
-  );
+  console.log('[bank_transfer.deposit] Emitting bank transaction event');
+  try {
+    await emitBankTransaction(
+      supabase,
+      targetCharacterId,
+      buildDepositPayload({
+        source,
+        amount,
+        shipId: resolveLegacyShipId(targetStatus, shipId, targetDisplayId),
+        shipCreditsBefore,
+        shipCreditsAfter: shipCreditsBefore - amount,
+        bankBefore,
+        bankAfter: bankBefore + amount,
+        timestamp,
+        targetCharacterId: targetDisplayId,
+        sourceCharacterId: sourceDisplayId,
+      }),
+      {
+        requestId,
+        sectorId: BANK_SECTOR,
+        shipId,
+        actorCharacterId,
+      },
+    );
+    console.log('[bank_transfer.deposit] Emitted bank transaction event');
+  } catch (err) {
+    console.error('[bank_transfer.deposit] Failed to emit bank transaction', { err });
+    throw err;
+  }
 
   await emitCharacterEvent({
     supabase,
@@ -206,6 +330,7 @@ async function handleDeposit(
   });
 
   if (resolvedSourceCharacter && resolvedSourceCharacter !== targetCharacterId) {
+    console.log('[bank_transfer.deposit] Emitting source status update', { resolvedSourceCharacter });
     const ownerStatus = sourceStatus ?? (await buildStatusPayload(supabase, resolvedSourceCharacter));
     await emitCharacterEvent({
       supabase,
@@ -219,7 +344,15 @@ async function handleDeposit(
     });
   }
 
-  return successResponse({ request_id: requestId });
+  console.log('[bank_transfer.deposit] Deposit completed successfully', { requestId });
+  return successResponse({
+    request_id: requestId,
+    ship_id: shipId,
+    target_character_id: targetCharacterId,
+    source_character_id: resolvedSourceCharacter,
+    ship_credits_after: shipCreditsBefore - amount,
+    credits_in_bank_after: bankBefore + amount,
+  });
 }
 
 async function handleWithdraw(
@@ -243,8 +376,20 @@ async function handleWithdraw(
     throw new BankTransferError('rate limit error', 500);
   }
 
-  const character = await loadCharacter(supabase, characterId);
-  const ship = await loadShip(supabase, character.current_ship_id);
+  let character;
+  try {
+    character = await loadCharacter(supabase, characterId);
+  } catch (err) {
+    throw new BankTransferError('Character not found', 404);
+  }
+
+  let ship;
+  try {
+    ship = await loadShip(supabase, character.current_ship_id);
+  } catch (err) {
+    throw new BankTransferError('Ship not found', 404);
+  }
+
   await ensureActorAuthorization({
     supabase,
     ship,
@@ -254,6 +399,12 @@ async function handleWithdraw(
   });
   if (ship.current_sector !== BANK_SECTOR || ship.in_hyperspace) {
     throw new BankTransferError('Withdrawals require the pilot to be at the Megaport (sector 0)', 400);
+  }
+
+  // Check if character is in combat
+  const combat = await loadCombatForSector(supabase, ship.current_sector);
+  if (combat && !combat.ended && combat.participants[characterId]) {
+    throw new BankTransferError('Cannot withdraw from bank while in combat', 409);
   }
 
   const bankBalance = character.credits_in_megabank ?? 0;

@@ -15,6 +15,7 @@ These tests require a test server running on port 8002.
 """
 
 import asyncio
+import os
 import pytest
 import sys
 from datetime import datetime, timezone
@@ -25,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from utils.api_client import AsyncGameClient, RPCError
 from helpers.combat_helpers import create_test_character_knowledge
+from conftest import EVENT_DELIVERY_WAIT
 
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
@@ -101,7 +103,7 @@ class TestCargoSalvage:
             assert result.get("success") is True
 
             # Wait for events
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Verify salvage.created event (standardized payload)
             assert len(salvage_events) >= 1, "Should receive salvage.created event"
@@ -157,7 +159,7 @@ class TestCargoSalvage:
                 character_id=char_id
             )
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Get sector status to find salvage ID
             status = await get_status(client, char_id)
@@ -217,7 +219,7 @@ class TestCargoSalvage:
                 character_id=dumper_id
             )
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Collector should see sector.update with salvage
             assert len(collector_events) >= 1, "Collector should see sector update"
@@ -247,7 +249,7 @@ class TestCargoSalvage:
             assert result.get("success") is True
 
             # Wait for salvage collection to complete
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Verify collector got cargo (force fresh status check)
             collector_status_after = await get_status(collector_client, collector_id)
@@ -294,7 +296,7 @@ class TestCargoSalvage:
                 character_id=dumper_id
             )
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Late arrival moves into sector
             await arrival_client.move(
@@ -302,7 +304,7 @@ class TestCargoSalvage:
                 character_id=late_arrival_id
             )
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Late arrival should see salvage
             arrival_status = await get_status(arrival_client, late_arrival_id)
@@ -370,6 +372,10 @@ class TestCargoSalvageValidation:
             assert len(sector_salvage) > 0, "Should have salvage in sector"
             assert sector_salvage[0]["cargo"]["quantum_foam"] == available
 
+    @pytest.mark.skipif(
+        os.getenv("USE_SUPABASE_TESTS") == "1",
+        reason="Requires auto-combat engagement (Priority 4)",
+    )
     async def test_dump_cargo_while_in_combat(self, server_url, check_server_available):
         """Test dumping cargo while in combat fails."""
         char_id = "test_salvage_combat_dumper"

@@ -317,6 +317,94 @@ def compare_port_update(legacy_event: Dict[str, Any], supabase_event: Dict[str, 
 COMPARERS["port.update"] = compare_port_update
 
 
+def compare_salvage_collected(legacy_event: Dict[str, Any], supabase_event: Dict[str, Any]) -> ComparisonResult:
+    """Compare salvage.collected events, ignoring UUIDs and timestamps."""
+    diffs: List[str] = []
+    leg_payload = legacy_event.get("payload", {})
+    sup_payload = supabase_event.get("payload", {})
+
+    # Compare action
+    if leg_payload.get("action") != sup_payload.get("action"):
+        diffs.append(f"action mismatch: {leg_payload.get('action')!r} != {sup_payload.get('action')!r}")
+
+    # Compare salvage_details (ignoring salvage_id UUID)
+    leg_details = leg_payload.get("salvage_details", {})
+    sup_details = sup_payload.get("salvage_details", {})
+
+    # Compare collected amounts
+    if leg_details.get("collected") != sup_details.get("collected"):
+        diffs.append(f"collected mismatch: {leg_details.get('collected')!r} != {sup_details.get('collected')!r}")
+
+    # Compare remaining amounts
+    if leg_details.get("remaining") != sup_details.get("remaining"):
+        diffs.append(f"remaining mismatch: {leg_details.get('remaining')!r} != {sup_details.get('remaining')!r}")
+
+    # Compare fully_collected flag
+    if leg_details.get("fully_collected") != sup_details.get("fully_collected"):
+        diffs.append(f"fully_collected mismatch: {leg_details.get('fully_collected')!r} != {sup_details.get('fully_collected')!r}")
+
+    # Compare sector
+    leg_sector = leg_payload.get("sector", {})
+    sup_sector = sup_payload.get("sector", {})
+    if leg_sector.get("id") != sup_sector.get("id"):
+        diffs.append(f"sector.id mismatch: {leg_sector.get('id')!r} != {sup_sector.get('id')!r}")
+
+    # Compare source (ignoring request_id UUID and timestamp)
+    leg_source = leg_payload.get("source", {})
+    sup_source = sup_payload.get("source", {})
+    if leg_source.get("method") != sup_source.get("method"):
+        diffs.append(f"source.method mismatch: {leg_source.get('method')!r} != {sup_source.get('method')!r}")
+    if leg_source.get("type") != sup_source.get("type"):
+        diffs.append(f"source.type mismatch: {leg_source.get('type')!r} != {sup_source.get('type')!r}")
+
+    # Compare summary
+    if legacy_event.get("summary") != supabase_event.get("summary"):
+        diffs.append(f"summary mismatch: {legacy_event.get('summary')!r} != {supabase_event.get('summary')!r}")
+
+    return ComparisonResult(diffs)
+
+
+COMPARERS["salvage.collected"] = compare_salvage_collected
+
+
+def compare_character_moved(legacy_event: Dict[str, Any], supabase_event: Dict[str, Any]) -> ComparisonResult:
+    """Compare character.moved events, ignoring cosmetic metadata fields.
+
+    Cosmetic differences allowed:
+    - player.id: Legacy uses character name, Supabase uses UUID
+    - source: Supabase includes it, Legacy doesn't
+    - timestamp: Varies naturally between runs
+    - summary: May differ due to timestamp/ID differences
+    """
+    diffs: List[str] = []
+    leg_payload = legacy_event.get("payload", {})
+    sup_payload = supabase_event.get("payload", {})
+
+    # Compare functional fields
+    for field in ("movement", "move_type", "ship_type", "name"):
+        if leg_payload.get(field) != sup_payload.get(field):
+            diffs.append(f"{field} mismatch: {leg_payload.get(field)!r} != {sup_payload.get(field)!r}")
+
+    # Compare player.name (functional)
+    leg_player = leg_payload.get("player", {})
+    sup_player = sup_payload.get("player", {})
+    if leg_player.get("name") != sup_player.get("name"):
+        diffs.append(f"player.name mismatch: {leg_player.get('name')!r} != {sup_player.get('name')!r}")
+
+    # Compare ship fields (functional)
+    leg_ship = leg_payload.get("ship", {})
+    sup_ship = sup_payload.get("ship", {})
+    if leg_ship.get("ship_name") != sup_ship.get("ship_name"):
+        diffs.append(f"ship.ship_name mismatch: {leg_ship.get('ship_name')!r} != {sup_ship.get('ship_name')!r}")
+    if leg_ship.get("ship_type") != sup_ship.get("ship_type"):
+        diffs.append(f"ship.ship_type mismatch: {leg_ship.get('ship_type')!r} != {sup_ship.get('ship_type')!r}")
+
+    return ComparisonResult(diffs)
+
+
+COMPARERS["character.moved"] = compare_character_moved
+
+
 def compare_warp_purchase(legacy_event: Dict[str, Any], supabase_event: Dict[str, Any]) -> ComparisonResult:
     diffs: List[str] = []
     leg = legacy_event.get("payload", {})

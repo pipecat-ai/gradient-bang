@@ -8,6 +8,7 @@ import { buildStatusPayload, loadCharacter, loadShip, loadShipDefinition } from 
 import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 import { buildSectorSnapshot } from '../_shared/map.ts';
 import { canonicalizeCharacterId } from '../_shared/ids.ts';
+import { loadCombatForSector } from '../_shared/combat_state.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -174,6 +175,12 @@ async function handleDumpCargo(
     throw new DumpCargoError('Ship sector is unavailable', 500);
   }
 
+  // Check if character is in combat
+  const combat = await loadCombatForSector(supabase, ship.current_sector);
+  if (combat && !combat.ended && combat.participants[characterId]) {
+    throw new DumpCargoError('Cannot dump cargo while in combat', 409);
+  }
+
   const removed = calculateRemoved(manifest, ship);
   if (!Object.keys(removed).length) {
     throw new DumpCargoError('No cargo available to dump', 400);
@@ -220,6 +227,7 @@ async function handleDumpCargo(
     sectorId: ship.current_sector,
     shipId: ship.ship_id,
     requestId,
+    actorCharacterId,
   });
 
   const statusPayload = await buildStatusPayload(supabase, characterId);
@@ -231,6 +239,7 @@ async function handleDumpCargo(
     sectorId: ship.current_sector,
     shipId: ship.ship_id,
     requestId,
+    actorCharacterId,
   });
 
   const sectorSnapshot = await buildSectorSnapshot(supabase, ship.current_sector);

@@ -631,29 +631,22 @@ class AsyncGameClient(LegacyAsyncGameClient):
         if isinstance(meta, Mapping) and "meta" not in payload:
             payload["meta"] = dict(meta)
 
-        request_id = row.get("request_id")
-        if isinstance(request_id, str) and request_id and "request_id" not in payload:
-            payload["request_id"] = request_id
-
-        context = row.get("event_context")
-        if isinstance(context, Mapping):
-            context_data = dict(context)
-        else:
-            context_data = {}
-        for key in ("scope", "sector_id", "corp_id", "actor_character_id", "character_id", "direction"):
-            value = row.get(key)
-            if value is not None and key not in context_data:
-                context_data[key] = value
-        event_id = row.get("id")
-        if isinstance(event_id, int):
-            context_data["event_id"] = event_id
-        if context_data:
-            payload["__event_context"] = context_data
+        # Note: request_id and __event_context should NOT be added to payloads delivered to API consumers
+        # These are metadata fields available via separate row fields if needed by internal code
+        # Event payloads should only contain application data (request_id belongs in source.request_id if needed)
         return payload
 
     async def _stop_event_poller(self) -> None:
         if not self._use_polling:
             return
+
+        # Do one final poll to capture any pending events before stopping
+        # This ensures events from the last RPC are delivered before client closes
+        try:
+            await self._poll_events_once()
+        except Exception:
+            pass  # Ignore errors during final poll
+
         self._polling_stop_event.set()
         if self._polling_task is not None:
             self._polling_task.cancel()
