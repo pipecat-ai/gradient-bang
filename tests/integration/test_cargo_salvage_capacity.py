@@ -21,6 +21,7 @@ from pathlib import Path
 # Add project paths
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from conftest import EVENT_DELIVERY_WAIT
 from utils.api_client import AsyncGameClient
 from helpers.combat_helpers import create_test_character_knowledge
 
@@ -83,7 +84,7 @@ class TestSalvageCapacityFullCollection:
                 character_id=dumper_id
             )
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Get salvage ID
             collector_status = await get_status(collector_client, collector_id)
@@ -105,7 +106,7 @@ class TestSalvageCapacityFullCollection:
             assert result["remaining"]["cargo"] == {}
 
             # Verify collector has cargo
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
             collector_after = await get_status(collector_client, collector_id)
             assert collector_after["ship"]["cargo"].get("quantum_foam", 0) == 10
 
@@ -154,7 +155,7 @@ class TestSalvageCapacityNoSpace:
                 character_id=dumper_id
             )
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Get salvage ID
             collector_status = await get_status(collector_client, collector_id)
@@ -176,7 +177,7 @@ class TestSalvageCapacityNoSpace:
             assert result["remaining"]["cargo"].get("retro_organics", 0) == 5
 
             # Verify collector cargo unchanged
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
             collector_after = await get_status(collector_client, collector_id)
             assert collector_after["ship"]["cargo"].get("quantum_foam", 0) == 30
             assert collector_after["ship"]["cargo"].get("retro_organics", 0) == 0
@@ -222,7 +223,7 @@ class TestSalvageCapacityPartialCollection:
                 character_id=dumper_id
             )
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Get salvage ID
             collector_status = await get_status(collector_client, collector_id)
@@ -244,7 +245,7 @@ class TestSalvageCapacityPartialCollection:
             assert result["remaining"]["cargo"].get("quantum_foam", 0) == 5
 
             # Verify collector has 5 units
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
             collector_after = await get_status(collector_client, collector_id)
             assert collector_after["ship"]["cargo"].get("quantum_foam", 0) == 5
             assert collector_after["ship"]["cargo"].get("neuro_symbolics", 0) == 25
@@ -290,7 +291,7 @@ class TestSalvageCapacityPartialCollection:
                 character_id=dumper_id
             )
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Get salvage ID
             collector_status = await get_status(collector_client, collector_id)
@@ -320,7 +321,7 @@ class TestSalvageCapacityPartialCollection:
             assert result["fully_collected"] is False
 
             # Verify collector cargo
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
             collector_after = await get_status(collector_client, collector_id)
             cargo = collector_after["ship"]["cargo"]
             assert cargo.get("quantum_foam", 0) == 25  # 20 + 5
@@ -366,7 +367,7 @@ class TestSalvageCapacityReturnTrip:
                 character_id=dumper_id
             )
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Get salvage ID
             collector_status = await get_status(collector_client, collector_id)
@@ -385,7 +386,7 @@ class TestSalvageCapacityReturnTrip:
             assert result1["remaining"]["cargo"].get("quantum_foam", 0) == 10
             assert result1["fully_collected"] is False
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Dump retro_organics to free space
             await collector_client.dump_cargo(
@@ -393,7 +394,7 @@ class TestSalvageCapacityReturnTrip:
                 character_id=collector_id
             )
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Second collection (20 available space now)
             # Note: Salvage should be unclaimed, so we can claim it again
@@ -407,7 +408,7 @@ class TestSalvageCapacityReturnTrip:
             assert result2["fully_collected"] is True
 
             # Verify final state
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
             collector_after = await get_status(collector_client, collector_id)
             assert collector_after["ship"]["cargo"].get("quantum_foam", 0) == 20
             assert collector_after["ship"]["cargo"].get("retro_organics", 0) == 0
@@ -458,7 +459,7 @@ class TestSalvageRemovalLogic:
                 character_id=dumper_id
             )
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Dump second batch
             await dumper_client.dump_cargo(
@@ -466,7 +467,7 @@ class TestSalvageRemovalLogic:
                 character_id=dumper_id
             )
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Get salvage IDs
             collector_status = await get_status(collector_client, collector_id)
@@ -491,7 +492,7 @@ class TestSalvageRemovalLogic:
 
             assert result["fully_collected"] is True
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Verify only 1 salvage remains (retro_organics)
             collector_after = await get_status(collector_client, collector_id)

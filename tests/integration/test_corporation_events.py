@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import EVENT_DELIVERY_WAIT
 from helpers.corporation_utils import (
     managed_client,
     reset_corporation_test_state,
@@ -80,7 +81,7 @@ async def test_corporation_created_has_corporation_id_in_jsonl(server_url, check
             founder, character_id=founder_id, name=corp_name
         )
 
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
         end = datetime.now(timezone.utc) + timedelta(seconds=1)
         events = await _query_events(
             founder,
@@ -343,7 +344,7 @@ async def test_events_logged_to_jsonl(server_url, check_server_available):
             },
         )
 
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
         end = datetime.now(timezone.utc) + timedelta(seconds=1)
 
         log_path = Path("tests/test-world-data/event-log.jsonl")

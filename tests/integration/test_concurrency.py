@@ -32,6 +32,7 @@ Note:
 import asyncio
 import pytest
 from typing import List, Dict, Any
+from conftest import EVENT_DELIVERY_WAIT
 from utils.api_client import AsyncGameClient
 from tests.helpers.combat_helpers import create_test_character_knowledge
 

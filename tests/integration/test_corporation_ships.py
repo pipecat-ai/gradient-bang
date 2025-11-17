@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import EVENT_DELIVERY_WAIT
 from utils.api_client import AsyncGameClient, RPCError
 from helpers.corporation_utils import (
     managed_client,
@@ -136,7 +137,7 @@ async def test_corporation_member_can_control_ship(server_url, check_server_avai
             destination = adjacent[0]
 
             await ship_client.move(to_sector=destination, character_id=ship_id)
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             followup_task = asyncio.create_task(
                 ship_client.wait_for_event(
@@ -272,7 +273,7 @@ async def test_corporation_ship_can_recharge_warp_power(server_url, check_server
                     snapshot = await capture_status()
                     if snapshot["sector"]["id"] == expected_sector:
                         return snapshot
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(EVENT_DELIVERY_WAIT)
                 raise AssertionError(f"Ship did not reach sector {expected_sector}")
 
             await ship_client.join(character_id=ship_id)
@@ -285,11 +286,11 @@ async def test_corporation_ship_can_recharge_warp_power(server_url, check_server
             outbound_sector = adjacent[0]
 
             await ship_client.move(to_sector=outbound_sector, character_id=ship_id)
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
             outbound_status = await wait_for_sector(outbound_sector)
 
             await ship_client.move(to_sector=0, character_id=ship_id)
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
             return_status = await wait_for_sector(0)
 
             warp_after_round_trip = return_status["ship"]["warp_power"]
@@ -649,7 +650,7 @@ async def test_corporation_event_log_records_fleet_activity(server_url, check_se
             )
             await garrison_event_task
 
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
         end_time = datetime.now(timezone.utc) + timedelta(seconds=1)
 
@@ -807,7 +808,7 @@ async def test_corp_ships_transferred_to_unowned_on_disband(server_url, check_se
                 record = _load_ship(ship_id)
                 if record is not None and record.get("former_owner_name"):
                     return record
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
         record = await asyncio.wait_for(_wait_for_former_owner(), timeout=15.0)
         assert record.get("owner_type") == "unowned"
@@ -831,7 +832,7 @@ async def test_unowned_ships_appear_in_sector_contents(server_url, check_server_
 
         await founder._request("corporation.leave", {"character_id": "test_corp_founder"})
 
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
         status_task = asyncio.create_task(
             outsider.wait_for_event(
                 "status.snapshot",
@@ -884,7 +885,7 @@ async def test_multiple_ships_all_become_unowned(server_url, check_server_availa
             ship_ids.append(purchase["ship_id"])
 
         await founder._request("corporation.leave", {"character_id": "test_corp_founder"})
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
         for ship_id in ship_ids:
             record = _load_ship(ship_id)
@@ -907,7 +908,7 @@ async def test_ship_retains_state_when_unowned(server_url, check_server_availabl
 
         # Trigger a sector update to ensure state flush and leave no modifications
         await founder._request("corporation.leave", {"character_id": "test_corp_founder"})
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
         record = _load_ship(ship_id)
         assert record is not None
@@ -931,7 +932,7 @@ async def test_unowned_ship_includes_former_corp_info(server_url, check_server_a
         # Corporation ship character already created by ship_purchase endpoint
 
         await founder._request("corporation.leave", {"character_id": "test_corp_founder"})
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
         record = _load_ship(ship_id)
         assert record is not None

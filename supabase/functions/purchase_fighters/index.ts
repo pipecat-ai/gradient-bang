@@ -184,16 +184,21 @@ async function handlePurchase(
 
   const newCredits = creditsBefore - totalCost;
   const newFighters = currentFighters + unitsToBuy;
-  const { error: shipUpdateError } = await supabase
+  const shipUpdate = await supabase
     .from('ship_instances')
     .update({
       credits: newCredits,
       current_fighters: newFighters,
     })
-    .eq('ship_id', ship.ship_id);
-  if (shipUpdateError) {
-    console.error('purchase_fighters.ship_update', shipUpdateError);
+    .eq('ship_id', ship.ship_id)
+    .select();
+
+  if (shipUpdate.error) {
+    console.error('purchase_fighters.ship_update', shipUpdate.error);
     throw new PurchaseFightersError('Failed to update ship state', 500);
+  }
+  if (!shipUpdate.data || shipUpdate.data.length === 0) {
+    throw new PurchaseFightersError('No ship updated - ship not found', 404);
   }
 
   const timestamp = new Date().toISOString();

@@ -23,6 +23,7 @@ from unittest.mock import patch, AsyncMock
 # Add project paths
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from conftest import EVENT_DELIVERY_WAIT
 from utils.api_client import AsyncGameClient, RPCError
 from helpers.client_setup import create_client_with_character
 
@@ -157,7 +158,7 @@ async def test_map_cache_updates_on_move(server_url, check_server_available):
         await client.move(to_sector=1, character_id=char_id)
 
         # Wait for movement to complete
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
         # Get updated status
         status2 = await get_status(client, char_id)
@@ -194,11 +195,11 @@ async def test_cache_stores_visited_sectors(server_url, check_server_available):
     try:
         # Move to sector 1
         await client.move(to_sector=1, character_id=char_id)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
         # Move to sector 3
         await client.move(to_sector=3, character_id=char_id)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
         # Note: Verifying accumulated knowledge would require reading the
         # character knowledge file or having a dedicated endpoint
@@ -228,7 +229,7 @@ async def test_cache_invalidation_on_join(server_url, check_server_available):
 
         # Move somewhere
         await client.move(to_sector=1, character_id=char_id)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
         # Second join (simulates reconnect/reset)
         await client.join(character_id=char_id)
@@ -276,7 +277,7 @@ async def test_move_to_adjacent_sector(server_url, check_server_available):
         assert result.get("success") is True
 
         # Wait for movement to complete
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
         # Verify new location
         status = await get_status(client, char_id)
@@ -327,7 +328,7 @@ async def test_trade_buy_at_port(server_url, check_server_available):
     try:
         # Move to sector 1 (has Port BBS which sells neuro_symbolics)
         await client.move(to_sector=1, character_id=char_id)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
         # Buy neuro_symbolics
         result = await client.trade(
@@ -431,9 +432,9 @@ async def test_recharge_warp_power(server_url, check_server_available):
     try:
         # Deplete warp power by moving
         await client.move(to_sector=1, character_id=char_id)
-        await asyncio.sleep(0.5)  # Wait for move to complete
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)  # Wait for move to complete
         await client.move(to_sector=0, character_id=char_id)
-        await asyncio.sleep(0.5)  # Wait for move to complete
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)  # Wait for move to complete
 
         # Get initial state
         status_before = await get_status(client, char_id)
@@ -665,7 +666,7 @@ async def test_character_id_in_all_requests(server_url, check_server_available):
         # All methods should accept and validate character_id
         await client.my_status(character_id=char_id)
         await client.move(to_sector=1, character_id=char_id)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
         # Using wrong ID should fail
         with pytest.raises(ValueError):

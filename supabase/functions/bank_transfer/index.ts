@@ -238,17 +238,33 @@ async function handleDeposit(
 
 
   console.log('[bank_transfer.deposit] Updating ship credits', { shipId, before: shipCreditsBefore, after: shipCreditsBefore - amount });
-  await supabase
+  const shipUpdate = await supabase
     .from('ship_instances')
     .update({ credits: shipCreditsBefore - amount })
-    .eq('ship_id', shipId);
+    .eq('ship_id', shipId)
+    .select();
+
+  if (shipUpdate.error) {
+    throw new BankTransferError(`Failed to update ship credits: ${shipUpdate.error.message}`, 500);
+  }
+  if (!shipUpdate.data || shipUpdate.data.length === 0) {
+    throw new BankTransferError('No ship updated - ship not found', 404);
+  }
 
   const bankBefore = target.credits_in_megabank ?? 0;
   console.log('[bank_transfer.deposit] Updating bank balance', { targetCharacterId, before: bankBefore, after: bankBefore + amount });
-  await supabase
+  const bankUpdate = await supabase
     .from('characters')
     .update({ credits_in_megabank: bankBefore + amount })
-    .eq('character_id', targetCharacterId);
+    .eq('character_id', targetCharacterId)
+    .select();
+
+  if (bankUpdate.error) {
+    throw new BankTransferError(`Failed to update bank balance: ${bankUpdate.error.message}`, 500);
+  }
+  if (!bankUpdate.data || bankUpdate.data.length === 0) {
+    throw new BankTransferError('No character updated - character not found', 404);
+  }
 
   const source = buildEventSource('bank_transfer', requestId);
   const timestamp = new Date().toISOString();

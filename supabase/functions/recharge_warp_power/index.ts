@@ -174,16 +174,21 @@ async function handleRecharge(
     );
   }
 
-  const { error: updateError } = await supabase
+  const shipUpdate = await supabase
     .from('ship_instances')
     .update({
       current_warp_power: currentWarpPower + unitsToBuy,
       credits: currentCredits - totalCost,
     })
-    .eq('ship_id', ship.ship_id);
-  if (updateError) {
-    console.error('recharge_warp_power.update_ship', updateError);
+    .eq('ship_id', ship.ship_id)
+    .select();
+
+  if (shipUpdate.error) {
+    console.error('recharge_warp_power.update_ship', shipUpdate.error);
     throw new RechargeWarpPowerError('Failed to update ship state', 500);
+  }
+  if (!shipUpdate.data || shipUpdate.data.length === 0) {
+    throw new RechargeWarpPowerError('No ship updated - ship not found', 404);
   }
 
   await supabase

@@ -22,6 +22,7 @@ from pathlib import Path
 # Add project paths
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from conftest import EVENT_DELIVERY_WAIT
 from utils.api_client import AsyncGameClient, RPCError
 from helpers.event_capture import EventListener, create_firehose_listener
 from helpers.assertions import (
@@ -194,7 +195,7 @@ class TestTradeOperations:
 
                 # Check if trade succeeded
                 if result.get("success"):
-                    await asyncio.sleep(1.0)
+                    await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
                     # Verify credits decreased
                     status_after = await get_status(client, char_id)
@@ -233,7 +234,7 @@ class TestTradeOperations:
 
                 # Check if trade succeeded
                 if result.get("success"):
-                    await asyncio.sleep(1.0)
+                    await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
                     # Verify credits increased
                     status_after = await get_status(client, char_id)
@@ -421,7 +422,7 @@ class TestInventoryManagement:
             )
 
             if result.get("success"):
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
                 # Get final state
                 status_after = await get_status(client, char_id)
@@ -580,7 +581,7 @@ class TestTradeEvents:
                 )
 
                 if result.get("success"):
-                    await asyncio.sleep(1.0)
+                    await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
                     # Verify event emitted
                     trade_event = assert_event_emitted(listener.events, "trade.executed")
@@ -611,7 +612,7 @@ class TestTradeEvents:
                 )
 
                 if result.get("success"):
-                    await asyncio.sleep(1.0)
+                    await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
                     # Verify event emitted
                     trade_event = assert_event_emitted(listener.events, "trade.executed")
@@ -642,7 +643,7 @@ class TestTradeEvents:
                 )
 
                 if result.get("success"):
-                    await asyncio.sleep(1.0)
+                    await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
                     trade_event = assert_event_emitted(listener.events, "trade.executed")
                     payload = trade_event.get("payload", {})

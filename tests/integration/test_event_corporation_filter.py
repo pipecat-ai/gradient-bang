@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from conftest import EVENT_DELIVERY_WAIT
 from helpers.corporation_utils import (
     managed_client,
     reset_corporation_test_state,
@@ -72,7 +73,7 @@ async def test_garrison_deployed_tagged_with_corp(server_url, check_server_avail
 
         start = datetime.now(timezone.utc) - timedelta(seconds=1)
         await deploy_garrison(client, character_id, sector=3, fighters=15)
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
         end = datetime.now(timezone.utc) + timedelta(seconds=1)
 
         events = await _query_events(
@@ -94,7 +95,7 @@ async def test_garrison_deployed_no_corp_no_tag(server_url, check_server_availab
     async with managed_client(server_url, character_id, credits=50_000, sector=4) as client:
         start = datetime.now(timezone.utc) - timedelta(seconds=1)
         await deploy_garrison(client, character_id, sector=4, fighters=10)
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
         end = datetime.now(timezone.utc) + timedelta(seconds=1)
 
         events = await _query_events(
@@ -130,7 +131,7 @@ async def test_query_by_corporation_id(server_url, check_server_available):
             },
         )
 
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
         end = datetime.now(timezone.utc) + timedelta(seconds=1)
 
         events = await _query_events(
@@ -155,7 +156,7 @@ async def test_query_by_corporation_and_sector(server_url, check_server_availabl
             founder, character_id=founder_id, name="Sector Filter"
         )
 
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
         end = datetime.now(timezone.utc) + timedelta(seconds=1)
 
         events = await _query_events(
@@ -198,7 +199,7 @@ async def test_corporation_events_have_corp_id(server_url, check_server_availabl
             {"character_id": founder_id},
         )
 
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
         end = datetime.now(timezone.utc) + timedelta(seconds=1)
 
         events = await _query_events(
@@ -238,7 +239,7 @@ async def test_corporation_ship_purchase_logged(server_url, check_server_availab
             },
         )
 
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
         end = datetime.now(timezone.utc) + timedelta(seconds=1)
 
         events = await _query_events(

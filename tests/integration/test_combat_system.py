@@ -23,7 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from utils.api_client import RPCError
-from tests.conftest import USE_SUPABASE_TESTS  # type: ignore
+from tests.conftest import USE_SUPABASE_TESTS, EVENT_DELIVERY_WAIT  # type: ignore
 
 if USE_SUPABASE_TESTS:
     from utils.supabase_client import AsyncGameClient  # type: ignore
