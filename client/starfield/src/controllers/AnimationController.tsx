@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -30,20 +31,65 @@ const WarpAnimationContext = createContext<WarpAnimationContextValue | null>(
   null
 )
 
+type ShockwaveContextValue = {
+  shockwaveSequence: number
+  triggerShockwave: () => void
+}
+
+const ShockwaveContext = createContext<ShockwaveContextValue | null>(null)
+
+const SHOCKWAVE_BASE_DURATION_MS = 1500
+
 export function AnimationController({ children }: PropsWithChildren) {
-  const { isWarping, warpIntensity } = useAnimationStore()
-  const { hyperspaceEnterTime, hyperspaceExitTime } = useGameStore(
-    (state) => state.starfieldConfig
-  )
+  const { isWarping } = useAnimationStore()
+  const {
+    hyperspaceEnterTime,
+    hyperspaceExitTime,
+    shockwaveSpeed = 1.25,
+  } = useGameStore((state) => state.starfieldConfig)
   const [isAnimating, setIsAnimating] = useState(false)
   const { invalidate } = useThree()
   const rafRef = useRef<number | null>(null)
+  const [shockwaveSequence, setShockwaveSequence] = useState(0)
+  const shockwaveRafRef = useRef<number | null>(null)
+  const shockwaveEndTimeRef = useRef<number>(0)
+
+  const shockwaveActiveMs = useMemo(
+    () => SHOCKWAVE_BASE_DURATION_MS / Math.max(shockwaveSpeed, 0.1),
+    [shockwaveSpeed]
+  )
+
+  const runShockwaveLoop = useCallback(() => {
+    const now = performance.now()
+    shockwaveEndTimeRef.current = now + shockwaveActiveMs
+
+    if (shockwaveRafRef.current) {
+      return
+    }
+
+    const tick = () => {
+      invalidate()
+
+      if (performance.now() < shockwaveEndTimeRef.current) {
+        shockwaveRafRef.current = requestAnimationFrame(tick)
+      } else {
+        shockwaveRafRef.current = null
+      }
+    }
+
+    shockwaveRafRef.current = requestAnimationFrame(tick)
+  }, [invalidate, shockwaveActiveMs])
+
+  const triggerShockwave = useCallback(() => {
+    setShockwaveSequence((value) => value + 1)
+    runShockwaveLoop()
+  }, [runShockwaveLoop])
 
   const warpSpring = useSpring<WarpSpringValues>({
     scale: isWarping ? 1.25 : 0.95,
     rotationSpeed: isWarping ? 2 : 0.3,
     warpProgress: isWarping ? 1 : 0,
-    glowIntensity: isWarping ? warpIntensity * 3 : 1,
+    glowIntensity: isWarping ? 3 : 1,
     distortion: isWarping ? 0.5 : 0,
     config: () =>
       isWarping
@@ -83,6 +129,15 @@ export function AnimationController({ children }: PropsWithChildren) {
     }
   }, [isAnimating, invalidate])
 
+  useEffect(() => {
+    return () => {
+      if (shockwaveRafRef.current) {
+        cancelAnimationFrame(shockwaveRafRef.current)
+        shockwaveRafRef.current = null
+      }
+    }
+  }, [])
+
   const { scale, rotationSpeed, warpProgress, glowIntensity, distortion } =
     warpSpring
 
@@ -108,9 +163,11 @@ export function AnimationController({ children }: PropsWithChildren) {
   )
 
   return (
-    <WarpAnimationContext.Provider value={contextValue}>
-      {children}
-    </WarpAnimationContext.Provider>
+    <ShockwaveContext.Provider value={{ triggerShockwave, shockwaveSequence }}>
+      <WarpAnimationContext.Provider value={contextValue}>
+        {children}
+      </WarpAnimationContext.Provider>
+    </ShockwaveContext.Provider>
   )
 }
 
@@ -118,6 +175,14 @@ export function useWarpAnimation() {
   const context = useContext(WarpAnimationContext)
   if (!context) {
     throw new Error("useWarpAnimation must be used within AnimationController")
+  }
+  return context
+}
+
+export function useShockwave() {
+  const context = useContext(ShockwaveContext)
+  if (!context) {
+    throw new Error("useShockwave must be used within AnimationController")
   }
   return context
 }

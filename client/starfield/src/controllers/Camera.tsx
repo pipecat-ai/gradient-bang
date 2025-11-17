@@ -20,11 +20,12 @@ export function CameraController() {
   const [_currentTarget, setCurrentTarget] = useState<THREE.Vector3 | null>(
     null
   )
-  const warp = useWarpAnimation()
-  const { cameraBaseFov, hyperspaceCameraFovShift } = useGameStore(
+  const { cameraBaseFov, hyerpspaceUniforms } = useGameStore(
     (state) => state.starfieldConfig
   )
-  const progressDelay = 0
+  const warp = useWarpAnimation()
+
+  const animationDelay = 0
   const epsilon = 0.05
 
   const lookAtTarget = useCallback(
@@ -142,7 +143,7 @@ export function CameraController() {
   useFrame(() => {
     const progress = warp.warpProgress.get()
     const delayedProgress = THREE.MathUtils.clamp(
-      (progress - progressDelay) / (1 - progressDelay),
+      (progress - animationDelay) / (1 - animationDelay),
       0,
       1
     )
@@ -153,7 +154,7 @@ export function CameraController() {
 
     const desiredFov = THREE.MathUtils.lerp(
       cameraBaseFov,
-      hyperspaceCameraFovShift,
+      hyerpspaceUniforms.cameraFov,
       easedProgress
     )
 

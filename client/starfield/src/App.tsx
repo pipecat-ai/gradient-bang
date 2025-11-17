@@ -20,7 +20,10 @@ import { Canvas } from "@react-three/fiber"
 import { button, folder, Leva, useControls } from "leva"
 import * as THREE from "three"
 
-import { AnimationController } from "@/controllers/AnimationController"
+import {
+  AnimationController,
+  useShockwave,
+} from "@/controllers/AnimationController"
 import { CameraController } from "@/controllers/Camera"
 import { EnvironmentWrapper } from "@/controllers/Environment"
 import { PostProcessing } from "@/controllers/PostProcessing"
@@ -28,7 +31,6 @@ import { SceneController } from "@/controllers/SceneController"
 import { useSceneChange } from "@/hooks/useSceneChange"
 import { Dust } from "@/objects/Dust"
 import { TestObject } from "@/objects/Test"
-import { TestPlanet } from "@/objects/TestPlanet"
 import type { Scene, StarfieldConfig } from "@/types"
 import { useGameStore } from "@/useGameStore"
 
@@ -52,8 +54,7 @@ export default function App({ config, debug = false }: StarfieldProps) {
   const togglePause = useGameStore((state) => state.togglePause)
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
   const { changeScene } = useSceneChange()
-  const { isWarping, startWarp, stopWarp, setWarpIntensity } =
-    useAnimationStore()
+  const { isWarping, startWarp, stopWarp } = useAnimationStore()
 
   useLayoutEffect(() => {
     setStarfieldConfig(config ?? {})
@@ -83,16 +84,6 @@ export default function App({ config, debug = false }: StarfieldProps) {
     ["Stop Warp"]: button(() => {
       stopWarp()
     }),
-    warpIntensity: {
-      value: 1,
-      min: 1,
-      max: 10,
-      step: 1,
-      label: "Warp Intensity",
-      onEditEnd(value) {
-        setWarpIntensity(value)
-      },
-    },
     warpStatus: {
       value: isWarping ? "Warping" : "Not Warping",
       editable: false,
@@ -163,6 +154,7 @@ export default function App({ config, debug = false }: StarfieldProps) {
         <SceneController />
 
         <AnimationController>
+          <ShockwaveControls />
           <Suspense fallback={null}>
             {/* Nebula background - rendered first and positioned at the back */}
             <group position={[0, 0, -50]}>
@@ -214,6 +206,22 @@ export default function App({ config, debug = false }: StarfieldProps) {
  * Memoized to prevent unnecessary re-renders
  */
 const Effects = memo(() => <PostProcessing />)
+
+const ShockwaveControls = () => {
+  const { triggerShockwave } = useShockwave()
+
+  useControls(
+    "Shockwave",
+    () => ({
+      ["Trigger Shockwave"]: button(() => {
+        triggerShockwave()
+      }),
+    }),
+    [triggerShockwave]
+  )
+
+  return null
+}
 
 interface HelmetProps {
   [key: string]: any

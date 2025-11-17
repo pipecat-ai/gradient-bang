@@ -1,12 +1,20 @@
 export interface StarfieldConfig {
   cameraBaseFov: number
+  vignetteAmount: number
   hyperspaceEnterTime?: number
   hyperspaceExitTime?: number
   hyperspaceDuration?: number
   hyperspaceCooldown?: number
-  hyperspaceCameraFovShift: number
+  hyerpspaceUniforms: {
+    vignetteAmount: number
+    vignetteOffset: number
+    cameraFov: number
+    bloomIntensity: number
+    bloomRadius: number
+  }
   shakeIntensity?: number
   shakeRelaxTime?: number
+  shockwaveSpeed?: number
 }
 
 export type StarfieldState =

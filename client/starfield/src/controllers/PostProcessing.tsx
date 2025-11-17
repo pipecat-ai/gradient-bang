@@ -7,23 +7,37 @@ import {
   EffectComposer,
   EffectPass,
   RenderPass,
+  ShockWaveEffect,
+  VignetteEffect,
 } from "postprocessing"
 import * as THREE from "three"
 
+import { useGameStore } from "@/useGameStore"
+
 import { DitheringEffect } from "../fx/DitherEffect"
-import { useWarpAnimation } from "./AnimationController"
+import { useShockwave, useWarpAnimation } from "./AnimationController"
 
 /**
  * Component that manages all post-processing effects
  * Configures and applies various effects to the rendered scene
  */
 export const PostProcessing = () => {
-  // References
   const composerRef = useRef<EffectComposer | null>(null)
   const ditheringEffectRef = useRef<DitheringEffect | null>(null)
   const bloomEffectRef = useRef<BloomEffect | null>(null)
+  const vignetteEffectRef = useRef<VignetteEffect | null>(null)
+  const shockWaveEffectRef = useRef<ShockWaveEffect | null>(null)
+  const shockwaveEpicenterRef = useRef(new THREE.Vector3())
+  const shockwaveDirectionRef = useRef(new THREE.Vector3())
+  const lastShockwaveSequenceRef = useRef(0)
   const [scene, setScene] = useState<THREE.Scene | null>(null)
   const [camera, setCamera] = useState<THREE.Camera | null>(null)
+  const {
+    vignetteAmount,
+    hyerpspaceUniforms,
+    shockwaveSpeed: storedShockwaveSpeed,
+  } = useGameStore((state) => state.starfieldConfig)
+  const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
 
   // Effect controls
   const { bloomEnabled, bloomThreshold, bloomIntensity, bloomRadius } =
@@ -83,6 +97,83 @@ export const PostProcessing = () => {
     ),
   })
 
+  const { vignetteEnabled, vignetteOffset, vignetteDarkness } = useControls({
+    Vignette: folder(
+      {
+        vignetteEnabled: { value: true, label: "Enable Vignette" },
+        vignetteOffset: {
+          value: 0,
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: "Offset",
+        },
+        vignetteDarkness: {
+          value: vignetteAmount,
+          min: 0,
+          max: 1.5,
+          step: 0.01,
+          label: "Darkness",
+        },
+      },
+      { collapsed: true }
+    ),
+  })
+
+  const {
+    shockwaveEnabled,
+    shockwaveSpeed,
+    shockwaveMaxRadius,
+    shockwaveWaveSize,
+    shockwaveAmplitude,
+    shockwaveDistance,
+  } = useControls({
+    Shockwave: folder(
+      {
+        shockwaveEnabled: { value: true, label: "Enable Shockwave" },
+        shockwaveSpeed: {
+          value: storedShockwaveSpeed ?? 1.25,
+          min: 0.1,
+          max: 5,
+          step: 0.05,
+          label: "Speed",
+          onChange: (value: number) => {
+            setStarfieldConfig({ shockwaveSpeed: value })
+          },
+        },
+        shockwaveMaxRadius: {
+          value: 0.8,
+          min: 0.1,
+          max: 5,
+          step: 0.05,
+          label: "Max Radius",
+        },
+        shockwaveWaveSize: {
+          value: 0.25,
+          min: 0.01,
+          max: 1,
+          step: 0.01,
+          label: "Wave Size",
+        },
+        shockwaveAmplitude: {
+          value: 0.15,
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: "Amplitude",
+        },
+        shockwaveDistance: {
+          value: 2.5,
+          min: 0.1,
+          max: 20,
+          step: 0.1,
+          label: "Epicenter Distance",
+        },
+      },
+      { collapsed: true }
+    ),
+  })
+
   useEffect(() => {
     invalidate()
   }, [ditheringGridSize, pixelSizeRatio, grayscaleOnly, invalidate])
@@ -125,6 +216,36 @@ export const PostProcessing = () => {
       bloomEffectRef.current = null
     }
 
+    if (shockwaveEnabled) {
+      const shockwave = new ShockWaveEffect(
+        camera,
+        shockwaveEpicenterRef.current,
+        {
+          speed: shockwaveSpeed,
+          maxRadius: shockwaveMaxRadius,
+          waveSize: shockwaveWaveSize,
+          amplitude: shockwaveAmplitude,
+        }
+      )
+      shockWaveEffectRef.current = shockwave
+      composer.addPass(new EffectPass(camera, shockwave))
+    } else {
+      shockWaveEffectRef.current?.dispose()
+      shockWaveEffectRef.current = null
+    }
+
+    if (vignetteEnabled) {
+      const vignette = new VignetteEffect({
+        offset: vignetteOffset,
+        darkness: vignetteDarkness,
+      })
+      vignetteEffectRef.current = vignette
+      composer.addPass(new EffectPass(camera, vignette))
+    } else {
+      vignetteEffectRef.current?.dispose()
+      vignetteEffectRef.current = null
+    }
+
     // Dithering effect - always active
     const dither = new DitheringEffect({
       gridSize: ditheringGridSize,
@@ -143,9 +264,18 @@ export const PostProcessing = () => {
     ditheringGridSize,
     pixelSizeRatio,
     grayscaleOnly,
+    vignetteEnabled,
+    vignetteOffset,
+    vignetteDarkness,
+    shockwaveEnabled,
+    shockwaveSpeed,
+    shockwaveMaxRadius,
+    shockwaveWaveSize,
+    shockwaveAmplitude,
   ])
 
   const warp = useWarpAnimation()
+  const { shockwaveSequence } = useShockwave()
 
   // Handle rendering
   useFrame(({ gl, scene: currentScene, camera: currentCamera }) => {
@@ -183,13 +313,45 @@ export const PostProcessing = () => {
 
     const bloomEffect = bloomEffectRef.current
     if (bloomEffect) {
-      bloomEffect.intensity = THREE.MathUtils.lerp(bloomIntensity, 50, progress)
+      bloomEffect.intensity = THREE.MathUtils.lerp(
+        bloomIntensity,
+        hyerpspaceUniforms.bloomIntensity,
+        progress
+      )
       bloomEffect.mipmapBlurPass.radius = THREE.MathUtils.lerp(
         bloomRadius,
-        1,
+        hyerpspaceUniforms.bloomRadius,
         progress
       )
     }
+
+    const vignetteEffect = vignetteEffectRef.current
+    if (vignetteEffect) {
+      const earlyProgress = THREE.MathUtils.clamp(progress / 0.4, 0, 1)
+      vignetteEffect.darkness = THREE.MathUtils.lerp(
+        vignetteDarkness,
+        hyerpspaceUniforms.vignetteAmount,
+        earlyProgress
+      )
+    }
+
+    const shockwaveEffect = shockWaveEffectRef.current
+    if (shockwaveEffect) {
+      const direction = shockwaveDirectionRef.current
+      currentCamera.getWorldDirection(direction)
+      const epicenter = shockwaveEpicenterRef.current
+      epicenter
+        .copy(currentCamera.position)
+        .add(direction.multiplyScalar(shockwaveDistance))
+      shockwaveEffect.epicenter.copy(epicenter)
+
+      if (shockwaveSequence !== lastShockwaveSequenceRef.current) {
+        shockwaveEffect.explode()
+        lastShockwaveSequenceRef.current = shockwaveSequence
+        invalidate()
+      }
+    }
+
     // Render the composer if available
     composerRef.current?.render()
   }, 1)
