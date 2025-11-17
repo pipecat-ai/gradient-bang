@@ -228,7 +228,7 @@ async function handleDisband(params: {
     eventType: 'corporation.disbanded',
     payload: disbandPayload,
     requestId,
-    meta: { corporation_id: corpId },
+    corpId: corpId,
   });
 
   if (shipSummaries.length) {

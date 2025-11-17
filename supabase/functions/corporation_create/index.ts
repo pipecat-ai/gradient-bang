@@ -142,7 +142,7 @@ async function handleCreate(params: {
     payload: eventPayload,
     sectorId: ship.current_sector ?? null,
     requestId,
-    meta: { corporation_id: inserted.corp_id },
+    corpId: inserted.corp_id,
   });
 
   return {

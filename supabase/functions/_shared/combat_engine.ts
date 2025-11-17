@@ -181,6 +181,8 @@ export function resolveRound(
 
   if (successfulFleers.length && !remainingAttackers.length) {
     const zero = Object.fromEntries(participantIds.map((pid) => [pid, 0]));
+    const fleerId = successfulFleers[0];
+    const fleerName = encounter.participants[fleerId]?.name ?? fleerId;
     return {
       round_number: encounter.round,
       hits: { ...zero },
@@ -190,7 +192,7 @@ export function resolveRound(
       fighters_remaining: { ...fightersStart },
       shields_remaining: { ...shieldsStart },
       flee_results: fleeResults,
-      end_state: `${successfulFleers[0]}_fled`,
+      end_state: `${fleerName}_fled`,
       effective_actions: effectiveActions,
     };
   }
@@ -312,7 +314,13 @@ export function resolveRound(
         fightersRemaining[pid] <= 0,
     );
     if (losers.length) {
-      endState = losers.length === 1 ? `${losers[0]}_defeated` : 'victory';
+      if (losers.length === 1) {
+        const loserId = losers[0];
+        const loserName = encounter.participants[loserId]?.name ?? loserId;
+        endState = `${loserName}_defeated`;
+      } else {
+        endState = 'victory';
+      }
     } else if (
       participantIds
         .filter((pid) => pid !== livingNotFled[0])

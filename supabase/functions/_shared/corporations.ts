@@ -295,7 +295,6 @@ export async function emitCorporationEvent(
     corpId,
     actorCharacterId: options.actorCharacterId ?? null,
     recipients: uniqueRecipients.map((characterId) => ({ characterId, reason: 'corp_snapshot' })),
-    meta: { corporation_id: corpId },
   });
 
 }
