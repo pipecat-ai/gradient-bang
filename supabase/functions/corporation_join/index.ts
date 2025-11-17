@@ -143,7 +143,7 @@ async function handleJoin(params: {
     source,
     corp_id: corpId,
     name: corporation.name,
-    member_id: characterLabel,
+    member_id: memberName,  // Use display name for legacy compatibility
     member_name: memberName,
     member_count: members.length,
     timestamp,

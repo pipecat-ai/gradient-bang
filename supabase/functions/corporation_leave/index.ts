@@ -141,7 +141,7 @@ async function handleLeave(params: {
     source,
     corp_id: corpId,
     corp_name: corporation.name,
-    departed_member_id: characterLabel,
+    departed_member_id: departedName,  // Use display name for legacy compatibility
     departed_member_name: departedName,
     member_count: remainingMembers.length,
     timestamp,
@@ -194,25 +194,7 @@ async function handleDisband(params: {
     }
   }
 
-  // NULL out corp_id in events before deleting corporation (preserve event history)
-  const { error: eventUpdateError } = await supabase
-    .from('events')
-    .update({ corp_id: null })
-    .eq('corp_id', corpId);
-  if (eventUpdateError) {
-    console.error('corporation_leave.event_update', eventUpdateError);
-    // Continue anyway - this is not critical
-  }
-
-  const { error: deleteError } = await supabase
-    .from('corporations')
-    .delete()
-    .eq('corp_id', corpId);
-  if (deleteError) {
-    console.error('corporation_leave.corp_delete', deleteError);
-    throw new CorporationLeaveError('Failed to disband corporation', 500);
-  }
-
+  // Emit events BEFORE deleting the corporation (otherwise FK constraint violation)
   const source = buildEventSource('corporation_leave', requestId);
   const disbandPayload = {
     source,
@@ -250,8 +232,27 @@ async function handleDisband(params: {
       eventType: 'corporation.ships_abandoned',
       payload: shipsPayload,
       requestId,
-      meta: { corporation_id: corpId },
+      corpId: corpId,  // Changed from meta to corpId parameter
     });
+  }
+
+  // NULL out corp_id in events before deleting corporation (preserve event history)
+  const { error: eventUpdateError } = await supabase
+    .from('events')
+    .update({ corp_id: null })
+    .eq('corp_id', corpId);
+  if (eventUpdateError) {
+    console.error('corporation_leave.event_update', eventUpdateError);
+    // Continue anyway - this is not critical
+  }
+
+  const { error: deleteError } = await supabase
+    .from('corporations')
+    .delete()
+    .eq('corp_id', corpId);
+  if (deleteError) {
+    console.error('corporation_leave.corp_delete', deleteError);
+    throw new CorporationLeaveError('Failed to disband corporation', 500);
   }
 }
 
