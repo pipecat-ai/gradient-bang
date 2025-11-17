@@ -38,8 +38,6 @@ type ShockwaveContextValue = {
 
 const ShockwaveContext = createContext<ShockwaveContextValue | null>(null)
 
-const SHOCKWAVE_BASE_DURATION_MS = 1500
-
 export function AnimationController({ children }: PropsWithChildren) {
   const { isWarping } = useAnimationStore()
   const {
@@ -55,10 +53,11 @@ export function AnimationController({ children }: PropsWithChildren) {
   const shockwaveEndTimeRef = useRef<number>(0)
 
   const shockwaveActiveMs = useMemo(
-    () => SHOCKWAVE_BASE_DURATION_MS / Math.max(shockwaveSpeed, 0.1),
+    () => Math.max(shockwaveSpeed, 0) * 1000,
     [shockwaveSpeed]
   )
 
+  console.log("shockwaveActiveMs", shockwaveActiveMs)
   const runShockwaveLoop = useCallback(() => {
     const now = performance.now()
     shockwaveEndTimeRef.current = now + shockwaveActiveMs

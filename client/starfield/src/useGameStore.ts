@@ -63,7 +63,7 @@ export const useGameStore = create<AppState>((set) => ({
     },
     shakeIntensity: 1,
     shakeRelaxTime: 1000,
-    shockwaveSpeed: 1.25,
+    shockwaveSpeed: 3,
   },
   setStarfieldConfig: (config: Partial<StarfieldConfig>) =>
     set(

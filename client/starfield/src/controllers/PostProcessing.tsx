@@ -122,7 +122,6 @@ export const PostProcessing = () => {
 
   const {
     shockwaveEnabled,
-    shockwaveSpeed,
     shockwaveMaxRadius,
     shockwaveWaveSize,
     shockwaveAmplitude,
@@ -198,9 +197,10 @@ export const PostProcessing = () => {
     const composer = composerRef.current
     composer.removeAllPasses()
 
-    // Add required passes in order
     const renderPass = new RenderPass(scene, camera)
     composer.addPass(renderPass)
+
+    const orderedEffectPasses: EffectPass[] = []
 
     if (bloomEnabled) {
       const bloom = new BloomEffect({
@@ -209,26 +209,28 @@ export const PostProcessing = () => {
         radius: bloomRadius,
         mipmapBlur: true,
       })
-      composer.addPass(new EffectPass(camera, bloom))
       bloomEffectRef.current = bloom
+      orderedEffectPasses.push(new EffectPass(camera, bloom))
     } else {
       bloomEffectRef.current?.dispose()
       bloomEffectRef.current = null
     }
 
     if (shockwaveEnabled) {
+      const durationSeconds = Math.max(storedShockwaveSpeed ?? 1.25, 0.001)
+      const effectSpeed = shockwaveMaxRadius / durationSeconds
       const shockwave = new ShockWaveEffect(
         camera,
         shockwaveEpicenterRef.current,
         {
-          speed: shockwaveSpeed,
+          speed: effectSpeed,
           maxRadius: shockwaveMaxRadius,
           waveSize: shockwaveWaveSize,
           amplitude: shockwaveAmplitude,
         }
       )
       shockWaveEffectRef.current = shockwave
-      composer.addPass(new EffectPass(camera, shockwave))
+      orderedEffectPasses.push(new EffectPass(camera, shockwave))
     } else {
       shockWaveEffectRef.current?.dispose()
       shockWaveEffectRef.current = null
@@ -240,20 +242,22 @@ export const PostProcessing = () => {
         darkness: vignetteDarkness,
       })
       vignetteEffectRef.current = vignette
-      composer.addPass(new EffectPass(camera, vignette))
+      orderedEffectPasses.push(new EffectPass(camera, vignette))
     } else {
       vignetteEffectRef.current?.dispose()
       vignetteEffectRef.current = null
     }
 
-    // Dithering effect - always active
+    // Dithering effect - always active and always last
     const dither = new DitheringEffect({
       gridSize: ditheringGridSize,
       pixelSizeRatio,
       grayscaleOnly,
     })
     ditheringEffectRef.current = dither
-    composer.addPass(new EffectPass(camera, dither))
+    orderedEffectPasses.push(new EffectPass(camera, dither))
+
+    orderedEffectPasses.forEach((pass) => composer.addPass(pass))
   }, [
     scene,
     camera,
@@ -268,10 +272,10 @@ export const PostProcessing = () => {
     vignetteOffset,
     vignetteDarkness,
     shockwaveEnabled,
-    shockwaveSpeed,
     shockwaveMaxRadius,
     shockwaveWaveSize,
     shockwaveAmplitude,
+    storedShockwaveSpeed,
   ])
 
   const warp = useWarpAnimation()
