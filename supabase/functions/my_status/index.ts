@@ -107,6 +107,7 @@ serve(async (req: Request): Promise<Response> => {
       shipId: ship.ship_id,
       sectorId: ship.current_sector ?? null,
       requestId,
+      corpId: character.corporation_id,
     });
 
     return successResponse({ request_id: requestId });

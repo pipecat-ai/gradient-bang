@@ -404,6 +404,7 @@ async function handleSalvageCollect(params: {
     sectorId,
     requestId,
     actorCharacterId: characterId,
+    corpId: character.corporation_id,
   });
 
   // Emit status.update with full status snapshot (for legacy parity)
@@ -417,6 +418,7 @@ async function handleSalvageCollect(params: {
     sectorId,
     requestId,
     actorCharacterId: characterId,
+    corpId: character.corporation_id,
   });
 
   // Emit sector.update to all sector occupants with full sector snapshot (for legacy parity)

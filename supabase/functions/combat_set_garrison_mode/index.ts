@@ -216,6 +216,7 @@ async function handleCombatSetGarrisonMode(params: {
     sectorId: sector,
     requestId,
     actorCharacterId: characterId,
+    corpId: character.corporation_id,
   });
 
   // Emit sector.update to all sector occupants

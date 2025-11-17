@@ -44,9 +44,10 @@ def register_characters_for_test(*character_ids: str) -> None:
 
     # Call test_reset with character IDs to insert them into database
     edge_url = os.getenv('EDGE_FUNCTIONS_URL', 'http://127.0.0.1:54321/functions/v1')
+    api_token = os.getenv('EDGE_API_TOKEN', 'local-dev-token')
     headers = {
         'Content-Type': 'application/json',
-        'Authorization': f"Bearer {os.getenv('EDGE_API_TOKEN', 'local-dev-token')}"
+        'x-api-token': api_token  # test_reset expects x-api-token header, not Authorization
     }
 
     try:

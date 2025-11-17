@@ -280,6 +280,7 @@ async function handleTrade(
     shipId: ship.ship_id,
     requestId,
     actorCharacterId,
+    corpId: ship.owner_corporation_id ?? character.corporation_id,
   });
 
   await emitCharacterEvent({
@@ -291,6 +292,7 @@ async function handleTrade(
     shipId: ship.ship_id,
     requestId,
     actorCharacterId,
+    corpId: ship.owner_corporation_id ?? character.corporation_id,
   });
 
   await emitCharacterEvent({
@@ -302,6 +304,7 @@ async function handleTrade(
     shipId: ship.ship_id,
     requestId,
     actorCharacterId,
+    corpId: ship.owner_corporation_id ?? character.corporation_id,
   });
 
   await emitPortUpdateEvents(supabase, {

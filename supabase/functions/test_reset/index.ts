@@ -217,18 +217,18 @@ async function truncateTables(): Promise<void> {
     console.error(`test_reset.null_character_fks_failed status=${nullFKsResp.status}`);
   }
 
-  // Delete tables in dependency order
+  // Delete tables in dependency order (children before parents)
   // Each entry: [table_name, primary_key_column]
   const tables: Array<[string, string]> = [
     ['events', 'id'],                     // FK: character_id → characters
     ['rate_limits', 'character_id'],      // FK: character_id → characters
     ['corporation_members', 'corp_id'],   // FK: corp_id → corporations, character_id → characters
     ['corporation_ships', 'ship_id'],     // FK: ship_id → ship_instances, corp_id → corporations
-    ['corporations', 'corp_id'],          // FK: founder_id → characters
     ['garrisons', 'sector_id'],           // FK: sector_id → universe_structure
     ['port_transactions', 'id'],          // FK: ship_id → ship_instances, character_id → characters
-    ['ship_instances', 'ship_id'],        // FK: owner_character_id → characters, current_sector → universe_structure
-    ['characters', 'character_id'],       // FK: current_ship_id → ship_instances (now NULL'd)
+    ['ship_instances', 'ship_id'],        // FK: owner_character_id → characters, owner_corporation_id → corporations
+    ['corporations', 'corp_id'],          // FK: founder_id → characters (must delete before characters)
+    ['characters', 'character_id'],       // FK: current_ship_id → ship_instances (NULL'd), corporation_id → corporations (NULL'd)
     ['sector_contents', 'sector_id'],     // FK: sector_id → universe_structure, port_id → ports
     ['ports', 'sector_id'],               // FK: sector_id → universe_structure
     ['universe_structure', 'sector_id'],  // FK: none

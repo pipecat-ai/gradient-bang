@@ -120,11 +120,23 @@ async function handleSendMessage(params: {
     adminOverride,
   } = params;
 
-  // Load sender character for actor authorization
+  // Load sender character and ship for actor authorization
   const sender = await loadCharacter(supabase, characterId);
+
+  // Load ship for corporation ship authorization
+  let ship = null;
+  if (sender.current_ship_id) {
+    const { data: shipData } = await supabase
+      .from('ship_instances')
+      .select('*')
+      .eq('ship_id', sender.current_ship_id)
+      .maybeSingle();
+    ship = shipData;
+  }
+
   await ensureActorAuthorization({
     supabase,
-    ship: null, // Not required for messaging
+    ship,
     actorCharacterId,
     adminOverride,
     targetCharacterId: characterId,

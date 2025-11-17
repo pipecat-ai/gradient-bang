@@ -87,7 +87,7 @@ async def test_corporation_member_can_control_ship(server_url, check_server_avai
             ship_name="Remote Atlas",
         )
         ship_id = purchase["ship_id"]
-        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
+        # Corporation ship character already created by ship_purchase endpoint
 
         async with AsyncGameClient(
             base_url=server_url,
@@ -168,7 +168,7 @@ async def test_corporation_ship_can_trade(server_url, check_server_available):
             initial_ship_credits=20_000,
         )
         ship_id = purchase["ship_id"]
-        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
+        # Corporation ship character already created by ship_purchase endpoint
 
         async with AsyncGameClient(
             base_url=server_url,
@@ -242,7 +242,7 @@ async def test_corporation_ship_can_recharge_warp_power(server_url, check_server
             initial_ship_credits=15_000,
         )
         ship_id = purchase["ship_id"]
-        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
+        # Corporation ship character already created by ship_purchase endpoint
 
         async with AsyncGameClient(
             base_url=server_url,
@@ -334,7 +334,7 @@ async def test_corporation_ship_can_engage_in_combat(server_url, check_server_av
             ship_name="War Atlas",
         )
         ship_id = purchase["ship_id"]
-        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
+        # Corporation ship character already created by ship_purchase endpoint
 
         async with AsyncGameClient(
             base_url=server_url,
@@ -383,7 +383,7 @@ async def test_corporation_ship_rejects_unauthorized_actor(server_url, check_ser
             ship_name="Guarded Atlas",
         )
         ship_id = purchase["ship_id"]
-        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
+        # Corporation ship character already created by ship_purchase endpoint
 
         async with AsyncGameClient(
             base_url=server_url,
@@ -427,7 +427,7 @@ async def test_corporation_ship_actions_require_authorized_actor(server_url, che
             initial_ship_credits=50_000,
         )
         ship_id = purchase["ship_id"]
-        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
+        # Corporation ship character already created by ship_purchase endpoint
 
         async with AsyncGameClient(
             base_url=server_url,
@@ -537,7 +537,7 @@ async def test_corporation_ship_chat_requires_authorized_actor(server_url, check
             ship_name="Chatty Atlas",
         )
         ship_id = purchase["ship_id"]
-        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
+        # Corporation ship character already created by ship_purchase endpoint
 
         async with AsyncGameClient(
             base_url=server_url,
@@ -580,7 +580,7 @@ async def test_corporation_event_log_records_fleet_activity(server_url, check_se
             initial_ship_credits=25_000,
         )
         ship_id = purchase["ship_id"]
-        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
+        # Corporation ship character already created by ship_purchase endpoint
 
         async with AsyncGameClient(
             base_url=server_url,
@@ -798,7 +798,7 @@ async def test_corp_ships_transferred_to_unowned_on_disband(server_url, check_se
             ship_name="Corp Atlas",
         )
         ship_id = purchase["ship_id"]
-        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
+        # Corporation ship character already created by ship_purchase endpoint
 
         await founder._request("corporation.leave", {"character_id": "test_corp_founder"})
 
@@ -827,7 +827,7 @@ async def test_unowned_ships_appear_in_sector_contents(server_url, check_server_
             ship_type="kestrel_courier",
         )
         ship_id = purchase["ship_id"]
-        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
+        # Corporation ship character already created by ship_purchase endpoint
 
         await founder._request("corporation.leave", {"character_id": "test_corp_founder"})
 
@@ -903,7 +903,7 @@ async def test_ship_retains_state_when_unowned(server_url, check_server_availabl
             ship_type="kestrel_courier",
         )
         ship_id = purchase["ship_id"]
-        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
+        # Corporation ship character already created by ship_purchase endpoint
 
         # Trigger a sector update to ensure state flush and leave no modifications
         await founder._request("corporation.leave", {"character_id": "test_corp_founder"})
@@ -928,7 +928,7 @@ async def test_unowned_ship_includes_former_corp_info(server_url, check_server_a
             ship_type="atlas_hauler",
         )
         ship_id = purchase["ship_id"]
-        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
+        # Corporation ship character already created by ship_purchase endpoint
 
         await founder._request("corporation.leave", {"character_id": "test_corp_founder"})
         await asyncio.sleep(0.2)
@@ -952,7 +952,7 @@ async def test_unowned_ships_only_visible_in_their_sector(server_url, check_serv
             ship_type="kestrel_courier",
         )
         ship_id = purchase["ship_id"]
-        register_characters_for_test(ship_id)  # Register ship in Supabase for join()
+        # Corporation ship character already created by ship_purchase endpoint
 
         await founder._request("corporation.leave", {"character_id": "test_corp_founder"})
 

@@ -194,6 +194,16 @@ async function handleDisband(params: {
     }
   }
 
+  // NULL out corp_id in events before deleting corporation (preserve event history)
+  const { error: eventUpdateError } = await supabase
+    .from('events')
+    .update({ corp_id: null })
+    .eq('corp_id', corpId);
+  if (eventUpdateError) {
+    console.error('corporation_leave.event_update', eventUpdateError);
+    // Continue anyway - this is not critical
+  }
+
   const { error: deleteError } = await supabase
     .from('corporations')
     .delete()

@@ -36,6 +36,7 @@ interface EventRow {
   request_id: string | null;
   payload: Record<string, unknown> | null;
   meta: Record<string, unknown> | null;
+  corp_id: string | null;
   event_character_recipients?: Array<{ character_id: string; reason: string }> | { character_id: string; reason: string };
 }
 
@@ -190,6 +191,7 @@ async function executeEventQuery(
     sortDirection,
     queryCharacterId,
     corporationMemberIds,
+    corporationId,
   });
 
   return {
@@ -210,6 +212,7 @@ async function fetchEvents(options: {
   sortDirection: 'forward' | 'reverse';
   queryCharacterId: string | null;
   corporationMemberIds: string[] | null;
+  corporationId?: string | null;
 }): Promise<{ events: JsonRecord[]; truncated: boolean }> {
   const {
     supabase,
@@ -221,6 +224,7 @@ async function fetchEvents(options: {
     sortDirection,
     queryCharacterId,
     corporationMemberIds,
+    corporationId,
   } = options;
 
   const ascending = sortDirection === 'forward';
@@ -233,7 +237,7 @@ async function fetchEvents(options: {
     // Admin mode: Query events directly without recipient filtering
     query = supabase
       .from('events')
-      .select('id,timestamp,direction,event_type,character_id,sender_id,sector_id,ship_id,request_id,payload,meta')
+      .select('id,timestamp,direction,event_type,character_id,sender_id,sector_id,ship_id,request_id,payload,meta,corp_id')
       .gte('timestamp', start.toISOString())
       .lte('timestamp', end.toISOString())
       .order('id', { ascending })
@@ -254,6 +258,7 @@ async function fetchEvents(options: {
         request_id,
         payload,
         meta,
+        corp_id,
         event_character_recipients!inner(character_id, reason)
       `)
       .gte('timestamp', start.toISOString())
@@ -261,12 +266,13 @@ async function fetchEvents(options: {
       .order('id', { ascending })
       .limit(dbLimit);
 
-    // Filter by recipient character_id or corporation member IDs
-    if (corporationMemberIds && corporationMemberIds.length) {
-      query = query.in('event_character_recipients.character_id', corporationMemberIds);
-    } else if (queryCharacterId) {
+    // Filter by recipient character_id
+    // For corporation queries, we cast a wider net and filter in post-processing
+    if (queryCharacterId) {
       query = query.eq('event_character_recipients.character_id', queryCharacterId);
     }
+    // For corporation queries (corporationMemberIds is set), we don't filter recipients here
+    // Instead, we'll filter in post-processing to support OR logic (member OR corp_id)
   }
 
   if (sector !== null) {
@@ -279,7 +285,27 @@ async function fetchEvents(options: {
     throw new EventQueryError('failed to query events', 500);
   }
 
-  const rows: EventRow[] = Array.isArray(data) ? (data as EventRow[]) : [];
+  let rows: EventRow[] = Array.isArray(data) ? (data as EventRow[]) : [];
+
+  // For corporation queries, filter to include events where:
+  // - Recipient is a corporation member OR
+  // - Event is tagged with the corporation ID
+  if (corporationId && corporationMemberIds && corporationMemberIds.length) {
+    rows = rows.filter((row) => {
+      // Include if event is tagged with this corporation
+      if (row.corp_id === corporationId) {
+        return true;
+      }
+      // Include if recipient is a corporation member
+      if (row.event_character_recipients) {
+        const recipients = Array.isArray(row.event_character_recipients)
+          ? row.event_character_recipients
+          : [row.event_character_recipients];
+        return recipients.some((r) => corporationMemberIds.includes(r.character_id));
+      }
+      return false;
+    });
+  }
 
   // Collect all character IDs for name lookup: senders, receivers, and joined recipients
   const allCharacterIds = rows.flatMap((row) => {
@@ -304,7 +330,7 @@ async function fetchEvents(options: {
 function buildEventRecord(row: EventRow, nameLookup: Map<string, string>): JsonRecord {
   const payload = row.payload && typeof row.payload === 'object' ? row.payload : {};
   const meta = row.meta && typeof row.meta === 'object' ? row.meta : null;
-  const corporationId = meta && typeof meta['corporation_id'] === 'string' ? (meta['corporation_id'] as string) : null;
+  const corporationId = typeof row.corp_id === 'string' ? row.corp_id : null;
   const senderId = typeof row.sender_id === 'string' ? row.sender_id : null;
 
   // Extract receiver ID from joined event_character_recipients if available

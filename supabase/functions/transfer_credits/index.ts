@@ -190,6 +190,7 @@ async function handleTransfer(
     sectorId,
     shipId: fromRecord.ship.ship_id,
     actorCharacterId,
+    corpId: fromRecord.character.corporation_id,
   });
 
   await emitCharacterEvent({
@@ -201,6 +202,7 @@ async function handleTransfer(
     sectorId,
     shipId: toRecord.ship.ship_id,
     actorCharacterId,
+    corpId: toRecord.character.corporation_id,
   });
 
   await emitCharacterEvent({
@@ -212,6 +214,7 @@ async function handleTransfer(
     sectorId,
     shipId: fromRecord.ship.ship_id,
     actorCharacterId,
+    corpId: fromRecord.character.corporation_id,
   });
   await emitCharacterEvent({
     supabase,
@@ -222,6 +225,7 @@ async function handleTransfer(
     sectorId,
     shipId: toRecord.ship.ship_id,
     actorCharacterId,
+    corpId: toRecord.character.corporation_id,
   });
 
   return successResponse({ request_id: requestId });

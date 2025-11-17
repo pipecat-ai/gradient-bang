@@ -188,6 +188,7 @@ async function handlePathWithRegion(
     eventType: 'path.region',
     payload: payloadBody,
     requestId,
+    corpId: character.corporation_id,
   });
 
   await emitSectorEnvelope({

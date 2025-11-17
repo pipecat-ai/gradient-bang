@@ -213,6 +213,7 @@ async function handleRecharge(
     sectorId: ship.current_sector,
     shipId: ship.ship_id,
     requestId,
+    corpId: character.corporation_id,
   });
 
   const statusPayload = await buildStatusPayload(supabase, characterId);
@@ -224,6 +225,7 @@ async function handleRecharge(
     sectorId: ship.current_sector,
     shipId: ship.ship_id,
     requestId,
+    corpId: character.corporation_id,
   });
 
   return successResponse({ request_id: requestId });

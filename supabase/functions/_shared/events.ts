@@ -112,6 +112,7 @@ interface CharacterEventOptions {
   shipId?: string | null;
   requestId?: string | null;
   meta?: Record<string, unknown> | null;
+  corpId?: string | null;
   recipientReason?: string;
   additionalRecipients?: EventRecipientSnapshot[];
   actorCharacterId?: string | null;
@@ -129,6 +130,7 @@ export async function emitCharacterEvent(options: CharacterEventOptions): Promis
     shipId,
     requestId,
     meta,
+    corpId,
     recipientReason,
     additionalRecipients = [],
     actorCharacterId,
@@ -150,6 +152,7 @@ export async function emitCharacterEvent(options: CharacterEventOptions): Promis
     payload,
     requestId,
     meta,
+    corpId,
     sectorId,
     shipId,
     characterId,

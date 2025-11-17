@@ -282,6 +282,7 @@ async function handleMove({ supabase, characterId, destination, requestId, actor
       shipId: ship.ship_id,
       sectorId: ship.current_sector,
       requestId,
+      corpId: character.corporation_id,
     });
 
     await emitMovementObservers({
@@ -398,6 +399,7 @@ async function completeMovement({
       shipId,
       sectorId: destination,
       requestId,
+      corpId: character.corporation_id,
     });
 
     const mapRegion = await buildLocalMapRegion(supabase, {
@@ -416,6 +418,7 @@ async function completeMovement({
       payload: mapRegion,
       sectorId: destination,
       requestId,
+      corpId: character.corporation_id,
     });
 
     await emitMovementObservers({

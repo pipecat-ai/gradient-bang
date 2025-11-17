@@ -254,6 +254,7 @@ async function handlePurchase(
     shipId: ship.ship_id,
     requestId,
     actorCharacterId,
+    corpId: character.corporation_id,
   });
 
   await emitCharacterEvent({
@@ -265,6 +266,7 @@ async function handlePurchase(
     shipId: ship.ship_id,
     requestId,
     actorCharacterId,
+    corpId: character.corporation_id,
   });
 
   return successResponse({ request_id: requestId, units_purchased: unitsToBuy });

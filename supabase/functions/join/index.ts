@@ -180,6 +180,7 @@ serve(async (req: Request): Promise<Response> => {
       shipId: ship.ship_id,
       sectorId: targetSector,
       requestId,
+      corpId: character.corporation_id,
     });
 
     const mapPayload = await buildLocalMapRegion(supabase, {
@@ -196,6 +197,7 @@ serve(async (req: Request): Promise<Response> => {
       payload: mapPayload,
       sectorId: targetSector,
       requestId,
+      corpId: character.corporation_id,
     });
 
     const observerMetadata: ObserverMetadata = {

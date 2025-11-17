@@ -228,6 +228,7 @@ async function handleDumpCargo(
     shipId: ship.ship_id,
     requestId,
     actorCharacterId,
+    corpId: character.corporation_id,
   });
 
   const statusPayload = await buildStatusPayload(supabase, characterId);
@@ -240,6 +241,7 @@ async function handleDumpCargo(
     shipId: ship.ship_id,
     requestId,
     actorCharacterId,
+    corpId: character.corporation_id,
   });
 
   const sectorSnapshot = await buildSectorSnapshot(supabase, ship.current_sector);

@@ -276,6 +276,7 @@ async function handleCombatLeaveFighters(params: {
     sectorId: sector,
     requestId,
     actorCharacterId: characterId,
+    corpId: character.corporation_id,
   });
 
   // TODO: Emit sector.update to all sector occupants (omitted for initial deployment)

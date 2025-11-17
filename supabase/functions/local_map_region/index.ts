@@ -176,6 +176,7 @@ async function handleLocalMapRegion(
     payload: mapRegion,
     sectorId: centerSector,
     requestId,
+    corpId: character.corporation_id,
   });
 
   await emitSectorEnvelope({

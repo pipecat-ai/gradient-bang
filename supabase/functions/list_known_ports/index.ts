@@ -351,6 +351,7 @@ async function handleListKnownPorts(
     payload: payloadBody,
     sectorId: fromSector,
     requestId,
+    corpId: character.corporation_id,
   });
 
   return successResponse({ request_id: requestId });

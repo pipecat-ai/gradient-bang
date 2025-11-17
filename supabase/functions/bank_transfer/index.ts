@@ -310,6 +310,7 @@ async function handleDeposit(
         sectorId: BANK_SECTOR,
         shipId,
         actorCharacterId,
+        corpId: target.corporation_id,
       },
     );
     console.log('[bank_transfer.deposit] Emitted bank transaction event');
@@ -327,11 +328,13 @@ async function handleDeposit(
     sectorId: BANK_SECTOR,
     shipId,
     actorCharacterId,
+    corpId: target.corporation_id,
   });
 
   if (resolvedSourceCharacter && resolvedSourceCharacter !== targetCharacterId) {
     console.log('[bank_transfer.deposit] Emitting source status update', { resolvedSourceCharacter });
     const ownerStatus = sourceStatus ?? (await buildStatusPayload(supabase, resolvedSourceCharacter));
+    const sourceChar = await loadCharacter(supabase, resolvedSourceCharacter);
     await emitCharacterEvent({
       supabase,
       characterId: resolvedSourceCharacter,
@@ -341,6 +344,7 @@ async function handleDeposit(
       sectorId: BANK_SECTOR,
       shipId,
       actorCharacterId,
+      corpId: sourceChar.corporation_id,
     });
   }
 
@@ -443,6 +447,7 @@ async function handleWithdraw(
       sectorId: BANK_SECTOR,
       shipId: ship.ship_id,
       actorCharacterId,
+      corpId: character.corporation_id,
     },
   );
 
@@ -455,6 +460,7 @@ async function handleWithdraw(
     sectorId: BANK_SECTOR,
     shipId: ship.ship_id,
     actorCharacterId,
+    corpId: character.corporation_id,
   });
 
   return successResponse({ request_id: requestId });
@@ -464,7 +470,7 @@ async function emitBankTransaction(
   supabase: SupabaseClient,
   characterId: string,
   payload: Record<string, unknown>,
-  options: { requestId?: string | null; sectorId?: number | null; shipId?: string | null; actorCharacterId?: string | null } = {},
+  options: { requestId?: string | null; sectorId?: number | null; shipId?: string | null; actorCharacterId?: string | null; corpId?: string | null } = {},
 ): Promise<void> {
   await emitCharacterEvent({
     supabase,
@@ -475,6 +481,7 @@ async function emitBankTransaction(
     sectorId: options.sectorId,
     shipId: options.shipId ?? undefined,
     actorCharacterId: options.actorCharacterId ?? null,
+    corpId: options.corpId ?? null,
   });
 }
 
@@ -489,11 +496,11 @@ function requirePositiveInt(payload: Record<string, unknown>, key: string): numb
 async function findCharacterByName(
   supabase: SupabaseClient,
   name: string,
-): Promise<{ character_id: string; credits_in_megabank: number | null; name: string | null } | null> {
+): Promise<{ character_id: string; credits_in_megabank: number | null; name: string | null; corporation_id: string | null } | null> {
   const pattern = name.replace(/[%_]/g, (ch) => `\\${ch}`);
   const { data, error } = await supabase
     .from('characters')
-    .select('character_id, credits_in_megabank, name')
+    .select('character_id, credits_in_megabank, name, corporation_id')
     .ilike('name', pattern)
     .limit(1)
     .maybeSingle();
