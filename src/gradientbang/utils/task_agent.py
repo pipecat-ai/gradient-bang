@@ -58,7 +58,7 @@ from gradientbang.utils.tools_schema import (
     PlotCourse,
     LocalMapRegion,
     ListKnownPorts,
-    PathWithRegion,
+    #    PathWithRegion, # Advanced version of plot_course -- disabled for now
     Move,
     Trade,
     PurchaseFighters,
@@ -252,9 +252,7 @@ class TaskAgent:
 
         self.output_callback = output_callback
         self._tool_call_event_callback = tool_call_event_callback
-        self._llm_service_factory = (
-            llm_service_factory or self._default_llm_service_factory
-        )
+        self._llm_service_factory = llm_service_factory or self._default_llm_service_factory
         self._thinking_budget = thinking_budget or DEFAULT_THINKING_BUDGET
         self._include_thoughts = DEFAULT_INCLUDE_THOUGHTS
         self._pipeline_idle_timeout_secs = idle_timeout_secs
@@ -289,7 +287,6 @@ class TaskAgent:
             PlotCourse,
             LocalMapRegion,
             ListKnownPorts,
-            PathWithRegion,
             Move,
             Trade,
             PurchaseFighters,
@@ -391,9 +388,7 @@ class TaskAgent:
                     async for chunk in base_stream:
                         candidates = getattr(chunk, "candidates", None)
                         candidate = candidates[0] if candidates else None
-                        content = (
-                            getattr(candidate, "content", None) if candidate else None
-                        )
+                        content = getattr(candidate, "content", None) if candidate else None
                         if content is not None:
                             # logger.info(f"!!! {content}")
                             self._captured_candidate_contents.append(content)
@@ -418,9 +413,7 @@ class TaskAgent:
                         )
                         self._captured_candidate_contents.clear()
                     else:
-                        logger.warning(
-                            "LLMFullResponseEndFrame but no candidate contents"
-                        )
+                        logger.warning("LLMFullResponseEndFrame but no candidate contents")
 
                 await super().push_frame(frame, direction)
 
@@ -430,8 +423,7 @@ class TaskAgent:
                 if isinstance(message, dict):
                     parts = message.get("parts") or []
                     if parts and any(
-                        isinstance(part, dict)
-                        and part.get("function_response") is not None
+                        isinstance(part, dict) and part.get("function_response") is not None
                         for part in parts
                     ):
                         return True
@@ -468,9 +460,7 @@ class TaskAgent:
                 for cursor in range(start_index, -1, -1):
                     candidate = messages[cursor]
                     if isinstance(candidate, LLMSpecificMessage):
-                        candidate_parts = (
-                            getattr(candidate.message, "parts", None) or []
-                        )
+                        candidate_parts = getattr(candidate.message, "parts", None) or []
                         for part in reversed(candidate_parts):
                             function_call = getattr(part, "function_call", None)
                             if function_call and getattr(function_call, "name", None):
@@ -559,9 +549,7 @@ class TaskAgent:
                     response_dict,
                 )
 
-            def _remove_duplicate_function_call_messages(
-                self, context: LLMContext
-            ) -> None:
+            def _remove_duplicate_function_call_messages(self, context: LLMContext) -> None:
                 messages = context.get_messages()
                 normalized_messages: List[Any] = []
                 changed = False
@@ -588,9 +576,7 @@ class TaskAgent:
 
                     if self._is_sanitized_function_message(message):
                         normalized_messages.append(
-                            self._convert_function_response_message(
-                                message, normalized_messages
-                            )
+                            self._convert_function_response_message(message, normalized_messages)
                         )
                         changed = True
                         idx += 1
@@ -658,9 +644,7 @@ class TaskAgent:
 
     def cancel(self) -> None:
         self.cancelled = True
-        self._output(
-            self._timestamped_text("Execution cancelled"), TaskOutputType.FINISHED
-        )
+        self._output(self._timestamped_text("Execution cancelled"), TaskOutputType.FINISHED)
 
     def reset_cancellation(self) -> None:
         self.cancelled = False
@@ -695,9 +679,7 @@ class TaskAgent:
                 if self._active_pipeline_task:
                     await self._active_pipeline_task.cancel()
             except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    f"Failed to cancel pipeline task after error event: {exc}"
-                )
+                logger.warning(f"Failed to cancel pipeline task after error event: {exc}")
             raise RuntimeError(f"Encountered error event: {event}")
 
         if event_name == "error":
@@ -809,9 +791,7 @@ class TaskAgent:
         _ = max_iterations  # retained for API compatibility; pipeline controls turns
 
         self.add_message({"role": "system", "content": create_task_system_message()})
-        self.add_message(
-            {"role": "user", "content": create_task_instruction_user_message(task)}
-        )
+        self.add_message({"role": "user", "content": create_task_instruction_user_message(task)})
 
         context = self._create_context()
         runner_task = self._setup_pipeline(context)
@@ -997,12 +977,8 @@ class TaskAgent:
         if not tool:
             error_text = self._timestamped_text(f"Unknown tool: {tool_name}")
             self._output(error_text, TaskOutputType.ERROR)
-            logger.debug(
-                "TOOL_RESULT unknown tool={} arguments={}", tool_name, arguments
-            )
-            await self._on_tool_call_completed(
-                tool_name, {"error": f"Unknown tool: {tool_name}"}
-            )
+            logger.debug("TOOL_RESULT unknown tool={} arguments={}", tool_name, arguments)
+            await self._on_tool_call_completed(tool_name, {"error": f"Unknown tool: {tool_name}"})
             return
 
         result_payload: Any = None
@@ -1078,9 +1054,7 @@ class TaskAgent:
             content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         return {"role": "tool", "tool_call_id": tool_call_id, "content": content}
 
-    def _payload_from_tool_message(
-        self, tool_message: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _payload_from_tool_message(self, tool_message: Dict[str, Any]) -> Dict[str, Any]:
         content = tool_message.get("content")
         if not content:
             return {"result": {}}
@@ -1106,9 +1080,7 @@ class TaskAgent:
             try:
                 self.output_callback(text, type_value)
             except Exception:  # noqa: BLE001
-                logger.exception(
-                    "output_callback failed type={} text={}", type_value, text
-                )
+                logger.exception("output_callback failed type={} text={}", type_value, text)
 
     def _record_inference_reason(self, reason: str) -> None:
         if reason in self._inference_reasons:
