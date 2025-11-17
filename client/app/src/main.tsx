@@ -17,40 +17,28 @@ const Settings = useGameStore.getState().settings
 
 // Parse query string parameters
 const queryParams = new URLSearchParams(window.location.search)
-const transport = queryParams.get("transport") || "smallwebrtc"
+const transport =
+  queryParams.get("transport") ||
+  import.meta.env.VITE_PIPECAT_TRANSPORT ||
+  "smallwebrtc"
+
 const endpoint =
   queryParams.get("server") ||
-  `${import.meta.env.VITE_BOT_URL}/start` ||
+  import.meta.env.VITE_BOT_START_URL ||
   "http://localhost:7860/start"
 
-const requestBodyEntries = [...queryParams.entries()].filter(
-  ([key]) => key !== "server" && key !== "transport"
-)
-const requestBody = Object.fromEntries(requestBodyEntries) as Record<
-  string,
-  string
->
-const startRequestData = {
-  createDailyRoom: true,
-  dailyRoomProperties: {
-    start_video_off: true,
-    eject_at_room_exp: true,
+useGameStore.getState().setBotConfig(
+  {
+    endpoint,
   },
-  body: { ...requestBody, start_on_join: false },
-}
+  transport as "smallwebrtc" | "daily"
+)
 
 console.debug("[MAIN] Pipecat Configuration:", endpoint, transport)
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <PipecatAppBase
-      startBotParams={{
-        endpoint,
-        requestData:
-          transport === "daily"
-            ? startRequestData
-            : { ...requestBody, start_on_join: false },
-      }}
       transportType={transport as "smallwebrtc" | "daily"}
       clientOptions={{
         enableMic: Settings.enableMic,

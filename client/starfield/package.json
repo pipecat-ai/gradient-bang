@@ -23,17 +23,19 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
+    "@react-spring/three": "^10.0.3",
     "@react-three/drei": "^10.7.6",
     "@react-three/fiber": "^9.4.0",
     "immer": "^10.2.0",
     "leva": "0.9.32",
     "postprocessing": "^6.37.3",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
     "three": "^0.181.0",
     "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "@ianvs/prettier-plugin-sort-imports": "^4.7.0",
     "@types/node": "^24.10.0",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",

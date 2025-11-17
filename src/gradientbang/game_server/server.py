@@ -5,19 +5,33 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import uuid
-from collections import deque
+import re
+import httpx
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field, field_validator
+
+# Load environment variables from .env file
+load_dotenv()
+
+try:
+    from importlib.metadata import version
+    __version__ = version("gradient-bang")
+except Exception:
+    __version__ = "0.0.0"  # Fallback
 
 from gradientbang.game_server.core.world import lifespan as world_lifespan, world
 from gradientbang.game_server.api import (
     character_create as api_character_create,
     character_delete as api_character_delete,
+    character_info as api_character_info,
     character_modify as api_character_modify,
     corporation_create as api_corporation_create,
     corporation_join as api_corporation_join,
@@ -78,6 +92,25 @@ logger = logging.getLogger("gradient-bang.server")
 logging.basicConfig(level=logging.INFO)
 
 
+class CharacterCreateRequest(BaseModel):
+    """Request body for creating a new character."""
+    name: str = Field(
+        ..., 
+        description="Character display name (alphanumeric only, no spaces)",
+        min_length=1,
+        max_length=50
+    )
+
+    @field_validator('name')
+    @classmethod
+    def validate_alphanumeric(cls, v: str) -> str:
+        if not re.match(r'^[a-zA-Z0-9 ]+$', v):
+            raise ValueError(
+                f"Invalid name '{v}': only letters, numbers, and spaces are allowed"
+            )
+        return v
+
+
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
     async with world_lifespan(app):
@@ -103,10 +136,21 @@ async def app_lifespan(app: FastAPI):
         yield
 
 
-app = FastAPI(title="Gradient Bang", version="0.2.0", lifespan=app_lifespan)
+# Enable docs/redoc only if GAME_SERVER_DEV_MODE is set
+docs_url = "/docs" if os.getenv("GAME_SERVER_DEV_MODE") else None
+redoc_url = "/redoc" if os.getenv("GAME_SERVER_DEV_MODE") else None
+
+app = FastAPI(
+    title="Gradient Bang",
+    version=__version__,
+    lifespan=app_lifespan,
+    docs_url=docs_url,
+    redoc_url=redoc_url,
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8080", "http://localhost:5173"],
+    allow_origins=[origin.strip() for origin in os.getenv("GAME_SERVER_CORS_ALLOWED_ORIGINS", "").split(",") if origin.strip()],
+    allow_origin_regex=r"https?://localhost(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -125,10 +169,12 @@ port_locks = PortLockManager(timeout=30.0)
 
 
 async def _rpc_server_status(_: Dict[str, Any]) -> Dict[str, Any]:
+    world_loaded = world.universe_graph is not None
     return {
         "name": "Gradient Bang",
-        "version": "0.2.0",
-        "status": "running",
+        "version": __version__,
+        "status": "running" if world_loaded else "degraded",
+        "world_loaded": world_loaded,
         "sectors": world.universe_graph.sector_count if world.universe_graph else 0,
     }
 
@@ -275,6 +321,10 @@ RPC_HANDLERS: Dict[str, RPCHandler] = {
         "character.delete",
         lambda payload: api_character_delete.handle(payload, world),
     ),
+    "character.info": _with_rate_limit(
+        "character.info",
+        lambda payload: api_character_info.handle(payload, world),
+    ),
     "combat.initiate": _with_rate_limit(
         "combat.initiate", lambda payload: api_combat_initiate.handle(payload, world)
     ),
@@ -308,13 +358,91 @@ RPC_HANDLERS: Dict[str, RPCHandler] = {
 
 @app.get("/")
 async def root() -> Dict[str, Any]:
-    return {
+    world_loaded = world.universe_graph is not None
+    response = {
         "name": "Gradient Bang",
-        "version": "0.2.0",
-        "status": "running",
+        "version": __version__,
+        "status": "running" if world_loaded else "degraded",
+        "world_loaded": world_loaded,
         "sectors": world.universe_graph.sector_count if world.universe_graph else 0,
     }
+    
+    return response
 
+@app.post("/start")
+async def http_start_bot(request: Dict[str, Any]) -> Dict[str, Any]:
+    """Proxy route for starting bot process"""
+
+    body = request.get("body")
+    if not body:
+        raise HTTPException(status_code=400, detail="body is required")
+
+    character_id = body.get("character_id")
+    if not character_id:
+        raise HTTPException(status_code=400, detail="character_id is required")
+
+    # Look up the character_id in the character registry and validate first
+    # We do this here to bail early if the character is not registered
+    registry = getattr(world, "character_registry", None)
+    if registry is None:
+        raise HTTPException(status_code=500, detail="Character registry unavailable")
+    profile = registry.get_profile(character_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Character is not registered")
+
+    logger.info(f"Starting bot process for character_id: {character_id} - {profile.name}")
+
+    start_url = os.getenv("GAME_SERVER_AGENT_START_URL")
+    if not start_url:
+        raise HTTPException(status_code=500, detail="GAME_SERVER_AGENT_START_URL is not set")
+
+    headers = {"Content-Type": "application/json"}
+    # If endpoint is secured (e.g. PCC), add bearer token to headers
+    public_key = os.getenv("GAME_SERVER_AGENT_PUBLIC_KEY", None)
+    if public_key:
+        headers["Authorization"] = f"Bearer {public_key}"
+    
+    async with httpx.AsyncClient(timeout=3.0) as client:
+        response = await client.post(start_url, json=request, headers=headers)
+        response.raise_for_status()
+    return response.json()
+   
+
+@app.post("/player")
+async def http_character_create(request: CharacterCreateRequest) -> Dict[str, Any]:
+    """Create a new character with the specified name"""
+    payload = request.model_dump(exclude_none=True)
+    return await api_character_create.handle(payload, world)
+
+@app.get("/player")
+async def http_character_lookup(character_id: str) -> Dict[str, Any]:
+    """Look up a character by display name.
+    
+    Args:
+        name: The character's display name (case-insensitive, supports spaces and special characters)
+        
+    Returns:
+        Character information including name, and timestamps
+    """
+    registry = getattr(world, "character_registry", None)
+    if registry is None:
+        raise HTTPException(status_code=500, detail="Character registry unavailable")
+    
+    if not character_id:
+        raise HTTPException(status_code=400, detail="name query parameter is required")
+    
+    profile = registry.get_profile(character_id)
+    if profile is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Character not found: {character_id}"
+        )
+    
+    return {
+        "name": profile.name,
+        "created_at": profile.created_at,
+        "updated_at": profile.updated_at,
+    }
 
 @app.get("/leaderboard/resources")
 async def http_leaderboard_resources(force_refresh: bool = False) -> Dict[str, Any]:

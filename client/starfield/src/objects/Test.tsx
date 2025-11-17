@@ -1,6 +1,7 @@
-import { useRef, useMemo, useCallback } from "react"
+import { useCallback, useMemo, useRef } from "react"
 import { useFrame, useThree } from "@react-three/fiber"
 import * as THREE from "three"
+
 import { useSceneObject } from "@/hooks/useSceneObject"
 import type { SceneConfig } from "@/types"
 
@@ -17,9 +18,6 @@ export function TestObject() {
     "test",
     onApplyNewConfig
   )
-  const config = sceneConfig?.nebula ?? {}
-
-  const { invalidate } = useThree()
 
   // Memoize geometry and material with config
   /*const [geometry, material] = useMemo(() => {

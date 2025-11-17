@@ -1,11 +1,12 @@
+import type { Scene } from "@/types"
 import { useGameStore } from "@/useGameStore"
-import type { SceneConfig } from "@/types"
 
 export function useSceneChange() {
-  const startSceneChange = useGameStore((state) => state.startSceneChange)
+  const enqueueScene = useGameStore((state) => state.enqueueScene)
 
-  const changeScene = (newConfig: SceneConfig) => {
-    startSceneChange(newConfig)
+  const changeScene = (scene: Scene) => {
+    console.log("[useSceneChange] Requesting scene change:", scene.id)
+    enqueueScene(scene)
   }
 
   return { changeScene }

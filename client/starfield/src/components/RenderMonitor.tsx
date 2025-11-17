@@ -8,7 +8,7 @@ export function RenderMonitor() {
 
   useFrame(() => {
     frameCount.current++
-    console.log(`[RENDER] Frame ${frameCount.current}`)
+    console.debug(`Rendering Frame ${frameCount.current}`)
     setDisplayCount(frameCount.current)
   })
 

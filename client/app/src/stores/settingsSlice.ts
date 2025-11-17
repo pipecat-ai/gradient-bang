@@ -1,5 +1,6 @@
 import { produce } from "immer"
 import { type StateCreator } from "zustand"
+import { type APIRequest } from "@pipecat-ai/client-js"
 
 import { getLocalSettings, setLocalSettings } from "@/utils/settings"
 
@@ -25,6 +26,16 @@ export interface SettingsSlice {
     bypassAssetCache: boolean
   }
   setSettings: (settings: SettingsSlice["settings"]) => void
+
+  botConfig: {
+    startBotParams: APIRequest
+    transportType: "smallwebrtc" | "daily"
+  }
+  setBotConfig: (
+    startBotParams: APIRequest,
+    transportType: "smallwebrtc" | "daily"
+  ) => void
+  getBotStartParams: (characterId: string) => APIRequest
 }
 
 const defaultSettings = {
@@ -48,7 +59,7 @@ const defaultSettings = {
   bypassAssetCache: false,
 }
 
-export const createSettingsSlice: StateCreator<SettingsSlice> = (set) => ({
+export const createSettingsSlice: StateCreator<SettingsSlice> = (set, get) => ({
   settings: {
     ...defaultSettings,
     ...getLocalSettings(),
@@ -60,5 +71,49 @@ export const createSettingsSlice: StateCreator<SettingsSlice> = (set) => ({
         state.settings = settings
       })
     )
+  },
+  botConfig: {
+    startBotParams: {
+      endpoint: "",
+      requestData: {},
+    },
+    transportType: "smallwebrtc",
+  },
+  setBotConfig: (
+    startBotParams: APIRequest,
+    transportType: "smallwebrtc" | "daily"
+  ) => {
+    set(
+      produce((state) => {
+        state.botConfig = {
+          startBotParams,
+          transportType,
+        }
+      })
+    )
+  },
+  getBotStartParams: (characterId: string): APIRequest => {
+    const params = get().botConfig.startBotParams
+    const transportType = get().botConfig.transportType
+    const requestData = {
+      ...(transportType === "daily"
+        ? {
+            createDailyRoom: true,
+            dailyRoomProperties: {
+              start_video_off: true,
+              eject_at_room_exp: true,
+            },
+          }
+        : { createDailyRoom: false, enableDefaultIceServers: true }),
+    }
+    return {
+      endpoint: params.endpoint,
+      requestData: {
+        ...requestData,
+        body: {
+          character_id: characterId,
+        },
+      },
+    }
   },
 })

@@ -2,12 +2,13 @@ import os
 from pathlib import Path
 
 
-def get_world_data_path(ensure_exists: bool = True) -> Path:
+def get_world_data_path(ensure_exists: bool = False) -> Path:
     """Get world-data path (must run from repo root or set WORLD_DATA_DIR).
     
     Args:
         ensure_exists: If True, raises error if directory doesn't exist.
                       If False, returns path even if it doesn't exist (for creation).
+                      Default is False to allow graceful startup.
     """
     env_path = os.getenv("WORLD_DATA_DIR")
     if env_path:

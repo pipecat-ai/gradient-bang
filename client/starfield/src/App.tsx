@@ -1,83 +1,123 @@
-import { Center, Float, PerformanceMonitor, useGLTF } from "@react-three/drei"
+import {
+  memo,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react"
+import {
+  Center,
+  Float,
+  Grid,
+  PerformanceMonitor,
+  useGLTF,
+} from "@react-three/drei"
 import { Canvas } from "@react-three/fiber"
 import { button, folder, Leva, useControls } from "leva"
-import { memo, useCallback, useEffect, useRef, useState } from "react"
 import * as THREE from "three"
+
+import { RenderMonitor } from "@/components/RenderMonitor"
+import { AnimationController } from "@/controllers/AnimationController"
 import { CameraController } from "@/controllers/Camera"
 import { EnvironmentWrapper } from "@/controllers/Environment"
 import { PostProcessing } from "@/controllers/PostProcessing"
-import { useGameStore } from "@/useGameStore"
-import { TestObject } from "@/objects/Test"
-import { useSceneChange } from "@/hooks/useSceneChange"
 import { SceneController } from "@/controllers/SceneController"
-import type { GameObject, SceneConfig } from "@/types"
-import { RenderMonitor } from "./components/RenderMonitor"
+import { useSceneChange } from "@/hooks/useSceneChange"
+import { TestObject } from "@/objects/Test"
+import { TestPlanet } from "@/objects/TestPlanet"
+import type { Scene, StarfieldConfig } from "@/types"
+import { useGameStore } from "@/useGameStore"
+
+import { useAnimationStore } from "./useAnimationStore"
 
 useGLTF.preload("/test-model.glb")
 
 interface StarfieldProps {
+  config?: Partial<StarfieldConfig>
   debug?: boolean
-  gameObjects?: GameObject[]
-  onReady?: () => void
+  scene?: Scene
   paused?: boolean
-  sceneConfig?: SceneConfig
 }
 
 /**
  * Main application component
  */
-export default function App({ debug = false, sceneConfig }: StarfieldProps) {
+export default function App({ config, debug = false }: StarfieldProps) {
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
-  const { changeScene } = useSceneChange()
-
-  useControls("Scene Settings", () => ({
-    "Scene Settings": folder({
-      sceneChange: button(() => {
-        changeScene({})
-      }),
-    }),
-  }))
-
   const isPaused = useGameStore((state) => state.isPaused)
   const togglePause = useGameStore((state) => state.togglePause)
+  const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
+  const { changeScene } = useSceneChange()
+  const { isWarping, startWarp, stopWarp, setWarpIntensity } =
+    useAnimationStore()
 
-  const [{ cameraFloatingEnabled }] = useControls(() => ({
+  useLayoutEffect(() => {
+    setStarfieldConfig(config ?? {})
+  }, [config])
+
+  const [, setSceneControls] = useControls("Scene Settings", () => ({
+    ["Log Config"]: button(() => {
+      console.log("Config", useGameStore.getState().starfieldConfig)
+    }),
+    ["Random Scene Change"]: button(() => {
+      changeScene({
+        id: Math.random().toString(36).substring(2, 15),
+        gameObjects: [],
+        config: {},
+      })
+    }),
+    ["Scene 1 Change"]: button(() => {
+      changeScene({
+        id: "1",
+        gameObjects: [],
+        config: {},
+      })
+    }),
+    ["Start Warp"]: button(() => {
+      startWarp()
+    }),
+    ["Stop Warp"]: button(() => {
+      stopWarp()
+    }),
+    warpIntensity: {
+      value: 1,
+      min: 1,
+      max: 10,
+      step: 1,
+      label: "Warp Intensity",
+      onEditEnd(value) {
+        setWarpIntensity(value)
+      },
+    },
+    warpStatus: {
+      value: isWarping ? "Warping" : "Not Warping",
+      editable: false,
+    },
+  }))
+
+  useEffect(() => {
+    setSceneControls({ warpStatus: isWarping ? "Warping" : "Not Warping" })
+  }, [isWarping])
+
+  const [{ dpr }, setPerformance] = useControls(() => ({
     "Render Settings": folder(
       {
         [isPaused ? "Resume" : "Pause"]: button(() => {
           togglePause()
         }),
-      },
-      { collapsed: true }
-    ),
-    "Scene Settings": folder(
-      {
-        isShaking: {
-          value: false,
-          label: "Shake",
-        },
-        cameraFloatingEnabled: {
-          value: false,
-          label: "Camera Floating",
+        dpr: {
+          value: 1.5,
+          min: 1,
+          max: 2,
+          step: 0.1,
+          label: "DPR",
         },
       },
       { collapsed: true }
     ),
   }))
-
-  const [{ dpr }, setPerformance] = useControls(
-    "Performance Settings",
-    () => ({
-      dpr: {
-        value: 1.5,
-        min: 1,
-        max: 2,
-        step: 0.1,
-        label: "DPR",
-      },
-    }),
-    { collapsed: true }
-  )
 
   const [modelScale, setModelScale] = useState(3)
 
@@ -95,15 +135,13 @@ export default function App({ debug = false, sceneConfig }: StarfieldProps) {
     return () => window.removeEventListener("resize", handleResize)
   }, [handleResize])
 
-  console.debug("isPaused", isPaused)
-
   return (
     <>
       <Leva collapsed hidden={debug} />
 
       <Canvas
         frameloop={isPaused ? "never" : "demand"}
-        dpr={dpr}
+        dpr={dpr as number}
         shadows
         gl={{
           alpha: false,
@@ -121,33 +159,40 @@ export default function App({ debug = false, sceneConfig }: StarfieldProps) {
         />
         <RenderMonitor />
 
-        <CameraController />
-        <SceneController initialConfig={sceneConfig ?? {}} />
+        <SceneController />
 
-        <TestObject />
+        <AnimationController>
+          <Suspense fallback={null}>
+            {/* Nebula background - rendered first and positioned at the back */}
+            <group position={[0, 0, -50]}>
+              {/* <Nebula ref={nebulaRef} /> */}
+            </group>
 
-        {/* Nebula background - rendered first and positioned at the back */}
-        <group position={[0, 0, -50]}>{/* <Nebula ref={nebulaRef} /> */}</group>
+            <group position={[0, 0, 0]}>
+              <Float
+                enabled={false}
+                floatIntensity={1}
+                rotationIntensity={0.5}
+                speed={3}
+                autoInvalidate={false}
+              >
+                {/* Scene Elements */}
+                <TestObject />
 
-        <group position={[0, 0, 0]}>
-          <Float
-            enabled={cameraFloatingEnabled}
-            floatIntensity={0.5}
-            rotationIntensity={0.5}
-            speed={0.25}
-            autoInvalidate
-          >
-            {/* Scene Elements */}
-            {/*<GameObjects gameObjects={gameObjects} />
+                {/*<GameObjects gameObjects={gameObjects} />
             <Stars ref={starsRef} />*/}
-            <Center scale={modelScale}>
-              <Helmet />
-            </Center>
-          </Float>
-        </group>
+                <Center scale={modelScale}>
+                  <Helmet />
+                </Center>
+              </Float>
+            </group>
+            <Grid cellColor={"#FFFFFF"} cellSize={1} infiniteGrid />
+          </Suspense>
 
-        <EnvironmentWrapper />
-        <Effects />
+          <CameraController />
+          <EnvironmentWrapper />
+          <Effects />
+        </AnimationController>
       </Canvas>
     </>
   )

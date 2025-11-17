@@ -115,7 +115,6 @@ async def compute_leaderboard_snapshot(world) -> Dict[str, Any]:  # pragma: no c
 
         players.append(
             {
-                "character_id": character_id,
                 "name": display_name,
                 "bank_credits": bank_credits,
                 "ship_credits": ship_credits,
@@ -181,7 +180,6 @@ async def compute_leaderboard_snapshot(world) -> Dict[str, Any]:  # pragma: no c
                     "member_count": len(member_ids),
                     "members": [
                         {
-                            "character_id": member_id,
                             "name": character_to_name.get(member_id, member_id),
                             "total_resources": player_totals.get(
                                 member_id, _PlayerTotals()

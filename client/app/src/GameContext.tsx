@@ -1,6 +1,6 @@
-import { type ReactNode,useCallback, useRef } from "react"
+import { type ReactNode, useCallback, useRef } from "react"
 
-import { RTVIEvent } from "@pipecat-ai/client-js"
+import { type APIRequest, RTVIEvent } from "@pipecat-ai/client-js"
 import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react"
 
 import { GameContext } from "@/hooks/useGameContext"
@@ -46,7 +46,7 @@ import {
 
 interface GameProviderProps {
   children: ReactNode
-  onConnect?: () => void
+  onConnect?: (request: APIRequest) => void
 }
 
 //@TODO: remove this method once game server changes
@@ -148,8 +148,16 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
     // 2. Connect to agent
     gameStore.setGameStateMessage(GameInitStateMessage.CONNECTING)
 
+    const characterId = gameStore.character_id
+    if (!characterId) {
+      throw new Error("Attempting to connect to bot without a character ID")
+    }
+    const botStartParams = gameStore.getBotStartParams(characterId)
+
+    console.debug("[GAME CONTEXT] Connecting with params", botStartParams)
+
     try {
-      await onConnect?.()
+      await onConnect?.(botStartParams)
       if (!client?.connected) {
         throw new Error("Failed to connect to game server")
       }

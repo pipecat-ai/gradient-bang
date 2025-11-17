@@ -1,20 +1,33 @@
-import { CameraControls as CameraControlsImpl } from "@react-three/drei"
-import { useThree } from "@react-three/fiber"
-import { button, folder, useControls } from "leva"
 import { useCallback, useRef, useState } from "react"
+import { CameraControls as CameraControlsImpl } from "@react-three/drei"
+import { useFrame, useThree } from "@react-three/fiber"
+import { button, folder, useControls } from "leva"
 import * as THREE from "three"
-import { useGameStore } from "@/useGameStore"
+import type { PerspectiveCamera } from "three"
+
+import { useWarpAnimation } from "@/controllers/AnimationController"
 import type { PositionedGameObject } from "@/types"
+import { useGameStore } from "@/useGameStore"
 
 const DEFAULT_POSITION = new THREE.Vector3(0, 0, 0)
 
 export function CameraController() {
   const cameraControlsRef = useRef<CameraControlsImpl>(null)
   const gameObjects = useGameStore((state) => state.positionedObjects)
-  const { invalidate } = useThree()
+  const { camera, invalidate } = useThree()
+  const perspectiveCamera = camera as PerspectiveCamera
   const [_currentTarget, setCurrentTarget] = useState<THREE.Vector3 | null>(
     null
   )
+  const warp = useWarpAnimation()
+  const { cameraBaseFov, hyperspaceCameraFovShift } = useGameStore(
+    (state) => state.starfieldConfig
+  )
+  const progressDelay = 0.25
+  const epsilon = 0.05
+
+  const easeInCubic = (t: number) => t * t * t
+  const easeOutExpo = (t: number) => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * t))
 
   const lookAtTarget = useCallback(
     async (gameObjectId: string) => {
@@ -127,6 +140,33 @@ export function CameraController() {
     },
     [gameObjects]
   )
+
+  useFrame(() => {
+    const progress = warp.warpProgress.get()
+    const delayedProgress = THREE.MathUtils.clamp(
+      (progress - progressDelay) / (1 - progressDelay),
+      0,
+      1
+    )
+
+    const easedProgress = warp.isWarping
+      ? easeInCubic(delayedProgress)
+      : easeOutExpo(delayedProgress)
+
+    const desiredFov = THREE.MathUtils.lerp(
+      cameraBaseFov,
+      hyperspaceCameraFovShift,
+      easedProgress
+    )
+
+    const delta = Math.abs(perspectiveCamera.fov - desiredFov)
+
+    if (delta > epsilon) {
+      perspectiveCamera.fov = desiredFov
+      perspectiveCamera.updateProjectionMatrix()
+      invalidate()
+    }
+  }, 1)
 
   return (
     <CameraControlsImpl

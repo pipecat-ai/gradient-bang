@@ -75,6 +75,7 @@ class VoiceTaskManager:
         character_id: str,
         rtvi_processor: RTVIProcessor,
         task_complete_callback: Optional[Callable[[bool, bool], None]] = None,
+        base_url: Optional[str] = None,
     ):
         """Initialize the task manager.
 
@@ -82,13 +83,14 @@ class VoiceTaskManager:
             character_id: Character ID being controlled
             rtvi_processor: RTVI processor, which we use for pushing frames
             task_complete_callback: Callback when task completes (receives was_cancelled flag)
+            base_url: Optional game server URL (defaults to http://localhost:8000)
         """
         self.character_id = character_id
         self.display_name: str = character_id
-        # Create a game client; base_url comes from default or env via AsyncGameClient
+        # Create a game client; use provided base_url or default
         self.game_client = AsyncGameClient(
             character_id=character_id,
-            base_url="http://localhost:8000",
+            base_url=base_url or "http://localhost:8000",
             transport="websocket",
         )
         self._event_names = [
