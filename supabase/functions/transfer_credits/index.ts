@@ -161,16 +161,35 @@ async function handleTransfer(
     throw new TransferCreditsError(`Insufficient credits. ${fromCharacterId} only has ${senderCredits}`, 400);
   }
 
-  await Promise.all([
+  const [senderUpdate, receiverUpdate] = await Promise.all([
     supabase
       .from('ship_instances')
       .update({ credits: senderCredits - amount })
-      .eq('ship_id', fromRecord.ship.ship_id),
+      .eq('ship_id', fromRecord.ship.ship_id)
+      .select(),
     supabase
       .from('ship_instances')
       .update({ credits: (toRecord.ship.credits ?? 0) + amount })
-      .eq('ship_id', toRecord.ship.ship_id),
+      .eq('ship_id', toRecord.ship.ship_id)
+      .select(),
   ]);
+
+  if (senderUpdate.error) {
+    console.error('transfer_credits.sender_update', senderUpdate.error);
+    throw new TransferCreditsError(`Failed to deduct credits from sender: ${senderUpdate.error.message}`, 500);
+  }
+  if (!senderUpdate.data || senderUpdate.data.length === 0) {
+    console.error('transfer_credits.sender_not_updated', { ship_id: fromRecord.ship.ship_id });
+    throw new TransferCreditsError(`Failed to deduct credits: sender ship not found in database`, 500);
+  }
+  if (receiverUpdate.error) {
+    console.error('transfer_credits.receiver_update', receiverUpdate.error);
+    throw new TransferCreditsError(`Failed to add credits to receiver: ${receiverUpdate.error.message}`, 500);
+  }
+  if (!receiverUpdate.data || receiverUpdate.data.length === 0) {
+    console.error('transfer_credits.receiver_not_updated', { ship_id: toRecord.ship.ship_id });
+    throw new TransferCreditsError(`Failed to add credits: receiver ship not found in database`, 500);
+  }
 
   const source = buildEventSource('transfer_credits', requestId);
   const fromStatus = await buildStatusPayload(supabase, fromCharacterId);

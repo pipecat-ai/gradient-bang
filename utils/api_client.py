@@ -552,6 +552,10 @@ class AsyncGameClient:
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[req_id] = fut
         enriched_payload = dict(payload)
+        # Auto-inject character_id if not explicitly provided
+        if "character_id" not in enriched_payload:
+            enriched_payload["character_id"] = self._character_id
+        # Auto-inject actor_character_id if explicitly set
         if self._actor_character_id and "actor_character_id" not in enriched_payload:
             enriched_payload["actor_character_id"] = self._actor_character_id
         frame = {

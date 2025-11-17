@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from utils.api_client import AsyncGameClient, RPCError
 from helpers.combat_helpers import create_test_character_knowledge
 from helpers.client_setup import create_client_with_character
+from conftest import EVENT_DELIVERY_WAIT
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
 
@@ -100,7 +101,7 @@ class TestCreditTransfers:
             assert result.get("success") is True
 
             # Wait for events
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Verify both characters received credits.transfer event
             assert len(sender_events) >= 1, "Sender should receive credits.transfer event"
@@ -165,6 +166,10 @@ class TestCreditTransfers:
         receiver_client = await create_client_with_character(server_url, receiver_id, sector=5, credits=500)
 
         try:
+            # Setup event listeners
+            sender_status_events = []
+            sender_client.on("status.update")(lambda p: sender_status_events.append(p))
+
             # Transfer using player name (not character_id parameter)
             result = await sender_client.transfer_credits(
                 to_player_name=receiver_id,  # Display name
@@ -174,9 +179,16 @@ class TestCreditTransfers:
 
             assert result.get("success") is True
 
-            # Verify transfer completed
-            status = await get_status(sender_client, sender_id)
-            assert status["ship"]["credits"] == 900
+            # Wait for status.update event
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+
+            # Verify transfer completed via event payload
+            assert len(sender_status_events) >= 1, "Should receive status.update event"
+            status_event = sender_status_events[0]
+            if "payload" in status_event:
+                status_event = status_event["payload"]
+
+            assert status_event["ship"]["credits"] == 900, "Sender should have 900 credits after transfer"
 
         finally:
             await sender_client.close()

@@ -756,18 +756,14 @@ async def test_collect_salvage_picks_up_loot(server_url, check_server_available)
         - Cargo is transferred to collector
         - Partial collection works when cargo space limited
     """
-    from helpers.combat_helpers import create_test_character_knowledge
-
     dumper_id = "test_api_salvage_dumper"
     collector_id = "test_api_salvage_collector"
 
     # Create dumper with cargo, collector with limited space
-
-    create_test_character_knowledge(collector_id, sector=5, cargo={"retro_organics": 25})  # 25/30 holds used
+    dumper_client = await create_client_with_character(server_url, dumper_id, sector=5, cargo={"quantum_foam": 20})
+    collector_client = await create_client_with_character(server_url, collector_id, sector=5, cargo={"retro_organics": 25})  # 25/30 holds used
 
     async with create_firehose_listener(server_url, collector_id) as listener:
-        dumper_client = await create_client_with_character(server_url, dumper_id, sector=5, cargo={"quantum_foam": 20})
-        collector_client = await create_client_with_character(server_url, collector_id)
 
         try:
             # Already joined via create_client_with_character()

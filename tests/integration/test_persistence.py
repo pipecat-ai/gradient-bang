@@ -962,14 +962,12 @@ class TestCrashRecovery:
             # Either by resetting to defaults or showing an error
             try:
                 # Already joined via create_client_with_character()
-
-                # If join succeeded, verify we got valid state
-                if result.get("success"):
-                    status = await get_status(client, char_id)
-                    # Should have valid default values
-                    assert status["sector"]["id"] == 0  # Start sector
-                    assert status["ship"]["fighters"] > 0
-                    assert status["ship"]["shields"] > 0
+                # Verify we got valid state
+                status = await get_status(client, char_id)
+                # Should have valid default values
+                assert status["sector"]["id"] == 0  # Start sector
+                assert status["ship"]["fighters"] > 0
+                assert status["ship"]["shields"] > 0
 
             except RPCError as e:
                 # Server might reject corrupted knowledge - that's also valid

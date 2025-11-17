@@ -19,15 +19,16 @@ async def _create_client(
     fighters: int = 300,
     ship_type: str = "kestrel_courier",
 ) -> AsyncGameClient:
-    create_test_character_knowledge(
+    # Use create_client_with_character directly with all parameters
+    # to avoid double-creation that overwrites the credits
+    client = await create_client_with_character(
+        server_url,
         character_id,
         sector=sector,
         credits=credits,
         fighters=fighters,
         ship_type=ship_type,
     )
-    client = await create_client_with_character(server_url, character_id)
-    # Already joined via create_client_with_character()
     return client
 
 async def _create_corporation(

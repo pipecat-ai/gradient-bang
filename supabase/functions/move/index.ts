@@ -296,6 +296,7 @@ async function handleMove({ supabase, characterId, destination, requestId, actor
 
     await completeMovement({
       supabase,
+      character,
       characterId,
       shipId: ship.ship_id,
       destination,
@@ -343,6 +344,7 @@ async function handleMove({ supabase, characterId, destination, requestId, actor
 
 async function completeMovement({
   supabase,
+  character,
   characterId,
   shipId,
   destination,
@@ -353,6 +355,7 @@ async function completeMovement({
   observerMetadata,
 }: {
   supabase: ReturnType<typeof createServiceRoleClient>;
+  character: Awaited<ReturnType<typeof loadCharacter>>;
   characterId: string;
   shipId: string;
   destination: number;

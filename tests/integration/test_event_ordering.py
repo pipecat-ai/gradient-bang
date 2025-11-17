@@ -12,7 +12,6 @@ This is a key ADVANTAGE of the polling approach over realtime.
 import asyncio
 import pytest
 from helpers.event_capture import create_firehose_listener
-from helpers.combat_helpers import create_test_character_knowledge
 from helpers.client_setup import create_client_with_character
 from utils.api_client import AsyncGameClient
 from conftest import EVENT_DELIVERY_WAIT
@@ -28,14 +27,12 @@ class TestEventOrdering:
         """Events should arrive in ascending events.id order (database sequence)."""
         char_id = "test_event_order"
 
-        # Create character knowledge first so firehose can connect
-        create_test_character_knowledge(char_id, sector=0)
+        # Create client first (creates character), then firehose listener
+        client = await create_client_with_character(server_url, char_id, sector=0)
+        try:
+            async with create_firehose_listener(server_url, char_id) as listener:
+                await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
-        async with create_firehose_listener(server_url, char_id) as listener:
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
-
-            client = await create_client_with_character(server_url, char_id, sector=0)
-            try:
                 # Generate multiple events in quick succession
                 await client.move(to_sector=1, character_id=char_id)
                 await client.move(to_sector=0, character_id=char_id)
@@ -57,22 +54,19 @@ class TestEventOrdering:
                             f"Events not in ascending ID order: "
                             f"{event_ids[i]} >= {event_ids[i+1]} at index {i}"
                         )
-
-            finally:
-                await client.close()
+        finally:
+            await client.close()
 
     async def test_movement_events_chronological(self, server_url):
         """Movement events must arrive in the order they occurred."""
         char_id = "test_movement_order"
 
-        # Create character knowledge first so firehose can connect
-        create_test_character_knowledge(char_id, sector=0)
+        # Create client first (creates character), then firehose listener
+        client = await create_client_with_character(server_url, char_id, sector=0)
+        try:
+            async with create_firehose_listener(server_url, char_id) as listener:
+                await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
-        async with create_firehose_listener(server_url, char_id) as listener:
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
-
-            client = await create_client_with_character(server_url, char_id, sector=0)
-            try:
                 # Move through a sequence: 0 -> 1 -> 0 -> 2
                 await client.move(to_sector=1, character_id=char_id)
                 await client.move(to_sector=0, character_id=char_id)
@@ -97,9 +91,8 @@ class TestEventOrdering:
                         f"Movement sequence mismatch: got {movement_sectors[-3:]}, "
                         f"expected [1, 0, 2]"
                     )
-
-            finally:
-                await client.close()
+        finally:
+            await client.close()
 
     async def test_concurrent_actions_deterministic_order(self, server_url):
         """
@@ -109,20 +102,16 @@ class TestEventOrdering:
         char1 = "test_concurrent_1"
         char2 = "test_concurrent_2"
 
-        # Create both characters first so firehose can connect
-        create_test_character_knowledge(char1, sector=0)
-        create_test_character_knowledge(char2, sector=0)
+        # Create clients first (creates characters), then firehose listeners
+        client1 = await create_client_with_character(server_url, char1, sector=0)
+        client2 = await create_client_with_character(server_url, char2, sector=0)
 
-        async with create_firehose_listener(server_url, char1) as listener1, \
-                   create_firehose_listener(server_url, char2) as listener2:
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+        try:
+            async with create_firehose_listener(server_url, char1) as listener1, \
+                       create_firehose_listener(server_url, char2) as listener2:
+                await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
-            client1 = await create_client_with_character(server_url, char1, sector=0)
-            client2 = await create_client_with_character(server_url, char2, sector=0)
-
-            try:
                 # Both characters move concurrently
-
                 await asyncio.gather(
                     client1.move(to_sector=1, character_id=char1),
                     client2.move(to_sector=2, character_id=char2),
@@ -142,23 +131,20 @@ class TestEventOrdering:
                                 f"Character {char} received events out of order: "
                                 f"{ids}"
                             )
-
-            finally:
-                await client1.close()
-                await client2.close()
+        finally:
+            await client1.close()
+            await client2.close()
 
     async def test_event_timestamps_increase(self, server_url):
         """Event timestamps should increase monotonically (or stay equal)."""
         char_id = "test_timestamp_order"
 
-        # Create character knowledge first so firehose can connect
-        create_test_character_knowledge(char_id, sector=0)
+        # Create client first (creates character), then firehose listener
+        client = await create_client_with_character(server_url, char_id, sector=0)
+        try:
+            async with create_firehose_listener(server_url, char_id) as listener:
+                await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
-        async with create_firehose_listener(server_url, char_id) as listener:
-            await asyncio.sleep(EVENT_DELIVERY_WAIT)
-
-            client = await create_client_with_character(server_url, char_id, sector=0)
-            try:
                 await client.move(to_sector=1, character_id=char_id)
                 await client.move(to_sector=0, character_id=char_id)
 
@@ -179,6 +165,5 @@ class TestEventOrdering:
                         assert timestamps[i] <= timestamps[i + 1], (
                             f"Timestamps not monotonic: {timestamps[i]} > {timestamps[i+1]}"
                         )
-
-            finally:
-                await client.close()
+        finally:
+            await client.close()
