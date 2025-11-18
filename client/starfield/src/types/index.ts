@@ -35,6 +35,13 @@ export interface StarfieldConfig {
     near?: number
     far?: number
   }
+  planet?: {
+    enabled?: boolean
+    imageIndex?: number
+    scale?: number
+    opacity?: number
+    position?: { x: number; y: number }
+  }
 }
 
 export type PerformanceProfile = "low" | "mid" | "high"

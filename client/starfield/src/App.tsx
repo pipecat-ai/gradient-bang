@@ -96,8 +96,10 @@ export default function App({
           antialias: false,
           depth: true,
         }}
-        onCreated={({ gl }) => {
+        onCreated={({ gl, camera }) => {
           rendererRef.current = gl
+          // Enable skybox layer (masked by some effects)
+          camera.layers.enable(1)
           //gl.setClearColor(new THREE.Color("#000000"))
         }}
       >
@@ -129,9 +131,8 @@ export default function App({
                 autoInvalidate={false}
               >
                 {/* Scene Elements */}
-                <TestPlanet />
                 <Dust />
-                <Center scale={modelScale}>{/*<Helmet />*/}</Center>
+                <Center scale={modelScale}>{<Helmet />}</Center>
               </Float>
             </group>
             <Grid cellColor={"#FFFFFF"} cellSize={1} infiniteGrid />

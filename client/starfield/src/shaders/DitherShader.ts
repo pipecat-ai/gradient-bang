@@ -96,6 +96,6 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
 
   // Output final color preserving alpha
   outputColor = vec4(baseColor, inputColor.a);
-}`;
+}`
 
-export default ditheringShader;
+export default ditheringShader

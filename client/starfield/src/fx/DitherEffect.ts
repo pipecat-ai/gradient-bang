@@ -1,18 +1,19 @@
-import { Effect } from "postprocessing";
-import * as THREE from "three";
-import ditheringShader from "../shaders/DitherShader";
+import { Effect } from "postprocessing"
+import * as THREE from "three"
+
+import ditheringShader from "../shaders/DitherShader"
 
 /**
  * Interface for dithering effect options
  */
 export interface DitheringEffectOptions {
-  time?: number;
-  resolution?: THREE.Vector2;
-  gridSize?: number;
-  luminanceMethod?: number;
-  invertColor?: boolean;
-  pixelSizeRatio?: number;
-  grayscaleOnly?: boolean;
+  time?: number
+  resolution?: THREE.Vector2
+  gridSize?: number
+  luminanceMethod?: number
+  invertColor?: boolean
+  pixelSizeRatio?: number
+  grayscaleOnly?: boolean
 }
 
 /**
@@ -23,7 +24,7 @@ export class DitheringEffect extends Effect {
   /**
    * Map of uniforms used by the shader
    */
-  uniforms: Map<string, THREE.Uniform<number | THREE.Vector2>>;
+  uniforms: Map<string, THREE.Uniform<number | THREE.Vector2>>
 
   /**
    * Creates a new dithering effect instance
@@ -36,7 +37,7 @@ export class DitheringEffect extends Effect {
     luminanceMethod = 0,
     invertColor = false,
     pixelSizeRatio = 1,
-    grayscaleOnly = false
+    grayscaleOnly = false,
   }: DitheringEffectOptions = {}) {
     // Initialize uniforms with default values
     const uniforms = new Map<string, THREE.Uniform<number | THREE.Vector2>>([
@@ -47,15 +48,15 @@ export class DitheringEffect extends Effect {
       ["invertColor", new THREE.Uniform(invertColor ? 1 : 0)],
       ["ditheringEnabled", new THREE.Uniform(1)], // Enabled by default
       ["pixelSizeRatio", new THREE.Uniform(pixelSizeRatio)],
-      ["grayscaleOnly", new THREE.Uniform(grayscaleOnly ? 1 : 0)]
-    ]);
+      ["grayscaleOnly", new THREE.Uniform(grayscaleOnly ? 1 : 0)],
+    ])
 
     super("DitheringEffect", ditheringShader, {
       // blendFunction: BlendFunction.SCREEN,
-      uniforms
-    });
+      uniforms,
+    })
 
-    this.uniforms = uniforms;
+    this.uniforms = uniforms
   }
 
   /**
@@ -64,17 +65,24 @@ export class DitheringEffect extends Effect {
    * @param inputBuffer - The input render target
    * @param deltaTime - Time elapsed since the last frame
    */
-  update(renderer: THREE.WebGLRenderer, inputBuffer: THREE.WebGLRenderTarget, deltaTime: number): void {
+  update(
+    renderer: THREE.WebGLRenderer,
+    inputBuffer: THREE.WebGLRenderTarget,
+    deltaTime: number
+  ): void {
     // Update time uniform
-    const timeUniform = this.uniforms.get("time");
+    const timeUniform = this.uniforms.get("time")
     if (timeUniform !== undefined && typeof timeUniform.value === "number") {
-      timeUniform.value += deltaTime;
+      timeUniform.value += deltaTime
     }
 
     // Update resolution uniform to match current render target
-    const resolutionUniform = this.uniforms.get("resolution");
-    if (resolutionUniform !== undefined && resolutionUniform.value instanceof THREE.Vector2) {
-      resolutionUniform.value.set(inputBuffer.width, inputBuffer.height);
+    const resolutionUniform = this.uniforms.get("resolution")
+    if (
+      resolutionUniform !== undefined &&
+      resolutionUniform.value instanceof THREE.Vector2
+    ) {
+      resolutionUniform.value.set(inputBuffer.width, inputBuffer.height)
     }
   }
 
@@ -84,7 +92,11 @@ export class DitheringEffect extends Effect {
    * @param alpha - Whether the renderer uses the alpha channel
    * @param frameBufferType - The type of the main frame buffers
    */
-  initialize(renderer: THREE.WebGLRenderer, alpha: boolean, frameBufferType: number): void {
+  initialize(
+    renderer: THREE.WebGLRenderer,
+    alpha: boolean,
+    frameBufferType: number
+  ): void {
     // No special initialization required for this effect
   }
 
@@ -93,9 +105,9 @@ export class DitheringEffect extends Effect {
    * @param size - The grid size value
    */
   setGridSize(size: number): void {
-    const gridSizeUniform = this.uniforms.get("gridSize");
+    const gridSizeUniform = this.uniforms.get("gridSize")
     if (gridSizeUniform !== undefined) {
-      gridSizeUniform.value = size;
+      gridSizeUniform.value = size
     }
   }
 
@@ -104,9 +116,9 @@ export class DitheringEffect extends Effect {
    * @param ratio - The pixel size ratio
    */
   setPixelSizeRatio(ratio: number): void {
-    const pixelSizeRatioUniform = this.uniforms.get("pixelSizeRatio");
+    const pixelSizeRatioUniform = this.uniforms.get("pixelSizeRatio")
     if (pixelSizeRatioUniform !== undefined) {
-      pixelSizeRatioUniform.value = ratio;
+      pixelSizeRatioUniform.value = ratio
     }
   }
 
@@ -115,9 +127,9 @@ export class DitheringEffect extends Effect {
    * @param grayscaleOnly - Whether to use grayscale only
    */
   setGrayscaleOnly(grayscaleOnly: boolean): void {
-    const grayscaleOnlyUniform = this.uniforms.get("grayscaleOnly");
+    const grayscaleOnlyUniform = this.uniforms.get("grayscaleOnly")
     if (grayscaleOnlyUniform !== undefined) {
-      grayscaleOnlyUniform.value = grayscaleOnly ? 1 : 0;
+      grayscaleOnlyUniform.value = grayscaleOnly ? 1 : 0
     }
   }
 }
