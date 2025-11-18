@@ -864,6 +864,54 @@ def supabase_environment(setup_test_characters):  # noqa: ARG001 - order depende
         _stop_functions_proc()
 
 
+async def trigger_combat_tick():
+    """
+    Manually trigger combat_tick endpoint to resolve combat rounds.
+
+    In production, pg_cron handles this automatically. In local Docker development,
+    pg_cron doesn't run continuously, so tests can call this helper when needed.
+
+    Usage in tests:
+        from conftest import trigger_combat_tick
+
+        # Wait for combat deadline to pass
+        await asyncio.sleep(16.0)
+
+        # Manually trigger resolution
+        await trigger_combat_tick()
+
+        # Check for combat.round_resolved event
+        resolved = await collector.wait_for_event("combat.round_resolved")
+    """
+    if not USE_SUPABASE_TESTS:
+        return
+
+    import httpx
+
+    base_url = os.environ.get("SUPABASE_URL", "http://127.0.0.1:54321")
+    api_token = os.environ.get("EDGE_API_TOKEN", "local-dev-token")
+    tick_url = f"{base_url.rstrip('/')}/functions/v1/combat_tick"
+
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.post(
+                tick_url,
+                headers={"x-api-token": api_token},
+                json={},
+                timeout=5.0,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                logger.info(f"Combat tick: checked={data.get('checked', 0)}, resolved={data.get('resolved', 0)}")
+                return data
+            else:
+                logger.warning(f"Combat tick returned {resp.status_code}")
+                return None
+        except Exception as e:
+            logger.warning(f"Combat tick failed: {e}")
+            return None
+
+
 @pytest.fixture(scope="module", autouse=True)
 def supabase_module_seed(setup_test_characters):  # noqa: ARG001
     if not USE_SUPABASE_TESTS:
@@ -1157,6 +1205,106 @@ async def test_server(server_url):
     finally:
         # Stop the server after tests complete
         stop_test_server(process, timeout=5.0)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def monitor_module_resources(request):
+    """Monitor resource usage per test module to identify leaks and exhaustion."""
+    if not USE_SUPABASE_TESTS:
+        yield
+        return
+
+    try:
+        from tests.helpers.resource_monitor import get_monitor, log_resource_summary
+    except ImportError:
+        logger.debug("Resource monitor not available, skipping")
+        yield
+        return
+
+    monitor = get_monitor()
+    module_name = request.module.__name__.replace("tests.integration.", "")
+
+    # Set baseline on first module
+    if monitor.baseline is None:
+        monitor.set_baseline()
+
+    # Log stats before module
+    logger.info(f"[{module_name}] Module starting")
+    log_resource_summary(monitor, prefix=f"[{module_name}] BEFORE: ")
+
+    yield  # Run all tests in the module
+
+    # Log stats after module
+    log_resource_summary(monitor, prefix=f"[{module_name}] AFTER:  ")
+
+    # Check for resource leaks
+    stats = monitor.get_stats()
+    warnings = monitor.check_thresholds(stats)
+    if warnings:
+        logger.warning(f"[{module_name}] Resource issues detected - may cause subsequent test failures")
+
+
+@pytest.fixture(scope="module", autouse=True)
+def cleanup_zombie_processes(request):
+    """Kill zombie function serve processes between modules.
+
+    Zombie processes can accumulate during long test runs and hold database
+    connections and other resources, causing subsequent tests to fail.
+    """
+    if not USE_SUPABASE_TESTS:
+        yield
+        return
+
+    module_name = request.module.__name__.replace("tests.integration.", "")
+
+    yield  # Run all tests in the module
+
+    # After module completes: check for and kill zombie processes
+    try:
+        import psutil
+
+        result = subprocess.run(
+            ['pgrep', '-f', 'supabase functions serve'],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+
+        if result.returncode == 0 and result.stdout.strip():
+            pids = result.stdout.strip().split('\n')
+            zombies_killed = 0
+
+            for pid_str in pids:
+                try:
+                    pid = int(pid_str)
+                    proc = psutil.Process(pid)
+                    age_seconds = time.time() - proc.create_time()
+
+                    # Kill processes older than 2 minutes (likely from previous test runs)
+                    # Active test function serve processes should be much younger
+                    if age_seconds > 120:
+                        logger.warning(
+                            f"[{module_name}] Killing zombie function serve process "
+                            f"{pid} (age: {age_seconds:.0f}s)"
+                        )
+                        proc.kill()
+                        try:
+                            proc.wait(timeout=5)
+                            zombies_killed += 1
+                        except psutil.TimeoutExpired:
+                            # Force kill if needed
+                            proc.kill()
+                            zombies_killed += 1
+                except (psutil.NoSuchProcess, ValueError, psutil.AccessDenied):
+                    pass
+
+            if zombies_killed > 0:
+                logger.info(f"[{module_name}] Cleaned up {zombies_killed} zombie process(es)")
+
+    except ImportError:
+        logger.debug("psutil not available, skipping zombie process cleanup")
+    except Exception as e:
+        logger.debug(f"Failed to cleanup zombie processes: {e}")
 
 
 @pytest.fixture(autouse=True)

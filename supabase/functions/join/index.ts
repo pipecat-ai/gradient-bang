@@ -231,6 +231,16 @@ serve(async (req: Request): Promise<Response> => {
       });
     }
 
+    // Check for garrison auto-engage (offensive/toll garrisons trigger combat on join)
+    // Matches legacy pattern from game-server/api/join.py
+    const { checkGarrisonAutoEngage } = await import('../_shared/garrison_combat.ts');
+    await checkGarrisonAutoEngage({
+      supabase,
+      characterId,
+      sectorId: targetSector,
+      requestId,
+    });
+
     return successResponse({ request_id: requestId });
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {

@@ -257,7 +257,7 @@ export async function buildSectorSnapshot(
 
   const shipsQuery = supabase
     .from('ship_instances')
-    .select('ship_id, ship_type, ship_name, owner_id, owner_character_id')
+    .select('ship_id, ship_type, ship_name, owner_id, owner_character_id, owner_type, former_owner_name, became_unowned, current_fighters, current_shields, cargo_qf, cargo_ro, cargo_ns')
     .eq('current_sector', sectorId)
     .eq('in_hyperspace', false);
   const garrisonsQuery = supabase
@@ -314,34 +314,60 @@ export async function buildSectorSnapshot(
   }
   const ownerMap = new Map(ownerRows.map((row) => [row.character_id, row]));
 
-  const players = (ships ?? [])
-    .map((ship) => {
-      const occupant = ship.ship_id ? occupantMap.get(ship.ship_id) : null;
-      const fallbackOwner = ship.owner_character_id ? ownerMap.get(ship.owner_character_id) : null;
-      const character = occupant ?? fallbackOwner;
-      if (!character || character.character_id === currentCharacterId) {
-        return null;
-      }
-      const playerType = resolvePlayerType(character.player_metadata);
-      const characterMetadata = (character.player_metadata ?? null) as Record<string, unknown> | null;
-      const legacyDisplayName = typeof characterMetadata?.legacy_display_name === 'string'
-        ? characterMetadata.legacy_display_name.trim()
-        : '';
-      const displayName = legacyDisplayName?.length ? legacyDisplayName : (character.name ?? character.character_id);
+  const players: Record<string, unknown>[] = [];
+  const unownedShips: Record<string, unknown>[] = [];
+
+  for (const ship of ships ?? []) {
+    const occupant = ship.ship_id ? occupantMap.get(ship.ship_id) : null;
+
+    if (!occupant) {
+      // No occupant - this is an unowned ship
       const shipName = typeof ship.ship_name === 'string' ? ship.ship_name.trim() : '';
       const shipDisplayName = shipName.length > 0 ? shipName : formatShipDisplayName(ship.ship_type);
-      return {
-        created_at: character.first_visit ?? null,
-        id: character.character_id,
-        name: displayName,
-        player_type: playerType,
-        ship: {
-          ship_type: ship.ship_type,
-          ship_name: shipDisplayName,
+      unownedShips.push({
+        ship_id: ship.ship_id,
+        ship_type: ship.ship_type,
+        ship_name: shipDisplayName,
+        owner_id: ship.owner_id ?? null,
+        owner_type: ship.owner_type ?? null,
+        former_owner_name: ship.former_owner_name ?? null,
+        became_unowned: ship.became_unowned ?? null,
+        fighters: ship.current_fighters ?? 0,
+        shields: ship.current_shields ?? 0,
+        cargo: {
+          quantum_foam: ship.cargo_qf ?? 0,
+          retro_organics: ship.cargo_ro ?? 0,
+          neuro_symbolics: ship.cargo_ns ?? 0,
         },
-      };
-    })
-    .filter((entry): entry is Record<string, unknown> => Boolean(entry));
+      });
+      continue;
+    }
+
+    // Has occupant - add to players list
+    if (occupant.character_id === currentCharacterId) {
+      continue;  // Skip current character
+    }
+
+    const playerType = resolvePlayerType(occupant.player_metadata);
+    const characterMetadata = (occupant.player_metadata ?? null) as Record<string, unknown> | null;
+    const legacyDisplayName = typeof characterMetadata?.legacy_display_name === 'string'
+      ? characterMetadata.legacy_display_name.trim()
+      : '';
+    const displayName = legacyDisplayName?.length ? legacyDisplayName : (occupant.name ?? occupant.character_id);
+    const shipName = typeof ship.ship_name === 'string' ? ship.ship_name.trim() : '';
+    const shipDisplayName = shipName.length > 0 ? shipName : formatShipDisplayName(ship.ship_type);
+
+    players.push({
+      created_at: occupant.first_visit ?? null,
+      id: occupant.character_id,
+      name: displayName,
+      player_type: playerType,
+      ship: {
+        ship_type: ship.ship_type,
+        ship_name: shipDisplayName,
+      },
+    });
+  }
 
   return {
     id: sectorId,
@@ -351,7 +377,7 @@ export async function buildSectorSnapshot(
     players,
     garrison: garrisons && garrisons.length > 0 ? garrisons : null,
     salvage: (contentsData && Array.isArray(contentsData.salvage)) ? contentsData.salvage : [],
-    unowned_ships: [],
+    unowned_ships: unownedShips,
     scene_config: null,
   };
 }

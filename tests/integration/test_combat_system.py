@@ -637,10 +637,11 @@ class TestSalvageCollection:
             assert victim_data.get("ship", {}).get("fighter_loss", 0) == 5, "Victim should have lost all fighters"
 
             # Round 2: Neither attacker nor observer submit actions (auto-brace → stalemate)
+            # pg_cron will auto-resolve after 15s deadline
             await asyncio.sleep(16.0)
 
-            # Wait for combat.ended
-            ended = await collector_attacker.wait_for_event("combat.ended", timeout=5.0)
+            # Wait for combat.ended (via pg_cron auto-resolution)
+            ended = await collector_attacker.wait_for_event("combat.ended", timeout=10.0)
             assert ended["combat_id"] == combat_id
 
             # Verify salvage was created
@@ -1085,10 +1086,11 @@ class TestCombatEndedEvents:
             combat_id = waiting["combat_id"]
 
             # Let combat timeout (both players brace) to trigger stalemate
+            # pg_cron will auto-resolve after 15s deadline
             await asyncio.sleep(16.0)
 
-            # Verify combat.ended event was received by combatants
-            ended1 = await collector1.wait_for_event("combat.ended", timeout=5.0)
+            # Verify combat.ended event was received by combatants (via pg_cron)
+            ended1 = await collector1.wait_for_event("combat.ended", timeout=10.0)
             assert ended1["combat_id"] == combat_id
 
             ended2 = await collector2.wait_for_event("combat.ended", timeout=5.0)
@@ -1489,10 +1491,11 @@ class TestCombatRoundMechanics:
             combat_id = waiting["combat_id"]
 
             # Submit no actions - let round timeout
+            # pg_cron runs every 5 seconds and will auto-resolve after deadline (15s)
             await asyncio.sleep(16.0)
 
-            # Should auto-resolve with brace actions
-            resolved = await collector.wait_for_event("combat.round_resolved", timeout=5.0)
+            # Should auto-resolve with brace actions (via pg_cron)
+            resolved = await collector.wait_for_event("combat.round_resolved", timeout=10.0)
 
             actions = resolved.get("actions", {})
             # Both should have auto-braced

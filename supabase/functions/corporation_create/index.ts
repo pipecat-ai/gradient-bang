@@ -11,7 +11,7 @@ import {
   resolveRequestId,
   respondWithError,
 } from '../_shared/request.ts';
-import { loadCharacter, loadShip } from '../_shared/status.ts';
+import { loadCharacter, loadShip, buildStatusPayload } from '../_shared/status.ts';
 import { generateInviteCode, upsertCorporationMembership } from '../_shared/corporations.ts';
 
 const CORPORATION_CREATION_COST = 10_000;
@@ -126,12 +126,17 @@ async function handleCreate(params: {
   }
 
   const source = buildEventSource('corporation_create', requestId);
+  const statusPayload = await buildStatusPayload(supabase, characterId);
   const eventPayload = {
     source,
-    corp_id: inserted.corp_id,
-    name: inserted.name,
-    invite_code: inserted.invite_code,
-    founder_id: characterId,
+    player: statusPayload.player,
+    ship: statusPayload.ship,
+    corporation: {
+      corp_id: inserted.corp_id,
+      name: inserted.name,
+      invite_code: inserted.invite_code,
+      founder_id: characterId,
+    },
     timestamp: new Date().toISOString(),
   };
 
@@ -140,6 +145,17 @@ async function handleCreate(params: {
     characterId,
     eventType: 'corporation.created',
     payload: eventPayload,
+    sectorId: ship.current_sector ?? null,
+    requestId,
+    corpId: inserted.corp_id,
+  });
+
+  // Emit status.update so clients see the credit deduction
+  await emitCharacterEvent({
+    supabase,
+    characterId,
+    eventType: 'status.update',
+    payload: statusPayload,
     sectorId: ship.current_sector ?? null,
     requestId,
     corpId: inserted.corp_id,
@@ -192,13 +208,18 @@ async function updateShipCredits(
   shipId: string,
   credits: number,
 ): Promise<void> {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('ship_instances')
     .update({ credits })
-    .eq('ship_id', shipId);
+    .eq('ship_id', shipId)
+    .select();
   if (error) {
     console.error('corporation_create.ship_update', error);
     throw new CorporationCreateError('Failed to update ship credits', 500);
+  }
+  if (!data || data.length === 0) {
+    console.error('corporation_create.ship_update_no_rows', { shipId, credits });
+    throw new CorporationCreateError('Ship not found for credit update', 500);
   }
 }
 

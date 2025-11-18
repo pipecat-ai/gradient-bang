@@ -174,7 +174,9 @@ async function executeEventQuery(
   const queryCharacterId = corporationId ? null : resolvedCharacterId;
 
   let corporationMemberIds: string[] | null = null;
-  if (corporationId) {
+  // Only load member IDs for non-admin mode
+  // Admin mode with corporation_id will filter by corp_id directly
+  if (corporationId && !isAdmin) {
     corporationMemberIds = await loadCorporationMemberIds(supabase, corporationId);
     if (!corporationMemberIds.length) {
       return { events: [], count: 0, truncated: false, scope: effectiveScope };
@@ -277,6 +279,11 @@ async function fetchEvents(options: {
 
   if (sector !== null) {
     query = query.eq('sector_id', sector);
+  }
+
+  // Admin mode with corporation_id filter: only return events explicitly tagged
+  if (corporationId && isAdminMode) {
+    query = query.eq('corp_id', corporationId);
   }
 
   const { data, error } = await query;

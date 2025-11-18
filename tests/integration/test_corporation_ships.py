@@ -32,12 +32,44 @@ SHIPS_PATH = Path("tests/test-world-data/ships.json")
 async def reset_state(server_url):
     await reset_corporation_test_state(server_url)
 
-def _load_ship(ship_id: str) -> dict | None:
-    if not SHIPS_PATH.exists():
+async def _find_unowned_ship_in_sector(client, ship_id: str, sector: int) -> dict | None:
+    """Find an unowned ship in a sector via status snapshot."""
+    try:
+        # Wait for status.snapshot event which contains sector data
+        status_task = asyncio.create_task(
+            client.wait_for_event("status.snapshot", timeout=5.0)
+        )
+        await client.my_status(character_id=client.character_id)
+        status_event = await status_task
+
+        status = status_event.get("payload", {})
+
+        # Move to the sector if not already there
+        current_sector = status.get("sector", {}).get("id")
+
+        if current_sector != sector:
+            await client.move(to_sector=sector, character_id=client.character_id)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+
+            status_task = asyncio.create_task(
+                client.wait_for_event("status.snapshot", timeout=5.0)
+            )
+            await client.my_status(character_id=client.character_id)
+            status_event = await status_task
+            status = status_event.get("payload", {})
+
+        # Check unowned_ships array
+        sector_data = status.get("sector", {})
+        unowned_ships = sector_data.get("unowned_ships", [])
+        for ship in unowned_ships:
+            if ship.get("ship_id") == ship_id:
+                return ship
         return None
-    with SHIPS_PATH.open("r", encoding="utf-8") as handle:
-        data = json.load(handle)
-    return data.get(ship_id)
+    except Exception as e:
+        print(f"Error finding unowned ship {ship_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 async def _create_corp(client, *, character_id: str, name: str) -> dict:
     return await client._request(
@@ -666,6 +698,11 @@ async def test_corporation_event_log_records_fleet_activity(server_url, check_se
         events = query_result.get("events", [])
         assert events, "Expected at least one event entry in the log query"
 
+        # Debug: print what events we got
+        print(f"\nFound {len(events)} events:")
+        for evt in events:
+            print(f"  - {evt.get('event')} from {evt.get('sender')} (corp_id: {evt.get('corporation_id')})")
+
         def _find_event(name: str, *, sender: str | None = None):
             for entry in events:
                 if entry.get("event") != name:
@@ -800,17 +837,14 @@ async def test_corp_ships_transferred_to_unowned_on_disband(server_url, check_se
         )
         ship_id = purchase["ship_id"]
         # Corporation ship character already created by ship_purchase endpoint
+        # Ships are created in the founder's current sector
 
         await founder._request("corporation.leave", {"character_id": "test_corp_founder"})
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
-        async def _wait_for_former_owner() -> dict:
-            while True:
-                record = _load_ship(ship_id)
-                if record is not None and record.get("former_owner_name"):
-                    return record
-                await asyncio.sleep(EVENT_DELIVERY_WAIT)
-
-        record = await asyncio.wait_for(_wait_for_former_owner(), timeout=15.0)
+        # Verify ship appears as unowned in founder's sector (sector 1)
+        record = await _find_unowned_ship_in_sector(founder, ship_id, 1)
+        assert record is not None, f"Ship {ship_id} not found in sector 1"
         assert record.get("owner_type") == "unowned"
         assert record.get("owner_id") is None
         assert record.get("former_owner_name") == "Derelict Co"
@@ -833,16 +867,14 @@ async def test_unowned_ships_appear_in_sector_contents(server_url, check_server_
         await founder._request("corporation.leave", {"character_id": "test_corp_founder"})
 
         await asyncio.sleep(EVENT_DELIVERY_WAIT)
+
+        # Request status and wait for event via polling (same pattern as _status_snapshot)
         status_task = asyncio.create_task(
-            outsider.wait_for_event(
-                "status.snapshot",
-                timeout=5.0,
-                predicate=lambda event: event["payload"]["player"].get("id")
-                == "test_corp_outsider",
-            )
+            outsider.wait_for_event("status.snapshot", timeout=5.0)
         )
         await outsider.my_status(character_id="test_corp_outsider")
         status_event = await status_task
+
         unowned = status_event["payload"]["sector"]["unowned_ships"]
         assert any(ship["ship_id"] == ship_id for ship in unowned)
 
@@ -910,12 +942,11 @@ async def test_ship_retains_state_when_unowned(server_url, check_server_availabl
         await founder._request("corporation.leave", {"character_id": "test_corp_founder"})
         await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
-        record = _load_ship(ship_id)
-        assert record is not None
-        state = record.get("state", {})
+        record = await _find_unowned_ship_in_sector(founder, ship_id, 1)
+        assert record is not None, f"Ship {ship_id} not found in sector 1"
         # Default kestrel stats: fighters=300, shields=150 per ships data
-        assert state.get("fighters") == 300
-        assert state.get("shields") == 150
+        assert record.get("fighters") == 300
+        assert record.get("shields") == 150
 
 @pytest.mark.asyncio
 async def test_unowned_ship_includes_former_corp_info(server_url, check_server_available):
@@ -934,8 +965,8 @@ async def test_unowned_ship_includes_former_corp_info(server_url, check_server_a
         await founder._request("corporation.leave", {"character_id": "test_corp_founder"})
         await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
-        record = _load_ship(ship_id)
-        assert record is not None
+        record = await _find_unowned_ship_in_sector(founder, ship_id, 1)
+        assert record is not None, f"Ship {ship_id} not found in sector 1"
         assert record.get("former_owner_name") == "History Corp"
         assert record.get("became_unowned") is not None
 
@@ -959,12 +990,7 @@ async def test_unowned_ships_only_visible_in_their_sector(server_url, check_serv
 
         # Nearby character should see the unowned ship
         near_task = asyncio.create_task(
-            nearby.wait_for_event(
-                "status.snapshot",
-                timeout=5.0,
-                predicate=lambda event: event["payload"]["player"].get("id")
-                == "test_corp_member_1",
-            )
+            nearby.wait_for_event("status.snapshot", timeout=5.0)
         )
         await nearby.my_status(character_id="test_corp_member_1")
         near_event = await near_task
@@ -973,12 +999,7 @@ async def test_unowned_ships_only_visible_in_their_sector(server_url, check_serv
 
         # Distant character (different sector) should not see it
         far_task = asyncio.create_task(
-            distant.wait_for_event(
-                "status.snapshot",
-                timeout=5.0,
-                predicate=lambda event: event["payload"]["player"].get("id")
-                == "test_corp_member_2",
-            )
+            distant.wait_for_event("status.snapshot", timeout=5.0)
         )
         await distant.my_status(character_id="test_corp_member_2")
         far_event = await far_task

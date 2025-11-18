@@ -145,6 +145,7 @@ export function buildRoundWaitingPayload(encounter: CombatEncounterState): Recor
 export function buildRoundResolvedPayload(
   encounter: CombatEncounterState,
   outcome: CombatRoundOutcome,
+  actions?: Record<string, unknown>,
 ): Record<string, unknown> {
   const payload = {
     ...basePayload(encounter),
@@ -193,6 +194,27 @@ export function buildRoundResolvedPayload(
 
   payload['participants'] = participants;
   payload['garrison'] = garrisonPayload;
+
+  // Include actions for legacy compatibility (matches game-server serialize_round)
+  if (actions) {
+    const actionsMap: Record<string, unknown> = {};
+    for (const [pid, action] of Object.entries(actions)) {
+      const actionState = action as Record<string, unknown>;
+      // Use participant name (display name) as key for legacy compatibility
+      const participant = encounter.participants[pid];
+      const participantKey = participant?.name ?? pid;
+      actionsMap[participantKey] = {
+        action: actionState.action ?? 'brace',
+        commit: actionState.commit ?? 0,
+        timed_out: actionState.timed_out ?? false,
+        submitted_at: actionState.submitted_at ?? new Date().toISOString(),
+        target: actionState.target_id ?? null,
+        destination_sector: actionState.destination_sector ?? null,
+      };
+    }
+    payload['actions'] = actionsMap;
+  }
+
   return payload;
 }
 
@@ -205,5 +227,61 @@ export function buildCombatEndedPayload(
   const payload = buildRoundResolvedPayload(encounter, outcome);
   payload['salvage'] = salvage;
   payload['logs'] = logs;
+  return payload;
+}
+
+/**
+ * Build a personalized combat.ended payload for a specific viewer.
+ * Includes the viewer's ship data after combat resolution (e.g., escape pod conversion).
+ */
+export async function buildCombatEndedPayloadForViewer(
+  supabase: any,
+  encounter: CombatEncounterState,
+  outcome: CombatRoundOutcome,
+  salvage: Array<Record<string, unknown>>,
+  logs: Array<Record<string, unknown>>,
+  viewerId: string,
+): Promise<Record<string, unknown>> {
+  const payload = buildCombatEndedPayload(encounter, outcome, salvage, logs);
+
+  // Add viewer's ship data (matches legacy serialize_combat_ended_event pattern)
+  try {
+    // Import helper functions (we'll use dynamic import to avoid circular deps)
+    const { loadCharacter } = await import('./status.ts');
+    const { loadShip } = await import('./status.ts');
+    const { loadShipDefinition } = await import('./status.ts');
+
+    const character = await loadCharacter(supabase, viewerId);
+    const ship = await loadShip(supabase, character.current_ship_id);
+    const definition = await loadShipDefinition(supabase, ship.ship_type);
+
+    // Build ship snapshot (simplified version for event payload)
+    const cargo = {
+      quantum_foam: ship.cargo_qf ?? 0,
+      retro_organics: ship.cargo_ro ?? 0,
+      neuro_symbolics: ship.cargo_ns ?? 0,
+    };
+    const cargoUsed = cargo.quantum_foam + cargo.retro_organics + cargo.neuro_symbolics;
+    const cargoCapacity = definition.cargo_holds;
+
+    payload['ship'] = {
+      ship_id: ship.ship_id,
+      ship_type: ship.ship_type,
+      ship_name: ship.ship_name ?? definition.display_name,
+      credits: ship.credits ?? 0,
+      cargo,
+      cargo_capacity: cargoCapacity,
+      empty_holds: Math.max(cargoCapacity - cargoUsed, 0),
+      warp_power: ship.current_warp_power ?? definition.warp_power_capacity,
+      shields: ship.current_shields ?? 0,
+      fighters: ship.current_fighters ?? 0,
+      max_shields: definition.max_shields,
+      max_fighters: definition.max_fighters,
+    };
+  } catch (err) {
+    console.error('Failed to load ship data for viewer', viewerId, err);
+    // Don't fail the event emission if ship data can't be loaded
+  }
+
   return payload;
 }

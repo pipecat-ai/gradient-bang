@@ -63,7 +63,7 @@ export async function resolveEncounterRound(options: {
     timestamp: new Date().toISOString(),
   });
 
-  const resolvedPayload = buildRoundResolvedPayload(encounter, outcome);
+  const resolvedPayload = buildRoundResolvedPayload(encounter, outcome, combinedActions);
   resolvedPayload.source = buildEventSource('combat.round_resolved', requestId);
 
   for (const [pid, participant] of Object.entries(encounter.participants)) {
@@ -92,19 +92,32 @@ export async function resolveEncounterRound(options: {
     encounter.deadline = null;
 
     const salvage = await finalizeCombat(supabase, encounter, outcome);
-    const endedPayload = buildCombatEndedPayload(encounter, outcome, salvage, encounter.logs ?? []);
-    endedPayload.source = buildEventSource('combat.ended', requestId);
 
     console.log('combat_resolution.broadcasting_ended', { combat_id: encounter.combat_id, recipients: recipients.length });
 
-    await broadcastEvent({
-      supabase,
-      recipients,
-      encounter,
-      eventType: 'combat.ended',
-      payload: endedPayload,
-      requestId,
-    });
+    // Send personalized combat.ended event to each participant with their own ship data
+    // (matches legacy pattern from game-server/combat/callbacks.py:394-412)
+    const { buildCombatEndedPayloadForViewer } = await import('./combat_events.ts');
+    for (const recipient of recipients) {
+      const personalizedPayload = await buildCombatEndedPayloadForViewer(
+        supabase,
+        encounter,
+        outcome,
+        salvage,
+        encounter.logs ?? [],
+        recipient,
+      );
+      personalizedPayload.source = buildEventSource('combat.ended', requestId);
+
+      await emitCharacterEvent({
+        supabase,
+        characterId: recipient,
+        eventType: 'combat.ended',
+        payload: personalizedPayload,
+        sectorId: encounter.sector_id,
+        requestId,
+      });
+    }
 
     // Emit sector.update to all sector occupants after combat ends
     const sectorSnapshot = await buildSectorSnapshot(supabase, encounter.sector_id);

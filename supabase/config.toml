@@ -60,6 +60,10 @@ schema_paths = []
 enabled = true
 sql_paths = ["seed.sql"]
 
+# NOTE: Custom PostgreSQL settings (app.supabase_url, app.edge_api_token) are
+# configured via the migration 20251117040000_enable_combat_tick_cron.sql
+# using ALTER DATABASE statements instead of config.toml
+
 [db.network_restrictions]
 # Enable management of network restrictions.
 enabled = false
