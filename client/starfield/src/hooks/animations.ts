@@ -2,6 +2,24 @@ import { useContext, useEffect, useRef } from "react"
 
 import { AnimationContext } from "@/controllers/AnimationContext"
 
+/**
+ * Animation Hooks
+ *
+ * These hooks provide access to animation spring values and metadata.
+ *
+ * To add a new animation hook:
+ * 1. Get context with useContext(AnimationContext)
+ * 2. Return the relevant spring values and metadata
+ * 3. Follow the existing pattern for consistency
+ *
+ * @example
+ * export function useFade() {
+ *   const context = useContext(AnimationContext)
+ *   if (!context) throw new Error("useFade must be used within AnimationController")
+ *   return { fadeOpacity: context.fadeOpacity, isFading: context.isFading }
+ * }
+ */
+
 export function useWarpAnimation() {
   const context = useContext(AnimationContext)
   if (!context) {
@@ -37,7 +55,6 @@ export function useLayerDim() {
   return {
     dimOpacity: context.dimOpacity,
     isDimmed: context.isDimmed,
-    isDimAnimating: context.isDimAnimating,
   }
 }
 

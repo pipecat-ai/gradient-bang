@@ -5,14 +5,19 @@ interface AnimationStore {
   startWarp: () => void
   stopWarp: () => void
 
-  dimmed: boolean
-  setDimmed: (dimmed: boolean) => void
+  isDimmed: boolean
+  setIsDimmed: (isDimmed: boolean) => void
+
+  isAnimating: boolean
+  setIsAnimating: (isAnimating: boolean) => void
 }
 
 export const useAnimationStore = create<AnimationStore>((set) => ({
   isWarping: false,
   startWarp: () => set({ isWarping: true }),
   stopWarp: () => set({ isWarping: false }),
-  dimmed: false,
-  setDimmed: (dimmed: boolean) => set({ dimmed }),
+  isDimmed: false,
+  setIsDimmed: (isDimmed: boolean) => set({ isDimmed }),
+  isAnimating: false,
+  setIsAnimating: (isAnimating: boolean) => set({ isAnimating }),
 }))

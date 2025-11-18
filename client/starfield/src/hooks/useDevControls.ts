@@ -11,7 +11,7 @@ export const useDevControls = () => {
   const isPaused = useGameStore((state) => state.isPaused)
   const { changeScene } = useSceneChange()
 
-  const { isWarping, startWarp, stopWarp, dimmed, setDimmed } =
+  const { isWarping, startWarp, stopWarp, isDimmed, setIsDimmed } =
     useAnimationStore()
 
   const [, setSceneControls] = useControls(
@@ -45,11 +45,11 @@ export const useDevControls = () => {
         editable: false,
       },
       ["Toggle Dim"]: button(() => {
-        setDimmed(!dimmed)
+        setIsDimmed(!isDimmed)
       }),
     }),
 
-    [changeScene, startWarp, stopWarp, setDimmed]
+    [changeScene, startWarp, stopWarp, setIsDimmed]
   )
 
   useEffect(() => {
