@@ -16,6 +16,7 @@ export interface StarfieldConfig {
   shakeRelaxTime?: number
   shockwaveSpeed?: number
   shockwaveEnabled?: boolean
+  layerDimDuration?: number
   stars?: {
     enabled?: boolean
     radius?: number

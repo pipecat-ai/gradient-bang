@@ -1,12 +1,4 @@
-import {
-  memo,
-  Suspense,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react"
+import { memo, Suspense, useLayoutEffect, useRef } from "react"
 import {
   Center,
   Float,
@@ -21,7 +13,6 @@ import * as THREE from "three"
 
 import { AnimationController } from "@/controllers/AnimationController"
 import { CameraController } from "@/controllers/Camera"
-import { EnvironmentWrapper } from "@/controllers/Environment"
 import { SceneController } from "@/controllers/SceneController"
 import { Dust } from "@/objects/Dust"
 import { Stars } from "@/objects/Stars"
@@ -59,7 +50,7 @@ export const LAYERS = {
  */
 export default function App({
   config,
-  debug = false,
+  debug = true,
   profile = "high",
 }: StarfieldProps) {
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
@@ -69,7 +60,6 @@ export default function App({
     (state) => state.setPerformanceProfile
   )
   const { dpr, setPerformance } = useDevControls()
-  const [modelScale, setModelScale] = useState(3)
 
   useLayoutEffect(() => {
     setPerformanceProfile(profile)
@@ -79,30 +69,16 @@ export default function App({
     setStarfieldConfig(config ?? {})
   }, [config, setStarfieldConfig])
 
-  // Responsive adjustment handler for model scale
-  const handleResize = useCallback(() => {
-    const isSmallScreen = window.innerWidth <= 768
-    setModelScale(isSmallScreen ? 2.4 : 3)
-  }, [])
-
-  // Set up resize handling
-  useEffect(() => {
-    window.addEventListener("resize", handleResize)
-    return () => window.removeEventListener("resize", handleResize)
-  }, [handleResize])
-
   return (
     <>
-      <Leva collapsed hidden={debug} />
+      <Leva collapsed hidden={!debug} />
 
       <Canvas
         frameloop={isPaused ? "never" : "demand"}
         dpr={dpr as number}
-        shadows
         gl={{
           alpha: false,
           antialias: false,
-          depth: true,
         }}
         onCreated={({ gl, camera }) => {
           rendererRef.current = gl
@@ -122,8 +98,12 @@ export default function App({
           onIncline={() => setPerformance({ dpr: 2 })}
           onDecline={() => setPerformance({ dpr: 1 })}
         />
-        <Stats showPanel={0} />
-        <RenderingIndicator />
+        {debug && (
+          <>
+            <Stats showPanel={0} />
+            <RenderingIndicator />
+          </>
+        )}
         <SceneController />
 
         <AnimationController>
@@ -147,15 +127,19 @@ export default function App({
               >
                 {/* Scene Elements */}
                 <Dust />
-                <Center scale={modelScale}>{<Helmet />}</Center>
+                <Center scale={3}>{<Helmet />}</Center>
               </Float>
             </group>
-            <Grid cellColor={"#FFFFFF"} cellSize={1} infiniteGrid />
+            <Grid
+              cellColor={"#FFFFFF"}
+              cellSize={1}
+              infiniteGrid
+              layers={[LAYERS.DEBUG]}
+            />
           </Suspense>
 
           <CameraController />
 
-          <EnvironmentWrapper />
           <PostProcessingMemo />
           <Effects />
         </AnimationController>
@@ -174,21 +158,20 @@ interface HelmetProps {
  * 3D Helmet model component
  */
 function Helmet(props: HelmetProps) {
-  const { nodes, materials } = useGLTF("/test-model.glb") as unknown as {
+  const { nodes } = useGLTF("/test-model.glb") as unknown as {
     nodes: Record<string, THREE.Mesh>
     materials: Record<string, THREE.Material>
   }
   return (
     <group {...props} dispose={null}>
       <mesh
-        castShadow
         geometry={nodes.Object_2.geometry}
-        material={materials.model_Material_u1_v1}
-        material-roughness={0.15}
         position={[-2.016, -0.06, 1.381]}
         rotation={[-1.601, 0.068, 2.296]}
         scale={0.038}
-      />
+      >
+        <meshBasicMaterial color="#00ff00" />
+      </mesh>
     </group>
   )
 }

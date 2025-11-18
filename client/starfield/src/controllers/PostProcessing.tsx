@@ -12,10 +12,11 @@ import {
 } from "postprocessing"
 import * as THREE from "three"
 
+import { useLayerDim, useShockwave, useWarpAnimation } from "@/hooks/animations"
 import { useGameStore } from "@/useGameStore"
 
 import { DitheringEffect } from "../fx/DitherEffect"
-import { useShockwave, useWarpAnimation } from "./AnimationController"
+import { LayerDimEffect } from "../fx/LayerDimEffect"
 
 /**
  * Component that manages all post-processing effects
@@ -27,6 +28,7 @@ export const PostProcessing = () => {
   const bloomEffectRef = useRef<BloomEffect | null>(null)
   const vignetteEffectRef = useRef<VignetteEffect | null>(null)
   const shockWaveEffectRef = useRef<ShockWaveEffect | null>(null)
+  const layerDimEffectRef = useRef<LayerDimEffect | null>(null)
   const shockwaveEpicenterRef = useRef(new THREE.Vector3())
   const shockwaveDirectionRef = useRef(new THREE.Vector3())
   const lastShockwaveSequenceRef = useRef(0)
@@ -39,6 +41,7 @@ export const PostProcessing = () => {
     shockwaveEnabled: storedShockwaveEnabled,
   } = useGameStore((state) => state.starfieldConfig)
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
+  const { dimOpacity } = useLayerDim()
 
   // Effect controls
   const { bloomEnabled, bloomThreshold, bloomIntensity, bloomRadius } =
@@ -203,6 +206,8 @@ export const PostProcessing = () => {
   useEffect(() => {
     if (!scene || !camera || !composerRef.current) return
 
+    console.log("[STARFIELD] PostProcessing - Rebuilding Pass")
+
     const composer = composerRef.current
     composer.removeAllPasses()
 
@@ -257,6 +262,11 @@ export const PostProcessing = () => {
       vignetteEffectRef.current = null
     }
 
+    // Layer dim effect - full screen dimming
+    const layerDim = new LayerDimEffect({ opacity: 1.0 })
+    layerDimEffectRef.current = layerDim
+    orderedEffectPasses.push(new EffectPass(camera, layerDim))
+
     // Dithering effect - always active and always last
     const dither = new DitheringEffect({
       gridSize: ditheringGridSize,
@@ -303,6 +313,7 @@ export const PostProcessing = () => {
     if (camera !== currentCamera) setCamera(currentCamera)
 
     const progress = warp.warpProgress.get()
+    const dimValue = dimOpacity.get()
 
     const ditheringEffect = ditheringEffectRef.current
     if (ditheringEffect) {
@@ -367,6 +378,12 @@ export const PostProcessing = () => {
         lastShockwaveSequenceRef.current = shockwaveSequence
         invalidate()
       }
+    }
+
+    // Update layer dim effect (full screen)
+    const layerDimEffect = layerDimEffectRef.current
+    if (layerDimEffect) {
+      layerDimEffect.opacity = dimValue
     }
 
     // Render the composer if available

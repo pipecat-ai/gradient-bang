@@ -11,7 +11,8 @@ export const useDevControls = () => {
   const isPaused = useGameStore((state) => state.isPaused)
   const { changeScene } = useSceneChange()
 
-  const { isWarping, startWarp, stopWarp } = useAnimationStore()
+  const { isWarping, startWarp, stopWarp, dimmed, setDimmed } =
+    useAnimationStore()
 
   const [, setSceneControls] = useControls(
     "Scene Settings",
@@ -43,13 +44,12 @@ export const useDevControls = () => {
         value: isWarping ? "Warping" : "Not Warping",
         editable: false,
       },
-      pauseStatus: {
-        value: isPaused ? "Paused" : "Not Paused",
-        editable: false,
-      },
+      ["Toggle Dim"]: button(() => {
+        setDimmed(!dimmed)
+      }),
     }),
 
-    [changeScene, startWarp, stopWarp]
+    [changeScene, startWarp, stopWarp, setDimmed]
   )
 
   useEffect(() => {
@@ -57,21 +57,23 @@ export const useDevControls = () => {
   }, [isWarping, setSceneControls])
 
   const [{ dpr }, setPerformance] = useControls(() => ({
-    "Render Settings": folder(
-      {
-        [isPaused ? "Resume" : "Pause"]: button(() => {
-          togglePause()
-        }),
-        dpr: {
-          value: 1.5,
-          min: 1,
-          max: 2,
-          step: 0.1,
-          label: "DPR",
+    "Scene Settings": folder({
+      Rendering: folder(
+        {
+          [isPaused ? "Resume" : "Pause"]: button(() => {
+            togglePause()
+          }),
+          dpr: {
+            value: 1.5,
+            min: 1,
+            max: 2,
+            step: 0.1,
+            label: "DPR",
+          },
         },
-      },
-      { collapsed: true }
-    ),
+        { collapsed: true }
+      ),
+    }),
   }))
 
   return { dpr, setPerformance }

@@ -2,11 +2,11 @@ import { useCallback, useRef, useState } from "react"
 import { easings } from "@react-spring/three"
 import { CameraControls as CameraControlsImpl } from "@react-three/drei"
 import { useFrame, useThree } from "@react-three/fiber"
-import { button, folder, useControls } from "leva"
+import { folder, useControls } from "leva"
 import * as THREE from "three"
 import type { PerspectiveCamera } from "three"
 
-import { useWarpAnimation } from "@/controllers/AnimationController"
+import { useWarpAnimation } from "@/hooks/animations"
 import type { PositionedGameObject } from "@/types"
 import { useGameStore } from "@/useGameStore"
 
@@ -15,11 +15,8 @@ const DEFAULT_POSITION = new THREE.Vector3(0, 0, 0)
 export function CameraController() {
   const cameraControlsRef = useRef<CameraControlsImpl>(null)
   const gameObjects = useGameStore((state) => state.positionedObjects)
-  const { camera, invalidate } = useThree()
-  const perspectiveCamera = camera as PerspectiveCamera
-  const [_currentTarget, setCurrentTarget] = useState<THREE.Vector3 | null>(
-    null
-  )
+  const { invalidate } = useThree()
+  const [, setCurrentTarget] = useState<THREE.Vector3 | null>(null)
   const { cameraBaseFov, hyerpspaceUniforms } = useGameStore(
     (state) => state.starfieldConfig
   )
@@ -28,7 +25,98 @@ export function CameraController() {
   const animationDelay = 0
   const epsilon = 0.05
 
-  const lookAtTarget = useCallback(
+  // Leva controls for camera configuration
+  const config = useControls(
+    {
+      Camera: folder(
+        {
+          enabled: {
+            value: true,
+            label: "Enable Camera Controls",
+          },
+
+          lookAtDistance: {
+            value: 8,
+            min: 2,
+            max: 20,
+            step: 0.5,
+            label: "Look At Distance",
+          },
+          Timing: folder({
+            smoothTime: {
+              value: 1,
+              min: 0.1,
+              max: 5,
+              step: 0.1,
+              label: "Smooth Time",
+            },
+            restThreshold: {
+              value: 2,
+              min: 0,
+              max: 5,
+              step: 0.1,
+              label: "Rest Threshold",
+            },
+          }),
+        },
+        { collapsed: true }
+      ),
+    },
+    [gameObjects]
+  )
+
+  useFrame(({ camera }) => {
+    const perspectiveCamera = camera as PerspectiveCamera
+    const progress = warp.warpProgress.get()
+    const delayedProgress = THREE.MathUtils.clamp(
+      (progress - animationDelay) / (1 - animationDelay),
+      0,
+      1
+    )
+
+    const easedProgress = warp.isWarping
+      ? easings.easeInCubic(delayedProgress)
+      : easings.easeOutExpo(delayedProgress)
+
+    const desiredFov = THREE.MathUtils.lerp(
+      cameraBaseFov,
+      hyerpspaceUniforms.cameraFov,
+      easedProgress
+    )
+
+    const delta = Math.abs(perspectiveCamera.fov - desiredFov)
+
+    if (delta > epsilon) {
+      perspectiveCamera.fov = desiredFov
+      perspectiveCamera.updateProjectionMatrix()
+      invalidate()
+    }
+  }, 1)
+
+  const _resetTarget = useCallback(() => {
+    if (!cameraControlsRef.current) return
+
+    const cam = cameraControlsRef.current
+
+    invalidate()
+
+    requestAnimationFrame(() => {
+      if (cam) {
+        cam.setLookAt(
+          DEFAULT_POSITION.x,
+          DEFAULT_POSITION.y,
+          DEFAULT_POSITION.z,
+          0,
+          0,
+          0,
+          true
+        )
+      }
+      setCurrentTarget(null)
+    })
+  }, [invalidate])
+
+  const _lookAtTarget = useCallback(
     async (gameObjectId: string) => {
       const gameObject = gameObjects.find(
         (obj) => obj.id === gameObjectId
@@ -63,109 +151,8 @@ export function CameraController() {
         setCurrentTarget(newCameraPosition)
       })
     },
-    [invalidate, gameObjects]
+    [invalidate, gameObjects, config.lookAtDistance]
   )
-
-  const resetTarget = useCallback(() => {
-    if (!cameraControlsRef.current) return
-
-    const cam = cameraControlsRef.current
-
-    invalidate()
-
-    requestAnimationFrame(() => {
-      if (cam) {
-        cam.setLookAt(
-          DEFAULT_POSITION.x,
-          DEFAULT_POSITION.y,
-          DEFAULT_POSITION.z,
-          0,
-          0,
-          0,
-          true
-        )
-      }
-      setCurrentTarget(null)
-    })
-  }, [invalidate])
-
-  // Leva controls for camera configuration
-  const config = useControls(
-    {
-      Camera: folder(
-        {
-          enabled: {
-            value: true,
-            label: "Enable Camera Controls",
-          },
-
-          target: {
-            options: gameObjects.map((obj) => obj.id),
-            value: null,
-            label: "Target",
-            onChange: (value) => {
-              lookAtTarget(value)
-            },
-          },
-          "Clear Target": button(() => {
-            resetTarget()
-          }),
-          lookAtDistance: {
-            value: 8,
-            min: 2,
-            max: 20,
-            step: 0.5,
-            label: "Look At Distance",
-          },
-          Timing: folder({
-            smoothTime: {
-              value: 1,
-              min: 0.1,
-              max: 5,
-              step: 0.1,
-              label: "Smooth Time",
-            },
-            restThreshold: {
-              value: 2,
-              min: 0,
-              max: 5,
-              step: 0.1,
-              label: "Rest Threshold",
-            },
-          }),
-        },
-        { collapsed: true }
-      ),
-    },
-    [gameObjects]
-  )
-
-  useFrame(() => {
-    const progress = warp.warpProgress.get()
-    const delayedProgress = THREE.MathUtils.clamp(
-      (progress - animationDelay) / (1 - animationDelay),
-      0,
-      1
-    )
-
-    const easedProgress = warp.isWarping
-      ? easings.easeInCubic(delayedProgress)
-      : easings.easeOutExpo(delayedProgress)
-
-    const desiredFov = THREE.MathUtils.lerp(
-      cameraBaseFov,
-      hyerpspaceUniforms.cameraFov,
-      easedProgress
-    )
-
-    const delta = Math.abs(perspectiveCamera.fov - desiredFov)
-
-    if (delta > epsilon) {
-      perspectiveCamera.fov = desiredFov
-      perspectiveCamera.updateProjectionMatrix()
-      invalidate()
-    }
-  }, 1)
 
   return (
     <CameraControlsImpl

@@ -1,9 +1,8 @@
 import { memo } from "react"
 import { button, useControls } from "leva"
 
+import { useShockwave, useWarpExitEffect } from "@/hooks/animations"
 import { useGameStore } from "@/useGameStore"
-
-import { useShockwave, useWarpExitEffect } from "./AnimationController"
 
 const EffectsComponent = () => {
   const { hyperspaceExitTime, shockwaveEnabled } = useGameStore(

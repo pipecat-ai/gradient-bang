@@ -4,7 +4,7 @@ import { shaderMaterial } from "@react-three/drei"
 import { extend, invalidate, useFrame } from "@react-three/fiber"
 import * as THREE from "three"
 
-import { useWarpAnimation } from "@/controllers/AnimationController"
+import { useWarpAnimation } from "@/hooks/animations"
 
 // Define the uniform types
 type PlanetMaterialUniforms = {
