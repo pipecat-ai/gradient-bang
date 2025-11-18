@@ -1,8 +1,11 @@
 import { produce } from "immer"
 import { create } from "zustand"
 
+import { defaultProfile } from "@/profiles"
+
 import {
   type GameObject,
+  type PerformanceProfile,
   type PositionedGameObject,
   type Scene,
   type SceneConfig,
@@ -13,6 +16,8 @@ import {
 interface AppState {
   starfieldConfig: StarfieldConfig
   setStarfieldConfig: (config: Partial<StarfieldConfig>) => void
+  performanceProfile: PerformanceProfile
+  setPerformanceProfile: (profile: PerformanceProfile) => void
 
   // State
   isPaused: boolean
@@ -48,23 +53,7 @@ interface AppState {
 
 export const useGameStore = create<AppState>((set) => ({
   starfieldConfig: {
-    cameraBaseFov: 85,
-    vignetteAmount: 0.5,
-    hyperspaceEnterTime: 2000,
-    hyperspaceExitTime: 2000,
-    hyperspaceDuration: 1000,
-    hyperspaceCooldown: 10000,
-    hyerpspaceUniforms: {
-      vignetteAmount: 1,
-      vignetteOffset: 0,
-      cameraFov: 145,
-      bloomIntensity: 50,
-      bloomRadius: 1,
-    },
-    shakeIntensity: 1,
-    shakeRelaxTime: 1000,
-    shockwaveSpeed: 1.5,
-    shockwaveEnabled: true,
+    ...defaultProfile,
   },
   setStarfieldConfig: (config: Partial<StarfieldConfig>) =>
     set(
@@ -75,6 +64,11 @@ export const useGameStore = create<AppState>((set) => ({
         }
       })
     ),
+
+  performanceProfile: "high",
+  setPerformanceProfile: (profile: PerformanceProfile) =>
+    profile !== useGameStore.getState().performanceProfile &&
+    set({ performanceProfile: profile }),
 
   // State
   isPaused: false,

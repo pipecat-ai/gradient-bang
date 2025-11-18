@@ -16,7 +16,36 @@ export interface StarfieldConfig {
   shakeRelaxTime?: number
   shockwaveSpeed?: number
   shockwaveEnabled?: boolean
+  stars?: {
+    enabled?: boolean
+    radius?: number
+    depth?: number
+    count?: number
+    factor?: number
+    saturation?: number
+    fade?: boolean
+    speed?: number
+  }
+  dust?: {
+    enabled?: boolean
+    count?: number
+    radius?: number
+    size?: number
+    opacity?: number
+    fogEnabled?: boolean
+    fogNear?: number
+    fogFar?: number
+    fogColor?: string
+  }
+  fog?: {
+    enabled?: boolean
+    color?: string
+    near?: number
+    far?: number
+  }
 }
+
+export type PerformanceProfile = "low" | "mid" | "high"
 
 export type StarfieldState =
   | "idle"
@@ -61,7 +90,7 @@ export interface GameObjectConfig {
 /**
  * Base interface for world objects that can be configured asynchronously
  */
-export interface WorldObject<T = any> {
+export interface WorldObject<T = unknown> {
   /**
    * Load a new configuration for this object
    * @param config - Partial configuration to apply

@@ -12,7 +12,6 @@ import {
   Float,
   Grid,
   PerformanceMonitor,
-  Stars,
   Stats,
   useGLTF,
 } from "@react-three/drei"
@@ -25,19 +24,22 @@ import { CameraController } from "@/controllers/Camera"
 import { EnvironmentWrapper } from "@/controllers/Environment"
 import { SceneController } from "@/controllers/SceneController"
 import { Dust } from "@/objects/Dust"
+import { Stars } from "@/objects/Stars"
 import { TestObject } from "@/objects/Test"
-import type { Scene, StarfieldConfig } from "@/types"
+import type { PerformanceProfile, Scene, StarfieldConfig } from "@/types"
 import { useGameStore } from "@/useGameStore"
 
 import { RenderingIndicator } from "./components/RenderingIndicator"
 import { Effects } from "./controllers/Effects"
 import { PostProcessing } from "./controllers/PostProcessing"
 import { useDevControls } from "./hooks/useDevControls"
+import { Fog } from "./objects/Fog"
 
 useGLTF.preload("/test-model.glb")
 
 interface StarfieldProps {
   config?: Partial<StarfieldConfig>
+  profile?: PerformanceProfile
   debug?: boolean
   scene?: Scene
   paused?: boolean
@@ -46,12 +48,23 @@ interface StarfieldProps {
 /**
  * Main application component
  */
-export default function App({ config, debug = false }: StarfieldProps) {
+export default function App({
+  config,
+  debug = false,
+  profile = "high",
+}: StarfieldProps) {
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
   const isPaused = useGameStore((state) => state.isPaused)
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
+  const setPerformanceProfile = useGameStore(
+    (state) => state.setPerformanceProfile
+  )
   const { dpr, setPerformance } = useDevControls()
   const [modelScale, setModelScale] = useState(3)
+
+  useLayoutEffect(() => {
+    setPerformanceProfile(profile)
+  }, [profile, setPerformanceProfile])
 
   useLayoutEffect(() => {
     setStarfieldConfig(config ?? {})
@@ -93,11 +106,12 @@ export default function App({ config, debug = false }: StarfieldProps) {
         />
         <Stats showPanel={0} />
         <RenderingIndicator />
-
         <SceneController />
 
         <AnimationController>
           <Suspense fallback={null}>
+            <Fog />
+
             {/* Nebula background - rendered first and positioned at the back */}
             <group position={[0, 0, -50]}>
               {/* <Nebula ref={nebulaRef} /> */}
@@ -113,15 +127,7 @@ export default function App({ config, debug = false }: StarfieldProps) {
               >
                 {/* Scene Elements */}
                 <TestObject />
-                <Stars
-                  radius={50}
-                  depth={50}
-                  count={5000}
-                  factor={4}
-                  saturation={0}
-                  fade
-                  speed={0}
-                />
+                <Stars />
                 <Dust />
                 {/*<GameObjects gameObjects={gameObjects} />
             <Stars ref={starsRef} />*/}

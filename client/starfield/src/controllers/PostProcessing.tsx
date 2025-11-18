@@ -128,7 +128,6 @@ export const PostProcessing = () => {
       shockwaveAmplitude,
       shockwaveDistance,
     },
-    setShockwaveConfig,
   ] = useControls(() => ({
     Shockwave: folder(
       {
@@ -185,7 +184,7 @@ export const PostProcessing = () => {
 
   useEffect(() => {
     invalidate()
-  }, [ditheringGridSize, pixelSizeRatio, grayscaleOnly, invalidate])
+  }, [ditheringGridSize, pixelSizeRatio, grayscaleOnly])
 
   // Memoized resize handler
   const handleResize = useCallback(() => {
@@ -327,15 +326,19 @@ export const PostProcessing = () => {
 
     const bloomEffect = bloomEffectRef.current
     if (bloomEffect) {
+      const easedProgress = warp.isWarping
+        ? easings.easeInCubic(progress)
+        : easings.easeOutExpo(progress)
+
       bloomEffect.intensity = THREE.MathUtils.lerp(
         bloomIntensity,
         hyerpspaceUniforms.bloomIntensity,
-        progress
+        easedProgress
       )
       bloomEffect.mipmapBlurPass.radius = THREE.MathUtils.lerp(
         bloomRadius,
         hyerpspaceUniforms.bloomRadius,
-        progress
+        easedProgress
       )
     }
 

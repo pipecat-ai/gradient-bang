@@ -1,3 +1,4 @@
+import { FC, memo } from "react"
 import {
   AccumulativeShadows,
   Environment,
@@ -5,7 +6,6 @@ import {
   RandomizedLight,
 } from "@react-three/drei"
 import { folder, useControls } from "leva"
-import { FC, memo } from "react"
 import * as THREE from "three"
 
 /**

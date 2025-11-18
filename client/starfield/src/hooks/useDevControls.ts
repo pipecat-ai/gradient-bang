@@ -48,12 +48,13 @@ export const useDevControls = () => {
         editable: false,
       },
     }),
+
     [changeScene, startWarp, stopWarp]
   )
 
   useEffect(() => {
     setSceneControls({ warpStatus: isWarping ? "Warping" : "Not Warping" })
-  }, [isWarping])
+  }, [isWarping, setSceneControls])
 
   const [{ dpr }, setPerformance] = useControls(() => ({
     "Render Settings": folder(
