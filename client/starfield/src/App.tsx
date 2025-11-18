@@ -25,7 +25,6 @@ import { EnvironmentWrapper } from "@/controllers/Environment"
 import { SceneController } from "@/controllers/SceneController"
 import { Dust } from "@/objects/Dust"
 import { Stars } from "@/objects/Stars"
-import { TestObject } from "@/objects/Test"
 import type { PerformanceProfile, Scene, StarfieldConfig } from "@/types"
 import { useGameStore } from "@/useGameStore"
 
@@ -34,6 +33,8 @@ import { Effects } from "./controllers/Effects"
 import { PostProcessing } from "./controllers/PostProcessing"
 import { useDevControls } from "./hooks/useDevControls"
 import { Fog } from "./objects/Fog"
+import { Planet } from "./objects/Planet"
+import { TestPlanet } from "./objects/TestPlanet"
 
 useGLTF.preload("/test-model.glb")
 
@@ -111,6 +112,8 @@ export default function App({
         <AnimationController>
           <Suspense fallback={null}>
             <Fog />
+            <Stars />
+            <Planet />
 
             {/* Nebula background - rendered first and positioned at the back */}
             <group position={[0, 0, -50]}>
@@ -126,14 +129,9 @@ export default function App({
                 autoInvalidate={false}
               >
                 {/* Scene Elements */}
-                <TestObject />
-                <Stars />
+                <TestPlanet />
                 <Dust />
-                {/*<GameObjects gameObjects={gameObjects} />
-            <Stars ref={starsRef} />*/}
-                <Center scale={modelScale}>
-                  <Helmet />
-                </Center>
+                <Center scale={modelScale}>{/*<Helmet />*/}</Center>
               </Float>
             </group>
             <Grid cellColor={"#FFFFFF"} cellSize={1} infiniteGrid />

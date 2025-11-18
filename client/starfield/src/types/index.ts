@@ -28,14 +28,6 @@ export interface StarfieldConfig {
   }
   dust?: {
     enabled?: boolean
-    count?: number
-    radius?: number
-    size?: number
-    opacity?: number
-    fogEnabled?: boolean
-    fogNear?: number
-    fogFar?: number
-    fogColor?: string
   }
   fog?: {
     enabled?: boolean

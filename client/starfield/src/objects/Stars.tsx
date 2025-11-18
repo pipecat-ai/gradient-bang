@@ -72,15 +72,17 @@ export const Stars = () => {
 
   return (
     starsConfig?.enabled && (
-      <StarsDrei
-        radius={radius}
-        depth={depth}
-        count={count}
-        factor={factor}
-        saturation={saturation}
-        fade={fade}
-        speed={speed}
-      />
+      <group renderOrder={-100}>
+        <StarsDrei
+          radius={radius}
+          depth={depth}
+          count={count}
+          factor={factor}
+          saturation={saturation}
+          fade={fade}
+          speed={speed}
+        />
+      </group>
     )
   )
 }
