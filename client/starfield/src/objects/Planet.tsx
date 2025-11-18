@@ -3,6 +3,7 @@ import { invalidate, useFrame, useLoader, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import * as THREE from "three"
 
+import { LAYERS } from "@/App"
 import { useGameStore } from "@/useGameStore"
 
 export const Planet = () => {
@@ -84,7 +85,7 @@ export const Planet = () => {
 
   return (
     <group ref={groupRef} frustumCulled={false}>
-      <mesh ref={meshRef} renderOrder={0}>
+      <mesh ref={meshRef} renderOrder={0} layers={[LAYERS.SKYBOX]}>
         <planeGeometry args={[width, height]} />
         <meshBasicMaterial
           map={texture}

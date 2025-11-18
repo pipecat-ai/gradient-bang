@@ -34,7 +34,6 @@ import { PostProcessing } from "./controllers/PostProcessing"
 import { useDevControls } from "./hooks/useDevControls"
 import { Fog } from "./objects/Fog"
 import { Planet } from "./objects/Planet"
-import { TestPlanet } from "./objects/TestPlanet"
 
 useGLTF.preload("/test-model.glb")
 
@@ -45,6 +44,15 @@ interface StarfieldProps {
   scene?: Scene
   paused?: boolean
 }
+
+export const LAYERS = {
+  DEFAULT: 0, // Main scene objects
+  BACKGROUND: 1, // Stars
+  SKYBOX: 2, // Skybox (Planet, Shadow)
+  FOREGROUND: 3, // UI elements
+  GAMEOBJECTS: 4, // GameObjects
+  DEBUG: 31, // Grid, debug helpers
+} as const
 
 /**
  * Main application component
@@ -98,9 +106,16 @@ export default function App({
         }}
         onCreated={({ gl, camera }) => {
           rendererRef.current = gl
-          // Enable skybox layer (masked by some effects)
-          camera.layers.enable(1)
-          //gl.setClearColor(new THREE.Color("#000000"))
+          gl.setClearColor(new THREE.Color("#000000"))
+
+          // Enable various layers
+          camera.layers.enable(LAYERS.DEFAULT)
+          camera.layers.enable(LAYERS.BACKGROUND)
+          camera.layers.enable(LAYERS.SKYBOX)
+          camera.layers.enable(LAYERS.GAMEOBJECTS)
+          if (debug) {
+            camera.layers.enable(LAYERS.DEBUG)
+          }
         }}
       >
         <PerformanceMonitor
