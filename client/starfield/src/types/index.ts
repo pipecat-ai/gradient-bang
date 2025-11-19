@@ -86,8 +86,6 @@ export interface StarfieldConfig {
     intensity?: number
     color?: string
     coronaColor?: string
-    pulseSpeed?: number
-    pulseIntensity?: number
   }
   grading: {
     enabled?: boolean

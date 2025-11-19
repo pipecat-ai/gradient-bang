@@ -8,8 +8,6 @@ import {
   BrightnessContrastEffect,
   EffectComposer,
   EffectPass,
-  GlitchEffect,
-  GlitchMode,
   HueSaturationEffect,
   RenderPass,
   ShockWaveEffect,
@@ -38,7 +36,6 @@ export const PostProcessing = () => {
   const layerDimEffectRef = useRef<LayerDimEffect | null>(null)
   const sharpenEffectRef = useRef<SharpenEffect | null>(null)
   const scanlineEffectRef = useRef<ScanlineEffect | null>(null)
-  const glitchEffectRef = useRef<GlitchEffect | null>(null)
   const tintEffectRef = useRef<TintEffect | null>(null)
   const shockwaveEpicenterRef = useRef(new THREE.Vector3())
   const shockwaveDirectionRef = useRef(new THREE.Vector3())
@@ -296,12 +293,6 @@ export const PostProcessing = () => {
           },
           { collapsed: true }
         ),
-        Glitch: folder({
-          glitchEnabled: {
-            value: false,
-            label: "Enable Glitch",
-          },
-        }),
       },
       { collapsed: true, order: -1 }
     ),
@@ -482,12 +473,6 @@ export const PostProcessing = () => {
     ppUniforms.shockwaveEnabled,
     setStarfieldConfig,
   ])
-
-  useEffect(() => {
-    if (ppUniforms.glitchEnabled && glitchEffectRef.current) {
-      glitchEffectRef.current.mode = GlitchMode.CONSTANT_WILD
-    }
-  }, [ppUniforms.glitchEnabled])
 
   const warp = useWarpAnimation()
   const { shockwaveSequence } = useShockwave()

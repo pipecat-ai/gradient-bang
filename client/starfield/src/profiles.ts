@@ -38,8 +38,8 @@ export const defaultProfile: StarfieldConfig = {
   },
   vignette: {
     vignetteEnabled: true,
-    vignetteOffset: 0.2,
-    vignetteDarkness: 0.7,
+    vignetteOffset: 0.7,
+    vignetteDarkness: 0.3,
   },
   scanlines: {
     scanlinesEnabled: false,
@@ -81,8 +81,6 @@ export const defaultProfile: StarfieldConfig = {
     intensity: 1,
     color: "#ffe8a3",
     coronaColor: "#ff6b35",
-    pulseSpeed: 0,
-    pulseIntensity: 0,
   },
   grading: {
     enabled: true,

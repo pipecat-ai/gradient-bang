@@ -70,20 +70,6 @@ export const Sun = () => {
           step: 1,
           label: "Position Z",
         },
-        pulseSpeed: {
-          value: sunConfig?.pulseSpeed ?? 0.5,
-          min: 0,
-          max: 5,
-          step: 0.1,
-          label: "Pulse Speed",
-        },
-        pulseIntensity: {
-          value: sunConfig?.pulseIntensity ?? 0.1,
-          min: 0,
-          max: 0.5,
-          step: 0.01,
-          label: "Pulse Intensity",
-        },
       },
       { collapsed: true }
     ),
@@ -96,10 +82,7 @@ export const Sun = () => {
 
     return new THREE.ShaderMaterial({
       uniforms: {
-        uTime: { value: 0 },
         uIntensity: { value: controls.intensity },
-        uPulseSpeed: { value: controls.pulseSpeed },
-        uPulseIntensity: { value: controls.pulseIntensity },
         uCoreColor: {
           value: new THREE.Vector3(
             coreColorObj.r,
@@ -129,11 +112,8 @@ export const Sun = () => {
   }, [controls])
 
   // Update shader uniforms on each frame
-  useFrame((state) => {
+  useFrame(() => {
     if (!groupRef.current || !sunMaterial) return
-
-    // Update time for animation
-    sunMaterial.uniforms.uTime.value = state.clock.elapsedTime
 
     // Update camera position for shader
     sunMaterial.uniforms.uCameraPosition.value.copy(camera.position)
@@ -147,8 +127,6 @@ export const Sun = () => {
 
     // Update dynamic uniforms if controls change
     sunMaterial.uniforms.uIntensity.value = controls.intensity
-    sunMaterial.uniforms.uPulseSpeed.value = controls.pulseSpeed
-    sunMaterial.uniforms.uPulseIntensity.value = controls.pulseIntensity
     sunMaterial.uniforms.uScale.value = controls.scale
 
     const coreColorObj = new THREE.Color(controls.coreColor)

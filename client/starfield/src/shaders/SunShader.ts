@@ -14,10 +14,7 @@ export const sunVertexShader = `
 export const sunFragmentShader = `
   precision highp float;
   
-  uniform float uTime;
   uniform float uIntensity;
-  uniform float uPulseSpeed;
-  uniform float uPulseIntensity;
   uniform vec3 uCoreColor;
   uniform vec3 uCoronaColor;
   uniform float uScale;
@@ -41,23 +38,19 @@ export const sunFragmentShader = `
     vec2 center = vec2(0.5, 0.5);
     float dist = distance(vUv, center) * 2.0;
     
-    // Pulse animation
-    float pulse = 1.0 + sin(uTime * uPulseSpeed) * uPulseIntensity;
-    
-    // Sample noise from pre-generated texture (much cheaper than calculating)
+    // Sample noise from pre-generated texture - static (no animation)
     float noiseScale = 2.0;
-    float noiseSpeed = 0.1;
-    vec2 noiseCoord = vUv * noiseScale + vec2(uTime * noiseSpeed);
+    vec2 noiseCoord = vUv * noiseScale;
     float noise = texture2D(uNoiseTexture, noiseCoord).r;
     
     // Add secondary noise layer for more detail
-    float noise2 = texture2D(uNoiseTexture, vUv * noiseScale * 2.0 - vec2(uTime * noiseSpeed * 0.7)).r;
+    float noise2 = texture2D(uNoiseTexture, vUv * noiseScale * 2.0).r;
     float combinedNoise = mix(noise, noise2, 0.5);
     
     // Create volumetric layers
     // Core - bright center
     float coreGlow = 1.0 - smoothstep(0.0, 0.4, dist);
-    coreGlow = pow(coreGlow, 4.0) * pulse;
+    coreGlow = pow(coreGlow, 4.0);
     
     // Fresnel glow - edges
     float fresnelGlow = fresnel * (1.0 - smoothstep(0.3, 1.0, dist));
