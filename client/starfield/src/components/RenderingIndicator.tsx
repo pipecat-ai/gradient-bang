@@ -7,23 +7,20 @@ import { useAnimationStore } from "@/useAnimationStore"
 export function RenderingIndicator() {
   const isAnimating = useAnimationStore((state) => state.isAnimating)
 
-  const [, setRenderStatus] = useControls(
-    () => ({
-      renderStatus: {
-        value: "Idle",
-        editable: false,
-        label: "Render Loop",
-        order: -999,
-      },
-      isAnimating: {
-        value: isAnimating ? "Animating" : "Idle",
-        editable: false,
-        label: "Is Animating",
-        order: -998,
-      },
-    }),
-    [isAnimating]
-  )
+  const [, setRenderStatus] = useControls(() => ({
+    renderStatus: {
+      value: "Idle",
+      editable: false,
+      label: "Render Loop",
+      order: -999,
+    },
+    isAnimating: {
+      value: isAnimating ? "Animating" : "Idle",
+      editable: false,
+      label: "Is Animating",
+      order: -998,
+    },
+  }))
   const timeoutRef = useRef<number | null>(null)
 
   useFrame(() => {

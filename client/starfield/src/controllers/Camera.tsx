@@ -67,7 +67,7 @@ export function CameraController() {
 
   useFrame(({ camera }) => {
     const perspectiveCamera = camera as PerspectiveCamera
-    const progress = warp.warpProgress.get()
+    const progress = warp.progress.get()
     const delayedProgress = THREE.MathUtils.clamp(
       (progress - animationDelay) / (1 - animationDelay),
       0,

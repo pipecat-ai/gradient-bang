@@ -1,6 +1,7 @@
 import { useContext, useEffect, useRef } from "react"
 
 import { AnimationContext } from "@/controllers/AnimationContext"
+import { useAnimationStore } from "@/useAnimationStore"
 
 /**
  * Animation Hooks
@@ -26,13 +27,8 @@ export function useWarpAnimation() {
     throw new Error("useWarpAnimation must be used within AnimationController")
   }
   return {
-    scale: context.scale,
-    rotationSpeed: context.rotationSpeed,
-    warpProgress: context.warpProgress,
-    glowIntensity: context.glowIntensity,
-    distortion: context.distortion,
+    progress: context.warpProgress,
     isWarping: context.isWarping,
-    isAnimating: context.isAnimating,
   }
 }
 
@@ -41,9 +37,11 @@ export function useShockwave() {
   if (!context) {
     throw new Error("useShockwave must be used within AnimationController")
   }
+  const triggerShockwave = useAnimationStore((state) => state.triggerShockwave)
   return {
     shockwaveSequence: context.shockwaveSequence,
-    triggerShockwave: context.triggerShockwave,
+    progress: context.shockwaveProgress,
+    triggerShockwave,
   }
 }
 
@@ -54,6 +52,7 @@ export function useLayerDim() {
   }
   return {
     dimOpacity: context.dimOpacity,
+    progress: context.dimProgress,
     isDimmed: context.isDimmed,
   }
 }

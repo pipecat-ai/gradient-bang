@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react"
 import { useThree } from "@react-three/fiber"
-import { useGameStore } from "@/useGameStore"
+
 import type { SceneConfig } from "@/types"
+import { useGameStore } from "@/useGameStore"
 
 export function useSceneObject(
   componentId: string,
@@ -28,13 +29,13 @@ export function useSceneObject(
         }
 
         // Then signal ready after reconfiguration
-        requestAnimationFrame(() => {
+        /*requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             console.debug(`[SCENE OBJECT ${componentId}] Ready`)
             setComponentReady(componentId, true)
             hasSignaledReady.current = true
           })
-        })
+        })*/
       }
       applyNewConfig()
     } else if (!isSceneChanging) {

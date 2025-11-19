@@ -1,14 +1,13 @@
 import { memo } from "react"
 import { button, useControls } from "leva"
 
-import { useShockwave, useWarpExitEffect } from "@/hooks/animations"
+import { useWarpExitEffect } from "@/hooks/animations"
+import { useAnimationStore } from "@/useAnimationStore"
 import { useGameStore } from "@/useGameStore"
 
 const EffectsComponent = () => {
-  const { hyperspaceExitTime, shockwaveEnabled } = useGameStore(
-    (state) => state.starfieldConfig
-  )
-  const { triggerShockwave } = useShockwave()
+  const { hyperspaceExitTime } = useGameStore((state) => state.starfieldConfig)
+  const triggerShockwave = useAnimationStore((state) => state.triggerShockwave)
 
   useControls(
     "Shockwave",
@@ -20,11 +19,10 @@ const EffectsComponent = () => {
     [triggerShockwave]
   )
 
+  // Trigger shockwave when warp exits
   useWarpExitEffect(
     () => {
-      if (shockwaveEnabled) {
-        triggerShockwave()
-      }
+      triggerShockwave()
     },
     Math.max((hyperspaceExitTime ?? 0) * 0, 0)
   )

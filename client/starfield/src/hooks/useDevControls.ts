@@ -11,50 +11,36 @@ export const useDevControls = () => {
   const isPaused = useGameStore((state) => state.isPaused)
   const { changeScene } = useSceneChange()
 
-  const { isWarping, startWarp, stopWarp, isDimmed, setIsDimmed } =
-    useAnimationStore()
+  const isWarping = useAnimationStore((state) => state.isWarping)
+  const startWarp = useAnimationStore((state) => state.startWarp)
+  const stopWarp = useAnimationStore((state) => state.stopWarp)
+  const isDimmed = useAnimationStore((state) => state.isDimmed)
+  const setIsDimmed = useAnimationStore((state) => state.setIsDimmed)
+  const triggerShockwave = useAnimationStore((state) => state.triggerShockwave)
 
-  const [, setSceneControls] = useControls(
+  const [, _setSceneControls] = useControls(
     "Scene Settings",
     () => ({
       ["Log Config"]: button(() => {
         console.log("Config", useGameStore.getState().starfieldConfig)
       }),
-      ["Random Scene Change"]: button(() => {
+      ["Generate New Scene"]: button(() => {
         changeScene({
           id: Math.random().toString(36).substring(2, 15),
           gameObjects: [],
           config: {},
         })
       }),
-      ["Scene 1 Change"]: button(() => {
+      ["Change to Scene 1"]: button(() => {
         changeScene({
           id: "1",
           gameObjects: [],
           config: {},
         })
       }),
-      ["Start Warp"]: button(() => {
-        startWarp()
-      }),
-      ["Stop Warp"]: button(() => {
-        stopWarp()
-      }),
-      warpStatus: {
-        value: isWarping ? "Warping" : "Not Warping",
-        editable: false,
-      },
-      ["Toggle Dim"]: button(() => {
-        setIsDimmed(!isDimmed)
-      }),
     }),
-
-    [changeScene, startWarp, stopWarp, setIsDimmed]
+    [changeScene, setIsDimmed]
   )
-
-  useEffect(() => {
-    setSceneControls({ warpStatus: isWarping ? "Warping" : "Not Warping" })
-  }, [isWarping, setSceneControls])
 
   const [{ dpr }, setPerformance] = useControls(() => ({
     "Scene Settings": folder({
@@ -75,6 +61,59 @@ export const useDevControls = () => {
       ),
     }),
   }))
+
+  const [, setTriggers] = useControls(
+    () => ({
+      Triggers: folder({
+        Warp: folder(
+          {
+            ["Start Warp"]: button(() => {
+              startWarp()
+            }),
+            ["Stop Warp"]: button(() => {
+              stopWarp()
+            }),
+            warpStatus: {
+              value: isWarping ? "Warping" : "Not Warping",
+              editable: false,
+            },
+          },
+          { collapsed: true }
+        ),
+        Dim: folder(
+          {
+            ["Dim"]: button(() => {
+              setIsDimmed(true)
+            }),
+            ["Undim"]: button(() => {
+              setIsDimmed(false)
+            }),
+            dimStatus: {
+              value: isDimmed ? "Dimmed" : "Not Dimmed",
+              editable: false,
+            },
+          },
+          { collapsed: true }
+        ),
+        Shockwave: folder(
+          {
+            ["Trigger Shockwave"]: button(() => {
+              triggerShockwave()
+            }),
+          },
+          { collapsed: true }
+        ),
+      }),
+    }),
+    [isWarping, startWarp, stopWarp, triggerShockwave]
+  )
+
+  useEffect(() => {
+    setTriggers({
+      warpStatus: isWarping ? "Warping" : "Not Warping",
+      dimStatus: isDimmed ? "Dimmed" : "Not Dimmed",
+    })
+  }, [isWarping, isDimmed, setTriggers])
 
   return { dpr, setPerformance }
 }

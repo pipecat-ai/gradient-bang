@@ -12,11 +12,10 @@ import {
 } from "postprocessing"
 import * as THREE from "three"
 
+import { DitheringEffect } from "@/fx/DitherEffect"
+import { LayerDimEffect } from "@/fx/LayerDimEffect"
 import { useLayerDim, useShockwave, useWarpAnimation } from "@/hooks/animations"
 import { useGameStore } from "@/useGameStore"
-
-import { DitheringEffect } from "../fx/DitherEffect"
-import { LayerDimEffect } from "../fx/LayerDimEffect"
 
 /**
  * Component that manages all post-processing effects
@@ -312,7 +311,7 @@ export const PostProcessing = () => {
     if (scene !== currentScene) setScene(currentScene)
     if (camera !== currentCamera) setCamera(currentCamera)
 
-    const progress = warp.warpProgress.get()
+    const progress = warp.progress.get()
     const dimValue = dimOpacity.get()
 
     const ditheringEffect = ditheringEffectRef.current
