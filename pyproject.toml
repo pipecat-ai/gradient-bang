@@ -29,7 +29,7 @@ worldgen = [
     "networkx>=3.0",
 ]
 bot = [
-    "pipecat-ai[deepgram,daily,cartesia,webrtc,silero,local-smart-turn,google,runner]==0.0.94",
+    "pipecat-ai[deepgram,daily,cartesia,webrtc,silero,local-smart-turn,google,runner]==0.0.95",
     "pipecat-ai-cli"
 ]
 

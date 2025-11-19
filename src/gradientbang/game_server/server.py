@@ -11,7 +11,7 @@ import re
 import httpx
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -392,7 +392,7 @@ async def http_start_bot(request: Dict[str, Any]) -> Dict[str, Any]:
 
     logger.info(f"Starting bot process for character_id: {character_id} - {profile.name}")
 
-    start_url = os.getenv("GAME_SERVER_AGENT_START_URL")
+    start_url = os.getenv("GAME_SERVER_AGENT_START_URL", "http://0.0.0.0:7860/start")
     if not start_url:
         raise HTTPException(status_code=500, detail="GAME_SERVER_AGENT_START_URL is not set")
 
