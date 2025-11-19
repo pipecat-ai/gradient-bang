@@ -25,7 +25,6 @@ export function CameraController() {
   const animationDelay = 0
   const epsilon = 0.05
 
-  // Leva controls for camera configuration
   const config = useControls(
     {
       Camera: folder(
@@ -162,16 +161,11 @@ export function CameraController() {
       restThreshold={config.restThreshold}
       dollySpeed={0.5}
       truckSpeed={0.5}
+      // regress={true}
       polarRotateSpeed={11}
       azimuthRotateSpeed={1}
-      onTransitionStart={() => {
-        console.debug("[STARFIELD CAMERA] Transition started")
-      }}
-      onRest={() => {
-        console.debug(
-          "[STARFIELD CAMERA] Transition complete, restoring render mode"
-        )
-      }}
+      onTransitionStart={() => {}}
+      onRest={() => {}}
     />
   )
 }

@@ -1,6 +1,6 @@
 export interface StarfieldConfig {
+  useASCIIRenderer: boolean
   cameraBaseFov: number
-  vignetteAmount: number
   hyperspaceEnterTime?: number
   hyperspaceExitTime?: number
   hyperspaceDuration?: number
@@ -14,9 +14,32 @@ export interface StarfieldConfig {
   }
   shakeIntensity?: number
   shakeRelaxTime?: number
-  shockwaveSpeed?: number
-  shockwaveEnabled?: boolean
   layerDimDuration?: number
+  shockwave: {
+    shockwaveEnabled?: boolean
+    shockwaveSpeed?: number
+    shockwaveMaxRadius?: number
+    shockwaveWaveSize?: number
+    shockwaveAmplitude?: number
+    shockwaveDistance?: number
+  }
+  dithering: {
+    ditheringEnabled: true
+    ditheringGridSize?: number
+    ditheringPixelSizeRatio?: number
+    ditheringGrayscaleOnly?: boolean
+  }
+  sharpening: {
+    sharpeningEnabled?: boolean
+    sharpeningIntensity?: number
+    sharpeningRadius?: number
+    sharpeningThreshold?: number
+  }
+  vignette: {
+    vignetteEnabled?: boolean
+    vignetteOffset?: number
+    vignetteDarkness?: number
+  }
   stars?: {
     enabled?: boolean
     radius?: number

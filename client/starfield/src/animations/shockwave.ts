@@ -7,9 +7,9 @@ import { useGameStore } from "@/useGameStore"
 import type { AnimationRuntime } from "./runtime"
 
 export function useShockwaveAnimation(runtime: AnimationRuntime) {
-  const { shockwaveSpeed = 1.25 } = useGameStore(
-    (state) => state.starfieldConfig
-  )
+  const {
+    shockwave: { shockwaveSpeed = 1.25, shockwaveEnabled = true },
+  } = useGameStore((state) => state.starfieldConfig)
   const [shockwaveSequence, setShockwaveSequence] = useState(0)
   const setTriggerShockwave = useAnimationStore(
     (state) => state.setTriggerShockwave
@@ -26,6 +26,7 @@ export function useShockwaveAnimation(runtime: AnimationRuntime) {
   }))
 
   const triggerShockwave = useCallback(() => {
+    if (!shockwaveEnabled) return
     setShockwaveSequence((value) => value + 1)
     runtime.onChange()
     api.start({
@@ -40,12 +41,13 @@ export function useShockwaveAnimation(runtime: AnimationRuntime) {
       onRest: runtime.end,
       onChange: runtime.onChange,
     })
-  }, [api, shockwaveSpeed, runtime])
+  }, [api, shockwaveSpeed, runtime, shockwaveEnabled])
 
   useEffect(() => {
+    if (!shockwaveEnabled) return
     setTriggerShockwave(triggerShockwave)
     return () => setTriggerShockwave(() => {})
-  }, [setTriggerShockwave, triggerShockwave])
+  }, [setTriggerShockwave, triggerShockwave, shockwaveEnabled])
 
   return {
     shockwaveSequence,

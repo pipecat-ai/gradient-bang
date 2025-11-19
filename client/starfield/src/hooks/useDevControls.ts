@@ -16,6 +16,7 @@ export const useDevControls = () => {
   const stopWarp = useAnimationStore((state) => state.stopWarp)
   const isDimmed = useAnimationStore((state) => state.isDimmed)
   const setIsDimmed = useAnimationStore((state) => state.setIsDimmed)
+  const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
   const triggerShockwave = useAnimationStore((state) => state.triggerShockwave)
 
   const [, _setSceneControls] = useControls(
@@ -23,6 +24,10 @@ export const useDevControls = () => {
     () => ({
       ["Log Config"]: button(() => {
         console.log("Config", useGameStore.getState().starfieldConfig)
+      }),
+      ["Use ASCII Renderer"]: button(() => {
+        //@ not yet implemented
+        setStarfieldConfig({ useASCIIRenderer: true })
       }),
       ["Generate New Scene"]: button(() => {
         changeScene({
@@ -39,7 +44,7 @@ export const useDevControls = () => {
         })
       }),
     }),
-    [changeScene, setIsDimmed]
+    { collapsed: true }
   )
 
   const [{ dpr }, setPerformance] = useControls(() => ({
@@ -65,21 +70,18 @@ export const useDevControls = () => {
   const [, setTriggers] = useControls(
     () => ({
       Triggers: folder({
-        Warp: folder(
-          {
-            ["Start Warp"]: button(() => {
-              startWarp()
-            }),
-            ["Stop Warp"]: button(() => {
-              stopWarp()
-            }),
-            warpStatus: {
-              value: isWarping ? "Warping" : "Not Warping",
-              editable: false,
-            },
+        Warp: folder({
+          ["Start Warp"]: button(() => {
+            startWarp()
+          }),
+          ["Stop Warp"]: button(() => {
+            stopWarp()
+          }),
+          warpStatus: {
+            value: isWarping ? "Warping" : "Not Warping",
+            editable: false,
           },
-          { collapsed: true }
-        ),
+        }),
         Dim: folder(
           {
             ["Dim"]: button(() => {

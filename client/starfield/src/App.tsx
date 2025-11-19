@@ -20,7 +20,7 @@ import type { PerformanceProfile, Scene, StarfieldConfig } from "@/types"
 import { useGameStore } from "@/useGameStore"
 
 import { RenderingIndicator } from "./components/RenderingIndicator"
-import { Effects } from "./controllers/Effects"
+import { EffectChainingController } from "./controllers/EffectChainingController"
 import { PostProcessing } from "./controllers/PostProcessing"
 import { useDevControls } from "./hooks/useDevControls"
 import { Fog } from "./objects/Fog"
@@ -104,7 +104,6 @@ export default function App({
             <RenderingIndicator />
           </>
         )}
-        <SceneController />
 
         <AnimationController>
           <Suspense fallback={null}>
@@ -139,9 +138,10 @@ export default function App({
           </Suspense>
 
           <CameraController />
+          <EffectChainingController />
+          <SceneController />
 
           <PostProcessingMemo />
-          <Effects />
         </AnimationController>
       </Canvas>
     </>

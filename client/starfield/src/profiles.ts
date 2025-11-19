@@ -2,7 +2,6 @@ import type { StarfieldConfig } from "./types"
 
 export const defaultProfile: StarfieldConfig = {
   cameraBaseFov: 85,
-  vignetteAmount: 0.5,
   hyperspaceEnterTime: 2000,
   hyperspaceExitTime: 2000,
   hyperspaceDuration: 1000,
@@ -16,9 +15,32 @@ export const defaultProfile: StarfieldConfig = {
   },
   shakeIntensity: 1,
   shakeRelaxTime: 1000,
-  shockwaveSpeed: 1.5,
-  shockwaveEnabled: true,
   layerDimDuration: 300,
+  shockwave: {
+    shockwaveEnabled: true,
+    shockwaveSpeed: 1.5,
+    shockwaveMaxRadius: 0.8,
+    shockwaveWaveSize: 0.25,
+    shockwaveAmplitude: 0.15,
+    shockwaveDistance: 2.5,
+  },
+  dithering: {
+    ditheringEnabled: true,
+    ditheringGridSize: 3,
+    ditheringPixelSizeRatio: 1,
+    ditheringGrayscaleOnly: false,
+  },
+  sharpening: {
+    sharpeningEnabled: true,
+    sharpeningIntensity: 1.0,
+    sharpeningRadius: 3.0,
+    sharpeningThreshold: 0.0,
+  },
+  vignette: {
+    vignetteEnabled: true,
+    vignetteOffset: 0,
+    vignetteDarkness: 0.5,
+  },
   stars: {
     enabled: true,
   },
@@ -38,6 +60,7 @@ export const defaultProfile: StarfieldConfig = {
     opacity: 1,
     position: { x: 0, y: 0 },
   },
+  useASCIIRenderer: false,
 }
 
 export const lowProfile: Partial<StarfieldConfig> = {
