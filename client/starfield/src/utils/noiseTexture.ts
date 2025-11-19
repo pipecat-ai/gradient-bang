@@ -200,3 +200,71 @@ export function createNoiseTexture(size: number = 512): THREE.DataTexture {
 
   return texture
 }
+
+/**
+ * Creates a simpler value noise texture for effects like sun corona
+ * Uses value noise which is faster to compute than simplex noise
+ *
+ * @param size - Size of the texture (will be size x size)
+ * @returns THREE.DataTexture containing the noise data
+ */
+export function createValueNoiseTexture(size = 256): THREE.DataTexture {
+  const data = new Uint8Array(size * size * 4)
+
+  // Simple 2D noise generation (value noise)
+  const random = (x: number, y: number) => {
+    const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453
+    return n - Math.floor(n)
+  }
+
+  const smoothNoise = (x: number, y: number) => {
+    const fractX = x - Math.floor(x)
+    const fractY = y - Math.floor(y)
+
+    const x1 = Math.floor(x)
+    const y1 = Math.floor(y)
+    const x2 = x1 + 1
+    const y2 = y1 + 1
+
+    const value1 = random(x1, y1)
+    const value2 = random(x2, y1)
+    const value3 = random(x1, y2)
+    const value4 = random(x2, y2)
+
+    const i1 = value1 * (1 - fractX) + value2 * fractX
+    const i2 = value3 * (1 - fractX) + value4 * fractX
+
+    return i1 * (1 - fractY) + i2 * fractY
+  }
+
+  // Generate multi-octave noise
+  for (let i = 0; i < size; i++) {
+    for (let j = 0; j < size; j++) {
+      const x = i / size
+      const y = j / size
+
+      // Multiple octaves for more interesting noise
+      let value =
+        smoothNoise(x * 4, y * 4) * 0.5 +
+        smoothNoise(x * 8, y * 8) * 0.25 +
+        smoothNoise(x * 16, y * 16) * 0.125 +
+        smoothNoise(x * 32, y * 32) * 0.0625
+
+      value = Math.max(0, Math.min(1, value)) // Clamp to 0-1
+
+      const index = (i + j * size) * 4
+      const colorValue = Math.floor(value * 255)
+      data[index] = colorValue // R
+      data[index + 1] = colorValue // G
+      data[index + 2] = colorValue // B
+      data[index + 3] = 255 // A
+    }
+  }
+
+  const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat)
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.RepeatWrapping
+  texture.needsUpdate = true
+
+  return texture
+}

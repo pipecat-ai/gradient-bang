@@ -17,6 +17,7 @@ import { SceneController } from "@/controllers/SceneController"
 import { Dust } from "@/objects/Dust"
 import { Nebula } from "@/objects/Nebula"
 import { Stars } from "@/objects/Stars"
+import { Sun } from "@/objects/Sun"
 import type { PerformanceProfile, Scene, StarfieldConfig } from "@/types"
 import { useGameStore } from "@/useGameStore"
 
@@ -41,7 +42,7 @@ export const LAYERS = {
   DEFAULT: 0, // Main scene objects
   BACKGROUND: 1, // Stars
   SKYBOX: 2, // Skybox (Planet, Shadow)
-  FOREGROUND: 3, // UI elements
+  FOREGROUND: 3, // Sun, Volumentrics
   GAMEOBJECTS: 4, // GameObjects
   DEBUG: 31, // Grid, debug helpers
 } as const
@@ -92,6 +93,7 @@ export function StarfieldComponent({
           camera.layers.enable(LAYERS.DEFAULT)
           camera.layers.enable(LAYERS.BACKGROUND)
           camera.layers.enable(LAYERS.SKYBOX)
+          camera.layers.enable(LAYERS.FOREGROUND)
           camera.layers.enable(LAYERS.GAMEOBJECTS)
           if (debug) {
             camera.layers.enable(LAYERS.DEBUG)
@@ -114,11 +116,13 @@ export function StarfieldComponent({
           <Suspense fallback={null}>
             <Fog />
             <Stars />
+            <Sun />
             <Planet />
+            <Dust />
+            <Nebula />
 
             {/* Nebula background - rendered first and positioned at the back */}
             <group position={[0, 0, -50]}>
-              <Nebula />
               {/* <Nebula ref={nebulaRef} /> */}
             </group>
 
@@ -131,7 +135,6 @@ export function StarfieldComponent({
                 autoInvalidate={false}
               >
                 {/* Scene Elements */}
-                <Dust />
                 <Center scale={3}>{/* ELEMENTS GO HERE */}</Center>
               </Float>
             </group>

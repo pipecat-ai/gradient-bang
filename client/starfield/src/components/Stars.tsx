@@ -191,7 +191,7 @@ export const Stars: ForwardRefComponent<StarsProps, Points> = React.forwardRef(
           blending={AdditiveBlending}
           uniforms-fade-value={fade}
           depthTest={true}
-          depthWrite={true}
+          depthWrite={false}
           transparent
           vertexColors
         />

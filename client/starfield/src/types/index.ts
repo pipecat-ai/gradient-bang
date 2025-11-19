@@ -51,6 +51,7 @@ export interface StarfieldConfig {
     enabled?: boolean
     radius?: number
     depth?: number
+    size?: number
     count?: number
     factor?: number
     saturation?: number
@@ -78,6 +79,16 @@ export interface StarfieldConfig {
     shadowFalloff?: number
     shadowColor?: string
   }
+  sun?: {
+    enabled?: boolean
+    position?: { x: number; y: number; z: number }
+    scale?: number
+    intensity?: number
+    color?: string
+    coronaColor?: string
+    pulseSpeed?: number
+    pulseIntensity?: number
+  }
   grading: {
     enabled?: boolean
     brightness?: number
@@ -90,6 +101,17 @@ export interface StarfieldConfig {
     tintColorSecondary?: string
   }
   nebula?: Partial<NebulaConfig>
+  volumetricClouds?: {
+    enabled?: boolean
+    count?: number
+    radius?: number
+    size?: number
+    opacity?: number
+    color?: string
+    blendMode?: "additive" | "normal"
+    minDistance?: number
+    fadeRange?: number
+  }
 }
 
 export type PerformanceProfile = "low" | "mid" | "high"
@@ -151,17 +173,13 @@ export interface WorldObject<T = unknown> {
  */
 export interface NebulaConfig {
   enabled: boolean
-  noiseResolution: number
   intensity: number
-  speed: number
   color: THREE.Color
   primaryColor: THREE.Color
   secondaryColor: THREE.Color
   domainScale: number
   iterPrimary: number
   iterSecondary: number
-  parallaxAmount: number
-  noiseUse: number
 }
 /**
  * Configuration for Stars object

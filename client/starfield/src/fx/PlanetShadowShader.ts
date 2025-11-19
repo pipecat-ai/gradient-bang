@@ -18,8 +18,9 @@ export const shadowFragmentShader = `
     float dist = distance(vUv, center) * 2.0; // Normalize to 0-1 range
     
     // Radius controls shadow size, falloff controls edge softness
-    // Falloff of 0 = hard edge, higher = softer gradient
-    float alpha = 1.0 - smoothstep(uRadius - uFalloff, uRadius, dist);
+    // Falloff is a proportion of radius (0 = hard edge, 1 = soft gradient across entire radius)
+    float gradientWidth = uRadius * uFalloff;
+    float alpha = 1.0 - smoothstep(uRadius - gradientWidth, uRadius, dist);
     alpha *= uOpacity;
     
     gl_FragColor = vec4(uColor, alpha);

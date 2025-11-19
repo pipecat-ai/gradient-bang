@@ -13,7 +13,7 @@ const EffectChainingControllerComponent = () => {
     () => {
       triggerShockwave()
     },
-    Math.max((hyperspaceExitTime ?? 0) * 0.2, 0)
+    Math.max((hyperspaceExitTime ?? 0) * 0.5, 0)
   )
 
   return null
