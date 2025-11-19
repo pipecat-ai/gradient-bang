@@ -68,7 +68,7 @@ export const VolumetricClouds = () => {
         size: {
           value: cloudsConfig?.size ?? 15,
           min: 1,
-          max: 50,
+          max: 200,
           step: 0.5,
           label: "Size",
         },

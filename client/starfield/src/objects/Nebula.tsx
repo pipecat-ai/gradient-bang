@@ -52,7 +52,7 @@ export const Nebula = () => {
           label: "Secondary Color",
         },
         domainScale: {
-          value: nebulaConfig?.domainScale ?? 1.3,
+          value: nebulaConfig?.domainScale ?? 1,
           min: 0.1,
           max: 3,
           step: 0.1,

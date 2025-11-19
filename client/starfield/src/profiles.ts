@@ -92,6 +92,7 @@ export const defaultProfile: StarfieldConfig = {
   nebula: {
     enabled: true,
     intensity: 0.5,
+    domainScale: 1,
   },
   volumetricClouds: {
     enabled: true,
