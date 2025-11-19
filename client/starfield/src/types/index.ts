@@ -70,6 +70,10 @@ export interface StarfieldConfig {
     scale?: number
     opacity?: number
     position?: { x: number; y: number }
+    shadowEnabled?: boolean
+    shadowRadius?: number
+    shadowOpacity?: number
+    shadowFalloff?: number
   }
 }
 

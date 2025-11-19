@@ -64,6 +64,10 @@ export const defaultProfile: StarfieldConfig = {
     scale: 50,
     opacity: 1,
     position: { x: 0, y: 0 },
+    shadowEnabled: true,
+    shadowRadius: 0.6,
+    shadowOpacity: 1,
+    shadowFalloff: 0.5,
   },
   useASCIIRenderer: false,
 }

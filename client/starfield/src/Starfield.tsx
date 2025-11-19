@@ -88,7 +88,7 @@ export function StarfieldComponent({
         }}
         onCreated={({ gl, camera }) => {
           rendererRef.current = gl
-          gl.setClearColor(new THREE.Color("#000000"))
+          gl.setClearColor(new THREE.Color("#FF0000"))
 
           // Enable various layers
           camera.layers.enable(LAYERS.DEFAULT)

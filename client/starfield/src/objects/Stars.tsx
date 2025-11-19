@@ -1,11 +1,15 @@
+import { useLayoutEffect, useRef } from "react"
 import { Stars as StarsDrei } from "@react-three/drei"
 import { folder, useControls } from "leva"
+import * as THREE from "three"
 
+import { LAYERS } from "@/Starfield"
 import { useGameStore } from "@/useGameStore"
 
 export const Stars = () => {
   const { stars: starsConfig } = useGameStore((state) => state.starfieldConfig)
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
+  const groupRef = useRef<THREE.Group>(null)
 
   const [{ radius, depth, count, factor, saturation, fade, speed }] =
     useControls(() => ({
@@ -70,9 +74,19 @@ export const Stars = () => {
       ),
     }))
 
+  useLayoutEffect(() => {
+    if (groupRef.current) {
+      groupRef.current.traverse((child) => {
+        if (child instanceof THREE.Points) {
+          child.layers.set(LAYERS.BACKGROUND)
+        }
+      })
+    }
+  }, [count])
+
   return (
     starsConfig?.enabled && (
-      <group renderOrder={-100}>
+      <group ref={groupRef} renderOrder={-100}>
         <StarsDrei
           radius={radius}
           depth={depth}

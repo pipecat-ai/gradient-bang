@@ -19,70 +19,77 @@ export const useDevControls = () => {
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
   const triggerShockwave = useAnimationStore((state) => state.triggerShockwave)
 
-  const [, _setSceneControls] = useControls(
-    "Scene Settings",
-    () => ({
-      ["Log Config"]: button(() => {
-        console.log("Config", useGameStore.getState().starfieldConfig)
-      }),
-      ["Use ASCII Renderer"]: button(() => {
-        //@ not yet implemented
-        setStarfieldConfig({ useASCIIRenderer: true })
-      }),
-      ["Generate New Scene"]: button(() => {
-        changeScene({
-          id: Math.random().toString(36).substring(2, 15),
-          gameObjects: [],
-          config: {},
-        })
-      }),
-      ["Change to Scene 1"]: button(() => {
-        changeScene({
-          id: "1",
-          gameObjects: [],
-          config: {},
-        })
-      }),
-    }),
-    { collapsed: true, order: -1 }
-  )
+  const [, _setSceneControls] = useControls(() => ({
+    "Scene Settings": folder(
+      {
+        ["Log Config"]: button(() => {
+          console.log("Config", useGameStore.getState().starfieldConfig)
+        }),
+        ["Use ASCII Renderer"]: button(() => {
+          //@ not yet implemented
+          setStarfieldConfig({ useASCIIRenderer: true })
+        }),
+        ["Generate New Scene"]: button(() => {
+          changeScene({
+            id: Math.random().toString(36).substring(2, 15),
+            gameObjects: [],
+            config: {},
+          })
+        }),
+        ["Change to Scene 1"]: button(() => {
+          changeScene({
+            id: "1",
+            gameObjects: [],
+            config: {},
+          })
+        }),
+      },
+      { collapsed: true, order: -1 }
+    ),
+  }))
 
   const [{ dpr }, setPerformance] = useControls(() => ({
-    "Scene Settings": folder({
-      Rendering: folder(
-        {
-          [isPaused ? "Resume" : "Pause"]: button(() => {
-            togglePause()
-          }),
-          dpr: {
-            value: 1.5,
-            min: 1,
-            max: 2,
-            step: 0.1,
-            label: "DPR",
+    "Scene Settings": folder(
+      {
+        Rendering: folder(
+          {
+            [isPaused ? "Resume" : "Pause"]: button(() => {
+              togglePause()
+            }),
+            dpr: {
+              value: 1.5,
+              min: 1,
+              max: 2,
+              step: 0.1,
+              label: "DPR",
+            },
           },
-        },
-        { collapsed: true, order: 99 }
-      ),
-    }),
+          { collapsed: true, order: 99 }
+        ),
+      },
+      { collapsed: true, order: -1 }
+    ),
   }))
 
   const [, setTriggers] = useControls(
     () => ({
       Triggers: folder(
         {
-          Warp: folder({
-            ["Start Warp"]: button(() => {
-              startWarp()
-            }),
-            ["Stop Warp"]: button(() => {
-              stopWarp()
-            }),
-            warpStatus: {
-              value: isWarping ? "Warping" : "Not Warping",
-              editable: false,
+          Warp: folder(
+            {
+              ["Start Warp"]: button(() => {
+                startWarp()
+              }),
+              ["Stop Warp"]: button(() => {
+                stopWarp()
+              }),
+              warpStatus: {
+                value: isWarping ? "Warping" : "Not Warping",
+                editable: false,
+              },
             },
-          }),
+            { collapsed: true }
+          ),
           Dim: folder(
             {
               ["Dim"]: button(() => {
