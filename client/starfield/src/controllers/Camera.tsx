@@ -1,6 +1,9 @@
 import { useRef } from "react"
 import { easings } from "@react-spring/three"
-import { CameraControls as CameraControlsImpl } from "@react-three/drei"
+import {
+  CameraControls as CameraControlsImpl,
+  CameraShake,
+} from "@react-three/drei"
 import { useFrame, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import * as THREE from "three"

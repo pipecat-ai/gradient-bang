@@ -26,7 +26,7 @@ export const defaultProfile: StarfieldConfig = {
   },
   dithering: {
     ditheringEnabled: true,
-    ditheringGridSize: 3,
+    ditheringGridSize: 2,
     ditheringPixelSizeRatio: 1,
     ditheringGrayscaleOnly: false,
   },
@@ -38,16 +38,17 @@ export const defaultProfile: StarfieldConfig = {
   },
   vignette: {
     vignetteEnabled: true,
-    vignetteOffset: 0,
-    vignetteDarkness: 0.5,
+    vignetteOffset: 0.3,
+    vignetteDarkness: 0.6,
   },
   scanlines: {
-    scanlinesEnabled: true,
+    scanlinesEnabled: false,
     scanlinesIntensity: 0.3,
     scanlinesFrequency: 1.3,
   },
   stars: {
     enabled: true,
+    count: 3000,
   },
   dust: {
     enabled: true,
@@ -61,13 +62,24 @@ export const defaultProfile: StarfieldConfig = {
   planet: {
     enabled: true,
     imageIndex: 0,
-    scale: 50,
+    scale: 100,
     opacity: 1,
     position: { x: 0, y: 0 },
     shadowEnabled: true,
-    shadowRadius: 0.6,
-    shadowOpacity: 1,
+    shadowRadius: 0.7,
+    shadowOpacity: 0.8,
     shadowFalloff: 0.5,
+    shadowColor: "#000000",
+  },
+  grading: {
+    enabled: true,
+    brightness: 0.0,
+    contrast: 0.1,
+    saturation: 0.2,
+  },
+  nebula: {
+    enabled: true,
+    noiseResolution: 512,
   },
   useASCIIRenderer: false,
 }

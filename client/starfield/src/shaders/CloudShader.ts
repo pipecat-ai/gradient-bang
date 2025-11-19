@@ -9,19 +9,28 @@ export const nebulaVertexShader = `
 export const nebulaFragmentShader = `
                 precision highp float;
                 uniform float time;
+                uniform float shakePhase;
                 uniform vec2 resolution;
                 uniform float intensity;
-                uniform vec3 color;
                 uniform vec3 nebulaColorPrimary;
                 uniform vec3 nebulaColorSecondary;
+                uniform vec3 nebulaColorMid;
                 uniform float speed;
                 uniform float iterPrimary;
                 uniform float iterSecondary;
                 uniform float domainScale;
+                uniform float shakeWarpIntensity;
+                uniform float shakeWarpRampTime;
+                uniform float nebulaShakeProgress;
                 uniform sampler2D noiseTexture;
                 uniform float noiseUse;
+                uniform vec2 shadowCenter;
+                uniform float shadowRadius;
+                uniform float shadowSoftness;
+                uniform float shadowStrength;
                 uniform vec3 cameraRotation;
                 uniform float parallaxAmount;
+                uniform float noiseReduction;
 
                 varying vec2 vUv;
 
@@ -148,6 +157,24 @@ export const nebulaFragmentShader = `
                   // Apply paint-like domain warp instead of fixed scrolling
                   vec2 uvsFlow = uvs + flow(uvs * 0.6, t) * (0.02 * speed * 100.0);
                   
+                  // Add shake-based warping effect only when actually shaking
+                  if (nebulaShakeProgress > 0.0) {
+                    // Use nebulaShakeProgress for BOTH timing and intensity to get proper gradual buildup
+                    float shakeTime = nebulaShakeProgress * 20.0; // Scale progress to create timing
+                    
+                    // Make the warping effect more visible by scaling it up
+                    float shakeWarp = shakeWarpIntensity * 2.0 * nebulaShakeProgress; // Scale by smooth progress
+                    uvsFlow += vec2(
+                      sin(shakeTime * 8.0) * shakeWarp,  // Use scaled progress for timing
+                      cos(shakeTime * 6.0) * shakeWarp   // Use scaled progress for timing
+                    );
+                    
+                    // Gradually increase flow field intensity during shake
+                    // Scale down the flow field effect to match the gradual buildup
+                    float flowFieldIntensity = nebulaShakeProgress * nebulaShakeProgress; // Square the progress for smoother buildup
+                    uvsFlow += flow(uvs * 0.8, t * 2.0) * (shakeWarpIntensity * speed * 100.0) * flowFieldIntensity;
+                  }
+                  
                   vec3 p = vec3(uvsFlow / (2.5 * domainScale), 0.0) + vec3(0.8, -1.3, 0.0);
                   p += 0.45 * vec3(sin(t / 32.0), sin(t / 24.0), sin(t / 64.0));
                   float freqs0 = 0.45;
@@ -161,7 +188,7 @@ export const nebulaFragmentShader = `
                   vec3 p2 = vec3(uvsFlow / ((4.0 * domainScale) + sin(t * 0.11) * 0.2 + 0.2 + sin(t * 0.15) * 0.3 + 0.4), 4.0) + vec3(2.0, -1.3, -1.0);
                   p2 += 0.16 * vec3(sin(t / 32.0), sin(t / 24.0), sin(t / 64.0));
                   float t2 = fieldFunc(p2, freqs3, int(iterSecondary));
-                  // Secondary layer contribution, now as scalar density
+                  // Secondary layer contribution, now as scalar density and colorized with nebulaColorSecondary
                   float c2d = (5.5 * t2 * t2 * t2 + 2.1 * t2 * t2 + 2.2 * t2 * freqs0) * mix(0.5, 0.2, v);
 
                   vec4 starColour = vec4(0.0);
@@ -169,16 +196,39 @@ export const nebulaFragmentShader = `
                   starColour += starLayer(p2.xy, t);
 
                   float brightness = 1.0;
-                  // Primary layer base as scalar density and colorized with nebulaColorPrimary
+                  // Primary layer base as scalar density
                   float baseD = (1.5 * freqs2 * t1 * t1 * t1 + 1.2 * freqs1 * t1 * t1 + freqs3 * t1) * mix(freqs3 - 0.3, 1.0, v);
+                  
+                  // Combine density values into a single ramp for color mixing
+                  float density = clamp(baseD + c2d * 0.5, 0.0, 1.0);
+                  
+                  // Mix between the three colors based on density (like the original shader)
+                  vec3 col = mix(nebulaColorPrimary, nebulaColorMid, clamp(density * 2.0, 0.0, 1.0));
+                  col = mix(col, nebulaColorSecondary, clamp((density - 0.5) * 2.0, 0.0, 1.0));
+                  
+                  // Apply brightness
+                  col = col * brightness;
                   
                   // Scale star contribution based on intensity to reduce noise at high intensities
                   // At low intensity (0.1), stars are at full strength (1.0)
                   // At high intensity (1.0+), stars are scaled down significantly (0.1)
                   float starScale = mix(1.0, 0.1, smoothstep(0.1, 1.0, intensity));
-                  vec3 col = brightness * (baseD * nebulaColorPrimary + c2d * nebulaColorSecondary + starColour.xyz * starScale);
+                  col += starColour.xyz * starScale;
                   
-                  col *= color; // final global tint
+                  // Additional noise reduction at high intensities using threshold-based filtering
+                  // This helps smooth out any remaining small noise dots
+                  if (intensity > 0.5) {
+                    float noiseThreshold = mix(0.0, noiseReduction, (intensity - 0.5) * 2.0); // 0.0 at 0.5 intensity, noiseReduction at 1.0+ intensity
+                    col = max(col, noiseThreshold); // Clamp low values to reduce noise
+                  }
+
+                  // screen-space radial shadow mask (aspect-correct)
+                  vec2 dp = vUv - shadowCenter;
+                  dp.x *= resolution.x / max(resolution.y, 1.0);
+                  float d = length(dp);
+                  float m = smoothstep(shadowRadius, shadowRadius + max(shadowSoftness, 1e-4), d);
+                  float darken = 1.0 - shadowStrength * (1.0 - m);
+                  col *= darken;
 
                   gl_FragColor = vec4(col * intensity, clamp(intensity, 0.0, 1.0));
                 }

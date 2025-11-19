@@ -1,21 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { easings } from "@react-spring/three"
-import { invalidate, useFrame } from "@react-three/fiber"
+import { invalidate, useFrame, useLoader } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import {
+  BlendFunction,
   BloomEffect,
+  BrightnessContrastEffect,
   EffectComposer,
   EffectPass,
+  GlitchEffect,
+  GlitchMode,
+  HueSaturationEffect,
   RenderPass,
   ShockWaveEffect,
   VignetteEffect,
 } from "postprocessing"
 import * as THREE from "three"
+import { TextureLoader } from "three"
 
+import PerturbMap from "@/assets/perturb.jpg"
 import { DitheringEffect } from "@/fx/DitherEffect"
 import { LayerDimEffect } from "@/fx/LayerDimEffect"
 import { ScanlineEffect } from "@/fx/ScanlineEffect"
 import { SharpenEffect } from "@/fx/SharpenEffect"
+import { TintEffect } from "@/fx/TintEffect"
 import { useLayerDim, useShockwave, useWarpAnimation } from "@/hooks/animations"
 import { useGameStore } from "@/useGameStore"
 
@@ -32,7 +40,8 @@ export const PostProcessing = () => {
   const layerDimEffectRef = useRef<LayerDimEffect | null>(null)
   const sharpenEffectRef = useRef<SharpenEffect | null>(null)
   const scanlineEffectRef = useRef<ScanlineEffect | null>(null)
-
+  const glitchEffectRef = useRef<GlitchEffect | null>(null)
+  const tintEffectRef = useRef<TintEffect | null>(null)
   const shockwaveEpicenterRef = useRef(new THREE.Vector3())
   const shockwaveDirectionRef = useRef(new THREE.Vector3())
   const lastShockwaveSequenceRef = useRef(0)
@@ -46,9 +55,12 @@ export const PostProcessing = () => {
     vignette: storedVignette,
     shockwave: storedShockwave,
     scanlines: storedScanlines,
+    grading: storedGrading,
   } = useGameStore((state) => state.starfieldConfig)
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
-  const { dimOpacity } = useLayerDim()
+
+  // Assets
+  const perturbMap = useLoader(TextureLoader, PerturbMap)
 
   // Effect controls
   const [ppUniforms] = useControls(() => ({
@@ -187,10 +199,21 @@ export const PostProcessing = () => {
             },
             ditheringPixelSizeRatio: {
               value: storedDithering.ditheringPixelSizeRatio ?? 1,
-              min: 1,
+              min: 0,
               max: 10,
               step: 1,
               label: "Pixelation Strength",
+            },
+            ditheringBlendMode: {
+              value: BlendFunction.SCREEN,
+              options: {
+                Normal: BlendFunction.NORMAL,
+                Add: BlendFunction.ADD,
+                Screen: BlendFunction.SCREEN,
+                Overlay: BlendFunction.OVERLAY,
+                Multiply: BlendFunction.MULTIPLY,
+              },
+              label: "Blend Function",
             },
             ditheringGrayscaleOnly: {
               value: storedDithering.ditheringGrayscaleOnly ?? false,
@@ -222,6 +245,68 @@ export const PostProcessing = () => {
           },
           { collapsed: true }
         ),
+        Grading: folder(
+          {
+            gradingEnabled: {
+              value: storedGrading.enabled ?? true,
+              label: "Enable Grading",
+            },
+            gradingBrightness: {
+              value: storedGrading.brightness ?? 1,
+              min: 0,
+              max: 2,
+              step: 0.1,
+              label: "Brightness",
+            },
+            gradingContrast: {
+              value: storedGrading.contrast ?? 1,
+              min: 0,
+              max: 2,
+              step: 0.1,
+              label: "Contrast",
+            },
+            gradingSaturation: {
+              value: storedGrading.saturation ?? 0,
+              min: -2,
+              max: 2,
+              step: 0.1,
+              label: "Saturation",
+            },
+            tintEnabled: {
+              value: storedGrading.tintEnabled ?? true,
+              label: "Enable Tint",
+            },
+            tintIntensity: {
+              value: storedGrading.tintIntensity ?? 0.5,
+              min: 0,
+              max: 1,
+              step: 0.01,
+              label: "Tint Intensity",
+            },
+            tintContrast: {
+              value: storedGrading.tintContrast ?? 1.0,
+              min: 0,
+              max: 3,
+              step: 0.1,
+              label: "Tint Contrast",
+            },
+            tintColorPrimary: {
+              value: storedGrading.tintColorPrimary ?? "#00ff00",
+              label: "Tint Primary Color",
+            },
+            tintColorSecondary: {
+              value: storedGrading.tintColorSecondary ?? "#ffbf00",
+              label: "Tint Secondary Color",
+            },
+          },
+          { collapsed: true }
+        ),
+        Glitch: folder({
+          glitchEnabled: {
+            value: false,
+            label: "Enable Glitch",
+          },
+        }),
       },
       { collapsed: true, order: -1 }
     ),
@@ -254,6 +339,7 @@ export const PostProcessing = () => {
 
     const orderedEffectPasses: EffectPass[] = []
 
+    // 1. Effect passes that sit in the background
     if (ppUniforms.bloomEnabled) {
       const bloom = new BloomEffect({
         luminanceThreshold: ppUniforms.bloomThreshold,
@@ -288,6 +374,11 @@ export const PostProcessing = () => {
       shockWaveEffectRef.current = null
     }
 
+    const layerDim = new LayerDimEffect({ opacity: 1.0 })
+    layerDimEffectRef.current = layerDim
+    orderedEffectPasses.push(new EffectPass(camera, layerDim))
+
+    // 2. Vignette
     if (ppUniforms.vignetteEnabled) {
       const vignette = new VignetteEffect({
         offset: ppUniforms.vignetteOffset,
@@ -300,23 +391,60 @@ export const PostProcessing = () => {
       vignetteEffectRef.current = null
     }
 
-    // Layer dim effect - full screen dimming
-    const layerDim = new LayerDimEffect({ opacity: 1.0 })
-    layerDimEffectRef.current = layerDim
-    orderedEffectPasses.push(new EffectPass(camera, layerDim))
+    // 3. Grading
+    if (ppUniforms.tintEnabled) {
+      const primaryColor = new THREE.Color(ppUniforms.tintColorPrimary)
+      const secondaryColor = new THREE.Color(ppUniforms.tintColorSecondary)
 
-    // Dithering effect
+      const tint = new TintEffect({
+        intensity: ppUniforms.tintIntensity,
+        contrast: ppUniforms.tintContrast,
+        tintColorPrimary: new THREE.Vector3(
+          primaryColor.r,
+          primaryColor.g,
+          primaryColor.b
+        ),
+        tintColorSecondary: new THREE.Vector3(
+          secondaryColor.r,
+          secondaryColor.g,
+          secondaryColor.b
+        ),
+      })
+      tintEffectRef.current = tint
+      orderedEffectPasses.push(new EffectPass(camera, tint))
+    } else {
+      tintEffectRef.current?.dispose()
+      tintEffectRef.current = null
+    }
+
+    if (ppUniforms.gradingEnabled) {
+      const brightnessContrast = new BrightnessContrastEffect({
+        brightness: ppUniforms.gradingBrightness,
+        contrast: ppUniforms.gradingContrast,
+      })
+      const hueSaturation = new HueSaturationEffect({
+        saturation: ppUniforms.gradingSaturation,
+      })
+
+      const brightnessContrastPass = new EffectPass(camera, brightnessContrast)
+      const hueSaturationPass = new EffectPass(camera, hueSaturation)
+      composer.addPass(brightnessContrastPass)
+      composer.addPass(hueSaturationPass)
+    }
+
+    // 4. Dithering effect
     if (ppUniforms.ditheringEnabled) {
       const dither = new DitheringEffect({
         gridSize: ppUniforms.ditheringGridSize ?? 3,
         pixelSizeRatio: ppUniforms.ditheringPixelSizeRatio ?? 1,
         grayscaleOnly: ppUniforms.ditheringGrayscaleOnly ?? false,
+        blendFunction: ppUniforms.ditheringBlendMode ?? BlendFunction.ADD,
       })
       ditheringEffectRef.current = dither
       orderedEffectPasses.push(new EffectPass(camera, dither))
     }
 
-    // Scanline effect - place before sharpening for max impact
+    // 5. Scanline effect
     if (ppUniforms.scanlinesEnabled) {
       const scanline = new ScanlineEffect({
         intensity: ppUniforms.scanlinesIntensity,
@@ -325,7 +453,8 @@ export const PostProcessing = () => {
       scanlineEffectRef.current = scanline
       orderedEffectPasses.push(new EffectPass(camera, scanline))
     }
-    // Sharpening - place last for max impact
+
+    // 6. Sharpening - place last for max impact
     if (ppUniforms.sharpeningEnabled) {
       const sharpen = new SharpenEffect({
         intensity: ppUniforms.sharpeningIntensity,
@@ -359,8 +488,15 @@ export const PostProcessing = () => {
     setStarfieldConfig,
   ])
 
+  useEffect(() => {
+    if (ppUniforms.glitchEnabled && glitchEffectRef.current) {
+      glitchEffectRef.current.mode = GlitchMode.CONSTANT_WILD
+    }
+  }, [ppUniforms.glitchEnabled])
+
   const warp = useWarpAnimation()
   const { shockwaveSequence } = useShockwave()
+  const { dimOpacity } = useLayerDim()
 
   // Animation uniform updates
   useFrame(({ gl, scene: currentScene, camera: currentCamera }) => {
@@ -374,6 +510,7 @@ export const PostProcessing = () => {
     if (scene !== currentScene) setScene(currentScene)
     if (camera !== currentCamera) setCamera(currentCamera)
 
+    // Animation uniform updates
     const progress = warp.progress.get()
     const dimValue = dimOpacity.get()
 

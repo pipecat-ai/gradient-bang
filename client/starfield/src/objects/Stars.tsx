@@ -36,7 +36,7 @@ export const Stars = () => {
             label: "Depth",
           },
           count: {
-            value: 5000,
+            value: starsConfig?.count ?? 3000,
             min: 1000,
             max: 10000,
             step: 100,

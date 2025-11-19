@@ -5,7 +5,6 @@ import {
   Grid,
   PerformanceMonitor,
   Stats,
-  useGLTF,
 } from "@react-three/drei"
 import { Canvas } from "@react-three/fiber"
 import deepEqual from "fast-deep-equal"
@@ -16,6 +15,7 @@ import { AnimationController } from "@/controllers/AnimationController"
 import { CameraController } from "@/controllers/Camera"
 import { SceneController } from "@/controllers/SceneController"
 import { Dust } from "@/objects/Dust"
+import { Nebula } from "@/objects/Nebula"
 import { Stars } from "@/objects/Stars"
 import type { PerformanceProfile, Scene, StarfieldConfig } from "@/types"
 import { useGameStore } from "@/useGameStore"
@@ -28,8 +28,6 @@ import { usePerformanceProfile } from "./hooks/usePerformanceProfile"
 import { Fog } from "./objects/Fog"
 import { Planet } from "./objects/Planet"
 import { useCallbackStore } from "./useCallbackStore"
-
-useGLTF.preload("/test-model.glb")
 
 interface StarfieldBaseProps {
   config?: Partial<StarfieldConfig>
@@ -88,7 +86,7 @@ export function StarfieldComponent({
         }}
         onCreated={({ gl, camera }) => {
           rendererRef.current = gl
-          gl.setClearColor(new THREE.Color("#FF0000"))
+          gl.setClearColor(new THREE.Color("#000000"))
 
           // Enable various layers
           camera.layers.enable(LAYERS.DEFAULT)
@@ -120,6 +118,7 @@ export function StarfieldComponent({
 
             {/* Nebula background - rendered first and positioned at the back */}
             <group position={[0, 0, -50]}>
+              <Nebula />
               {/* <Nebula ref={nebulaRef} /> */}
             </group>
 
@@ -133,15 +132,17 @@ export function StarfieldComponent({
               >
                 {/* Scene Elements */}
                 <Dust />
-                <Center scale={3}>{<Helmet />}</Center>
+                <Center scale={3}>{/* ELEMENTS GO HERE */}</Center>
               </Float>
             </group>
-            <Grid
-              cellColor={"#FFFFFF"}
-              cellSize={1}
-              infiniteGrid
-              layers={[LAYERS.DEBUG]}
-            />
+            {/*debug && (
+              <Grid
+                cellColor={"#FFFFFF"}
+                cellSize={1}
+                infiniteGrid
+                layers={[LAYERS.DEBUG]}
+              />
+            )*/}
           </Suspense>
 
           <CameraController />
@@ -157,31 +158,6 @@ export function StarfieldComponent({
 
 export const PostProcessingMemo = memo(PostProcessing)
 
-interface HelmetProps {
-  [key: string]: unknown
-}
-
-/**
- * 3D Helmet model component
- */
-function Helmet(props: HelmetProps) {
-  const { nodes } = useGLTF("/test-model.glb") as unknown as {
-    nodes: Record<string, THREE.Mesh>
-    materials: Record<string, THREE.Material>
-  }
-  return (
-    <group {...props} dispose={null}>
-      <mesh
-        geometry={nodes.Object_2.geometry}
-        position={[-2.016, -0.06, 1.381]}
-        rotation={[-1.601, 0.068, 2.296]}
-        scale={0.038}
-      >
-        <meshBasicMaterial color="#00ff00" />
-      </mesh>
-    </group>
-  )
-}
 export interface StarfieldProps extends StarfieldBaseProps {
   onStart?: () => void
   onStop?: () => void

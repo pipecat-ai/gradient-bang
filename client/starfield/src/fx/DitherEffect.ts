@@ -1,4 +1,4 @@
-import { Effect } from "postprocessing"
+import { BlendFunction, Effect } from "postprocessing"
 import * as THREE from "three"
 
 import ditheringShader from "../shaders/DitherShader"
@@ -7,13 +7,13 @@ import ditheringShader from "../shaders/DitherShader"
  * Interface for dithering effect options
  */
 export interface DitheringEffectOptions {
-  time?: number
   resolution?: THREE.Vector2
   gridSize?: number
   luminanceMethod?: number
   invertColor?: boolean
   pixelSizeRatio?: number
   grayscaleOnly?: boolean
+  blendFunction?: BlendFunction
 }
 
 /**
@@ -31,17 +31,16 @@ export class DitheringEffect extends Effect {
    * @param options - Configuration options for the effect
    */
   constructor({
-    time = 0,
     resolution = new THREE.Vector2(1, 1),
     gridSize = 4.0,
     luminanceMethod = 0,
     invertColor = false,
     pixelSizeRatio = 1,
     grayscaleOnly = false,
+    blendFunction = BlendFunction.ADD,
   }: DitheringEffectOptions = {}) {
     // Initialize uniforms with default values
     const uniforms = new Map<string, THREE.Uniform<number | THREE.Vector2>>([
-      ["time", new THREE.Uniform(time)],
       ["resolution", new THREE.Uniform(resolution)],
       ["gridSize", new THREE.Uniform(gridSize)],
       ["luminanceMethod", new THREE.Uniform(luminanceMethod)],
@@ -52,7 +51,7 @@ export class DitheringEffect extends Effect {
     ])
 
     super("DitheringEffect", ditheringShader, {
-      // blendFunction: BlendFunction.SCREEN,
+      blendFunction: blendFunction,
       uniforms,
     })
 
@@ -68,14 +67,8 @@ export class DitheringEffect extends Effect {
   update(
     _renderer: THREE.WebGLRenderer,
     inputBuffer: THREE.WebGLRenderTarget,
-    deltaTime: number
+    _deltaTime: number
   ): void {
-    // Update time uniform
-    const timeUniform = this.uniforms.get("time")
-    if (timeUniform !== undefined && typeof timeUniform.value === "number") {
-      timeUniform.value += deltaTime
-    }
-
     // Update resolution uniform to match current render target
     const resolutionUniform = this.uniforms.get("resolution")
     if (

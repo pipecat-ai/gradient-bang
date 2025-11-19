@@ -10,6 +10,7 @@ export const shadowFragmentShader = `
   uniform float uRadius;
   uniform float uOpacity;
   uniform float uFalloff;
+  uniform vec3 uColor;
   varying vec2 vUv;
   
   void main() {
@@ -21,6 +22,6 @@ export const shadowFragmentShader = `
     float alpha = 1.0 - smoothstep(uRadius - uFalloff, uRadius, dist);
     alpha *= uOpacity;
     
-    gl_FragColor = vec4(0.0, 0.0, 0.0, alpha);
+    gl_FragColor = vec4(uColor, alpha);
   }
 `

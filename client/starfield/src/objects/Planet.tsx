@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef } from "react"
-import { invalidate, useFrame, useLoader, useThree } from "@react-three/fiber"
+import { useTexture } from "@react-three/drei"
+import { invalidate, useFrame, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import * as THREE from "three"
 
+import SkyBox1 from "@/assets/skybox-1.png"
 import {
   shadowFragmentShader,
   shadowVertexShader,
@@ -20,6 +22,7 @@ export const Planet = () => {
     (state) => state.starfieldConfig
   )
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
+  const planetTexture = useTexture(SkyBox1)
 
   const [
     {
@@ -31,6 +34,7 @@ export const Planet = () => {
       shadowRadius,
       shadowOpacity,
       shadowFalloff,
+      shadowColor,
     },
   ] = useControls(() => ({
     Planet: folder(
@@ -89,16 +93,14 @@ export const Planet = () => {
           step: 0.1,
           label: "Shadow Falloff",
         },
+        shadowColor: {
+          value: planetConfig?.shadowColor ?? "#000000",
+          label: "Shadow Color",
+        },
       },
       { collapsed: true }
     ),
   }))
-
-  // Load the texture
-  const texture = useLoader(
-    THREE.TextureLoader,
-    `/images/skybox-${imageIndex}.png`
-  )
 
   // Shadow material
   const shadowMaterial = useMemo(() => {
@@ -109,16 +111,17 @@ export const Planet = () => {
         uRadius: { value: shadowRadius },
         uOpacity: { value: shadowOpacity },
         uFalloff: { value: shadowFalloff },
+        uColor: { value: new THREE.Color(shadowColor) },
       },
       transparent: true,
       depthTest: true,
       depthWrite: false,
       side: THREE.DoubleSide,
     })
-  }, [shadowFalloff, shadowOpacity, shadowRadius])
+  }, [shadowFalloff, shadowOpacity, shadowRadius, shadowColor])
 
   // Calculate dimensions based on texture aspect ratio
-  const aspectRatio = texture.image.width / texture.image.height
+  const aspectRatio = planetTexture.width / planetTexture.height
   const width = scale * aspectRatio
   const height = scale
 
@@ -190,7 +193,7 @@ export const Planet = () => {
       <mesh ref={meshRef} renderOrder={1} layers={[LAYERS.SKYBOX]}>
         <planeGeometry args={[width, height]} />
         <meshBasicMaterial
-          map={texture}
+          map={planetTexture}
           opacity={opacity}
           side={THREE.DoubleSide}
           fog={false}

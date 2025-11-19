@@ -58,9 +58,9 @@ export const useDevControls = () => {
             }),
             dpr: {
               value: 1.5,
-              min: 1,
+              min: 0.5,
               max: 2,
-              step: 0.1,
+              step: 0.5,
               label: "DPR",
             },
           },
