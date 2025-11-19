@@ -76,7 +76,7 @@ export const defaultProfile: StarfieldConfig = {
   },
   sun: {
     enabled: true,
-    position: { x: -20, y: 30, z: -80 },
+    position: { x: 30, y: 30, z: -80 },
     scale: 100,
     intensity: 1,
     color: "#ffe8a3",
@@ -90,6 +90,7 @@ export const defaultProfile: StarfieldConfig = {
   },
   nebula: {
     enabled: true,
+    intensity: 0.5,
   },
   volumetricClouds: {
     enabled: true,
