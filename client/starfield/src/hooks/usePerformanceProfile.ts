@@ -3,6 +3,7 @@ import { useDetectGPU } from "@react-three/drei"
 import { folder, useControls } from "leva"
 
 import type { PerformanceProfile } from "@/types"
+import { useCallbackStore } from "@/useCallbackStore"
 import { useGameStore } from "@/useGameStore"
 
 export const usePerformanceProfile = ({
@@ -24,7 +25,7 @@ export const usePerformanceProfile = ({
             options: ["low", "mid", "high"] as PerformanceProfile[],
           },
         },
-        { collapsed: true }
+        { collapsed: true, order: 99 }
       ),
     }),
   }))
@@ -32,14 +33,20 @@ export const usePerformanceProfile = ({
   useLayoutEffect(() => {
     let targetProfile: PerformanceProfile = "high"
 
+    if (tier === 0 || (isMobile && tier <= 1)) {
+      // Trigger no WebGL callback
+      useCallbackStore.getState().onUnsupported?.()
+      return
+    }
+
     if (initialProfile) {
       // Use specified profile
       targetProfile = initialProfile
     } else {
       // Use GPU detection
-      if (tier === 0 || isMobile) {
+      if (tier === 1 || isMobile) {
         targetProfile = "low"
-      } else if (tier === 1) {
+      } else if (tier === 2) {
         targetProfile = "mid"
       }
     }

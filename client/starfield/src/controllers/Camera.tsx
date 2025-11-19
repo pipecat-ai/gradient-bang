@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react"
+import { useRef } from "react"
 import { easings } from "@react-spring/three"
 import { CameraControls as CameraControlsImpl } from "@react-three/drei"
 import { useFrame, useThree } from "@react-three/fiber"
@@ -7,16 +7,16 @@ import * as THREE from "three"
 import type { PerspectiveCamera } from "three"
 
 import { useWarpAnimation } from "@/hooks/animations"
-import type { PositionedGameObject } from "@/types"
+//import type { PositionedGameObject } from "@/types"
 import { useGameStore } from "@/useGameStore"
 
-const DEFAULT_POSITION = new THREE.Vector3(0, 0, 0)
+//const DEFAULT_POSITION = new THREE.Vector3(0, 0, 0)
 
 export function CameraController() {
   const cameraControlsRef = useRef<CameraControlsImpl>(null)
   const gameObjects = useGameStore((state) => state.positionedObjects)
   const { invalidate } = useThree()
-  const [, setCurrentTarget] = useState<THREE.Vector3 | null>(null)
+  //const [, setCurrentTarget] = useState<THREE.Vector3 | null>(null)
   const { cameraBaseFov, hyerpspaceUniforms } = useGameStore(
     (state) => state.starfieldConfig
   )
@@ -92,7 +92,7 @@ export function CameraController() {
     }
   }, 1)
 
-  const _resetTarget = useCallback(() => {
+  /*const _resetTarget = useCallback(() => {
     if (!cameraControlsRef.current) return
 
     const cam = cameraControlsRef.current
@@ -151,7 +151,7 @@ export function CameraController() {
       })
     },
     [invalidate, gameObjects, config.lookAtDistance]
-  )
+  )*/
 
   return (
     <CameraControlsImpl

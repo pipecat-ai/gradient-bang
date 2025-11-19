@@ -10,6 +10,7 @@ createRoot(document.getElementById("root")!).render(
     <Starfield
       config={{ vignette: { vignetteEnabled: false } }}
       onCreated={() => console.log("Starfield created")}
+      onUnsupported={() => console.log("Starfield unsupported")}
     />
   </StrictMode>
 )

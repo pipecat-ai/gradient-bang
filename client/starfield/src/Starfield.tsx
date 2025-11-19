@@ -186,15 +186,17 @@ export interface StarfieldProps extends StarfieldBaseProps {
   onStart?: () => void
   onStop?: () => void
   onCreated?: () => void
+  onUnsupported?: () => void
   // ETC
 }
 
 export const Starfield = memo(
-  ({ onStart, onStop, onCreated, ...props }: StarfieldProps) => {
+  ({ onStart, onStop, onCreated, onUnsupported, ...props }: StarfieldProps) => {
     useCallbackStore.setState({
       onCreated: onCreated ?? (() => {}),
       onStart: onStart ?? (() => {}),
       onStop: onStop ?? (() => {}),
+      onUnsupported: onUnsupported ?? (() => {}),
     })
     return <StarfieldComponent {...props} />
   }

@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react"
-import { useThree } from "@react-three/fiber"
 
 import type { SceneConfig } from "@/types"
 import { useGameStore } from "@/useGameStore"

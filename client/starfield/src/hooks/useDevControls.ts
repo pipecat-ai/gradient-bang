@@ -62,7 +62,7 @@ export const useDevControls = () => {
             label: "DPR",
           },
         },
-        { collapsed: true }
+        { collapsed: true, order: 99 }
       ),
     }),
   }))
