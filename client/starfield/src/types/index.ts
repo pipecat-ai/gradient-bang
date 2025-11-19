@@ -60,6 +60,12 @@ export interface StarfieldConfig {
   }
   dust?: {
     enabled?: boolean
+    opacity?: number
+    count?: number
+    radius?: number
+    size?: number
+    minDistance?: number
+    fadeRange?: number
   }
   fog?: {
     enabled?: boolean

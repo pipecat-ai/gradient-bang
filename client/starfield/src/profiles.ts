@@ -51,10 +51,11 @@ export const defaultProfile: StarfieldConfig = {
     count: 3000,
     radius: 20,
     depth: 35,
-    size: 3,
+    size: 1.6,
   },
   dust: {
     enabled: true,
+    opacity: 0.3,
   },
   fog: {
     enabled: true,
@@ -95,13 +96,13 @@ export const defaultProfile: StarfieldConfig = {
   volumetricClouds: {
     enabled: true,
     count: 500,
-    radius: 80,
-    size: 15,
-    opacity: 0.2,
-    color: "#88aaff",
-    blendMode: "additive",
-    minDistance: 2.0,
-    fadeRange: 5.0,
+    radius: 300,
+    size: 40,
+    opacity: 0.03,
+    color: "#ffffff",
+    blendMode: "normal",
+    minDistance: 10,
+    fadeRange: 3,
   },
   useASCIIRenderer: false,
 }

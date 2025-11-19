@@ -61,7 +61,7 @@ export const VolumetricClouds = () => {
         radius: {
           value: cloudsConfig?.radius ?? 80,
           min: 20,
-          max: 200,
+          max: 500,
           step: 5,
           label: "Radius",
         },
@@ -76,7 +76,7 @@ export const VolumetricClouds = () => {
           value: cloudsConfig?.opacity ?? 0.2,
           min: 0,
           max: 1,
-          step: 0.05,
+          step: 0.01,
           label: "Opacity",
         },
         color: {
@@ -149,7 +149,7 @@ export const VolumetricClouds = () => {
 
   // Custom shader material for distance-based fade
   const handleBeforeCompile = useCallback(
-    (shader: THREE.Shader) => {
+    (shader: THREE.ShaderMaterial) => {
       // Store shader reference for updating uniforms later
       if (materialRef.current) {
         materialRef.current.userData.shader = shader

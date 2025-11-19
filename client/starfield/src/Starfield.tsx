@@ -18,6 +18,7 @@ import { Dust } from "@/objects/Dust"
 import { Nebula } from "@/objects/Nebula"
 import { Stars } from "@/objects/Stars"
 import { Sun } from "@/objects/Sun"
+import { VolumetricClouds } from "@/objects/VolumetricClouds"
 import type { PerformanceProfile, Scene, StarfieldConfig } from "@/types"
 import { useGameStore } from "@/useGameStore"
 
@@ -115,11 +116,12 @@ export function StarfieldComponent({
         <AnimationController>
           <Suspense fallback={null}>
             <Fog />
-            <Stars />
+            <Nebula />
             <Sun />
+            <Stars />
             <Planet />
             <Dust />
-            <Nebula />
+            <VolumetricClouds />
 
             {/* Nebula background - rendered first and positioned at the back */}
             <group position={[0, 0, -50]}>
