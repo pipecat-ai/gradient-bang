@@ -17,7 +17,7 @@ export const Fog = () => {
             },
           },
           color: {
-            value: fogConfig?.color ?? "#000000",
+            value: fogConfig?.color ?? "#FF0000",
           },
           near: {
             value: fogConfig?.near ?? 0,

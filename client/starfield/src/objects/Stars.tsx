@@ -1,102 +1,95 @@
-import { useLayoutEffect, useRef } from "react"
-import { Stars as StarsDrei } from "@react-three/drei"
-import { folder, useControls } from "leva"
-import * as THREE from "three"
+import { useControls } from "leva"
 
+import { Stars as StarsComponent } from "@/components/Stars"
 import { LAYERS } from "@/Starfield"
 import { useGameStore } from "@/useGameStore"
 
 export const Stars = () => {
   const { stars: starsConfig } = useGameStore((state) => state.starfieldConfig)
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
-  const groupRef = useRef<THREE.Group>(null)
 
-  const [{ radius, depth, count, factor, saturation, fade, speed }] =
-    useControls(() => ({
-      Stars: folder(
-        {
-          enabled: {
-            value: starsConfig?.enabled ?? true,
-            onChange: (value: boolean) => {
-              setStarfieldConfig({ stars: { enabled: value } })
-            },
-          },
-          radius: {
-            value: 10,
-            min: 1,
-            max: 100,
-            step: 1,
-            label: "Radius",
-          },
-          depth: {
-            value: 50,
-            min: 1,
-            max: 100,
-            step: 1,
-            label: "Depth",
-          },
-          count: {
-            value: starsConfig?.count ?? 3000,
-            min: 1000,
-            max: 10000,
-            step: 100,
-            label: "Count",
-          },
-          factor: {
-            value: 4,
-            min: 1,
-            max: 10,
-            step: 1,
-            label: "Factor",
-          },
-          saturation: {
-            value: 0,
-            min: 0,
-            max: 1,
-            step: 0.01,
-            label: "Saturation",
-          },
-          fade: {
-            value: true,
-            label: "Fade",
-          },
-          speed: {
-            value: 0,
-            min: 0,
-            max: 1,
-            step: 0.01,
-            label: "Speed",
+  const { radius, depth, count, factor, saturation, fade, speed, size } =
+    useControls(
+      "Stars",
+      {
+        enabled: {
+          value: starsConfig?.enabled ?? true,
+          onChange: (value: boolean) => {
+            setStarfieldConfig({ stars: { enabled: value } })
           },
         },
-        {
-          collapsed: true,
-        }
-      ),
-    }))
-
-  useLayoutEffect(() => {
-    if (groupRef.current) {
-      groupRef.current.traverse((child) => {
-        if (child instanceof THREE.Points) {
-          child.layers.set(LAYERS.BACKGROUND)
-        }
-      })
-    }
-  }, [count])
+        radius: {
+          value: 30,
+          min: 1,
+          max: 100,
+          step: 1,
+          label: "Radius",
+        },
+        depth: {
+          value: 50,
+          min: 1,
+          max: 100,
+          step: 1,
+          label: "Depth",
+        },
+        count: {
+          value: starsConfig?.count ?? 3000,
+          min: 1000,
+          max: 10000,
+          step: 100,
+          label: "Count",
+        },
+        factor: {
+          value: 4,
+          min: 1,
+          max: 10,
+          step: 1,
+          label: "Factor",
+        },
+        size: {
+          value: 4,
+          min: 0.1,
+          max: 20,
+          step: 0.1,
+          label: "Size",
+        },
+        saturation: {
+          value: 0,
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: "Saturation",
+        },
+        fade: {
+          value: true,
+          label: "Fade",
+        },
+        speed: {
+          value: 0,
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: "Speed",
+        },
+      },
+      {
+        collapsed: true,
+      }
+    )
 
   return (
     starsConfig?.enabled && (
-      <group ref={groupRef} renderOrder={-100}>
-        <StarsDrei
-          radius={radius}
-          depth={depth}
-          count={count}
-          factor={factor}
-          saturation={saturation}
-          fade={fade}
-          speed={speed}
-        />
-      </group>
+      <StarsComponent
+        radius={radius}
+        depth={depth}
+        count={count}
+        factor={factor}
+        saturation={saturation}
+        fade={fade}
+        speed={speed}
+        size={size}
+        layers={LAYERS.BACKGROUND}
+      />
     )
   )
 }

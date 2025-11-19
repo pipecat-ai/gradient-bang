@@ -22,14 +22,14 @@ export const Dust = () => {
             },
           },
           count: {
-            value: 500,
+            value: 1000,
             min: 100,
             max: 5000,
             step: 100,
             label: "Count",
           },
           radius: {
-            value: 50,
+            value: 100,
             min: 10,
             max: 200,
             step: 5,

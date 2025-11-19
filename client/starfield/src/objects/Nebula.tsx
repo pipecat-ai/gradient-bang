@@ -90,7 +90,7 @@ export const Nebula = () => {
           label: "Secondary Iterations",
         },
         parallaxAmount: {
-          value: nebulaConfig?.parallaxAmount ?? 1.0,
+          value: nebulaConfig?.parallaxAmount ?? 1,
           min: 0,
           max: 2,
           step: 0.1,

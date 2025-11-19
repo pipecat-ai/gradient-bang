@@ -16,9 +16,7 @@ import {
   VignetteEffect,
 } from "postprocessing"
 import * as THREE from "three"
-import { TextureLoader } from "three"
 
-import PerturbMap from "@/assets/perturb.jpg"
 import { DitheringEffect } from "@/fx/DitherEffect"
 import { LayerDimEffect } from "@/fx/LayerDimEffect"
 import { ScanlineEffect } from "@/fx/ScanlineEffect"
@@ -58,9 +56,6 @@ export const PostProcessing = () => {
     grading: storedGrading,
   } = useGameStore((state) => state.starfieldConfig)
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
-
-  // Assets
-  const perturbMap = useLoader(TextureLoader, PerturbMap)
 
   // Effect controls
   const [ppUniforms] = useControls(() => ({
