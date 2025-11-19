@@ -40,6 +40,11 @@ export interface StarfieldConfig {
     vignetteOffset?: number
     vignetteDarkness?: number
   }
+  scanlines: {
+    scanlinesEnabled?: boolean
+    scanlinesIntensity?: number
+    scanlinesFrequency?: number
+  }
   stars?: {
     enabled?: boolean
     radius?: number

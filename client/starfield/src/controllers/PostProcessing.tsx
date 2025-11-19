@@ -14,6 +14,7 @@ import * as THREE from "three"
 
 import { DitheringEffect } from "@/fx/DitherEffect"
 import { LayerDimEffect } from "@/fx/LayerDimEffect"
+import { ScanlineEffect } from "@/fx/ScanlineEffect"
 import { SharpenEffect } from "@/fx/SharpenEffect"
 import { useLayerDim, useShockwave, useWarpAnimation } from "@/hooks/animations"
 import { useGameStore } from "@/useGameStore"
@@ -30,6 +31,8 @@ export const PostProcessing = () => {
   const shockWaveEffectRef = useRef<ShockWaveEffect | null>(null)
   const layerDimEffectRef = useRef<LayerDimEffect | null>(null)
   const sharpenEffectRef = useRef<SharpenEffect | null>(null)
+  const scanlineEffectRef = useRef<ScanlineEffect | null>(null)
+
   const shockwaveEpicenterRef = useRef(new THREE.Vector3())
   const shockwaveDirectionRef = useRef(new THREE.Vector3())
   const lastShockwaveSequenceRef = useRef(0)
@@ -42,6 +45,7 @@ export const PostProcessing = () => {
     sharpening: storedSharpening,
     vignette: storedVignette,
     shockwave: storedShockwave,
+    scanlines: storedScanlines,
   } = useGameStore((state) => state.starfieldConfig)
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
   const { dimOpacity } = useLayerDim()
@@ -195,8 +199,31 @@ export const PostProcessing = () => {
           },
           { collapsed: true }
         ),
+        Scanlines: folder(
+          {
+            scanlinesEnabled: {
+              value: storedScanlines.scanlinesEnabled ?? true,
+              label: "Enable Scanlines",
+            },
+            scanlinesIntensity: {
+              value: storedScanlines.scanlinesIntensity ?? 0.3,
+              min: 0,
+              max: 1,
+              step: 0.1,
+              label: "Intensity",
+            },
+            scanlinesFrequency: {
+              value: storedScanlines.scanlinesFrequency ?? 1.3,
+              min: 0,
+              max: 2,
+              step: 0.1,
+              label: "Frequency",
+            },
+          },
+          { collapsed: true }
+        ),
       },
-      { collapsed: true }
+      { collapsed: true, order: -1 }
     ),
   }))
 
@@ -278,7 +305,7 @@ export const PostProcessing = () => {
     layerDimEffectRef.current = layerDim
     orderedEffectPasses.push(new EffectPass(camera, layerDim))
 
-    // Dithering effect - always last
+    // Dithering effect
     if (ppUniforms.ditheringEnabled) {
       const dither = new DitheringEffect({
         gridSize: ppUniforms.ditheringGridSize ?? 3,
@@ -289,6 +316,16 @@ export const PostProcessing = () => {
       orderedEffectPasses.push(new EffectPass(camera, dither))
     }
 
+    // Scanline effect - place before sharpening for max impact
+    if (ppUniforms.scanlinesEnabled) {
+      const scanline = new ScanlineEffect({
+        intensity: ppUniforms.scanlinesIntensity,
+        frequency: ppUniforms.scanlinesFrequency,
+      })
+      scanlineEffectRef.current = scanline
+      orderedEffectPasses.push(new EffectPass(camera, scanline))
+    }
+    // Sharpening - place last for max impact
     if (ppUniforms.sharpeningEnabled) {
       const sharpen = new SharpenEffect({
         intensity: ppUniforms.sharpeningIntensity,

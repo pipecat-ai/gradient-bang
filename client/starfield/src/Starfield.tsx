@@ -8,6 +8,7 @@ import {
   useGLTF,
 } from "@react-three/drei"
 import { Canvas } from "@react-three/fiber"
+import deepEqual from "fast-deep-equal"
 import { Leva } from "leva"
 import * as THREE from "three"
 
@@ -23,12 +24,14 @@ import { RenderingIndicator } from "./components/RenderingIndicator"
 import { EffectChainingController } from "./controllers/EffectChainingController"
 import { PostProcessing } from "./controllers/PostProcessing"
 import { useDevControls } from "./hooks/useDevControls"
+import { usePerformanceProfile } from "./hooks/usePerformanceProfile"
 import { Fog } from "./objects/Fog"
 import { Planet } from "./objects/Planet"
+import { useCallbackStore } from "./useCallbackStore"
 
 useGLTF.preload("/test-model.glb")
 
-interface StarfieldProps {
+interface StarfieldBaseProps {
   config?: Partial<StarfieldConfig>
   profile?: PerformanceProfile
   debug?: boolean
@@ -45,28 +48,31 @@ export const LAYERS = {
   DEBUG: 31, // Grid, debug helpers
 } as const
 
-/**
- * Main application component
- */
-export default function App({
+export function StarfieldComponent({
   config,
   debug = true,
-  profile = "high",
-}: StarfieldProps) {
+  profile,
+}: StarfieldBaseProps) {
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
   const isPaused = useGameStore((state) => state.isPaused)
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
-  const setPerformanceProfile = useGameStore(
-    (state) => state.setPerformanceProfile
-  )
+  const callbacks = useCallbackStore((state) => state)
+
+  usePerformanceProfile({ initialProfile: profile })
+
   const { dpr, setPerformance } = useDevControls()
 
+  /* Handle config changes */
+  const prevConfigRef = useRef<Partial<StarfieldConfig> | undefined>(undefined)
   useLayoutEffect(() => {
-    setPerformanceProfile(profile)
-  }, [profile, setPerformanceProfile])
+    if (!config) return
 
-  useLayoutEffect(() => {
-    setStarfieldConfig(config ?? {})
+    // Only update if actually different
+    if (!deepEqual(prevConfigRef.current, config)) {
+      console.log("[STARFIELD] Updating Starfield Config:", config)
+      setStarfieldConfig(config)
+      prevConfigRef.current = config
+    }
   }, [config, setStarfieldConfig])
 
   return (
@@ -92,6 +98,7 @@ export default function App({
           if (debug) {
             camera.layers.enable(LAYERS.DEBUG)
           }
+          callbacks.onCreated?.()
         }}
       >
         <PerformanceMonitor
@@ -175,3 +182,20 @@ function Helmet(props: HelmetProps) {
     </group>
   )
 }
+export interface StarfieldProps extends StarfieldBaseProps {
+  onStart?: () => void
+  onStop?: () => void
+  onCreated?: () => void
+  // ETC
+}
+
+export const Starfield = memo(
+  ({ onStart, onStop, onCreated, ...props }: StarfieldProps) => {
+    useCallbackStore.setState({
+      onCreated: onCreated ?? (() => {}),
+      onStart: onStart ?? (() => {}),
+      onStop: onStop ?? (() => {}),
+    })
+    return <StarfieldComponent {...props} />
+  }
+)

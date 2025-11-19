@@ -41,6 +41,11 @@ export const defaultProfile: StarfieldConfig = {
     vignetteOffset: 0,
     vignetteDarkness: 0.5,
   },
+  scanlines: {
+    scanlinesEnabled: true,
+    scanlinesIntensity: 0.3,
+    scanlinesFrequency: 1.3,
+  },
   stars: {
     enabled: true,
   },

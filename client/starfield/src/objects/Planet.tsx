@@ -3,7 +3,7 @@ import { invalidate, useFrame, useLoader, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import * as THREE from "three"
 
-import { LAYERS } from "@/App"
+import { LAYERS } from "@/Starfield"
 import { useGameStore } from "@/useGameStore"
 
 export const Planet = () => {

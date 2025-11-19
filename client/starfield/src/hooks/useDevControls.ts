@@ -44,7 +44,7 @@ export const useDevControls = () => {
         })
       }),
     }),
-    { collapsed: true }
+    { collapsed: true, order: -1 }
   )
 
   const [{ dpr }, setPerformance] = useControls(() => ({
@@ -69,43 +69,46 @@ export const useDevControls = () => {
 
   const [, setTriggers] = useControls(
     () => ({
-      Triggers: folder({
-        Warp: folder({
-          ["Start Warp"]: button(() => {
-            startWarp()
-          }),
-          ["Stop Warp"]: button(() => {
-            stopWarp()
-          }),
-          warpStatus: {
-            value: isWarping ? "Warping" : "Not Warping",
-            editable: false,
-          },
-        }),
-        Dim: folder(
-          {
-            ["Dim"]: button(() => {
-              setIsDimmed(true)
+      Triggers: folder(
+        {
+          Warp: folder({
+            ["Start Warp"]: button(() => {
+              startWarp()
             }),
-            ["Undim"]: button(() => {
-              setIsDimmed(false)
+            ["Stop Warp"]: button(() => {
+              stopWarp()
             }),
-            dimStatus: {
-              value: isDimmed ? "Dimmed" : "Not Dimmed",
+            warpStatus: {
+              value: isWarping ? "Warping" : "Not Warping",
               editable: false,
             },
-          },
-          { collapsed: true }
-        ),
-        Shockwave: folder(
-          {
-            ["Trigger Shockwave"]: button(() => {
-              triggerShockwave()
-            }),
-          },
-          { collapsed: true }
-        ),
-      }),
+          }),
+          Dim: folder(
+            {
+              ["Dim"]: button(() => {
+                setIsDimmed(true)
+              }),
+              ["Undim"]: button(() => {
+                setIsDimmed(false)
+              }),
+              dimStatus: {
+                value: isDimmed ? "Dimmed" : "Not Dimmed",
+                editable: false,
+              },
+            },
+            { collapsed: true }
+          ),
+          Shockwave: folder(
+            {
+              ["Trigger Shockwave"]: button(() => {
+                triggerShockwave()
+              }),
+            },
+            { collapsed: true }
+          ),
+        },
+        { order: -1 }
+      ),
     }),
     [isWarping, startWarp, stopWarp, triggerShockwave]
   )
