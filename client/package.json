@@ -14,6 +14,7 @@
     "dev:stories": "turbo run stories",
     "dev:starfield": "turbo run dev --filter=@gradient-bang/starfield",
     "build": "turbo run build",
+    "build:app": "turbo run build --filter=@gradient-bang/app",
     "preview": "turbo run preview",
     "lint": "turbo run lint"
   },
