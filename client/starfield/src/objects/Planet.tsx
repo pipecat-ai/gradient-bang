@@ -5,6 +5,7 @@ import { folder, useControls } from "leva"
 import * as THREE from "three"
 
 import SkyBox1 from "@/assets/skybox-1.png"
+import { getPalette } from "@/colors"
 import {
   shadowFragmentShader,
   shadowVertexShader,
@@ -18,11 +19,13 @@ export const Planet = () => {
   const shadowMeshRef = useRef<THREE.Mesh>(null)
   const depthMeshRef = useRef<THREE.Mesh>(null)
   const { camera } = useThree()
-  const { planet: planetConfig } = useGameStore(
-    (state) => state.starfieldConfig
-  )
+  const starfieldConfig = useGameStore((state) => state.starfieldConfig)
+  const { planet: planetConfig } = starfieldConfig
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
   const planetTexture = useTexture(SkyBox1)
+
+  // Get active palette
+  const palette = getPalette(starfieldConfig.palette)
 
   const [
     {
@@ -30,6 +33,8 @@ export const Planet = () => {
       opacity,
       position,
       imageIndex,
+      tintColor,
+      tintIntensity,
       shadowEnabled,
       shadowRadius,
       shadowOpacity,
@@ -68,6 +73,17 @@ export const Planet = () => {
           value: planetConfig?.position ?? { x: 0, y: 0 },
           step: 1,
         },
+        tintColor: {
+          value: planetConfig?.tintColor ?? `#${palette.c1.getHexString()}`,
+          label: "Tint Color",
+        },
+        tintIntensity: {
+          value: planetConfig?.tintIntensity ?? 2.5,
+          min: 0,
+          max: 10,
+          step: 0.1,
+          label: "Tint Intensity",
+        },
         shadowEnabled: {
           value: planetConfig?.shadowEnabled ?? true,
           label: "Shadow Enabled",
@@ -94,13 +110,19 @@ export const Planet = () => {
           label: "Shadow Falloff",
         },
         shadowColor: {
-          value: planetConfig?.shadowColor ?? "#000000",
+          value: planetConfig?.shadowColor ?? `#${palette.base.getHexString()}`,
           label: "Shadow Color",
         },
       },
       { collapsed: true }
     ),
   }))
+
+  // Boosted tint color for vibrant effect with additive blending
+  const boostedTintColor = useMemo(() => {
+    const color = new THREE.Color(tintColor)
+    return color.multiplyScalar(tintIntensity)
+  }, [tintColor, tintIntensity])
 
   // Shadow material
   const shadowMaterial = useMemo(() => {
@@ -158,7 +180,7 @@ export const Planet = () => {
 
   useEffect(() => {
     invalidate()
-  }, [position, scale, opacity, imageIndex])
+  }, [position, scale, opacity, imageIndex, tintColor, tintIntensity])
 
   if (!planetConfig?.enabled) return null
 
@@ -194,6 +216,7 @@ export const Planet = () => {
         <planeGeometry args={[width, height]} />
         <meshBasicMaterial
           map={planetTexture}
+          color={boostedTintColor}
           opacity={opacity}
           side={THREE.DoubleSide}
           fog={false}

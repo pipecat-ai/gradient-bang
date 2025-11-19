@@ -15,6 +15,7 @@ import {
 } from "postprocessing"
 import * as THREE from "three"
 
+import { getPalette } from "@/colors"
 import { DitheringEffect } from "@/fx/DitherEffect"
 import { LayerDimEffect } from "@/fx/LayerDimEffect"
 import { ScanlineEffect } from "@/fx/ScanlineEffect"
@@ -43,6 +44,7 @@ export const PostProcessing = () => {
 
   const [scene, setScene] = useState<THREE.Scene | null>(null)
   const [camera, setCamera] = useState<THREE.Camera | null>(null)
+  const starfieldConfig = useGameStore((state) => state.starfieldConfig)
   const {
     hyerpspaceUniforms,
     dithering: storedDithering,
@@ -51,8 +53,11 @@ export const PostProcessing = () => {
     shockwave: storedShockwave,
     scanlines: storedScanlines,
     grading: storedGrading,
-  } = useGameStore((state) => state.starfieldConfig)
+  } = starfieldConfig
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
+
+  // Get active palette
+  const palette = getPalette(starfieldConfig.palette)
 
   // Effect controls
   const [ppUniforms] = useControls(() => ({
@@ -251,14 +256,14 @@ export const PostProcessing = () => {
               label: "Brightness",
             },
             gradingContrast: {
-              value: storedGrading.contrast ?? 1,
+              value: storedGrading.contrast ?? palette.contrast,
               min: 0,
               max: 2,
-              step: 0.1,
+              step: 0.01,
               label: "Contrast",
             },
             gradingSaturation: {
-              value: storedGrading.saturation ?? 0,
+              value: storedGrading.saturation ?? palette.saturation,
               min: -2,
               max: 2,
               step: 0.1,
@@ -283,11 +288,15 @@ export const PostProcessing = () => {
               label: "Tint Contrast",
             },
             tintColorPrimary: {
-              value: storedGrading.tintColorPrimary ?? "#00ff00",
+              value:
+                storedGrading.tintColorPrimary ??
+                `#${palette.c1.getHexString()}`,
               label: "Tint Primary Color",
             },
             tintColorSecondary: {
-              value: storedGrading.tintColorSecondary ?? "#ffbf00",
+              value:
+                storedGrading.tintColorSecondary ??
+                `#${palette.c2.getHexString()}`,
               label: "Tint Secondary Color",
             },
           },

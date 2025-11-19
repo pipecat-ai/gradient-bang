@@ -3,6 +3,7 @@ import { useFrame, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import * as THREE from "three"
 
+import { getPalette } from "@/colors"
 import { sunFragmentShader, sunVertexShader } from "@/shaders/SunShader"
 import { LAYERS } from "@/Starfield"
 import { useGameStore } from "@/useGameStore"
@@ -13,9 +14,13 @@ const sunNoiseTexture = createValueNoiseTexture(256)
 export const Sun = () => {
   const groupRef = useRef<THREE.Group>(null)
   const { camera } = useThree()
-  const { sun: sunConfig } = useGameStore((state) => state.starfieldConfig)
+  const starfieldConfig = useGameStore((state) => state.starfieldConfig)
+  const { sun: sunConfig } = starfieldConfig
 
-  // Leva controls for all sun parameters
+  // Get active palette
+  const palette = getPalette(starfieldConfig.palette)
+
+  // Leva controls for all sun parameters with palette cascade
   const controls = useControls({
     "Sun Settings": folder(
       {
@@ -25,8 +30,8 @@ export const Sun = () => {
         },
         scale: {
           value: sunConfig?.scale ?? 100,
-          min: 80,
-          max: 200,
+          min: 1,
+          max: 300,
           step: 1,
           label: "Size",
         },
@@ -40,33 +45,33 @@ export const Sun = () => {
         coreColor: {
           value: sunConfig?.color
             ? `#${new THREE.Color(sunConfig.color).getHexString()}`
-            : "#ffe8a3",
+            : `#${palette.c1.getHexString()}`,
           label: "Core Color",
         },
         coronaColor: {
           value: sunConfig?.coronaColor
             ? `#${new THREE.Color(sunConfig.coronaColor).getHexString()}`
-            : "#ff6b35",
+            : `#${palette.c2.getHexString()}`,
           label: "Corona Color",
         },
         positionX: {
           value: sunConfig?.position?.x ?? -40,
-          min: -100,
-          max: 100,
+          min: -300,
+          max: 300,
           step: 1,
           label: "Position X",
         },
         positionY: {
           value: sunConfig?.position?.y ?? 30,
-          min: -100,
-          max: 100,
+          min: -300,
+          max: 300,
           step: 1,
           label: "Position Y",
         },
         positionZ: {
           value: sunConfig?.position?.z ?? -80,
-          min: -150,
-          max: 50,
+          min: -300,
+          max: 300,
           step: 1,
           label: "Position Z",
         },

@@ -3,22 +3,24 @@ import { useFrame, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import * as THREE from "three"
 
+import { getPalette } from "@/colors"
 import {
   nebulaFragmentShader,
   nebulaVertexShader,
 } from "@/shaders/NebulaShader"
 import { LAYERS } from "@/Starfield"
-import { NEBULA_PALETTES } from "@/types"
 import { useGameStore } from "@/useGameStore"
 
 export const Nebula = () => {
   const meshRef = useRef<THREE.Mesh>(null)
   const { camera, size } = useThree()
-  const { nebula: nebulaConfig } = useGameStore(
-    (state) => state.starfieldConfig
-  )
+  const starfieldConfig = useGameStore((state) => state.starfieldConfig)
+  const { nebula: nebulaConfig } = starfieldConfig
 
-  // Leva controls for all nebula uniforms
+  // Get active palette
+  const palette = getPalette(starfieldConfig.palette)
+
+  // Leva controls for all nebula uniforms with palette cascade
   const controls = useControls({
     "Nebula Settings": folder(
       {
@@ -36,19 +38,19 @@ export const Nebula = () => {
         color: {
           value: nebulaConfig?.color
             ? `#${new THREE.Color(nebulaConfig.color).getHexString()}`
-            : "#e6f2ff",
+            : `#${palette.tint.getHexString()}`,
           label: "Global Tint",
         },
         primaryColor: {
           value: nebulaConfig?.primaryColor
             ? `#${new THREE.Color(nebulaConfig.primaryColor).getHexString()}`
-            : NEBULA_PALETTES[0].c1,
+            : `#${palette.c1.getHexString()}`,
           label: "Primary Color",
         },
         secondaryColor: {
           value: nebulaConfig?.secondaryColor
             ? `#${new THREE.Color(nebulaConfig.secondaryColor).getHexString()}`
-            : NEBULA_PALETTES[0].c2,
+            : `#${palette.c2.getHexString()}`,
           label: "Secondary Color",
         },
         domainScale: {

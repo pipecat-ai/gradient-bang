@@ -1,6 +1,7 @@
 import * as THREE from "three"
 
 export interface StarfieldConfig {
+  palette?: string
   useASCIIRenderer: boolean
   cameraBaseFov: number
   hyperspaceEnterTime?: number
@@ -79,6 +80,8 @@ export interface StarfieldConfig {
     scale?: number
     opacity?: number
     position?: { x: number; y: number }
+    tintColor?: string
+    tintIntensity?: number
     shadowEnabled?: boolean
     shadowRadius?: number
     shadowOpacity?: number
@@ -231,52 +234,3 @@ export interface Scene {
   gameObjects: GameObject[]
   config: SceneConfig
 }
-
-export interface NebulaPalette {
-  name: string
-  c1: string // hex color
-  c2: string // hex color
-}
-
-export const NEBULA_PALETTES: readonly NebulaPalette[] = [
-  {
-    name: "tealOrange",
-    c1: "#1aa6b3", // Teal
-    c2: "#fa9433", // Orange
-  },
-  {
-    name: "magentaGreen",
-    c1: "#bf26bf", // Magenta
-    c2: "#33d973", // Green
-  },
-  {
-    name: "blueGold",
-    c1: "#2659f2", // Blue
-    c2: "#f2c740", // Gold
-  },
-  {
-    name: "cyanRed",
-    c1: "#1ad9e6", // Cyan
-    c2: "#e63340", // Red
-  },
-  {
-    name: "violetAmber",
-    c1: "#8c40d9", // Violet
-    c2: "#fab333", // Amber
-  },
-  {
-    name: "emeraldRose",
-    c1: "#1abf80", // Emerald
-    c2: "#f27399", // Rose
-  },
-  {
-    name: "indigoPeach",
-    c1: "#3340b3", // Indigo
-    c2: "#ffb38c", // Peach
-  },
-  {
-    name: "mintCoral",
-    c1: "#80f2cc", // Mint
-    c2: "#ff7373", // Coral
-  },
-] as const

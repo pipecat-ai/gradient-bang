@@ -1,6 +1,7 @@
 import type { StarfieldConfig } from "./types"
 
 export const defaultProfile: StarfieldConfig = {
+  palette: "default",
   cameraBaseFov: 85,
   hyperspaceEnterTime: 2000,
   hyperspaceExitTime: 2000,
@@ -71,23 +72,20 @@ export const defaultProfile: StarfieldConfig = {
     position: { x: 0, y: 0 },
     shadowEnabled: true,
     shadowRadius: 0.7,
-    shadowOpacity: 0.9,
+    shadowOpacity: 0.8,
     shadowFalloff: 0.7,
-    shadowColor: "#000000",
   },
   sun: {
     enabled: true,
     position: { x: 30, y: 30, z: -80 },
     scale: 100,
-    intensity: 1,
-    color: "#ffe8a3",
-    coronaColor: "#ff6b35",
+    intensity: 0.3,
   },
   grading: {
     enabled: true,
     brightness: 0.0,
-    contrast: 0.15,
-    saturation: 0,
+    tintIntensity: 0.2,
+    tintContrast: 1.5,
   },
   nebula: {
     enabled: true,
@@ -100,7 +98,6 @@ export const defaultProfile: StarfieldConfig = {
     radius: 300,
     size: 40,
     opacity: 0.03,
-    color: "#ffffff",
     blendMode: "normal",
     minDistance: 10,
     fadeRange: 3,
