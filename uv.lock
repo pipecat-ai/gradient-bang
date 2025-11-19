@@ -917,7 +917,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 bot = [
-    { name = "pipecat-ai", extras = ["deepgram", "daily", "cartesia", "webrtc", "silero", "local-smart-turn", "google", "runner"], specifier = "==0.0.94" },
+    { name = "pipecat-ai", extras = ["deepgram", "daily", "cartesia", "webrtc", "silero", "local-smart-turn", "google", "runner"], specifier = "==0.0.95" },
     { name = "pipecat-ai-cli" },
 ]
 dev = [
@@ -1836,7 +1836,7 @@ wheels = [
 
 [[package]]
 name = "pipecat-ai"
-version = "0.0.94"
+version = "0.0.95"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiofiles" },
@@ -1856,9 +1856,9 @@ dependencies = [
     { name = "resampy" },
     { name = "soxr" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e5/c0/11c421818e3fa17ef90050eb5651adef278e7c886fa57974cd1a762a65ad/pipecat_ai-0.0.94.tar.gz", hash = "sha256:e04da17c858b9e0f1e5106d02b08899a17fe1fd6138cb6defc9f5c6105c39df8", size = 10721994, upload-time = "2025-11-10T21:54:21.511Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/30/b4/096f79474d4a2f9506027c0b55ea3f3a35af9087bafc9204db346c35a138/pipecat_ai-0.0.95.tar.gz", hash = "sha256:2bedbd52fa14f16980af8d919775d94f78c3ce23d8369f097f5df2f725c5c5f2", size = 10732782, upload-time = "2025-11-19T05:24:40.002Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/dd/6f/564cfc33096852b252a658cfd7614829c892af9c61d0280950782fb9803e/pipecat_ai-0.0.94-py3-none-any.whl", hash = "sha256:75487a50b757b353975194893aba048f6df965eb6bdd1bd7a3364fd03448dbb1", size = 10404234, upload-time = "2025-11-10T21:54:18.394Z" },
+    { url = "https://files.pythonhosted.org/packages/5a/e0/3c6f2da402efe10e31ef946f839a1331176232e2dfb71eb8433ac9b4ce3a/pipecat_ai-0.0.95-py3-none-any.whl", hash = "sha256:a741f25e9bdc96bccf3b723da4ba05e5668f98289400c87e14261b0787722124", size = 10415565, upload-time = "2025-11-19T05:24:37.198Z" },
 ]
 
 [package.optional-dependencies]
