@@ -47,3 +47,4 @@ coverage/
 .nyc_output/
 web-bundles/
 .vercel/
+bundle-analysis.html

@@ -1,0 +1,236 @@
+import * as THREE from "three"
+
+export interface StarfieldConfig {
+  palette?: string
+  useASCIIRenderer: boolean
+  cameraBaseFov: number
+  hyperspaceEnterTime?: number
+  hyperspaceExitTime?: number
+  hyperspaceDuration?: number
+  hyperspaceCooldown?: number
+  hyerpspaceUniforms: {
+    vignetteAmount: number
+    vignetteOffset: number
+    cameraFov: number
+    bloomIntensity: number
+    bloomRadius: number
+  }
+  shakeIntensity?: number
+  shakeRelaxTime?: number
+  layerDimDuration?: number
+  shockwave: {
+    shockwaveEnabled?: boolean
+    shockwaveSpeed?: number
+    shockwaveMaxRadius?: number
+    shockwaveWaveSize?: number
+    shockwaveAmplitude?: number
+    shockwaveDistance?: number
+  }
+  dithering: {
+    ditheringEnabled: true
+    ditheringGridSize?: number
+    ditheringPixelSizeRatio?: number
+    ditheringGrayscaleOnly?: boolean
+  }
+  sharpening: {
+    sharpeningEnabled?: boolean
+    sharpeningIntensity?: number
+    sharpeningRadius?: number
+    sharpeningThreshold?: number
+  }
+  vignette: {
+    vignetteEnabled?: boolean
+    vignetteOffset?: number
+    vignetteDarkness?: number
+  }
+  scanlines: {
+    scanlinesEnabled?: boolean
+    scanlinesIntensity?: number
+    scanlinesFrequency?: number
+  }
+  stars?: {
+    enabled?: boolean
+    radius?: number
+    depth?: number
+    size?: number
+    count?: number
+    factor?: number
+    saturation?: number
+    fade?: boolean
+    speed?: number
+  }
+  dust?: {
+    enabled?: boolean
+    opacity?: number
+    count?: number
+    radius?: number
+    size?: number
+    minDistance?: number
+    fadeRange?: number
+  }
+  fog?: {
+    enabled?: boolean
+    color?: string
+    near?: number
+    far?: number
+  }
+  planet?: {
+    enabled?: boolean
+    imageIndex?: number
+    scale?: number
+    opacity?: number
+    position?: { x: number; y: number }
+    tintColor?: string
+    tintIntensity?: number
+    shadowEnabled?: boolean
+    shadowRadius?: number
+    shadowOpacity?: number
+    shadowFalloff?: number
+    shadowColor?: string
+  }
+  sun?: {
+    enabled?: boolean
+    position?: { x: number; y: number; z: number }
+    scale?: number
+    intensity?: number
+    color?: string
+    coronaColor?: string
+  }
+  grading: {
+    enabled?: boolean
+    brightness?: number
+    contrast?: number
+    saturation?: number
+    tintEnabled?: boolean
+    tintIntensity?: number
+    tintContrast?: number
+    tintColorPrimary?: string
+    tintColorSecondary?: string
+  }
+  nebula?: Partial<NebulaConfig>
+  volumetricClouds?: {
+    enabled?: boolean
+    count?: number
+    radius?: number
+    size?: number
+    opacity?: number
+    color?: string
+    blendMode?: "additive" | "normal"
+    minDistance?: number
+    fadeRange?: number
+  }
+}
+
+export type PerformanceProfile = "low" | "mid" | "high"
+
+export type StarfieldState =
+  | "idle"
+  | "entering_hyperspace"
+  | "in_hyperspace"
+  | "exiting_hyperspace"
+  | "combat"
+
+/**
+ * Represents a game object in the scene
+ */
+export interface GameObject {
+  id: string
+  type?: string
+}
+
+/**
+ * Represents a positioned game object in 3D space
+ */
+export interface PositionedGameObject extends GameObject {
+  position: [number, number, number]
+}
+
+/**
+ * Configuration for game object bounds
+ */
+export interface GameObjectBounds {
+  x: [number, number]
+  y: [number, number]
+  z: [number, number]
+}
+
+/**
+ * Configuration for game object positioning
+ */
+export interface GameObjectConfig {
+  bounds: GameObjectBounds
+  minDistance: number
+  maxAttempts?: number
+}
+
+/**
+ * Base interface for world objects that can be configured asynchronously
+ */
+export interface WorldObject<T = unknown> {
+  /**
+   * Load a new configuration for this object
+   * @param config - Partial configuration to apply
+   * @returns Promise that resolves when the object is ready with the new config
+   */
+  loadConfig(config: Partial<T>): Promise<void>
+}
+
+/**
+ * Configuration for Nebula object
+ */
+export interface NebulaConfig {
+  enabled: boolean
+  intensity: number
+  color: THREE.Color
+  primaryColor: THREE.Color
+  secondaryColor: THREE.Color
+  domainScale: number
+  iterPrimary: number
+  iterSecondary: number
+}
+/**
+ * Configuration for Stars object
+ */
+export interface StarsConfig {
+  enabled: boolean
+  count: number
+  radius: number
+  size: number
+  color: string
+  fogEnabled: boolean
+  fogNear: number
+  fogFar: number
+  fogColor: string
+}
+
+/**
+ * Configuration for Skybox object
+ */
+export interface SkyboxConfig {
+  enabled: boolean
+  imageUrl: string
+  count: number
+  distance: number
+  minScale: number
+  maxScale: number
+  horizontalSpread: number
+  verticalSpread: number
+}
+
+/**
+ * Scene configuration with nested object configs
+ */
+export interface SceneConfig {
+  nebula?: Partial<NebulaConfig>
+  stars?: Partial<StarsConfig>
+  skybox?: Partial<SkyboxConfig>
+}
+
+/**
+ * Overarching scene configuration
+ */
+export interface Scene {
+  id: string
+  gameObjects: GameObject[]
+  config: SceneConfig
+}

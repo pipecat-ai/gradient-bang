@@ -10,10 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
-dev-dist
-
 *.local
-.env
 
 # Editor directories and files
 .vscode/*
@@ -25,7 +22,6 @@ dev-dist
 *.njsproj
 *.sln
 *.sw?
+.turbo
 
-# Fonts
-src/assets/fonts/*
-.vercel
+bundle-analysis.html
