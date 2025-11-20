@@ -20,6 +20,12 @@ dependencies = [
     "psycopg[binary]>=3.2.1",
 ]
 
+[project.scripts]
+gb-bot = "gradientbang.cli:run_bot"
+gb-npc = "gradientbang.cli:run_npc"
+gb-test-local = "gradientbang.cli:test_local"
+gb-test-cloud = "gradientbang.cli:test_cloud"
+
 [dependency-groups]
 dev = [
     "httpx>=0.27.0", # Match main dependency
