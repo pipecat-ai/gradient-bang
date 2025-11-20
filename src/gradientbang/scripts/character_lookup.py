@@ -9,26 +9,9 @@ import json
 import os
 import sys
 
-<<<<<<< HEAD:scripts/character_lookup.py
-from pathlib import Path
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "game-server"))
-
-from core.character_registry import CharacterRegistry
-from core.config import get_world_data_path
-
-# Conditional import: Use Supabase client if SUPABASE_URL is set, otherwise use legacy
-if os.getenv("SUPABASE_URL"):
-    from gradientbang.utils.supabase_client import AsyncGameClient
-else:
-    from gradientbang.utils.api_client import AsyncGameClient
-=======
 from gradientbang.game_server.core.character_registry import CharacterRegistry
 from gradientbang.utils.api_client import AsyncGameClient
 from gradientbang.utils.config import get_world_data_path
->>>>>>> main:src/gradientbang/scripts/character_lookup.py
 
 
 async def main_async() -> int:

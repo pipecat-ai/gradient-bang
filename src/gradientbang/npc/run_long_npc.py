@@ -8,19 +8,6 @@ import sys
 import time
 from google import genai
 from loguru import logger
-<<<<<<< HEAD:npc/run_long_npc.py
-
-# Ensure project modules are importable when running as a script
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-if os.getenv("SUPABASE_URL"):
-    from utils.supabase_client import AsyncGameClient
-else:
-    from utils.api_client import AsyncGameClient
-from utils.task_agent import TaskAgent
-from utils.prompts import GAME_DESCRIPTION, RUN_LONG_NPC_INSTRUCTIONS
-=======
->>>>>>> main:src/gradientbang/npc/run_long_npc.py
 from typing import Any, Dict, List, Optional
 
 from gradientbang.utils.api_client import AsyncGameClient

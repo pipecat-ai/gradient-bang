@@ -15,8 +15,8 @@ import json
 
 import httpx
 
-from utils.api_client import AsyncGameClient as LegacyAsyncGameClient, RPCError
-from utils.legacy_ids import canonicalize_character_id
+from gradientbang.utils.api_client import AsyncGameClient as LegacyAsyncGameClient, RPCError
+from gradientbang.utils.legacy_ids import canonicalize_character_id
 
 
 logger = logging.getLogger(__name__)

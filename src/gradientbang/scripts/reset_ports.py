@@ -9,23 +9,8 @@ Usage:
 """
 import asyncio
 import argparse
-<<<<<<< HEAD:scripts/reset_ports.py
-import os
-import sys
-from pathlib import Path
-
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-# Conditional import: Use Supabase client if SUPABASE_URL is set, otherwise use legacy
-if os.getenv("SUPABASE_URL"):
-    from gradientbang.utils.supabase_client import AsyncGameClient
-else:
-    from gradientbang.utils.api_client import AsyncGameClient
-=======
 
 from gradientbang.utils.api_client import AsyncGameClient
->>>>>>> main:src/gradientbang/scripts/reset_ports.py
 
 
 async def main():

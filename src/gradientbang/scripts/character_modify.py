@@ -6,11 +6,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import getpass
-<<<<<<< HEAD:scripts/character_modify.py
-import os
-from pathlib import Path
-=======
->>>>>>> main:src/gradientbang/scripts/character_modify.py
 import sys
 from typing import Any, Dict, Optional
 
@@ -167,45 +162,8 @@ async def main_async() -> int:
     return 0
 
 
-<<<<<<< HEAD:scripts/character_modify.py
-def _should_use_supabase_mode(args: argparse.Namespace) -> bool:
-    if args.legacy:
-        return False
-    if args.supabase:
-        return True
-    return bool(os.getenv("SUPABASE_URL"))
-
-
-async def _modify_via_supabase(character_id: str, payload: Dict[str, Any]) -> int:
-    try:
-        from gradientbang.utils.supabase_admin import SupabaseAdminClient, SupabaseAdminError
-    except ImportError as exc:  # pragma: no cover - dependency missing
-        print(f"Supabase admin helpers unavailable: {exc}")
-        return 1
-
-    try:
-        async with SupabaseAdminClient() as admin:
-            result = await admin.modify_character(
-                character_id=character_id,
-                name=payload.get("name"),
-                player=payload.get("player"),
-                ship=payload.get("ship"),
-            )
-    except SupabaseAdminError as exc:
-        print(f"Supabase character update failed: {exc}")
-        return 1
-
-    print("✓ Supabase character updated.")
-    if result.get("character"):
-        print(f"  Name: {result['character'].get('name')}")
-    if result.get("ship"):
-        ship = result["ship"]
-        print(f"  Ship: {ship.get('ship_id')} ({ship.get('ship_type')})")
-    return 0
-=======
 def main() -> None:
     raise SystemExit(asyncio.run(main_async()))
->>>>>>> main:src/gradientbang/scripts/character_modify.py
 
 
 if __name__ == "__main__":

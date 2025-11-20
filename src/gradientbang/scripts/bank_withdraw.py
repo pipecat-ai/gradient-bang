@@ -8,19 +8,7 @@ import asyncio
 import os
 import sys
 
-<<<<<<< HEAD:scripts/bank_withdraw.py
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
-
-# Conditional import: Use Supabase client if SUPABASE_URL is set, otherwise use legacy
-if os.getenv("SUPABASE_URL"):
-    from gradientbang.utils.supabase_client import AsyncGameClient
-    from gradientbang.utils.api_client import RPCError
-else:
-    from gradientbang.utils.api_client import AsyncGameClient, RPCError
-=======
 from gradientbang.utils.api_client import AsyncGameClient, RPCError
->>>>>>> main:src/gradientbang/scripts/bank_withdraw.py
 
 
 async def main() -> int:

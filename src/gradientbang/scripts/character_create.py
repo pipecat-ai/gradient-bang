@@ -6,11 +6,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import getpass
-<<<<<<< HEAD:scripts/character_create.py
-import os
-from pathlib import Path
-=======
->>>>>>> main:src/gradientbang/scripts/character_create.py
 import sys
 from typing import Any, Dict, Optional, Tuple
 
@@ -289,14 +284,11 @@ async def main_async() -> int:
     )
 
     args = parser.parse_args()
-<<<<<<< HEAD:scripts/character_create.py
-=======
 
     if not await _server_is_running(args.server):
         return 1
 
     # Determine if we're in interactive or non-interactive mode
->>>>>>> main:src/gradientbang/scripts/character_create.py
     non_interactive = args.name is not None
 
     name = args.name or _prompt("Display name: ")

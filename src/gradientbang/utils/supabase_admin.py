@@ -9,8 +9,8 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 import httpx
 
-from core.name_validation import ensure_safe_character_name
-from utils.legacy_ids import canonicalize_character_id, deterministic_ship_id
+from gradientbang.core.name_validation import ensure_safe_character_name
+from gradientbang.utils.legacy_ids import canonicalize_character_id, deterministic_ship_id
 
 
 class SupabaseAdminError(RuntimeError):
