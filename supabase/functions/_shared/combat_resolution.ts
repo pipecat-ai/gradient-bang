@@ -14,6 +14,7 @@ import {
 import { persistCombatState } from './combat_state.ts';
 
 const ROUND_TIMEOUT_SECONDS = Number(Deno.env.get('COMBAT_ROUND_TIMEOUT') ?? '15');
+const SHIELD_REGEN_PER_ROUND = Number(Deno.env.get('SHIELD_REGEN_PER_ROUND') ?? '10');
 
 export function computeNextCombatDeadline(): string {
   return new Date(Date.now() + ROUND_TIMEOUT_SECONDS * 1000).toISOString();
@@ -91,7 +92,7 @@ export async function resolveEncounterRound(options: {
     encounter.end_state = outcome.end_state;
     encounter.deadline = null;
 
-    const salvage = await finalizeCombat(supabase, encounter, outcome);
+    const salvage = await finalizeCombat(supabase, encounter, outcome, requestId);
 
     console.log('combat_resolution.broadcasting_ended', { combat_id: encounter.combat_id, recipients: recipients.length });
 
@@ -136,6 +137,15 @@ export async function resolveEncounterRound(options: {
     console.log('combat_resolution.continuing', { combat_id: encounter.combat_id, next_round: outcome.round_number + 1 });
     encounter.round = outcome.round_number + 1;
     encounter.deadline = computeNextCombatDeadline();
+
+    // Recharge shields between rounds
+    for (const participant of Object.values(encounter.participants)) {
+      if ((participant.fighters ?? 0) > 0 && !participant.is_escape_pod) {
+        const currentShields = participant.shields ?? 0;
+        const maxShields = participant.max_shields ?? 0;
+        participant.shields = Math.min(currentShields + SHIELD_REGEN_PER_ROUND, maxShields);
+      }
+    }
 
     const waitingPayload = buildRoundWaitingPayload(encounter);
     waitingPayload.source = buildEventSource('combat.round_waiting', requestId);

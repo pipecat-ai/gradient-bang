@@ -14,6 +14,7 @@ import {
 } from '../_shared/status.ts';
 import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 import { canonicalizeCharacterId } from '../_shared/ids.ts';
+import { loadCombatForSector } from '../_shared/combat_state.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -156,6 +157,20 @@ async function handleTransfer(
     throw new TransferCreditsError('Cannot transfer credits to yourself', 400);
   }
 
+  // Check if sender or receiver is in combat
+  const sectorId = fromRecord.ship.current_sector;
+  if (sectorId !== null) {
+    const combat = await loadCombatForSector(supabase, sectorId);
+    if (combat && !combat.ended) {
+      if (combat.participants[fromCharacterId]) {
+        throw new TransferCreditsError('Cannot transfer credits while in combat', 409);
+      }
+      if (combat.participants[toRecord.character.character_id]) {
+        throw new TransferCreditsError('Cannot transfer credits to a character in combat', 409);
+      }
+    }
+  }
+
   const senderCredits = fromRecord.ship.credits ?? 0;
   if (senderCredits < amount) {
     throw new TransferCreditsError(`Insufficient credits. ${fromCharacterId} only has ${senderCredits}`, 400);
@@ -197,16 +212,17 @@ async function handleTransfer(
 
   const fromPlayer = buildPublicPlayerSnapshotFromStatus(fromStatus);
   const toPlayer = buildPublicPlayerSnapshotFromStatus(toStatus);
-  const sectorId = fromRecord.ship.current_sector ?? toRecord.ship.current_sector ?? 0;
+  const finalSectorId = fromRecord.ship.current_sector ?? toRecord.ship.current_sector ?? 0;
   const timestamp = new Date().toISOString();
 
   await emitCharacterEvent({
     supabase,
     characterId: fromCharacterId,
     eventType: 'credits.transfer',
-    payload: buildTransferPayload('sent', amount, fromPlayer, toPlayer, sectorId, source, timestamp),
+    payload: buildTransferPayload('sent', amount, fromPlayer, toPlayer, finalSectorId, source, timestamp),
+    senderId: fromCharacterId,
     requestId,
-    sectorId,
+    sectorId: finalSectorId,
     shipId: fromRecord.ship.ship_id,
     actorCharacterId,
     corpId: fromRecord.character.corporation_id,
@@ -216,9 +232,10 @@ async function handleTransfer(
     supabase,
     characterId: toRecord.character.character_id,
     eventType: 'credits.transfer',
-    payload: buildTransferPayload('received', amount, fromPlayer, toPlayer, sectorId, source, timestamp),
+    payload: buildTransferPayload('received', amount, fromPlayer, toPlayer, finalSectorId, source, timestamp),
+    senderId: fromCharacterId,
     requestId,
-    sectorId,
+    sectorId: finalSectorId,
     shipId: toRecord.ship.ship_id,
     actorCharacterId,
     corpId: toRecord.character.corporation_id,
@@ -230,7 +247,7 @@ async function handleTransfer(
     eventType: 'status.update',
     payload: fromStatus,
     requestId,
-    sectorId,
+    sectorId: finalSectorId,
     shipId: fromRecord.ship.ship_id,
     actorCharacterId,
     corpId: fromRecord.character.corporation_id,
@@ -241,7 +258,7 @@ async function handleTransfer(
     eventType: 'status.update',
     payload: toStatus,
     requestId,
-    sectorId,
+    sectorId: finalSectorId,
     shipId: toRecord.ship.ship_id,
     actorCharacterId,
     corpId: toRecord.character.corporation_id,

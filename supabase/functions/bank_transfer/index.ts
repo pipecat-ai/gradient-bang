@@ -212,8 +212,13 @@ async function handleDeposit(
   const targetCharacterId = target.character_id;
   console.log('[bank_transfer.deposit] Found target', { targetCharacterId, targetName: target.name });
 
+  // For rate limiting: use actor character ID for corp ships, owner ID for personal ships
+  const rateLimitCharacterId = ship.owner_type === 'corporation' && actorCharacterId
+    ? actorCharacterId
+    : (ship.owner_character_id ?? targetCharacterId);
+
   try {
-    await enforceRateLimit(supabase, ownerId ?? targetCharacterId, 'bank_transfer');
+    await enforceRateLimit(supabase, rateLimitCharacterId, 'bank_transfer');
   } catch (err) {
     if (err instanceof RateLimitError) {
       throw new BankTransferError('Too many bank_transfer requests', 429);
@@ -280,8 +285,11 @@ async function handleDeposit(
   }
   const targetDisplayId = resolveDisplayIdFromStatus(targetStatus, target.name ?? targetPlayerName, targetCharacterId);
 
-  const resolvedSourceCharacter = sourceCharacterId ?? ship.owner_character_id ?? targetCharacterId;
-  console.log('[bank_transfer.deposit] Resolved source character', { resolvedSourceCharacter, sourceCharacterId, owner: ship.owner_character_id });
+  // For corp ships, source_character_id should be null (no character owns the ship)
+  const resolvedSourceCharacter = ship.owner_type === 'corporation'
+    ? null
+    : (sourceCharacterId ?? ship.owner_character_id ?? targetCharacterId);
+  console.log('[bank_transfer.deposit] Resolved source character', { resolvedSourceCharacter, sourceCharacterId, owner: ship.owner_character_id, ownerType: ship.owner_type });
 
   let sourceStatus: Record<string, unknown> | null = null;
   if (resolvedSourceCharacter && resolvedSourceCharacter !== targetCharacterId) {
@@ -294,13 +302,16 @@ async function handleDeposit(
       throw err;
     }
   }
+  // For corp ships, sourceDisplayId should be null (no source character)
   const sourceDisplayId =
-    resolvedSourceCharacter === targetCharacterId
+    !resolvedSourceCharacter
+      ? null
+      : resolvedSourceCharacter === targetCharacterId
       ? targetDisplayId
       : resolveDisplayIdFromStatus(
           sourceStatus,
           sourceCharacterLabel,
-          resolvedSourceCharacter ?? targetDisplayId,
+          resolvedSourceCharacter,
         );
   console.log('[bank_transfer.deposit] Display IDs resolved', { targetDisplayId, sourceDisplayId });
 
@@ -312,7 +323,7 @@ async function handleDeposit(
       buildDepositPayload({
         source,
         amount,
-        shipId: resolveLegacyShipId(targetStatus, shipId, targetDisplayId),
+        shipId,  // Use the depositing ship's ID, not the target's ship ID
         shipCreditsBefore,
         shipCreditsAfter: shipCreditsBefore - amount,
         bankBefore,

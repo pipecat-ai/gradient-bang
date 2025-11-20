@@ -17,27 +17,22 @@ import httpx
 
 from utils.api_client import AsyncGameClient as LegacyAsyncGameClient, RPCError
 from utils.legacy_ids import canonicalize_character_id
-from utils.supabase_realtime import SupabaseRealtimeListener
 
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 _TRUE_VALUES = {"1", "true", "on", "yes"}
-SUPABASE_REALTIME_DEBUG = os.getenv("SUPABASE_REALTIME_DEBUG", "").lower() in _TRUE_VALUES
 CHARACTER_JWT_REFRESH_MARGIN_SECONDS = float(
     os.getenv("SUPABASE_CHARACTER_JWT_REFRESH_MARGIN", "60")
 )
 DEFAULT_CHARACTER_JWT_TTL_SECONDS = 60 * 60
-USE_POLLING_DEFAULT = os.getenv("SUPABASE_USE_POLLING", "").lower() in _TRUE_VALUES
 POLL_INTERVAL_SECONDS = max(0.25, float(os.getenv("SUPABASE_POLL_INTERVAL_SECONDS", "1.0")))
 POLL_LIMIT_DEFAULT = max(1, min(250, int(os.getenv("SUPABASE_POLL_LIMIT", "100"))))
 POLL_BACKOFF_MAX = max(1.0, float(os.getenv("SUPABASE_POLL_BACKOFF_MAX", "5.0")))
-# Enable verbose realtime logging by exporting SUPABASE_REALTIME_DEBUG=1
-logger.setLevel(logging.INFO if SUPABASE_REALTIME_DEBUG else logging.WARNING)
 
 
 class AsyncGameClient(LegacyAsyncGameClient):
-    """Drop-in replacement that talks to Supabase edge functions + Realtime."""
+    """Drop-in replacement that talks to Supabase edge functions via HTTP polling."""
 
     def __init__(
         self,
@@ -104,17 +99,9 @@ class AsyncGameClient(LegacyAsyncGameClient):
         self._http = httpx.AsyncClient(timeout=10.0)
         self._requested_transport = requested_transport
 
-        self._realtime_listener: Optional[SupabaseRealtimeListener] = None
-        self._sector_listener: Optional[SupabaseRealtimeListener] = None
-        self._sector_listener_topic: Optional[int] = None
-        self._realtime_listener_token: Optional[str] = None
-        self._sector_listener_token: Optional[str] = None
         self._current_sector_id: Optional[int] = None
         self._recent_event_ids: Deque[int] = deque()
         self._recent_event_ids_max = 512
-        self._realtime_subscribe_timeout = float(
-            os.getenv("SUPABASE_REALTIME_SUBSCRIBE_TIMEOUT", "5")
-        )
         self._canonical_character_id = canonicalize_character_id(character_id)
         self._canonical_actor_character_id = (
             canonicalize_character_id(actor_character_id)
@@ -126,7 +113,6 @@ class AsyncGameClient(LegacyAsyncGameClient):
         self._character_jwt_expires_at: Optional[datetime] = None
         margin_seconds = max(5.0, CHARACTER_JWT_REFRESH_MARGIN_SECONDS)
         self._character_jwt_refresh_margin = timedelta(seconds=margin_seconds)
-        self._use_polling = USE_POLLING_DEFAULT
         self._poll_interval = POLL_INTERVAL_SECONDS
         self._poll_limit = POLL_LIMIT_DEFAULT
         self._polling_task: Optional[asyncio.Task] = None
@@ -141,14 +127,6 @@ class AsyncGameClient(LegacyAsyncGameClient):
         if self._http:
             await self._http.aclose()
             self._http = None
-        if self._realtime_listener is not None:
-            await self._realtime_listener.stop()
-            self._realtime_listener = None
-        if self._sector_listener is not None:
-            await self._sector_listener.stop()
-            self._sector_listener = None
-            self._sector_listener_topic = None
-            self._sector_listener_token = None
         self._character_jwt = None
         self._character_jwt_expires_at = None
 
@@ -162,8 +140,8 @@ class AsyncGameClient(LegacyAsyncGameClient):
         *,
         skip_event_delivery: bool = False,
     ) -> Dict[str, Any]:  # type: ignore[override]
-        # Skip realtime listener setup only for get_character_jwt (to avoid recursion)
-        # For join, we establish Realtime BEFORE the RPC so join events are received
+        # Skip polling setup only for get_character_jwt (to avoid recursion)
+        # For join, we establish polling BEFORE the RPC so join events are received
         if endpoint not in ("get_character_jwt",) and not skip_event_delivery:
             await self._ensure_event_delivery()
         http_client = self._ensure_http_client()
@@ -237,7 +215,6 @@ class AsyncGameClient(LegacyAsyncGameClient):
             if actor_character_id is not None
             else None
         )
-        asyncio.create_task(self._ensure_sector_listener())
 
     async def combat_initiate(
         self,
@@ -513,10 +490,7 @@ class AsyncGameClient(LegacyAsyncGameClient):
         return now + timedelta(seconds=seconds)
 
     async def _ensure_event_delivery(self) -> None:
-        if self._use_polling:
-            await self._ensure_event_poller()
-            return
-        await self._ensure_realtime_listener()
+        await self._ensure_event_poller()
 
     async def _ensure_event_poller(self) -> None:
         async with self._polling_lock:
@@ -637,9 +611,6 @@ class AsyncGameClient(LegacyAsyncGameClient):
         return payload
 
     async def _stop_event_poller(self) -> None:
-        if not self._use_polling:
-            return
-
         # Do one final poll to capture any pending events before stopping
         # This ensures events from the last RPC are delivered before client closes
         try:
@@ -653,69 +624,6 @@ class AsyncGameClient(LegacyAsyncGameClient):
             with suppress(asyncio.CancelledError):
                 await self._polling_task
             self._polling_task = None
-
-    async def _ensure_realtime_listener(self) -> None:
-        character_jwt = await self._ensure_character_jwt()
-        if self._use_polling:
-            return
-        listener = self._realtime_listener
-        if (
-            listener is None
-            or self._realtime_listener_token != character_jwt
-            or listener.topic != "public:events"
-        ):
-            if listener is not None:
-                await listener.stop()
-            listener = SupabaseRealtimeListener(
-                supabase_url=self._supabase_url,
-                anon_key=self._anon_key,
-                topic="public:events",
-                subscribe_timeout=self._realtime_subscribe_timeout,
-                schema="public",
-                table="events",
-                access_token=character_jwt,
-                postgres_filter=f"character_id=eq.{self._canonical_character_id}",
-            )
-            listener.on_any(self._handle_realtime_event)
-            self._realtime_listener = listener
-            self._realtime_listener_token = character_jwt
-
-        await self._realtime_listener.start()
-        await self._ensure_sector_listener()
-
-    async def _handle_realtime_event(
-        self,
-        event_name: str,
-        payload: Dict[str, Any],
-    ) -> None:
-        logger.info(
-            "supabase realtime event received",
-            extra={
-                "event": event_name,
-                "payload_keys": list(payload.keys()),
-            },
-        )
-        if not self._record_event_id(payload):
-            return
-        await self._maybe_update_sector_from_event(event_name, payload)
-        cleaned_payload = self._strip_supabase_metadata(payload)
-        event_id = self._extract_event_id_from_payload(payload)
-        if event_id is not None:
-            cleaned_payload["__supabase_event_id"] = event_id
-        await self._process_event(event_name, cleaned_payload)
-        self._append_event_log(event_name, cleaned_payload)
-
-    async def _handle_sector_event(
-        self,
-        event_name: str,
-        payload: Dict[str, Any],
-    ) -> None:
-        context = payload.get("__event_context") if isinstance(payload, Mapping) else None
-        if isinstance(context, Mapping):
-            sector_character_id = context.get("character_id")
-            if isinstance(sector_character_id, str) and sector_character_id == self._canonical_character_id:
-                return
-        await self._handle_realtime_event(event_name, payload)
 
     def _append_event_log(self, event_name: str, payload: Dict[str, Any]) -> None:
         if not self._event_log_path:
@@ -740,49 +648,6 @@ class AsyncGameClient(LegacyAsyncGameClient):
             self._http = httpx.AsyncClient(timeout=10.0)
         return self._http
 
-    async def _ensure_sector_listener(self) -> None:
-        if self._use_polling:
-            return
-        sector_id = self._current_sector_id
-        if sector_id is None:
-            await self._stop_sector_listener()
-            return
-
-        character_jwt = await self._ensure_character_jwt()
-        listener = self._sector_listener
-        if (
-            listener is not None
-            and self._sector_listener_topic == sector_id
-            and self._sector_listener_token == character_jwt
-        ):
-            await listener.start()
-            return
-
-        await self._stop_sector_listener()
-
-        listener = SupabaseRealtimeListener(
-            supabase_url=self._supabase_url,
-            anon_key=self._anon_key,
-            topic="public:events",
-            subscribe_timeout=self._realtime_subscribe_timeout,
-            schema="public",
-            table="events",
-            access_token=character_jwt,
-            postgres_filter=f"sector_id=eq.{sector_id}",
-        )
-        listener.on_any(self._handle_sector_event)
-        self._sector_listener = listener
-        self._sector_listener_topic = sector_id
-        self._sector_listener_token = character_jwt
-        await listener.start()
-
-    async def _stop_sector_listener(self) -> None:
-        if self._sector_listener is not None:
-            await self._sector_listener.stop()
-            self._sector_listener = None
-        self._sector_listener_topic = None
-        self._sector_listener_token = None
-
     async def _maybe_update_sector_from_response(self, endpoint: str, result: Mapping[str, Any]) -> None:
         if not isinstance(result, Mapping):
             return
@@ -805,6 +670,7 @@ class AsyncGameClient(LegacyAsyncGameClient):
         if sector_id is None:
             return
         self._set_current_sector(sector_id)
+
     def _set_current_sector(self, sector_id: Optional[int]) -> None:
         if sector_id is None:
             return
@@ -812,8 +678,6 @@ class AsyncGameClient(LegacyAsyncGameClient):
         if sector_id == self._current_sector_id:
             return
         self._current_sector_id = sector_id
-        if not self._use_polling:
-            asyncio.create_task(self._ensure_sector_listener())
 
     def _extract_sector_id_from_event(self, event_name: str, payload: Mapping[str, Any]) -> Optional[int]:
         ctx = payload.get("__event_context") if isinstance(payload, Mapping) else None

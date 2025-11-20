@@ -44,8 +44,8 @@ INSERT INTO ports (
   (2, 'SBB', 5, 500, 500, 400, 250, 225, 200),
   (5, 'BSB', 3, 350, 300, 200, 175, 110, 80);
 
-INSERT INTO sector_contents (sector_id, port_id, combat, salvage, observer_channels)
-SELECT sector_id, port_id, NULL, '[]'::jsonb, '[]'::jsonb
+INSERT INTO sector_contents (sector_id, port_id, combat, salvage)
+SELECT sector_id, port_id, NULL, '[]'::jsonb
 FROM ports;
 
 INSERT INTO characters (

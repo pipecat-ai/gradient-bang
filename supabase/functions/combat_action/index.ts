@@ -96,14 +96,15 @@ serve(async (req: Request): Promise<Response> => {
     }
     console.error('combat_action.error', err);
     const status = err instanceof Error && 'status' in err ? Number((err as Error & { status?: number }).status) : 500;
+    const message = err instanceof Error ? err.message : 'combat action failed';
     await emitErrorEvent(supabase, {
       characterId,
       method: 'combat_action',
       requestId,
-      detail: err instanceof Error ? err.message : 'combat action failed',
+      detail: message,
       status,
     });
-    return errorResponse('combat action error', status);
+    return errorResponse(message, status);
   }
 });
 
@@ -281,9 +282,10 @@ async function buildActionState(params: {
     }
     commit = Math.max(1, Math.min(commit || participant.fighters, participant.fighters));
   } else if (action === 'flee') {
-    const destination = optionalNumber(params.payload, 'destination_sector');
+    // Accept both 'to_sector' (client library) and 'destination_sector' (legacy)
+    const destination = optionalNumber(params.payload, 'to_sector') ?? optionalNumber(params.payload, 'destination_sector');
     if (destination === null || Number.isNaN(destination)) {
-      const err = new Error('destination_sector is required for flee') as Error & { status?: number };
+      const err = new Error('to_sector is required for flee') as Error & { status?: number };
       err.status = 400;
       throw err;
     }

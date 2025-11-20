@@ -2,7 +2,7 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 
 import { validateApiToken, unauthorizedResponse, errorResponse, successResponse } from '../_shared/auth.ts';
 import { createServiceRoleClient } from '../_shared/client.ts';
-import { emitCharacterEvent, emitErrorEvent, buildEventSource, emitSectorEnvelope } from '../_shared/events.ts';
+import { emitCharacterEvent, emitErrorEvent, buildEventSource } from '../_shared/events.ts';
 import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
 import {
   findShortestPath,
@@ -191,13 +191,7 @@ async function handlePathWithRegion(
     corpId: character.corporation_id,
   });
 
-  await emitSectorEnvelope({
-    supabase,
-    sectorId: ship.current_sector,
-    eventType: 'path.region',
-    payload: payloadBody,
-    requestId,
-  });
+  // Path calculations are private - no sector broadcast needed
 
   return successResponse({ request_id: requestId });
 }

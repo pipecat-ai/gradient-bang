@@ -172,12 +172,21 @@ async function handlePersonalPurchase(
     throw new ShipPurchaseError('Failed to update character state', 500);
   }
 
-  const { error: deleteError } = await supabase
+  // Mark old ship as unowned (trade-in) instead of deleting
+  const { error: unownedError } = await supabase
     .from('ship_instances')
-    .delete()
+    .update({
+      owner_type: 'unowned',
+      owner_id: null,
+      owner_character_id: null,
+      owner_corporation_id: null,
+      became_unowned: timestamp,
+      former_owner_name: character.name,
+    })
     .eq('ship_id', currentShip.ship_id);
-  if (deleteError) {
-    console.error('ship_purchase.old_ship_delete', deleteError);
+  if (unownedError) {
+    console.error('ship_purchase.old_ship_unowned', unownedError);
+    throw new ShipPurchaseError('Failed to mark old ship as unowned', 500);
   }
 
   const statusPayload = await buildStatusPayload(supabase, characterId);

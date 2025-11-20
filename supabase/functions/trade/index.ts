@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 
+// Fix: Added senderId to trade event emission for corporation ship tracking
 import { validateApiToken, unauthorizedResponse, errorResponse, successResponse } from '../_shared/auth.ts';
 import { createServiceRoleClient } from '../_shared/client.ts';
 import { emitCharacterEvent, emitErrorEvent, buildEventSource } from '../_shared/events.ts';
@@ -45,7 +46,14 @@ class TradeError extends Error {
   }
 }
 
-const MAX_PORT_ATTEMPTS = 4;
+// Optimistic concurrency control: Retry attempts for port inventory updates
+// Legacy uses pessimistic locking (async locks) which queues all requests
+// Supabase uses optimistic locking (version checks) which requires retries
+//
+// For high-concurrency scenarios (50 concurrent trades):
+// - Need ~15 attempts for 70% success rate (35/50 trades)
+// - Exponential backoff reduces retry collisions
+const MAX_PORT_ATTEMPTS = 15;
 
 serve(async (req: Request): Promise<Response> => {
   if (!validateApiToken(req)) {
@@ -276,6 +284,7 @@ async function handleTrade(
         new_prices: priceMap,
       },
     },
+    senderId: characterId,
     sectorId,
     shipId: ship.ship_id,
     requestId,
@@ -356,7 +365,11 @@ async function executeTradeWithPortRetry(params: {
 }> {
   let attempt = 0;
   let currentPort = params.initialPort;
+  console.log(`[trade.retry] Starting trade at sector ${params.sectorId}, port version ${currentPort.version}, commodity ${params.commodity}, quantity ${params.quantity}`);
+
   while (attempt < MAX_PORT_ATTEMPTS) {
+    console.log(`[trade.retry] Attempt ${attempt + 1}/${MAX_PORT_ATTEMPTS}, port version ${currentPort.version}`);
+
     const computation = computeTradeOutcome({
       portRow: currentPort,
       commodity: params.commodity,
@@ -371,6 +384,7 @@ async function executeTradeWithPortRetry(params: {
     const observedAt = new Date().toISOString();
     const updateResult = await attemptPortUpdate(params.supabase, currentPort, computation.updatedPortStock, observedAt);
     if (updateResult) {
+      console.log(`[trade.retry] SUCCESS on attempt ${attempt + 1}, new version ${updateResult.version}`);
       return {
         computation,
         updatedPort: updateResult,
@@ -380,13 +394,26 @@ async function executeTradeWithPortRetry(params: {
       };
     }
 
+    console.log(`[trade.retry] Port version mismatch on attempt ${attempt + 1}, refreshing...`);
+
+    // Exponential backoff with jitter to reduce retry collisions
+    // Spreads out retries over time instead of all hitting at once
+    // Base: 10ms, doubles each attempt, with random jitter (0-100%)
+    const baseDelayMs = 10;
+    const maxJitterMs = baseDelayMs * Math.pow(2, attempt);
+    const jitterMs = Math.random() * maxJitterMs;
+    console.log(`[trade.retry] Backing off ${jitterMs.toFixed(1)}ms before retry`);
+    await new Promise(resolve => setTimeout(resolve, jitterMs));
+
     const refreshed = await loadPortBySector(params.supabase, params.sectorId);
     if (!refreshed) {
       throw new TradeError('Port became unavailable', 409);
     }
+    console.log(`[trade.retry] Refreshed port, new version ${refreshed.version}`);
     currentPort = refreshed;
     attempt += 1;
   }
+  console.error(`[trade.retry] FAILED after ${MAX_PORT_ATTEMPTS} attempts at sector ${params.sectorId}`);
   throw new TradeError('Port inventory changed, please retry', 409);
 }
 

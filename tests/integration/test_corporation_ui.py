@@ -7,6 +7,7 @@ import contextlib
 
 import pytest
 
+from conftest import EVENT_DELIVERY_WAIT
 from helpers.combat_helpers import create_test_character_knowledge
 from helpers.corporation_utils import REQUIRED_CORPORATION_FUNCTIONS
 from helpers.client_setup import create_client_with_character
@@ -77,6 +78,9 @@ async def test_status_includes_corporation_details(server_url, check_server_avai
             },
         )
 
+        # Wait for event delivery in polling mode
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
+
         status_payload = await _status_snapshot(member, member_id)
         corp_info = status_payload.get("corporation")
 
@@ -113,6 +117,9 @@ async def test_sector_players_and_garrisons_reflect_corporations(server_url, che
             },
         )
 
+        # Wait for event delivery in polling mode
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
+
         leave_ack = await founder.combat_leave_fighters(
             character_id=founder_id,
             sector=sector,
@@ -121,8 +128,12 @@ async def test_sector_players_and_garrisons_reflect_corporations(server_url, che
         )
         assert leave_ack["success"] is True
 
+        # Wait for garrison event delivery
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
+
         member_status = await _status_snapshot(member, member_id)
-        players = {player["id"]: player for player in member_status["sector"]["players"]}
+        # Key by name, not id (Supabase uses UUIDs for id, names for name)
+        players = {player["name"]: player for player in member_status["sector"]["players"]}
         assert founder_id in players
         founder_corp = players[founder_id].get("corporation")
         assert founder_corp and founder_corp.get("name") == "Sector Corps"

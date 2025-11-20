@@ -277,6 +277,7 @@ def create_test_character_knowledge(
             pass
         else:
             ship_updates = {
+                'ship_type': ship_type,  # IMPORTANT: Must sync ship_type to Supabase
                 'cargo_qf': cargo.get('quantum_foam', 0),
                 'cargo_ro': cargo.get('retro_organics', 0),
                 'cargo_ns': cargo.get('neuro_symbolics', 0),

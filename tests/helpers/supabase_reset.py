@@ -561,13 +561,12 @@ def _seed_universe(cur) -> None:
 
         cur.execute(
             """
-            INSERT INTO sector_contents (sector_id, port_id, combat, salvage, observer_channels)
-            VALUES (%s, %s, NULL, %s, %s)
+            INSERT INTO sector_contents (sector_id, port_id, combat, salvage)
+            VALUES (%s, %s, NULL, %s)
             """,
             (
                 sector_id,
                 port_id,
-                Json([]),
                 Json([]),
             ),
         )

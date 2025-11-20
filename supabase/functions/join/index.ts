@@ -11,6 +11,9 @@ import {
   normalizeMapKnowledge,
   upsertVisitedSector,
 } from '../_shared/map.ts';
+import { loadCombatForSector, persistCombatState } from '../_shared/combat_state.ts';
+import { loadCharacterCombatants } from '../_shared/combat_participants.ts';
+import { buildRoundWaitingPayload } from '../_shared/combat_events.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -170,6 +173,9 @@ serve(async (req: Request): Promise<Response> => {
     });
 
     const source = buildEventSource('join', requestId);
+
+    // Emit status.snapshot FIRST
+    console.log(`[join] Emitting status.snapshot for ${characterId}`);
     const statusPayload = await buildStatusPayload(supabase, characterId);
     statusPayload['source'] = source;
     await emitCharacterEvent({
@@ -182,7 +188,10 @@ serve(async (req: Request): Promise<Response> => {
       requestId,
       corpId: character.corporation_id,
     });
+    console.log('[join] status.snapshot emitted');
 
+    // Emit map.local SECOND
+    console.log(`[join] Emitting map.local for ${characterId}`);
     const mapPayload = await buildLocalMapRegion(supabase, {
       characterId,
       centerSector: targetSector,
@@ -199,6 +208,7 @@ serve(async (req: Request): Promise<Response> => {
       requestId,
       corpId: character.corporation_id,
     });
+    console.log('[join] map.local emitted');
 
     const observerMetadata: ObserverMetadata = {
       characterId: character.character_id,
@@ -231,8 +241,20 @@ serve(async (req: Request): Promise<Response> => {
       });
     }
 
+    // Auto-join existing combat (if any) in the target sector
+    // This adds the character to participants but does NOT emit events yet
+    console.log('[join] Checking for existing combat to join');
+    let activeEncounter = await autoJoinExistingCombat({
+      supabase,
+      characterId,
+      sectorId: targetSector,
+      requestId,
+    });
+
     // Check for garrison auto-engage (offensive/toll garrisons trigger combat on join)
+    // This may CREATE a new combat encounter
     // Matches legacy pattern from game-server/api/join.py
+    console.log('[join] Checking for garrison auto-engage');
     const { checkGarrisonAutoEngage } = await import('../_shared/garrison_combat.ts');
     await checkGarrisonAutoEngage({
       supabase,
@@ -240,6 +262,37 @@ serve(async (req: Request): Promise<Response> => {
       sectorId: targetSector,
       requestId,
     });
+
+    // After all combat setup is complete, check if there's an active combat encounter
+    // If garrison auto-engage created NEW combat, we need to reload the encounter
+    if (!activeEncounter) {
+      console.log('[join] Reloading combat state after garrison check');
+      activeEncounter = await loadCombatForSector(supabase, targetSector);
+    }
+
+    // LAST: Emit combat.round_waiting if character is in active combat
+    // This must come AFTER status.snapshot and map.local
+    if (activeEncounter && !activeEncounter.ended && activeEncounter.participants[characterId]) {
+      console.log(`[join] Emitting combat.round_waiting for ${characterId} in combat ${activeEncounter.combat_id}`);
+      const payload = buildRoundWaitingPayload(activeEncounter);
+      const source = buildEventSource('join', requestId);
+      payload.source = source;
+
+      // Emit ONLY to the joining character (not all participants)
+      await emitCharacterEvent({
+        supabase,
+        characterId,
+        eventType: 'combat.round_waiting',
+        payload,
+        sectorId: targetSector,
+        requestId,
+        actorCharacterId: characterId,
+        corpId: character.corporation_id,
+      });
+      console.log('[join] combat.round_waiting emitted successfully');
+    } else {
+      console.log('[join] No active combat or character not in combat, skipping combat.round_waiting');
+    }
 
     return successResponse({ request_id: requestId });
   } catch (err) {
@@ -436,4 +489,58 @@ function parseAdjacentIds(structure: UniverseSectorRow): number[] {
       return Number.isFinite(to) ? to : null;
     })
     .filter((value): value is number => value !== null);
+}
+
+/**
+ * Check if character should auto-join existing combat in sector.
+ * Returns the active encounter if joined, null otherwise.
+ * Does NOT emit events - caller is responsible for emitting combat.round_waiting.
+ */
+async function autoJoinExistingCombat(params: {
+  supabase: ReturnType<typeof createServiceRoleClient>;
+  characterId: string;
+  sectorId: number;
+  requestId: string;
+}): Promise<any | null> {
+  const { supabase, characterId, sectorId, requestId } = params;
+
+  console.log(`[join.autoJoinCombat] Checking for combat in sector ${sectorId} for ${characterId}`);
+
+  // Check if there's existing active combat in this sector
+  const existingEncounter = await loadCombatForSector(supabase, sectorId);
+  if (!existingEncounter || existingEncounter.ended) {
+    console.log('[join.autoJoinCombat] No active combat found');
+    return null; // No active combat to join
+  }
+
+  console.log(`[join.autoJoinCombat] Found active combat ${existingEncounter.combat_id}`);
+
+  // Check if character is already in this combat
+  if (existingEncounter.participants[characterId]) {
+    console.log('[join.autoJoinCombat] Character already in combat');
+    return existingEncounter; // Already participating
+  }
+
+  // Load character combatant data
+  const combatants = await loadCharacterCombatants(supabase, sectorId);
+  console.log(`[join.autoJoinCombat] Loaded ${combatants.length} combatants`);
+  const characterCombatant = combatants.find((c) => c.combatant_id === characterId);
+
+  if (!characterCombatant) {
+    console.log('[join.autoJoinCombat] Character not found in combatants list');
+    return null; // Character not eligible for combat (might be in hyperspace, etc.)
+  }
+
+  console.log('[join.autoJoinCombat] Adding character to combat');
+
+  // Add character to combat participants
+  existingEncounter.participants[characterId] = characterCombatant;
+
+  // Persist updated combat state
+  await persistCombatState(supabase, existingEncounter);
+
+  console.log('[join.autoJoinCombat] Character added to combat, returning encounter');
+
+  // Return the encounter so caller can emit events in proper order
+  return existingEncounter;
 }

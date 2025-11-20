@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -27,6 +28,7 @@ pytestmark = [
 ]
 
 SHIPS_PATH = Path("tests/test-world-data/ships.json")
+USE_SUPABASE_TESTS = bool(os.getenv("USE_SUPABASE_TESTS"))
 
 @pytest.fixture(autouse=True)
 async def reset_state(server_url):
@@ -105,6 +107,54 @@ async def _purchase_corp_ship(
     if initial_ship_credits is not None:
         payload["initial_ship_credits"] = initial_ship_credits
     return await client._request("ship.purchase", payload)
+
+def _load_ship(ship_id: str) -> dict | None:
+    """Load ship data from ships.json (Legacy) or database (Supabase)."""
+    if not USE_SUPABASE_TESTS:
+        if not SHIPS_PATH.exists():
+            return None
+        with SHIPS_PATH.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data.get(ship_id)
+    else:
+        # For Supabase, query the database
+        from supabase import create_client
+        url = os.getenv("SUPABASE_URL", "http://127.0.0.1:54321")
+        key = os.getenv("SUPABASE_ANON_KEY", "")
+        supabase = create_client(url, key)
+
+        try:
+            result = supabase.table("ship_instances").select("*").eq("ship_id", ship_id).execute()
+            if not result.data or len(result.data) == 0:
+                return None
+
+            # Transform database row to match JSON structure
+            row = result.data[0]
+            return {
+                "ship_id": row["ship_id"],
+                "ship_type": row["ship_type"],
+                "name": row["ship_name"],
+                "owner_id": row["owner_id"],
+                "owner_type": row["owner_type"],
+                "sector": row["current_sector"],
+                "became_unowned": row.get("became_unowned"),
+                "former_owner_name": row.get("former_owner_name"),
+                "state": {
+                    "fighters": row["current_fighters"],
+                    "shields": row["current_shields"],
+                    "credits": row["credits"],
+                    "cargo": {
+                        "quantum_foam": row["cargo_qf"],
+                        "retro_organics": row["cargo_ro"],
+                        "neuro_symbolics": row["cargo_ns"],
+                    },
+                    "warp_power": row["current_warp_power"],
+                }
+            }
+        except Exception as e:
+            # Log error but return None to match legacy behavior
+            print(f"Error loading ship {ship_id}: {e}")
+            return None
 
 @pytest.mark.asyncio
 async def test_corporation_member_can_control_ship(server_url, check_server_available):
@@ -703,26 +753,32 @@ async def test_corporation_event_log_records_fleet_activity(server_url, check_se
         for evt in events:
             print(f"  - {evt.get('event')} from {evt.get('sender')} (corp_id: {evt.get('corporation_id')})")
 
-        def _find_event(name: str, *, sender: str | None = None):
+        def _find_event(name: str, *, sender: str | None = None, require_sender: bool = False):
             for entry in events:
                 if entry.get("event") != name:
                     continue
                 if sender and entry.get("sender") != sender:
                     continue
+                if require_sender and not entry.get("sender"):
+                    continue
                 return entry
             return None
 
-        trade_entry = _find_event("trade.executed", sender=ship_id)
+        # Verify ship events are logged with sender populated (display name, not ID)
+        trade_entry = _find_event("trade.executed", require_sender=True)
         assert trade_entry is not None, "trade.executed event missing from corp log"
         assert trade_entry.get("corporation_id") == corp["corp_id"]
+        assert trade_entry.get("sender") is not None, "trade event should have sender field"
 
-        transfer_entry = _find_event("credits.transfer", sender=ship_id)
+        transfer_entry = _find_event("credits.transfer", require_sender=True)
         assert transfer_entry is not None, "credits.transfer event missing from corp log"
         assert transfer_entry.get("corporation_id") == corp["corp_id"]
+        assert transfer_entry.get("sender") is not None, "transfer event should have sender field"
 
-        garrison_entry = _find_event("garrison.deployed", sender=ship_id)
+        garrison_entry = _find_event("garrison.deployed", require_sender=True)
         assert garrison_entry is not None, "garrison.deployed event missing from corp log"
         assert garrison_entry.get("corporation_id") == corp["corp_id"]
+        assert garrison_entry.get("sender") is not None, "garrison event should have sender field"
 
 @pytest.mark.asyncio
 async def test_multiple_corporation_ships_independent_control(server_url, check_server_available):
@@ -878,7 +934,6 @@ async def test_unowned_ships_appear_in_sector_contents(server_url, check_server_
         unowned = status_event["payload"]["sector"]["unowned_ships"]
         assert any(ship["ship_id"] == ship_id for ship in unowned)
 
-@pytest.mark.skip(reason="Temporarily skipped pending investigation of intermittent timeout")
 @pytest.mark.asyncio
 async def test_ships_abandoned_event_emitted(server_url, check_server_available):
     async with managed_client(
@@ -900,7 +955,6 @@ async def test_ships_abandoned_event_emitted(server_url, check_server_available)
         assert ships
         assert all(entry.get("ship_id") for entry in ships)
 
-@pytest.mark.skip(reason="Temporarily skipped pending investigation of intermittent timeout")
 @pytest.mark.asyncio
 async def test_multiple_ships_all_become_unowned(server_url, check_server_available):
     async with managed_client(

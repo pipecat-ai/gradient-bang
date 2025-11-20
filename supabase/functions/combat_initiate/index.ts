@@ -100,15 +100,16 @@ serve(async (req: Request): Promise<Response> => {
       return errorResponse(err.message, err.status);
     }
     console.error('combat_initiate.error', err);
+    const status = err instanceof Error && 'status' in err ? Number((err as Error & { status?: number }).status) : 500;
+    const message = err instanceof Error ? err.message : 'combat initiate failed';
     await emitErrorEvent(supabase, {
       characterId,
       method: 'combat_initiate',
       requestId,
-      detail: err instanceof Error ? err.message : 'combat initiate failed',
-      status: err instanceof Error && 'status' in err ? Number((err as Error & { status?: number }).status) : 500,
+      detail: message,
+      status,
     });
-    const status = err instanceof Error && 'status' in err ? Number((err as Error & { status?: number }).status) : 500;
-    return errorResponse('combat initiate error', status);
+    return errorResponse(message, status);
   }
 });
 

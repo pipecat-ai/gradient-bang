@@ -112,7 +112,18 @@ async function handleJoin(params: {
     throw new CorporationJoinError('Already in a corporation', 400);
   }
 
-  const corporation = await loadCorporationById(supabase, corpId);
+  let corporation;
+  try {
+    corporation = await loadCorporationById(supabase, corpId);
+  } catch (err) {
+    if (err instanceof Error) {
+      // Handle both "Corporation not found" and "Failed to load corporation data" (invalid UUID)
+      if (err.message.includes('Corporation not found') || err.message.includes('Failed to load corporation data')) {
+        throw new CorporationJoinError('Corporation not found', 404);
+      }
+    }
+    throw err;
+  }
   const expectedCode = (corporation.invite_code ?? '').trim().toLowerCase();
   if (!expectedCode || expectedCode !== inviteCode.trim().toLowerCase()) {
     throw new CorporationJoinError('Invalid invite code', 400);

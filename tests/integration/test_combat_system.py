@@ -554,7 +554,7 @@ class TestPlayerDestruction:
 class TestSalvageCollection:
     """Test salvage collection and sector updates."""
 
-    @pytest.mark.timeout(60)  # This test waits for auto-brace mechanics (~36s minimum)
+    @pytest.mark.timeout(90)  # Round 1: ~25s (deadline+pg_cron), Round 2: ~20s (already waiting), total ~50s + buffer
     async def test_salvage_collection_triggers_sector_update(self, test_server):
         """Test salvage creation, auto-brace mechanics, and sector.update propagation."""
         # Create test characters before initializing clients
@@ -611,6 +611,7 @@ class TestSalvageCollection:
             combat_id = waiting["combat_id"]
 
             # Round 1: Attacker attacks victim with full commit to destroy them
+            # Only one player submits, so must wait for deadline (15s) + pg_cron (5s) + polling (1.5s) = 21.5s
             resolved = await submit_and_await_resolution(
                 collector_attacker,
                 client_attacker.combat_action(
@@ -620,7 +621,7 @@ class TestSalvageCollection:
                     target_id="test_salv_victim",
                     commit=200,
                 ),
-                timeout=20.0,
+                timeout=25.0,  # Increased from 20s to accommodate deadline + pg_cron + polling
             )
 
             # Verify round 1 completed
@@ -673,6 +674,9 @@ class TestSalvageCollection:
                 character_id="test_salv_attacker",
                 salvage_id=salvage_id,
             )
+
+            # Wait for polling to deliver the new sector.update event (HTTP polling pattern)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Both attacker and observer should receive sector.update
             sector_update_2 = await collector_attacker.wait_for_event("sector.update", timeout=5.0)
@@ -953,6 +957,9 @@ class TestGarrisonModes:
                 mode="offensive",
             )
 
+            # Wait for HTTP polling to deliver events
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+
             # Offensive garrison auto-triggers combat when deployed with enemies present
             waiting = await collector.wait_for_event("combat.round_waiting")
             assert waiting.get("garrison") is not None
@@ -1095,6 +1102,9 @@ class TestCombatEndedEvents:
 
             ended2 = await collector2.wait_for_event("combat.ended", timeout=5.0)
             assert ended2["combat_id"] == combat_id
+
+            # Wait for HTTP polling to deliver sector.update events (emitted after combat.ended)
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Verify sector.update event was received by combatant
             sector_updates1 = collector1.get_all("sector.update")
@@ -1492,10 +1502,12 @@ class TestCombatRoundMechanics:
 
             # Submit no actions - let round timeout
             # pg_cron runs every 5 seconds and will auto-resolve after deadline (15s)
-            await asyncio.sleep(16.0)
+            # Total time: 15s deadline + up to 5s for pg_cron + ~2s event delivery = ~22s
+            await asyncio.sleep(17.0)
 
             # Should auto-resolve with brace actions (via pg_cron)
-            resolved = await collector.wait_for_event("combat.round_resolved", timeout=10.0)
+            # Wait up to 15s for the event (total possible time: 17s + 15s = 32s)
+            resolved = await collector.wait_for_event("combat.round_resolved", timeout=15.0)
 
             actions = resolved.get("actions", {})
             # Both should have auto-braced
@@ -2123,6 +2135,10 @@ class TestCombatEndedEventData:
 
             # Combat at sector 0
             await client1.combat_initiate(character_id="test_filt_player1")
+
+            # Wait for HTTP polling to deliver events
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+
             waiting = await collector1.wait_for_event("combat.round_waiting")
             combat_id = waiting["combat_id"]
 
@@ -2172,6 +2188,10 @@ class TestCombatEndedEventData:
             await client2.join("test_state2")
 
             await client1.combat_initiate(character_id="test_state1")
+
+            # Wait for HTTP polling to deliver events
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+
             waiting = await collector.wait_for_event("combat.round_waiting")
             combat_id = waiting["combat_id"]
 
@@ -2244,6 +2264,10 @@ class TestCombatEdgeCases:
 
             # First combat
             await client1.combat_initiate(character_id="test_clean1")
+
+            # Wait for HTTP polling to deliver events
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+
             waiting1 = await collector.wait_for_event("combat.round_waiting")
             combat_id1 = waiting1["combat_id"]
 
@@ -2258,6 +2282,10 @@ class TestCombatEdgeCases:
 
             # Second combat should work with new combat_id
             await client1.combat_initiate(character_id="test_clean1")
+
+            # Wait for HTTP polling to deliver events
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+
             waiting2 = await collector.wait_for_event("combat.round_waiting", timeout=5.0)
             combat_id2 = waiting2["combat_id"]
 
@@ -2419,6 +2447,10 @@ class TestCombatEdgeCases:
             await client2.join("test_disc2")
 
             await client1.combat_initiate(character_id="test_disc1")
+
+            # Wait for HTTP polling to deliver events
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+
             waiting = await collector1.wait_for_event("combat.round_waiting")
             combat_id = waiting["combat_id"]
 
@@ -2934,7 +2966,9 @@ class TestCombatEventPayloads:
             await asyncio.sleep(0.5)
 
             await client1.combat_initiate(character_id=char_id_1)
-            await asyncio.sleep(1.0)
+
+            # Wait for HTTP polling to deliver events
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Setup event collector for character 3 BEFORE they join
             events_char3 = []
@@ -2956,7 +2990,9 @@ class TestCombatEventPayloads:
 
             # Character 3 joins the game (will enter sector 0 with active combat)
             await client3.join(character_id=char_id_3)
-            await asyncio.sleep(2.0)
+
+            # Wait for HTTP polling to deliver all join events
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             # Extract event names in order
             event_sequence = [e["event"] for e in events_char3]

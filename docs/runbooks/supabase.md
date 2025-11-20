@@ -14,7 +14,6 @@ export SUPABASE_MANUAL_STACK=1
 Key requirements:
 - `EDGE_API_TOKEN` (default `local-dev-token`) must be present in your environment.
 - `SUPABASE_ANON_KEY` should match the value emitted by `npx supabase start` (the default file already does).
-- `.env.supabase` now ships with `EDGE_DISABLE_REALTIME=0` and the edge runtime ignores any attempt to disable realtime broadcasting. Keep it at `0`; every RPC relies on realtime fan-out for client-visible state.
 
 ## 2. Start the containers
 

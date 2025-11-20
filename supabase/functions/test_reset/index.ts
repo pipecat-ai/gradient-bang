@@ -333,7 +333,6 @@ async function seedUniverse(
       port_id: portId,
       combat: null,
       salvage: [],
-      observer_channels: [],
     });
     if (!contentsResp.ok) {
       throw new Error(`Failed to insert sector_contents for sector ${sector.id}: ${contentsResp.statusText}`);

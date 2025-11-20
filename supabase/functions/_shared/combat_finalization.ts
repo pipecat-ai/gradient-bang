@@ -6,6 +6,7 @@ import {
   CombatantState,
 } from './combat_types.ts';
 import { appendSalvageEntry, buildSalvageEntry, SalvageEntry } from './salvage.ts';
+import { emitSectorEnvelope, buildEventSource } from './events.ts';
 
 interface ShipRow {
   ship_id: string;
@@ -179,6 +180,7 @@ export async function finalizeCombat(
   supabase: SupabaseClient,
   encounter: CombatEncounterState,
   outcome: CombatRoundOutcome,
+  requestId?: string,
 ): Promise<SalvageEntry[]> {
   const salvageEntries: SalvageEntry[] = [];
   const defeated = Object.entries(outcome.fighters_remaining ?? {}).filter(
@@ -207,6 +209,26 @@ export async function finalizeCombat(
     const entry = await handleDefeatedCharacter(supabase, encounter, participant, def);
     if (entry) {
       salvageEntries.push(entry);
+
+      // Emit salvage.created event to all sector occupants
+      const timestamp = new Date().toISOString();
+      await emitSectorEnvelope({
+        supabase,
+        sectorId: encounter.sector_id,
+        eventType: 'salvage.created',
+        payload: {
+          source: buildEventSource('combat.ended', requestId ?? `combat:${encounter.combat_id}`),
+          timestamp,
+          salvage_id: entry.salvage_id,
+          sector: { id: encounter.sector_id },
+          cargo: entry.cargo,
+          scrap: entry.scrap,
+          credits: entry.credits,
+          from_ship_type: entry.source.ship_type,
+          from_ship_name: entry.source.ship_name,
+        },
+        requestId: requestId ?? `combat:${encounter.combat_id}`,
+      });
     }
     // Update participant state to reflect escape pod conversion for event payload
     participant.ship_type = 'escape_pod';

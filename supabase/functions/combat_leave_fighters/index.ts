@@ -5,6 +5,7 @@ import { createServiceRoleClient } from '../_shared/client.ts';
 import {
   emitCharacterEvent,
   emitErrorEvent,
+  emitSectorEnvelope,
   buildEventSource,
 } from '../_shared/events.ts';
 import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
@@ -19,6 +20,11 @@ import {
 } from '../_shared/request.ts';
 import { loadCharacter, loadShip } from '../_shared/status.ts';
 import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
+import { loadCharacterCombatants, loadCharacterNames, loadGarrisonCombatants } from '../_shared/combat_participants.ts';
+import { nowIso, type CombatEncounterState } from '../_shared/combat_types.ts';
+import { loadCombatForSector, persistCombatState } from '../_shared/combat_state.ts';
+import { buildRoundWaitingPayload } from '../_shared/combat_events.ts';
+import { computeNextCombatDeadline } from '../_shared/combat_resolution.ts';
 
 serve(async (req: Request): Promise<Response> => {
   if (!validateApiToken(req)) {
@@ -273,6 +279,7 @@ async function handleCombatLeaveFighters(params: {
       garrison: garrisonPayload,
       fighters_remaining: newShipFighters,
     },
+    senderId: characterId,
     sectorId: sector,
     requestId,
     actorCharacterId: characterId,
@@ -280,7 +287,167 @@ async function handleCombatLeaveFighters(params: {
   });
 
   // TODO: Emit sector.update to all sector occupants (omitted for initial deployment)
-  // TODO: If mode is 'offensive', auto-initiate combat with sector occupants
+
+  // If mode is 'offensive', auto-initiate combat with sector occupants
+  if (mode === 'offensive') {
+    await autoInitiateCombatIfOffensive({
+      supabase,
+      characterId,
+      sector,
+      requestId,
+      garrisonFighters: updatedGarrison.fighters,
+    });
+  }
 
   return successResponse({ success: true });
+}
+
+function deterministicSeed(combatId: string): number {
+  const normalized = combatId.replace(/[^0-9a-f]/gi, '').slice(0, 12) || combatId;
+  const parsed = Number.parseInt(normalized, 16);
+  if (Number.isFinite(parsed)) {
+    return parsed >>> 0;
+  }
+  return Math.floor(Math.random() * 1_000_000);
+}
+
+function generateCombatId(): string {
+  return crypto.randomUUID().replace(/-/g, '');
+}
+
+async function autoInitiateCombatIfOffensive(params: {
+  supabase: ReturnType<typeof createServiceRoleClient>;
+  characterId: string;
+  sector: number;
+  requestId: string;
+  garrisonFighters: number;
+}): Promise<void> {
+  const { supabase, characterId, sector, requestId, garrisonFighters } = params;
+
+  // Load all character combatants in the sector
+  const participantStates = await loadCharacterCombatants(supabase, sector);
+
+  // Get garrison owner's corporation membership
+  const { data: ownerCorpData } = await supabase
+    .from('corporation_members')
+    .select('corp_id')
+    .eq('character_id', characterId)
+    .is('left_at', null)
+    .maybeSingle();
+  const ownerCorpId = ownerCorpData?.corp_id ?? null;
+
+  // Find targetable opponents (exclude self, corp members, escape pods, no-fighter ships)
+  const opponents = participantStates.filter((participant) => {
+    if (participant.combatant_id === characterId) return false;
+    if (participant.is_escape_pod) return false;
+    if ((participant.fighters ?? 0) <= 0) return false;
+
+    // Check if same corporation
+    if (ownerCorpId && participant.metadata?.corporation_id === ownerCorpId) return false;
+
+    return true;
+  });
+
+  // No opponents to fight
+  if (opponents.length === 0) {
+    return;
+  }
+
+  // Check if combat already exists in this sector
+  const existingEncounter = await loadCombatForSector(supabase, sector);
+  if (existingEncounter && !existingEncounter.ended) {
+    // Combat already ongoing, don't create a new one
+    return;
+  }
+
+  // Load character names for garrison display
+  const ownerNames = await loadCharacterNames(
+    supabase,
+    participantStates.map((state) => state.owner_character_id ?? state.combatant_id),
+  );
+
+  // Load all garrisons (including the one just deployed)
+  const garrisons = await loadGarrisonCombatants(supabase, sector, ownerNames);
+
+  // Build participants map
+  const participants: Record<string, CombatantState> = {};
+  for (const state of participantStates) {
+    participants[state.combatant_id] = state;
+  }
+  for (const garrison of garrisons) {
+    participants[garrison.state.combatant_id] = garrison.state;
+  }
+
+  // Must have at least 2 participants
+  if (Object.keys(participants).length < 2) {
+    return;
+  }
+
+  // Create new combat encounter
+  const combatId = generateCombatId();
+  const encounter: CombatEncounterState = {
+    combat_id: combatId,
+    sector_id: sector,
+    round: 1,
+    deadline: computeNextCombatDeadline(),
+    participants,
+    pending_actions: {},
+    logs: [],
+    context: {
+      initiator: characterId,
+      created_at: nowIso(),
+      garrison_sources: garrisons.map((g) => g.source),
+      reason: 'garrison_deploy_auto',
+    },
+    awaiting_resolution: false,
+    ended: false,
+    end_state: null,
+    base_seed: deterministicSeed(combatId),
+    last_updated: nowIso(),
+  };
+
+  // Persist combat state
+  await persistCombatState(supabase, encounter);
+
+  // Emit combat.round_waiting events to all participants
+  await emitRoundWaitingEvents(supabase, encounter, requestId, characterId);
+}
+
+async function emitRoundWaitingEvents(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  encounter: CombatEncounterState,
+  requestId: string,
+  senderId: string | null,
+): Promise<void> {
+  const payload = buildRoundWaitingPayload(encounter);
+  const source = buildEventSource('combat.round_waiting', requestId);
+  payload.source = source;
+
+  const recipients = Object.values(encounter.participants)
+    .filter((participant) => participant.combatant_type === 'character')
+    .map((participant) => participant.owner_character_id ?? participant.combatant_id);
+
+  await Promise.all(
+    recipients.map((recipient) =>
+      emitCharacterEvent({
+        supabase,
+        characterId: recipient,
+        eventType: 'combat.round_waiting',
+        payload,
+        sectorId: encounter.sector_id,
+        requestId,
+        senderId,
+        actorCharacterId: recipient,
+      }),
+    ),
+  );
+
+  await emitSectorEnvelope({
+    supabase,
+    sectorId: encounter.sector_id,
+    eventType: 'combat.round_waiting',
+    payload,
+    requestId,
+    senderId,
+  });
 }

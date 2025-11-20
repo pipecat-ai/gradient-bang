@@ -127,17 +127,15 @@ async function handleCreate(params: {
 
   const source = buildEventSource('corporation_create', requestId);
   const statusPayload = await buildStatusPayload(supabase, characterId);
+  const timestamp = new Date().toISOString();
   const eventPayload = {
     source,
-    player: statusPayload.player,
-    ship: statusPayload.ship,
-    corporation: {
-      corp_id: inserted.corp_id,
-      name: inserted.name,
-      invite_code: inserted.invite_code,
-      founder_id: characterId,
-    },
-    timestamp: new Date().toISOString(),
+    corp_id: inserted.corp_id,
+    name: inserted.name,
+    invite_code: inserted.invite_code,
+    founder_id: characterId,
+    member_count: 1,
+    timestamp,
   };
 
   await emitCharacterEvent({
@@ -145,17 +143,6 @@ async function handleCreate(params: {
     characterId,
     eventType: 'corporation.created',
     payload: eventPayload,
-    sectorId: ship.current_sector ?? null,
-    requestId,
-    corpId: inserted.corp_id,
-  });
-
-  // Emit status.update so clients see the credit deduction
-  await emitCharacterEvent({
-    supabase,
-    characterId,
-    eventType: 'status.update',
-    payload: statusPayload,
     sectorId: ship.current_sector ?? null,
     requestId,
     corpId: inserted.corp_id,

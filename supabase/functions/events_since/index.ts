@@ -37,6 +37,7 @@ interface EventRow {
   sender_id: string | null;
   ship_id: string | null;
   event_character_recipients?: Array<{ character_id: string; reason: string }>; // joined rows
+  event_broadcast_recipients?: Array<{ event_id: number }>; // joined rows for broadcast events
 }
 
 serve(async (req: Request): Promise<Response> => {
@@ -156,7 +157,8 @@ async function fetchEventsForCharacter(options: {
 }): Promise<EventRow[]> {
   const { supabase, characterId, sinceEventId, limit } = options;
 
-  const { data, error } = await supabase
+  // Fetch character-specific events (via event_character_recipients)
+  const { data: charEvents, error: charError } = await supabase
     .from('events')
     .select(
       `
@@ -183,12 +185,63 @@ async function fetchEventsForCharacter(options: {
     .order('id', { ascending: true })
     .limit(limit);
 
-  if (error) {
-    console.error('events_since.fetch_events', error);
-    throw new Error('failed to load events');
+  if (charError) {
+    console.error('events_since.fetch_character_events', charError);
+    throw new Error('failed to load character events');
   }
 
-  return (data ?? []) as EventRow[];
+  // Fetch broadcast events (via event_broadcast_recipients)
+  const { data: broadcastEvents, error: broadcastError } = await supabase
+    .from('events')
+    .select(
+      `
+        id,
+        event_type,
+        timestamp,
+        payload,
+        scope,
+        actor_character_id,
+        sector_id,
+        corp_id,
+        inserted_at,
+        request_id,
+        meta,
+        direction,
+        character_id,
+        sender_id,
+        ship_id,
+        event_broadcast_recipients!inner(event_id)
+      `,
+    )
+    .gt('id', sinceEventId)
+    .order('id', { ascending: true })
+    .limit(limit);
+
+  if (broadcastError) {
+    console.error('events_since.fetch_broadcast_events', broadcastError);
+    throw new Error('failed to load broadcast events');
+  }
+
+  // Merge and deduplicate by event id, keeping the version with character_recipients if present
+  const eventMap = new Map<number, EventRow>();
+
+  for (const event of (charEvents ?? [])) {
+    eventMap.set(event.id, event as EventRow);
+  }
+
+  for (const event of (broadcastEvents ?? [])) {
+    if (!eventMap.has(event.id)) {
+      // Add event_character_recipients as empty array for consistency
+      eventMap.set(event.id, { ...event, event_character_recipients: [] } as EventRow);
+    }
+  }
+
+  // Sort by id and apply limit
+  const merged = Array.from(eventMap.values())
+    .sort((a, b) => a.id - b.id)
+    .slice(0, limit);
+
+  return merged;
 }
 
 function normalizeEventRow(row: EventRow): JsonRecord {

@@ -197,22 +197,35 @@ class TestMoveValidation:
 
     async def test_move_with_insufficient_warp_power_fails(self, server_url):
         """Test that moving without enough warp power fails."""
-        # Note: This test may need adjustment based on actual game mechanics
-        # For now, we'll just verify the character can't move when depleted
+        # kestrel_courier has turns_per_warp=3, so warp_power=1 is insufficient
         char_id = "test_movement_low_warp"
 
-        client = await create_client_with_character(server_url, char_id)
+        # Create character with insufficient warp power
+        create_test_character_knowledge(char_id, sector=0, warp_power=1)
+
+        client = AsyncGameClient(
+            base_url=server_url,
+            character_id=char_id,
+            transport="websocket",
+        )
 
         try:
-            # Join with default warp power
-            # Already joined via create_client_with_character()
+            await client.join(char_id)
 
-            # Get status to check warp power
+            # Get status to verify warp power is low
             status = await get_status(client, char_id)
+            current_warp = status["ship"].get("warp_power", 0)
+            assert current_warp == 1, f"Expected warp_power=1, got {current_warp}"
 
-            # If warp power is sufficient, this test is informational only
-            if status["ship"].get("warp_power", 0) > 0:
-                pytest.skip("Character has sufficient warp power")
+            # Attempt to move (should fail due to insufficient warp)
+            target = status["sector"]["adjacent_sectors"][0]
+
+            with pytest.raises(RPCError) as exc_info:
+                await client.move(to_sector=target, character_id=char_id)
+
+            # Verify error message mentions insufficient warp
+            assert "Insufficient warp power" in str(exc_info.value)
+            assert exc_info.value.status == 400
         finally:
             await client.close()
 

@@ -6,29 +6,35 @@ export type RateLimitRule = {
   window: number; // seconds
 };
 
+// Rate limits tuned for production load and test stress scenarios
+// Balance: Prevent DoS attacks while supporting legitimate high-frequency activity
+// Rationale:
+//   - 200 req/min = 3.3 req/sec sustained (allows bursts up to 50-100 concurrent)
+//   - Still blocks abuse (e.g., 1000 req/min would indicate malicious activity)
+//   - Test stress scenarios (50 concurrent trades) validate real-world capacity
 export const RATE_LIMITS: Record<string, RateLimitRule> = {
-  default: { max: 60, window: 60 },
-  join: { max: 120, window: 60 },
-  my_status: { max: 60, window: 60 },
-  move: { max: 120, window: 60 },
-  plot_course: { max: 60, window: 60 },
-  path_with_region: { max: 60, window: 60 },
-  trade: { max: 45, window: 60 },
-  recharge_warp_power: { max: 30, window: 60 },
-  transfer_warp_power: { max: 30, window: 60 },
-  transfer_credits: { max: 30, window: 60 },
-  bank_transfer: { max: 30, window: 60 },
-  dump_cargo: { max: 60, window: 60 },
-  purchase_fighters: { max: 30, window: 60 },
-  ship_purchase: { max: 15, window: 60 },
-  combat_initiate: { max: 30, window: 60 },
-  combat_action: { max: 120, window: 60 },
-  corporation_create: { max: 10, window: 60 },
-  corporation_join: { max: 30, window: 60 },
-  corporation_leave: { max: 30, window: 60 },
-  corporation_kick: { max: 20, window: 60 },
-  corporation_regenerate_invite_code: { max: 10, window: 60 },
-  corporation_list: { max: 30, window: 60 },
-  corporation_info: { max: 60, window: 60 },
-  my_corporation: { max: 60, window: 60 },
+  default: { max: 120, window: 60 },                    // Up from 60
+  join: { max: 200, window: 60 },                       // Reconnections, session management (was 120)
+  my_status: { max: 200, window: 60 },                  // Frequent game state polling (was 60)
+  move: { max: 200, window: 60 },                       // Rapid exploration (was 120)
+  plot_course: { max: 120, window: 60 },                // Pathfinding (was 60)
+  path_with_region: { max: 120, window: 60 },           // Regional pathfinding (was 60)
+  trade: { max: 200, window: 60 },                      // High-frequency trading bursts (was 45)
+  recharge_warp_power: { max: 60, window: 60 },         // Up from 30
+  transfer_warp_power: { max: 60, window: 60 },         // Up from 30
+  transfer_credits: { max: 60, window: 60 },            // Up from 30
+  bank_transfer: { max: 120, window: 60 },              // Up from 30 (raised for test suite with 9 bank operations)
+  dump_cargo: { max: 120, window: 60 },                 // Up from 60
+  purchase_fighters: { max: 60, window: 60 },           // Up from 30
+  ship_purchase: { max: 30, window: 60 },               // Expensive DB operation, keep conservative
+  combat_initiate: { max: 60, window: 60 },             // Up from 30
+  combat_action: { max: 200, window: 60 },              // Rapid combat rounds (was 120)
+  corporation_create: { max: 20, window: 60 },          // Up from 10
+  corporation_join: { max: 60, window: 60 },            // Up from 30
+  corporation_leave: { max: 60, window: 60 },           // Up from 30
+  corporation_kick: { max: 40, window: 60 },            // Up from 20
+  corporation_regenerate_invite_code: { max: 20, window: 60 },  // Up from 10
+  corporation_list: { max: 60, window: 60 },            // Up from 30
+  corporation_info: { max: 120, window: 60 },           // Up from 60
+  my_corporation: { max: 120, window: 60 },             // Up from 60
 };

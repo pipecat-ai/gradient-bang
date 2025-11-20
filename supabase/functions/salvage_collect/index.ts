@@ -206,7 +206,8 @@ async function handleSalvageCollect(params: {
 
   // Get ship capacity
   const shipDefinition = await loadShipDefinition(supabase, ship.ship_type);
-  const cargoUsed = (ship.cargo_qf ?? 0) + (ship.cargo_ro ?? 0) + (ship.cargo_ns ?? 0);
+  let currentCargo = { qf: ship.cargo_qf ?? 0, ro: ship.cargo_ro ?? 0, ns: ship.cargo_ns ?? 0 };  // Mutable cargo tracker
+  const cargoUsed = currentCargo.qf + currentCargo.ro + currentCargo.ns;
   let availableSpace = shipDefinition.cargo_holds - cargoUsed;
 
   // Track collection results
@@ -235,12 +236,12 @@ async function handleSalvageCollect(params: {
   // Collect scrap first (highest priority - converted to neuro_symbolics)
   if (container.scrap && availableSpace > 0) {
     const collectibleScrap = Math.min(container.scrap, availableSpace);
-    const currentNeuroSymbolics = ship.cargo_ns ?? 0;
+    const newNeuroSymbolics = currentCargo.ns + collectibleScrap;
 
     const { error: cargoError } = await supabase
       .from('ship_instances')
       .update({
-        cargo_ns: currentNeuroSymbolics + collectibleScrap,
+        cargo_ns: newNeuroSymbolics,
         updated_at: new Date().toISOString(),
       })
       .eq('ship_id', ship.ship_id);
@@ -252,6 +253,7 @@ async function handleSalvageCollect(params: {
       throw err;
     }
 
+    currentCargo.ns = newNeuroSymbolics;  // Update local cargo tracker
     collectedCargo.neuro_symbolics = (collectedCargo.neuro_symbolics ?? 0) + collectibleScrap;
     availableSpace -= collectibleScrap;
     remainingScrap = container.scrap - collectibleScrap;
@@ -274,13 +276,15 @@ async function handleSalvageCollect(params: {
       // Valid commodity - collect what fits
       const collectible = Math.min(amount, availableSpace);
       const columnSuffix = COMMODITY_TO_COLUMN[commodity];
-      const columnName = `cargo_${columnSuffix}` as keyof typeof ship;
-      const currentAmount = (ship[columnName] as number) ?? 0;
+      const columnName = `cargo_${columnSuffix}`;
+      const cargoKey = columnSuffix as 'qf' | 'ro' | 'ns';
+      const currentAmount = currentCargo[cargoKey];
+      const newAmount = currentAmount + collectible;
 
       const { error: cargoError } = await supabase
         .from('ship_instances')
         .update({
-          [columnName]: currentAmount + collectible,
+          [columnName]: newAmount,
           updated_at: new Date().toISOString(),
         })
         .eq('ship_id', ship.ship_id);
@@ -292,6 +296,7 @@ async function handleSalvageCollect(params: {
         throw err;
       }
 
+      currentCargo[cargoKey] = newAmount;  // Update local cargo tracker
       collectedCargo[commodity] = (collectedCargo[commodity] ?? 0) + collectible;
       availableSpace -= collectible;
 
@@ -301,12 +306,12 @@ async function handleSalvageCollect(params: {
     } else {
       // Unknown commodity - treat as neuro_symbolics scrap
       const collectible = Math.min(amount, availableSpace);
-      const currentNeuroSymbolics = ship.cargo_ns ?? 0;
+      const newNeuroSymbolics = currentCargo.ns + collectible;
 
       const { error: cargoError } = await supabase
         .from('ship_instances')
         .update({
-          cargo_ns: currentNeuroSymbolics + collectible,
+          cargo_ns: newNeuroSymbolics,
           updated_at: new Date().toISOString(),
         })
         .eq('ship_id', ship.ship_id);
@@ -318,6 +323,7 @@ async function handleSalvageCollect(params: {
         throw err;
       }
 
+      currentCargo.ns = newNeuroSymbolics;  // Update local cargo tracker
       collectedCargo.neuro_symbolics = (collectedCargo.neuro_symbolics ?? 0) + collectible;
       availableSpace -= collectible;
 

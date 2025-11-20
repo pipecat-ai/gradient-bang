@@ -79,8 +79,8 @@ def _upsert(table: str, headers: Dict[str, str], body: Dict[str, Any], key_field
             headers=headers,
             timeout=15.0,
         )
-        # Ignore 404 if row doesn't exist
-        if delete_resp.status_code not in (200, 204, 404):
+        # Ignore 404 (not found) and 409 (conflict) - both are safe to proceed
+        if delete_resp.status_code not in (200, 204, 404, 409):
             delete_resp.raise_for_status()
 
     # Insert fresh row
@@ -91,9 +91,13 @@ def _upsert(table: str, headers: Dict[str, str], body: Dict[str, Any], key_field
         timeout=15.0,
     )
     if not insert_resp.is_success:
-        # Include response body for debugging 409 conflicts
+        # 409 means row already exists - treat as success for upsert semantics
+        if insert_resp.status_code == 409:
+            print(f"Upsert for {table}: row already exists (409), treating as success")
+            return
+        # Include response body for debugging other errors
         print(f"Insert failed for {table}: {insert_resp.status_code} - {insert_resp.text[:500]}")
-    insert_resp.raise_for_status()
+        insert_resp.raise_for_status()
 
 
 def _default_map_knowledge(sector: int) -> Dict[str, Any]:

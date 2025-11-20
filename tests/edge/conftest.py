@@ -15,12 +15,6 @@ try:
 except ImportError:  # pragma: no cover - platform without resource module
     resource = None
 
-try:
-    from realtime import AsyncRealtimeClient, RealtimeSubscribeStates
-except ImportError:  # pragma: no cover - realtime may be missing outside test envs
-    AsyncRealtimeClient = None  # type: ignore
-    RealtimeSubscribeStates = None  # type: ignore
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SUPABASE_WORKDIR = REPO_ROOT / 'supabase'
 if not SUPABASE_WORKDIR.exists():
@@ -74,7 +68,6 @@ MANUAL_STACK_HINT = (
     '(`npx supabase start`, `curl …/test_reset`, `npx supabase functions serve --env-file .env.supabase --no-verify-jwt`).'
 )
 USE_SUPABASE_TESTS = os.environ.get('USE_SUPABASE_TESTS', '').lower() in TRUTHY
-os.environ.setdefault('EDGE_DISABLE_REALTIME', '0')
 
 
 def _cli_args(*args: str) -> list[str]:
@@ -370,66 +363,6 @@ def _verify_reset_data(max_attempts: int = 20, delay_seconds: float = 0.5) -> No
     raise RuntimeError('Test data not visible after reset - connection pool issue?')
 
 
-def _warmup_realtime(timeout: float = 30.0) -> None:
-    """Establish a lightweight changefeed subscription to ensure realtime is ready."""
-
-    if AsyncRealtimeClient is None or RealtimeSubscribeStates is None:  # pragma: no cover - optional dep
-        logger.warning('realtime python client unavailable; skipping changefeed warmup')
-        return
-
-    service_key = os.environ.get('SUPABASE_SERVICE_ROLE_KEY')
-    if not service_key:
-        logger.warning('SUPABASE_SERVICE_ROLE_KEY missing; skipping realtime warmup')
-        return
-
-    supabase_url = os.environ.get('SUPABASE_URL', 'http://127.0.0.1:54321').rstrip('/')
-    anon_key = os.environ.get('SUPABASE_ANON_KEY', 'anon-key')
-
-    async def _run_warmup() -> None:
-        client = AsyncRealtimeClient(
-            url=f'{supabase_url}/realtime/v1',
-            token=anon_key,
-            auto_reconnect=False,
-        )
-        await client.set_auth(service_key)
-
-        channel = client.channel('public:events')
-        channel.on_postgres_changes(
-            event='INSERT',
-            schema='public',
-            table='events',
-            callback=lambda change: None,
-        )
-        loop = asyncio.get_running_loop()
-        subscribed: asyncio.Future[None] = loop.create_future()
-
-        def _callback(state, error):
-            if subscribed.done():
-                return
-            if state == RealtimeSubscribeStates.SUBSCRIBED:
-                subscribed.set_result(None)
-            elif state in {
-                RealtimeSubscribeStates.CHANNEL_ERROR,
-                RealtimeSubscribeStates.TIMED_OUT,
-                RealtimeSubscribeStates.CLOSED,
-            }:
-                subscribed.set_exception(
-                    error or RuntimeError(f"Supabase realtime subscribe failed: {getattr(state, 'value', state)}")
-                )
-
-        await channel.subscribe(callback=_callback)
-        try:
-            await asyncio.wait_for(subscribed, timeout=timeout)
-        finally:
-            await channel.unsubscribe()
-            await client.close()
-
-    try:
-        asyncio.run(_run_warmup())
-    except Exception as exc:  # noqa: BLE001
-        raise RuntimeError('Supabase realtime changefeed warmup failed') from exc
-
-
 def _write_function_env(name: str) -> Path:
     allowed = {k: v for k, v in ENV_EXPORTS.items() if not k.startswith('SUPABASE_')}
     env_file = LOG_DIR / f'.edge-env-{name}'
@@ -514,10 +447,6 @@ def _stop_functions_proc() -> None:
     FUNCTION_PROC = None
 
 
-def _realtime_debug_enabled() -> bool:
-    return os.environ.get('SUPABASE_REALTIME_DEBUG', '').lower() in {'1', 'true', 'on'}
-
-
 @pytest.fixture(scope='session', autouse=True)
 def supabase_stack():
     """Ensure a Supabase local stack is up before edge tests run."""
@@ -531,44 +460,14 @@ def supabase_stack():
             _start_stack()
         _reset_database()
         _ensure_functions_served(FUNCTIONS_UNDER_TEST)
-        _warmup_realtime()
     else:
         _require_manual_stack_ready()
-        _warmup_realtime()
 
     try:
         yield
     finally:
         if not MANUAL_STACK:
             _stop_functions_proc()
-
-
-@pytest.fixture(scope='session', autouse=True)
-def supabase_client_logging():
-    if not _realtime_debug_enabled():
-        # Enable by exporting SUPABASE_REALTIME_DEBUG=1 before running pytest.
-        yield None
-        return
-
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    handler = logging.FileHandler(SUPABASE_CLIENT_LOG_PATH, mode='w')
-    formatter = logging.Formatter('[%(asctime)s] %(levelname)s %(name)s: %(message)s')
-    handler.setFormatter(formatter)
-    handler.setLevel(logging.DEBUG)
-
-    logger = logging.getLogger('utils.supabase_client')
-    previous_level = logger.level
-    logger.setLevel(logging.DEBUG)
-    logger.addHandler(handler)
-    os.environ['SUPABASE_CLIENT_LOG'] = str(SUPABASE_CLIENT_LOG_PATH)
-
-    try:
-        yield SUPABASE_CLIENT_LOG_PATH
-    finally:
-        logger.removeHandler(handler)
-        handler.close()
-        logger.setLevel(previous_level)
-        os.environ.pop('SUPABASE_CLIENT_LOG', None)
 
 
 @pytest.fixture(scope='session', autouse=True)

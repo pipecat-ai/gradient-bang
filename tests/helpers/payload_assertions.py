@@ -812,3 +812,89 @@ def compare_sector_update(legacy_event: Dict[str, Any], supabase_event: Dict[str
 
 
 COMPARERS["sector.update"] = compare_sector_update
+
+
+def compare_chat_message(legacy_event: Dict[str, Any], supabase_event: Dict[str, Any]) -> ComparisonResult:
+    """
+    Compare chat.message events.
+
+    Functional fields (must match):
+    - content: Message text
+    - from_name: Sender character name
+    - type: Message type (broadcast, direct)
+
+    Ignored fields:
+    - id: Auto-generated (integer in Legacy, composite string in Supabase)
+    - timestamp: Execution time differs between runs
+    - to_name: Supabase adds this field (null for broadcast, set for direct)
+    """
+    diffs = []
+
+    leg = legacy_event.get("payload", {})
+    sup = supabase_event.get("payload", {})
+
+    # Compare functional fields
+    if leg.get("content") != sup.get("content"):
+        diffs.append(f"content mismatch: {leg.get('content')!r} != {sup.get('content')!r}")
+
+    if leg.get("from_name") != sup.get("from_name"):
+        diffs.append(f"from_name mismatch: {leg.get('from_name')!r} != {sup.get('from_name')!r}")
+
+    if leg.get("type") != sup.get("type"):
+        diffs.append(f"type mismatch: {leg.get('type')!r} != {sup.get('type')!r}")
+
+    # Skip id - auto-generated (integer vs composite string)
+    # Skip timestamp - execution time differs
+    # Skip to_name - Supabase-only field (null for broadcast, character name for direct)
+
+    return ComparisonResult(diffs)
+
+
+COMPARERS["chat.message"] = compare_chat_message
+
+
+def compare_corporation_created(legacy_event: Dict[str, Any], supabase_event: Dict[str, Any]) -> ComparisonResult:
+    """
+    Compare corporation.created events.
+
+    Functional fields (must match):
+    - name: Corporation name
+    - invite_code: 8-character hex invite code
+
+    Ignored fields:
+    - corp_id: Auto-generated UUID
+    - founder_id: Legacy uses string ID, Supabase uses canonical UUID
+    - member_count: Supabase includes this (always 1 for new corp), Legacy doesn't
+    - timestamp: Execution time differs
+    - source: Supabase-only metadata
+    """
+    diffs = []
+
+    leg = legacy_event.get("payload", {})
+    sup = supabase_event.get("payload", {})
+
+    # Compare functional fields
+    if leg.get("name") != sup.get("name"):
+        diffs.append(f"name mismatch: {leg.get('name')!r} != {sup.get('name')!r}")
+
+    # Compare invite_code (should be 8-char hex string)
+    leg_invite = leg.get("invite_code")
+    sup_invite = sup.get("invite_code")
+    if leg_invite != sup_invite:
+        # Both should be 8-char hex strings, just different values
+        if not (isinstance(leg_invite, str) and len(leg_invite) == 8):
+            diffs.append(f"invite_code format mismatch (legacy): {leg_invite!r} is not 8-char string")
+        if not (isinstance(sup_invite, str) and len(sup_invite) == 8):
+            diffs.append(f"invite_code format mismatch (supabase): {sup_invite!r} is not 8-char string")
+        # If formats are correct, difference is expected (random generation)
+
+    # Skip corp_id - auto-generated UUID
+    # Skip founder_id - Legacy uses string ID, Supabase uses canonical UUID
+    # Skip member_count - Supabase-only field (always 1 for new corp)
+    # Skip timestamp - execution time differs
+    # Skip source - Supabase-only metadata
+
+    return ComparisonResult(diffs)
+
+
+COMPARERS["corporation.created"] = compare_corporation_created

@@ -23,7 +23,7 @@ USE_SUPABASE_TESTS = _env_truthy("USE_SUPABASE_TESTS")
 
 
 class EventListener:
-    """Capture events from either the FastAPI firehose or Supabase Realtime."""
+    """Capture events from either the FastAPI firehose or Supabase HTTP polling."""
 
     def __init__(self, server_url: str, character_id: Optional[str] = None):
         self.server_url = server_url.rstrip("/") if server_url else server_url
@@ -64,7 +64,7 @@ class EventListener:
         await self.disconnect()
 
     async def connect(self):
-        """Connect to the websocket or Supabase changefeed."""
+        """Connect to the websocket or Supabase HTTP polling."""
         if self._supabase_mode:
             await self._connect_supabase()
             return
@@ -373,7 +373,15 @@ class EventListener:
         return [event for event in self.events if event.get("type") == event_type]
 
     def clear_events(self):
-        """Clear all collected events."""
+        """Clear all collected events and update polling cursor to skip them."""
+        if self._supabase_mode and self.events:
+            # Update cursor to the latest event ID we've seen so we don't re-poll them
+            max_id = max(
+                (e.get("__event_id") for e in self.events if isinstance(e.get("__event_id"), int)),
+                default=None
+            )
+            if max_id is not None and isinstance(max_id, int):
+                self._last_event_id = max_id
         self.events.clear()
 
 

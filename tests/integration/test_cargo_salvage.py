@@ -372,10 +372,6 @@ class TestCargoSalvageValidation:
             assert len(sector_salvage) > 0, "Should have salvage in sector"
             assert sector_salvage[0]["cargo"]["quantum_foam"] == available
 
-    @pytest.mark.skipif(
-        os.getenv("USE_SUPABASE_TESTS") == "1",
-        reason="Requires auto-combat engagement (Priority 4)",
-    )
     async def test_dump_cargo_while_in_combat(self, server_url, check_server_available):
         """Test dumping cargo while in combat fails."""
         char_id = "test_salvage_combat_dumper"

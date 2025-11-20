@@ -284,11 +284,13 @@ export async function buildSectorSnapshot(
     first_visit: string | null;
     player_metadata: Record<string, unknown> | null;
     current_ship_id: string;
+    corporation_id: string | null;
+    corporation_joined_at: string | null;
   }> = [];
   if (shipIds.length > 0) {
     const { data, error } = await supabase
       .from('characters')
-      .select('character_id, name, first_visit, player_metadata, current_ship_id')
+      .select('character_id, name, first_visit, player_metadata, current_ship_id, corporation_id, corporation_joined_at')
       .in('current_ship_id', shipIds);
     if (error) {
       throw new Error(`failed to load occupants for sector ${sectorId}: ${error.message}`);
@@ -297,6 +299,57 @@ export async function buildSectorSnapshot(
   }
 
   const occupantMap = new Map(occupantRows.map((row) => [row.current_ship_id, row]));
+
+  // Load corporation info for occupants and garrison owners
+  const garrisonOwnerIds = (garrisons ?? [])
+    .map((g) => g.owner_id)
+    .filter((id): id is string => typeof id === 'string');
+
+  const allCharacterIds = Array.from(new Set([
+    ...occupantRows.map((row) => row.character_id),
+    ...garrisonOwnerIds,
+  ]));
+
+  let characterCorpMap = new Map<string, string | null>();
+  let characterNameMap = new Map<string, string>();
+  if (allCharacterIds.length > 0) {
+    const { data: charData, error: charError } = await supabase
+      .from('characters')
+      .select('character_id, corporation_id, name')
+      .in('character_id', allCharacterIds);
+    if (!charError && charData) {
+      for (const char of charData) {
+        characterCorpMap.set(char.character_id, char.corporation_id);
+        characterNameMap.set(char.character_id, char.name);
+      }
+    }
+  }
+
+  const corpIds = Array.from(new Set(
+    occupantRows
+      .map((row) => row.corporation_id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  ));
+  const corporationMap = new Map<string, { corp_id: string; name: string; member_count: number }>();
+  if (corpIds.length > 0) {
+    const { data: corpData, error: corpError } = await supabase
+      .from('corporations')
+      .select('corp_id, name')
+      .in('corp_id', corpIds);
+    if (!corpError && corpData) {
+      for (const corp of corpData) {
+        const { count } = await supabase
+          .from('corporation_members')
+          .select('character_id', { count: 'exact', head: true })
+          .eq('corp_id', corp.corp_id);
+        corporationMap.set(corp.corp_id, {
+          corp_id: corp.corp_id,
+          name: corp.name,
+          member_count: count ?? 0,
+        });
+      }
+    }
+  }
 
   const ownerCharacterIds = (ships ?? [])
     .map((ship) => ship.owner_character_id)
@@ -357,16 +410,59 @@ export async function buildSectorSnapshot(
     const shipName = typeof ship.ship_name === 'string' ? ship.ship_name.trim() : '';
     const shipDisplayName = shipName.length > 0 ? shipName : formatShipDisplayName(ship.ship_type);
 
+    // Add corporation info if character is in a corporation
+    let corporationInfo: Record<string, unknown> | null = null;
+    if (occupant.corporation_id) {
+      const corpSummary = corporationMap.get(occupant.corporation_id);
+      if (corpSummary) {
+        corporationInfo = {
+          ...corpSummary,
+          joined_at: occupant.corporation_joined_at,
+        };
+      }
+    }
+
     players.push({
       created_at: occupant.first_visit ?? null,
-      id: occupant.character_id,
-      name: displayName,
+      id: occupant.character_id,  // UUID (correct convention)
+      name: displayName,           // Human-readable name
       player_type: playerType,
+      corporation: corporationInfo,
       ship: {
         ship_type: ship.ship_type,
         ship_name: shipDisplayName,
       },
     });
+  }
+
+  // Build garrison object with is_friendly field
+  let garrisonObject: Record<string, unknown> | null = null;
+  if (garrisons && garrisons.length > 0) {
+    const garrison = garrisons[0];  // Use first garrison (one per sector)
+    const garrisonOwnerId = garrison.owner_id;
+    const currentCharacterCorpId = currentCharacterId ? characterCorpMap.get(currentCharacterId) : null;
+    const garrisonOwnerCorpId = garrisonOwnerId ? characterCorpMap.get(garrisonOwnerId) : null;
+
+    // Garrison is friendly if:
+    // 1. Current character owns it
+    // 2. OR they're in the same corporation (and corporation is not null)
+    const isFriendly = Boolean(
+      (currentCharacterId === garrisonOwnerId) ||
+      (currentCharacterCorpId && garrisonOwnerCorpId && currentCharacterCorpId === garrisonOwnerCorpId)
+    );
+
+    // Get owner name from the map we already loaded
+    const ownerName = garrisonOwnerId ? characterNameMap.get(garrisonOwnerId) ?? 'unknown' : 'unknown';
+
+    garrisonObject = {
+      owner_id: garrison.owner_id,
+      owner_name: ownerName,
+      fighters: garrison.fighters,
+      mode: garrison.mode,
+      toll_amount: garrison.toll_amount ?? 0,
+      toll_balance: garrison.toll_balance ?? 0,
+      is_friendly: isFriendly,
+    };
   }
 
   return {
@@ -375,7 +471,7 @@ export async function buildSectorSnapshot(
     position: [structureRow.position_x ?? 0, structureRow.position_y ?? 0],
     port,
     players,
-    garrison: garrisons && garrisons.length > 0 ? garrisons : null,
+    garrison: garrisonObject,
     salvage: (contentsData && Array.isArray(contentsData.salvage)) ? contentsData.salvage : [],
     unowned_ships: unownedShips,
     scene_config: null,

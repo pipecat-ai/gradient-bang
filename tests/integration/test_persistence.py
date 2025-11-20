@@ -183,6 +183,10 @@ class TestCombatStatePersistence:
     """Tests for combat state persistence (fighters, shields after combat)."""
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        os.getenv("USE_SUPABASE_TESTS") == "1",
+        reason="Supabase uses DB persistence, not character knowledge JSON files"
+    )
     async def test_combat_damage_persisted_to_character_knowledge(self, server_url):
         """
         Test that combat damage updates are persisted to character knowledge.
@@ -657,6 +661,10 @@ class TestCacheCoherence:
     """Tests for cache coherence between in-memory state and persistent storage."""
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        os.getenv("USE_SUPABASE_TESTS") == "1",
+        reason="Supabase uses DB persistence, not character knowledge JSON files"
+    )
     async def test_memory_vs_disk_consistency(self, server_url):
         """
         Verify in-memory character state matches persisted JSON.
@@ -695,6 +703,10 @@ class TestCacheCoherence:
             await client.close()
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        os.getenv("USE_SUPABASE_TESTS") == "1",
+        reason="Supabase uses DB persistence, not character knowledge JSON files"
+    )
     async def test_concurrent_knowledge_updates_serialized(self, server_url):
         """
         Multiple rapid updates to same character (move + trade).
@@ -937,6 +949,10 @@ class TestCrashRecovery:
             await client_defender.close()
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        os.getenv("USE_SUPABASE_TESTS") == "1",
+        reason="Supabase uses DB persistence, not character knowledge JSON files"
+    )
     async def test_knowledge_file_corruption_recovery(self, server_url):
         """
         Corrupt character knowledge JSON and verify server handles gracefully.
@@ -1151,6 +1167,10 @@ class TestSupabaseSchemaValidation:
                 assert isinstance(supabase_warp["to_sector"], int)
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        os.getenv("USE_SUPABASE_TESTS") == "1",
+        reason="Supabase uses DB persistence, not character knowledge JSON files"
+    )
     async def test_migration_dry_run(self, server_url):
         """
         Load all current JSON data and validate can transform to Supabase schema.

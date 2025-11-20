@@ -17,7 +17,6 @@ dependencies = [
     "pipecat-ai-small-webrtc-prebuilt",
     "pyperclip>=1.11.0",
     "supabase>=2.5.0",
-    "realtime>=2.24.0",
     "psycopg[binary]>=3.2.1",
 ]
 
