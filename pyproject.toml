@@ -29,6 +29,12 @@ dev = [
     "pytest-timeout>=2.3.1", # Add timeout support
 ]
 
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.uv]
 # Override specific sub-dependencies to fix compatibility issues
 # Note: run all scripts/tests via `uv run …` to keep environments consistent.
