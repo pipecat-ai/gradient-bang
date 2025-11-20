@@ -310,7 +310,7 @@ from helpers.server_fixture import (
     wait_for_server_ready,
 )
 
-from utils import api_client as _api_client_module
+from gradientbang.utils import api_client as _api_client_module
 from gradientbang.scripts.compare_payloads import load_events as _load_dump_events, compare as _compare_event_lists
 
 _TRUTHY = {"1", "true", "on", "yes"}
