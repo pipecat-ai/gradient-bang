@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from utils.supabase_client import AsyncGameClient as SupabaseAsyncGameClient
+from gradientbang.utils.supabase_client import AsyncGameClient as SupabaseAsyncGameClient
 from tests.edge.support.characters import char_id
 
 CHARACTER_ID = char_id("test_2p_player1")

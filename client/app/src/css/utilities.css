@@ -1,0 +1,407 @@
+@utility elbow {
+  position: relative;
+  overflow: visible;
+
+  &:before {
+    content: "";
+    position: absolute;
+    inset: calc(var(--elbow-offset) * -1);
+    transition: all 0.3s ease-in-out;
+    background: 
+        /* Top-left corner: horizontal part */ linear-gradient(
+          var(--elbow-color),
+          var(--elbow-color)
+        )
+        top 0 left 0 / var(--elbow-size) var(--elbow-width) no-repeat,
+      /* Top-left corner: vertical part */
+        linear-gradient(var(--elbow-color), var(--elbow-color)) top 0 left 0 /
+        var(--elbow-width) var(--elbow-size) no-repeat,
+      /* Top-right corner: horizontal part */
+        linear-gradient(var(--elbow-color), var(--elbow-color)) top 0 right 0 /
+        var(--elbow-size) var(--elbow-width) no-repeat,
+      /* Top-right corner: vertical part */
+        linear-gradient(var(--elbow-color), var(--elbow-color)) top 0 right 0 /
+        var(--elbow-width) var(--elbow-size) no-repeat,
+      /* Bottom-left corner: horizontal part */
+        linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 left 0 /
+        var(--elbow-size) var(--elbow-width) no-repeat,
+      /* Bottom-left corner: vertical part */
+        linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 left 0 /
+        var(--elbow-width) var(--elbow-size) no-repeat,
+      /* Bottom-right corner: horizontal part */
+        linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 right 0 /
+        var(--elbow-size) var(--elbow-width) no-repeat,
+      /* Bottom-right corner: vertical part */
+        linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 right 0 /
+        var(--elbow-width) var(--elbow-size) no-repeat;
+    pointer-events: none;
+    opacity: var(--elbow-opacity);
+  }
+}
+
+@utility elbow-* {
+  --elbow-color: --value(--color- *);
+  --elbow-width: calc(--value(integer) * 1px);
+  --elbow-opacity: calc(--modifier(integer) * 1%);
+}
+
+@utility elbow-size-* {
+  --elbow-size: calc(--value(integer) * 1px);
+}
+
+@utility elbow-offset-* {
+  --elbow-offset: calc(--value(integer) * 1px);
+}
+
+@utility -elbow-offset-* {
+  --elbow-offset: calc(--value(integer) * 1px * -1);
+}
+
+@utility bracket {
+  position: relative;
+  overflow: visible;
+
+  --bracket-color: white;
+  --bracket-width: 1px;
+  --bracket-opacity: 1;
+  --bracket-size: 10px;
+  --bracket-offset: 6px;
+
+  &:after {
+    content: "";
+    position: absolute;
+    inset: calc(var(--bracket-offset) * -1);
+    transition: all 0.3s ease-in-out;
+    background: 
+        /* Left vertical line (full height) */ linear-gradient(
+          var(--bracket-color),
+          var(--bracket-color)
+        )
+        top 0 left 0 / var(--bracket-width) 100% no-repeat,
+      /* Right vertical line (full height) */
+        linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 right
+        0 / var(--bracket-width) 100% no-repeat,
+      /* Top-left horizontal cap */
+        linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 left 0 /
+        var(--bracket-size) var(--bracket-width) no-repeat,
+      /* Top-right horizontal cap */
+        linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 right
+        0 / var(--bracket-size) var(--bracket-width) no-repeat,
+      /* Bottom-left horizontal cap */
+        linear-gradient(var(--bracket-color), var(--bracket-color)) bottom 0
+        left 0 / var(--bracket-size) var(--bracket-width) no-repeat,
+      /* Bottom-right horizontal cap */
+        linear-gradient(var(--bracket-color), var(--bracket-color)) bottom 0
+        right 0 / var(--bracket-size) var(--bracket-width) no-repeat;
+    pointer-events: none;
+    opacity: var(--bracket-opacity);
+  }
+}
+
+@utility bracket-vertical {
+  &:after {
+    content: "";
+    position: absolute;
+    inset: calc(var(--bracket-offset) * -1);
+    background: 
+        /* Top horizontal line (full width) */ linear-gradient(
+          var(--bracket-color),
+          var(--bracket-color)
+        )
+        top 0 left 0 / 100% var(--bracket-width) no-repeat,
+      /* Bottom horizontal line (full width) */
+        linear-gradient(var(--bracket-color), var(--bracket-color)) bottom 0
+        left 0 / 100% var(--bracket-width) no-repeat,
+      /* Top-left vertical cap */
+        linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 left 0 /
+        var(--bracket-width) var(--bracket-size) no-repeat,
+      /* Top-right vertical cap */
+        linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 right
+        0 / var(--bracket-width) var(--bracket-size) no-repeat,
+      /* Bottom-left vertical cap */
+        linear-gradient(var(--bracket-color), var(--bracket-color)) bottom 0
+        left 0 / var(--bracket-width) var(--bracket-size) no-repeat,
+      /* Bottom-right vertical cap */
+        linear-gradient(var(--bracket-color), var(--bracket-color)) bottom 0
+        right 0 / var(--bracket-width) var(--bracket-size) no-repeat;
+    pointer-events: none;
+    opacity: var(--bracket-opacity);
+  }
+}
+
+@utility bracket-* {
+  --bracket-color: --value(--color- *);
+  --bracket-width: calc(--value(integer) * 1px);
+  --bracket-opacity: calc(--modifier(integer) * 1%);
+}
+
+@utility bracket-size-* {
+  --bracket-size: calc(--value(integer) * 1px);
+}
+
+@utility bracket-offset-* {
+  --bracket-offset: calc(--value(integer) * 1px);
+}
+
+@utility -bracket-offset-* {
+  --bracket-offset: calc(--value(integer) * 1px * -1);
+}
+
+@utility bg-dotted-* {
+  --dot-gap: --value(--dot-gap- *);
+  --dot-size: --value(--dot-size- *);
+  --dot-color: --value(--color- *, [color], --dot-color);
+  --dot-opacity: calc(--modifier(integer) * 1%);
+
+  background-image: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--dot-color) var(--dot-opacity), transparent)
+      var(--dot-size),
+    transparent var(--dot-size)
+  );
+  background-size: var(--dot-gap) var(--dot-gap);
+  background-position: 0 0;
+  background-repeat: repeat;
+}
+
+@utility heading-* {
+  font-size: --value(--text-heading- *);
+  font-weight: var(--font-weight-extrabold);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+}
+
+@utility bg-stripes-* {
+  --stripe-color: --value(--color- *);
+  --stripe-width: 1.5px;
+  --stripe-gap: 8px;
+  --stripe-bg: currentColor;
+  --stripe-opacity: 100%;
+  --stripe-opacity: calc(--modifier(integer) * 1%);
+
+  background-image: repeating-linear-gradient(
+    45deg,
+    color-mix(in srgb, var(--stripe-color) var(--stripe-opacity), transparent),
+    color-mix(in srgb, var(--stripe-color) var(--stripe-opacity), transparent)
+      var(--stripe-width),
+    var(--stripe-bg) var(--stripe-width),
+    var(--stripe-bg) calc(var(--stripe-width) + var(--stripe-gap))
+  );
+}
+
+@utility bg-stripes-overlay-* {
+  --stripe-bg: --value(--color- *);
+}
+
+@utility dotted-mask-* {
+  --dot-mask-size: calc(--value(integer) * 1px);
+  --dot-mask-color: --value(--color- *);
+  &:after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: var(--dot-mask-size);
+    background-image: radial-gradient(
+      circle,
+      var(--dot-mask-color) 2px,
+      transparent 1px
+    );
+    background-size: 4px 4px;
+    background-position: 0 0;
+    background-repeat: repeat;
+    mask-image: linear-gradient(to top, black 0%, black 30%, transparent 100%);
+    z-index: 10;
+    pointer-events: none;
+  }
+}
+
+@utility cross-lines-* {
+  position: relative;
+  --cross-color: --value(--color- *, [color], --cross-color);
+  --cross-opacity: calc(--modifier(integer) * 1%);
+  --cross-offset: 1px;
+  --cross-width: 1px;
+
+  &:before,
+  &:after {
+    content: "";
+    position: absolute;
+    inset: var(--cross-offset);
+    background: var(--cross-color);
+    opacity: var(--cross-opacity);
+  }
+
+  &::before {
+    clip-path: polygon(
+      0 0,
+      var(--cross-width) 0,
+      100% calc(100% - var(--cross-width)),
+      100% 100%,
+      calc(100% - var(--cross-width)) 100%,
+      0 var(--cross-width)
+    );
+  }
+
+  &::after {
+    clip-path: polygon(
+      100% 0,
+      100% var(--cross-width),
+      var(--cross-width) 100%,
+      0 100%,
+      0 calc(100% - var(--cross-width)),
+      calc(100% - var(--cross-width)) 0
+    );
+  }
+}
+
+@utility cross-lines-offset-* {
+  --cross-offset: calc(--value(integer) * 1px);
+}
+
+@utility stripe-frame {
+  --stripe-inset: 12px;
+  --stripe-border: var(--stripe-inset);
+  --stripe-size: 20px;
+  --stripe-gap: calc(var(--stripe-size) / 2);
+  --stripe-color: var(--color-foreground);
+  --stripe-opacity: 100%;
+
+  position: relative;
+  overflow: hidden;
+
+  & > [data-slot^="card-"] {
+    margin-inline: var(--stripe-inset);
+  }
+
+  & > [data-slot^="card-"]:first-child {
+    margin-top: var(--stripe-inset);
+  }
+
+  & > [data-slot^="card-"]:last-child {
+    margin-bottom: var(--stripe-inset);
+  }
+
+  &:before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent var(--stripe-gap),
+      var(--stripe-color) var(--stripe-gap),
+      var(--stripe-color) var(--stripe-size)
+    );
+    mask-image: linear-gradient(
+        to right,
+        black 0,
+        black var(--stripe-border),
+        transparent var(--stripe-border),
+        transparent calc(100% - var(--stripe-border)),
+        black calc(100% - var(--stripe-border))
+      ),
+      linear-gradient(
+        to bottom,
+        black 0,
+        black var(--stripe-border),
+        transparent var(--stripe-border),
+        transparent calc(100% - var(--stripe-border)),
+        black calc(100% - var(--stripe-border))
+      );
+    mask-composite: add;
+    -webkit-mask-composite: source-over;
+    pointer-events: none;
+    opacity: var(--stripe-opacity);
+    z-index: 0;
+  }
+}
+
+@utility stripe-frame-* {
+  --stripe-inset: --value(--spacing- *);
+  --stripe-inset: --spacing(--value(integer));
+  --stripe-color: --value(--color- *);
+  --stripe-opacity: calc(--modifier(integer) * 1%);
+}
+
+@utility stripe-frame-size-* {
+  --stripe-size: --value(--spacing- *);
+  --stripe-size: --spacing(--value(integer));
+}
+
+@utility stripe-frame-border-* {
+  --stripe-border: --value(--spacing- *);
+  --stripe-border: --spacing(--value(integer));
+}
+
+@utility stripe-bar {
+  --stripe-bar-color: currentColor;
+  --stripe-bar-width: 10px;
+  --stripe-bar-opacity: 100%;
+  background-image: repeating-linear-gradient(
+    45deg,
+    color-mix(
+      in srgb,
+      var(--stripe-bar-color) var(--stripe-bar-opacity),
+      transparent
+    ),
+    color-mix(
+        in srgb,
+        var(--stripe-bar-color) var(--stripe-bar-opacity),
+        transparent
+      )
+      var(--stripe-bar-width),
+    transparent var(--stripe-bar-width),
+    transparent calc(var(--stripe-bar-width) * 2)
+  );
+  background-size: calc(var(--stripe-bar-width) * 2.828427125)
+    calc(var(--stripe-bar-width) * 2.828427125);
+  overflow: hidden;
+  background-clip: padding-box;
+}
+
+@utility stripe-bar-* {
+  --stripe-bar-width: calc(--value(integer) * 1px);
+  --stripe-bar-color: --value(--color- *);
+  --stripe-bar-opacity: calc(--modifier(integer) * 1%);
+}
+
+@utility stripe-bar-animate-* {
+  --stripe-bar-speed: calc(--value(integer) * 0.5s);
+  animation: scroll var(--stripe-bar-speed) linear infinite;
+}
+
+@utility stripe-bar-reverse {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--stripe-bar-color),
+    var(--stripe-bar-color) var(--stripe-bar-width),
+    transparent var(--stripe-bar-width),
+    transparent calc(var(--stripe-bar-width) * 2)
+  );
+  animation-direction: reverse;
+}
+
+@utility bg-scanlines {
+  --scanlines-opacity: 100%;
+
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    color-mix(
+        in srgb,
+        currentColor calc(var(--scanlines-opacity) * 100%),
+        transparent
+      )
+      2px,
+    color-mix(
+        in srgb,
+        currentColor calc(var(--scanlines-opacity) * 100%),
+        transparent
+      )
+      4px
+  );
+  background-clip: padding-box;
+}

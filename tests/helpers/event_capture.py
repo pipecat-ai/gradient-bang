@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 import websockets
 
-from utils.legacy_ids import canonicalize_character_id
+from gradientbang.utils.legacy_ids import canonicalize_character_id
 
 
 _TRUTHY = {"1", "true", "on", "yes"}

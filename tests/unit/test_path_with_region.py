@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 
-from api import path_with_region
+from gradientbang.game_server.api import path_with_region
 
 
 class DummySectorKnowledge:

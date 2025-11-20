@@ -4,11 +4,11 @@ import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-from combat.garrison_ai import (
+from gradientbang.game_server.combat.garrison_ai import (
     calculate_garrison_commit,
     auto_submit_garrison_actions,
 )
-from combat.models import CombatantAction
+from gradientbang.game_server.combat.models import CombatantAction
 
 
 class TestCalculateGarrisonCommit:

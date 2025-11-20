@@ -1,5 +1,39 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+.npmrc.local
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+.turbo/
+build/
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# Environment files
+.env
+.env*.local
+*.pem
+
+# IDE
+.idea/
+.fleet/
+*.swp
+*.swo
+*~
+
+# AI Tools
+.bmad-core/
+.claude/
+.cursor/
+
+# OS
+.DS_Store
+Thumbs.db
+
 # Logs
-logs
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -7,25 +41,9 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-bundle-analysis.html
-dist
-dist-ssr
-dev-dist
-
-*.local
-.env
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-# Fonts
-public/fonts/*
+# Misc
+.cache/
+coverage/
+.nyc_output/
+web-bundles/
+.vercel/

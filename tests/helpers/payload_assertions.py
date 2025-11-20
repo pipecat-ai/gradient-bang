@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
-from utils.legacy_ids import canonicalize_character_id
+from gradientbang.utils.legacy_ids import canonicalize_character_id
 
 os.environ.setdefault("SUPABASE_ALLOW_LEGACY_IDS", "1")
 

@@ -2,13 +2,10 @@
 
 import asyncio
 import json
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
-from utils.api_client import AsyncGameClient
-from tests.helpers.combat_helpers import (
+from gradientbang.utils.api_client import AsyncGameClient
+from helpers.combat_helpers import (
     create_strong_character,
     create_weak_character,
     set_character_cargo,

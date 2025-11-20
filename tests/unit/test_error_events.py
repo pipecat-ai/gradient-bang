@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from api.utils import emit_error_event
+from gradientbang.game_server.api.utils import emit_error_event
 
 
 @pytest.mark.asyncio

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 
-from api import recharge_warp_power, transfer_warp_power
+from gradientbang.game_server.api import recharge_warp_power, transfer_warp_power
 
 
 class DummyCharacter:

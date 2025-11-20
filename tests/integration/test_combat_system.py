@@ -22,13 +22,13 @@ from pathlib import Path
 # Add project paths for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from utils.api_client import RPCError
+from gradientbang.utils.api_client import RPCError
 from tests.conftest import USE_SUPABASE_TESTS, EVENT_DELIVERY_WAIT  # type: ignore
 
 if USE_SUPABASE_TESTS:
-    from utils.supabase_client import AsyncGameClient  # type: ignore
+    from gradientbang.utils.supabase_client import AsyncGameClient  # type: ignore
 else:
-    from utils.api_client import AsyncGameClient
+    from gradientbang.utils.api_client import AsyncGameClient
 from tests.helpers.combat_helpers import (
     create_test_character_knowledge,
     create_weak_character,

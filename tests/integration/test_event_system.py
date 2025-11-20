@@ -27,7 +27,7 @@ from pathlib import Path
 # Add project paths
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from utils.api_client import AsyncGameClient, RPCError
+from gradientbang.utils.api_client import AsyncGameClient, RPCError
 from helpers.event_capture import EventListener, create_firehose_listener
 from helpers.assertions import (
     assert_event_emitted,
@@ -992,7 +992,7 @@ class TestCharacterFiltering:
 
             # Verify the events are for the correct character
             # Use canonical ID comparison to handle UUID vs human-readable ID differences
-            from utils.legacy_ids import canonicalize_character_id
+            from gradientbang.utils.legacy_ids import canonicalize_character_id
             expected_char1_id = canonicalize_character_id(char1_id)
             expected_char2_id = canonicalize_character_id(char2_id)
 

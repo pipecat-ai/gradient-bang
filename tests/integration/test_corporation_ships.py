@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from conftest import EVENT_DELIVERY_WAIT
-from utils.api_client import AsyncGameClient, RPCError
+from gradientbang.utils.api_client import AsyncGameClient, RPCError
 from helpers.corporation_utils import (
     managed_client,
     reset_corporation_test_state,

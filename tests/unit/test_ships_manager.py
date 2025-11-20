@@ -2,8 +2,8 @@ import uuid
 
 import pytest
 
-from core.ships_manager import ShipsManager
-from ships import ShipType, get_ship_stats
+from gradientbang.game_server.core.ships_manager import ShipsManager
+from gradientbang.game_server.ships import ShipType, get_ship_stats
 
 
 @pytest.fixture()

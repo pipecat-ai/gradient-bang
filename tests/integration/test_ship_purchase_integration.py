@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from utils.api_client import RPCError
+from gradientbang.utils.api_client import RPCError
 from helpers.corporation_utils import managed_client, reset_corporation_test_state
 from conftest import EVENT_DELIVERY_WAIT
 
@@ -96,7 +96,7 @@ async def test_personal_trade_in_sets_new_ship_and_marks_old_unowned(server_url,
     async with managed_client(server_url, "test_corp_member_2", credits=300_000) as pilot:
         # Get the old ship ID (deterministic UUID for Supabase, string for Legacy)
         if USE_SUPABASE_TESTS:
-            from utils.legacy_ids import deterministic_ship_id
+            from gradientbang.utils.legacy_ids import deterministic_ship_id
             old_ship_id = deterministic_ship_id("test_corp_member_2-ship")
         else:
             old_ship_id = "test_corp_member_2-ship"
@@ -121,7 +121,7 @@ async def test_personal_trade_in_sets_new_ship_and_marks_old_unowned(server_url,
 
         # For Supabase, owner_id is the canonical UUID; for Legacy, it's the string
         if USE_SUPABASE_TESTS:
-            from utils.legacy_ids import canonicalize_character_id
+            from gradientbang.utils.legacy_ids import canonicalize_character_id
             expected_owner_id = canonicalize_character_id("test_corp_member_2")
         else:
             expected_owner_id = "test_corp_member_2"

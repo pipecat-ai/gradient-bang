@@ -24,7 +24,7 @@ from unittest.mock import patch, AsyncMock
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from conftest import EVENT_DELIVERY_WAIT
-from utils.api_client import AsyncGameClient, RPCError
+from gradientbang.utils.api_client import AsyncGameClient, RPCError
 from helpers.client_setup import create_client_with_character
 
 

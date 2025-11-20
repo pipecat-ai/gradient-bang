@@ -13,7 +13,7 @@ import asyncio
 import pytest
 from helpers.event_capture import create_firehose_listener
 from helpers.client_setup import create_client_with_character
-from utils.api_client import AsyncGameClient
+from gradientbang.utils.api_client import AsyncGameClient
 from conftest import EVENT_DELIVERY_WAIT
 
 

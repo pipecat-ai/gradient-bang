@@ -7,9 +7,11 @@ This module provides utilities for registering test characters to prevent
 
 import json
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 
-from .combat_helpers import create_test_character_knowledge
+from helpers.combat_helpers import create_test_character_knowledge
+
+from config import TEST_WORLD_DATA_DIR as DEFAULT_WORLD_DATA_DIR
 
 
 # All test character IDs found in integration tests
@@ -498,7 +500,7 @@ def create_poor_corporation_player(sector: int = 1) -> Path:
     )
 
 
-def register_all_test_characters(world_data_dir: str = "tests/test-world-data") -> None:
+def register_all_test_characters(world_data_dir: str | Path = DEFAULT_WORLD_DATA_DIR) -> None:
     """
     Register all test characters in the characters.json file.
 
@@ -513,7 +515,8 @@ def register_all_test_characters(world_data_dir: str = "tests/test-world-data") 
         - Characters are registered with no password (empty password_hash)
         - Email format: <character_id>@test.com
     """
-    characters_file = Path(world_data_dir) / "characters.json"
+    world_data_dir = Path(world_data_dir)
+    characters_file = world_data_dir / "characters.json"
 
     # Load existing characters file or create new structure
     if characters_file.exists():
@@ -572,7 +575,7 @@ def register_all_test_characters(world_data_dir: str = "tests/test-world-data") 
         json.dump(data, f, indent=2)
 
 
-def get_registered_characters(world_data_dir: str = "tests/test-world-data") -> Dict[str, Any]:
+def get_registered_characters(world_data_dir: str | Path = DEFAULT_WORLD_DATA_DIR) -> Dict[str, Any]:
     """
     Get all registered characters from the characters.json file.
 
@@ -593,7 +596,7 @@ def get_registered_characters(world_data_dir: str = "tests/test-world-data") -> 
     return data.get("characters", {})
 
 
-def is_character_registered(character_id: str, world_data_dir: str = "tests/test-world-data") -> bool:
+def is_character_registered(character_id: str, world_data_dir: str | Path = DEFAULT_WORLD_DATA_DIR) -> bool:
     """
     Check if a character is registered.
 

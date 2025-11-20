@@ -3,9 +3,9 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from combat.finalization import resolve_participant_owner, finalize_combat
-from combat.models import GarrisonState
-from ships import ShipType
+from gradientbang.game_server.combat.finalization import resolve_participant_owner, finalize_combat
+from gradientbang.game_server.combat.models import GarrisonState
+from gradientbang.game_server.ships import ShipType
 
 
 class TestResolveParticipantOwner:

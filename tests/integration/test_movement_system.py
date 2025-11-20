@@ -22,7 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from conftest import EVENT_DELIVERY_WAIT
-from utils.api_client import AsyncGameClient, RPCError
+from gradientbang.utils.api_client import AsyncGameClient, RPCError
 from helpers.event_capture import EventListener, create_firehose_listener
 from helpers.assertions import (
     assert_event_emitted,
@@ -254,7 +254,7 @@ class TestHyperspaceStateMachine:
         When a character is in hyperspace, my_status should return 409 error
         with message "Character is in hyperspace, status unavailable until arrival".
         """
-        from utils.api_client import RPCError
+        from gradientbang.utils.api_client import RPCError
 
         client = joined_character["client"]
         char_id = joined_character["character_id"]

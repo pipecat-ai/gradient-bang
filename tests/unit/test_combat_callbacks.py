@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from combat.callbacks import _emit_garrison_combat_alert
-from combat.models import CombatEncounter, CombatantState, GarrisonState
+from gradientbang.game_server.combat.callbacks import _emit_garrison_combat_alert
+from gradientbang.game_server.combat.models import CombatEncounter, CombatantState, GarrisonState
 
 
 class _DummyCharacter:

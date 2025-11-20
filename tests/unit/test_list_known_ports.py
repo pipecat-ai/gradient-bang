@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 
-from api import list_known_ports
+from gradientbang.game_server.api import list_known_ports
 
 
 class DummySectorKnowledge:

@@ -7,7 +7,7 @@ properly initialized characters in both Legacy and Supabase test environments.
 
 import os
 from typing import Dict, Optional, Any
-from utils.api_client import AsyncGameClient
+from gradientbang.utils.api_client import AsyncGameClient
 from tests.helpers.combat_helpers import create_test_character_knowledge
 
 

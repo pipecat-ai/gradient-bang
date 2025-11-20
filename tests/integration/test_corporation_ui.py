@@ -11,7 +11,7 @@ from conftest import EVENT_DELIVERY_WAIT
 from helpers.combat_helpers import create_test_character_knowledge
 from helpers.corporation_utils import REQUIRED_CORPORATION_FUNCTIONS
 from helpers.client_setup import create_client_with_character
-from utils.api_client import AsyncGameClient
+from gradientbang.utils.api_client import AsyncGameClient
 
 
 pytestmark = [

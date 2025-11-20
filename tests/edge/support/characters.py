@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 
-from utils.legacy_ids import canonicalize_character_id
+from gradientbang.utils.legacy_ids import canonicalize_character_id
 
 os.environ.setdefault("SUPABASE_ALLOW_LEGACY_IDS", "1")
 

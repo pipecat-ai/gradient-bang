@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from utils.api_client import RPCError
+from gradientbang.utils.api_client import RPCError
 from helpers.corporation_utils import (
     managed_client,
     reset_corporation_test_state,

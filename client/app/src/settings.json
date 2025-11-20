@@ -1,0 +1,9 @@
+{
+    "startMuted": false,
+    "enableMic": true,
+    "disableRemoteAudio": false,
+    "saveSettings": true,
+    "bypassAssetCache": false,
+    "showMobileWarning": true,
+    "useDevTools": true
+}

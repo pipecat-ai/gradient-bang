@@ -4,7 +4,7 @@ import asyncio
 import pytest
 from unittest.mock import Mock
 
-from core.locks.credit_locks import CreditLockManager
+from gradientbang.game_server.core.locks.credit_locks import CreditLockManager
 
 
 class MockKnowledgeManager:

@@ -23,7 +23,7 @@ from unittest.mock import AsyncMock, patch
 # Add project paths
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from utils.api_client import AsyncGameClient, RPCError
+from gradientbang.utils.api_client import AsyncGameClient, RPCError
 from helpers.event_capture import EventListener, create_firehose_listener
 from helpers.assertions import (
     assert_event_emitted,

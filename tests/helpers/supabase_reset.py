@@ -15,7 +15,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import psycopg
 from psycopg.types.json import Json
 
-from utils.legacy_ids import canonicalize_character_id, deterministic_ship_id
+from gradientbang.utils.legacy_ids import canonicalize_character_id, deterministic_ship_id
 
 os.environ.setdefault("SUPABASE_ALLOW_LEGACY_IDS", "1")
 

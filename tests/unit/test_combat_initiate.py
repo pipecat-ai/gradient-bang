@@ -2,9 +2,9 @@ import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-from api import combat_initiate
-from combat.models import CombatEncounter, CombatantState
-from combat import utils as combat_utils
+from gradientbang.game_server.api import combat_initiate
+from gradientbang.game_server.combat.models import CombatEncounter, CombatantState
+from gradientbang.game_server.combat import utils as combat_utils
 
 
 def _make_character(sector: int = 5, fighters: int = 10):

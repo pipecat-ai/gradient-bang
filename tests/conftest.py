@@ -311,7 +311,7 @@ from helpers.server_fixture import (
 )
 
 from utils import api_client as _api_client_module
-from scripts.compare_payloads import load_events as _load_dump_events, compare as _compare_event_lists
+from gradientbang.scripts.compare_payloads import load_events as _load_dump_events, compare as _compare_event_lists
 
 _TRUTHY = {"1", "true", "on", "yes"}
 
@@ -370,7 +370,7 @@ SUPABASE_CLI_COMMAND = _resolve_supabase_cli_command() if USE_SUPABASE_TESTS els
 if USE_SUPABASE_TESTS:
     os.environ.setdefault("SUPABASE_ALLOW_LEGACY_IDS", "1")
     os.environ.setdefault("SUPABASE_TEST_MOVE_DELAY_SCALE", "0.1")
-    from utils.supabase_client import AsyncGameClient as _SupabaseAsyncGameClient
+    from gradientbang.utils.supabase_client import AsyncGameClient as _SupabaseAsyncGameClient
 
     _api_client_module.AsyncGameClient = _SupabaseAsyncGameClient  # type: ignore[attr-defined]
 
@@ -846,7 +846,7 @@ def _invoke_test_reset_sync() -> None:
     _invoke_edge_test_reset()
 
 # Import AsyncGameClient for test reset calls (patched above when Supabase mode is enabled)
-from utils.api_client import AsyncGameClient
+from gradientbang.utils.api_client import AsyncGameClient
 
 logger = logging.getLogger(__name__)
 

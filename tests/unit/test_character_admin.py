@@ -3,12 +3,12 @@ from datetime import datetime, timezone
 
 import pytest
 
-from core.character_registry import CharacterRegistry, CharacterProfile
-from core.world import Character
-from core.ships_manager import ShipsManager
-from core.corporation_manager import CorporationManager
-from character_knowledge import CharacterKnowledgeManager
-from api import character_create, character_modify, character_delete
+from gradientbang.game_server.core.character_registry import CharacterRegistry, CharacterProfile
+from gradientbang.game_server.core.world import Character
+from gradientbang.game_server.core.ships_manager import ShipsManager
+from gradientbang.game_server.core.corporation_manager import CorporationManager
+from gradientbang.game_server.character_knowledge import CharacterKnowledgeManager
+from gradientbang.game_server.api import character_create, character_modify, character_delete, character_info
 
 
 @pytest.fixture
@@ -139,3 +139,52 @@ async def test_character_delete_cleans_corporation_membership(world):
     assert ship_record.get("former_owner_name") == "Unit Test Corp"
 
     assert not world.knowledge_manager.get_file_path(character_id).exists()
+
+
+@pytest.mark.asyncio
+async def test_character_info(world):
+    """Test character_info endpoint returns character information without requiring admin password."""
+    # Create a character first
+    create_result = await character_create.handle(
+        {
+            "admin_password": "secret",
+            "name": "Info Test Pilot",
+            "player": {"credits": 5000},
+            "ship": {"ship_name": "Test Ship"},
+        },
+        world,
+    )
+
+    assert create_result["success"] is True
+    character_id = create_result["character_id"]
+
+    # Now test character_info (should NOT require admin password)
+    info_result = await character_info.handle(
+        {
+            "character_id": character_id,
+        },
+        world,
+    )
+
+    assert info_result["success"] is True
+    assert info_result["character_id"] == character_id
+    assert info_result["name"] == "Info Test Pilot"
+    assert "created_at" in info_result
+    assert "updated_at" in info_result
+
+
+@pytest.mark.asyncio
+async def test_character_info_not_found(world):
+    """Test character_info returns 404 for non-existent character."""
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc_info:
+        await character_info.handle(
+            {
+                "character_id": "non-existent-id",
+            },
+            world,
+        )
+
+    assert exc_info.value.status_code == 404
+    assert "not found" in exc_info.value.detail.lower()

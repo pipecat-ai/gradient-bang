@@ -1,10 +1,14 @@
 world-data/
+logs/
 
 # Test artifacts - ALL runtime files in test-world-data except source data
-tests/test-world-data/*
+tests/test-world-data/**/*
 !tests/test-world-data/universe_structure.json
 !tests/test-world-data/sector_contents.json
 !tests/test-world-data/README.md
+
+# Test logs
+tests/logs
 
 # Python-generated files
 __pycache__/
@@ -27,25 +31,19 @@ share/python-wheels/
 .installed.cfg
 *.egg
 .playwright-mcp/
-logs/
+.pytest_cache/
 
 # Environments
 .env
-.env.supabase
-.env.cloud
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
-supabase/.env
-
-# Local secrets
-planning-files/.secrets
-supabase/character_jwt_signing_key.json
-supabase/character_jwt_signing_key_*.json
-supabase/signing_keys.json
 
 # System
 .DS_Store
+
+# Deployment
+deployment/pcc-deploy.toml

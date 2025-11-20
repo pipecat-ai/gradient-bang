@@ -3,10 +3,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from api import corporation_info, corporation_list, my_corporation
-from character_knowledge import MapKnowledge
-from core.corporation_manager import CorporationManager
-from core.ships_manager import ShipsManager
+from gradientbang.game_server.api import corporation_info, corporation_list, my_corporation
+from gradientbang.game_server.character_knowledge import MapKnowledge
+from gradientbang.game_server.core.corporation_manager import CorporationManager
+from gradientbang.game_server.core.ships_manager import ShipsManager
 
 
 class StubKnowledgeManager:

@@ -117,7 +117,7 @@ async def get_aiohttp_connector_stats() -> Dict:
 async def get_postgres_connection_stats() -> Dict:
     """Get PostgreSQL connection pool statistics."""
     try:
-        from utils.supabase_client import AsyncGameClient
+        from gradientbang.utils.supabase_client import AsyncGameClient
 
         # Create temporary client to query DB stats
         client = AsyncGameClient(

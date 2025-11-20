@@ -23,7 +23,7 @@ from pathlib import Path
 # Add project paths
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from utils.api_client import AsyncGameClient, RPCError
+from gradientbang.utils.api_client import AsyncGameClient, RPCError
 from helpers.combat_helpers import create_test_character_knowledge
 from helpers.corporation_utils import managed_client, reset_corporation_test_state
 from helpers.client_setup import create_client_with_character

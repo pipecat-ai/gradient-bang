@@ -2,8 +2,8 @@ import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-from core.world import Character
-from api import join
+from gradientbang.game_server.core.world import Character
+from gradientbang.game_server.api import join
 
 
 def _make_ship_record(character_id: str):

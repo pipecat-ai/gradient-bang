@@ -131,7 +131,7 @@ def reset_character_state(
     headers = _service_headers()
 
     # Generate deterministic ship_id
-    from utils.legacy_ids import deterministic_ship_id
+    from gradientbang.utils.legacy_ids import deterministic_ship_id
     ship_id = deterministic_ship_id(f"{character}-ship")
 
     # Handle circular FK: character → ship, ship → character

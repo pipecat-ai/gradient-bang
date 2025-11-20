@@ -22,7 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from conftest import EVENT_DELIVERY_WAIT
-from utils.api_client import AsyncGameClient
+from gradientbang.utils.api_client import AsyncGameClient
 from helpers.combat_helpers import create_test_character_knowledge
 
 

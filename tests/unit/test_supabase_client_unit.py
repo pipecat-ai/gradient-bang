@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from utils.supabase_client import AsyncGameClient
+from gradientbang.utils.supabase_client import AsyncGameClient
 
 
 class DummyResponse:
