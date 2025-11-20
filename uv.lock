@@ -1074,7 +1074,7 @@ requires-dist = [
     { name = "google-genai", specifier = ">=0.7.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "loguru", specifier = ">=0.7.0" },
-    { name = "pipecat-ai", extras = ["deepgram", "speechmatics", "openai", "daily", "cartesia", "webrtc", "silero", "local-smart-turn", "rime", "google", "runner"], specifier = "==0.0.92" },
+    { name = "pipecat-ai", extras = ["deepgram", "speechmatics", "openai", "daily", "cartesia", "webrtc", "silero", "local-smart-turn", "rime", "google", "runner"], specifier = "==0.0.95" },
     { name = "pipecat-ai-small-webrtc-prebuilt" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.1" },
     { name = "pyperclip", specifier = ">=1.11.0" },
@@ -2148,7 +2148,7 @@ wheels = [
 
 [[package]]
 name = "pipecat-ai"
-version = "0.0.92"
+version = "0.0.95"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiofiles" },
@@ -2168,9 +2168,9 @@ dependencies = [
     { name = "resampy" },
     { name = "soxr" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b6/84/5379694e9bec5b974b9ad43e0fe50eb3530ead24a1077be61b99cceb28f0/pipecat_ai-0.0.92.tar.gz", hash = "sha256:22e2dfc596bc32b0a4c888df9130451c25c82b4c667f6a4619d792ca2f0fbcb1", size = 10711798, upload-time = "2025-10-31T16:49:01.019Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/30/b4/096f79474d4a2f9506027c0b55ea3f3a35af9087bafc9204db346c35a138/pipecat_ai-0.0.95.tar.gz", hash = "sha256:2bedbd52fa14f16980af8d919775d94f78c3ce23d8369f097f5df2f725c5c5f2", size = 10732782, upload-time = "2025-11-19T05:24:40.002Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a9/ea/eaf71b7a5e66909246ca0d1ed6eb1dd369caab4bf06789580b56810bb7bc/pipecat_ai-0.0.92-py3-none-any.whl", hash = "sha256:0b057c1ccd01cef1eff65e6054202e29b00a6da443bb3ee40ec27a56381d5e26", size = 10393881, upload-time = "2025-10-31T16:48:58.535Z" },
+    { url = "https://files.pythonhosted.org/packages/5a/e0/3c6f2da402efe10e31ef946f839a1331176232e2dfb71eb8433ac9b4ce3a/pipecat_ai-0.0.95-py3-none-any.whl", hash = "sha256:a741f25e9bdc96bccf3b723da4ba05e5668f98289400c87e14261b0787722124", size = 10415565, upload-time = "2025-11-19T05:24:37.198Z" },
 ]
 
 [package.optional-dependencies]

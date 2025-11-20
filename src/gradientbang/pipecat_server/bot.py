@@ -7,7 +7,7 @@ import sys
 
 from pipecat.utils.time import time_now_iso8601
 from pipecat.runner.utils import create_transport
-from pipecat.runner.types import RunnerArguments
+from pipecat.runner.types import RunnerArguments, DailyRunnerArguments, SmallWebRTCRunnerArguments
 from pipecat.transports.daily.transport import DailyParams
 from pipecat.transports.base_transport import TransportParams
 from pipecat.services.google.llm import GoogleLLMService
@@ -464,6 +464,8 @@ async def bot(runner_args: RunnerArguments):
         ),
     }
 
+    # Pipecat 0.0.95+ - runner_args is already the correct transport-specific type
+    # (DailyRunnerArguments or SmallWebRTCRunnerArguments)
     transport = await create_transport(runner_args, transport_params)
     await run_bot(transport, runner_args)
 
