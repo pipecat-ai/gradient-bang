@@ -12,7 +12,10 @@ from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame, RTVIProcessor
 from pipecat.frames.frames import LLMMessagesAppendFrame
 
-from utils.api_client import AsyncGameClient
+if os.getenv("SUPABASE_URL"):
+    from utils.supabase_client import AsyncGameClient
+else:
+    from utils.api_client import AsyncGameClient
 from utils.task_agent import TaskAgent, TaskOutputType
 from utils.tools_schema import (
     MyStatus,
@@ -86,11 +89,12 @@ class VoiceTaskManager:
         """
         self.character_id = character_id
         self.display_name: str = character_id
-        # Create a game client; base_url comes from default or env via AsyncGameClient
+        # Create a game client; use SUPABASE_URL if available, otherwise default to local
+        base_url = os.getenv("SUPABASE_URL") or os.getenv("GAME_SERVER_URL", "http://localhost:8000")
         self.game_client = AsyncGameClient(
             character_id=character_id,
-            base_url="http://localhost:8000",
-            transport="websocket",
+            base_url=base_url,
+            transport="websocket",  # Supabase client auto-converts this to "supabase" transport
         )
         self._event_names = [
             "status.snapshot",
