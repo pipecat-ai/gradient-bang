@@ -30,6 +30,7 @@ const endpoint =
 useGameStore.getState().setBotConfig(
   {
     endpoint,
+    requestData: {},
   },
   transport as "smallwebrtc" | "daily"
 )
