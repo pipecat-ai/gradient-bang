@@ -47,7 +47,12 @@ if os.getenv("BOT_USE_KRISP"):
     from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
 
 from gradientbang.utils.prompts import GAME_DESCRIPTION, CHAT_INSTRUCTIONS, VOICE_INSTRUCTIONS
-from gradientbang.utils.api_client import AsyncGameClient
+
+# Use Supabase client if SUPABASE_URL is set, otherwise use legacy WebSocket client
+if os.getenv("SUPABASE_URL"):
+    from gradientbang.utils.supabase_client import AsyncGameClient
+else:
+    from gradientbang.utils.api_client import AsyncGameClient
 from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
 
 from gradientbang.pipecat_server.voice_task_manager import VoiceTaskManager
@@ -182,7 +187,8 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         asyncio.create_task(_complete())
 
     # Get server URL from environment or use default
-    server_url = os.getenv("GAME_SERVER_URL", "http://localhost:8000")
+    # Check SUPABASE_URL first (for cloud mode), then GAME_SERVER_URL, then default
+    server_url = os.getenv("SUPABASE_URL") or os.getenv("GAME_SERVER_URL", "http://localhost:8000")
 
     character_id, character_display_name = await _resolve_character_identity(
         runner_args.body.get("character_id", None),

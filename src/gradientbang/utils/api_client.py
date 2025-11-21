@@ -277,7 +277,7 @@ class AsyncGameClient:
         logger.info(f"Summary formatter for {name} produced: {summary}")
         return summary
 
-    def _format_event(self, event_name: str, payload: Any) -> Dict[str, Any]:
+    def _format_event(self, event_name: str, payload: Any, request_id: Optional[str] = None) -> Dict[str, Any]:
         """Normalize an event payload and attach summary metadata when available."""
 
         if isinstance(payload, Mapping):
@@ -287,6 +287,10 @@ class AsyncGameClient:
             "event_name": event_name,
             "payload": payload,
         }
+
+        # Include request_id for event correlation (if available)
+        if request_id is not None:
+            event_message["request_id"] = request_id
 
         if isinstance(payload, dict):
             summary = self._get_summary(event_name, payload)
@@ -500,14 +504,14 @@ class AsyncGameClient:
                     fut.set_exception(RuntimeError("WebSocket connection lost"))
             self._pending.clear()
 
-    async def _process_event(self, event_name: str, payload: Dict[str, Any]) -> None:
+    async def _process_event(self, event_name: str, payload: Dict[str, Any], request_id: Optional[str] = None) -> None:
         if event_name == "error" and isinstance(payload, Mapping):
             source = payload.get("source")
             if isinstance(source, Mapping):
-                request_id = source.get("request_id")
-                if request_id is not None:
-                    self._seen_error_request_ids.add(str(request_id))
-        event_message = self._format_event(event_name, payload)
+                req_id = source.get("request_id")
+                if req_id is not None:
+                    self._seen_error_request_ids.add(str(req_id))
+        event_message = self._format_event(event_name, payload, request_id=request_id)
         if not self._event_delivery_enabled:
             self._pending_events.append((event_name, event_message))
             return

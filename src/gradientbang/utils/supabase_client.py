@@ -147,6 +147,7 @@ class AsyncGameClient(LegacyAsyncGameClient):
         http_client = self._ensure_http_client()
 
         req_id = str(uuid.uuid4())
+        self.last_request_id = req_id  # Track for voice agent request correlation
         enriched = self._inject_character_ids(payload)
 
         edge_endpoint = endpoint.replace('.', '_')
@@ -588,8 +589,11 @@ class AsyncGameClient(LegacyAsyncGameClient):
         if not self._record_event_id(payload):
             return
 
+        # Extract request_id from row for event correlation
+        request_id = row.get("request_id")
+
         await self._maybe_update_sector_from_event(event_name, payload)
-        await self._process_event(event_name, payload)
+        await self._process_event(event_name, payload, request_id=request_id)
 
         # Log events to JSONL audit log (same as realtime path)
         self._append_event_log(event_name, payload)
@@ -738,10 +742,10 @@ class AsyncGameClient(LegacyAsyncGameClient):
             return event_id
         return None
 
-    def _format_event(self, event_name: str, payload: Any) -> Dict[str, Any]:  # type: ignore[override]
+    def _format_event(self, event_name: str, payload: Any, request_id: Optional[str] = None) -> Dict[str, Any]:
         # Remove internal tracking metadata before formatting
         if isinstance(payload, dict) and "__supabase_event_id" in payload:
             payload.pop("__supabase_event_id", None)
         # Do NOT add __event_id to the formatted event - it's internal metadata
-        event_message = super()._format_event(event_name, payload)
+        event_message = super()._format_event(event_name, payload, request_id=request_id)
         return event_message
