@@ -3,6 +3,7 @@ import { Points } from "@react-three/drei"
 import { folder, useControls } from "leva"
 import * as THREE from "three"
 
+import { getPalette } from "@/colors"
 import { useGameStore } from "@/useGameStore"
 import { seededRandom } from "@/utils/math"
 
@@ -34,14 +35,17 @@ function createRadialGradientTexture() {
 }
 
 export const VolumetricClouds = () => {
-  const { volumetricClouds: cloudsConfig } = useGameStore(
-    (state) => state.starfieldConfig
-  )
+  const starfieldConfig = useGameStore((state) => state.starfieldConfig)
+  const { volumetricClouds: cloudsConfig } = starfieldConfig
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
   const materialRef = useRef<THREE.PointsMaterial>(null)
 
+  // Get active palette
+  const palette = getPalette(starfieldConfig.palette)
+
   const [
     { count, radius, size, opacity, color, blendMode, minDistance, fadeRange },
+    set,
   ] = useControls(() => ({
     "Volumetric Clouds": folder(
       {
@@ -80,7 +84,7 @@ export const VolumetricClouds = () => {
           label: "Opacity",
         },
         color: {
-          value: cloudsConfig?.color ?? "#88aaff",
+          value: cloudsConfig?.color ?? `#${palette.tint.getHexString()}`,
           label: "Color",
         },
         blendMode: {
@@ -119,6 +123,15 @@ export const VolumetricClouds = () => {
       shader.uniforms.fadeRange.value = fadeRange
     }
   }, [minDistance, fadeRange])
+
+  // Sync palette changes to Leva controls
+  useEffect(() => {
+    if (!cloudsConfig?.color) {
+      set({
+        color: `#${palette.tint.getHexString()}`,
+      })
+    }
+  }, [starfieldConfig.palette, palette, cloudsConfig, set])
 
   // Generate random positions within a sphere with cloud-like clustering
   const positions = useMemo(() => {

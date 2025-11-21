@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { easings } from "@react-spring/three"
-import { invalidate, useFrame, useLoader } from "@react-three/fiber"
+import { invalidate, useFrame } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import {
   BlendFunction,
@@ -18,6 +18,7 @@ import * as THREE from "three"
 import { getPalette } from "@/colors"
 import { DitheringEffect } from "@/fx/DitherEffect"
 import { LayerDimEffect } from "@/fx/LayerDimEffect"
+import { LensFlareEffect } from "@/fx/LensFlare"
 import { ScanlineEffect } from "@/fx/ScanlineEffect"
 import { SharpenEffect } from "@/fx/SharpenEffect"
 import { TintEffect } from "@/fx/TintEffect"
@@ -38,6 +39,7 @@ export const PostProcessing = () => {
   const sharpenEffectRef = useRef<SharpenEffect | null>(null)
   const scanlineEffectRef = useRef<ScanlineEffect | null>(null)
   const tintEffectRef = useRef<TintEffect | null>(null)
+  const lensFlareEffectRef = useRef<LensFlareEffect | null>(null)
   const shockwaveEpicenterRef = useRef(new THREE.Vector3())
   const shockwaveDirectionRef = useRef(new THREE.Vector3())
   const lastShockwaveSequenceRef = useRef(0)
@@ -60,7 +62,7 @@ export const PostProcessing = () => {
   const palette = getPalette(starfieldConfig.palette)
 
   // Effect controls
-  const [ppUniforms] = useControls(() => ({
+  const [ppUniforms, set] = useControls(() => ({
     "Post Processing": folder(
       {
         Bloom: folder(
@@ -102,14 +104,23 @@ export const PostProcessing = () => {
             sharpeningIntensity: {
               value: storedSharpening.sharpeningIntensity ?? 1.0,
               label: "Intensity",
+              min: 0,
+              max: 20,
+              step: 0.1,
             },
             sharpeningRadius: {
               value: storedSharpening.sharpeningRadius ?? 3.0,
               label: "Radius",
+              min: 0,
+              max: 10,
+              step: 0.1,
             },
             sharpeningThreshold: {
               value: storedSharpening.sharpeningThreshold ?? 0.0,
               label: "Threshold",
+              min: 0,
+              max: 1,
+              step: 0.1,
             },
           },
           { collapsed: true }
@@ -188,7 +199,7 @@ export const PostProcessing = () => {
               label: "Enable Dithering",
             },
             ditheringGridSize: {
-              value: storedDithering.ditheringGridSize ?? 3,
+              value: storedDithering.ditheringGridSize ?? 2,
               min: 1,
               max: 20,
               step: 1,
@@ -202,7 +213,7 @@ export const PostProcessing = () => {
               label: "Pixelation Strength",
             },
             ditheringBlendMode: {
-              value: BlendFunction.SCREEN,
+              value: BlendFunction.NORMAL,
               options: {
                 Normal: BlendFunction.NORMAL,
                 Add: BlendFunction.ADD,
@@ -222,22 +233,150 @@ export const PostProcessing = () => {
         Scanlines: folder(
           {
             scanlinesEnabled: {
-              value: storedScanlines.scanlinesEnabled ?? true,
+              value: storedScanlines.scanlinesEnabled ?? false,
               label: "Enable Scanlines",
             },
             scanlinesIntensity: {
-              value: storedScanlines.scanlinesIntensity ?? 0.3,
+              value: storedScanlines.scanlinesIntensity ?? 0.2,
               min: 0,
               max: 1,
               step: 0.1,
               label: "Intensity",
             },
             scanlinesFrequency: {
-              value: storedScanlines.scanlinesFrequency ?? 1.3,
+              value: storedScanlines.scanlinesFrequency ?? 0.9,
               min: 0,
               max: 2,
               step: 0.1,
               label: "Frequency",
+            },
+            scanlinesBlendMode: {
+              value: BlendFunction.NORMAL,
+              options: {
+                Normal: BlendFunction.NORMAL,
+                Add: BlendFunction.ADD,
+                Screen: BlendFunction.SCREEN,
+                Overlay: BlendFunction.OVERLAY,
+                Multiply: BlendFunction.MULTIPLY,
+              },
+              label: "Blend Mode",
+            },
+          },
+          { collapsed: true }
+        ),
+        "Lens Flare": folder(
+          {
+            lensFlareEnabled: {
+              value: false,
+              label: "Enable Lens Flare",
+            },
+            lensFlarePositionX: {
+              value: -40,
+              min: -300,
+              max: 300,
+              step: 1,
+              label: "Position X",
+            },
+            lensFlarePositionY: {
+              value: 30,
+              min: -300,
+              max: 300,
+              step: 1,
+              label: "Position Y",
+            },
+            lensFlarePositionZ: {
+              value: -80,
+              min: -300,
+              max: 300,
+              step: 1,
+              label: "Position Z",
+            },
+            lensFlareEnableOcclusion: {
+              value: true,
+              label: "Enable Occlusion",
+            },
+            lensFlareAnamorphic: {
+              value: false,
+              label: "Anamorphic",
+            },
+            lensFlareColor: {
+              value: `#${palette.base.getHexString()}`,
+              label: "Color",
+            },
+            lensFlareBlendMode: {
+              value: BlendFunction.SCREEN,
+              options: {
+                Normal: BlendFunction.NORMAL,
+                Add: BlendFunction.ADD,
+                Screen: BlendFunction.SCREEN,
+                Overlay: BlendFunction.OVERLAY,
+                Multiply: BlendFunction.MULTIPLY,
+                Lighten: BlendFunction.LIGHTEN,
+                Darken: BlendFunction.DARKEN,
+                ColorDodge: BlendFunction.COLOR_DODGE,
+                ColorBurn: BlendFunction.COLOR_BURN,
+                LinearDodge: BlendFunction.LINEAR_DODGE,
+                LinearBurn: BlendFunction.LINEAR_BURN,
+              },
+              label: "Blend Mode",
+            },
+            lensFlareGlareSize: {
+              value: 0.35,
+              min: 0,
+              max: 1,
+              step: 0.01,
+              label: "Glare Size",
+            },
+            lensFlareEnableRays: {
+              value: true,
+              label: "Enable Star Rays",
+            },
+            lensFlareStarPoints: {
+              value: 6.0,
+              min: 3,
+              max: 12,
+              step: 1,
+              label: "Star Points",
+            },
+            lensFlareStarBurst: {
+              value: true,
+              label: "Enable Lens Dirt/Patterns",
+            },
+            lensFlareSecondaryGhosts: {
+              value: true,
+              label: "Enable Secondary Ghosts",
+            },
+            lensFlareAdditionalStreaks: {
+              value: true,
+              label: "Enable Additional Streaks",
+            },
+            lensFlareSize: {
+              value: 0.005,
+              min: 0,
+              max: 0.1,
+              step: 0.001,
+              label: "Flare Size",
+            },
+            lensFlareShape: {
+              value: 0.02,
+              min: 0,
+              max: 0.1,
+              step: 0.01,
+              label: "Flare Shape",
+            },
+            lensFlareHaloScale: {
+              value: 0.5,
+              min: 0,
+              max: 2,
+              step: 0.1,
+              label: "Halo Scale",
+            },
+            lensFlareGhostScale: {
+              value: 0.5,
+              min: 0,
+              max: 2,
+              step: 0.1,
+              label: "Ghost Scale",
             },
           },
           { collapsed: true }
@@ -249,14 +388,14 @@ export const PostProcessing = () => {
               label: "Enable Grading",
             },
             gradingBrightness: {
-              value: storedGrading.brightness ?? 1,
+              value: storedGrading.brightness ?? 0.1,
               min: 0,
               max: 2,
               step: 0.1,
               label: "Brightness",
             },
             gradingContrast: {
-              value: storedGrading.contrast ?? palette.contrast,
+              value: storedGrading.contrast ?? palette.contrast ?? 0.25,
               min: 0,
               max: 2,
               step: 0.01,
@@ -270,7 +409,7 @@ export const PostProcessing = () => {
               label: "Saturation",
             },
             tintEnabled: {
-              value: storedGrading.tintEnabled ?? true,
+              value: storedGrading.tintEnabled ?? false,
               label: "Enable Tint",
             },
             tintIntensity: {
@@ -307,10 +446,36 @@ export const PostProcessing = () => {
     ),
   }))
 
+  // Sync palette changes to Leva controls
+  useEffect(() => {
+    if (
+      !storedGrading.tintColorPrimary &&
+      !storedGrading.tintColorSecondary &&
+      !storedGrading.contrast &&
+      !storedGrading.saturation
+    ) {
+      set({
+        lensFlareColor: `#${palette.base.getHexString()}`,
+        gradingContrast: palette.contrast,
+        gradingSaturation: palette.saturation,
+        tintColorPrimary: `#${palette.c1.getHexString()}`,
+        tintColorSecondary: `#${palette.c2.getHexString()}`,
+      })
+    }
+  }, [starfieldConfig.palette, palette, storedGrading, set])
+
   // Memoized resize handler
   const handleResize = useCallback(() => {
     if (composerRef.current) {
       composerRef.current.setSize(window.innerWidth, window.innerHeight)
+    }
+
+    // Update lens flare resolution
+    if (lensFlareEffectRef.current) {
+      const resolution = lensFlareEffectRef.current.uniforms.get("iResolution")
+      if (resolution) {
+        resolution.value.set(window.innerWidth, window.innerHeight)
+      }
     }
   }, [])
 
@@ -330,6 +495,7 @@ export const PostProcessing = () => {
     composer.removeAllPasses()
 
     const renderPass = new RenderPass(scene, camera)
+    renderPass.clearPass.setClearFlags(true, true, true)
     composer.addPass(renderPass)
 
     const orderedEffectPasses: EffectPass[] = []
@@ -372,6 +538,46 @@ export const PostProcessing = () => {
     const layerDim = new LayerDimEffect({ opacity: 1.0 })
     layerDimEffectRef.current = layerDim
     orderedEffectPasses.push(new EffectPass(camera, layerDim))
+
+    if (ppUniforms.lensFlareEnabled) {
+      const flareColor = new THREE.Color(ppUniforms.lensFlareColor)
+      // Scale color to 0-255 range for shader (shader divides by 256)
+      const colorGain = new THREE.Color(
+        flareColor.r * 255,
+        flareColor.g * 255,
+        flareColor.b * 255
+      )
+      const lensFlare = new LensFlareEffect({
+        enabled: true,
+        blendFunction: ppUniforms.lensFlareBlendMode,
+        anamorphic: ppUniforms.lensFlareAnamorphic,
+        colorGain: colorGain,
+        glareSize: ppUniforms.lensFlareGlareSize,
+        starBurst: ppUniforms.lensFlareStarBurst,
+        secondaryGhosts: ppUniforms.lensFlareSecondaryGhosts,
+        aditionalStreaks: ppUniforms.lensFlareAdditionalStreaks,
+        starPoints: ppUniforms.lensFlareEnableRays
+          ? ppUniforms.lensFlareStarPoints
+          : 0,
+        flareSize: ppUniforms.lensFlareSize,
+        flareShape: ppUniforms.lensFlareShape,
+        haloScale: ppUniforms.lensFlareHaloScale,
+        ghostScale: ppUniforms.lensFlareGhostScale,
+        iResolution: [window.innerWidth, window.innerHeight],
+        lensPosition: [0, 0],
+        sourcePosition: new THREE.Vector3(
+          ppUniforms.lensFlarePositionX,
+          ppUniforms.lensFlarePositionY,
+          ppUniforms.lensFlarePositionZ
+        ),
+        enableOcclusion: ppUniforms.lensFlareEnableOcclusion,
+      })
+      lensFlareEffectRef.current = lensFlare
+      orderedEffectPasses.push(new EffectPass(camera, lensFlare))
+    } else {
+      lensFlareEffectRef.current?.dispose()
+      lensFlareEffectRef.current = null
+    }
 
     // 2. Vignette
     if (ppUniforms.vignetteEnabled) {
@@ -430,10 +636,10 @@ export const PostProcessing = () => {
     // 4. Dithering effect
     if (ppUniforms.ditheringEnabled) {
       const dither = new DitheringEffect({
-        gridSize: ppUniforms.ditheringGridSize ?? 3,
+        gridSize: ppUniforms.ditheringGridSize ?? 2,
         pixelSizeRatio: ppUniforms.ditheringPixelSizeRatio ?? 1,
         grayscaleOnly: ppUniforms.ditheringGrayscaleOnly ?? false,
-        blendFunction: ppUniforms.ditheringBlendMode ?? BlendFunction.ADD,
+        blendFunction: ppUniforms.ditheringBlendMode ?? BlendFunction.NORMAL,
       })
       ditheringEffectRef.current = dither
       orderedEffectPasses.push(new EffectPass(camera, dither))
@@ -444,6 +650,7 @@ export const PostProcessing = () => {
       const scanline = new ScanlineEffect({
         intensity: ppUniforms.scanlinesIntensity,
         frequency: ppUniforms.scanlinesFrequency,
+        blendMode: ppUniforms.scanlinesBlendMode,
       })
       scanlineEffectRef.current = scanline
       orderedEffectPasses.push(new EffectPass(camera, scanline))
@@ -466,7 +673,7 @@ export const PostProcessing = () => {
     orderedEffectPasses.forEach((pass) => composer.addPass(pass))
 
     invalidate()
-  }, [scene, camera, ppUniforms])
+  }, [scene, camera, ppUniforms, palette])
 
   // Update config for values that matter for synchronization
   useEffect(() => {
@@ -491,7 +698,9 @@ export const PostProcessing = () => {
   useFrame(({ gl, scene: currentScene, camera: currentCamera }) => {
     // Initialize composer if not yet created
     if (!composerRef.current) {
-      composerRef.current = new EffectComposer(gl)
+      composerRef.current = new EffectComposer(gl, {
+        stencilBuffer: true,
+      })
       handleResize()
     }
 
@@ -576,6 +785,51 @@ export const PostProcessing = () => {
     const layerDimEffect = layerDimEffectRef.current
     if (layerDimEffect) {
       layerDimEffect.opacity = dimValue
+    }
+
+    // Update lens flare effect
+    const lensFlareEffect = lensFlareEffectRef.current
+    if (lensFlareEffect && currentScene) {
+      // Update lens flare parameters from controls
+      lensFlareEffect.blendMode.blendFunction = ppUniforms.lensFlareBlendMode
+      const flareColor = new THREE.Color(ppUniforms.lensFlareColor)
+      // Scale color to 0-255 range for shader (shader divides by 256)
+      const colorGain = new THREE.Color(
+        flareColor.r * 255,
+        flareColor.g * 255,
+        flareColor.b * 255
+      )
+      lensFlareEffect.uniforms.get("colorGain")!.value = colorGain
+      lensFlareEffect.glareSize = ppUniforms.lensFlareGlareSize
+      lensFlareEffect.uniforms.get("anamorphic")!.value =
+        ppUniforms.lensFlareAnamorphic
+      lensFlareEffect.uniforms.get("starBurst")!.value =
+        ppUniforms.lensFlareStarBurst
+      lensFlareEffect.uniforms.get("secondaryGhosts")!.value =
+        ppUniforms.lensFlareSecondaryGhosts
+      lensFlareEffect.uniforms.get("aditionalStreaks")!.value =
+        ppUniforms.lensFlareAdditionalStreaks
+      lensFlareEffect.uniforms.get("starPoints")!.value =
+        ppUniforms.lensFlareEnableRays ? ppUniforms.lensFlareStarPoints : 0
+      lensFlareEffect.uniforms.get("flareSize")!.value =
+        ppUniforms.lensFlareSize
+      lensFlareEffect.uniforms.get("flareShape")!.value =
+        ppUniforms.lensFlareShape
+      lensFlareEffect.uniforms.get("haloScale")!.value =
+        ppUniforms.lensFlareHaloScale
+      lensFlareEffect.uniforms.get("ghostScale")!.value =
+        ppUniforms.lensFlareGhostScale
+      lensFlareEffect.enableOcclusion = ppUniforms.lensFlareEnableOcclusion
+
+      // Update source position (relative to camera)
+      lensFlareEffect.sourcePosition.set(
+        currentCamera.position.x + ppUniforms.lensFlarePositionX,
+        currentCamera.position.y + ppUniforms.lensFlarePositionY,
+        currentCamera.position.z + ppUniforms.lensFlarePositionZ
+      )
+
+      // Update position and occlusion
+      lensFlareEffect.updatePosition(currentCamera, currentScene)
     }
 
     // Render the composer if available

@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { useFrame, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import * as THREE from "three"
@@ -21,7 +21,7 @@ export const Sun = () => {
   const palette = getPalette(starfieldConfig.palette)
 
   // Leva controls for all sun parameters with palette cascade
-  const controls = useControls({
+  const [controls, set] = useControls(() => ({
     "Sun Settings": folder(
       {
         enabled: {
@@ -78,7 +78,17 @@ export const Sun = () => {
       },
       { collapsed: true }
     ),
-  })
+  }))
+
+  // Sync palette changes to Leva controls
+  useEffect(() => {
+    if (!sunConfig?.color && !sunConfig?.coronaColor) {
+      set({
+        coreColor: `#${palette.c1.getHexString()}`,
+        coronaColor: `#${palette.c2.getHexString()}`,
+      })
+    }
+  }, [starfieldConfig.palette, palette, sunConfig, set])
 
   // Create shader material for the sun
   const sunMaterial = useMemo(() => {

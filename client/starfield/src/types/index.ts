@@ -108,6 +108,7 @@ export interface StarfieldConfig {
     tintColorSecondary?: string
   }
   nebula?: Partial<NebulaConfig>
+  milkyWay?: Partial<MilkyWayConfig>
   volumetricClouds?: {
     enabled?: boolean
     count?: number
@@ -187,7 +188,39 @@ export interface NebulaConfig {
   domainScale: number
   iterPrimary: number
   iterSecondary: number
+  seed1: number
+  seed2: number
+  seed3: number
+  rotation: [number, number, number]
 }
+
+/**
+ * Configuration for MilkyWay object
+ */
+export interface MilkyWayConfig {
+  enabled: boolean
+  intensity: number
+  // Galaxy axis
+  axisX: number
+  axisY: number
+  axisZ: number
+  // Band
+  bandColor: THREE.Color
+  bandWidth: number
+  bandFalloff: number
+  bandCoverage: number
+  bandCoverageFalloff: number
+  bandRotation: number
+  // Core
+  coreColor: THREE.Color
+  coreWidth: number
+  coreIntensity: number
+  coreFalloff: number
+  // Distortion
+  distortionAmount: number
+  distortionScale: number
+}
+
 /**
  * Configuration for Stars object
  */
@@ -222,6 +255,7 @@ export interface SkyboxConfig {
  */
 export interface SceneConfig {
   nebula?: Partial<NebulaConfig>
+  milkyWay?: Partial<MilkyWayConfig>
   stars?: Partial<StarsConfig>
   skybox?: Partial<SkyboxConfig>
 }

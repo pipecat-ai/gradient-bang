@@ -1,4 +1,4 @@
-import { Effect } from "postprocessing"
+import { BlendFunction, Effect } from "postprocessing"
 import { Uniform } from "three"
 
 /**
@@ -7,6 +7,7 @@ import { Uniform } from "three"
 export interface ScanlineEffectOptions {
   intensity?: number
   frequency?: number
+  blendMode?: BlendFunction
 }
 
 /**
@@ -26,6 +27,7 @@ export class ScanlineEffect extends Effect {
   constructor({
     intensity = 0.3,
     frequency = 1.0,
+    blendMode = BlendFunction.NORMAL,
   }: ScanlineEffectOptions = {}) {
     // Initialize uniforms with default values
     const uniforms = new Map<string, Uniform>([
@@ -54,6 +56,7 @@ export class ScanlineEffect extends Effect {
       `,
       {
         uniforms,
+        blendFunction: blendMode,
       }
     )
 

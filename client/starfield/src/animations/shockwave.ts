@@ -8,7 +8,7 @@ import type { AnimationRuntime } from "./runtime"
 
 export function useShockwaveAnimation(runtime: AnimationRuntime) {
   const {
-    shockwave: { shockwaveSpeed = 1.25, shockwaveEnabled = true },
+    shockwave: { shockwaveSpeed = 0.75, shockwaveEnabled = true },
   } = useGameStore((state) => state.starfieldConfig)
   const [shockwaveSequence, setShockwaveSequence] = useState(0)
   const setTriggerShockwave = useAnimationStore(

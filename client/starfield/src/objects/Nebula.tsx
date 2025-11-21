@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { useFrame, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import * as THREE from "three"
@@ -21,7 +21,7 @@ export const Nebula = () => {
   const palette = getPalette(starfieldConfig.palette)
 
   // Leva controls for all nebula uniforms with palette cascade
-  const controls = useControls({
+  const [controls, set] = useControls(() => ({
     "Nebula Settings": folder(
       {
         enabled: {
@@ -74,14 +74,49 @@ export const Nebula = () => {
           step: 1,
           label: "Secondary Iterations",
         },
+        rotationX: {
+          value: nebulaConfig?.rotation?.[0] ?? 0,
+          min: -Math.PI,
+          max: Math.PI,
+          step: 0.01,
+          label: "Rotation X",
+        },
+        rotationY: {
+          value: nebulaConfig?.rotation?.[1] ?? 0,
+          min: -Math.PI,
+          max: Math.PI,
+          step: 0.01,
+          label: "Rotation Y",
+        },
+        rotationZ: {
+          value: nebulaConfig?.rotation?.[2] ?? 0,
+          min: -Math.PI,
+          max: Math.PI,
+          step: 0.01,
+          label: "Rotation Z",
+        },
       },
       { collapsed: true }
     ),
-  })
+  }))
+
+  // Sync palette changes to Leva controls
+  useEffect(() => {
+    if (
+      !nebulaConfig?.color &&
+      !nebulaConfig?.primaryColor &&
+      !nebulaConfig?.secondaryColor
+    ) {
+      set({
+        color: `#${palette.tint.getHexString()}`,
+        primaryColor: `#${palette.c1.getHexString()}`,
+        secondaryColor: `#${palette.c2.getHexString()}`,
+      })
+    }
+  }, [starfieldConfig.palette, palette, nebulaConfig, set])
 
   // Create shader material with uniforms from controls
   const material = useMemo(() => {
-    // Convert hex colors to THREE.Color
     const colorObj = new THREE.Color(controls.color)
     const primaryColorObj = new THREE.Color(controls.primaryColor)
     const secondaryColorObj = new THREE.Color(controls.secondaryColor)
@@ -115,11 +150,12 @@ export const Nebula = () => {
       },
       vertexShader: nebulaVertexShader,
       fragmentShader: nebulaFragmentShader,
-      transparent: true,
-      depthTest: false,
-      depthWrite: false,
       side: THREE.BackSide,
       blending: THREE.AdditiveBlending,
+      transparent: false,
+      depthWrite: false,
+      depthTest: false,
+      fog: false,
     })
   }, [size, controls])
 
@@ -127,6 +163,11 @@ export const Nebula = () => {
   useFrame(() => {
     if (!meshRef.current) return
     meshRef.current.position.copy(camera.position)
+    meshRef.current.rotation.set(
+      controls.rotationX,
+      controls.rotationY,
+      controls.rotationZ
+    )
   })
 
   if (!controls.enabled) return null
@@ -136,8 +177,8 @@ export const Nebula = () => {
       ref={meshRef}
       material={material}
       frustumCulled={false}
+      layers={LAYERS.SKYBOX}
       renderOrder={-999}
-      layers={LAYERS.BACKGROUND}
     >
       <sphereGeometry args={[100, 64, 64]} />
     </mesh>

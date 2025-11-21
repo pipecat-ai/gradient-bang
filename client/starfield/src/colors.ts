@@ -50,7 +50,7 @@ export const STARFIELD_PALETTES: readonly StarfieldPalette[] = [
     c2: new THREE.Color("#c89b6f"), // Warm tan
     tint: new THREE.Color("#c7e3e6"), // Pale cyan
     base: new THREE.Color("#0a0e10"), // Dark blue-black
-    saturation: 0.05,
+    saturation: 0.3,
     contrast: 0.16,
   },
   {

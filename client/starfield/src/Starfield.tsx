@@ -1,11 +1,5 @@
 import { memo, Suspense, useLayoutEffect, useRef } from "react"
-import {
-  Center,
-  Float,
-  Grid,
-  PerformanceMonitor,
-  Stats,
-} from "@react-three/drei"
+import { PerformanceMonitor, Stats } from "@react-three/drei"
 import { Canvas } from "@react-three/fiber"
 import deepEqual from "fast-deep-equal"
 import { Leva } from "leva"
@@ -13,7 +7,6 @@ import * as THREE from "three"
 
 import { AnimationController } from "@/controllers/AnimationController"
 import { CameraController } from "@/controllers/Camera"
-import { SceneController } from "@/controllers/SceneController"
 import { Dust } from "@/objects/Dust"
 import { Nebula } from "@/objects/Nebula"
 import { Stars } from "@/objects/Stars"
@@ -41,8 +34,8 @@ interface StarfieldBaseProps {
 
 export const LAYERS = {
   DEFAULT: 0, // Main scene objects
-  BACKGROUND: 1, // Stars
-  SKYBOX: 2, // Skybox (Planet, Shadow)
+  SKYBOX: 1, // Nebula
+  BACKGROUND: 2, // Skybox (Planet, Shadow)
   FOREGROUND: 3, // Sun, Volumentrics
   GAMEOBJECTS: 4, // GameObjects
   DEBUG: 31, // Grid, debug helpers
@@ -60,7 +53,7 @@ export function StarfieldComponent({
 
   usePerformanceProfile({ initialProfile: profile })
 
-  const { dpr, setPerformance } = useDevControls()
+  const { dpr, setPerformance } = useDevControls({ profile })
 
   /* Handle config changes */
   const prevConfigRef = useRef<Partial<StarfieldConfig> | undefined>(undefined)
@@ -83,8 +76,8 @@ export function StarfieldComponent({
         frameloop={isPaused ? "never" : "demand"}
         dpr={dpr as number}
         gl={{
-          alpha: false,
           antialias: false,
+          stencil: true,
         }}
         onCreated={({ gl, camera }) => {
           rendererRef.current = gl
@@ -106,6 +99,7 @@ export function StarfieldComponent({
           onIncline={() => setPerformance({ dpr: 2 })}
           onDecline={() => setPerformance({ dpr: 1 })}
         />
+
         {debug && (
           <>
             <Stats showPanel={0} />
@@ -119,27 +113,11 @@ export function StarfieldComponent({
             <Nebula />
             <Sun />
             <Stars />
-            <Planet />
             <Dust />
             <VolumetricClouds />
+            <Planet />
 
-            {/* Nebula background - rendered first and positioned at the back */}
-            <group position={[0, 0, -50]}>
-              {/* <Nebula ref={nebulaRef} /> */}
-            </group>
-
-            <group position={[0, 0, 0]}>
-              <Float
-                enabled={false}
-                floatIntensity={1}
-                rotationIntensity={0.5}
-                speed={3}
-                autoInvalidate={false}
-              >
-                {/* Scene Elements */}
-                <Center scale={3}>{/* ELEMENTS GO HERE */}</Center>
-              </Float>
-            </group>
+            {/* DEBUG: Grid to visualize layers */}
             {/*debug && (
               <Grid
                 cellColor={"#FFFFFF"}
@@ -152,10 +130,15 @@ export function StarfieldComponent({
 
           <CameraController />
           <EffectChainingController />
-          <SceneController />
 
           <PostProcessingMemo />
         </AnimationController>
+
+        {/*
+          <CameraController />
+        <EffectChainingController />
+          <SceneController />
+          <PostProcessingMemo />*/}
       </Canvas>
     </>
   )

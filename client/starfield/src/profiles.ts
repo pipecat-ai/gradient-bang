@@ -1,15 +1,15 @@
 import type { StarfieldConfig } from "./types"
 
 export const defaultProfile: StarfieldConfig = {
-  palette: "default",
+  palette: "cosmicTeal",
   cameraBaseFov: 85,
   hyperspaceEnterTime: 2000,
   hyperspaceExitTime: 2000,
   hyperspaceDuration: 1000,
   hyperspaceCooldown: 10000,
   hyerpspaceUniforms: {
-    vignetteAmount: 0,
-    vignetteOffset: 0,
+    vignetteAmount: 0.75,
+    vignetteOffset: 1,
     cameraFov: 165,
     bloomIntensity: 50,
     bloomRadius: 1,
@@ -19,23 +19,17 @@ export const defaultProfile: StarfieldConfig = {
   layerDimDuration: 300,
   shockwave: {
     shockwaveEnabled: true,
-    shockwaveSpeed: 1.4,
+    shockwaveSpeed: 0.5,
     shockwaveMaxRadius: 0.45,
-    shockwaveWaveSize: 0.25,
+    shockwaveWaveSize: 0.5,
     shockwaveAmplitude: 0.1,
-    shockwaveDistance: 2.0,
+    shockwaveDistance: 5.0,
   },
   dithering: {
     ditheringEnabled: true,
-    ditheringGridSize: 3,
-    ditheringPixelSizeRatio: 1,
-    ditheringGrayscaleOnly: false,
   },
   sharpening: {
     sharpeningEnabled: true,
-    sharpeningIntensity: 2.0,
-    sharpeningRadius: 4.0,
-    sharpeningThreshold: 0.0,
   },
   vignette: {
     vignetteEnabled: true,
@@ -44,8 +38,6 @@ export const defaultProfile: StarfieldConfig = {
   },
   scanlines: {
     scanlinesEnabled: false,
-    scanlinesIntensity: 0.3,
-    scanlinesFrequency: 1.3,
   },
   stars: {
     enabled: true,
@@ -56,7 +48,7 @@ export const defaultProfile: StarfieldConfig = {
   },
   dust: {
     enabled: true,
-    opacity: 0.3,
+    opacity: 0.4,
   },
   fog: {
     enabled: true,
@@ -70,27 +62,20 @@ export const defaultProfile: StarfieldConfig = {
     scale: 100,
     opacity: 1,
     position: { x: 0, y: 0 },
-    shadowEnabled: true,
-    shadowRadius: 0.7,
-    shadowOpacity: 0.8,
-    shadowFalloff: 0.7,
   },
   sun: {
     enabled: true,
     position: { x: 30, y: 30, z: -80 },
     scale: 100,
-    intensity: 0.3,
+    intensity: 0.5,
   },
   grading: {
     enabled: true,
-    brightness: 0.0,
-    tintIntensity: 0.2,
-    tintContrast: 1.5,
   },
   nebula: {
     enabled: true,
     intensity: 0.5,
-    domainScale: 1,
+    domainScale: 2,
   },
   volumetricClouds: {
     enabled: true,

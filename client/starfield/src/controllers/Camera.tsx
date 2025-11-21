@@ -165,7 +165,7 @@ export function CameraController() {
       dollySpeed={0.5}
       truckSpeed={0.5}
       // regress={true}
-      polarRotateSpeed={11}
+      polarRotateSpeed={1}
       azimuthRotateSpeed={1}
       onTransitionStart={() => {}}
       onRest={() => {}}

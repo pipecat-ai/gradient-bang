@@ -1,3 +1,4 @@
+import { useEffect } from "react"
 import { folder, useControls } from "leva"
 
 import { getPalette } from "@/colors"
@@ -8,10 +9,9 @@ export const Fog = () => {
   const { fog: fogConfig } = starfieldConfig
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
 
-  // Get active palette
   const palette = getPalette(starfieldConfig.palette)
 
-  const [{ color, near, far }] = useControls(() => ({
+  const [{ color, near, far }, set] = useControls(() => ({
     "Scene Settings": folder({
       Fog: folder(
         {
@@ -43,6 +43,14 @@ export const Fog = () => {
       ),
     }),
   }))
+
+  useEffect(() => {
+    if (!fogConfig?.color) {
+      set({
+        color: `#${palette.base.getHexString()}`,
+      })
+    }
+  }, [starfieldConfig.palette, palette, fogConfig, set])
 
   if (!fogConfig?.enabled) return null
 
