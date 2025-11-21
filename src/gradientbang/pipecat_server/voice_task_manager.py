@@ -10,7 +10,12 @@ from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame, RTVIProcessor
 from pipecat.frames.frames import LLMMessagesAppendFrame
 
-from gradientbang.utils.api_client import AsyncGameClient
+import os
+
+if os.getenv("SUPABASE_URL"):
+    from gradientbang.utils.supabase_client import AsyncGameClient
+else:
+    from gradientbang.utils.api_client import AsyncGameClient
 from gradientbang.utils.task_agent import TaskAgent, TaskOutputType
 from gradientbang.utils.tools_schema import (
     MyStatus,
@@ -75,11 +80,12 @@ class VoiceTaskManager:
         """
         self.character_id = character_id
         self.display_name: str = character_id
-        # Create a game client; use provided base_url or default
+        # Create a game client; use SUPABASE_URL if available, otherwise use provided base_url or default
+        resolved_base_url = os.getenv("SUPABASE_URL") or base_url or os.getenv("GAME_SERVER_URL", "http://localhost:8000")
         self.game_client = AsyncGameClient(
             character_id=character_id,
-            base_url=base_url or "http://localhost:8000",
-            transport="websocket",
+            base_url=resolved_base_url,
+            transport="websocket",  # Supabase client auto-converts this to "supabase" transport
         )
         self._event_names = [
             "status.snapshot",
@@ -132,6 +138,9 @@ class VoiceTaskManager:
         self.task_buffer: deque = deque(maxlen=1000)
         self.task_running = False  # Deprecated, kept for backwards compatibility
         self.cancelled_via_tool = False
+        # Track request IDs from voice agent tool calls for inference triggering
+        self._voice_agent_request_ids: set[str] = set()
+
         # Build generic tool dispatch map for common game tools
         # Start/stop/ui_show_panel are handled inline in execute_tool_call
         # Note: Most game_client methods require character_id, but the LLM tools
@@ -217,6 +226,35 @@ class VoiceTaskManager:
         else:
             event_xml = f"<event name={event_name}>\n{summary}\n</event>"
 
+        # Determine if this event should trigger LLM inference
+        # Only trigger inference when event came from voice agent's own tool calls
+        # (task events don't match our tracked request IDs and handle their own inference)
+        inference_triggering_events = {
+            "ports.list",           # list_known_ports results
+            "map.region",           # local_map_region results
+            "path.region",          # path_with_region results
+            "chat.message",         # Direct messages to bot
+            "combat.round_resolved",# Combat updates
+            "combat.ended",         # Combat finished
+            "error",                # Error messages
+        }
+
+        # Check if event came from voice agent's tool call
+        event_request_id = event.get("request_id")
+        is_voice_agent_event = event_request_id in self._voice_agent_request_ids
+
+        # Debug logging for request ID tracking
+        logger.info(f"!!! EVENT ARRIVED: {event_name}")
+        logger.info(f"!!!   event keys: {list(event.keys())}")
+        logger.info(f"!!!   event_request_id: {event_request_id}")
+        logger.info(f"!!!   tracked IDs: {self._voice_agent_request_ids}")
+        logger.info(f"!!!   is_voice_agent_event: {is_voice_agent_event}")
+        logger.info(f"!!!   in inference_triggering_events: {event_name in inference_triggering_events}")
+
+        # Only trigger inference if this is an important event AND from voice agent
+        should_run_llm = (event_name in inference_triggering_events) and is_voice_agent_event
+        logger.info(f"!!!   should_run_llm: {should_run_llm}")
+
         await self.rtvi_processor.push_frame(
             LLMMessagesAppendFrame(
                 messages=[
@@ -224,7 +262,8 @@ class VoiceTaskManager:
                         "role": "user",
                         "content": event_xml,
                     }
-                ]
+                ],
+                run_llm=should_run_llm,
             )
         )
 
@@ -480,6 +519,18 @@ class VoiceTaskManager:
                 func = self._tool_dispatch[tool_name]
                 result = await func(**arguments)
                 payload = {"result": result}
+
+                # Track request ID for voice agent inference triggering
+                # Extract from result (preferred) or fall back to last_request_id
+                req_id = None
+                if isinstance(result, dict):
+                    req_id = result.get('request_id')
+                if not req_id and hasattr(self.game_client, 'last_request_id'):
+                    req_id = self.game_client.last_request_id
+                if req_id:
+                    self._voice_agent_request_ids.add(req_id)
+                    logger.info(f"!!! TOOL COMPLETE: {tool_name} - tracking request_id={req_id}")
+                    logger.info(f"!!! TRACKED IDS: {self._voice_agent_request_ids}")
 
             await params.result_callback(payload)
         except Exception as e:

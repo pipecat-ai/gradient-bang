@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
 
@@ -16,9 +16,22 @@ export const ViewContainer = ({ error }: { error?: string | null }) => {
   const gameState = useGameStore.use.gameState()
   const setCharacterId = useGameStore.use.setCharacterId()
   const { initialize } = useGameContext()
+
+  // Check for character_id in query string to bypass title screen
+  const queryParams = new URLSearchParams(window.location.search)
+  const characterIdFromUrl = queryParams.get("character_id")
+
   const [viewState, setViewState] = useState<"title" | "preload" | "game">(
-    "title"
+    characterIdFromUrl ? "preload" : "title"
   )
+
+  // Set character ID from URL on mount
+  useEffect(() => {
+    if (characterIdFromUrl) {
+      console.log("[GAME] Character ID from URL:", characterIdFromUrl)
+      setCharacterId(characterIdFromUrl)
+    }
+  }, [characterIdFromUrl, setCharacterId])
 
   const handleViewStateChange = useCallback(
     (state: "title" | "preload" | "game") => {

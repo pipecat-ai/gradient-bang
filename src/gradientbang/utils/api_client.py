@@ -7,6 +7,7 @@ import asyncio
 import json
 import uuid
 import inspect
+import os
 import websockets
 
 from gradientbang.utils.summary_formatters import (
@@ -276,7 +277,7 @@ class AsyncGameClient:
         logger.info(f"Summary formatter for {name} produced: {summary}")
         return summary
 
-    def _format_event(self, event_name: str, payload: Any) -> Dict[str, Any]:
+    def _format_event(self, event_name: str, payload: Any, request_id: Optional[str] = None) -> Dict[str, Any]:
         """Normalize an event payload and attach summary metadata when available."""
 
         if isinstance(payload, Mapping):
@@ -286,6 +287,10 @@ class AsyncGameClient:
             "event_name": event_name,
             "payload": payload,
         }
+
+        # Include request_id for event correlation (if available)
+        if request_id is not None:
+            event_message["request_id"] = request_id
 
         if isinstance(payload, dict):
             summary = self._get_summary(event_name, payload)
@@ -499,14 +504,14 @@ class AsyncGameClient:
                     fut.set_exception(RuntimeError("WebSocket connection lost"))
             self._pending.clear()
 
-    async def _process_event(self, event_name: str, payload: Dict[str, Any]) -> None:
+    async def _process_event(self, event_name: str, payload: Dict[str, Any], request_id: Optional[str] = None) -> None:
         if event_name == "error" and isinstance(payload, Mapping):
             source = payload.get("source")
             if isinstance(source, Mapping):
-                request_id = source.get("request_id")
-                if request_id is not None:
-                    self._seen_error_request_ids.add(str(request_id))
-        event_message = self._format_event(event_name, payload)
+                req_id = source.get("request_id")
+                if req_id is not None:
+                    self._seen_error_request_ids.add(str(req_id))
+        event_message = self._format_event(event_name, payload, request_id=request_id)
         if not self._event_delivery_enabled:
             self._pending_events.append((event_name, event_message))
             return
@@ -551,6 +556,10 @@ class AsyncGameClient:
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[req_id] = fut
         enriched_payload = dict(payload)
+        # Auto-inject character_id if not explicitly provided
+        if "character_id" not in enriched_payload:
+            enriched_payload["character_id"] = self._character_id
+        # Auto-inject actor_character_id if explicitly set
         if self._actor_character_id and "actor_character_id" not in enriched_payload:
             enriched_payload["actor_character_id"] = self._actor_character_id
         frame = {
@@ -699,6 +708,7 @@ class AsyncGameClient:
         character_id: str,
         ship_type: Optional[str] = None,
         credits: Optional[int] = None,
+        sector: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Join the game with a character.
 
@@ -725,6 +735,8 @@ class AsyncGameClient:
             payload["ship_type"] = ship_type
         if credits is not None:
             payload["credits"] = int(credits)
+        if sector is not None:
+            payload["sector"] = int(sector)
 
         ack = await self._request("join", payload)
         return ack
@@ -793,7 +805,13 @@ class AsyncGameClient:
         ack = await self._request("my_status", {"character_id": character_id})
         return ack
 
-    async def plot_course(self, to_sector: int, character_id: str) -> Dict[str, Any]:
+    async def plot_course(
+        self,
+        to_sector: int,
+        character_id: Optional[str] = None,
+        *,
+        from_sector: Optional[int] = None,
+    ) -> Dict[str, Any]:
         """Plot a course from the current sector to a destination.
 
         Args:
@@ -807,15 +825,21 @@ class AsyncGameClient:
             RPCError: If the request fails
             ValueError: If character_id doesn't match bound ID
         """
-        if character_id != self._character_id:
+        target_character = character_id or self._character_id
+        if target_character != self._character_id:
             raise ValueError(
                 f"AsyncGameClient is bound to character_id {self._character_id!r}; "
-                f"received {character_id!r}"
+                f"received {target_character!r}"
             )
 
-        ack = await self._request(
-            "plot_course", {"character_id": character_id, "to_sector": to_sector}
-        )
+        payload: Dict[str, Any] = {
+            "character_id": target_character,
+            "to_sector": to_sector,
+        }
+        if from_sector is not None:
+            payload["from_sector"] = from_sector
+
+        ack = await self._request("plot_course", payload)
         return ack
 
     async def server_status(self) -> Dict[str, Any]:
@@ -1289,15 +1313,14 @@ class AsyncGameClient:
                 f"received {character_id!r}"
             )
 
-        ack = await self._request(
-            "trade",
-            {
-                "character_id": character_id,
-                "commodity": commodity,
-                "quantity": quantity,
-                "trade_type": trade_type,
-            },
-        )
+        payload = {
+            "character_id": character_id,
+            "commodity": commodity,
+            "quantity": quantity,
+            "trade_type": trade_type,
+        }
+
+        ack = await self._request("trade", payload)
         return ack
 
     async def purchase_fighters(
@@ -1835,3 +1858,17 @@ class AsyncGameClient:
         if character_id is not None:
             frame["character_id"] = character_id
         await self._send_command(frame)
+
+
+LegacyAsyncGameClient = AsyncGameClient
+
+
+def _use_supabase_transport() -> bool:
+    flag = os.getenv("SUPABASE_TRANSPORT", "")
+    return flag.lower() in {"1", "true", "on", "yes"}
+
+
+if _use_supabase_transport():
+    from utils.supabase_client import AsyncGameClient as _SupabaseAsyncGameClient  # type: ignore
+
+    AsyncGameClient = _SupabaseAsyncGameClient  # type: ignore[assignment]

@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Set, Tuple
 
-from gradientbang.utils.api_client import AsyncGameClient
+if os.getenv("SUPABASE_URL"):
+    from gradientbang.utils.supabase_client import AsyncGameClient
+else:
+    from gradientbang.utils.api_client import AsyncGameClient
 
 
 def _extract_sector_id(value: Any) -> Optional[int]:

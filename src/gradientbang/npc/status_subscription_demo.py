@@ -27,7 +27,12 @@ import asyncio
 import argparse
 from loguru import logger
 
-from gradientbang.utils.api_client import AsyncGameClient
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+if os.getenv("SUPABASE_URL"):
+    from gradientbang.utils.supabase_client import AsyncGameClient
+else:
+    from gradientbang.utils.api_client import AsyncGameClient
 from gradientbang.utils.base_llm_agent import LLMConfig
 from gradientbang.utils.task_agent import TaskAgent
 

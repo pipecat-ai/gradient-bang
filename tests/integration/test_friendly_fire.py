@@ -5,11 +5,10 @@ from __future__ import annotations
 import pytest
 
 from helpers.combat_helpers import create_test_character_knowledge
+from helpers.client_setup import create_client_with_character
 from gradientbang.utils.api_client import AsyncGameClient, RPCError
 
-
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
-
 
 async def _create_client(
     server_url: str,
@@ -20,17 +19,17 @@ async def _create_client(
     fighters: int = 300,
     ship_type: str = "kestrel_courier",
 ) -> AsyncGameClient:
-    create_test_character_knowledge(
+    # Use create_client_with_character directly with all parameters
+    # to avoid double-creation that overwrites the credits
+    client = await create_client_with_character(
+        server_url,
         character_id,
         sector=sector,
         credits=credits,
         fighters=fighters,
         ship_type=ship_type,
     )
-    client = AsyncGameClient(base_url=server_url, character_id=character_id)
-    await client.join(character_id=character_id)
     return client
-
 
 async def _create_corporation(
     founder: AsyncGameClient,
@@ -41,7 +40,6 @@ async def _create_corporation(
         "corporation.create",
         {"character_id": founder_id, "name": name},
     )
-
 
 async def _join_corporation(
     client: AsyncGameClient,
@@ -57,7 +55,6 @@ async def _join_corporation(
             "invite_code": invite_code,
         },
     )
-
 
 @pytest.mark.asyncio
 async def test_cannot_initiate_combat_against_corp_member(
@@ -86,7 +83,6 @@ async def test_cannot_initiate_combat_against_corp_member(
         assert excinfo.value.status == 409
         assert "No targetable opponents" in excinfo.value.detail
 
-
 @pytest.mark.asyncio
 async def test_can_initiate_combat_after_leaving_corp(server_url, check_server_available):
     attacker_id = "test_ff_attacker_leave"
@@ -107,7 +103,6 @@ async def test_can_initiate_combat_after_leaving_corp(server_url, check_server_a
         result = await attacker.combat_initiate(character_id=attacker_id)
         assert result["success"] is True
         assert "combat_id" in result
-
 
 @pytest.mark.asyncio
 async def test_corp_member_can_collect_shared_garrison(server_url, check_server_available):
@@ -143,7 +138,6 @@ async def test_corp_member_can_collect_shared_garrison(server_url, check_server_
             quantity=10,
         )
         assert owner_collect["success"] is True
-
 
 @pytest.mark.asyncio
 async def test_non_member_cannot_collect_corp_garrison(server_url, check_server_available):

@@ -2,62 +2,44 @@
 name = "gradient-bang"
 version = "0.1.0"
 description = "Game of the Millennium"
-license = { file = "LICENSE" }
 requires-python = ">=3.12"
 dependencies = [
-    "httpx>=0.27.0",
+    "httpx>=0.27.0", # Relax version
     "fastapi>=0.116.1",
     "python-dotenv>=1.1.1",
     "google-genai>=0.7.0",
     "uvicorn[standard]>=0.35.0",
     "rich>=13.0.0",
-    "websockets>=13.1,<15.0",
+    "websockets>=13.1,<15.0", # Match pipecat-ai's requirement
     "textual>=6.1.0",
     "loguru>=0.7.0",
+    "pipecat-ai[deepgram,speechmatics,openai,daily,cartesia,webrtc,silero,local-smart-turn,rime,google,runner]==0.0.95",
+    "pipecat-ai-small-webrtc-prebuilt",
     "pyperclip>=1.11.0",
-]
-
-[dependency-groups]
-dev = [
-    "pytest>=8.4.1",
-    "pytest-asyncio>=1.1.0",
-    "pytest-timeout>=2.3.1",
-]
-worldgen = [
-    "numpy>=1.26.0",
-    "scipy>=1.11.0",
-    "networkx>=3.0",
-]
-bot = [
-    "pipecat-ai[deepgram,daily,cartesia,webrtc,silero,local-smart-turn,google,runner]==0.0.94",
-    "pipecat-ai-cli"
+    "supabase>=2.5.0",
+    "psycopg[binary]>=3.2.1",
 ]
 
 [project.scripts]
-# Servers
-game-server = "gradientbang.game_server.server:main"
-bot = "gradientbang.pipecat_server.__main__:main"
+gb-bot = "gradientbang.cli:run_bot"
+gb-npc = "gradientbang.cli:run_npc"
+gb-test-local = "gradientbang.cli:test_local"
+gb-test-cloud = "gradientbang.cli:test_cloud"
 
-# NPCs
-npc-run = "gradientbang.npc.run_npc:main"
-npc-long = "gradientbang.npc.run_long_npc:main"
-npc-task = "gradientbang.npc.run_experimental_task:main"
-npc-test = "gradientbang.npc.test_npc_local:main"
-
-# Useful scripts
-universe-bang = "gradientbang.scripts.universe_bang:main"
-character-create = "gradientbang.scripts.character_create:main"
-character-lookup = "gradientbang.scripts.character_lookup:main"
-character-modify = "gradientbang.scripts.character_modify:main"
-simple-tui = "gradientbang.npc.simple_tui:main"
-
+[dependency-groups]
+dev = [
+    "httpx>=0.27.0", # Match main dependency
+    "psutil>=7.1.3",
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.1.0",
+    "pytest-timeout>=2.3.1", # Add timeout support
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
 
 [tool.uv]
 # Override specific sub-dependencies to fix compatibility issues
@@ -66,9 +48,6 @@ override-dependencies = [
     "numba==0.61.2",  # Pin to version that supports Python 3.12
     "openai==1.99.5",  
 ]
-package = true
-
-
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -81,6 +60,12 @@ markers = [
     "integration: Integration tests (may need server)",
     "requires_server: Requires live server on port 8002",
     "stress: Stress tests (slow, concurrent operations) - skip by default",
+    "requires_supabase_functions(*names): Skip when named Supabase edge functions are not implemented",
+]
+# Suppress deprecation warnings from third-party libraries
+filterwarnings = [
+    "ignore:The 'timeout' parameter is deprecated:DeprecationWarning:supabase",
+    "ignore:The 'verify' parameter is deprecated:DeprecationWarning:supabase",
 ]
 # Timeout configuration (prevent hanging tests)
 timeout = 30  # Max 30 seconds per test
@@ -88,10 +73,3 @@ timeout = 30  # Max 30 seconds per test
 #   - Integration tests: 10 seconds (real server, events)
 #   - Unit tests: 5 seconds (fast, mocked operations)
 #   - Combat tests: 20 seconds (combat rounds can take 15s)
-
-[tool.ruff]
-exclude = [".git", "*_pb2.py"]
-line-length = 100
-
-[tool.ruff.lint.pydocstyle]
-convention = "google"

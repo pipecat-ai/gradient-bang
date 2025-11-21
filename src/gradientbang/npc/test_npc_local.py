@@ -7,11 +7,18 @@ executed as part of the automated test suite.
 """
 
 import asyncio
+import os
 import pytest
 pytestmark = pytest.mark.skip("Manual local test; skipped under pytest")
 import sys
 
-from gradientbang.utils.api_client import AsyncGameClient
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+if os.getenv("SUPABASE_URL"):
+    from gradientbang.utils.supabase_client import AsyncGameClient
+else:
+    from gradientbang.utils.api_client import AsyncGameClient
 try:
     from gradientbang.utils.game_tools import AsyncToolExecutor  # type: ignore
 except Exception:  # pragma: no cover

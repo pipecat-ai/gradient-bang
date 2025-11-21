@@ -7,11 +7,19 @@ import contextlib
 
 import pytest
 
+from conftest import EVENT_DELIVERY_WAIT
 from helpers.combat_helpers import create_test_character_knowledge
+from helpers.corporation_utils import REQUIRED_CORPORATION_FUNCTIONS
+from helpers.client_setup import create_client_with_character
 from gradientbang.utils.api_client import AsyncGameClient
 
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.integration,
+    pytest.mark.requires_server,
+    pytest.mark.requires_supabase_functions(*REQUIRED_CORPORATION_FUNCTIONS),
+]
 
 
 async def _create_client(
@@ -22,14 +30,14 @@ async def _create_client(
     credits: int = 80_000,
     fighters: int = 300,
 ) -> AsyncGameClient:
-    create_test_character_knowledge(
+    # create_client_with_character handles both registration and join()
+    client = await create_client_with_character(
+        server_url,
         character_id,
         sector=sector,
         credits=credits,
         fighters=fighters,
     )
-    client = AsyncGameClient(base_url=server_url, character_id=character_id)
-    await client.join(character_id=character_id)
     return client
 
 
@@ -70,6 +78,9 @@ async def test_status_includes_corporation_details(server_url, check_server_avai
             },
         )
 
+        # Wait for event delivery in polling mode
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
+
         status_payload = await _status_snapshot(member, member_id)
         corp_info = status_payload.get("corporation")
 
@@ -106,6 +117,9 @@ async def test_sector_players_and_garrisons_reflect_corporations(server_url, che
             },
         )
 
+        # Wait for event delivery in polling mode
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
+
         leave_ack = await founder.combat_leave_fighters(
             character_id=founder_id,
             sector=sector,
@@ -114,8 +128,12 @@ async def test_sector_players_and_garrisons_reflect_corporations(server_url, che
         )
         assert leave_ack["success"] is True
 
+        # Wait for garrison event delivery
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
+
         member_status = await _status_snapshot(member, member_id)
-        players = {player["id"]: player for player in member_status["sector"]["players"]}
+        # Key by name, not id (Supabase uses UUIDs for id, names for name)
+        players = {player["name"]: player for player in member_status["sector"]["players"]}
         assert founder_id in players
         founder_corp = players[founder_id].get("corporation")
         assert founder_corp and founder_corp.get("name") == "Sector Corps"

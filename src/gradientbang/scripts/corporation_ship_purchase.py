@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 
 from gradientbang.game_server.ships import ShipType, get_ship_stats

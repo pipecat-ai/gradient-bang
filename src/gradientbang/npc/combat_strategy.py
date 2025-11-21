@@ -11,7 +11,14 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from gradientbang.utils.api_client import AsyncGameClient, RPCError
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from gradientbang.utils.api_client import RPCError
+
+if os.getenv("SUPABASE_URL"):
+    from gradientbang.utils.supabase_client import AsyncGameClient
+else:
+    from gradientbang.utils.api_client import AsyncGameClient
 from gradientbang.utils.base_llm_agent import LLMConfig
 from gradientbang.utils.task_agent import TaskAgent
 from gradientbang.utils.combat_tools import (

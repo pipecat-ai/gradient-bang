@@ -1,40 +1,58 @@
-"""
-Event capture infrastructure for integration tests.
-
-This module provides utilities for capturing and validating game events during
-tests. Events are the real API - API responses are simple (ok/error), but events
-contain all the actual game state changes and data.
-"""
+"""Event capture helpers for integration and diagnostics tests."""
 
 import asyncio
 import json
-from typing import List, Dict, Any, Optional
+import os
+from contextlib import asynccontextmanager, suppress
+from typing import Any, Dict, List, Optional
+
+import httpx
 import websockets
-from contextlib import asynccontextmanager
+
+from gradientbang.utils.legacy_ids import canonicalize_character_id
+
+
+_TRUTHY = {"1", "true", "on", "yes"}
+
+
+def _env_truthy(name: str, default: str = "0") -> bool:
+    return os.environ.get(name, default).strip().lower() in _TRUTHY
+
+
+USE_SUPABASE_TESTS = _env_truthy("USE_SUPABASE_TESTS")
 
 
 class EventListener:
-    """
-    Captures events from firehose or character-specific streams.
-
-    This class connects to a WebSocket event stream and captures events
-    for validation in tests.
-    """
+    """Capture events from either the FastAPI firehose or Supabase HTTP polling."""
 
     def __init__(self, server_url: str, character_id: Optional[str] = None):
-        """
-        Initialize the event listener.
-
-        Args:
-            server_url: Base URL of the server (e.g., "http://localhost:8002")
-            character_id: Optional character ID for filtered events (not implemented yet)
-        """
-        self.server_url = server_url
+        self.server_url = server_url.rstrip("/") if server_url else server_url
         self.character_id = character_id
         self.events: List[Dict[str, Any]] = []
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
         self._listen_task: Optional[asyncio.Task] = None
         self._connected = False
+        self._supabase_mode = USE_SUPABASE_TESTS
+        self._poll_task: Optional[asyncio.Task] = None
+        self._poll_stop_event: Optional[asyncio.Event] = None
+        self._http_client: Optional[httpx.AsyncClient] = None
+        self._last_event_id: Optional[int] = None
+        self._functions_url: Optional[str] = None
+        self._poll_interval = max(0.25, float(os.environ.get("SUPABASE_POLL_INTERVAL_SECONDS", "1.0")))
+        self._poll_limit = max(1, min(250, int(os.environ.get("SUPABASE_POLL_LIMIT", "100"))))
+        self._canonical_character_id: Optional[str] = None
+        self._edge_api_token: Optional[str] = (
+            os.environ.get("EDGE_API_TOKEN")
+            or os.environ.get("SUPABASE_API_TOKEN")
+            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        )
+        self._anon_key = os.environ.get("SUPABASE_ANON_KEY", "anon-key")
+        if self._supabase_mode:
+            if not character_id:
+                raise ValueError(
+                    "Supabase event capture requires character_id when USE_SUPABASE_TESTS=1"
+                )
+            self._canonical_character_id = canonicalize_character_id(character_id)
 
     async def __aenter__(self):
         """Connect to event stream."""
@@ -46,29 +64,34 @@ class EventListener:
         await self.disconnect()
 
     async def connect(self):
-        """Connect to the WebSocket event stream."""
+        """Connect to the websocket or Supabase HTTP polling."""
+        if self._supabase_mode:
+            await self._connect_supabase()
+            return
+
         ws_url = self.server_url.replace("http://", "ws://").replace("https://", "wss://")
         ws_url = ws_url.rstrip("/") + "/ws"
 
         self.websocket = await websockets.connect(ws_url)
         self._connected = True
 
-        # If we have a character_id, identify to receive character-specific events
         if self.character_id:
-            import json
             identify_msg = {
                 "type": "identify",
                 "character_id": self.character_id,
-                "id": "identify-1"
+                "id": "identify-1",
             }
             await self.websocket.send(json.dumps(identify_msg))
 
-        # Start listening in background
         self._listen_task = asyncio.create_task(self._listen())
 
     async def disconnect(self):
         """Disconnect from the WebSocket."""
         self._connected = False
+
+        if self._supabase_mode:
+            await self._disconnect_supabase()
+            return
 
         if self._listen_task:
             self._listen_task.cancel()
@@ -81,7 +104,9 @@ class EventListener:
             await self.websocket.close()
 
     async def _listen(self):
-        """Background task to listen for events."""
+        """Background task to listen for FastAPI websocket events."""
+        if self._supabase_mode:
+            return
         try:
             while self._connected and self.websocket:
                 try:
@@ -107,6 +132,149 @@ class EventListener:
         except asyncio.CancelledError:
             # Task was cancelled, clean exit
             pass
+
+    async def _connect_supabase(self) -> None:
+        if not self.character_id:
+            raise ValueError(
+                "Supabase event capture requires character_id. Pass one to create_firehose_listener()."
+            )
+        if not self._edge_api_token:
+            raise RuntimeError("EDGE_API_TOKEN (or SUPABASE_API_TOKEN) is required for Supabase event capture")
+
+        supabase_url = self.server_url or os.environ.get("SUPABASE_URL", "http://127.0.0.1:54321")
+        functions_base = os.environ.get("EDGE_FUNCTIONS_URL")
+        if not functions_base:
+            functions_base = f"{supabase_url.rstrip('/')}/functions/v1"
+        self._functions_url = functions_base.rstrip("/")
+        self._http_client = httpx.AsyncClient(timeout=10.0)
+        await self._initialize_polling_cursor()
+        self._poll_stop_event = asyncio.Event()
+        self._poll_task = asyncio.create_task(self._poll_supabase_events())
+        self._connected = True
+
+    async def _disconnect_supabase(self) -> None:
+        if self._poll_stop_event is not None:
+            self._poll_stop_event.set()
+        if self._poll_task is not None:
+            self._poll_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._poll_task
+            self._poll_task = None
+        if self._http_client is not None:
+            await self._http_client.aclose()
+            self._http_client = None
+        self._poll_stop_event = None
+        self._last_event_id = None
+
+    async def _initialize_polling_cursor(self) -> None:
+        result = await self._call_events_since({
+            "character_id": self._canonical_character_id,
+            "initial_only": True,
+        })
+        last_id = result.get("last_event_id")
+        if isinstance(last_id, int):
+            self._last_event_id = last_id
+        else:
+            self._last_event_id = 0
+
+    async def _poll_supabase_events(self) -> None:
+        interval = max(0.25, float(self._poll_interval))
+        while self._poll_stop_event and not self._poll_stop_event.is_set():
+            try:
+                await self._poll_once()
+            except asyncio.CancelledError:
+                break
+            except Exception:  # noqa: BLE001
+                # Polling errors shouldn't crash tests; log and retry.
+                print("[event_capture] Supabase poll failed", flush=True)
+            try:
+                await asyncio.wait_for(self._poll_stop_event.wait(), timeout=interval)
+                break
+            except asyncio.TimeoutError:
+                continue
+
+    async def _poll_once(self) -> None:
+        if self._last_event_id is None:
+            return
+        payload = {
+            "character_id": self._canonical_character_id,
+            "since_event_id": self._last_event_id,
+            "limit": max(1, self._poll_limit),
+        }
+        result = await self._call_events_since(payload)
+        events = result.get("events")
+        if isinstance(events, list):
+            for row in events:
+                event = self._normalize_polled_event(row)
+                if event:
+                    self._append_event_sorted(event)
+        last_id = result.get("last_event_id")
+        if isinstance(last_id, int):
+            self._last_event_id = last_id
+        elif isinstance(events, list) and events:
+            maybe = events[-1]
+            if isinstance(maybe, dict):
+                candidate = maybe.get("id")
+                if isinstance(candidate, int):
+                    self._last_event_id = candidate
+
+    async def _call_events_since(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        if not self._http_client or not self._functions_url:
+            raise RuntimeError("Supabase HTTP client not initialized")
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self._anon_key}",
+            "apikey": self._anon_key,
+        }
+        if self._edge_api_token:
+            headers["x-api-token"] = self._edge_api_token
+        response = await self._http_client.post(
+            f"{self._functions_url}/events_since",
+            headers=headers,
+            json=payload,
+        )
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict):
+            raise RuntimeError("Invalid Supabase response")
+        if data.get("success") is False:
+            raise RuntimeError(data.get("error", "events_since failed"))
+        return data
+
+    def _normalize_polled_event(self, row: Any) -> Optional[Dict[str, Any]]:
+        if not isinstance(row, dict):
+            return None
+        event_type = row.get("event_type")
+        if not isinstance(event_type, str):
+            return None
+        payload = row.get("payload")
+        if not isinstance(payload, dict):
+            payload = {"value": payload}
+        event: Dict[str, Any] = {
+            "type": event_type,
+            "event": event_type,
+            "payload": payload,
+            "summary": row.get("meta", {}).get("summary") if isinstance(row.get("meta"), dict) else "",
+        }
+        event_id = row.get("id")
+        if isinstance(event_id, int):
+            event["__event_id"] = event_id
+        return event
+
+    def _append_event_sorted(self, event: Dict[str, Any]) -> None:
+        event_id = event.get("__event_id")
+        if not isinstance(event_id, int):
+            self.events.append(event)
+            return
+
+        insert_idx = len(self.events)
+        for idx, existing in enumerate(self.events):
+            existing_id = existing.get("__event_id")
+            if isinstance(existing_id, int) and event_id < existing_id:
+                insert_idx = idx
+                break
+
+        self.events.insert(insert_idx, event)
 
     async def wait_for_event(self, event_type: str, timeout: float = 10.0) -> Dict[str, Any]:
         """
@@ -205,7 +373,15 @@ class EventListener:
         return [event for event in self.events if event.get("type") == event_type]
 
     def clear_events(self):
-        """Clear all collected events."""
+        """Clear all collected events and update polling cursor to skip them."""
+        if self._supabase_mode and self.events:
+            # Update cursor to the latest event ID we've seen so we don't re-poll them
+            max_id = max(
+                (e.get("__event_id") for e in self.events if isinstance(e.get("__event_id"), int)),
+                default=None
+            )
+            if max_id is not None and isinstance(max_id, int):
+                self._last_event_id = max_id
         self.events.clear()
 
 
@@ -223,6 +399,11 @@ async def create_event_listener(
     Yields:
         EventListener instance
     """
+    if USE_SUPABASE_TESTS and not character_id:
+        raise RuntimeError(
+            "USE_SUPABASE_TESTS=1 requires character_id for event listeners to subscribe to Supabase channels."
+        )
+
     listener = EventListener(server_url, character_id)
     async with listener:
         yield listener
@@ -240,6 +421,11 @@ async def create_firehose_listener(server_url: str, character_id: Optional[str] 
     Yields:
         EventListener instance configured for firehose
     """
+    if USE_SUPABASE_TESTS and not character_id:
+        raise RuntimeError(
+            "USE_SUPABASE_TESTS=1 requires character_id for firehose listeners because Supabase changefeed auth is per character."
+        )
+
     listener = EventListener(server_url, character_id=character_id)
     async with listener:
         yield listener
@@ -256,6 +442,11 @@ async def capture_events_during(async_fn, server_url: str) -> List[Dict[str, Any
     Returns:
         List of events captured during the operation
     """
+    if USE_SUPABASE_TESTS:
+        raise RuntimeError(
+            "capture_events_during is unsupported with USE_SUPABASE_TESTS=1. Use explicit create_firehose_listener with a character_id."
+        )
+
     async with create_firehose_listener(server_url) as listener:
         # Wait a moment for listener to connect
         await asyncio.sleep(0.5)
