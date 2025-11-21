@@ -25,7 +25,7 @@ export const MilkyWay = () => {
     "Milky Way": folder(
       {
         enabled: {
-          value: milkyWayConfig?.enabled ?? false,
+          value: milkyWayConfig?.enabled ?? true,
           label: "Enable",
         },
         intensity: {
@@ -195,7 +195,8 @@ export const MilkyWay = () => {
       vertexShader: milkyWayVertexShader,
       fragmentShader: milkyWayFragmentShader,
       transparent: true,
-      depthTest: false,
+      depthTest: true,
+      depthWrite: false,
       side: THREE.BackSide,
     })
   }, [size, controls])
@@ -212,9 +213,10 @@ export const MilkyWay = () => {
       ref={meshRef}
       material={material}
       frustumCulled={false}
-      layers={LAYERS.BACKGROUND}
+      renderOrder={-1}
+      layers={LAYERS.SKYBOX}
     >
-      <sphereGeometry args={[100, 64, 64]} />
+      <sphereGeometry args={[500, 64, 64]} />
     </mesh>
   )
 }

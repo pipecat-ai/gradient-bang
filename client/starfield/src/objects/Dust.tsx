@@ -36,14 +36,14 @@ export const Dust = () => {
             label: "Radius",
           },
           size: {
-            value: dustConfig?.size ?? 0.07,
+            value: dustConfig?.size ?? 0.1,
             min: 0.01,
             max: 5,
             step: 0.01,
             label: "Size",
           },
           opacity: {
-            value: dustConfig?.opacity ?? 1,
+            value: dustConfig?.opacity ?? 0.4,
             min: 0,
             max: 1,
             step: 0.05,

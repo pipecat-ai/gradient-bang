@@ -17,7 +17,6 @@ export const Planet = () => {
   const groupRef = useRef<THREE.Group>(null)
   const meshRef = useRef<THREE.Mesh>(null)
   const shadowMeshRef = useRef<THREE.Mesh>(null)
-  const depthMeshRef = useRef<THREE.Mesh>(null)
   const { camera } = useThree()
   const starfieldConfig = useGameStore((state) => state.starfieldConfig)
   const { planet: planetConfig } = starfieldConfig
@@ -79,7 +78,7 @@ export const Planet = () => {
           label: "Tint Color",
         },
         tintIntensity: {
-          value: planetConfig?.tintIntensity ?? 0.7,
+          value: planetConfig?.tintIntensity ?? 1.5,
           min: 0,
           max: 2,
           step: 0.1,
@@ -97,7 +96,7 @@ export const Planet = () => {
           label: "Shadow Radius",
         },
         shadowOpacity: {
-          value: planetConfig?.shadowOpacity ?? 0.9,
+          value: planetConfig?.shadowOpacity ?? 0.85,
           min: 0,
           max: 1,
           step: 0.01,

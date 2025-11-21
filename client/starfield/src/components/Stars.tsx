@@ -8,6 +8,7 @@ import {
   ShaderMaterial,
   Spherical,
   Vector3,
+  type Blending,
 } from "three"
 
 export type StarsProps = {
@@ -21,6 +22,8 @@ export type StarsProps = {
   layers?: number | number[]
   size?: number
   renderOrder?: number
+  blending?: Blending
+  opacityRange?: [number, number]
 }
 
 class StarfieldMaterial extends ShaderMaterial {
@@ -36,7 +39,9 @@ class StarfieldMaterial extends ShaderMaterial {
       vertexShader: /* glsl */ `
       uniform float time;
       attribute float size;
+      attribute float opacity;
       varying vec3 vColor;
+      varying float vOpacity;
       
       #ifdef USE_FOG
         varying float vFogDepth;
@@ -44,6 +49,7 @@ class StarfieldMaterial extends ShaderMaterial {
       
       void main() {
         vColor = color;
+        vOpacity = opacity;
         vec4 mvPosition = modelViewMatrix * vec4(position, 0.5);
         gl_PointSize = size * (30.0 / -mvPosition.z) * (3.0 + sin(time + 100.0));
         gl_Position = projectionMatrix * mvPosition;
@@ -54,14 +60,15 @@ class StarfieldMaterial extends ShaderMaterial {
       uniform sampler2D pointTexture;
       uniform float fade;
       varying vec3 vColor;
+      varying float vOpacity;
       
       #include <fog_pars_fragment>
       
       void main() {
-        float opacity = 1.0;
+        float opacity = vOpacity;
         if (fade == 1.0) {
           float d = distance(gl_PointCoord, vec2(0.5, 0.5));
-          opacity = 1.0 / (1.0 + exp(16.0 * (d - 0.25)));
+          opacity *= 1.0 / (1.0 + exp(16.0 * (d - 0.25)));
         }
         gl_FragColor = vec4(vColor, opacity);
 
@@ -103,13 +110,15 @@ export const Stars: ForwardRefComponent<StarsProps, Points> = React.forwardRef(
       layers,
       size,
       renderOrder = -100,
+      blending = AdditiveBlending,
+      opacityRange = [0.3, 1.0],
     },
     ref
   ) => {
     const material = React.useRef<StarfieldMaterial>(null)
     const pointsRef = React.useRef<Points>(null)
 
-    const [position, color, sizeAttr] = React.useMemo(() => {
+    const [position, color, sizeAttr, opacityAttr] = React.useMemo(() => {
       const positions: any[] = []
       const colors: any[] = []
 
@@ -117,6 +126,14 @@ export const Stars: ForwardRefComponent<StarsProps, Points> = React.forwardRef(
       const sizes = Array.from({ length: count }, () =>
         size !== undefined ? size : (0.5 + 0.5 * Math.random()) * factor
       )
+
+      // Generate variable opacity for each star
+      const opacities = Array.from(
+        { length: count },
+        () =>
+          opacityRange[0] + Math.random() * (opacityRange[1] - opacityRange[0])
+      )
+
       const color = new Color()
       let r = radius + depth
       const increment = depth / count
@@ -130,8 +147,9 @@ export const Stars: ForwardRefComponent<StarsProps, Points> = React.forwardRef(
         new Float32Array(positions),
         new Float32Array(colors),
         new Float32Array(sizes),
+        new Float32Array(opacities),
       ]
-    }, [count, depth, factor, radius, saturation, size])
+    }, [count, depth, factor, radius, saturation, size, opacityRange])
 
     useFrame((state) => {
       if (!material.current) return
@@ -183,12 +201,16 @@ export const Stars: ForwardRefComponent<StarsProps, Points> = React.forwardRef(
           <bufferAttribute attach="attributes-position" args={[position, 3]} />
           <bufferAttribute attach="attributes-color" args={[color, 3]} />
           <bufferAttribute attach="attributes-size" args={[sizeAttr, 1]} />
+          <bufferAttribute
+            attach="attributes-opacity"
+            args={[opacityAttr, 1]}
+          />
         </bufferGeometry>
         <primitive
           ref={material}
           object={starfieldMaterial}
           attach="material"
-          blending={AdditiveBlending}
+          blending={blending}
           uniforms-fade-value={fade}
           depthTest={true}
           depthWrite={false}

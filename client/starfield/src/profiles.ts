@@ -29,7 +29,7 @@ export const defaultProfile: StarfieldConfig = {
     ditheringEnabled: true,
   },
   sharpening: {
-    sharpeningEnabled: true,
+    sharpeningEnabled: false,
   },
   vignette: {
     vignetteEnabled: true,
@@ -41,14 +41,9 @@ export const defaultProfile: StarfieldConfig = {
   },
   stars: {
     enabled: true,
-    count: 3000,
-    radius: 20,
-    depth: 35,
-    size: 1.6,
   },
   dust: {
     enabled: true,
-    opacity: 0.4,
   },
   fog: {
     enabled: true,

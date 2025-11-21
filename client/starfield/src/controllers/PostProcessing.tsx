@@ -102,14 +102,14 @@ export const PostProcessing = () => {
               label: "Enable Sharpening",
             },
             sharpeningIntensity: {
-              value: storedSharpening.sharpeningIntensity ?? 1.0,
+              value: storedSharpening.sharpeningIntensity ?? 3.0,
               label: "Intensity",
               min: 0,
               max: 20,
               step: 0.1,
             },
             sharpeningRadius: {
-              value: storedSharpening.sharpeningRadius ?? 3.0,
+              value: storedSharpening.sharpeningRadius ?? 6.0,
               label: "Radius",
               min: 0,
               max: 10,
