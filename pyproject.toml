@@ -15,6 +15,7 @@ dependencies = [
     "textual>=6.1.0",
     "loguru>=0.7.0",
     "pyperclip>=1.11.0",
+    
 ]
 
 [dependency-groups]
@@ -27,6 +28,10 @@ worldgen = [
     "numpy>=1.26.0",
     "scipy>=1.11.0",
     "networkx>=3.0",
+]
+server = [
+    "supabase>=2.5.0",
+    "psycopg[binary]>=3.2.1",
 ]
 bot = [
     "pipecat-ai[deepgram,daily,cartesia,webrtc,silero,local-smart-turn,google,runner]==0.0.95",
