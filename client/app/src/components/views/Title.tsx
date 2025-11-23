@@ -140,7 +140,10 @@ export const Title = ({
                     className="w-full"
                     size="xl"
                     value={characterName}
-                    onChange={(e) => setCharacterName(e.target.value)}
+                    onChange={(e) => {
+                      if (error) setError(false)
+                      setCharacterName(e.target.value)
+                    }}
                   />
                   <Button
                     onClick={handleLookUpCharacter}
