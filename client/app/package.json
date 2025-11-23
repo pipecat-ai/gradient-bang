@@ -68,8 +68,7 @@
     "rollup-plugin-visualizer": "^6.0.5",
     "unplugin-preprocessor-directives": "^1.2.0",
     "vite": "^7.0.4",
-    "vite-plugin-pwa": "^1.1.0",
-    "@pipecat-ai/daily-transport": "^1.4.1"
+    "vite-plugin-pwa": "^1.1.0"
   },
   "peerDependencies": {
     "@pipecat-ai/daily-transport": "^1.4.1"
