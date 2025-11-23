@@ -103,13 +103,12 @@ export const createSettingsSlice: StateCreator<SettingsSlice> = (set, get) => ({
               start_video_off: true,
               eject_at_room_exp: true,
             },
-            body: { character_id: characterId },
           }
         : {
             createDailyRoom: false,
             enableDefaultIceServers: true,
-            character_id: characterId,
           }),
+      body: { character_id: characterId },
     }
 
     return {
