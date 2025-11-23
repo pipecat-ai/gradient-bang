@@ -102,7 +102,7 @@ npx supabase db reset --workdir deployment --linked
 npx supabase db push --workdir deployment
 
 # Deploy functions
-npx supabase functions deploy --no-verify-jwt --workdir deployment
+npx supabase functions deploy --no-verify-jwt --workdir deployment --env-file .env.cloud
 ```
 
 Create `.env.cloud`
@@ -123,7 +123,7 @@ uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data 
 uv run character-create Test --supabase 
 ```
 
-Test bot locally again cloud
+Test bot locally against cloud
 
 ```bash
 uv run gb-bot
