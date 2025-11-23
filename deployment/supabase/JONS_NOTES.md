@@ -4,14 +4,9 @@
 
 - Should we be gitignoring `supabase/config.toml`? If we do, we should bypass running `supabase init` 
 - Regarding running tests against a live DB - supabase supports test schema, do you don't have to create and swap between projects e.g: **Test**: `gradient-bang-test` **Prod**: `gradient-bang-prod`. This approach is probably safer, but it does meaning having two projects setup which may be configured differently. Sesame has an example of using pytest against a test schema.
-
+- "Specifying decorator through flags is no longer supported. Please use deno.json instead." when deploying functions
 
 ## Local to prod steps
-
-Note 1: I'm not sure if we are intended to ship the `supabase` folder in the repo or whether it should be gitignored. I think we need to include the migrations and functions, so assume we will need some parts. I have moved it into `deployment/supabase` for now, where I think it should live?
-
-Note 2: you don't need to do `uv pip install -e .` if you sync first.
-
 
 ```bash
 # Sync all Python dependencies
@@ -97,6 +92,39 @@ uv run -m gradientbang.scripts.compare_universe_data --from-json world-data/
 Create Supabase project and link:
 
 ```bash
-npx supabase link --project-ref zigpqluhzuxdjouvsyct --workdir deployment
+# Use CLI to select project
+npx supabase link --workdir deployment
+
+# Drop any existing tables
+npx supabase db reset --workdir deployment --linked
+
+# Migrate DB
+npx supabase db push --workdir deployment
+
+# Deploy functions
+npx supabase functions deploy --no-verify-jwt --workdir deployment
 ```
 
+Create `.env.cloud`
+
+```bash
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_ANON_KEY=
+```
+
+```bash
+set -a && source .env.cloud && set +a
+
+# Load universe data from local world-data
+uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data --force  # --dry-run 
+
+# Create new character
+uv run character-create Test --supabase 
+```
+
+Test bot locally again cloud
+
+```bash
+uv run gb-bot
+```

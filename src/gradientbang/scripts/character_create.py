@@ -6,8 +6,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import getpass
-import sys
 from typing import Any, Dict, Optional, Tuple
+import os
 
 import httpx
 
@@ -285,8 +285,7 @@ async def main_async() -> int:
 
     args = parser.parse_args()
 
-    if not await _server_is_running(args.server):
-        return 1
+   
 
     # Determine if we're in interactive or non-interactive mode
     non_interactive = args.name is not None
@@ -299,6 +298,10 @@ async def main_async() -> int:
     use_supabase = _should_use_supabase_mode(args)
     if use_supabase and args.sector < 0:
         print("Starting sector must be non-negative in Supabase mode.")
+        return 1
+
+    if not use_supabase and await _server_is_running(args.server):
+        print(f"Server at {args.server} is not running.")
         return 1
 
     player_payload, ship_payload = _collect_payloads(args, non_interactive)
