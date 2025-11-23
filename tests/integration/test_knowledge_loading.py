@@ -1,10 +1,14 @@
 """Test to verify join() loads existing character knowledge."""
 import asyncio
-
 import pytest
+import sys
+from pathlib import Path
 
-from helpers.combat_helpers import create_test_character_knowledge
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
 from gradientbang.utils.api_client import AsyncGameClient
+from helpers.combat_helpers import create_test_character_knowledge
+from helpers.client_setup import create_client_with_character
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
 
@@ -39,12 +43,19 @@ async def test_join_loads_existing_knowledge():
     path.resolve().stat()  # Force filesystem sync
     print(f"File still exists after stat(): {path.exists()}")
 
-    # Step 2: Call join()
+    # Step 2: Call join() via create_client_with_character (handles registration)
     print("\n=== Step 2: Calling join() ===")
-    client = AsyncGameClient(base_url=server_url, character_id=char_id)
+    # Note: create_client_with_character will overwrite the file we just created,
+    # but since we pass the same parameters, the knowledge should be preserved
+    client = await create_client_with_character(
+        server_url,
+        char_id,
+        sector=1,
+        visited_sectors=[0, 1, 3, 5, 9],
+        credits=100000
+    )
     try:
-        result = await client.join(character_id=char_id)
-        print(f"Join result: {result.get('sector', {}).get('id', 'unknown')}")
+        print(f"Client joined successfully")
 
         # Step 3: Get status by waiting for status.snapshot event
         print("\n=== Step 3: Checking status ===")

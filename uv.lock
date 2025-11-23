@@ -877,9 +877,11 @@ dependencies = [
     { name = "google-genai" },
     { name = "httpx" },
     { name = "loguru" },
+    { name = "psycopg", extra = ["binary"] },
     { name = "pyperclip" },
     { name = "python-dotenv" },
     { name = "rich" },
+    { name = "supabase" },
     { name = "textual" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "websockets" },
@@ -895,10 +897,6 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-timeout" },
 ]
-server = [
-    { name = "psycopg", extra = ["binary"] },
-    { name = "supabase" },
-]
 worldgen = [
     { name = "networkx" },
     { name = "numpy" },
@@ -911,9 +909,11 @@ requires-dist = [
     { name = "google-genai", specifier = ">=0.7.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "loguru", specifier = ">=0.7.0" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.2.1" },
     { name = "pyperclip", specifier = ">=1.11.0" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
     { name = "rich", specifier = ">=13.0.0" },
+    { name = "supabase", specifier = ">=2.24.0" },
     { name = "textual", specifier = ">=6.1.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.35.0" },
     { name = "websockets", specifier = ">=13.1,<15.0" },
@@ -928,10 +928,6 @@ dev = [
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytest-asyncio", specifier = ">=1.1.0" },
     { name = "pytest-timeout", specifier = ">=2.3.1" },
-]
-server = [
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.2.1" },
-    { name = "supabase", specifier = ">=2.5.0" },
 ]
 worldgen = [
     { name = "networkx", specifier = ">=3.0" },

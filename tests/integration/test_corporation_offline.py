@@ -7,10 +7,20 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from helpers.corporation_utils import managed_client, reset_corporation_test_state
+from conftest import EVENT_DELIVERY_WAIT
+from helpers.corporation_utils import (
+    managed_client,
+    reset_corporation_test_state,
+    REQUIRED_CORPORATION_FUNCTIONS,
+)
 
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.integration,
+    pytest.mark.requires_server,
+    pytest.mark.requires_supabase_functions(*REQUIRED_CORPORATION_FUNCTIONS),
+]
 
 
 async def _create_corp(client, *, character_id: str, name: str) -> dict:
@@ -49,7 +59,7 @@ async def test_kick_offline_member_and_event_visible_on_reconnect(server_url, ch
         "corporation.kick",
         {"character_id": founder_id, "target_id": member_id},
     )
-    await asyncio.sleep(0.2)
+    await asyncio.sleep(EVENT_DELIVERY_WAIT)
     end = datetime.now(timezone.utc) + timedelta(seconds=1)
 
     async with managed_client(server_url, member_id) as rejoined:

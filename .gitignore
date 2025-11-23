@@ -1,5 +1,7 @@
 world-data/
 logs/
+.env
+.env.*
 
 # Test artifacts - ALL runtime files in test-world-data except source data
 tests/test-world-data/**/*
@@ -34,7 +36,6 @@ share/python-wheels/
 .pytest_cache/
 
 # Environments
-.env
 .venv
 env/
 venv/

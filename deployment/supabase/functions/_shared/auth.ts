@@ -1,5 +1,5 @@
 import { create } from 'https://deno.land/x/djwt@v2.8/mod.ts';
-import { timingSafeEqual } from 'https://deno.land/std@0.224.0/crypto/timing_safe_equal.ts';
+import { timingSafeEqual } from 'https://deno.land/std@0.197.0/crypto/timing_safe_equal.ts';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {

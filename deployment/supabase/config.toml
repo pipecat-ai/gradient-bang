@@ -56,13 +56,11 @@ enabled = true
 schema_paths = []
 
 [db.seed]
-# Supabase reset seeds via edge function fixtures; disable CLI SQL seed.
+# If enabled, seeds the database after migrations during a db reset.
 enabled = true
-sql_paths = ["seed.sql"]
-
-# NOTE: Custom PostgreSQL settings (app.supabase_url, app.edge_api_token) are
-# configured via the migration 20251117040000_enable_combat_tick_cron.sql
-# using ALTER DATABASE statements instead of config.toml
+# Specifies an ordered list of seed files to load during db reset.
+# Supports glob patterns relative to supabase directory: "./seeds/*.sql"
+sql_paths = ["./seed.sql"]
 
 [db.network_restrictions]
 # Enable management of network restrictions.
@@ -75,8 +73,7 @@ allowed_cidrs = ["0.0.0.0/0"]
 allowed_cidrs_v6 = ["::/0"]
 
 [realtime]
-# Disabled - using HTTP polling via events_since endpoint instead
-enabled = false
+enabled = true
 # Bind realtime via either IPv4 or IPv6. (default: IPv4)
 # ip_version = "IPv6"
 # The maximum length in bytes of HTTP request headers. (default: 4096)
@@ -128,8 +125,10 @@ site_url = "http://127.0.0.1:3000"
 additional_redirect_urls = ["https://127.0.0.1:3000"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
+# JWT issuer URL. If not set, defaults to the local API URL (http://127.0.0.1:<port>/auth/v1).
+# jwt_issuer = ""
 # Path to JWT signing key. DO NOT commit your signing keys file to git.
-signing_keys_path = "./signing_keys.json"
+# signing_keys_path = "./signing_keys.json"
 # If disabled, the refresh token will never expire.
 enable_refresh_token_rotation = true
 # Allows refresh tokens to be reused after expiry, up to the specified interval in seconds.
@@ -200,6 +199,12 @@ otp_expiry = 3600
 # [auth.email.template.invite]
 # subject = "You have been invited"
 # content_path = "./supabase/templates/invite.html"
+
+# Uncomment to customize notification email template
+# [auth.email.notification.password_changed]
+# enabled = true
+# subject = "Your password has been changed"
+# content_path = "./templates/password_changed_notification.html"
 
 [auth.sms]
 # Allow/disallow new user signups via SMS to your project.
@@ -327,13 +332,10 @@ policy = "per_worker"
 # Port to attach the Chrome inspector for debugging edge functions.
 inspector_port = 8083
 # The Deno major version to use.
-deno_version = 1
+deno_version = 2
 
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
-[edge_runtime.secrets]
-EDGE_JWT_SECRET = "super-secret-jwt-token-with-at-least-32-characters-long"
-CHARACTER_JWT_SIGNING_KEY = "{\"kty\":\"EC\",\"kid\":\"f48b2a5d-1a49-4551-bf33-44a832809b40\",\"use\":\"sig\",\"key_ops\":[\"sign\"],\"alg\":\"ES256\",\"ext\":true,\"d\":\"QdjUuSaIcFeopOHtxGWVeUhHUTH7BdYOlJLUwzon9-A\",\"crv\":\"P-256\",\"x\":\"m2IZuszBWg32XYXzjhOAtD2CZaxSBIms1andO4iYfZM\",\"y\":\"6hZqyhM6I1cFN47Rz4_j99X8OC0bxv3aGT7HtmgGyEI\"}"
 
 [analytics]
 enabled = true

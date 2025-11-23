@@ -13,11 +13,17 @@ These tests require a test server running on port 8002.
 """
 
 import asyncio
-from datetime import datetime, timezone
-
 import pytest
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
 
+# Add project paths
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from conftest import EVENT_DELIVERY_WAIT
 from gradientbang.utils.api_client import AsyncGameClient, RPCError
+from helpers.event_capture import EventListener, create_firehose_listener
 from helpers.assertions import (
     assert_event_emitted,
     assert_event_order,
@@ -29,20 +35,13 @@ from helpers.combat_helpers import (
     deploy_garrison,
     verify_garrison_combat,
 )
-from helpers.event_capture import (
-    EventListener,
-    create_firehose_listener,
-)
-from integration.test_combat_system import EventCollector
-
+from helpers.client_setup import create_client_with_character
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
-
 
 # =============================================================================
 # Helper Functions
 # =============================================================================
-
 
 async def get_status(client, character_id):
     """
@@ -70,11 +69,9 @@ async def get_status(client, character_id):
     finally:
         client.remove_event_handler(token)
 
-
 # =============================================================================
 # Test Fixtures
 # =============================================================================
-
 
 @pytest.fixture
 async def client(server_url, check_server_available):
@@ -84,16 +81,13 @@ async def client(server_url, check_server_available):
     async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
         yield client
 
-
 @pytest.fixture
 async def joined_character(server_url):
     """Create and join a test character."""
     char_id = "test_movement_player1"
-    client = AsyncGameClient(base_url=server_url, character_id=char_id)
 
-    # Join game - characters start at sector 0
-    result = await client.join(character_id=char_id)
-    assert result.get("success") is True
+    # Character already joined via create_client_with_character()
+    client = await create_client_with_character(server_url, char_id, sector=0)
 
     yield {
         "character_id": char_id,
@@ -103,20 +97,15 @@ async def joined_character(server_url):
 
     await client.close()
 
-
 @pytest.fixture
 async def two_characters(server_url):
     """Create two test characters for multi-character tests."""
     char1_id = "test_movement_player1"
     char2_id = "test_movement_player2"
 
-    client1 = AsyncGameClient(base_url=server_url, character_id=char1_id)
-    result1 = await client1.join(character_id=char1_id)
-    assert result1.get("success") is True
-
-    client2 = AsyncGameClient(base_url=server_url, character_id=char2_id)
-    result2 = await client2.join(character_id=char2_id)
-    assert result2.get("success") is True
+    # Characters already joined via create_client_with_character()
+    client1 = await create_client_with_character(server_url, char1_id, sector=0)
+    client2 = await create_client_with_character(server_url, char2_id, sector=0)
 
     yield {
         "char1": {"id": char1_id, "client": client1},
@@ -126,11 +115,9 @@ async def two_characters(server_url):
     await client1.close()
     await client2.close()
 
-
 # =============================================================================
 # Move Validation Tests (6 tests)
 # =============================================================================
-
 
 class TestMoveValidation:
     """Tests for move validation logic."""
@@ -210,22 +197,35 @@ class TestMoveValidation:
 
     async def test_move_with_insufficient_warp_power_fails(self, server_url):
         """Test that moving without enough warp power fails."""
-        # Note: This test may need adjustment based on actual game mechanics
-        # For now, we'll just verify the character can't move when depleted
+        # kestrel_courier has turns_per_warp=3, so warp_power=1 is insufficient
         char_id = "test_movement_low_warp"
 
-        client = AsyncGameClient(base_url=server_url, character_id=char_id)
+        # Create character with insufficient warp power
+        create_test_character_knowledge(char_id, sector=0, warp_power=1)
+
+        client = AsyncGameClient(
+            base_url=server_url,
+            character_id=char_id,
+            transport="websocket",
+        )
 
         try:
-            # Join with default warp power
-            await client.join(character_id=char_id)
+            await client.join(char_id)
 
-            # Get status to check warp power
+            # Get status to verify warp power is low
             status = await get_status(client, char_id)
+            current_warp = status["ship"].get("warp_power", 0)
+            assert current_warp == 1, f"Expected warp_power=1, got {current_warp}"
 
-            # If warp power is sufficient, this test is informational only
-            if status["ship"].get("warp_power", 0) > 0:
-                pytest.skip("Character has sufficient warp power")
+            # Attempt to move (should fail due to insufficient warp)
+            target = status["sector"]["adjacent_sectors"][0]
+
+            with pytest.raises(RPCError) as exc_info:
+                await client.move(to_sector=target, character_id=char_id)
+
+            # Verify error message mentions insufficient warp
+            assert "Insufficient warp power" in str(exc_info.value)
+            assert exc_info.value.status == 400
         finally:
             await client.close()
 
@@ -241,17 +241,21 @@ class TestMoveValidation:
         finally:
             await client.close()
 
-
 # =============================================================================
 # Hyperspace State Machine Tests (8 tests)
 # =============================================================================
-
 
 class TestHyperspaceStateMachine:
     """Tests for hyperspace state transitions."""
 
     async def test_hyperspace_flag_set_on_departure(self, joined_character, server_url):
-        """Test that in_hyperspace flag is set when movement begins."""
+        """Test that in_hyperspace flag is set when movement begins.
+
+        When a character is in hyperspace, my_status should return 409 error
+        with message "Character is in hyperspace, status unavailable until arrival".
+        """
+        from gradientbang.utils.api_client import RPCError
+
         client = joined_character["client"]
         char_id = joined_character["character_id"]
 
@@ -264,15 +268,21 @@ class TestHyperspaceStateMachine:
             client.move(to_sector=target, character_id=char_id)
         )
 
-        # Check status immediately (should be in hyperspace)
+        # Check status immediately (should be in hyperspace and return 409)
         await asyncio.sleep(0.1)
-        status = await get_status(client, char_id)
 
-        # Complete move
-        await move_task
+        try:
+            status = await get_status(client, char_id)
+            # If we get here, the character is not in hyperspace (move completed too fast)
+            # This is acceptable - just verify move completed successfully
+            await move_task
+        except RPCError as e:
+            # Expected: 409 error indicating character is in hyperspace
+            assert e.status == 409, f"Expected 409 status, got {e.status}"
+            assert "hyperspace" in e.detail.lower(), f"Expected hyperspace error, got: {e.detail}"
 
-        # Note: This test may need adjustment based on how quickly hyperspace flag is set
-        # and whether my_status shows it during transit
+            # Complete move
+            await move_task
 
     async def test_hyperspace_flag_cleared_on_arrival(self, joined_character, server_url):
         """Test that in_hyperspace flag is cleared after arrival."""
@@ -404,11 +414,9 @@ class TestHyperspaceStateMachine:
         # Actual implementation depends on server handling
         pytest.skip("Transit interruption handling not yet implemented")
 
-
 # =============================================================================
 # Event Ordering and Emission Tests (10 tests - CRITICAL)
 # =============================================================================
-
 
 class TestEventOrdering:
     """Tests for event emission order and timing."""
@@ -652,11 +660,9 @@ class TestEventOrdering:
         char_move_events = [e for e in char_events if e.get("event") == "movement.complete"]
         assert len(char_move_events) >= 1, "Character should see their own movement event"
 
-
 # =============================================================================
 # Auto-Garrison Combat Tests (6 tests)
 # =============================================================================
-
 
 class TestAutoGarrisonCombat:
     """Tests for automatic combat initiation on garrison arrival."""
@@ -665,11 +671,11 @@ class TestAutoGarrisonCombat:
         """Test that arriving at a sector with garrison triggers combat."""
         # 1. Setup: Create garrison owner (Character A)
         char_a_id = "test_garrison_owner_a"
-        create_test_character_knowledge(char_a_id, sector=1, fighters=200)
-        client_a = AsyncGameClient(base_url=server_url, character_id=char_a_id, transport="websocket")
+
+        client_a = await create_client_with_character(server_url, char_a_id, sector=1, fighters=200)
 
         try:
-            await client_a.join(character_id=char_a_id)
+            # Already joined via create_client_with_character()
             await asyncio.sleep(0.5)
 
             # 2. Deploy offensive garrison in sector 1
@@ -688,15 +694,15 @@ class TestAutoGarrisonCombat:
 
             # 4. Setup: Create arriving character (Character B) at sector 0
             char_b_id = "test_garrison_arrival_b"
-            create_test_character_knowledge(char_b_id, sector=0, fighters=150)
-            client_b = AsyncGameClient(base_url=server_url, character_id=char_b_id, transport="websocket")
+
+            client_b = await create_client_with_character(server_url, char_b_id, sector=0, fighters=150)
 
             try:
                 # 5. Setup event collector for Character B
                 char_b_events = []
                 client_b.on("combat.round_waiting")(lambda p: char_b_events.append({"event": "combat.round_waiting", "payload": p}))
 
-                await client_b.join(character_id=char_b_id)
+                # Already joined via create_client_with_character()
                 await asyncio.sleep(0.5)
 
                 # 6. Record time range for JSONL query
@@ -767,11 +773,11 @@ class TestAutoGarrisonCombat:
         """Test that garrison combat emits combat.round_waiting event with correct structure."""
         # This test is similar to Test #1 but focuses on detailed event payload validation
         char_a_id = "test_garrison_event_owner"
-        create_test_character_knowledge(char_a_id, sector=1, fighters=200)
-        client_a = AsyncGameClient(base_url=server_url, character_id=char_a_id, transport="websocket")
+
+        client_a = await create_client_with_character(server_url, char_a_id, sector=1, fighters=200)
 
         try:
-            await client_a.join(character_id=char_a_id)
+            # Already joined via create_client_with_character()
             await asyncio.sleep(0.5)
 
             await deploy_garrison(client=client_a, owner_id=char_a_id, sector=1, fighters=100, mode="offensive")
@@ -781,14 +787,14 @@ class TestAutoGarrisonCombat:
             await asyncio.sleep(0.5)
 
             char_b_id = "test_garrison_event_arrival"
-            create_test_character_knowledge(char_b_id, sector=0, fighters=150)
-            client_b = AsyncGameClient(base_url=server_url, character_id=char_b_id, transport="websocket")
+
+            client_b = await create_client_with_character(server_url, char_b_id, sector=0, fighters=150)
 
             try:
                 char_b_events = []
                 client_b.on("combat.round_waiting")(lambda p: char_b_events.append({"event": "combat.round_waiting", "payload": p}))
 
-                await client_b.join(character_id=char_b_id)
+                # Already joined via create_client_with_character()
                 await asyncio.sleep(0.5)
 
                 await client_b.move(to_sector=1, character_id=char_b_id)
@@ -823,24 +829,24 @@ class TestAutoGarrisonCombat:
     async def test_character_enters_combat_state_on_arrival(self, server_url):
         """Test that character enters combat when arriving at garrison sector."""
         char_a_id = "test_combat_state_owner"
-        create_test_character_knowledge(char_a_id, sector=1, fighters=200)
-        client_a = AsyncGameClient(base_url=server_url, character_id=char_a_id, transport="websocket")
+
+        client_a = await create_client_with_character(server_url, char_a_id, sector=1, fighters=200)
 
         try:
-            await client_a.join(character_id=char_a_id)
+            # Already joined via create_client_with_character()
             await deploy_garrison(client=client_a, owner_id=char_a_id, sector=1, fighters=100, mode="offensive")
             await client_a.move(to_sector=0, character_id=char_a_id)
             await asyncio.sleep(0.5)
 
             char_b_id = "test_combat_state_arrival"
-            create_test_character_knowledge(char_b_id, sector=0, fighters=150)
-            client_b = AsyncGameClient(base_url=server_url, character_id=char_b_id, transport="websocket")
+
+            client_b = await create_client_with_character(server_url, char_b_id, sector=0, fighters=150)
 
             try:
                 combat_events = []
                 client_b.on("combat.round_waiting")(lambda p: combat_events.append(p))
 
-                await client_b.join(character_id=char_b_id)
+                # Already joined via create_client_with_character()
                 await client_b.move(to_sector=1, character_id=char_b_id)
                 await asyncio.sleep(2.0)
 
@@ -862,15 +868,12 @@ class TestAutoGarrisonCombat:
         char_a_id = "test_combat_blocker_a"
         char_b_id = "test_combat_blocker_b"
 
-        create_test_character_knowledge(char_a_id, sector=0, fighters=100)
-        create_test_character_knowledge(char_b_id, sector=0, fighters=100)
-
-        client_a = AsyncGameClient(base_url=server_url, character_id=char_a_id, transport="websocket")
-        client_b = AsyncGameClient(base_url=server_url, character_id=char_b_id, transport="websocket")
+        client_a = await create_client_with_character(server_url, char_a_id, sector=0, fighters=100)
+        client_b = await create_client_with_character(server_url, char_b_id, sector=0, fighters=100)
 
         try:
-            await client_a.join(character_id=char_a_id)
-            await client_b.join(character_id=char_b_id)
+            # Already joined via create_client_with_character()
+            # Already joined via create_client_with_character()
 
             # Both move to sector 1
             await client_a.move(to_sector=1, character_id=char_a_id)
@@ -897,24 +900,24 @@ class TestAutoGarrisonCombat:
         """Test that garrison AI automatically attacks arriving character (validates round resolution)."""
         # Note: Full validation requires waiting for AI round (15s), so we just verify combat started
         char_a_id = "test_garrison_ai_owner"
-        create_test_character_knowledge(char_a_id, sector=1, fighters=200)
-        client_a = AsyncGameClient(base_url=server_url, character_id=char_a_id, transport="websocket")
+
+        client_a = await create_client_with_character(server_url, char_a_id, sector=1, fighters=200)
 
         try:
-            await client_a.join(character_id=char_a_id)
+            # Already joined via create_client_with_character()
             await deploy_garrison(client=client_a, owner_id=char_a_id, sector=1, fighters=100, mode="offensive")
             await client_a.move(to_sector=0, character_id=char_a_id)
             await asyncio.sleep(0.5)
 
             char_b_id = "test_garrison_ai_arrival"
-            create_test_character_knowledge(char_b_id, sector=0, fighters=150)
-            client_b = AsyncGameClient(base_url=server_url, character_id=char_b_id, transport="websocket")
+
+            client_b = await create_client_with_character(server_url, char_b_id, sector=0, fighters=150)
 
             try:
                 events = []
                 client_b.on("combat.round_waiting")(lambda p: events.append({"event": "combat.round_waiting", "payload": p}))
 
-                await client_b.join(character_id=char_b_id)
+                # Already joined via create_client_with_character()
                 await client_b.move(to_sector=1, character_id=char_b_id)
                 await asyncio.sleep(2.0)
 
@@ -937,11 +940,11 @@ class TestAutoGarrisonCombat:
     async def test_defensive_garrison_no_auto_engage(self, server_url):
         """Test that defensive garrisons do NOT trigger auto-combat on arrival."""
         char_a_id = "test_defensive_garrison_owner"
-        create_test_character_knowledge(char_a_id, sector=1, fighters=200)
-        client_a = AsyncGameClient(base_url=server_url, character_id=char_a_id, transport="websocket")
+
+        client_a = await create_client_with_character(server_url, char_a_id, sector=1, fighters=200)
 
         try:
-            await client_a.join(character_id=char_a_id)
+            # Already joined via create_client_with_character()
             await asyncio.sleep(0.5)
 
             # Deploy DEFENSIVE garrison in sector 1
@@ -953,14 +956,14 @@ class TestAutoGarrisonCombat:
             await asyncio.sleep(0.5)
 
             char_b_id = "test_defensive_garrison_arrival"
-            create_test_character_knowledge(char_b_id, sector=0, fighters=150)
-            client_b = AsyncGameClient(base_url=server_url, character_id=char_b_id, transport="websocket")
+
+            client_b = await create_client_with_character(server_url, char_b_id, sector=0, fighters=150)
 
             try:
                 char_b_events = []
                 client_b.on("combat.round_waiting")(lambda p: char_b_events.append({"event": "combat.round_waiting", "payload": p}))
 
-                await client_b.join(character_id=char_b_id)
+                # Already joined via create_client_with_character()
                 await asyncio.sleep(0.5)
 
                 # Character B moves to sector 1 (should NOT trigger combat - defensive garrison)
@@ -986,11 +989,11 @@ class TestAutoGarrisonCombat:
         # Note: This test verifies combat is triggered; full toll payment mechanics
         # would require implementing the PAY action handler
         char_a_id = "test_toll_garrison_owner"
-        create_test_character_knowledge(char_a_id, sector=1, fighters=200, credits=1000)
-        client_a = AsyncGameClient(base_url=server_url, character_id=char_a_id, transport="websocket")
+
+        client_a = await create_client_with_character(server_url, char_a_id, sector=1, fighters=200, credits=1000)
 
         try:
-            await client_a.join(character_id=char_a_id)
+            # Already joined via create_client_with_character()
             await asyncio.sleep(0.5)
 
             # Deploy toll garrison with 100 credit toll
@@ -1008,14 +1011,14 @@ class TestAutoGarrisonCombat:
             await asyncio.sleep(0.5)
 
             char_b_id = "test_toll_payer"
-            create_test_character_knowledge(char_b_id, sector=0, fighters=150, credits=500)
-            client_b = AsyncGameClient(base_url=server_url, character_id=char_b_id, transport="websocket")
+
+            client_b = await create_client_with_character(server_url, char_b_id, sector=0, fighters=150, credits=500)
 
             try:
                 char_b_events = []
                 client_b.on("combat.round_waiting")(lambda p: char_b_events.append({"event": "combat.round_waiting", "payload": p}))
 
-                await client_b.join(character_id=char_b_id)
+                # Already joined via create_client_with_character()
                 await asyncio.sleep(0.5)
 
                 # Character B moves to sector 1 (triggers toll combat)
@@ -1045,16 +1048,16 @@ class TestAutoGarrisonCombat:
 
     async def test_garrison_collection_with_toll_balance(self, server_url):
         """Test complete toll payment cycle: pay toll, collect garrison with toll balance."""
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        from test_combat_system import EventCollector
 
         char_a_id = "test_toll_collection_owner"
         char_b_id = "test_toll_collection_payer"
 
         # Create both characters with credits
-        create_test_character_knowledge(char_a_id, sector=1, fighters=200, credits=1000)
-        create_test_character_knowledge(char_b_id, sector=0, fighters=150, credits=500)
-
-        client_a = AsyncGameClient(base_url=server_url, character_id=char_a_id, transport="websocket")
-        client_b = AsyncGameClient(base_url=server_url, character_id=char_b_id, transport="websocket")
+        client_a = await create_client_with_character(server_url, char_a_id, sector=1, fighters=200, credits=1000)
+        client_b = await create_client_with_character(server_url, char_b_id, sector=0, fighters=150, credits=500)
 
         # Setup event collectors for character B
         collector_b = EventCollector()
@@ -1064,7 +1067,7 @@ class TestAutoGarrisonCombat:
 
         try:
             # 1. Owner deploys toll garrison
-            await client_a.join(character_id=char_a_id)
+            # Already joined via create_client_with_character()
             await asyncio.sleep(0.5)
 
             status_a_initial = await get_status(client_a, char_a_id)
@@ -1086,7 +1089,7 @@ class TestAutoGarrisonCombat:
             await asyncio.sleep(0.5)
 
             # 2. Payer enters sector and pays toll
-            await client_b.join(character_id=char_b_id)
+            # Already joined via create_client_with_character()
 
             status_b_initial = await get_status(client_b, char_b_id)
             initial_credits_b = status_b_initial["ship"]["credits"]
@@ -1152,11 +1155,9 @@ class TestAutoGarrisonCombat:
             await client_a.close()
             await client_b.close()
 
-
 # =============================================================================
 # Pathfinding Integration Tests (4 tests)
 # =============================================================================
-
 
 class TestPathfindingIntegration:
     """Tests for pathfinding and navigation."""
@@ -1225,11 +1226,9 @@ class TestPathfindingIntegration:
         # Pathfinding should complete quickly
         assert elapsed < 2.0, f"Pathfinding took too long: {elapsed}s"
 
-
 # =============================================================================
 # Edge Case Tests (4 tests)
 # =============================================================================
-
 
 class TestEdgeCases:
     """Tests for edge cases and special scenarios."""

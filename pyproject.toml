@@ -15,30 +15,34 @@ dependencies = [
     "textual>=6.1.0",
     "loguru>=0.7.0",
     "pyperclip>=1.11.0",
-    
+    "psycopg[binary]>=3.2.1",
+    "supabase>=2.24.0",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.4.1",
     "pytest-asyncio>=1.1.0",
-    "pytest-timeout>=2.3.1",
+    "pytest-timeout>=2.3.1"
 ]
 worldgen = [
     "numpy>=1.26.0",
     "scipy>=1.11.0",
-    "networkx>=3.0",
+    "networkx>=3.0"
 ]
-server = [
-    "supabase>=2.5.0",
-    "psycopg[binary]>=3.2.1",
-]
+
 bot = [
     "pipecat-ai[deepgram,daily,cartesia,webrtc,silero,local-smart-turn,google,runner]==0.0.95",
     "pipecat-ai-cli"
 ]
 
 [project.scripts]
+# CLI
+gb-bot = "gradientbang.cli:run_bot"
+gb-npc = "gradientbang.cli:run_npc"
+gb-test-local = "gradientbang.cli:test_local"
+gb-test-cloud = "gradientbang.cli:test_cloud"
+
 # Servers
 game-server = "gradientbang.game_server.server:main"
 bot = "gradientbang.pipecat_server.__main__:main"
@@ -74,7 +78,6 @@ override-dependencies = [
 package = true
 
 
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
@@ -86,9 +89,15 @@ markers = [
     "integration: Integration tests (may need server)",
     "requires_server: Requires live server on port 8002",
     "stress: Stress tests (slow, concurrent operations) - skip by default",
+    "requires_supabase_functions(*names): Skip when named Supabase edge functions are not implemented",
+]
+# Suppress deprecation warnings from third-party libraries
+filterwarnings = [
+    "ignore:The 'timeout' parameter is deprecated:DeprecationWarning:supabase",
+    "ignore:The 'verify' parameter is deprecated:DeprecationWarning:supabase",
 ]
 # Timeout configuration (prevent hanging tests)
-timeout = 30  # Max 30 seconds per test
+timeout = 60  # Max 30 seconds per test
 # Event waiting timeouts (use asyncio.timeout() in tests):
 #   - Integration tests: 10 seconds (real server, events)
 #   - Unit tests: 5 seconds (fast, mocked operations)

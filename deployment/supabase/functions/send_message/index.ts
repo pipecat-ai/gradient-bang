@@ -1,4 +1,4 @@
-import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+import { serve } from 'https://deno.land/std@0.197.0/http/server.ts';
 
 import { validateApiToken, unauthorizedResponse, errorResponse, successResponse } from '../_shared/auth.ts';
 import { createServiceRoleClient } from '../_shared/client.ts';

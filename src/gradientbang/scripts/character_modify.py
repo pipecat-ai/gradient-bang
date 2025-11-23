@@ -110,12 +110,32 @@ async def main_async() -> int:
     parser.add_argument("--character-id", help="Character UUID to modify")
     parser.add_argument("--client-id", default="admin-tool", help="Identifier to register this admin connection")
     parser.add_argument("--admin-password", help="Admin password (prompted if required and not provided)")
+    parser.add_argument(
+        "--supabase",
+        action="store_true",
+        help="Force Supabase admin mode (default when SUPABASE_URL is set)",
+    )
+    parser.add_argument(
+        "--legacy",
+        action="store_true",
+        help="Force legacy FastAPI RPC mode",
+    )
     args = parser.parse_args()
 
     character_id = args.character_id or _prompt("Character UUID: ")
     if not character_id:
         print("Character ID is required.")
         return 1
+
+    payload = _collect_payload()
+    if not payload:
+        print("No changes specified; aborting.")
+        return 0
+
+    use_supabase = _should_use_supabase_mode(args)
+    if use_supabase:
+        os.environ.setdefault("SUPABASE_ALLOW_LEGACY_IDS", "1")
+        return await _modify_via_supabase(character_id, payload)
 
     password_required = _admin_password_required()
     admin_password = args.admin_password
@@ -124,10 +144,6 @@ async def main_async() -> int:
         if not admin_password:
             print("Admin password is required.")
             return 1
-    payload = _collect_payload()
-    if not payload:
-        print("No changes specified; aborting.")
-        return 0
 
     try:
         async with AsyncGameClient(base_url=args.server, character_id=args.client_id) as client:

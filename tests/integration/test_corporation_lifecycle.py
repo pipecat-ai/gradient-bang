@@ -12,11 +12,18 @@ from contextlib import suppress
 
 import pytest
 
+from conftest import EVENT_DELIVERY_WAIT
 from gradientbang.utils.api_client import AsyncGameClient, RPCError
 from helpers.combat_helpers import create_test_character_knowledge
+from helpers.corporation_utils import REQUIRED_CORPORATION_FUNCTIONS
 
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.integration,
+    pytest.mark.requires_server,
+    pytest.mark.requires_supabase_functions(*REQUIRED_CORPORATION_FUNCTIONS),
+]
 
 
 async def _status_snapshot(client: AsyncGameClient, character_id: str) -> dict:
@@ -76,6 +83,9 @@ async def test_create_corporation_costs_credits(server_url, check_server_availab
             "corporation.create",
             {"character_id": founder_id, "name": "Credit Checkers"},
         )
+
+        # Wait for events to be delivered via polling
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
         status = await _status_snapshot(client, founder_id)
         assert status["ship"]["credits"] == 15_000

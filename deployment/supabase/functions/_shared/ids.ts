@@ -1,4 +1,4 @@
-import { v5, validate as validateUuid } from 'https://deno.land/std@0.224.0/uuid/mod.ts';
+import { v5, validate as validateUuid } from 'https://deno.land/std@0.197.0/uuid/mod.ts';
 
 function resolveNamespace(value: string | undefined, fallback: string): string {
   if (value && validateUuid(value.trim())) {

@@ -5,7 +5,7 @@
  * Requires admin password for authorization.
  */
 
-import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+import { serve } from 'https://deno.land/std@0.197.0/http/server.ts';
 import { validateAdminSecret, errorResponse, successResponse } from '../_shared/auth.ts';
 import { createServiceRoleClient } from '../_shared/client.ts';
 import { logAdminAction } from '../_shared/admin_audit.ts';

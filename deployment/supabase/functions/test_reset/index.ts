@@ -1,5 +1,5 @@
-import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
-import { validate as validateUuid } from 'https://deno.land/std@0.224.0/uuid/mod.ts';
+import { serve } from 'https://deno.land/std@0.197.0/http/server.ts';
+import { validate as validateUuid } from 'https://deno.land/std@0.197.0/uuid/mod.ts';
 
 import charactersFixture from './fixtures/characters.json' assert { type: 'json' };
 import structureFixture from './fixtures/universe_structure.json' assert { type: 'json' };
