@@ -10,7 +10,7 @@ from collections import deque
 from contextlib import suppress
 from typing import Any, Deque, Dict, Mapping, Optional
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import json
 
 import httpx
@@ -22,10 +22,6 @@ from gradientbang.utils.legacy_ids import canonicalize_character_id
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 _TRUE_VALUES = {"1", "true", "on", "yes"}
-CHARACTER_JWT_REFRESH_MARGIN_SECONDS = float(
-    os.getenv("SUPABASE_CHARACTER_JWT_REFRESH_MARGIN", "60")
-)
-DEFAULT_CHARACTER_JWT_TTL_SECONDS = 60 * 60
 POLL_INTERVAL_SECONDS = max(0.25, float(os.getenv("SUPABASE_POLL_INTERVAL_SECONDS", "1.0")))
 POLL_LIMIT_DEFAULT = max(1, min(250, int(os.getenv("SUPABASE_POLL_LIMIT", "100"))))
 POLL_BACKOFF_MAX = max(1.0, float(os.getenv("SUPABASE_POLL_BACKOFF_MAX", "5.0")))
@@ -109,10 +105,6 @@ class AsyncGameClient(LegacyAsyncGameClient):
             else None
         )
         self._event_log_path = os.getenv("SUPABASE_EVENT_LOG_PATH")
-        self._character_jwt: Optional[str] = None
-        self._character_jwt_expires_at: Optional[datetime] = None
-        margin_seconds = max(5.0, CHARACTER_JWT_REFRESH_MARGIN_SECONDS)
-        self._character_jwt_refresh_margin = timedelta(seconds=margin_seconds)
         self._poll_interval = POLL_INTERVAL_SECONDS
         self._poll_limit = POLL_LIMIT_DEFAULT
         self._polling_task: Optional[asyncio.Task] = None
@@ -127,8 +119,6 @@ class AsyncGameClient(LegacyAsyncGameClient):
         if self._http:
             await self._http.aclose()
             self._http = None
-        self._character_jwt = None
-        self._character_jwt_expires_at = None
 
     async def _ensure_ws(self):  # type: ignore[override]
         return  # Supabase transport does not use legacy websockets
@@ -142,7 +132,7 @@ class AsyncGameClient(LegacyAsyncGameClient):
     ) -> Dict[str, Any]:  # type: ignore[override]
         # Skip polling setup only for get_character_jwt (to avoid recursion)
         # For join, we establish polling BEFORE the RPC so join events are received
-        if endpoint not in ("get_character_jwt",) and not skip_event_delivery:
+        if not skip_event_delivery:
             await self._ensure_event_delivery()
         http_client = self._ensure_http_client()
 
@@ -438,57 +428,6 @@ class AsyncGameClient(LegacyAsyncGameClient):
 
     async def _emit_frame(self, direction: str, frame: Mapping[str, Any]) -> None:  # type: ignore[override]
         return  # No legacy websocket frames
-
-    async def _ensure_character_jwt(self, force: bool = False) -> str:
-        now = datetime.now(timezone.utc)
-        if (
-            not force
-            and self._character_jwt
-            and self._character_jwt_expires_at
-            and self._character_jwt_expires_at - now > self._character_jwt_refresh_margin
-        ):
-            return self._character_jwt
-
-        response = await self._request(
-            "get_character_jwt",
-            {"character_id": self._canonical_character_id},
-        )
-        token = response.get("jwt")
-        if not isinstance(token, str) or not token.strip():
-            raise RPCError("get_character_jwt", 500, "missing jwt in response")
-        expires_at = self._parse_jwt_expiry(response)
-        self._character_jwt = token
-        self._character_jwt_expires_at = expires_at
-        return token
-
-    def _parse_jwt_expiry(self, response: Mapping[str, Any]) -> datetime:
-        raw_expires_at = response.get("expires_at")
-        now = datetime.now(timezone.utc)
-        if isinstance(raw_expires_at, str):
-            try:
-                parsed = datetime.fromisoformat(
-                    raw_expires_at.replace("Z", "+00:00")
-                )
-                if parsed.tzinfo is None:
-                    parsed = parsed.replace(tzinfo=timezone.utc)
-                else:
-                    parsed = parsed.astimezone(timezone.utc)
-                return parsed
-            except ValueError:
-                logger.debug(
-                    "supabase_client.jwt.parse_failed",
-                    extra={"expires_at": raw_expires_at},
-                    exc_info=True,
-                )
-        expires_in = response.get("expires_in_seconds")
-        seconds: int
-        try:
-            seconds = int(float(expires_in))
-        except (TypeError, ValueError):
-            seconds = DEFAULT_CHARACTER_JWT_TTL_SECONDS
-        if seconds < 60:
-            seconds = 60
-        return now + timedelta(seconds=seconds)
 
     async def _ensure_event_delivery(self) -> None:
         await self._ensure_event_poller()

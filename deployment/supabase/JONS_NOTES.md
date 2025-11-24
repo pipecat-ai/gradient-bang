@@ -8,6 +8,8 @@
 
 ## Local to prod steps
 
+### Initia setup
+
 ```bash
 # Sync all Python dependencies
 uv sync --all-groups
@@ -32,7 +34,6 @@ npx supabase start --workdir deployment/
 
 # Reset DB, just to check CLI linked correctly
 npx supabase db reset --workdir deployment/
-
 ```
 
 
@@ -47,16 +48,17 @@ EDGE_FUNCTIONS_URL=http://127.0.0.1:54321/functions/v1
 EDGE_JWT_SECRET=super-secret-jwt-token-with-at-least-32-characters-long
 ```
 
-Server functions locally:
+Serve functions locally:
 
 ```bash
 npx supabase functions serve --env-file .env.supabase --no-verify-jwt --workdir deployment
 ```
 
-### Quick test to make sure all is configured correctly
+### Run tests to make sure all is configured correctly
 
 ```bash
-# Note: ensure previous container is shut down: npx supabase stop --workdir deployment/ --all --no-backup
+# Note: ensure previous container is shut down: 
+# npx supabase stop --workdir deployment/ --all --no-backup
 
 # Note: tests should load env.supabase, but I'm not sure, so set anyway
 set -a && source .env.supabase && set +a
@@ -68,6 +70,67 @@ USE_SUPABASE_TESTS=1 uv run pytest tests/integration/ -v -x --supabase-dir deplo
 # USE_SUPABASE_TESTS=1 uv run pytest tests/integration/ -v -x --lf  --supabase-dir deployment
 
 # Note: check /logs in root for any errors
+```
+
+### Create user account and character
+
+#### 1. Register a new user account:
+
+```bash
+curl -X POST http://127.0.0.1:54321/functions/v1/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "test@example.com",
+    "password": "secret123"
+  }'
+```
+
+#### 2. Verify Email:
+
+Open Inbucket (local email viewer) and click confirmation link.
+
+Note: In local dev, the redirect URL will not be found.
+
+```bash
+open http://127.0.0.1:54324
+```
+
+#### 3. Test Login
+
+Login with the confirmed account:
+
+```bash
+curl -X POST http://127.0.0.1:54321/functions/v1/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "test@example.com",
+    "password": "secret123"
+  }'
+```
+
+**Save the `access_token` for the next steps!**
+
+#### 4. Test Character Creation
+
+Create a character (replace `YOUR_ACCESS_TOKEN` with the token from step 3):
+
+```bash
+curl -X POST http://127.0.0.1:54321/functions/v1/user_character_create \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -d '{
+    "name": "SpaceTrader"
+  }'
+```
+
+#### 5. Test Character List
+
+List all characters for the user:
+
+```bash
+curl -X POST http://127.0.0.1:54321/functions/v1/user_character_list \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
 ```
 
 ## Create a new universe
@@ -100,6 +163,9 @@ npx supabase db reset --workdir deployment --linked
 
 # Migrate DB
 npx supabase db push --workdir deployment
+
+# Add .env.cloud secrets to edge functions
+# ...
 
 # Deploy functions
 npx supabase functions deploy --no-verify-jwt --workdir deployment --env-file .env.cloud

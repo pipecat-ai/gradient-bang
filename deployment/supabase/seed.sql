@@ -4,6 +4,8 @@ TRUNCATE TABLE
   port_transactions,
   events,
   rate_limits,
+  public_rate_limits,
+  user_characters,
   corporation_ships,
   corporation_members,
   garrisons,
