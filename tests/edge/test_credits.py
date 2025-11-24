@@ -11,6 +11,7 @@ API_URL = os.environ.get('SUPABASE_URL', 'http://127.0.0.1:54321')
 EDGE_URL = os.environ.get('EDGE_FUNCTIONS_URL', f"{API_URL}/functions/v1")
 REST_URL = f"{API_URL}/rest/v1"
 SENDER = char_id('test_2p_player1')
+SENDER_NAME = 'test_2p_player1'
 RECEIVER = char_id('test_2p_player2')
 RECEIVER_NAME = 'test_2p_player2'
 
@@ -110,8 +111,8 @@ def _patch_ship(ship_id: str, payload: Dict[str, Any]) -> None:
 
 @pytest.mark.edge
 def test_transfer_credits_success():
-    _reset_character(SENDER, sector=5)
-    _reset_character(RECEIVER, sector=5)
+    _reset_character(SENDER_NAME, sector=5)
+    _reset_character(RECEIVER_NAME, sector=5)
 
     sender_ship = _ship_state(SENDER)
     receiver_ship = _ship_state(RECEIVER)
@@ -129,7 +130,7 @@ def test_transfer_credits_success():
     payload = sender_event['payload']
     assert payload['transfer_direction'] == 'sent'
     assert payload['transfer_details']['credits'] == 250
-    assert payload['to']['id'] == RECEIVER
+    assert payload['to']['name'] == RECEIVER_NAME
 
     receiver_event = _latest_event(RECEIVER, 'credits.transfer')
     assert receiver_event['payload']['transfer_direction'] == 'received'
@@ -137,8 +138,8 @@ def test_transfer_credits_success():
 
 @pytest.mark.edge
 def test_transfer_credits_requires_same_sector():
-    _reset_character(SENDER, sector=5)
-    _reset_character(RECEIVER, sector=6)
+    _reset_character(SENDER_NAME, sector=5)
+    _reset_character(RECEIVER_NAME, sector=6)
 
     resp = _call('transfer_credits', {
         'from_character_id': SENDER,
@@ -152,8 +153,8 @@ def test_transfer_credits_requires_same_sector():
 
 @pytest.mark.edge
 def test_bank_transfer_deposit_and_withdraw():
-    _reset_character(SENDER, sector=0)
-    _reset_character(RECEIVER, sector=0)
+    _reset_character(SENDER_NAME, sector=0)
+    _reset_character(RECEIVER_NAME, sector=0)
     ship = _ship_state(SENDER)
     _patch_ship(ship['ship_id'], {'credits': 2000})
 

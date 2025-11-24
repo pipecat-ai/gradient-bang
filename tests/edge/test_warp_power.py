@@ -11,6 +11,7 @@ API_URL = os.environ.get('SUPABASE_URL', 'http://127.0.0.1:54321')
 EDGE_URL = os.environ.get('EDGE_FUNCTIONS_URL', f"{API_URL}/functions/v1")
 REST_URL = f"{API_URL}/rest/v1"
 CHAR_ONE = char_id('test_2p_player1')
+CHAR_ONE_NAME = 'test_2p_player1'
 CHAR_TWO = char_id('test_2p_player2')
 CHAR_TWO_NAME = 'test_2p_player2'
 
@@ -110,7 +111,7 @@ def _patch_ship(ship_id: str, payload: Dict[str, Any]) -> None:
 
 @pytest.mark.edge
 def test_recharge_warp_power_increases_warp_and_logs_event():
-    _reset_character(CHAR_ONE, sector=0)
+    _reset_character(CHAR_ONE_NAME, sector=0)
     ship = _ship_state(CHAR_ONE)
     _patch_ship(ship['ship_id'], {
         'current_warp_power': max(0, ship['current_warp_power'] - 50),
@@ -135,7 +136,7 @@ def test_recharge_warp_power_increases_warp_and_logs_event():
 
 @pytest.mark.edge
 def test_recharge_warp_power_requires_depot_sector():
-    _reset_character(CHAR_ONE, sector=2)
+    _reset_character(CHAR_ONE_NAME, sector=2)
     resp = _call('recharge_warp_power', {'character_id': CHAR_ONE, 'units': 5})
     assert resp.status_code == 400
     data = resp.json()
@@ -144,8 +145,8 @@ def test_recharge_warp_power_requires_depot_sector():
 
 @pytest.mark.edge
 def test_transfer_warp_power_success():
-    _reset_character(CHAR_ONE, sector=0)
-    _reset_character(CHAR_TWO, sector=0)
+    _reset_character(CHAR_ONE_NAME, sector=0)
+    _reset_character(CHAR_TWO_NAME, sector=0)
 
     receiver_ship = _ship_state(CHAR_TWO)
     _patch_ship(receiver_ship['ship_id'], {
@@ -163,7 +164,7 @@ def test_transfer_warp_power_success():
     payload = sender_event['payload']
     assert payload['transfer_direction'] == 'sent'
     assert payload['transfer_details']['warp_power'] <= 10
-    assert payload['to']['id'] == CHAR_TWO
+    assert payload['to']['name'] == CHAR_TWO_NAME
 
     receiver_event = _latest_event(CHAR_TWO, 'warp.transfer')
     assert receiver_event['payload']['transfer_direction'] == 'received'
@@ -171,8 +172,8 @@ def test_transfer_warp_power_success():
 
 @pytest.mark.edge
 def test_transfer_warp_power_requires_same_sector():
-    _reset_character(CHAR_ONE, sector=0)
-    _reset_character(CHAR_TWO, sector=5)
+    _reset_character(CHAR_ONE_NAME, sector=0)
+    _reset_character(CHAR_TWO_NAME, sector=5)
 
     resp = _call('transfer_warp_power', {
         'from_character_id': CHAR_ONE,

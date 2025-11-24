@@ -16,9 +16,7 @@ import asyncio
 import os
 import pytest
 import sys
-import httpx
 from pathlib import Path
-from unittest.mock import patch, AsyncMock
 
 # Add project paths
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))

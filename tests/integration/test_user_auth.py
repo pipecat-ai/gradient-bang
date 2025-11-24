@@ -18,7 +18,6 @@ import pytest
 
 API_URL = os.environ.get('SUPABASE_URL', 'http://127.0.0.1:54321')
 EDGE_URL = os.environ.get('EDGE_FUNCTIONS_URL', f"{API_URL}/functions/v1")
-REST_URL = f"{API_URL}/rest/v1"
 
 
 # =============================================================================

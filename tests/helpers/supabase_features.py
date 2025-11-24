@@ -10,7 +10,7 @@ from typing import Iterable, List
 def _get_functions_root() -> Path:
     """Get the Supabase functions directory from the configured workdir."""
     try:
-        from tests.edge.conftest import SUPABASE_WORKDIR
+        from tests.conftest import SUPABASE_WORKDIR
         # SUPABASE_WORKDIR points to parent (e.g., deployment), supabase/ is a subdirectory
         return SUPABASE_WORKDIR / "supabase" / "functions"
     except ImportError:

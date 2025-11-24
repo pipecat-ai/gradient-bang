@@ -17,7 +17,6 @@ from helpers.corporation_utils import (
     reset_corporation_test_state,
     REQUIRED_CORPORATION_FUNCTIONS,
 )
-from helpers.client_setup import register_characters_for_test
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -1041,6 +1040,9 @@ async def test_unowned_ships_only_visible_in_their_sector(server_url, check_serv
         # Corporation ship character already created by ship_purchase endpoint
 
         await founder._request("corporation.leave", {"character_id": "test_corp_founder"})
+        
+        # Wait for disband operation to complete
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
         # Nearby character should see the unowned ship
         near_task = asyncio.create_task(

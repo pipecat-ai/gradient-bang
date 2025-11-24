@@ -273,7 +273,7 @@ def create_test_character_knowledge(
 
     if os.environ.get("USE_SUPABASE_TESTS", "").strip().lower() in {"1", "true", "on", "yes"}:
         try:
-            from tests.edge.support.state import reset_character_state as supabase_reset_character_state  # type: ignore
+            from tests.helpers.supabase_state import reset_character_state as supabase_reset_character_state  # type: ignore
         except Exception:  # noqa: BLE001
             pass
         else:
@@ -418,7 +418,7 @@ def set_character_cargo(
 
     if os.environ.get("USE_SUPABASE_TESTS", "").strip().lower() in {"1", "true", "on", "yes"}:
         try:
-            from tests.edge.support.state import update_ship_state  # type: ignore
+            from tests.helpers.supabase_state import update_ship_state  # type: ignore
         except Exception:  # noqa: BLE001
             pass
         else:

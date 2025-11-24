@@ -533,6 +533,32 @@ def supabase_stack():
             _stop_functions_proc()
 
 
+@pytest.fixture(scope='module')
+def test_data(supabase_stack):
+    """Call test_reset to populate universe structure and test characters.
+    
+    This fixture is module-scoped, so test_reset is called once per test module.
+    Tests that need test data should depend on this fixture.
+    """
+    headers = _edge_request_headers()
+    character_ids = ['test_2p_player1', 'test_2p_player2']
+    try:
+        resp = httpx.post(
+            f"{_edge_url().rstrip('/')}/test_reset",
+            headers=headers,
+            json={'character_ids': character_ids},
+            timeout=120.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if not data.get('success'):
+            raise RuntimeError(f"test_reset failed: {data}")
+    except httpx.HTTPError as exc:
+        raise RuntimeError('test_reset edge function failed') from exc
+    
+    yield
+
+
 @pytest.fixture(scope='session')
 def supabase_environment():
     """Override root conftest's supabase_environment to use edge-specific setup."""

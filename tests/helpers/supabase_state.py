@@ -10,10 +10,11 @@ from typing import Any, Dict, Optional
 import httpx
 import pytest
 
-from tests.edge.support.characters import char_id
+from tests.helpers.character import char_id
 
 API_URL = os.environ.get('SUPABASE_URL', 'http://127.0.0.1:54321')
 REST_URL = f"{API_URL}/rest/v1"
+
 
 
 def _service_headers() -> Dict[str, str]:

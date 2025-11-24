@@ -77,7 +77,7 @@ USE_SUPABASE_TESTS=1 uv run pytest tests/integration/ -v -x --supabase-dir deplo
 Run auth / character creation tests
 
 ```bash
-USE_SUPABASE_TESTS=1 uv run pytest tests/edge/test_user_auth -v -x --supabase-dir deployment
+USE_SUPABASE_TESTS=1 uv run pytest tests/integration/test_user_auth -v -x --supabase-dir deployment
 ```
 
 #### 1. Register a new user account:
