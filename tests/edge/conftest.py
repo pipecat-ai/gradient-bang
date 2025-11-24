@@ -39,21 +39,12 @@ ENV_EXPORTS: Dict[str, str] = {}
 logger = logging.getLogger(__name__)
 
 
-def pytest_addoption(parser):
-    """Register custom pytest command-line options."""
-    parser.addoption(
-        '--supabase-dir',
-        action='store',
-        default=None,
-        help='Path to Supabase project directory (contains config.toml)',
-    )
-
-
 def pytest_configure(config):
     """Apply command-line options to module-level configuration."""
     global SUPABASE_WORKDIR
     
-    # Handle --supabase-dir if provided (when running edge tests directly)
+    # Read --supabase-dir if provided (registered by root conftest)
+    # This allows edge tests to work both standalone and when run via root conftest
     try:
         supabase_dir = config.getoption('--supabase-dir', default=None)
         if supabase_dir:
@@ -68,9 +59,10 @@ def pytest_configure(config):
                 test_config.SUPABASE_WORKDIR = resolved_path
             except ImportError:
                 pass
-    except ValueError as e:
-        # Option not registered (when running via root conftest)
-        if '--supabase-dir' not in str(e):
+    except (ValueError, AttributeError) as e:
+        # ValueError: path doesn't exist
+        # AttributeError: option not registered (shouldn't happen with root conftest)
+        if isinstance(e, ValueError) and '--supabase-dir' not in str(e):
             raise
     
     # Print the resolved directory for edge tests
@@ -541,14 +533,35 @@ def supabase_stack():
             _stop_functions_proc()
 
 
+@pytest.fixture(scope='session')
+def supabase_environment():
+    """Override root conftest's supabase_environment to use edge-specific setup."""
+    # Edge tests use their own supabase_stack fixture instead
+    yield {}
+
+
+@pytest.fixture(scope='session')
+def setup_test_characters():
+    """Override root conftest's setup_test_characters - not needed for edge tests."""
+    # Edge tests don't need character registration in test-world-data
+    yield
+
+
+@pytest.fixture(scope='module', autouse=True)
+def supabase_module_seed():
+    """Override root conftest's supabase_module_seed - edge tests manage their own reset."""
+    # Edge tests use test_reset edge function via supabase_stack fixture
+    yield
+
+
+@pytest.fixture(autouse=True)
+def reset_test_state():
+    """Override root conftest's reset_test_state - edge tests manage their own state."""
+    # Edge tests use test_reset edge function via supabase_stack fixture
+    yield
+
+
 @pytest.fixture(scope='session', autouse=True)
 def test_server():
     """Override the global async test_server fixture for edge tests."""
     yield
-
-
-if not USE_SUPABASE_TESTS:
-    @pytest.fixture(autouse=True)
-    def reset_test_state():
-        """Edge tests talk directly to Supabase so no FastAPI reset is needed."""
-        yield

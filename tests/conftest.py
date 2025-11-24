@@ -319,6 +319,7 @@ _TRUTHY = {"1", "true", "on", "yes"}
 _CUSTOM_MARKERS = {
     "unit": "Unit tests (fast, no server needed)",
     "integration": "Integration tests (may need server)",
+    "edge": "Edge function tests (direct Supabase function calls)",
     "requires_server": "Requires live server on port 8002",
     "stress": "Stress tests (slow, concurrent operations)",
     "requires_supabase_functions": "Skip when the named Supabase edge functions have not been implemented",

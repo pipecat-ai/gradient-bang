@@ -1,27 +1,34 @@
 /**
  * Public Edge Function: login
- * 
+ *
  * Authenticates user with email and password.
  * Returns auth session JWT and list of user's characters.
  * No EDGE_API_TOKEN required - this is a public endpoint.
  */
 
-import { serve } from 'https://deno.land/std@0.197.0/http/server.ts';
-import { createPublicClient, errorResponse, successResponse } from '../_shared/auth.ts';
-import { createServiceRoleClient } from '../_shared/client.ts';
-import { enforcePublicRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
+import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
+import {
+  createPublicClient,
+  errorResponse,
+  successResponse,
+} from "../_shared/auth.ts";
+import { createServiceRoleClient } from "../_shared/client.ts";
+import {
+  enforcePublicRateLimit,
+  RateLimitError,
+} from "../_shared/rate_limiting.ts";
 import {
   parseJsonRequest,
   requireString,
   respondWithError,
-} from '../_shared/request.ts';
+} from "../_shared/request.ts";
 
 // CORS headers for public access from web clients
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Max-Age': '86400',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Max-Age": "86400",
 };
 
 function corsResponse(body: unknown, status = 200): Response {
@@ -29,15 +36,15 @@ function corsResponse(body: unknown, status = 200): Response {
     status,
     headers: {
       ...corsHeaders,
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-store',
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
     },
   });
 }
 
 serve(async (req: Request): Promise<Response> => {
   // Handle CORS preflight
-  if (req.method === 'OPTIONS') {
+  if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
 
@@ -45,17 +52,23 @@ serve(async (req: Request): Promise<Response> => {
 
   // Apply IP-based rate limiting
   try {
-    await enforcePublicRateLimit(serviceClient, req, 'login');
+    await enforcePublicRateLimit(serviceClient, req, "login");
   } catch (err) {
     if (err instanceof RateLimitError) {
-      console.warn('login.rate_limit', err.message);
+      console.warn("login.rate_limit", err.message);
       return corsResponse(
-        { success: false, error: 'Too many login attempts. Please try again later.' },
+        {
+          success: false,
+          error: "Too many login attempts. Please try again later.",
+        },
         429
       );
     }
-    console.error('login.rate_limit', err);
-    return corsResponse({ success: false, error: 'Rate limit check failed' }, 500);
+    console.error("login.rate_limit", err);
+    return corsResponse(
+      { success: false, error: "Rate limit check failed" },
+      500
+    );
   }
 
   let payload;
@@ -66,14 +79,14 @@ serve(async (req: Request): Promise<Response> => {
     if (response) {
       return corsResponse(await response.json(), response.status);
     }
-    console.error('login.parse', err);
-    return corsResponse({ success: false, error: 'Invalid JSON payload' }, 400);
+    console.error("login.parse", err);
+    return corsResponse({ success: false, error: "Invalid JSON payload" }, 400);
   }
 
   try {
     // Parse and validate request
-    const email = requireString(payload, 'email');
-    const password = requireString(payload, 'password');
+    const email = requireString(payload, "email");
+    const password = requireString(payload, "password");
 
     // Create Supabase auth client (public)
     const publicClient = createPublicClient();
@@ -85,16 +98,16 @@ serve(async (req: Request): Promise<Response> => {
     });
 
     if (error) {
-      console.error('login.signin', error);
+      console.error("login.signin", error);
       return corsResponse(
-        { success: false, error: 'Invalid email or password' },
+        { success: false, error: "Invalid email or password" },
         401
       );
     }
 
     if (!data.user || !data.session) {
       return corsResponse(
-        { success: false, error: 'Authentication failed' },
+        { success: false, error: "Authentication failed" },
         401
       );
     }
@@ -104,8 +117,9 @@ serve(async (req: Request): Promise<Response> => {
 
     // Query user's characters using service role client via junction table
     const { data: characters, error: charactersError } = await serviceClient
-      .from('user_characters')
-      .select(`
+      .from("user_characters")
+      .select(
+        `
         character_id,
         characters!inner (
           character_id,
@@ -114,12 +128,13 @@ serve(async (req: Request): Promise<Response> => {
           last_active,
           is_npc
         )
-      `)
-      .eq('user_id', data.user.id)
-      .order('characters.last_active', { ascending: false });
+      `
+      )
+      .eq("user_id", data.user.id)
+      .order("created_at", { ascending: false });
 
     if (charactersError) {
-      console.error('login.characters', charactersError);
+      console.error("login.characters", charactersError);
       // Don't fail login if character query fails, just return empty list
     }
 
@@ -132,28 +147,32 @@ serve(async (req: Request): Promise<Response> => {
       is_npc: uc.characters.is_npc,
     }));
 
-    return corsResponse({
-      success: true,
-      session: {
-        access_token: data.session.access_token,
-        refresh_token: data.session.refresh_token,
-        expires_at: data.session.expires_at,
-        expires_in: data.session.expires_in,
-      },
-      user: {
-        id: data.user.id,
-        email: data.user.email,
-        email_confirmed: emailConfirmed,
-      },
-      characters: characterList,
-    }, 200);
-
-  } catch (err) {
-    console.error('login.unhandled', err);
     return corsResponse(
-      { success: false, error: err instanceof Error ? err.message : 'Internal server error' },
+      {
+        success: true,
+        session: {
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token,
+          expires_at: data.session.expires_at,
+          expires_in: data.session.expires_in,
+        },
+        user: {
+          id: data.user.id,
+          email: data.user.email,
+          email_confirmed: emailConfirmed,
+        },
+        characters: characterList,
+      },
+      200
+    );
+  } catch (err) {
+    console.error("login.unhandled", err);
+    return corsResponse(
+      {
+        success: false,
+        error: err instanceof Error ? err.message : "Internal server error",
+      },
       500
     );
   }
 });
-

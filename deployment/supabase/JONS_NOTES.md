@@ -74,6 +74,12 @@ USE_SUPABASE_TESTS=1 uv run pytest tests/integration/ -v -x --supabase-dir deplo
 
 ### Create user account and character
 
+Run auth / character creation tests
+
+```bash
+USE_SUPABASE_TESTS=1 uv run pytest tests/edge/test_user_auth -v -x --supabase-dir deployment
+```
+
 #### 1. Register a new user account:
 
 ```bash
@@ -133,6 +139,8 @@ curl -X POST http://127.0.0.1:54321/functions/v1/user_character_list \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
 ```
 
+
+
 ## Create a new universe
 
 ```bash
@@ -144,7 +152,7 @@ uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data/
 uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data/
 
 # Force reload (dangerous!)
-# uv run -m gradientbang.scriptsload_universe_to_supabase.py --from-json world-data/ --force
+# uv run -m gradientbang.scripts.load_universe_to_supabase.py --from-json world-data/ --force
 
 # Compare to supabase 
 uv run -m gradientbang.scripts.compare_universe_data --from-json world-data/
