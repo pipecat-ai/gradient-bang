@@ -49,3 +49,5 @@ venv.bak/
 
 # Deployment
 deployment/pcc-deploy.toml
+!.env.schema
+env.d.ts
