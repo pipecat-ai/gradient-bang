@@ -1,22 +1,22 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState } from "react"
 
-import { CardContent, CardFooter } from "@pipecat-ai/voice-ui-kit";
+import { CardContent, CardFooter } from "@pipecat-ai/voice-ui-kit"
 
-import { Button } from "@/components/primitives/Button";
-import { ScrollArea } from "@/components/primitives/ScrollArea";
+import { Button } from "@/components/primitives/Button"
+import { ScrollArea } from "@/components/primitives/ScrollArea"
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/primitives/Select";
-import { SliderControl } from "@/components/primitives/SliderControl";
-import { ToggleControl } from "@/components/primitives/ToggleControl";
-import useGameStore from "@/stores/game";
-import type { SettingsSlice } from "@/stores/settingsSlice";
+} from "@/components/primitives/Select"
+import { SliderControl } from "@/components/primitives/SliderControl"
+import { ToggleControl } from "@/components/primitives/ToggleControl"
+import useGameStore from "@/stores/game"
+import type { SettingsSlice } from "@/stores/settingsSlice"
 
-import { Divider } from "./primitives/Divider";
+import { Divider } from "./primitives/Divider"
 import {
   Field,
   FieldContent,
@@ -25,8 +25,8 @@ import {
   FieldLegend,
   FieldSet,
   FieldValue,
-} from "./primitives/Field";
-import { Separator } from "./primitives/Separator";
+} from "./primitives/Field"
+import { Separator } from "./primitives/Separator"
 
 const SettingSelect = ({
   label,
@@ -36,12 +36,12 @@ const SettingSelect = ({
   placeholder = "Please select",
   onChange,
 }: {
-  label: string;
-  id: string;
-  options: string[];
-  value: string;
-  placeholder?: string;
-  onChange: (value: string) => void;
+  label: string
+  id: string
+  options: string[]
+  value: string
+  placeholder?: string
+  onChange: (value: string) => void
 }) => {
   return (
     <Field orientation="vertical">
@@ -59,8 +59,8 @@ const SettingSelect = ({
         </SelectContent>
       </Select>
     </Field>
-  );
-};
+  )
+}
 
 const SettingSlider = ({
   id,
@@ -72,14 +72,14 @@ const SettingSlider = ({
   onChange,
   disabled,
 }: {
-  id: string;
-  label: string;
-  value: number;
-  min?: number;
-  max?: number;
-  step?: number;
-  onChange: (value: number) => void;
-  disabled?: boolean;
+  id: string
+  label: string
+  value: number
+  min?: number
+  max?: number
+  step?: number
+  onChange: (value: number) => void
+  disabled?: boolean
 }) => {
   return (
     <Field orientation="horizontal" variant={disabled ? "disabled" : "default"}>
@@ -98,8 +98,8 @@ const SettingSlider = ({
         />
       </FieldContent>
     </Field>
-  );
-};
+  )
+}
 
 const SettingSwitch = ({
   id,
@@ -107,10 +107,10 @@ const SettingSwitch = ({
   checked,
   onChange,
 }: {
-  id: string;
-  label: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
+  id: string
+  label: string
+  checked: boolean
+  onChange: (value: boolean) => void
 }) => {
   return (
     <Field orientation="horizontal">
@@ -121,28 +121,28 @@ const SettingSwitch = ({
         <ToggleControl id={id} checked={checked} onCheckedChange={onChange} />
       </FieldContent>
     </Field>
-  );
-};
+  )
+}
 
 interface SettingsPanelProps {
-  onSave?: () => void;
-  onCancel?: () => void;
+  onSave?: () => void
+  onCancel?: () => void
 }
 
 export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
-  const storeSettings = useGameStore.use.settings();
+  const storeSettings = useGameStore.use.settings()
 
   const [formSettings, setFormSettings] =
-    useState<SettingsSlice["settings"]>(storeSettings);
+    useState<SettingsSlice["settings"]>(storeSettings)
 
   useEffect(() => {
-    setFormSettings(storeSettings);
-  }, [storeSettings]);
+    setFormSettings(storeSettings)
+  }, [storeSettings])
 
   const handleSave = () => {
-    useGameStore.getState().setSettings(formSettings);
-    onSave?.();
-  };
+    useGameStore.getState().setSettings(formSettings)
+    onSave?.()
+  }
 
   return (
     <>
@@ -391,5 +391,5 @@ export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
         </div>
       </CardFooter>
     </>
-  );
-};
+  )
+}

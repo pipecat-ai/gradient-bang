@@ -24,7 +24,7 @@ const transport =
 
 const endpoint =
   queryParams.get("server") ||
-  import.meta.env.VITE_BOT_START_URL ||
+  import.meta.env.VITE_SERVER_URL + "/start" ||
   "http://localhost:7860/start"
 
 useGameStore.getState().setBotConfig(
@@ -46,6 +46,9 @@ createRoot(document.getElementById("root")!).render(
       noThemeProvider={true}
       noAudioOutput={Settings.disableRemoteAudio}
       initDevicesOnMount={false}
+      transportOptions={{
+        offerUrlTemplate: `${import.meta.env.VITE_SERVER_URL}/start/:sessionId/api/offer`,
+      }}
     >
       {({ handleConnect, error }) => (
         <GameProvider onConnect={handleConnect}>

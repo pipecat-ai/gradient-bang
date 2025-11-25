@@ -11,6 +11,7 @@ tests/test-world-data/**/*
 
 # Test logs
 tests/logs
+tests/**/*.log
 
 # Python-generated files
 __pycache__/

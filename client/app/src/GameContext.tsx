@@ -149,10 +149,13 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
     gameStore.setGameStateMessage(GameInitStateMessage.CONNECTING)
 
     const characterId = gameStore.character_id
-    if (!characterId) {
-      throw new Error("Attempting to connect to bot without a character ID")
+    const accessToken = gameStore.access_token
+    if (!characterId || !accessToken) {
+      throw new Error(
+        "Attempting to connect to bot without a character ID or access token"
+      )
     }
-    const botStartParams = gameStore.getBotStartParams(characterId)
+    const botStartParams = gameStore.getBotStartParams(characterId, accessToken)
 
     console.debug("[GAME CONTEXT] Connecting with params", botStartParams)
 

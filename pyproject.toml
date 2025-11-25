@@ -43,8 +43,7 @@ gb-npc = "gradientbang.cli:run_npc"
 gb-test-local = "gradientbang.cli:test_local"
 gb-test-cloud = "gradientbang.cli:test_cloud"
 
-# Servers
-game-server = "gradientbang.game_server.server:main"
+# Agent
 bot = "gradientbang.pipecat_server.__main__:main"
 
 # NPCs

@@ -14,7 +14,6 @@ import { Title } from "@/views/Title"
 export const ViewContainer = ({ error }: { error?: string | null }) => {
   const settings = useGameStore.use.settings()
   const gameState = useGameStore.use.gameState()
-  const setCharacterId = useGameStore.use.setCharacterId()
   const { initialize } = useGameContext()
   const [viewState, setViewState] = useState<"title" | "preload" | "game">(
     "title"
@@ -60,12 +59,7 @@ export const ViewContainer = ({ error }: { error?: string | null }) => {
         className="relative h-screen w-screen overflow-hidden"
       >
         {viewState === "title" && (
-          <Title
-            onViewNext={(characterName) => {
-              setCharacterId(characterName)
-              handleViewStateChange("preload")
-            }}
-          />
+          <Title onViewNext={() => handleViewStateChange("preload")} />
         )}
         {viewState === "preload" && (
           <Preload onComplete={() => handleViewStateChange("game")} />

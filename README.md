@@ -1,17 +1,4 @@
-# Voice AI Meetup - November 25
-
-**Slides**
-
-https://drive.google.com/file/d/1AEb5_ljHXQao-dw1Na_KWZlDb05mDEuu/view?usp=sharing
-
-**Panel**
-
-* [Arjun Desai](https://x.com/jundesai)
-* [John Alioto](https://x.com/jpalioto)
-* [Taruni Paleru](https://x.com/tarunipaleru)
-* [Kwindla Hultman Kramer](https://x.com/kwindla)
-
-----
+# Gradient Bang
 
 <img width="640" src="docs/image.png" style="margin-bottom:20px;" />
 
@@ -19,327 +6,195 @@ Gradient Bang is an online multiplayer universe where you explore, trade, battle
 
 The projects demonstrates the full capabilities of realtime agentic workflows, such as multi-tasking, advanced tool calling and low latency voice.
 
+➡️ [Join the play test](https://www.gradient-bang.com)
 
-# Quickstart
+## Table of Contents
 
-#### 1. Run Universe Bang to generate a world
+1. [Prerequisites](#prerequisites)
+2. [Quickstart](#quickstart)
+3. [Running a game server](#running-game-server)
+4. [Running the bot](#running-the-bot)
+5. [Deployment](#deployment)
+
+## Prerequisites
+
+- **uv**: Python package manager
+- **[Supabase Account](https://supabase.com/)**: Game server functions, auth and database
+- **Docker**: Required for local Supabase stack and agent deployment
+- **Node.js 18+**: For edge function deployment and client
+- (Optional) **[Pipecat Cloud Account](https://docs.pipecat.ai/deployment/pipecat-cloud/introduction)**: Production agent hosting
+- (Optional) - **[Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started)**: If you cannot use `npx`, install the CLI globally instead
+
+
+## Quickstart
+
+### 1. Create a new Supabase project
+
+> [!NOTE]
+> You can do this via the [Supabase Dashboard](https://app.supabase.com) if preferred
+
+
+```bash
+npx supabase login
+
+npx supabase projects create gb-game-server \
+  --db-password some-secure-password \
+  --region us-west-1 \
+  --org-id my-org \
+  --size small
+```
+
+Push config from [/deployment/supabase](/deployment/supabase/) template:
+
+```bash
+npx supabase config push --workdir deployment
+```
+
+### 2. Local dev setup
+
+> [!NOTE]
+> Docker must be available and running on your system
+
+#### Start Supabase locally
+
+This may take some time on first run as required images are downloaded.
+
+```bash
+npx supabase start --workdir deployment/ 
+```
+
+#### Create `.env.supabase` in project root
+
+Grab the required API keys:
+
+```bash
+npx supabase status -o env \
+  --override-name auth.anon_key=SUPABASE_ANON_KEY \
+  --override-name auth.service_role_key=SUPABASE_SERVICE_KEY \
+  --workdir deployment
+```
+
+Copy the following into `.env.supabase`:
+
+```bash
+SUPABASE_URL=http://127.0.0.1:54321
+SUPABASE_ANON_KEY=eyJhbG...
+SUPABASE_SERVICE_ROLE_KEY=eyJhbG...
+
+# Edge function configuration
+EDGE_API_TOKEN=your-random-token-here  # Generate: openssl rand -hex 32
+EDGE_FUNCTIONS_URL=${SUPABASE_URL}/functions/v1
+```
+
+#### Optional: Run tests to validate setup
+
+```bash
+set -a && source .env.supabase && set +a
+
+USE_SUPABASE_TESTS=1 uv run pytest tests/integration/ -v --supabase-dir deployment
+```
+If you run tests, be sure to clear database after
+
+```bash
+npx supabase db reset --workdir deployment
+```
+
+### 3. Generate world data / sector map
+
+Run the universe bang script with number of sectors to chart and random seed
+
+```bash
+uv run universe-bang 5000 1234
+```
+
+This will create a `world-data` folder in the root of your project
+
+#### Copy world data to local Supabase database
+
+```bash
+uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data/
+```
+
+### 4. Create user account and character
+
+Run Supabase edge functions process (leave running)
+
+```bash
+npx supabase functions serve --no-verify-jwt --workdir deployment --env-file .env.supabase
+```
+
+#### Create user account:
+
+Option 1: Manually via Studio dashboard: http://127.0.0.1:54323/project/default/auth/users
+
+Option 2: Via terminal:
+
+```bash
+curl -X POST http://127.0.0.1:54321/functions/v1/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "test@example.com",
+    "password": "secret123"
+  }'
+```
+
+#### Verify Email:
+
+Open Inbucket (local email viewer) and click confirmation link. Note: In local dev, the redirect URL will not be found.
+
+```bash
+open http://127.0.0.1:54324
+```
+
+#### Login and obtain access token:
+
+```bash
+curl -X POST http://127.0.0.1:54321/functions/v1/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "test@example.com",
+    "password": "secret123"
+  }'
+```
+
+**Grab the `access_token` for the next steps!**
+
+#### Test Character Creation
+
+Create a character (replace `YOUR_ACCESS_TOKEN` with the token from step 3):
+
+```bash
+curl -X POST http://127.0.0.1:54321/functions/v1/user_character_create \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -d '{
+    "name": "SpaceTrader"
+  }'
+```
+
+### 5. Run the Pipecat agent and game client
+
+Install Python dependencies:
 
 ```bash
 uv sync --all-groups
-uv run universe-bang 5000 1234
-
-# Optional: validate 
-uv run -m gradientbang.scripts.universe_test
 ```
 
-#### 1. Start the game server
+Run agent process:
 
 ```bash
-uv run game-server
+set -a && source .env.supabase && set +a
 
-# Or run with Swagger / Redoc enabled:
-GAME_SERVER_DEV_MODE=1 uv run game-server
-# >> http://localhost:8000/docs
+uv run bot
 ```
 
-#### 3. Create your character (note: game server must be running!)
+#### Run web client
 
-```bash
-uv run character-create
-# ...or
-curl -X 'POST' \
-  'http://localhost:8000/player' \
-  -H 'accept: application/json' \
-  -H 'Content-Type: application/json' \
-  -d '{
-  "name": "SpacePirateJon"
-}'
-```
-
-#### 4. Run the Pipecat agent
-
-```bash
-uv run bot 
-```
-
-#### 5. Run the web client
+With both your Supabase functions and Pipecat bot running, in a new terminal window:
 
 ```bash
 cd client/
+
 pnpm i
-pnpm run preview
-# or 
-pnpm run dev 
-```
-
-See [client README](/client/) for more details
-
-
-#### 6. Spawn NPCs to interact with
-
-```bash
-# Create a new player
-uv run character-create
-
-# Test alle is gud by looking up the character
-uv run character-lookup "TestPlayer"
-
-# Run the NPC and tell it what to do
-uv run npc-run <character_id> "Travel to sector 0 and send a message to player TraderP saying hello!"
-```
-
-# Notes
-
-## Character identity & admin tools
-
-Gradient Bang now separates immutable **character UUIDs** from human-friendly **display names**. Start the bot with a UUID.
-
-Create character interactively
-
-```
-uv run -m scripts.character_create
-```
-
-Run the bot for a character
-
-```
-PIPECAT_CHARACTER_ID=`uv run -m scripts.character_lookup "Joe Player"` uv run -m pipecat_server.bot
-```
-
-Run an autopilot task
-
-```
-LOGURU_LEVEL=DEBUG uv run npc/run_experimental_task.py `uv run -m scripts.character_lookup "Big Slim"` "Wait for 30 seconds. When finished, print out each event received."
-```
-
-
-- Use `uv run scripts/character_lookup.py "Display Name"` to fetch the UUID for an existing pilot.
-- Use `uv run scripts/character_modify.py` to adjust registry fields (name, credits, ship stats). The script prompts for the admin password and desired changes before issuing `character.modify`.
-- Any automation (NPC TaskAgent, Simple TUI, Pipecat voice bot, etc.) must authenticate with the UUID, even though the UI copy will use the display name.
-
-## Corporation ship control
-
-- All corp ship automation must supply two IDs: the **actor** (a corporation member controlling the ship) and the **target ship** (whose `ship_id` equals its `character_id`). Every CLI helper below enforces this pairing, and the server will reject requests that omit or mismatch the actor.
-- List fleet status and copy a ship ID:  
-  `uv run scripts/corporation_lookup.py <member_id> --ships`
-- Run the TaskAgent against a corp vessel:  
-  `uv run npc/run_npc.py <member_id> --ship-id ship-abc123 "Scan nearby sectors"`
-- The first positional argument in `run_npc.py` is the actor; when `--ship-id` is present it must be a corp member allowed to command the vessel.
-- Join from the Simple TUI with the ship's `character_id`:  
-  `uv run npc/simple_tui.py --character-id ship-abc123 --actor-id corp-member-01 --server http://localhost:8000`
-- If `Control: BLOCKED` appears in the lookup output, create `world-data/character-map-knowledge/ship-abc123.json` (rerun the provisioning step or copy from another ship) before launching agents.
-- In the TUI, use `/ships` to list the fleet and `/shipcopy <ship_id>` to copy an identifier.
-- See `docs/operator_quick_ref.md` for a compact checklist covering the core operator flows.
-
-## Create a universe
-
-```
-mkdir world-data
-uv run scripts/universe-bang.py 5000 1234
-```
-
-## Run the game server
-
-```
-uv run game-server/server.py
-```
-
-
-## Bot that sends RTVI messages
-
-This bot implements some of the task handling and RTVI messages needed to implement the same functionality as the TUI. Configure the pilot inpc/t controls with environment variables before launching:
-
-```
-export PIPECAT_CHARACTER_ID="uuid-from-registry"
-export PIPECAT_CHARACTER_NAME="Trader P"  # optional label for prompts/logs
-```
-
-```
-uv run pipecat_server/bot.py
-```
-
-## Run the client dev server
-
-```
-cd client
-npm i
-npm run dev
-```
-
-## NPC Combat CLIs
-
-Two new command-line utilities support live combat monitoring and automation. Both expect `GOOGLE_API_KEY` to be set and default to WebSocket transport.
-
-- **Interactive controller** – prompts for each round and is safe to run without an API key:
-
-  ```
-  uv run npc/combat_interactive.py 42 --character NPC_Fox
-  ```
-
-  The script moves the character to sector `42`, waits for other pilots, and lets you choose between `fight`/`wait`, then per-round actions (`attack`, `brace`, `flee`).
-
-- **Strategy controller** – drives combat decisions with the TaskAgent and a strategy prompt:
-
-  ```
-  uv run npc/combat_strategy.py 42 fight "Favor attack when shields > 50%." --character NPC_Fox
-  ```
-
-  Modes: `fight` (auto-initiate when someone arrives) or `wait` (hold position until attacked). Use `--model` / `--action-timeout` to tune behaviour. The agent receives structured battle snapshots and must respond via the combat tools.
-
-## Local map visualization
-
-New component HudMapVisualization.tsx has been badly glued into the HUD.
-
-You can test the graph rendering logic by loading http://localhost:5173/map-demo.html
-
-## Testing
-
-### Running AsyncGameClient Integration Tests
-
-The AsyncGameClient integration tests verify that all API methods work correctly against a running server. These tests require a live server instance.
-
-**Start the game server:**
-
-```bash
-uv run python -m game-server
-```
-
-**In a separate terminal, run the tests:**
-
-```bash
-uv run pytest -k async_game_client -v
-```
-
-The test suite includes 25 tests covering:
-- Join and authentication
-- Movement and pathfinding
-- Status queries
-- Map knowledge
-- Trading operations
-- Combat operations
-- Messaging
-- Character ID validation
-
-**Run all tests:**
-
-```bash
-uv run pytest
-```
-
-# NOTE
-
-There is now a tool_call stared RTVI message, followed by a 2-second delay before the tool call completes.
-
-See GameContext.tsx line 366, and the console.log line
-
-  `[TOOL] Tool call started [move|trade|recharge_warp_power|transfer_warp_power]`
-
-The delays are specified in VoiceTaskManager::TOOL_CALL_DELAYS.
-
-This should allow us to fix the warp overlay and other UI timing stuff, maybe.
-
-
-## Textual UI for the game
-
-Once the console starts, close the debug panel (ctrl+d). Then try running a task like "Navigate on auto-pilot to sector 1000." Always provide the UUID:
-
-```
-export GOOGLE_API_KEY=sk-proj-...
-uv run npc/simple_tui.py --character-id 2b4ff0c2-1234-5678-90ab-1cd2ef345678 --server http://localhost:8000
-```
-
-The Simple TUI pulls display names from `status.snapshot`, so the UI shows names even though all RPCs keep using the UUID behind the scenes.
-
-
-## License
-
-The **source code** for Gradient Bang is licensed under the [Apache License 2.0](LICENSE), making it fully open source for commercial and non-commercial use.
-
-**Visual assets, artwork, and audio** are licensed under the [Creative Commons Attribution 4.0 International License (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/), allowing free use with attribution.
-
-The **Gradient Bang name, logo, and brand identity** are proprietary trademarks and not covered by the open source licenses. If you fork this project, you must rename it and create your own brand identity. See [TRADEMARKS.md](TRADEMARKS.md) for complete details.
-
-
-## Build and Deployment
-
-> [!NOTE]
-> Ensure uv lock file is updated to match any dependency changes first: `uv lock`
-
-
-### Docker Compose
-
-```bash
-# Build and start all services
-docker compose up --build
-
-# Start in background
-docker compose up -d
-
-# View logs
-docker compose logs -f game-server
-
-# Stop everything
-docker compose down
-
-# Fresh start (removes volumes)
-docker compose down -v
-```
-
-### Docker build
-
-#### Game Server:
-
-GAME_SERVER_CORS_ALLOWED_ORIGINS
-
-```bash
-docker build -f deployment/Dockerfile.server -t gradient-bang-server . 
-
-# Note: ensure target platform is correct for your host, e.g:
-# docker build -f deployment/Dockerfile.server -t gradient-bang-server --platform linux/amd64 .
-
-# Test
-docker run -d \
-  -p 8000:8000 \
-  -v gradient-bang-data:/var/data/world-data \
-  -e WORLD_DATA_DIR=/var/data/world-data \
-  gradient-bang-server
-```
-
-#### Bot:
-
-Deploy to [Pipecat Cloud](https://pipecat.daily.co/)
-
-> [!NOTE]
-> You can use [Integrated Key](https://docs.pipecat.ai/deployment/pipecat-cloud/guides/managed-api-keys) for some services
-
-1. Update game server env with `start/` route:
-
-```bash
-
-GAME_SERVER_AGENT_START_URL=https://api.pipecat.daily.co/v1/public/{AGENT_NAME}/start
-GAME_SERVER_AGENT_PUBLIC_KEY=pk_...
-```
-
-2. Build 
-
-```bash
-docker build -f deployment/Dockerfile.bot -t gradient-bang-bot .
-
-# Test
-docker run --env-file .env gradient-bang-bot
-
-# Note: following assume pcc-deploy.toml in deployment/ (see example)
-cd deployment/
-
-# Create secret set for bot
-pipecat cloud secrets set gb-secrets --file ../.env 
-# Required:
-# GAME_SERVER_URL (point to deployed game server instance URL)
-# DEEPGRAM_API_KEY 
-# CARTESIA_API_KEY
-# GOOGLE_API_KEY
-# BOT_USE_KRISP=1 (optional: enable Krisp for noise cancellation)
-
-# Deploy
-pipecat cloud deploy
+pnpm run dev
 ```

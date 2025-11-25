@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shlex
+import subprocess
 import uuid
 import copy
 from datetime import datetime, timezone
@@ -20,6 +22,117 @@ from gradientbang.utils.legacy_ids import canonicalize_character_id, determinist
 os.environ.setdefault("SUPABASE_ALLOW_LEGACY_IDS", "1")
 
 logger = logging.getLogger(__name__)
+
+
+def _get_repo_root() -> Path:
+    """Get the repository root directory."""
+    current = Path(__file__).resolve().parent
+    while current != current.parent:
+        if (current / ".git").exists() or (current / "pyproject.toml").exists():
+            return current
+        current = current.parent
+    return Path.cwd()
+
+
+def _get_supabase_workdir() -> Path:
+    """Get the Supabase workdir (deployment directory)."""
+    if workdir := os.environ.get("SUPABASE_WORKDIR"):
+        return Path(workdir)
+    
+    repo_root = _get_repo_root()
+    return repo_root / "deployment"
+
+
+def _resolve_supabase_cli_command() -> Optional[List[str]]:
+    """Resolve the Supabase CLI command to use."""
+    # Check for explicit command override
+    if cmd := os.environ.get("SUPABASE_CLI_COMMAND"):
+        return shlex.split(cmd)
+    
+    # Check for CLI path override
+    if path_override := os.environ.get("SUPABASE_CLI"):
+        candidate = Path(path_override)
+        if candidate.exists():
+            return [str(candidate)]
+    
+    # Try to find supabase binary in PATH
+    from shutil import which
+    if binary := which("supabase"):
+        return [binary]
+    
+    # Fall back to npx if available
+    if which("npx"):
+        return ["npx", "supabase@latest"]
+    
+    return None
+
+
+def _get_database_url() -> str:
+    """Get the Supabase database URL with fallback chain.
+    
+    Attempts to get DB URL in this order:
+    1. SUPABASE_DB_URL environment variable
+    2. Parse from .env.supabase file  
+    3. Query from Supabase CLI (supabase status -o env)
+    4. Use standard local default
+    
+    Returns:
+        Database connection URL
+    """
+    # 1. Check environment variable first
+    if db_url := os.environ.get("SUPABASE_DB_URL"):
+        logger.debug("Using SUPABASE_DB_URL from environment")
+        return db_url
+    
+    # 2. Try to read from .env.supabase file
+    repo_root = _get_repo_root()
+    env_file = repo_root / ".env.supabase"
+    
+    if env_file.exists():
+        try:
+            with env_file.open() as f:
+                for line in f:
+                    stripped = line.strip()
+                    if stripped.startswith("SUPABASE_DB_URL="):
+                        db_url = stripped.split("=", 1)[1].strip()
+                        if db_url:
+                            logger.debug("Using SUPABASE_DB_URL from .env.supabase")
+                            return db_url
+        except Exception as e:
+            logger.debug(f"Failed to read .env.supabase: {e}")
+    
+    # 3. Try to get from Supabase CLI status with env output format
+    try:
+        cli_command = _resolve_supabase_cli_command()
+        if cli_command:
+            workdir = _get_supabase_workdir()
+            cmd = [*cli_command, "--workdir", str(workdir), "status", "-o", "env"]
+            result = subprocess.run(
+                cmd,
+                cwd=str(repo_root),
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+            
+            if result.returncode == 0 and result.stdout:
+                # Parse env format output: look for DB_URL=... line
+                for line in result.stdout.splitlines():
+                    stripped = line.strip()
+                    if stripped.startswith("DB_URL="):
+                        db_url = stripped.split("=", 1)[1].strip()
+                        if db_url:
+                            logger.debug("Using DB_URL from Supabase CLI status")
+                            return db_url
+    except Exception as e:
+        logger.debug(f"Failed to get DB URL from Supabase CLI: {e}")
+    
+    # 4. Use standard local Supabase default
+    default_url = "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+    logger.debug("Using default local Supabase DB URL")
+    return default_url
+
 
 # Deterministic namespaces so character + ship UUIDs remain stable between runs
 SHIP_NAMESPACE = uuid.UUID(
@@ -589,12 +702,7 @@ def reset_supabase_state(character_ids: Iterable[str] | None = None) -> None:
     else:
         ids = sorted(set(character_ids))
 
-    db_url = os.environ.get("SUPABASE_DB_URL")
-    if not db_url:
-        raise RuntimeError(
-            "SUPABASE_DB_URL is required to reset Supabase state; "
-            "export it (e.g., from .env.supabase) before running tests"
-        )
+    db_url = _get_database_url()
 
     with psycopg.connect(db_url, autocommit=False) as conn:
         with conn.cursor() as cur:

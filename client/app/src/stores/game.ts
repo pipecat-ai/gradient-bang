@@ -10,7 +10,7 @@ import { subscribeWithSelector } from "zustand/middleware"
 import type { DiamondFXController } from "@/fx/frame"
 import type { GalaxyStarfield } from "@/fx/starfield"
 
-import { type CombatSlice,createCombatSlice } from "./combatSlice"
+import { type CombatSlice, createCombatSlice } from "./combatSlice"
 import { createHistorySlice, type HistorySlice } from "./historySlice"
 import { createSettingsSlice, type SettingsSlice } from "./settingsSlice"
 import { createTaskSlice, type TaskSlice } from "./taskSlice"
@@ -46,6 +46,7 @@ export const GameInitStateMessage = {
 export interface GameState {
   player: PlayerSelf
   character_id?: string
+  access_token?: string
   ship: ShipSelf
   sector?: Sector
   local_map_data?: MapData
@@ -69,6 +70,8 @@ export interface GameState {
 export interface GameSlice extends GameState {
   setState: (newState: Partial<GameState>) => void
   setCharacterId: (characterId: string) => void
+  setAccessToken: (accessToken: string) => void
+  setCharacterAndToken: (characterId: string, accessToken: string) => void
   addMessage: (message: ChatMessage) => void
   setPlayer: (player: Partial<PlayerSelf>) => void
   setSector: (sector: Sector) => void
@@ -100,6 +103,7 @@ const createGameSlice: StateCreator<
 > = (set, get) => ({
   player: {} as PlayerSelf,
   character_id: undefined,
+  access_token: undefined,
   ship: {} as ShipSelf,
   sector: undefined,
   local_map_data: undefined, // @TODO: move to map slice
@@ -115,6 +119,10 @@ const createGameSlice: StateCreator<
   gameStateMessage: GameInitStateMessage.INIT,
 
   setCharacterId: (characterId: string) => set({ character_id: characterId }),
+  setAccessToken: (accessToken: string) => set({ access_token: accessToken }),
+  setCharacterAndToken: (characterId: string, accessToken: string) =>
+    set({ character_id: characterId, access_token: accessToken }),
+
   setGameStateMessage: (gameStateMessage: string) => set({ gameStateMessage }),
   setState: (newState: Partial<GameState>) =>
     set({ ...get(), ...newState }, true),

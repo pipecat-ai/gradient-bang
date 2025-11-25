@@ -3,6 +3,7 @@ import { useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 
 import TitleVideo from "@/assets/videos/title.mp4"
+import { CharacterSelect } from "@/components/dialogs/CharacterSelect"
 import { Leaderboard } from "@/components/dialogs/Leaderboard"
 import { Settings } from "@/components/dialogs/Settings"
 import { Signup } from "@/components/dialogs/Signup"
@@ -15,38 +16,50 @@ import { ScrambleText } from "@/fx/ScrambleText"
 import useGameStore from "@/stores/game"
 import { wait } from "@/utils/animation"
 
-export const Title = ({
-  onViewNext,
-}: {
-  onViewNext: (characterName: string) => void
-}) => {
+export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
   const setActiveModal = useGameStore.use.setActiveModal()
-  const [characterName, setCharacterName] = useState<string>("")
+  const setCharacterId = useGameStore.use.setCharacterId()
+  const setAccessToken = useGameStore.use.setAccessToken()
+  const [username, setUsername] = useState<string>("")
+  const [password, setPassword] = useState<string>("")
   const [isLoading, setIsLoading] = useState<boolean>(false)
+  const [characters, setCharacters] = useState<
+    { character_id: string; name: string }[]
+  >([])
   const [state, setState] = useState<"idle" | "join">("idle")
   const [error, setError] = useState<boolean>(false)
 
-  const handleLookUpCharacter = async () => {
-    onViewNext(characterName)
-    /*
-    console.log("[TITLE] Looking up character:", characterName)
+  const handleSignIn = async () => {
     setIsLoading(true)
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_SERVER_URL}/player?character_id=${characterName}`
-      )
+      const response = await fetch(`${import.meta.env.VITE_SERVER_URL}/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email: username, password }),
+      })
       if (!response.ok) {
-        throw new Error("Failed to look up character")
+        throw new Error("Failed to sign in")
       }
       const data = await response.json()
-      console.log("[TITLE] Character data:", data)
-      
-    } catch (error) {
+      if (
+        data.success &&
+        data.session.access_token &&
+        data.characters.length > 0
+      ) {
+        setError(false)
+        setCharacters(data.characters)
+        setAccessToken(data.session.access_token)
+        setActiveModal("character_select")
+      } else {
+        throw new Error("Invalid login response or no characters found")
+      }
+    } catch {
       setError(true)
-      console.error("[TITLE] Error looking up character:", error)
     } finally {
       await wait(500).then(() => setIsLoading(false))
-    }*/
+    }
   }
 
   return (
@@ -92,7 +105,7 @@ export const Title = ({
                     className="w-full"
                     size="xl"
                   >
-                    Start
+                    Sign In
                   </Button>
                   <Button
                     onClick={() => setActiveModal("leaderboard")}
@@ -129,34 +142,53 @@ export const Title = ({
                     >
                       <CardContent className="flex flex-col h-full justify-between items-center gap-1">
                         <p className="uppercase text-sm tracking-wider">
-                          Character not found
-                        </p>
-                        <p className="text-sm text-destructive-foreground font-bold">
-                          {characterName}
+                          Incorrect username or password
                         </p>
                       </CardContent>
                     </Card>
                   )}
-                  <Input
-                    placeholder="Enter character ID"
-                    className="w-full"
-                    size="xl"
-                    value={characterName}
-                    onChange={(e) => {
-                      if (error) setError(false)
-                      setCharacterName(e.target.value)
-                    }}
-                  />
-                  <Button
-                    onClick={handleLookUpCharacter}
-                    isLoading={isLoading}
-                    className="w-full"
-                    loader="stripes"
-                    size="xl"
-                    disabled={!characterName || isLoading}
-                  >
-                    Connect
-                  </Button>
+                  <form className="w-full flex flex-col gap-5">
+                    <div className="w-full flex flex-col">
+                      <Input
+                        placeholder="Email"
+                        className="w-full"
+                        autoComplete="email"
+                        type="email"
+                        size="xl"
+                        value={username}
+                        disabled={isLoading}
+                        onChange={(e) => {
+                          if (error) setError(false)
+                          setUsername(e.target.value)
+                        }}
+                      />
+                      <Input
+                        placeholder="Password"
+                        type="password"
+                        className="w-full border-t-0"
+                        autoComplete="current-password"
+                        size="xl"
+                        value={password}
+                        disabled={isLoading}
+                        onChange={(e) => {
+                          if (error) setError(false)
+                          setPassword(e.target.value)
+                        }}
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      onClick={handleSignIn}
+                      isLoading={isLoading}
+                      className="w-full"
+                      loader="stripes"
+                      size="xl"
+                      disabled={!username || !password || isLoading}
+                    >
+                      Join
+                    </Button>
+                  </form>
+
                   <Separator />
                   <Button
                     variant="secondary"
@@ -182,6 +214,13 @@ export const Title = ({
       <Settings />
       <Leaderboard />
       <Signup />
+      <CharacterSelect
+        characters={characters}
+        onCharacterSelect={(characterId) => {
+          setCharacterId(characterId)
+          onViewNext()
+        }}
+      />
       <div
         className="absolute bottom-0 right-0 p-4 z-99 flex flex-row items-center gap-2 bg-background select-none"
         onClick={() => setActiveModal("signup")}
