@@ -27,6 +27,8 @@ export const Title = ({
   const [error, setError] = useState<boolean>(false)
 
   const handleLookUpCharacter = async () => {
+    onViewNext(characterName)
+    /*
     console.log("[TITLE] Looking up character:", characterName)
     setIsLoading(true)
     try {
@@ -38,13 +40,13 @@ export const Title = ({
       }
       const data = await response.json()
       console.log("[TITLE] Character data:", data)
-      onViewNext(characterName)
+      
     } catch (error) {
       setError(true)
       console.error("[TITLE] Error looking up character:", error)
     } finally {
       await wait(500).then(() => setIsLoading(false))
-    }
+    }*/
   }
 
   return (

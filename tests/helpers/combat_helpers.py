@@ -7,6 +7,7 @@ and set up specific combat scenarios with predictable outcomes.
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -268,7 +269,35 @@ def create_test_character_knowledge(
         "current_sector": sector,
     }
 
-    return _write_knowledge_file(character_id, knowledge)
+    knowledge_path = _write_knowledge_file(character_id, knowledge)
+
+    if os.environ.get("USE_SUPABASE_TESTS", "").strip().lower() in {"1", "true", "on", "yes"}:
+        try:
+            from tests.helpers.supabase_state import reset_character_state as supabase_reset_character_state  # type: ignore
+        except Exception:  # noqa: BLE001
+            pass
+        else:
+            ship_updates = {
+                'ship_type': ship_type,  # IMPORTANT: Must sync ship_type to Supabase
+                'cargo_qf': cargo.get('quantum_foam', 0),
+                'cargo_ro': cargo.get('retro_organics', 0),
+                'cargo_ns': cargo.get('neuro_symbolics', 0),
+                'current_warp_power': warp_power,
+                'current_shields': shields,
+                'current_fighters': fighters,
+            }
+            if ship_name is not None:
+                ship_updates['ship_name'] = ship_name
+            supabase_reset_character_state(
+                character_id,
+                sector=sector,
+                credits=credits,
+                ship_updates=ship_updates,
+                map_knowledge=knowledge,
+                bank_credits=credits_in_bank,
+            )
+
+    return knowledge_path
 
 
 def modify_character_fighters(
@@ -386,6 +415,14 @@ def set_character_cargo(
     ships[ship_id].setdefault("state", {})["cargo"] = cargo
     _save_ships(ships)
     _update_last_seen(character_id)
+
+    if os.environ.get("USE_SUPABASE_TESTS", "").strip().lower() in {"1", "true", "on", "yes"}:
+        try:
+            from tests.helpers.supabase_state import update_ship_state  # type: ignore
+        except Exception:  # noqa: BLE001
+            pass
+        else:
+            update_ship_state(character_id, cargo=cargo)
 
 
 def deploy_garrison_payload(

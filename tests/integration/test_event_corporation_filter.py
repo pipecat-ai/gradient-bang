@@ -7,17 +7,24 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from helpers.corporation_utils import managed_client, reset_corporation_test_state
+from conftest import EVENT_DELIVERY_WAIT
+from helpers.corporation_utils import (
+    managed_client,
+    reset_corporation_test_state,
+    REQUIRED_CORPORATION_FUNCTIONS,
+)
 from helpers.combat_helpers import deploy_garrison
 
-
-pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
-
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.integration,
+    pytest.mark.requires_server,
+    pytest.mark.requires_supabase_functions(*REQUIRED_CORPORATION_FUNCTIONS),
+]
 
 @pytest.fixture(autouse=True)
 async def reset_corp_state(server_url):
     await reset_corporation_test_state(server_url)
-
 
 async def _query_events(
     client,
@@ -44,7 +51,6 @@ async def _query_events(
     result = await client._request("event.query", payload)
     return result["events"]
 
-
 async def _create_corporation(client, *, character_id: str, name: str):
     event_task = asyncio.create_task(
         client.wait_for_event("corporation.created", timeout=5.0)
@@ -55,7 +61,6 @@ async def _create_corporation(client, *, character_id: str, name: str):
     )
     await event_task
     return result
-
 
 @pytest.mark.asyncio
 async def test_garrison_deployed_tagged_with_corp(server_url, check_server_available):
@@ -68,7 +73,7 @@ async def test_garrison_deployed_tagged_with_corp(server_url, check_server_avail
 
         start = datetime.now(timezone.utc) - timedelta(seconds=1)
         await deploy_garrison(client, character_id, sector=3, fighters=15)
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
         end = datetime.now(timezone.utc) + timedelta(seconds=1)
 
         events = await _query_events(
@@ -83,7 +88,6 @@ async def test_garrison_deployed_tagged_with_corp(server_url, check_server_avail
         assert garrison_events, "Expected garrison.deployed event for corp member"
         assert all(evt.get("corporation_id") == corp["corp_id"] for evt in garrison_events)
 
-
 @pytest.mark.asyncio
 async def test_garrison_deployed_no_corp_no_tag(server_url, check_server_available):
     character_id = "corp_filter_garrison_solo"
@@ -91,7 +95,7 @@ async def test_garrison_deployed_no_corp_no_tag(server_url, check_server_availab
     async with managed_client(server_url, character_id, credits=50_000, sector=4) as client:
         start = datetime.now(timezone.utc) - timedelta(seconds=1)
         await deploy_garrison(client, character_id, sector=4, fighters=10)
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
         end = datetime.now(timezone.utc) + timedelta(seconds=1)
 
         events = await _query_events(
@@ -104,7 +108,6 @@ async def test_garrison_deployed_no_corp_no_tag(server_url, check_server_availab
         garrison_events = [evt for evt in events if evt.get("event") == "garrison.deployed"]
         assert garrison_events, "Expected garrison.deployed event for solo player"
         assert all(evt.get("corporation_id") is None for evt in garrison_events)
-
 
 @pytest.mark.asyncio
 async def test_query_by_corporation_id(server_url, check_server_available):
@@ -128,7 +131,7 @@ async def test_query_by_corporation_id(server_url, check_server_available):
             },
         )
 
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
         end = datetime.now(timezone.utc) + timedelta(seconds=1)
 
         events = await _query_events(
@@ -142,7 +145,6 @@ async def test_query_by_corporation_id(server_url, check_server_available):
         assert events, "Expected events when filtering by corporation_id"
         assert all(evt.get("corporation_id") == corp["corp_id"] for evt in events)
 
-
 @pytest.mark.asyncio
 async def test_query_by_corporation_and_sector(server_url, check_server_available):
     founder_id = "corp_filter_sector_founder"
@@ -154,7 +156,7 @@ async def test_query_by_corporation_and_sector(server_url, check_server_availabl
             founder, character_id=founder_id, name="Sector Filter"
         )
 
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
         end = datetime.now(timezone.utc) + timedelta(seconds=1)
 
         events = await _query_events(
@@ -169,7 +171,6 @@ async def test_query_by_corporation_and_sector(server_url, check_server_availabl
         assert events, "Expected events when filtering by corp and sector"
         assert all(evt.get("sector") == target_sector for evt in events)
         assert all(evt.get("corporation_id") == corp["corp_id"] for evt in events)
-
 
 @pytest.mark.asyncio
 async def test_corporation_events_have_corp_id(server_url, check_server_available):
@@ -198,7 +199,7 @@ async def test_corporation_events_have_corp_id(server_url, check_server_availabl
             {"character_id": founder_id},
         )
 
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
         end = datetime.now(timezone.utc) + timedelta(seconds=1)
 
         events = await _query_events(
@@ -216,7 +217,6 @@ async def test_corporation_events_have_corp_id(server_url, check_server_availabl
             "corporation.member_joined",
             "corporation.invite_code_regenerated",
         }
-
 
 @pytest.mark.asyncio
 async def test_corporation_ship_purchase_logged(server_url, check_server_available):
@@ -239,7 +239,7 @@ async def test_corporation_ship_purchase_logged(server_url, check_server_availab
             },
         )
 
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
         end = datetime.now(timezone.utc) + timedelta(seconds=1)
 
         events = await _query_events(

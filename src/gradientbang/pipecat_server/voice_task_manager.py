@@ -10,7 +10,12 @@ from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame, RTVIProcessor
 from pipecat.frames.frames import LLMMessagesAppendFrame
 
-from gradientbang.utils.api_client import AsyncGameClient
+import os
+
+if os.getenv("SUPABASE_URL"):
+    from gradientbang.utils.supabase_client import AsyncGameClient
+else:
+    from gradientbang.utils.api_client import AsyncGameClient
 from gradientbang.utils.task_agent import TaskAgent, TaskOutputType
 from gradientbang.utils.tools_schema import (
     MyStatus,
@@ -18,13 +23,25 @@ from gradientbang.utils.tools_schema import (
     PlotCourse,
     LocalMapRegion,
     ListKnownPorts,
+    PathWithRegion,
+    Move,
     StartTask,
     StopTask,
+    Trade,
+    RechargeWarpPower,
+    TransferWarpPower,
+    TransferCredits,
+    BankDeposit,
+    BankWithdraw,
+    DumpCargo,
     SendMessage,
+    PurchaseFighters,
     CombatInitiate,
     CombatAction,
+    PlaceFighters,
+    CollectFighters,
+    SalvageCollect,
     CorporationInfo,
-    #    PathWithRegion, # Advanced version of plot_course -- disabled for now
     UI_SHOW_PANEL_SCHEMA,
 )
 
@@ -75,11 +92,12 @@ class VoiceTaskManager:
         """
         self.character_id = character_id
         self.display_name: str = character_id
-        # Create a game client; use provided base_url or default
+        # Create a game client; use SUPABASE_URL if available, otherwise use provided base_url or default
+        resolved_base_url = os.getenv("SUPABASE_URL") or base_url or os.getenv("GAME_SERVER_URL", "http://localhost:8000")
         self.game_client = AsyncGameClient(
             character_id=character_id,
-            base_url=base_url or "http://localhost:8000",
-            transport="websocket",
+            base_url=resolved_base_url,
+            transport="websocket",  # Supabase client auto-converts this to "supabase" transport
         )
         self._event_names = [
             "status.snapshot",
@@ -132,12 +150,17 @@ class VoiceTaskManager:
         self.task_buffer: deque = deque(maxlen=1000)
         self.task_running = False  # Deprecated, kept for backwards compatibility
         self.cancelled_via_tool = False
+        # Track request IDs from voice agent tool calls for inference triggering
+        self._voice_agent_request_ids: set[str] = set()
+
         # Build generic tool dispatch map for common game tools
         # Start/stop/ui_show_panel are handled inline in execute_tool_call
         # Note: Most game_client methods require character_id, but the LLM tools
         # don't expose it. We wrap methods to inject self.character_id automatically.
         self._tool_dispatch = {
-            "my_status": lambda: self.game_client.my_status(character_id=self.character_id),
+            "my_status": lambda: self.game_client.my_status(
+                character_id=self.character_id
+            ),
             "leaderboard_resources": lambda **kwargs: self.game_client.leaderboard_resources(
                 character_id=self.character_id, **kwargs
             ),
@@ -150,7 +173,37 @@ class VoiceTaskManager:
             "list_known_ports": lambda **kwargs: self.game_client.list_known_ports(
                 character_id=self.character_id, **kwargs
             ),
+            "path_with_region": lambda **kwargs: self.game_client.path_with_region(
+                character_id=self.character_id, **kwargs
+            ),
+            "move": lambda to_sector: self.game_client.move(
+                to_sector=to_sector, character_id=self.character_id
+            ),
+            "trade": lambda **kwargs: self.game_client.trade(
+                character_id=self.character_id, **kwargs
+            ),
+            "purchase_fighters": lambda **kwargs: self.game_client.purchase_fighters(
+                character_id=self.character_id, **kwargs
+            ),
+            "dump_cargo": lambda **kwargs: self.game_client.dump_cargo(
+                character_id=self.character_id, **kwargs
+            ),
             "send_message": lambda **kwargs: self.game_client.send_message(
+                character_id=self.character_id, **kwargs
+            ),
+            "recharge_warp_power": lambda amount: self.game_client.recharge_warp_power(
+                character_id=self.character_id, amount=amount
+            ),
+            "transfer_warp_power": lambda **kwargs: self.game_client.transfer_warp_power(
+                character_id=self.character_id, **kwargs
+            ),
+            "transfer_credits": lambda **kwargs: self.game_client.transfer_credits(
+                character_id=self.character_id, **kwargs
+            ),
+            "bank_deposit": lambda **kwargs: self.game_client.deposit_to_bank(
+                character_id=self.character_id, **kwargs
+            ),
+            "bank_withdraw": lambda **kwargs: self.game_client.withdraw_from_bank(
                 character_id=self.character_id, **kwargs
             ),
             "combat_initiate": lambda **kwargs: self.game_client.combat_initiate(
@@ -159,12 +212,18 @@ class VoiceTaskManager:
             "combat_action": lambda **kwargs: self.game_client.combat_action(
                 character_id=self.character_id, **kwargs
             ),
+            "place_fighters": lambda **kwargs: self.game_client.combat_leave_fighters(
+                character_id=self.character_id, **kwargs
+            ),
+            "collect_fighters": lambda **kwargs: self.game_client.combat_collect_fighters(
+                character_id=self.character_id, **kwargs
+            ),
+            "salvage_collect": lambda **kwargs: self.game_client.salvage_collect(
+                character_id=self.character_id, **kwargs
+            ),
             "corporation_info": lambda **kwargs: self.game_client._request(
                 "corporation.list" if kwargs.get("list_all") else "corporation.info",
-                {} if kwargs.get("list_all") else {"character_id": self.character_id},
-            ),
-            "path_with_region": lambda **kwargs: self.game_client.path_with_region(
-                character_id=self.character_id, **kwargs
+                {} if kwargs.get("list_all") else {"character_id": self.character_id}
             ),
         }
 
@@ -217,6 +276,35 @@ class VoiceTaskManager:
         else:
             event_xml = f"<event name={event_name}>\n{summary}\n</event>"
 
+        # Determine if this event should trigger LLM inference
+        # Only trigger inference when event came from voice agent's own tool calls
+        # (task events don't match our tracked request IDs and handle their own inference)
+        inference_triggering_events = {
+            "ports.list",           # list_known_ports results
+            "map.region",           # local_map_region results
+            "path.region",          # path_with_region results
+            "chat.message",         # Direct messages to bot
+            "combat.round_resolved",# Combat updates
+            "combat.ended",         # Combat finished
+            "error",                # Error messages
+        }
+
+        # Check if event came from voice agent's tool call
+        event_request_id = event.get("request_id")
+        is_voice_agent_event = event_request_id in self._voice_agent_request_ids
+
+        # Debug logging for request ID tracking
+        logger.info(f"!!! EVENT ARRIVED: {event_name}")
+        logger.info(f"!!!   event keys: {list(event.keys())}")
+        logger.info(f"!!!   event_request_id: {event_request_id}")
+        logger.info(f"!!!   tracked IDs: {self._voice_agent_request_ids}")
+        logger.info(f"!!!   is_voice_agent_event: {is_voice_agent_event}")
+        logger.info(f"!!!   in inference_triggering_events: {event_name in inference_triggering_events}")
+
+        # Only trigger inference if this is an important event AND from voice agent
+        should_run_llm = (event_name in inference_triggering_events) and is_voice_agent_event
+        logger.info(f"!!!   should_run_llm: {should_run_llm}")
+
         await self.rtvi_processor.push_frame(
             LLMMessagesAppendFrame(
                 messages=[
@@ -224,7 +312,8 @@ class VoiceTaskManager:
                         "role": "user",
                         "content": event_xml,
                     }
-                ]
+                ],
+                run_llm=should_run_llm,
             )
         )
 
@@ -295,23 +384,19 @@ class VoiceTaskManager:
 
     def _create_agent_output_callback(self, task_id: str, task_type: str) -> Callable:
         """Create a task-specific output callback that includes task_id and task_type."""
-
         def _handle_agent_output(text: str, message_type: Optional[str] = None) -> None:
             """Schedule processing of agent output asynchronously."""
             asyncio.create_task(self._task_output_handler(text, message_type, task_id, task_type))
-
         return _handle_agent_output
 
-    def _handle_agent_output(self, text: str, message_type: Optional[str] = None) -> None:
+    def _handle_agent_output(
+        self, text: str, message_type: Optional[str] = None
+    ) -> None:
         """Legacy callback for backwards compatibility - uses player_ship task type."""
         asyncio.create_task(self._task_output_handler(text, message_type, None, "player_ship"))
 
     async def _task_output_handler(
-        self,
-        text: str,
-        message_type: Optional[str] = None,
-        task_id: Optional[str] = None,
-        task_type: str = "player_ship",
+        self, text: str, message_type: Optional[str] = None, task_id: Optional[str] = None, task_type: str = "player_ship"
     ) -> None:
         """Handle output from the task agent.
 
@@ -321,9 +406,7 @@ class VoiceTaskManager:
             task_id: Optional task ID for multi-task tracking
             task_type: Type of task ("player_ship" or "corp_ship")
         """
-        logger.info(
-            f"!!! task output: [{message_type}] task_id={task_id} task_type={task_type} {text}"
-        )
+        logger.info(f"!!! task output: [{message_type}] task_id={task_id} task_type={task_type} {text}")
 
         # send everything from the task agent to the client to be displayed
         await self.rtvi_processor.push_frame(
@@ -369,7 +452,9 @@ class VoiceTaskManager:
 
         try:
             logger.info(f"!!! running task {task_id} ({task_type}): {task_description}")
-            success = await task_agent.run_task(task=task_description, max_iterations=100)
+            success = await task_agent.run_task(
+                task=task_description, max_iterations=100
+            )
             logger.info(f"!!! task {task_id} result: {success}")
 
             if success:
@@ -441,7 +526,9 @@ class VoiceTaskManager:
             self.current_task.cancel()
             self.task_running = False
             # Add immediate feedback
-            self._handle_agent_output("Cancellation requested - stopping task...", "cancelled")
+            self._handle_agent_output(
+                "Cancellation requested - stopping task...", "cancelled"
+            )
 
     async def execute_tool_call(self, params: FunctionCallParams):
         """Generic executor for all declared tools, for tool calls from the
@@ -453,7 +540,9 @@ class VoiceTaskManager:
         params.result_callback with the same payload.
         """
         # Try to discover the tool name from params (Pipecat provides name)
-        tool_name = getattr(params, "name", None) or getattr(params, "function_name", None)
+        tool_name = getattr(params, "name", None) or getattr(
+            params, "function_name", None
+        )
         if not tool_name:
             # Fallback: try to peek at arguments for an injected name (not expected)
             tool_name = "unknown"
@@ -481,6 +570,18 @@ class VoiceTaskManager:
                 result = await func(**arguments)
                 payload = {"result": result}
 
+                # Track request ID for voice agent inference triggering
+                # Extract from result (preferred) or fall back to last_request_id
+                req_id = None
+                if isinstance(result, dict):
+                    req_id = result.get('request_id')
+                if not req_id and hasattr(self.game_client, 'last_request_id'):
+                    req_id = self.game_client.last_request_id
+                if req_id:
+                    self._voice_agent_request_ids.add(req_id)
+                    logger.info(f"!!! TOOL COMPLETE: {tool_name} - tracking request_id={req_id}")
+                    logger.info(f"!!! TRACKED IDS: {self._voice_agent_request_ids}")
+
             await params.result_callback(payload)
         except Exception as e:
             logger.error(f"tool '{tool_name}' failed: {e}")
@@ -501,10 +602,7 @@ class VoiceTaskManager:
 
             # Check if this specific ship already has a running task
             for task_id, task_info in self._active_tasks.items():
-                if (
-                    task_info["target_character_id"] == target_character_id
-                    and not task_info["asyncio_task"].done()
-                ):
+                if task_info["target_character_id"] == target_character_id and not task_info["asyncio_task"].done():
                     return {
                         "success": False,
                         "error": f"Ship {target_character_id[:8]}... already has task {task_id} running. Stop it first.",
@@ -622,10 +720,7 @@ class VoiceTaskManager:
                 # Cancel player ship task (backwards compatibility)
                 player_ship_task_id = None
                 for tid, task_info in self._active_tasks.items():
-                    if (
-                        task_info["target_character_id"] == self.character_id
-                        and not task_info["asyncio_task"].done()
-                    ):
+                    if task_info["target_character_id"] == self.character_id and not task_info["asyncio_task"].done():
                         player_ship_task_id = tid
                         break
 
@@ -635,10 +730,7 @@ class VoiceTaskManager:
                         self.current_task.cancel()
                         return {"success": True, "message": "Task cancelled"}
                     else:
-                        return {
-                            "success": False,
-                            "error": "No player ship task is currently running",
-                        }
+                        return {"success": False, "error": "No player ship task is currently running"}
 
                 task_info = self._active_tasks[player_ship_task_id]
                 task_agent = task_info["task_agent"]
@@ -661,15 +753,8 @@ class VoiceTaskManager:
         try:
             logger.info(f"show_panel: {params.arguments}")
             await params.llm.push_frame(
-                RTVIServerMessageFrame(
-                    {
-                        "frame_type": "event",
-                        "event": "ui-action",
-                        "payload": {"action": "show_panel", **params.arguments},
-                    }
-                )
+                RTVIServerMessageFrame({"ui-action": "show_panel", **params.arguments})
             )
-            logger.info(f"pushed via {params.llm}")
             return {"success": True, "message": "Panel shown"}
         except Exception as e:
             logger.error(f"ui_show_panel failed: {e}")
@@ -684,9 +769,22 @@ class VoiceTaskManager:
                 PlotCourse.schema(),
                 LocalMapRegion.schema(),
                 ListKnownPorts.schema(),
+                PathWithRegion.schema(),
+                Move.schema(),
+                Trade.schema(),
+                DumpCargo.schema(),
+                RechargeWarpPower.schema(),
+                TransferWarpPower.schema(),
+                TransferCredits.schema(),
+                PurchaseFighters.schema(),
+                BankDeposit.schema(),
+                BankWithdraw.schema(),
                 SendMessage.schema(),
                 CombatInitiate.schema(),
                 CombatAction.schema(),
+                PlaceFighters.schema(),
+                CollectFighters.schema(),
+                SalvageCollect.schema(),
                 CorporationInfo.schema(),
                 StartTask.schema(),
                 StopTask.schema(),

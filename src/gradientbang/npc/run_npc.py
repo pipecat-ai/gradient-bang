@@ -18,8 +18,13 @@ from gradientbang.utils.config import get_repo_root, get_world_data_path
 from gradientbang.utils.api_client import AsyncGameClient, RPCError
 from gradientbang.utils.task_agent import TaskAgent
 
-REPO_ROOT = get_repo_root()
-WORLD_DATA_DIR = get_world_data_path(ensure_exists=False)
+from gradientbang.utils.api_client import RPCError  # noqa: E402
+
+if os.getenv("SUPABASE_URL"):
+    from gradientbang.utils.supabase_client import AsyncGameClient  # noqa: E402
+else:
+    from gradientbang.utils.api_client import AsyncGameClient  # noqa: E402
+from gradientbang.utils.task_agent import TaskAgent  # noqa: E402
 
 DEFAULT_MODEL = "gemini-2.5-flash-preview-09-2025"
 

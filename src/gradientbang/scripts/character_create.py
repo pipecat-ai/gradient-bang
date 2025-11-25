@@ -6,8 +6,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import getpass
-import sys
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
+import os
 
 import httpx
 
@@ -217,6 +217,30 @@ async def main_async() -> int:
         "--admin-password",
         help="Admin password (prompted if required and not provided)",
     )
+    parser.add_argument(
+        "--supabase",
+        action="store_true",
+        help="Force Supabase admin mode (default when SUPABASE_URL is set)",
+    )
+    parser.add_argument(
+        "--legacy",
+        action="store_true",
+        help="Force legacy FastAPI RPC mode",
+    )
+    parser.add_argument(
+        "--character-id",
+        help="Explicit character UUID to assign in Supabase mode",
+    )
+    parser.add_argument(
+        "--ship-id",
+        help="Explicit ship UUID to assign in Supabase mode",
+    )
+    parser.add_argument(
+        "--sector",
+        type=int,
+        default=0,
+        help="Starting sector when seeding Supabase characters (default: %(default)s)",
+    )
 
     # Player fields
     parser.add_argument(
@@ -261,40 +285,67 @@ async def main_async() -> int:
 
     args = parser.parse_args()
 
-    if not await _server_is_running(args.server):
-        return 1
+   
 
     # Determine if we're in interactive or non-interactive mode
     non_interactive = args.name is not None
 
-    # Get character name
     name = args.name or _prompt("Display name: ")
     if not name:
         print("Character name is required.")
         return 1
 
-    # Handle admin password
-    password_required = _admin_password_required()
-    admin_password = args.admin_password
-    if password_required and not non_interactive:
-        admin_password = admin_password or getpass.getpass("Admin password: ")
-        if not admin_password:
-            print("Admin password is required.")
-            return 1
-    elif password_required and non_interactive and not admin_password:
-        print("Error: Admin password is required. Use --admin-password in non-interactive mode.")
+    use_supabase = _should_use_supabase_mode(args)
+    if use_supabase and args.sector < 0:
+        print("Starting sector must be non-negative in Supabase mode.")
         return 1
 
-    # Collect player and ship payloads
+    if not use_supabase and await _server_is_running(args.server):
+        print(f"Server at {args.server} is not running.")
+        return 1
+
+    player_payload, ship_payload = _collect_payloads(args, non_interactive)
+    if player_payload is None:
+        return 1  # Error already printed
+
+    if use_supabase:
+        os.environ.setdefault("SUPABASE_ALLOW_LEGACY_IDS", "1")
+        return await _create_via_supabase(
+            name=name,
+            args=args,
+            player_payload=player_payload or None,
+            ship_payload=ship_payload or None,
+        )
+
+    return await _create_via_legacy(
+        name=name,
+        args=args,
+        player_payload=player_payload or None,
+        ship_payload=ship_payload or None,
+        non_interactive=non_interactive,
+    )
+
+
+def _should_use_supabase_mode(args: argparse.Namespace) -> bool:
+    if args.legacy:
+        return False
+    if args.supabase:
+        return True
+    return bool(os.getenv("SUPABASE_URL"))
+
+
+def _collect_payloads(
+    args: argparse.Namespace,
+    non_interactive: bool,
+) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
     if non_interactive:
-        # Non-interactive mode: use CLI arguments only
-        player_payload = {}
+        player_payload: Dict[str, Any] = {}
         if args.credits is not None:
             player_payload["credits"] = args.credits
         if args.player_type:
             player_payload["player_type"] = args.player_type
 
-        ship_payload = {}
+        ship_payload: Dict[str, Any] = {}
         if args.ship_name:
             ship_payload["ship_name"] = args.ship_name
         if args.ship_type:
@@ -306,26 +357,83 @@ async def main_async() -> int:
         if args.fighters is not None:
             ship_payload["current_fighters"] = args.fighters
         if args.cargo:
-            # Parse cargo string
-            cargo_manifest = {}
+            cargo_manifest: Dict[str, int] = {}
             try:
                 for part in args.cargo.split(","):
                     part = part.strip()
                     if "=" not in part:
                         print(f"Error: Invalid cargo format '{part}'. Use name=qty")
-                        return 1
+                        return None, None
                     commodity, qty = part.split("=", 1)
                     cargo_manifest[commodity.strip()] = int(qty.strip())
                 ship_payload["cargo"] = cargo_manifest
-            except ValueError as e:
-                print(f"Error parsing cargo: {e}")
-                return 1
-    else:
-        # Interactive mode: prompt for values
-        print("Collecting optional player fields (press Enter to skip each).")
-        player_payload = _collect_player_payload()
-        print("Collecting optional ship fields (press Enter to skip each).")
-        ship_payload = _collect_ship_payload()
+            except ValueError as exc:
+                print(f"Error parsing cargo: {exc}")
+                return None, None
+        return player_payload, ship_payload
+
+    print("Collecting optional player fields (press Enter to skip each).")
+    player_payload = _collect_player_payload()
+    print("Collecting optional ship fields (press Enter to skip each).")
+    ship_payload = _collect_ship_payload()
+    return player_payload, ship_payload
+
+
+async def _create_via_supabase(
+    *,
+    name: str,
+    args: argparse.Namespace,
+    player_payload: Optional[Dict[str, Any]],
+    ship_payload: Optional[Dict[str, Any]],
+) -> int:
+    try:
+        from gradientbang.utils.supabase_admin import SupabaseAdminClient, SupabaseAdminError
+    except ImportError as exc:  # pragma: no cover - should not happen when deps installed
+        print(f"Supabase admin helpers unavailable: {exc}")
+        return 1
+
+    try:
+        async with SupabaseAdminClient() as admin:
+            result = await admin.create_character(
+                name=name,
+                player=player_payload,
+                ship=ship_payload,
+                character_id=args.character_id,
+                ship_id=args.ship_id,
+                start_sector=args.sector,
+            )
+    except SupabaseAdminError as exc:
+        print(f"Supabase character creation failed: {exc}")
+        return 1
+
+    character = result["character"]
+    ship = result["ship"]
+    print("✓ Supabase character created successfully.")
+    print(f"  Name: {character.get('name')}")
+    print(f"  Character ID: {character.get('character_id')}")
+    print(f"  Ship ID: {ship.get('ship_id')}")
+    print(f"  Ship Type: {ship.get('ship_type')}")
+    return 0
+
+
+async def _create_via_legacy(
+    *,
+    name: str,
+    args: argparse.Namespace,
+    player_payload: Optional[Dict[str, Any]],
+    ship_payload: Optional[Dict[str, Any]],
+    non_interactive: bool,
+) -> int:
+    password_required = _admin_password_required()
+    admin_password = args.admin_password
+    if password_required and not non_interactive:
+        admin_password = admin_password or getpass.getpass("Admin password: ")
+        if not admin_password:
+            print("Admin password is required.")
+            return 1
+    elif password_required and non_interactive and not admin_password:
+        print("Error: Admin password is required. Use --admin-password in non-interactive mode.")
+        return 1
 
     try:
         async with AsyncGameClient(
@@ -336,8 +444,8 @@ async def main_async() -> int:
             result = await _execute_create_request(
                 client,
                 name=name,
-                player=player_payload or None,
-                ship=ship_payload or None,
+                player=player_payload,
+                ship=ship_payload,
                 admin_password=admin_password,
                 password_required=password_required,
             )

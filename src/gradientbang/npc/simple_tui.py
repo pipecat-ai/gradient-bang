@@ -40,9 +40,13 @@ from textual.widgets import Header, Input, ListItem, ListView, Static
 from gradientbang.npc.combat_session import CombatSession
 from gradientbang.npc.combat_utils import ensure_position
 from gradientbang.npc.status_bars import StatusBarUpdater
-from gradientbang.utils.api_client import AsyncGameClient, RPCError
+from gradientbang.utils.api_client import RPCError
+
+if os.getenv("SUPABASE_URL"):
+    from gradientbang.utils.supabase_client import AsyncGameClient
+else:
+    from gradientbang.utils.api_client import AsyncGameClient
 from gradientbang.utils.task_agent import TaskAgent, TaskOutputType
-from gradientbang.utils.config import get_repo_root, get_world_data_path
 
 REPO_ROOT = get_repo_root()
 WORLD_DATA_DIR = get_world_data_path(ensure_exists=False)

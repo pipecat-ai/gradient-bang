@@ -13,15 +13,26 @@ These tests require a test server running on port 8002.
 """
 
 import asyncio
-from unittest.mock import AsyncMock, patch
-
-import httpx
+import os
 import pytest
+import sys
+from pathlib import Path
 
+# Add project paths
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from conftest import EVENT_DELIVERY_WAIT
 from gradientbang.utils.api_client import AsyncGameClient, RPCError
+from helpers.client_setup import create_client_with_character
 
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
+
+
+def _supabase_mode_enabled():
+    """Check if running in Supabase mode."""
+    _TRUE_VALUES = {"1", "true", "yes", "y", "on", "enabled"}
+    return os.environ.get("USE_SUPABASE_TESTS", "").strip().lower() in _TRUE_VALUES
 
 
 # =============================================================================
@@ -85,14 +96,20 @@ async def test_client_context_manager_cleanup(server_url, check_server_available
     """Verify context manager properly cleans up resources on exit."""
     char_id = "test_client_cleanup"
 
-    async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
-        # Join to establish WebSocket connection
-        await client.join(character_id=char_id)
-        assert client._ws is not None  # WebSocket should be connected
+    client = await create_client_with_character(server_url, char_id)
 
-    # After context exit, resources should be cleaned up
-    # Note: We can't directly verify _ws is None because it's cleaned up
-    # But we can verify the client still exists and has the right properties
+    try:
+        # In Supabase mode, WebSocket is not used (HTTP polling)
+        # In legacy mode, WebSocket connection should be established
+        if not _supabase_mode_enabled():
+            assert client._ws is not None  # WebSocket should be connected
+
+        # Verify client properties
+        assert client.character_id == char_id
+    finally:
+        await client.close()
+
+    # After close, verify client still has properties
     assert client.character_id == char_id
 
 
@@ -128,9 +145,9 @@ async def test_map_cache_miss_forces_refresh(server_url, check_server_available)
 async def test_map_cache_updates_on_move(server_url, check_server_available):
     """Verify move updates cache automatically via events."""
     char_id = "test_cache_move"
-    async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
-        await client.join(character_id=char_id)
+    client = await create_client_with_character(server_url, char_id)
 
+    try:
         # Get initial status
         status1 = await get_status(client, char_id)
         sector1 = status1["sector"]["id"]
@@ -139,7 +156,7 @@ async def test_map_cache_updates_on_move(server_url, check_server_available):
         await client.move(to_sector=1, character_id=char_id)
 
         # Wait for movement to complete
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
         # Get updated status
         status2 = await get_status(client, char_id)
@@ -147,14 +164,16 @@ async def test_map_cache_updates_on_move(server_url, check_server_available):
 
         # Verify sector changed
         assert sector2 != sector1
+    finally:
+        await client.close()
 
 
 async def test_map_cache_updates_on_status(server_url, check_server_available):
     """Verify status calls update internal tracking."""
     char_id = "test_cache_status"
-    async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
-        await client.join(character_id=char_id)
+    client = await create_client_with_character(server_url, char_id)
 
+    try:
         # Get status
         status = await get_status(client, char_id)
 
@@ -162,27 +181,31 @@ async def test_map_cache_updates_on_status(server_url, check_server_available):
         assert "sector" in status
         assert "ship" in status
         assert status["sector"]["id"] == 0  # New characters start at sector 0
+    finally:
+        await client.close()
 
 
 async def test_cache_stores_visited_sectors(server_url, check_server_available):
     """Verify visited sectors accumulate in knowledge."""
     char_id = "test_cache_visited"
-    async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
-        await client.join(character_id=char_id)
+    client = await create_client_with_character(server_url, char_id)
 
+    try:
         # Move to sector 1
         await client.move(to_sector=1, character_id=char_id)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
         # Move to sector 3
         await client.move(to_sector=3, character_id=char_id)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
         # Note: Verifying accumulated knowledge would require reading the
         # character knowledge file or having a dedicated endpoint
         # For now, just verify moves succeeded
         status = await get_status(client, char_id)
         assert status["sector"]["id"] == 3
+    finally:
+        await client.close()
 
 
 @pytest.mark.skip(reason="Port discovery tracking needs server-side knowledge endpoint for verification")
@@ -204,7 +227,7 @@ async def test_cache_invalidation_on_join(server_url, check_server_available):
 
         # Move somewhere
         await client.move(to_sector=1, character_id=char_id)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
         # Second join (simulates reconnect/reset)
         await client.join(character_id=char_id)
@@ -226,6 +249,7 @@ async def test_cache_shared_across_client_instances(server_url, check_server_ava
 # =============================================================================
 
 
+@pytest.mark.skipif(_supabase_mode_enabled(), reason="Supabase requires pre-registered characters; join() does not auto-create")
 async def test_join_creates_character(server_url, check_server_available):
     """Verify join() creates and initializes a character."""
     char_id = "test_join_create"
@@ -243,27 +267,29 @@ async def test_join_creates_character(server_url, check_server_available):
 async def test_move_to_adjacent_sector(server_url, check_server_available):
     """Verify move() works for adjacent sectors."""
     char_id = "test_move_adjacent"
-    async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
-        await client.join(character_id=char_id)
+    client = await create_client_with_character(server_url, char_id)
 
+    try:
         # Move to adjacent sector 1
         result = await client.move(to_sector=1, character_id=char_id)
         assert result.get("success") is True
 
         # Wait for movement to complete
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
         # Verify new location
         status = await get_status(client, char_id)
         assert status["sector"]["id"] == 1
+    finally:
+        await client.close()
 
 
 async def test_plot_course_finds_path(server_url, check_server_available):
     """Verify plot_course() returns a valid path."""
     char_id = "test_plot_course"
-    async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
-        await client.join(character_id=char_id)
+    client = await create_client_with_character(server_url, char_id)
 
+    try:
         # Set up event listener for course.plot
         course_received = asyncio.Future()
 
@@ -287,18 +313,20 @@ async def test_plot_course_finds_path(server_url, check_server_available):
             assert course["path"][-1] == 5  # Ends at destination
         finally:
             client.remove_event_handler(token)
+    finally:
+        await client.close()
 
 
 async def test_trade_buy_at_port(server_url, check_server_available):
     """Verify trade() can buy commodities at a port."""
     char_id = "test_trade_buy"
-    async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
-        # Join with extra credits for trading
-        await client.join(character_id=char_id, credits=100000)
+    # Create character with extra credits for trading
+    client = await create_client_with_character(server_url, char_id, credits=100000)
 
+    try:
         # Move to sector 1 (has Port BBS which sells neuro_symbolics)
         await client.move(to_sector=1, character_id=char_id)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
         # Buy neuro_symbolics
         result = await client.trade(
@@ -308,24 +336,24 @@ async def test_trade_buy_at_port(server_url, check_server_available):
             character_id=char_id,
         )
         assert result.get("success") is True
+    finally:
+        await client.close()
 
 
 async def test_trade_sell_at_port(server_url, check_server_available):
     """Verify trade() can sell commodities at a port."""
     char_id = "test_trade_sell"
-    from helpers.combat_helpers import create_test_character_knowledge
 
     # Create character with cargo to sell
-    create_test_character_knowledge(
+    client = await create_client_with_character(
+        server_url,
         char_id,
         sector=1,
         credits=10000,
         cargo={"quantum_foam": 50},
     )
 
-    async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
-        await client.join(character_id=char_id)
-
+    try:
         # Sell quantum_foam (Port BBS buys it)
         result = await client.trade(
             commodity="quantum_foam",
@@ -334,27 +362,22 @@ async def test_trade_sell_at_port(server_url, check_server_available):
             character_id=char_id,
         )
         assert result.get("success") is True
+    finally:
+        await client.close()
 
 
 async def test_combat_initiate_starts_combat(server_url, check_server_available):
     """Verify combat_initiate() starts a combat session."""
     char1 = "test_combat_attacker"
     char2 = "test_combat_defender"
-    from helpers.combat_helpers import create_test_character_knowledge
 
     # Create both characters with fighters
-    create_test_character_knowledge(char1, sector=1, fighters=100, shields=50)
-    create_test_character_knowledge(char2, sector=1, fighters=100, shields=50)
+    client1 = await create_client_with_character(server_url, char1, sector=1, fighters=100, shields=50)
+    client2 = await create_client_with_character(server_url, char2, sector=1, fighters=100, shields=50)
 
-    # Join both characters first
-    client2 = AsyncGameClient(base_url=server_url, character_id=char2)
-    await client2.join(character_id=char2)
-
-    async with AsyncGameClient(base_url=server_url, character_id=char1) as client:
-        await client.join(character_id=char1)
-
+    try:
         # Initiate combat
-        result = await client.combat_initiate(
+        result = await client1.combat_initiate(
             character_id=char1,
             target_id=char2,
             target_type="character",
@@ -362,29 +385,23 @@ async def test_combat_initiate_starts_combat(server_url, check_server_available)
 
         # Should return combat data
         assert "combat_id" in result or "success" in result
-
-    await client2.close()
+    finally:
+        await client1.close()
+        await client2.close()
 
 
 async def test_combat_action_submits_action(server_url, check_server_available):
     """Verify combat_action() submits actions during combat."""
     char1 = "test_action_attacker"
     char2 = "test_action_defender"
-    from helpers.combat_helpers import create_test_character_knowledge
 
     # Create both characters
-    create_test_character_knowledge(char1, sector=2, fighters=100, shields=50)
-    create_test_character_knowledge(char2, sector=2, fighters=100, shields=50)
+    client1 = await create_client_with_character(server_url, char1, sector=2, fighters=100, shields=50)
+    client2 = await create_client_with_character(server_url, char2, sector=2, fighters=100, shields=50)
 
-    # Join both characters first
-    client2 = AsyncGameClient(base_url=server_url, character_id=char2)
-    await client2.join(character_id=char2)
-
-    async with AsyncGameClient(base_url=server_url, character_id=char1) as client:
-        await client.join(character_id=char1)
-
+    try:
         # Initiate combat
-        combat_result = await client.combat_initiate(
+        combat_result = await client1.combat_initiate(
             character_id=char1,
             target_id=char2,
         )
@@ -392,7 +409,7 @@ async def test_combat_action_submits_action(server_url, check_server_available):
         combat_id = combat_result.get("combat_id")
         if combat_id:
             # Submit attack action (attack requires target_id)
-            action_result = await client.combat_action(
+            action_result = await client1.combat_action(
                 combat_id=combat_id,
                 action="attack",
                 commit=50,
@@ -400,21 +417,22 @@ async def test_combat_action_submits_action(server_url, check_server_available):
                 character_id=char1,
             )
             assert "success" in action_result or "round" in action_result
-
-    await client2.close()
+    finally:
+        await client1.close()
+        await client2.close()
 
 
 async def test_recharge_warp_power(server_url, check_server_available):
     """Verify recharge_warp_power() works at sector 0."""
     char_id = "test_recharge"
-    async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
-        await client.join(character_id=char_id, credits=100000)
+    client = await create_client_with_character(server_url, char_id, credits=100000)
 
+    try:
         # Deplete warp power by moving
         await client.move(to_sector=1, character_id=char_id)
-        await asyncio.sleep(0.5)  # Wait for move to complete
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)  # Wait for move to complete
         await client.move(to_sector=0, character_id=char_id)
-        await asyncio.sleep(0.5)  # Wait for move to complete
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)  # Wait for move to complete
 
         # Get initial state
         status_before = await get_status(client, char_id)
@@ -435,42 +453,38 @@ async def test_recharge_warp_power(server_url, check_server_available):
 
         assert warp_after > warp_before, "Warp power should increase after recharge"
         assert credits_after < credits_before, "Credits should decrease after recharge"
+    finally:
+        await client.close()
 
 
 async def test_transfer_warp_power(server_url, check_server_available):
     """Verify transfer_warp_power() transfers fuel to another character."""
     char1 = "test_transfer_from"
     char2 = "test_transfer_to"
-    from helpers.combat_helpers import create_test_character_knowledge
 
     # Create both characters at same sector with fuel
-    create_test_character_knowledge(char1, sector=1, warp_power=100)
-    create_test_character_knowledge(char2, sector=1, warp_power=50)
+    client1 = await create_client_with_character(server_url, char1, sector=1, warp_power=100)
+    client2 = await create_client_with_character(server_url, char2, sector=1, warp_power=50)
 
-    # Join both characters first
-    client2 = AsyncGameClient(base_url=server_url, character_id=char2)
-    await client2.join(character_id=char2)
-
-    async with AsyncGameClient(base_url=server_url, character_id=char1) as client:
-        await client.join(character_id=char1)
-
+    try:
         # Transfer fuel
-        result = await client.transfer_warp_power(
+        result = await client1.transfer_warp_power(
             to_player_name=char2,
             units=10,
             character_id=char1,
         )
         assert result.get("success") is True
-
-    await client2.close()
+    finally:
+        await client1.close()
+        await client2.close()
 
 
 async def test_my_status_returns_current_state(server_url, check_server_available):
     """Verify my_status() returns complete character state."""
     char_id = "test_my_status"
-    async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
-        await client.join(character_id=char_id)
+    client = await create_client_with_character(server_url, char_id)
 
+    try:
         # Get status
         status = await get_status(client, char_id)
 
@@ -479,6 +493,8 @@ async def test_my_status_returns_current_state(server_url, check_server_availabl
         assert "ship" in status
         assert "player" in status
         assert status["sector"]["id"] == 0
+    finally:
+        await client.close()
 
 
 # =============================================================================
@@ -500,6 +516,7 @@ async def test_network_error_raises_exception(server_url, check_server_available
 
 
 @pytest.mark.timeout(15)
+@pytest.mark.skipif(_supabase_mode_enabled(), reason="Supabase requires pre-registered characters")
 async def test_timeout_error_on_slow_response(server_url, check_server_available):
     """Verify timeouts are handled properly."""
     # This test is challenging without a slow endpoint
@@ -521,15 +538,17 @@ async def test_malformed_response_raises_error(server_url, check_server_availabl
 async def test_server_error_status_codes(server_url, check_server_available):
     """Verify 500 errors raise RPCError."""
     char_id = "test_server_error"
-    async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
-        await client.join(character_id=char_id)
+    client = await create_client_with_character(server_url, char_id)
 
+    try:
         # Try to move to non-existent sector (should cause server error)
         with pytest.raises(RPCError) as exc_info:
             await client.move(to_sector=99999, character_id=char_id)
 
         # Verify error has proper structure
         assert exc_info.value.status >= 400
+    finally:
+        await client.close()
 
 
 async def test_invalid_endpoint_raises_error(server_url, check_server_available):
@@ -544,9 +563,9 @@ async def test_invalid_endpoint_raises_error(server_url, check_server_available)
 async def test_validation_error_on_bad_params(server_url, check_server_available):
     """Verify invalid parameters are caught."""
     char_id = "test_bad_params"
-    async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
-        await client.join(character_id=char_id)
+    client = await create_client_with_character(server_url, char_id)
 
+    try:
         # Try to trade with invalid commodity
         with pytest.raises(RPCError) as exc_info:
             await client.trade(
@@ -557,6 +576,8 @@ async def test_validation_error_on_bad_params(server_url, check_server_available
             )
 
         assert exc_info.value.status >= 400
+    finally:
+        await client.close()
 
 
 async def test_connection_refused_handled(server_url, check_server_available):
@@ -587,22 +608,26 @@ async def test_retry_logic_on_transient_errors(server_url, check_server_availabl
 async def test_default_character_after_join(server_url, check_server_available):
     """Verify client remembers character after join."""
     char_id = "test_default_char"
-    async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
-        await client.join(character_id=char_id)
+    client = await create_client_with_character(server_url, char_id)
 
+    try:
         # Client should track character
         assert client.character_id == char_id
+    finally:
+        await client.close()
 
 
 async def test_explicit_character_override(server_url, check_server_available):
     """Verify can't override bound character_id."""
     char_id = "test_bound_char"
-    async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
-        await client.join(character_id=char_id)
+    client = await create_client_with_character(server_url, char_id)
 
+    try:
         # Trying to use different character should fail
         with pytest.raises(ValueError, match="bound to character_id"):
             await client.move(to_sector=1, character_id="different_char")
+    finally:
+        await client.close()
 
 
 async def test_multiple_characters_single_client(server_url, check_server_available):
@@ -611,12 +636,14 @@ async def test_multiple_characters_single_client(server_url, check_server_availa
     char2 = "test_multi_char2"
 
     # Client bound to char1
-    async with AsyncGameClient(base_url=server_url, character_id=char1) as client:
-        await client.join(character_id=char1)
+    client = await create_client_with_character(server_url, char1)
 
+    try:
         # Can't use char2 with this client
         with pytest.raises(ValueError):
             await client.join(character_id=char2)
+    finally:
+        await client.close()
 
 
 async def test_character_mismatch_raises_error(server_url, check_server_available):
@@ -631,17 +658,19 @@ async def test_character_mismatch_raises_error(server_url, check_server_availabl
 async def test_character_id_in_all_requests(server_url, check_server_available):
     """Verify all requests include correct character_id."""
     char_id = "test_req_char_id"
-    async with AsyncGameClient(base_url=server_url, character_id=char_id) as client:
-        await client.join(character_id=char_id)
+    client = await create_client_with_character(server_url, char_id)
 
+    try:
         # All methods should accept and validate character_id
         await client.my_status(character_id=char_id)
         await client.move(to_sector=1, character_id=char_id)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
         # Using wrong ID should fail
         with pytest.raises(ValueError):
             await client.my_status(character_id="wrong_id")
+    finally:
+        await client.close()
 
 
 # =============================================================================
@@ -649,6 +678,7 @@ async def test_character_id_in_all_requests(server_url, check_server_available):
 # =============================================================================
 
 
+@pytest.mark.skipif(_supabase_mode_enabled(), reason="Supabase uses HTTP polling, not WebSocket")
 async def test_connect_on_enter(server_url, check_server_available):
     """Verify WebSocket connects in __aenter__."""
     char_id = "test_ctx_enter"
@@ -665,6 +695,7 @@ async def test_connect_on_enter(server_url, check_server_available):
         assert client._ws is not None
 
 
+@pytest.mark.skipif(_supabase_mode_enabled(), reason="Supabase uses HTTP polling, not WebSocket")
 async def test_disconnect_on_exit(server_url, check_server_available):
     """Verify WebSocket closes in __aexit__."""
     char_id = "test_ctx_exit"
@@ -678,6 +709,7 @@ async def test_disconnect_on_exit(server_url, check_server_available):
     # But we verified the context manager completed without errors
 
 
+@pytest.mark.skipif(_supabase_mode_enabled(), reason="Supabase requires pre-registered characters")
 async def test_cleanup_on_exception(server_url, check_server_available):
     """Verify resources cleaned even on error."""
     char_id = "test_ctx_exception"
