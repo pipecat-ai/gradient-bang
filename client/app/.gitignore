@@ -30,3 +30,6 @@ dev-dist
 # Fonts
 src/assets/fonts/*
 .vercel
+
+.yalc/
+yalc.lock

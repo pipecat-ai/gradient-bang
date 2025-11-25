@@ -185,7 +185,12 @@ declare global {
 
   type UIState = "idle" | "moving" | "combat" | "paused"
   type UIScreen = "self" | "messaging" | "trading" | "map" | "tasks" | "combat"
-  type UIModal = "settings" | "leaderboard" | "signup" | undefined
+  type UIModal =
+    | "settings"
+    | "leaderboard"
+    | "signup"
+    | "character_select"
+    | undefined
 
   // --- COMBAT
 
@@ -260,18 +265,27 @@ declare global {
     to_name?: string
     timestamp: string
   }
-  interface LeaderboardPlayer {
-    rank: number
-    character_id: string
+
+  interface LeaderboardWealth {
     name: string
     bank_credits: number
     ship_credits: number
-    ship_trade_in_value: number
-    ship_count: number
-    garrison_fighter_value: number
-    sectors_visited: number
-    exploration_percent: number
-    total_resources: number
+    cargo_value: number
+    ships_owned: number
+    ship_value: number
+    total_wealth: number
+  }
+
+  interface LeaderboardResponse {
+    wealth: LeaderboardWealth[]
+  }
+
+  interface CharacterSelectResponse {
+    character_id: string
+    name: string
+    created_at: string
+    last_active: string
+    is_npc: boolean
   }
 }
 

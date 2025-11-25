@@ -6,9 +6,11 @@
  * Supports routing to different bot endpoints via URL path.
  *
  * Endpoints:
- * - /sessions: POST only, requires character_id in body.character_id, verifies ownership (creates new session)
- * - /sessions/{id}/*: All HTTP methods supported, forwards entire path to bot service
- *   Examples: /sessions/{id}/api/offer, /sessions/{id}/status, etc.
+ * - /start: POST only, requires character_id in body.character_id, verifies ownership (creates new session)
+ * - /start/{id} and /start/{id}/*: All HTTP methods supported, proxies to bot `/sessions/{id}/*`
+ *   Examples:
+ *   - /start/{id}          -> BOT_START_URL base + /sessions/{id}
+ *   - /start/{id}/status   -> BOT_START_URL base + /sessions/{id}/status
  *
  * Optional: Adds BOT_START_API_KEY as Bearer token if configured.
  */
@@ -49,10 +51,7 @@ serve(async (req: Request): Promise<Response> => {
   // Check for required environment variable
   const botStartUrl = Deno.env.get("BOT_START_URL");
   if (!botStartUrl) {
-    console.error(
-      "sessions.config",
-      "BOT_START_URL environment variable not set"
-    );
+    console.error("start.config", "BOT_START_URL environment variable not set");
     return corsResponse(
       { success: false, error: "Server configuration error" },
       500
@@ -69,11 +68,11 @@ serve(async (req: Request): Promise<Response> => {
   const pathname = url.pathname;
 
   let action: string;
-  // Check if this is a session-specific request (has session ID after /sessions/)
-  // e.g., /sessions/{uuid}/api/offer
-  if (pathname.match(/\/sessions\/[^/]+\/.+/)) {
+  // Check if this is a session-specific request (has session ID after /start/)
+  // e.g., /start/{uuid} or /start/{uuid}/api/offer
+  if (pathname.match(/\/start\/[^/]+(\/.*)?$/)) {
     action = "proxy_session";
-  } else if (pathname.endsWith("/sessions") || pathname === "/") {
+  } else if (pathname.endsWith("/start") || pathname === "/") {
     // Creating a new session - requires character validation
     action = "create_session";
   } else {
@@ -101,7 +100,7 @@ serve(async (req: Request): Promise<Response> => {
   try {
     user = await getAuthenticatedUser(req);
   } catch (err) {
-    console.error("sessions.auth", err);
+    console.error("start.auth", err);
     return corsResponse(
       {
         success: false,
@@ -113,16 +112,16 @@ serve(async (req: Request): Promise<Response> => {
 
   // Apply rate limiting (per user)
   try {
-    await enforcePublicRateLimit(supabase, req, "sessions");
+    await enforcePublicRateLimit(supabase, req, "start");
   } catch (err) {
     if (err instanceof RateLimitError) {
-      console.warn("sessions.rate_limit", err.message);
+      console.warn("start.rate_limit", err.message);
       return corsResponse(
         { success: false, error: "Too many requests. Please try again later." },
         429
       );
     }
-    console.error("sessions.rate_limit", err);
+    console.error("start.rate_limit", err);
   }
 
   try {
@@ -133,7 +132,7 @@ serve(async (req: Request): Promise<Response> => {
         const body = await parseJsonRequest(req);
         requestData = body;
       } catch (err) {
-        console.error("sessions.parse_request", err);
+        console.error("start.parse_request", err);
         return corsResponse(
           { success: false, error: "Invalid request body" },
           400
@@ -174,7 +173,7 @@ serve(async (req: Request): Promise<Response> => {
         .maybeSingle();
 
       if (characterError) {
-        console.error("sessions.character_lookup", characterError);
+        console.error("start.character_lookup", characterError);
         return corsResponse(
           { success: false, error: "Failed to verify character ownership" },
           500
@@ -191,15 +190,17 @@ serve(async (req: Request): Promise<Response> => {
         );
       }
     } else if (action === "proxy_session") {
-      // Proxying to existing session - forward full path to bot
-      // e.g., /functions/v1/sessions/abc/api/offer -> http://bot/sessions/abc/api/offer
-      const pathMatch = pathname.match(/\/sessions\/.+$/);
+      // Proxying to existing session - forward as /sessions/{id} on bot
+      // e.g., /functions/v1/start/abc/api/offer -> http://bot/sessions/abc/api/offer
+      const pathMatch = pathname.match(/^\/start\/([^/]+)(\/.*)?$/);
       if (pathMatch) {
+        const sessionId = pathMatch[1];
+        const rest = pathMatch[2] ?? "";
         const baseUrl = botStartUrl.replace(/\/start$/, "");
-        botEndpoint = `${baseUrl}${pathMatch[0]}`;
+        botEndpoint = `${baseUrl}/sessions/${sessionId}${rest}`;
       } else {
         return corsResponse(
-          { success: false, error: "Invalid sessions path" },
+          { success: false, error: "Invalid start path" },
           400
         );
       }
@@ -232,7 +233,7 @@ serve(async (req: Request): Promise<Response> => {
 
       if (!botResponse.ok) {
         console.error(
-          "sessions.bot_request_failed",
+          "start.bot_request_failed",
           `Bot returned status ${botResponse.status} for action: ${action}`
         );
         return corsResponse(
@@ -241,7 +242,7 @@ serve(async (req: Request): Promise<Response> => {
         );
       }
     } catch (err) {
-      console.error("sessions.bot_request_error", err);
+      console.error("start.bot_request_error", err);
       return corsResponse(
         { success: false, error: "Failed to communicate with bot service" },
         502
@@ -251,20 +252,20 @@ serve(async (req: Request): Promise<Response> => {
     // Return exactly what the bot endpoint returns
     try {
       const botResponseData = await botResponse.json();
-      console.log("sessions.bot_request_success", {
+      console.log("start.bot_request_success", {
         action,
         data: botResponseData,
       });
       return corsResponse(botResponseData, botResponse.status);
     } catch (err) {
-      console.error("sessions.bot_response_parse_error", err);
+      console.error("start.bot_response_parse_error", err);
       return corsResponse(
         { success: false, error: "Invalid response from bot service" },
         502
       );
     }
   } catch (err) {
-    console.error("sessions.unhandled", err);
+    console.error("start.unhandled", err);
     return corsResponse(
       { success: false, error: "Internal server error" },
       500

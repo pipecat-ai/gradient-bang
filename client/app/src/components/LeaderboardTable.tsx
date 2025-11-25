@@ -1,5 +1,8 @@
+import { useState } from "react"
+
 import { MedalIcon } from "@phosphor-icons/react"
 
+import { Button } from "@/components/primitives/Button"
 import {
   Table,
   TableBody,
@@ -15,63 +18,93 @@ import { formatCurrency } from "@/utils/formatting"
 export const LeaderboardTable = ({
   leaderboardData,
 }: {
-  leaderboardData: LeaderboardPlayer[]
+  leaderboardData: LeaderboardResponse
 }) => {
-  const data = leaderboardData.sort((a, b) => a.rank - b.rank)
+  const [selectedTab, setSelectedTab] = useState("wealth")
+  const data = leaderboardData.wealth.sort(
+    (a, b) => a.total_wealth - b.total_wealth
+  )
 
   return (
-    <Table block className="text-xs">
-      <TableHeader block>
-        <TableRow>
-          <TableHead block className="w-8">
-            <MedalIcon size={20} />
-          </TableHead>
-          <TableCellSeparator />
-          <TableHead block className="w-full">
-            Player Name
-          </TableHead>
-          <TableHead block>
-            <TableHeadText>Net Worth</TableHeadText>
-          </TableHead>
-          <TableHead block>
-            <TableHeadText>Sector Discovery</TableHeadText>
-          </TableHead>
-          <TableHead block>
-            <TableHeadText>Total Resources</TableHeadText>
-          </TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {data.map((player, i) => (
-          <TableRow key={`character-${i}`} block>
-            <TableCell
-              block
-              inset
-              className="font-bold text-center border-r-transparent"
-            >
-              {player.rank}
-            </TableCell>
+    <>
+      <div className="flex flex-row gap-2">
+        <Button
+          variant={selectedTab === "wealth" ? "default" : "secondary"}
+          size="sm"
+          onClick={() => setSelectedTab("wealth")}
+        >
+          Wealth
+        </Button>
+        <Button
+          variant={selectedTab === "territory" ? "default" : "secondary"}
+          size="sm"
+          onClick={() => setSelectedTab("territory")}
+        >
+          Territory
+        </Button>
+        <Button
+          variant={selectedTab === "trading" ? "default" : "secondary"}
+          size="sm"
+          onClick={() => setSelectedTab("trading")}
+        >
+          Trading
+        </Button>
+        <Button
+          variant={selectedTab === "discovery" ? "default" : "secondary"}
+          size="sm"
+          onClick={() => setSelectedTab("discovery")}
+        >
+          Discovery
+        </Button>
+      </div>
+      <Table block className="text-xs">
+        <TableHeader block>
+          <TableRow>
+            <TableHead block className="w-8">
+              <MedalIcon size={20} />
+            </TableHead>
             <TableCellSeparator />
-            <TableCell block className="font-semibold">
-              {player.name}
-            </TableCell>
-            <TableCell block className="text-center">
-              {formatCurrency(
-                player.bank_credits +
-                  player.ship_credits +
-                  player.ship_trade_in_value +
-                  player.garrison_fighter_value
-              )}
-            </TableCell>
-            <TableCell block className="text-center">
-              {player.exploration_percent}%
-            </TableCell>
-            <TableCell block className="text-center">
-              {formatCurrency(player.total_resources)}
-            </TableCell>
+            <TableHead block className="w-full">
+              Player Name
+            </TableHead>
+            <TableHead block>
+              <TableHeadText>Ships Owned</TableHeadText>
+            </TableHead>
+            <TableHead block>
+              <TableHeadText>Ship Value</TableHeadText>
+            </TableHead>
+            <TableHead block>
+              <TableHeadText>Total Wealth</TableHeadText>
+            </TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {data.map((player, i) => (
+            <TableRow key={`character-${i}`} block>
+              <TableCell
+                block
+                inset
+                className="font-bold text-center border-r-transparent"
+              >
+                {player.rank}
+              </TableCell>
+              <TableCellSeparator />
+              <TableCell block className="font-semibold">
+                {player.name}
+              </TableCell>
+              <TableCell block className="text-center">
+                {player.ships_owned}
+              </TableCell>
+              <TableCell block className="text-center">
+                {formatCurrency(player.ship_value)}
+              </TableCell>
+              <TableCell block className="text-center">
+                {formatCurrency(player.total_wealth)}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </>
   )
 }

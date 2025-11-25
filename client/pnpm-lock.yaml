@@ -61,7 +61,7 @@ importers:
         specifier: ^1.4.1
         version: 1.4.1(@pipecat-ai/client-js@1.4.1)
       '@pipecat-ai/small-webrtc-transport':
-        specifier: ^1.7.2
+        specifier: 1.7.2
         version: 1.7.2(@pipecat-ai/client-js@1.4.1)
       '@pipecat-ai/voice-ui-kit':
         specifier: ^0.5.1-rc.5

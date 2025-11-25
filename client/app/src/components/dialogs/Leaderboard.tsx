@@ -1,45 +1,43 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState } from "react"
 
-import { AnimatePresence, motion } from "motion/react";
-import { Dialog } from "radix-ui";
+import { AnimatePresence, motion } from "motion/react"
+import { Dialog } from "radix-ui"
 
-import { Button } from "@/components/primitives/Button";
+import { Button } from "@/components/primitives/Button"
 import {
   Card,
   CardContent,
   CardFooter,
   CardHeader,
   CardTitle,
-} from "@/components/primitives/Card";
-import { Divider } from "@/components/primitives/Divider";
-import { ScrollArea } from "@/components/primitives/ScrollArea";
-import useGameStore from "@/stores/game";
+} from "@/components/primitives/Card"
+import { Divider } from "@/components/primitives/Divider"
+import { ScrollArea } from "@/components/primitives/ScrollArea"
+import useGameStore from "@/stores/game"
 
-import { LeaderboardTable } from "../LeaderboardTable";
+import { LeaderboardTable } from "../LeaderboardTable"
 
 const LEADERBOARD_URL =
-  import.meta.env.VITE_SERVER_URL ?? "http://localhost:8000";
+  (import.meta.env.VITE_SERVER_URL ?? "http://localhost:8000") +
+  (import.meta.env.VITE_SERVER_LEADERBOARD_ENDPOINT ?? "/leaderboard_resources")
 
 export const Leaderboard = () => {
-  const setActiveModal = useGameStore.use.setActiveModal();
-  const activeModal = useGameStore.use.activeModal?.();
-  const [leaderboardData, setLeaderboardData] = useState<LeaderboardPlayer[]>(
-    []
-  );
+  const setActiveModal = useGameStore.use.setActiveModal()
+  const activeModal = useGameStore.use.activeModal?.()
+  const [leaderboardData, setLeaderboardData] =
+    useState<LeaderboardResponse | null>(null)
 
   useEffect(() => {
-    if (activeModal !== "leaderboard") return;
+    if (activeModal !== "leaderboard") return
 
     const fetchLeaderboard = async () => {
-      const response = await fetch(
-        `${LEADERBOARD_URL}/leaderboard/resources?force_refresh=true`
-      );
-      const data = await response.json();
-      setLeaderboardData(data.players);
-      console.log("[LEADERBOARD] Fetched leaderboard data:", data);
-    };
-    fetchLeaderboard();
-  }, [activeModal]);
+      const response = await fetch(`${LEADERBOARD_URL}`)
+      const data = await response.json()
+      setLeaderboardData(data)
+      console.log("[LEADERBOARD] Fetched leaderboard data:", data)
+    }
+    fetchLeaderboard()
+  }, [activeModal])
 
   return (
     <Dialog.Root
@@ -79,7 +77,7 @@ export const Leaderboard = () => {
                         <CardTitle className="heading-2">Leaderboard</CardTitle>
                       </CardHeader>
                       <CardContent className="h-full">
-                        {leaderboardData.length > 0 ? (
+                        {leaderboardData ? (
                           <ScrollArea className="w-full h-full">
                             <LeaderboardTable
                               leaderboardData={leaderboardData}
@@ -114,5 +112,5 @@ export const Leaderboard = () => {
         </AnimatePresence>
       </Dialog.Portal>
     </Dialog.Root>
-  );
-};
+  )
+}

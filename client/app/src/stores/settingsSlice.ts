@@ -92,7 +92,7 @@ export const createSettingsSlice: StateCreator<SettingsSlice> = (set, get) => ({
       })
     )
   },
-  getBotStartParams: (characterId: string): APIRequest => {
+  getBotStartParams: (characterId: string, accessToken: string): APIRequest => {
     const params = get().botConfig.startBotParams
     const transportType = get().botConfig.transportType
     const requestData = {
@@ -116,6 +116,9 @@ export const createSettingsSlice: StateCreator<SettingsSlice> = (set, get) => ({
       requestData: {
         ...requestData,
       },
+      headers: new Headers({
+        Authorization: `Bearer ${accessToken}`,
+      }),
     }
   },
 })
