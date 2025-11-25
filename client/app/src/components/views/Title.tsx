@@ -43,11 +43,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
         throw new Error("Failed to sign in")
       }
       const data = await response.json()
-      if (
-        data.success &&
-        data.session.access_token &&
-        data.characters.length > 0
-      ) {
+      if (data.success && data.session.access_token) {
         setError(false)
         setCharacters(data.characters)
         setAccessToken(data.session.access_token)

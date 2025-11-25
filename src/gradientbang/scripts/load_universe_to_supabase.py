@@ -24,13 +24,11 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict
 
-from dotenv import load_dotenv
 from supabase import create_client, Client
 
 # Load environment variables
-load_dotenv()
 
 BATCH_SIZE = 500  # Rows per batch insert
 

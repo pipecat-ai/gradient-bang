@@ -1,6 +1,6 @@
 agent_name = "gradient-bang-bot"
 image = "your_username/gradient-bang-bot:latest"
-secret_set = "gradient-bang-secrets"
+secret_set = "gb-bot-secrets"
 agent_profile = "agent-1x"
 
 # RECOMMENDED: Set an image pull secret:

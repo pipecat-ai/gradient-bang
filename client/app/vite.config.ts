@@ -10,21 +10,6 @@ import { version } from "./package.json"
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => ({
-  server: {
-    allowedHosts: true,
-    proxy: {
-      "/leaderboard": {
-        // Gradient Bang game server URL (for local dev)
-        target: "http://localhost:8000",
-        changeOrigin: true,
-      },
-      "/start": {
-        // Gradient Bang Pipecat bot URL (for local dev)
-        target: "http://0.0.0.0:7860",
-        changeOrigin: true,
-      },
-    },
-  },
   define: {
     "import.meta.env.VITE_APP_VERSION": JSON.stringify(version),
   },
