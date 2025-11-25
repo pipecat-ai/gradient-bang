@@ -124,22 +124,26 @@ serve(async (req: Request): Promise<Response> => {
         await Promise.all([
           supabase
             .from("leaderboard_wealth")
-            .select("*")
+            .select(
+              "name, bank_credits, ship_credits, cargo_value, ships_owned, ship_value, total_wealth"
+            )
             .order("total_wealth", { ascending: false })
             .limit(100),
           supabase
             .from("leaderboard_territory")
-            .select("*")
+            .select(
+              "name, sectors_controlled, total_fighters_deployed, total_toll_collected"
+            )
             .order("sectors_controlled", { ascending: false })
             .limit(100),
           supabase
             .from("leaderboard_trading")
-            .select("*")
+            .select("name, total_trades, total_trade_volume, ports_visited")
             .order("total_trade_volume", { ascending: false })
             .limit(100),
           supabase
             .from("leaderboard_exploration")
-            .select("*")
+            .select("name, sectors_visited, first_visit")
             .order("sectors_visited", { ascending: false })
             .limit(100),
         ]);
@@ -184,10 +188,10 @@ serve(async (req: Request): Promise<Response> => {
         .from("leaderboard_cache")
         .upsert({
           id: 1,
-          wealth: wealthResult.data,
-          territory: territoryResult.data,
-          trading: tradingResult.data,
-          exploration: explorationResult.data,
+          wealth: wealthResult.data ?? [],
+          territory: territoryResult.data ?? [],
+          trading: tradingResult.data ?? [],
+          exploration: explorationResult.data ?? [],
           updated_at: new Date().toISOString(),
         });
 
@@ -197,19 +201,19 @@ serve(async (req: Request): Promise<Response> => {
       }
 
       return successResponse({
-        wealth: wealthResult.data,
-        territory: territoryResult.data,
-        trading: tradingResult.data,
-        exploration: explorationResult.data,
+        wealth: wealthResult.data ?? [],
+        territory: territoryResult.data ?? [],
+        trading: tradingResult.data ?? [],
+        exploration: explorationResult.data ?? [],
         cached: false,
       });
     } else {
       // Return cached data
       return successResponse({
-        wealth: cached.wealth,
-        territory: cached.territory,
-        trading: cached.trading,
-        exploration: cached.exploration,
+        wealth: cached.wealth ?? [],
+        territory: cached.territory ?? [],
+        trading: cached.trading ?? [],
+        exploration: cached.exploration ?? [],
         cached: true,
         cache_age_ms: Date.now() - new Date(cached.updated_at).getTime(),
       });
