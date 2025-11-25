@@ -120,7 +120,7 @@ uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data/
 Run Supabase edge functions process (leave running)
 
 ```bash
-npx supabase functions serve --no-verify-jwt --workdir deployment
+npx supabase functions serve --no-verify-jwt --workdir deployment --env-file .env.supabase
 ```
 
 #### Create user account:
