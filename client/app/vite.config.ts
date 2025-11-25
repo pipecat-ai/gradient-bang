@@ -2,6 +2,7 @@ import path from "path"
 import { visualizer } from "rollup-plugin-visualizer"
 import PreprocessorDirectives from "unplugin-preprocessor-directives/vite"
 import { defineConfig, type PluginOption } from "vite"
+import { varlockVitePlugin } from '@varlock/vite-integration'
 import { VitePWA } from "vite-plugin-pwa"
 import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
@@ -29,6 +30,7 @@ export default defineConfig(({ mode }) => ({
     "import.meta.env.VITE_APP_VERSION": JSON.stringify(version),
   },
   plugins: [
+    varlockVitePlugin(),
     PreprocessorDirectives(),
     react(),
     tailwindcss(),
