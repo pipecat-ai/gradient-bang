@@ -183,6 +183,8 @@ uv sync --all-groups
 Run agent process:
 
 ```bash
+set -a && source .env.supabase && set +a
+
 uv run bot
 ```
 
