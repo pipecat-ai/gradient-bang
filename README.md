@@ -198,3 +198,138 @@ cd client/
 pnpm i
 pnpm run dev
 ```
+
+## Deployment 
+
+#### Link remote Supabase project
+
+```bash
+npx supabase link --workdir deployment/
+```
+
+#### Create `.env.cloud environment
+
+Note: these can be obtained via `npx supabase projects api-keys`
+
+```bash
+SUPABASE_URL=...
+SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+SUPABASE_DB_URL=...
+EDGE_API_TOKEN=super-secret-prod-token
+EDGE_FUNCTIONS_URL=...
+EDGE_JWT_SECRET=super-secret-jwt-token-with-at-least-32-characters-long
+```
+
+Load env into terminal:
+
+```bash
+set -a && source .env.cloud && set +a
+```
+
+#### Push database
+
+```bash
+npx supabase db push --workdir deployment/ --linked
+```
+
+Add world data
+
+```bash
+uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data/
+```
+
+#### Deploy edge functions
+
+```bash
+npx supabase functions deploy --workdir deployment/ --no-verify-jwt
+```
+
+Add required secrets
+
+```bash
+npx supabase secrets set --env-file .env.cloud
+```
+
+Note: we will need to add `BOT_START_START_URL` and `BOT_START_API_KEY` later
+
+#### Deploy bot to Pipecat Cloud
+
+Create `.env.bot`
+
+```bash
+DEEPGRAM_API_KEY=...
+CARTESIA_API_KEY=...
+GOOGLE_API_KEY=...
+SUPABASE_URL=https://{SUPABASE_PROJECT_ID}.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=...
+# Optional:
+TOKEN_USAGE_LOG=logs/token_usage.csv
+BOT_USE_KRISP=1
+```
+
+Create a new secret set on Pipecat Cloud:
+
+```bash
+pipecat cloud secrets set gb-bot-secrets --file .env.bot
+```
+
+Build and deploy bot 
+
+Note: create image pull credentials if publishing to a private repository
+
+```bash
+docker build -f deployment/Dockerfile.bot -t gb-bot:latest .
+docker push gb-bot:latest
+
+cd deployment/
+pipecat cloud deploy 
+# ... or if public
+# pipecat cloud deploy --no-credentials
+```
+
+#### Update edge functions with API Key and Start URL
+
+Create and note down Public API Key
+
+```bash
+pipecat cloud organizations keys create
+```
+
+Update `.env.cloud` with additional bot envs:
+
+```bash
+SUPABASE_URL=...
+SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+SUPABASE_DB_URL=...
+EDGE_API_TOKEN=...
+EDGE_FUNCTIONS_URL=...
+EDGE_JWT_SECRET=...
+# Add these
+BOT_START_URL=https://api.pipecat.daily.co/v1/public/{AGENT_NAME}/start
+BOT_START_API_KEY=...
+```
+
+Apply to edge functions
+
+```bash
+npx supabase secrets set --env-file .env.cloud
+```
+
+#### Point client to your production environment
+
+```bash
+touch client/app/.env
+
+VITE_SERVER_URL=https://{SUPABASE_PROJECT_ID}.supabase.co/functions/v1
+VITE_PIPECAT_TRANSPORT=daily
+```
+
+Run the client
+
+```bash
+cd client/
+
+pnpm run dev
+```
