@@ -1,0 +1,124 @@
+{
+  "panels": [
+    /* SELF - Player, Ship, Character Misc */
+    {
+      "id": "player_info",
+      "title": "Character",
+      "description": "Player identity: name, dates, accolades, achievements, friends list",
+      "tags": ["character", "status", "who am i", "profile", "friends"]
+    },
+    {
+      "id": "player_ship_info",
+      "title": "My Ship",
+      "description": "Active ship stats: warp capability, cargo hold, fighters, ship name",
+      "tags": ["my ship", "ship stats", "cargo capacity", "fighters", "warp"]
+    },
+    {
+      "id": "player_wealth",
+      "title": "Wealth",
+      "description": "Financial status: credits on ship, bank balance, ship portfolio value, cargo value, total net worth",
+      "tags": ["wealth", "credits", "money", "bank", "net worth", "finances"]
+    },
+    {
+      "id": "player_achievements",
+      "title": "Achievements",
+      "description": "Achievement tracking: title, description, progress percentage, completion date",
+      "tags": ["achievements", "progress", "unlocked", "completed", "milestones"]
+    },
+    /* MAP - Sector Map, Movement History */
+    {
+      "id": "sector_map",
+      "title": "Sector Map",
+      "description": "Universe navigation: displays sectors within 12 hops, shows visited status, ports, lanes. Centers on current location. Highlights active course plots. Primary navigation tool.",
+      "tags": ["map", "sectors", "universe", "where am i", "navigation", "course plot", "route", "plotting", "find sector", "get to"]
+    },
+    {
+      "id": "movement_history",
+      "title": "Movement History",
+      "description": "Session travel log: origin sector, destination sector, timestamp, port presence",
+      "tags": ["movement log", "travel history", "where been", "past visits", "when visited"]
+    },
+    /* TRADING - Port Info, Port Trade History, All Trade History */
+    {
+      "id": "port_info",
+      "title": "Port Info",
+      "description": "Current sector port data (if present): class, code, buy/sell commodities, stock levels, prices",
+      "tags": ["port", "current port", "commodities", "buy sell", "prices", "stock", "trading"]
+    },
+    {
+      "id": "port_trade_history",
+      "title": "Port Trade History",
+      "description": "Local port transaction log: commodity, quantity, price, timestamp, resulting stock level",
+      "tags": ["trades here", "local trades", "prices paid here", "stock changes here", "port history"]
+    },
+    {
+      "id": "all_trade_history",
+      "title": "Trade History",
+      "description": "Universal trade log: all port transactions with commodity, quantity, price, timestamp, stock levels",
+      "tags": ["all trades", "global trades", "price comparison", "cheapest", "most expensive", "best deals"]
+    },
+    /* TASKS */
+    {
+      "id": "task_history",
+      "title": "Task History",
+      "description": "Task execution log: start time, completion status, summary, player state before/after. Shows current task status.",
+      "tags": ["tasks", "task status", "completed tasks", "task log", "what did i do", "task results"]
+    },
+    {
+      "id": "task_output",
+      "title": "Task Output",
+      "description": "Task response details: type, summary, timestamp. Filterable and sortable.",
+      "tags": ["task output", "task details", "task responses", "task messages", "what happened"]
+    },
+    {
+      "id": "activity_log",
+      "title": "Activity Log",
+      "description": "Session activity feed: all player actions, incoming messages, credit transfers from other players",
+      "tags": ["activity", "actions", "messages", "transfers", "events", "what happened", "notifications"]
+    }
+    /* TODO: Messages */
+    /* TODO: Combat */
+  ],
+  "screens": [
+    {
+      "id": "status",
+      "title": "Character & Status",
+      "description": "Player overview: character, ships, active ship, cargo, wealth, achievements",
+      "panels": ["player_info", "player_ship_info", "player_wealth", "player_achievements"]
+    },
+    {
+      "id": "map",
+      "title": "Map",
+      "description": "Navigation: current location, adjacent sectors, course plotting, movement history",
+      "panels": ["sector_map", "movement_history"]
+    },
+    {
+      "id": "trading",
+      "title": "Trading",
+      "description": "Commerce: current port details, local and universal trade history",
+      "panels": ["port_info", "port_trade_history", "all_trade_history"]
+    },
+    {
+      "id": "tasks",
+      "title": "Tasks",
+      "description": "Task management: execution history, output details, session activity",
+      "panels": ["task_history", "task_output", "activity_log"]
+    }
+  ],
+  "game_objects": [
+    {
+      "type": "port",
+      "description": "Trading port in sector"
+    },
+    {
+      "type": "player",
+      "description": "Other player in sector with name and ship",
+      "requires_id": true
+    },
+    {
+      "type": "salvage",
+      "description": "Salvageable cargo with contents, creator, timestamp",
+      "requires_id": true
+    }
+  ]
+}
