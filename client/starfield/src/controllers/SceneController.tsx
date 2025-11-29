@@ -29,6 +29,93 @@ export function SceneController() {
   const completingRef = useRef(false)
   const processNextInQueueRef = useRef<(() => void) | null>(null)
 
+  // Track timeouts for cleanup on unmount
+  const timeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
+
+  // Warp cooldown timeout tracking
+  const warpCooldownTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  )
+
+  // Helper to track timeouts and prevent memory leaks
+  const setTrackedTimeout = useCallback(
+    (callback: () => void, delay: number) => {
+      const timeout = setTimeout(() => {
+        timeoutsRef.current.delete(timeout)
+        callback()
+      }, delay)
+      timeoutsRef.current.add(timeout)
+      return timeout
+    },
+    []
+  )
+
+  // Start warp cooldown timer (or skip if WARP_COOLDOWN is 0)
+  const startWarpCooldown = useCallback(() => {
+    if (SCENE_TRANSITION_TIMING.WARP_COOLDOWN <= 0) return
+
+    console.debug(
+      `[SCENE CONTROLLER] Starting warp cooldown for ${SCENE_TRANSITION_TIMING.WARP_COOLDOWN}ms`
+    )
+
+    const state = useGameStore.getState()
+    state.setIsWarpCooldownActive(true)
+
+    // Clear any existing cooldown
+    if (warpCooldownTimeoutRef.current) {
+      clearTimeout(warpCooldownTimeoutRef.current)
+    }
+
+    // Start new cooldown
+    warpCooldownTimeoutRef.current = setTrackedTimeout(() => {
+      console.debug(
+        "[SCENE CONTROLLER] Warp cooldown expired, animations enabled"
+      )
+      const updatedState = useGameStore.getState()
+      updatedState.setIsWarpCooldownActive(false)
+      warpCooldownTimeoutRef.current = null
+    }, SCENE_TRANSITION_TIMING.WARP_COOLDOWN)
+  }, [setTrackedTimeout])
+
+  // Reset warp cooldown timer when new scene is enqueued
+  const resetWarpCooldown = useCallback(() => {
+    if (SCENE_TRANSITION_TIMING.WARP_COOLDOWN <= 0) return
+
+    const state = useGameStore.getState()
+    if (!state.isWarpCooldownActive) return
+
+    console.debug("[SCENE CONTROLLER] Resetting warp cooldown timer")
+
+    // Clear existing cooldown
+    if (warpCooldownTimeoutRef.current) {
+      clearTimeout(warpCooldownTimeoutRef.current)
+    }
+
+    // Start fresh cooldown
+    warpCooldownTimeoutRef.current = setTrackedTimeout(() => {
+      console.debug(
+        "[SCENE CONTROLLER] Warp cooldown expired, animations enabled"
+      )
+      const updatedState = useGameStore.getState()
+      updatedState.setIsWarpCooldownActive(false)
+      warpCooldownTimeoutRef.current = null
+    }, SCENE_TRANSITION_TIMING.WARP_COOLDOWN)
+  }, [setTrackedTimeout])
+
+  // Cleanup all pending timeouts on unmount
+  useEffect(() => {
+    const timeouts = timeoutsRef.current
+    return () => {
+      timeouts.forEach(clearTimeout)
+      timeouts.clear()
+
+      // Clean up cooldown timeout
+      if (warpCooldownTimeoutRef.current) {
+        clearTimeout(warpCooldownTimeoutRef.current)
+      }
+    }
+  }, [])
+
   // Apply scene changes (no guards, just applies the scene)
   const applySceneChanges = useCallback(() => {
     const state = useGameStore.getState()
@@ -65,8 +152,17 @@ export function SceneController() {
 
     const nextQueuedScene = state.sceneQueue[0]
 
-    // Check if this scene should bypass animation
-    if (nextQueuedScene.options?.bypassAnimation) {
+    // Force bypass animation if in warp cooldown or explicitly requested
+    const shouldBypass =
+      nextQueuedScene.options?.bypassAnimation || state.isWarpCooldownActive
+
+    if (shouldBypass) {
+      if (state.isWarpCooldownActive) {
+        console.debug(
+          "[SCENE CONTROLLER] Forcing bypass due to warp cooldown:",
+          nextQueuedScene.scene.id
+        )
+      }
       console.debug(
         "[SCENE CONTROLLER] Processing scene without animation:",
         nextQueuedScene.scene.id
@@ -75,11 +171,15 @@ export function SceneController() {
       // Mark as changing to prevent other scenes from starting immediately
       state.setIsSceneChanging(true)
 
+      // Reset state flags for new scene
+      sceneAppliedRef.current = false
+      completingRef.current = false
+
       // Apply the scene directly
       applySceneChanges()
 
       // Wait for the pause duration before processing next
-      setTimeout(() => {
+      setTrackedTimeout(() => {
         console.debug(
           "[SCENE CONTROLLER] Instant scene pause complete, checking queue"
         )
@@ -102,11 +202,14 @@ export function SceneController() {
 
       // Start warp animation for this scene
       state.setIsSceneChanging(true)
+
+      // Reset state flags for new scene
       sceneAppliedRef.current = false
       completingRef.current = false
+
       startWarp()
     }
-  }, [startWarp, applySceneChanges])
+  }, [startWarp, applySceneChanges, setTrackedTimeout])
 
   // Keep ref updated
   useEffect(() => {
@@ -118,13 +221,16 @@ export function SceneController() {
     console.debug("[SCENE CONTROLLER] Completing scene transition")
     const state = useGameStore.getState()
 
+    // Start warp cooldown after completing a warp animation
+    startWarpCooldown()
+
     // Check if there are more scenes to process
     if (state.sceneQueue.length > 0) {
       console.debug(
         `[SCENE CONTROLLER] More scenes queued, waiting ${SCENE_TRANSITION_TIMING.POST_WARP_PAUSE}ms before next...`
       )
       // Keep isSceneChanging true during the pause to block new scenes
-      setTimeout(() => {
+      setTrackedTimeout(() => {
         console.debug(
           "[SCENE CONTROLLER] Post-warp pause complete, processing next scene"
         )
@@ -136,13 +242,16 @@ export function SceneController() {
       // No more scenes, mark as complete immediately
       state.setIsSceneChanging(false)
     }
-  }, [])
+  }, [setTrackedTimeout, startWarpCooldown])
 
   // Orchestration logic: enqueue scene
   const enqueueScene = useCallback(
     (scene: Scene, options?: SceneChangeOptions) => {
       console.debug("[SCENE CONTROLLER] Enqueuing scene:", scene.id, options)
       const state = useGameStore.getState()
+
+      // Reset warp cooldown timer when new scene is added to queue
+      resetWarpCooldown()
 
       // Check if this would be a duplicate
       // Prevent same scene from being enqueued if it's currently active or last in queue
@@ -176,7 +285,7 @@ export function SceneController() {
         )
       }
     },
-    [processNextInQueue, isWarping]
+    [processNextInQueue, isWarping, resetWarpCooldown]
   )
 
   // Watch warp progress - apply scene at peak
@@ -189,7 +298,7 @@ export function SceneController() {
         applySceneChanges()
 
         // TODO: Replace timeout with component ready check
-        setTimeout(() => {
+        setTrackedTimeout(() => {
           console.debug(
             "[SCENE CONTROLLER] Components settled, starting warp exit"
           )

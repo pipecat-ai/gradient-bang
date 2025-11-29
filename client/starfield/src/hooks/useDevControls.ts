@@ -25,6 +25,11 @@ export const useDevControls = ({
   const triggerShockwave = useAnimationStore((state) => state.triggerShockwave)
   const sceneQueueLength = useGameStore((state) => state.sceneQueue.length)
   const isSceneChanging = useGameStore((state) => state.isSceneChanging)
+  const currentSceneId = useGameStore((state) => state.currentScene?.id)
+  const isWarpCooldownActive = useGameStore(
+    (state) => state.isWarpCooldownActive
+  )
+
   const { changeScene } = useSceneChange()
 
   const logSceneConfig = () => {
@@ -63,6 +68,16 @@ export const useDevControls = ({
           value: isSceneChanging.toString(),
           editable: false,
           label: "Scene Changing",
+        },
+        sceneId: {
+          value: currentSceneId?.toString() ?? "",
+          editable: false,
+          label: "Current Scene ID",
+        },
+        warpCooldownActive: {
+          value: isWarpCooldownActive ? "Active" : "Inactive",
+          editable: false,
+          label: "Warp Cooldown",
         },
         ["Generate Random Scene"]: button(() => {
           changeScene({
@@ -183,8 +198,16 @@ export const useDevControls = ({
     _setSceneControls({
       sceneQueueLength: sceneQueueLength.toString(),
       sceneChanging: isSceneChanging.toString(),
+      sceneId: currentSceneId?.toString() ?? "",
+      warpCooldownActive: isWarpCooldownActive ? "Active" : "Inactive",
     })
-  }, [sceneQueueLength, isSceneChanging, _setSceneControls])
+  }, [
+    sceneQueueLength,
+    isSceneChanging,
+    currentSceneId,
+    isWarpCooldownActive,
+    _setSceneControls,
+  ])
 
   return { dpr, setPerformance }
 }

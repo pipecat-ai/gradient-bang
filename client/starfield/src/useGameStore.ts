@@ -44,6 +44,8 @@ interface AppState {
   // Scene Transition
   isSceneChanging: boolean
   setIsSceneChanging: (changing: boolean) => void
+  isWarpCooldownActive: boolean
+  setIsWarpCooldownActive: (active: boolean) => void
 
   // Scene Queue
   sceneQueue: QueuedScene[]
@@ -123,6 +125,13 @@ export const useGameStore = create<AppState>(
       set(
         produce((draft) => {
           draft.isSceneChanging = changing
+        })
+      ),
+    isWarpCooldownActive: false,
+    setIsWarpCooldownActive: (active: boolean) =>
+      set(
+        produce((draft) => {
+          draft.isWarpCooldownActive = active
         })
       ),
 
