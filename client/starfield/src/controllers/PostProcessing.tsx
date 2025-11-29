@@ -33,6 +33,8 @@ export const PostProcessing = () => {
   // Composer instance
   const composerRef = useRef<EffectComposer | null>(null)
 
+  const isSceneChanging = useGameStore((state) => state.isSceneChanging)
+
   // Effect instances - updated in useFrame for animation, rebuilt on config changes
   const bloomEffectRef = useRef<BloomEffect | null>(null)
   const vignetteEffectRef = useRef<VignetteEffect | null>(null)
@@ -760,7 +762,7 @@ export const PostProcessing = () => {
       } else {
         // Ensure values are set to base values when not warping
         ditheringEffect.uniforms.get("gridSize")!.value =
-          ppUniforms.ditheringGridSize
+          !warp.isWarping && isSceneChanging ? 6 : ppUniforms.ditheringGridSize
         ditheringEffect.uniforms.get("pixelSizeRatio")!.value =
           ppUniforms.ditheringPixelSizeRatio
       }

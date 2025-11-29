@@ -37,6 +37,7 @@ export interface StarfieldProps extends StarfieldBaseProps {
   onStop?: () => void
   onCreated?: () => void
   onUnsupported?: () => void
+  onWarpAnimationStart?: () => void
   generateInitialScene?: boolean
 }
 
@@ -141,12 +142,25 @@ export const Starfield = ({
   onStop,
   onCreated,
   onUnsupported,
+  onWarpAnimationStart,
   ...props
 }: StarfieldProps) => {
-  const callbacksRef = useRef({ onStart, onStop, onCreated, onUnsupported })
+  const callbacksRef = useRef({
+    onStart,
+    onStop,
+    onCreated,
+    onUnsupported,
+    onWarpAnimationStart,
+  })
 
   useLayoutEffect(() => {
-    callbacksRef.current = { onStart, onStop, onCreated, onUnsupported }
+    callbacksRef.current = {
+      onStart,
+      onStop,
+      onCreated,
+      onUnsupported,
+      onWarpAnimationStart,
+    }
   })
 
   // Only set up callbacks once
@@ -158,6 +172,7 @@ export const Starfield = ({
       onStart: () => getCallbacks().onStart?.(),
       onStop: () => getCallbacks().onStop?.(),
       onUnsupported: () => getCallbacks().onUnsupported?.(),
+      onWarpAnimationStart: () => getCallbacks().onWarpAnimationStart?.(),
     })
   }, [])
 

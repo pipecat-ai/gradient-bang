@@ -100,6 +100,10 @@ export function CameraShakeController({
       startTimeRef.current = performance.now()
       shakeTimeRef.current = 0 // Reset shake animation time
       invalidate() // Kick off the render loop
+    } else if (isShaking && stateRef.current === "settling") {
+      // If shake is requested again while settling, immediately go back to active
+      stateRef.current = "active"
+      invalidate()
     } else if (!isShaking && stateRef.current === "active") {
       stateRef.current = "settling"
       startTimeRef.current = performance.now()

@@ -19,10 +19,10 @@ export const defaultProfile: StarfieldConfig = {
   hyperspaceDuration: 1000,
   hyperspaceCooldown: 10000,
   hyerpspaceUniforms: {
-    vignetteAmount: 0.75,
+    vignetteAmount: 0.5,
     vignetteOffset: 1,
     cameraFov: 165,
-    bloomIntensity: 50,
+    bloomIntensity: 20,
     bloomRadius: 1,
   },
   shakeIntensity: 1,

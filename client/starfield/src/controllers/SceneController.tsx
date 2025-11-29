@@ -25,6 +25,9 @@ export function SceneController() {
   // Warp animation
   const { progress: warpProgress, isWarping } = useWarpAnimation()
   const startWarp = useAnimationStore((state) => state.startWarp)
+  const onWarpAnimationStart = useCallbackStore(
+    (state) => state.onWarpAnimationStart
+  )
   const stopWarp = useAnimationStore((state) => state.stopWarp)
   const sceneAppliedRef = useRef(false)
   const completingRef = useRef(false)
@@ -117,6 +120,17 @@ export function SceneController() {
     }
   }, [])
 
+  // Automatically manage shake state: on during all scene changes
+  useEffect(() => {
+    if (isSceneChanging) {
+      // Scene is changing - shake should be active for all transitions
+      setIsShaking(true)
+    } else {
+      // No scene change in progress - shake should be off
+      setIsShaking(false)
+    }
+  }, [isSceneChanging, setIsShaking])
+
   // Apply scene changes (no guards, just applies the scene)
   const applySceneChanges = useCallback(() => {
     const state = useGameStore.getState()
@@ -176,9 +190,6 @@ export function SceneController() {
       sceneAppliedRef.current = false
       completingRef.current = false
 
-      // Start shaking effect
-      setIsShaking(true)
-
       // Wait before applying scene changes (gives shaking time to be visible)
       setTrackedTimeout(() => {
         console.debug(
@@ -202,8 +213,6 @@ export function SceneController() {
               "[SCENE CONTROLLER] Processing next queued scene after instant transition"
             )
             processNextInQueueRef.current?.()
-          } else {
-            setIsShaking(false)
           }
         }, SCENE_TRANSITION_TIMING.POST_INSTANT_PAUSE)
       }, SCENE_TRANSITION_TIMING.PRE_INSTANT_DELAY)
@@ -220,12 +229,10 @@ export function SceneController() {
       sceneAppliedRef.current = false
       completingRef.current = false
 
-      // Ensure shaking is off for warp animations
-      setIsShaking(false)
-
       startWarp()
+      onWarpAnimationStart()
     }
-  }, [startWarp, applySceneChanges, setTrackedTimeout, setIsShaking])
+  }, [startWarp, applySceneChanges, setTrackedTimeout, onWarpAnimationStart])
 
   // Keep ref updated
   useEffect(() => {
@@ -257,9 +264,8 @@ export function SceneController() {
     } else {
       // No more scenes, mark as complete immediately
       state.setIsSceneChanging(false)
-      setIsShaking(false)
     }
-  }, [setTrackedTimeout, startWarpCooldown, setIsShaking])
+  }, [setTrackedTimeout, startWarpCooldown])
 
   // Orchestration logic: enqueue scene
   const enqueueScene = useCallback(

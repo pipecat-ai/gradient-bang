@@ -8,6 +8,7 @@ interface CallbackStore {
   onStop: () => void
   onUnsupported: () => void
   enqueueScene: (scene: Scene, options?: SceneChangeOptions) => void
+  onWarpAnimationStart: () => void
 }
 
 export const useCallbackStore = create<CallbackStore>((set) => ({
@@ -19,4 +20,7 @@ export const useCallbackStore = create<CallbackStore>((set) => ({
   setOnCreated: (fn: () => void) => set({ onCreated: fn }),
   setOnStart: (fn: () => void) => set({ onStart: fn }),
   setOnStop: (fn: () => void) => set({ onStop: fn }),
+  setOnWarpAnimationStart: (fn: () => void) =>
+    set({ onWarpAnimationStart: fn }),
+  onWarpAnimationStart: () => {},
 }))

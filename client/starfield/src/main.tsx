@@ -10,6 +10,7 @@ createRoot(document.getElementById("root")!).render(
     <Starfield
       onCreated={() => console.log("Starfield created")}
       onUnsupported={() => console.log("Starfield unsupported")}
+      onWarpAnimationStart={() => console.log("Warp animation started")}
       config={{ planet: { scale: 100 } }}
     />
   </StrictMode>
