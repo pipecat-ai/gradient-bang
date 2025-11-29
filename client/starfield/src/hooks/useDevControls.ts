@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react"
-import { button, folder, levaStore, useControls } from "leva"
+import { button, folder, useControls } from "leva"
 
 import { getPaletteNames } from "@/colors"
 import { PANEL_ORDERING } from "@/constants"
@@ -29,9 +29,9 @@ export const useDevControls = ({
   const logSceneConfig = () => {
     // We combine the leva state with our starfield state so any changes
     // made are reflected in the output
-    const levaState = levaStore.getData()
+    //const levaState = levaStore.getData()
 
-    console.log("Config", useGameStore.getState().starfieldConfig, levaState)
+    console.log("Config", useGameStore.getState().starfieldConfig) //, levaState)
   }
 
   const initialDPRValue = useMemo(() => {
