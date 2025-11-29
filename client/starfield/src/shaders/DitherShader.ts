@@ -1,7 +1,4 @@
 /**
- * Dithering shader implementation
- * Applies a dithering effect to the rendered scene
- *
  * Credits:
  * Original dithering pattern: https://www.shadertoy.com/view/ltSSzW
  */

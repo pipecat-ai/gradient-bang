@@ -1,9 +1,6 @@
 import { useRef } from "react"
 import { easings } from "@react-spring/three"
-import {
-  CameraControls as CameraControlsImpl,
-  CameraShake,
-} from "@react-three/drei"
+import { CameraControls as CameraControlsImpl } from "@react-three/drei"
 import { useFrame, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import * as THREE from "three"
@@ -18,15 +15,16 @@ import { useGameStore } from "@/useGameStore"
 export function CameraController() {
   const cameraControlsRef = useRef<CameraControlsImpl>(null)
   const gameObjects = useGameStore((state) => state.positionedObjects)
-  const { invalidate } = useThree()
   //const [, setCurrentTarget] = useState<THREE.Vector3 | null>(null)
   const { cameraBaseFov, hyerpspaceUniforms } = useGameStore(
     (state) => state.starfieldConfig
   )
+  const { invalidate } = useThree()
   const warp = useWarpAnimation()
 
-  const animationDelay = 0
-  const epsilon = 0.05
+  const ANIMATION_DELAY = 0
+  const EPSILON = 0.05
+  const POST_PROCESSING_ENABLED = true
 
   const config = useControls(
     {
@@ -67,11 +65,11 @@ export function CameraController() {
     [gameObjects]
   )
 
-  useFrame(({ camera }) => {
+  useFrame(({ camera, gl, scene }) => {
     const perspectiveCamera = camera as PerspectiveCamera
     const progress = warp.progress.get()
     const delayedProgress = THREE.MathUtils.clamp(
-      (progress - animationDelay) / (1 - animationDelay),
+      (progress - ANIMATION_DELAY) / (1 - ANIMATION_DELAY),
       0,
       1
     )
@@ -88,10 +86,14 @@ export function CameraController() {
 
     const delta = Math.abs(perspectiveCamera.fov - desiredFov)
 
-    if (delta > epsilon) {
+    if (delta > EPSILON) {
       perspectiveCamera.fov = desiredFov
       perspectiveCamera.updateProjectionMatrix()
       invalidate()
+    }
+
+    if (!POST_PROCESSING_ENABLED) {
+      gl.render(scene, camera)
     }
   }, 1)
 
@@ -158,6 +160,7 @@ export function CameraController() {
 
   return (
     <CameraControlsImpl
+      makeDefault
       ref={cameraControlsRef}
       enabled={config.enabled}
       smoothTime={config.smoothTime}

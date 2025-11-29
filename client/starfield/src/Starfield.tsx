@@ -63,7 +63,7 @@ export function StarfieldComponent({
 
     // Only update if actually different
     if (!deepEqual(prevConfigRef.current, config)) {
-      console.log("[STARFIELD] Updating Starfield Config:", config)
+      console.debug("[STARFIELD] Updating Starfield Config:", config)
       setStarfieldConfig(config)
       prevConfigRef.current = config
     }
@@ -77,6 +77,7 @@ export function StarfieldComponent({
         frameloop={isPaused ? "never" : "demand"}
         dpr={dpr as number}
         gl={{
+          alpha: false,
           antialias: false,
         }}
         onCreated={({ gl, camera }) => {
@@ -122,7 +123,6 @@ export function StarfieldComponent({
             <Stars />
             <Dust />
             <VolumetricClouds />
-            <Planet />
 
             {/* DEBUG: Grid to visualize layers */}
             {/*debug && (
@@ -134,10 +134,10 @@ export function StarfieldComponent({
               />
             )*/}
           </Suspense>
+          <Planet />
 
           <CameraController />
           <EffectChainingController />
-
           <PostProcessingMemo />
         </AnimationController>
 

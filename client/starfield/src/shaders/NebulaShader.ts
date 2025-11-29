@@ -18,6 +18,10 @@ export const nebulaFragmentShader = `
                 uniform float iterPrimary;
                 uniform float iterSecondary;
                 uniform float domainScale;
+                
+                // Domain warp controls
+                uniform vec3 warpOffset;        // Domain fold offset (-0.5, -0.4, -1.487 default)
+                uniform float warpDecay;        // Iteration decay rate (5.0 default)
 
                 varying vec2 vUv;
                 varying vec3 vWorldPosition;
@@ -32,8 +36,8 @@ export const nebulaFragmentShader = `
                   for (int i = 0; i < MAX_ITER; ++i) {
                     if (i >= iter) { break; }
                     float mag = dot(p, p);
-                    p = abs(p) / max(mag, 1e-5) + vec3(-0.5, -0.4, -1.487);
-                    float w = exp(-float(i) / 5.0);
+                    p = abs(p) / max(mag, 1e-5) + warpOffset;
+                    float w = exp(-float(i) / warpDecay);
                     accum += w * exp(-9.025 * pow(abs(mag - prev), 2.2));
                     tw += w;
                     prev = mag;

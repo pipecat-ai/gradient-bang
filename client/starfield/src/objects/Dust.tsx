@@ -43,7 +43,7 @@ export const Dust = () => {
             label: "Size",
           },
           opacity: {
-            value: dustConfig?.opacity ?? 0.4,
+            value: dustConfig?.opacity ?? 0.25,
             min: 0,
             max: 1,
             step: 0.05,

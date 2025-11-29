@@ -11,6 +11,8 @@ import {
   type Blending,
 } from "three"
 
+import { seededRandom } from "../utils/math"
+
 export type StarsProps = {
   radius?: number
   depth?: number
@@ -32,12 +34,14 @@ class StarfieldMaterial extends ShaderMaterial {
       uniforms: {
         time: { value: 0.0 },
         fade: { value: 1.0 },
+        dpr: { value: 1.0 },
         fogColor: { value: new Color(0x000000) },
         fogNear: { value: 1 },
         fogFar: { value: 1000 },
       },
       vertexShader: /* glsl */ `
       uniform float time;
+      uniform float dpr;
       attribute float size;
       attribute float opacity;
       varying vec3 vColor;
@@ -51,7 +55,7 @@ class StarfieldMaterial extends ShaderMaterial {
         vColor = color;
         vOpacity = opacity;
         vec4 mvPosition = modelViewMatrix * vec4(position, 0.5);
-        gl_PointSize = size * (30.0 / -mvPosition.z) * (3.0 + sin(time + 100.0));
+        gl_PointSize = size * (30.0 / -mvPosition.z) * (3.0 + sin(time + 100.0)) * dpr;
         gl_Position = projectionMatrix * mvPosition;
         
         #include <fog_vertex>
@@ -87,13 +91,9 @@ declare module "@react-three/fiber" {
   }
 }
 
-const genStar = (r: number) => {
+const genStar = (r: number, random: () => number) => {
   return new Vector3().setFromSpherical(
-    new Spherical(
-      r,
-      Math.acos(1 - Math.random() * 2),
-      Math.random() * 2 * Math.PI
-    )
+    new Spherical(r, Math.acos(1 - random() * 2), random() * 2 * Math.PI)
   )
 }
 
@@ -119,27 +119,29 @@ export const Stars: ForwardRefComponent<StarsProps, Points> = React.forwardRef(
     const pointsRef = React.useRef<Points>(null)
 
     const [position, color, sizeAttr, opacityAttr] = React.useMemo(() => {
-      const positions: any[] = []
-      const colors: any[] = []
+      const positions: number[] = []
+      const colors: number[] = []
+
+      // Use seeded random for deterministic, pure generation
+      const random = seededRandom(count + radius + depth)
 
       // If size is provided, use it directly; otherwise use factor-based calculation
       const sizes = Array.from({ length: count }, () =>
-        size !== undefined ? size : (0.5 + 0.5 * Math.random()) * factor
+        size !== undefined ? size : (0.5 + 0.5 * random()) * factor
       )
 
       // Generate variable opacity for each star
       const opacities = Array.from(
         { length: count },
-        () =>
-          opacityRange[0] + Math.random() * (opacityRange[1] - opacityRange[0])
+        () => opacityRange[0] + random() * (opacityRange[1] - opacityRange[0])
       )
 
       const color = new Color()
       let r = radius + depth
       const increment = depth / count
       for (let i = 0; i < count; i++) {
-        r -= increment * Math.random()
-        positions.push(...genStar(r).toArray())
+        r -= increment * random()
+        positions.push(...genStar(r, random).toArray())
         color.setHSL(i / count, saturation, 0.9)
         colors.push(color.r, color.g, color.b)
       }
@@ -156,6 +158,9 @@ export const Stars: ForwardRefComponent<StarsProps, Points> = React.forwardRef(
 
       // Update time uniform
       material.current.uniforms.time.value = state.clock.elapsedTime * speed
+
+      // Update DPR for consistent sizing across resolutions
+      material.current.uniforms.dpr.value = state.viewport.dpr
 
       // Make stars follow camera position (skybox behavior)
       if (pointsRef.current) {

@@ -2,6 +2,17 @@ import type { StarfieldConfig } from "./types"
 
 export const defaultProfile: StarfieldConfig = {
   palette: "cosmicTeal",
+  backgroundImages: [
+    "/skybox-1.png",
+    "/skybox-2.png",
+    "/skybox-3.png",
+    "/skybox-4.png",
+    "/skybox-5.png",
+    "/skybox-6.png",
+    "/skybox-7.png",
+    "/skybox-8.png",
+    "/skybox-9.png",
+  ],
   cameraBaseFov: 85,
   hyperspaceEnterTime: 2000,
   hyperspaceExitTime: 2000,
@@ -82,7 +93,6 @@ export const defaultProfile: StarfieldConfig = {
     minDistance: 10,
     fadeRange: 3,
   },
-  useASCIIRenderer: false,
 }
 
 export const lowProfile: Partial<StarfieldConfig> = {

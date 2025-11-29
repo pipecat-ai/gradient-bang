@@ -42,10 +42,6 @@ export const useDevControls = ({
           ["Log Config"]: button(() => {
             console.log("Config", useGameStore.getState().starfieldConfig)
           }),
-          ["Use ASCII Renderer"]: button(() => {
-            //@ not yet implemented
-            setStarfieldConfig({ useASCIIRenderer: true })
-          }),
           ["Generate New Scene"]: button(() => {
             changeScene({
               id: Math.random().toString(36).substring(2, 15),

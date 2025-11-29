@@ -37,7 +37,7 @@ export class DitheringEffect extends Effect {
     invertColor = false,
     pixelSizeRatio = 1,
     grayscaleOnly = false,
-    blendFunction = BlendFunction.ADD,
+    blendFunction = BlendFunction.NORMAL,
   }: DitheringEffectOptions = {}) {
     // Initialize uniforms with default values
     const uniforms = new Map<string, THREE.Uniform<number | THREE.Vector2>>([
@@ -69,13 +69,23 @@ export class DitheringEffect extends Effect {
     inputBuffer: THREE.WebGLRenderTarget,
     _deltaTime: number
   ): void {
-    // Update resolution uniform to match current render target
+    // Update resolution uniform only when it actually changes
+    // Floor values to prevent sub-pixel shifts that cause flickering
     const resolutionUniform = this.uniforms.get("resolution")
     if (
       resolutionUniform !== undefined &&
       resolutionUniform.value instanceof THREE.Vector2
     ) {
-      resolutionUniform.value.set(inputBuffer.width, inputBuffer.height)
+      const newWidth = Math.floor(inputBuffer.width)
+      const newHeight = Math.floor(inputBuffer.height)
+      const currentResolution = resolutionUniform.value
+
+      if (
+        currentResolution.x !== newWidth ||
+        currentResolution.y !== newHeight
+      ) {
+        resolutionUniform.value.set(newWidth, newHeight)
+      }
     }
   }
 

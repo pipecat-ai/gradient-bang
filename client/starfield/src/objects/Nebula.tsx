@@ -95,6 +95,34 @@ export const Nebula = () => {
           step: 0.01,
           label: "Rotation Z",
         },
+        warpOffsetX: {
+          value: -0.5,
+          min: -2,
+          max: 2,
+          step: 0.01,
+          label: "Warp Offset X",
+        },
+        warpOffsetY: {
+          value: -0.4,
+          min: -2,
+          max: 2,
+          step: 0.01,
+          label: "Warp Offset Y",
+        },
+        warpOffsetZ: {
+          value: -1.487,
+          min: -3,
+          max: 3,
+          step: 0.001,
+          label: "Warp Offset Z",
+        },
+        warpDecay: {
+          value: 5.0,
+          min: 0.1,
+          max: 20,
+          step: 0.1,
+          label: "Warp Decay",
+        },
       },
       { collapsed: true }
     ),
@@ -147,6 +175,14 @@ export const Nebula = () => {
         iterPrimary: { value: controls.iterPrimary },
         iterSecondary: { value: controls.iterSecondary },
         domainScale: { value: controls.domainScale },
+        warpOffset: {
+          value: new THREE.Vector3(
+            controls.warpOffsetX,
+            controls.warpOffsetY,
+            controls.warpOffsetZ
+          ),
+        },
+        warpDecay: { value: controls.warpDecay },
       },
       vertexShader: nebulaVertexShader,
       fragmentShader: nebulaFragmentShader,

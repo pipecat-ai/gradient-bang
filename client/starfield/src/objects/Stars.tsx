@@ -72,7 +72,7 @@ export const Stars = () => {
         label: "Factor",
       },
       size: {
-        value: starsConfig?.size ?? 4,
+        value: starsConfig?.size ?? 1.7,
         min: 0.1,
         max: 20,
         step: 0.1,
@@ -97,7 +97,7 @@ export const Stars = () => {
         label: "Speed",
       },
       blendingMode: {
-        value: "Additive",
+        value: "Normal",
         options: Object.keys(BLENDING_MODES),
         label: "Blending Mode",
       },

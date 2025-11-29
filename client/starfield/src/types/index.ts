@@ -2,7 +2,7 @@ import * as THREE from "three"
 
 export interface StarfieldConfig {
   palette?: string
-  useASCIIRenderer: boolean
+  backgroundImages?: string[]
   cameraBaseFov: number
   hyperspaceEnterTime?: number
   hyperspaceExitTime?: number

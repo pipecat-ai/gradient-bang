@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { easings } from "@react-spring/three"
 import { invalidate, useFrame, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
@@ -30,22 +30,30 @@ import { useGameStore } from "@/useGameStore"
  * Configures and applies various effects to the rendered scene
  */
 export const PostProcessing = () => {
+  // Composer instance
   const composerRef = useRef<EffectComposer | null>(null)
-  const ditheringEffectRef = useRef<DitheringEffect | null>(null)
+
+  // Effect instances - updated in useFrame for animation, rebuilt on config changes
   const bloomEffectRef = useRef<BloomEffect | null>(null)
   const vignetteEffectRef = useRef<VignetteEffect | null>(null)
   const shockWaveEffectRef = useRef<ShockWaveEffect | null>(null)
   const layerDimEffectRef = useRef<LayerDimEffect | null>(null)
-  const sharpenEffectRef = useRef<SharpenEffect | null>(null)
-  const scanlineEffectRef = useRef<ScanlineEffect | null>(null)
-  const tintEffectRef = useRef<TintEffect | null>(null)
   const lensFlareEffectRef = useRef<LensFlareEffect | null>(null)
+  const tintEffectRef = useRef<TintEffect | null>(null)
+  const ditheringEffectRef = useRef<DitheringEffect | null>(null)
+  const scanlineEffectRef = useRef<ScanlineEffect | null>(null)
+  const sharpenEffectRef = useRef<SharpenEffect | null>(null)
+
+  // Shockwave animation state
   const shockwaveEpicenterRef = useRef(new THREE.Vector3())
   const shockwaveDirectionRef = useRef(new THREE.Vector3())
   const lastShockwaveSequenceRef = useRef(0)
 
-  const [scene, setScene] = useState<THREE.Scene | null>(null)
-  const [camera, setCamera] = useState<THREE.Camera | null>(null)
+  // Lens flare color cache - avoid per-frame allocations
+  const lensFlareColorRef = useRef(new THREE.Color())
+  const lensFlareColorGainRef = useRef(new THREE.Color())
+  const lastLensFlareColorRef = useRef("")
+
   const starfieldConfig = useGameStore((state) => state.starfieldConfig)
   const {
     hyerpspaceUniforms,
@@ -63,13 +71,18 @@ export const PostProcessing = () => {
 
   const size = useThree((state) => state.size)
   const viewport = useThree((state) => state.viewport)
+  const scene = useThree((state) => state.scene)
+  const camera = useThree((state) => state.camera)
+  const [composerReady, setComposerReady] = useState(false)
 
-  // Update composer when DPR changes
+  // Update composer when size or DPR changes
   useEffect(() => {
     if (composerRef.current) {
       // The size includes DPR automatically in the internal calculation
       composerRef.current.setSize(size.width, size.height)
-      console.log("[STARFIELD] PostProcessing - DPR changed, resizing composer")
+      console.debug(
+        "[STARFIELD] PostProcessing - Size/DPR changed, resizing composer"
+      )
     }
 
     // Update lens flare resolution
@@ -79,7 +92,7 @@ export const PostProcessing = () => {
         resolution.value.set(size.width, size.height)
       }
     }
-  }, [viewport.dpr, size.width, size.height]) // Add viewport.dpr as a dependency
+  }, [size.width, size.height, viewport.dpr])
 
   // Effect controls
   const [ppUniforms, set] = useControls(() => ({
@@ -221,7 +234,7 @@ export const PostProcessing = () => {
             ditheringGridSize: {
               value:
                 storedDithering.ditheringGridSize ??
-                (viewport.dpr === 2 ? 3 : 2),
+                (viewport.dpr >= 2 ? 2 : 1),
               min: 1,
               max: 20,
               step: 1,
@@ -235,8 +248,9 @@ export const PostProcessing = () => {
               label: "Pixelation Strength",
             },
             ditheringBlendMode: {
-              value: BlendFunction.NORMAL,
+              value: BlendFunction.SET,
               options: {
+                SET: BlendFunction.SET,
                 Normal: BlendFunction.NORMAL,
                 Add: BlendFunction.ADD,
                 Screen: BlendFunction.SCREEN,
@@ -471,7 +485,7 @@ export const PostProcessing = () => {
   useEffect(() => {
     if (!storedDithering.ditheringGridSize) {
       set({
-        ditheringGridSize: viewport.dpr === 2 ? 3 : 1,
+        ditheringGridSize: viewport.dpr >= 2 ? 2 : 1,
       })
     }
   }, [viewport.dpr, storedDithering.ditheringGridSize, set])
@@ -494,38 +508,17 @@ export const PostProcessing = () => {
     }
   }, [starfieldConfig.palette, palette, storedGrading, set])
 
-  // Memoized resize handler
-  const handleResize = useCallback(() => {
-    if (composerRef.current) {
-      composerRef.current.setSize(window.innerWidth, window.innerHeight)
-    }
-
-    // Update lens flare resolution
-    if (lensFlareEffectRef.current) {
-      const resolution = lensFlareEffectRef.current.uniforms.get("iResolution")
-      if (resolution) {
-        resolution.value.set(window.innerWidth, window.innerHeight)
-      }
-    }
-  }, [])
-
-  // Handle window resize
-  useEffect(() => {
-    window.addEventListener("resize", handleResize)
-    return () => window.removeEventListener("resize", handleResize)
-  }, [handleResize])
-
   // Configure post-processing effects
   useEffect(() => {
-    if (!scene || !camera || !composerRef.current) return
+    if (!scene || !camera || !composerReady) return
 
-    console.log("[STARFIELD] PostProcessing - Building Passes")
+    console.debug("[STARFIELD] PostProcessing - Building Passes")
 
     const composer = composerRef.current
+    if (!composer) return
     composer.removeAllPasses()
 
     const renderPass = new RenderPass(scene, camera)
-    renderPass.clearPass.setClearFlags(true, true, true)
     composer.addPass(renderPass)
 
     const orderedEffectPasses: EffectPass[] = []
@@ -669,7 +662,7 @@ export const PostProcessing = () => {
         gridSize: ppUniforms.ditheringGridSize ?? 3,
         pixelSizeRatio: ppUniforms.ditheringPixelSizeRatio ?? 1,
         grayscaleOnly: ppUniforms.ditheringGrayscaleOnly ?? false,
-        blendFunction: ppUniforms.ditheringBlendMode ?? BlendFunction.NORMAL,
+        blendFunction: ppUniforms.ditheringBlendMode ?? BlendFunction.SET,
       })
       ditheringEffectRef.current = dither
       orderedEffectPasses.push(new EffectPass(camera, dither))
@@ -703,7 +696,7 @@ export const PostProcessing = () => {
     orderedEffectPasses.forEach((pass) => composer.addPass(pass))
 
     invalidate()
-  }, [scene, camera, ppUniforms, palette])
+  }, [scene, camera, composerReady, ppUniforms])
 
   // Update config for values that matter for synchronization
   useEffect(() => {
@@ -729,12 +722,12 @@ export const PostProcessing = () => {
     // Initialize composer if not yet created
     if (!composerRef.current) {
       composerRef.current = new EffectComposer(gl)
-      handleResize()
+      composerRef.current.setSize(
+        Math.floor(size.width),
+        Math.floor(size.height)
+      )
+      setComposerReady(true)
     }
-
-    // Update scene and camera references if changed
-    if (scene !== currentScene) setScene(currentScene)
-    if (camera !== currentCamera) setCamera(currentCamera)
 
     // Animation uniform updates
     const progress = warp.progress.get()
@@ -751,17 +744,26 @@ export const PostProcessing = () => {
         ? easings.easeInCubic(delayedProgress)
         : easings.easeOutExpo(delayedProgress)
 
-      ditheringEffect.uniforms.get("gridSize")!.value = THREE.MathUtils.lerp(
-        ppUniforms.ditheringGridSize,
-        ppUniforms.ditheringGridSize * 2,
-        easedProgress
-      )
-      ditheringEffect.uniforms.get("pixelSizeRatio")!.value =
-        THREE.MathUtils.lerp(
-          ppUniforms.ditheringPixelSizeRatio,
-          ppUniforms.ditheringPixelSizeRatio * 6,
+      // Only update if warping or if progress is non-zero to prevent unnecessary recalculations
+      if (progress > 0.001) {
+        ditheringEffect.uniforms.get("gridSize")!.value = THREE.MathUtils.lerp(
+          ppUniforms.ditheringGridSize,
+          ppUniforms.ditheringGridSize * 2,
           easedProgress
         )
+        ditheringEffect.uniforms.get("pixelSizeRatio")!.value =
+          THREE.MathUtils.lerp(
+            ppUniforms.ditheringPixelSizeRatio,
+            ppUniforms.ditheringPixelSizeRatio * 6,
+            easedProgress
+          )
+      } else {
+        // Ensure values are set to base values when not warping
+        ditheringEffect.uniforms.get("gridSize")!.value =
+          ppUniforms.ditheringGridSize
+        ditheringEffect.uniforms.get("pixelSizeRatio")!.value =
+          ppUniforms.ditheringPixelSizeRatio
+      }
     }
 
     const bloomEffect = bloomEffectRef.current
@@ -820,14 +822,20 @@ export const PostProcessing = () => {
     if (lensFlareEffect && currentScene) {
       // Update lens flare parameters from controls
       lensFlareEffect.blendMode.blendFunction = ppUniforms.lensFlareBlendMode
-      const flareColor = new THREE.Color(ppUniforms.lensFlareColor)
-      // Scale color to 0-255 range for shader (shader divides by 256)
-      const colorGain = new THREE.Color(
-        flareColor.r * 255,
-        flareColor.g * 255,
-        flareColor.b * 255
-      )
-      lensFlareEffect.uniforms.get("colorGain")!.value = colorGain
+
+      // Only update color objects when the color value changes
+      if (lastLensFlareColorRef.current !== ppUniforms.lensFlareColor) {
+        lensFlareColorRef.current.set(ppUniforms.lensFlareColor)
+        // Scale color to 0-255 range for shader (shader divides by 256)
+        lensFlareColorGainRef.current.set(
+          lensFlareColorRef.current.r * 255,
+          lensFlareColorRef.current.g * 255,
+          lensFlareColorRef.current.b * 255
+        )
+        lastLensFlareColorRef.current = ppUniforms.lensFlareColor
+      }
+      lensFlareEffect.uniforms.get("colorGain")!.value =
+        lensFlareColorGainRef.current
       lensFlareEffect.glareSize = ppUniforms.lensFlareGlareSize
       lensFlareEffect.uniforms.get("anamorphic")!.value =
         ppUniforms.lensFlareAnamorphic
@@ -862,7 +870,7 @@ export const PostProcessing = () => {
 
     // Render the composer if available
     composerRef.current?.render()
-  })
+  }, 1)
 
   return null
 }

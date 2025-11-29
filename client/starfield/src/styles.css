@@ -1,6 +1,5 @@
 * {
   box-sizing: border-box;
-  image-rendering: pixelated;
 }
 
 html,
@@ -10,9 +9,26 @@ body,
   height: 100%;
   margin: 0;
   padding: 0;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  overflow: hidden;
+}
+
+#root {
+  overflow: auto;
 }
 
 body {
-  background: #f0f0f0;
+  position: fixed;
   overflow: hidden;
+  overscroll-behavior-y: none;
+  background: #000000;
+}
+
+canvas {
+  touch-action: none;
 }

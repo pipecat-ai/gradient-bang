@@ -7,12 +7,13 @@ import { getPalette } from "@/colors"
 import { sunFragmentShader, sunVertexShader } from "@/shaders/SunShader"
 import { LAYERS } from "@/Starfield"
 import { useGameStore } from "@/useGameStore"
-import { createValueNoiseTexture } from "@/utils/noiseTexture"
+import { createValueNoiseTexture } from "@/utils/noise"
 
 const sunNoiseTexture = createValueNoiseTexture(256)
 
 export const Sun = () => {
   const groupRef = useRef<THREE.Group>(null)
+  const materialRef = useRef<THREE.ShaderMaterial | null>(null)
   const { camera } = useThree()
   const starfieldConfig = useGameStore((state) => state.starfieldConfig)
   const { sun: sunConfig } = starfieldConfig
@@ -90,29 +91,18 @@ export const Sun = () => {
     }
   }, [starfieldConfig.palette, palette, sunConfig, set])
 
-  // Create shader material for the sun
+  // Create shader material for the sun (only once)
   const sunMaterial = useMemo(() => {
-    const coreColorObj = new THREE.Color(controls.coreColor)
-    const coronaColorObj = new THREE.Color(controls.coronaColor)
-
     return new THREE.ShaderMaterial({
       uniforms: {
-        uIntensity: { value: controls.intensity },
+        uIntensity: { value: 1.0 },
         uCoreColor: {
-          value: new THREE.Vector3(
-            coreColorObj.r,
-            coreColorObj.g,
-            coreColorObj.b
-          ),
+          value: new THREE.Vector3(1, 1, 1),
         },
         uCoronaColor: {
-          value: new THREE.Vector3(
-            coronaColorObj.r,
-            coronaColorObj.g,
-            coronaColorObj.b
-          ),
+          value: new THREE.Vector3(1, 1, 1),
         },
-        uScale: { value: controls.scale },
+        uScale: { value: 100 },
         uCameraPosition: { value: new THREE.Vector3() },
         uNoiseTexture: { value: sunNoiseTexture },
       },
@@ -124,14 +114,21 @@ export const Sun = () => {
       side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
     })
-  }, [controls])
+  }, [])
+
+  // Store material in ref for mutations in useFrame
+  useEffect(() => {
+    materialRef.current = sunMaterial
+  }, [sunMaterial])
 
   // Update shader uniforms on each frame
   useFrame(() => {
-    if (!groupRef.current || !sunMaterial) return
+    if (!groupRef.current || !materialRef.current) return
+
+    const material = materialRef.current
 
     // Update camera position for shader
-    sunMaterial.uniforms.uCameraPosition.value.copy(camera.position)
+    material.uniforms.uCameraPosition.value.copy(camera.position)
 
     // Update position relative to camera
     groupRef.current.position.set(
@@ -141,17 +138,17 @@ export const Sun = () => {
     )
 
     // Update dynamic uniforms if controls change
-    sunMaterial.uniforms.uIntensity.value = controls.intensity
-    sunMaterial.uniforms.uScale.value = controls.scale
+    material.uniforms.uIntensity.value = controls.intensity
+    material.uniforms.uScale.value = controls.scale
 
     const coreColorObj = new THREE.Color(controls.coreColor)
     const coronaColorObj = new THREE.Color(controls.coronaColor)
-    sunMaterial.uniforms.uCoreColor.value.set(
+    material.uniforms.uCoreColor.value.set(
       coreColorObj.r,
       coreColorObj.g,
       coreColorObj.b
     )
-    sunMaterial.uniforms.uCoronaColor.value.set(
+    material.uniforms.uCoronaColor.value.set(
       coronaColorObj.r,
       coronaColorObj.g,
       coronaColorObj.b
@@ -166,6 +163,7 @@ export const Sun = () => {
       <mesh
         renderOrder={-100}
         layers={LAYERS.FOREGROUND}
+        material={sunMaterial}
         scale={[
           controls.scale * 2.5,
           controls.scale * 2.5,
@@ -173,13 +171,13 @@ export const Sun = () => {
         ]}
       >
         <sphereGeometry args={[1, 32, 32]} />
-        <primitive object={sunMaterial} attach="material" />
       </mesh>
 
       {/* Mid glow layer */}
       <mesh
         renderOrder={-99}
         layers={LAYERS.FOREGROUND}
+        material={sunMaterial}
         scale={[
           controls.scale * 1.5,
           controls.scale * 1.5,
@@ -187,17 +185,16 @@ export const Sun = () => {
         ]}
       >
         <sphereGeometry args={[1, 32, 32]} />
-        <primitive object={sunMaterial} attach="material" />
       </mesh>
 
       {/* Core layer - brightest, smallest */}
       <mesh
         renderOrder={-98}
         layers={LAYERS.FOREGROUND}
+        material={sunMaterial}
         scale={[controls.scale, controls.scale, controls.scale]}
       >
         <sphereGeometry args={[1, 32, 32]} />
-        <primitive object={sunMaterial} attach="material" />
       </mesh>
     </group>
   )
