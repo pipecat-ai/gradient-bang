@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { easings } from "@react-spring/three"
-import { invalidate, useFrame } from "@react-three/fiber"
+import { invalidate, useFrame, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import {
   BlendFunction,
@@ -60,6 +60,26 @@ export const PostProcessing = () => {
 
   // Get active palette
   const palette = getPalette(starfieldConfig.palette)
+
+  const size = useThree((state) => state.size)
+  const viewport = useThree((state) => state.viewport)
+
+  // Update composer when DPR changes
+  useEffect(() => {
+    if (composerRef.current) {
+      // The size includes DPR automatically in the internal calculation
+      composerRef.current.setSize(size.width, size.height)
+      console.log("[STARFIELD] PostProcessing - DPR changed, resizing composer")
+    }
+
+    // Update lens flare resolution
+    if (lensFlareEffectRef.current) {
+      const resolution = lensFlareEffectRef.current.uniforms.get("iResolution")
+      if (resolution) {
+        resolution.value.set(size.width, size.height)
+      }
+    }
+  }, [viewport.dpr, size.width, size.height]) // Add viewport.dpr as a dependency
 
   // Effect controls
   const [ppUniforms, set] = useControls(() => ({
@@ -199,7 +219,9 @@ export const PostProcessing = () => {
               label: "Enable Dithering",
             },
             ditheringGridSize: {
-              value: storedDithering.ditheringGridSize ?? 2,
+              value:
+                storedDithering.ditheringGridSize ??
+                (viewport.dpr === 2 ? 3 : 2),
               min: 1,
               max: 20,
               step: 1,
@@ -446,6 +468,14 @@ export const PostProcessing = () => {
     ),
   }))
 
+  useEffect(() => {
+    if (!storedDithering.ditheringGridSize) {
+      set({
+        ditheringGridSize: viewport.dpr === 2 ? 3 : 1,
+      })
+    }
+  }, [viewport.dpr, storedDithering.ditheringGridSize, set])
+
   // Sync palette changes to Leva controls
   useEffect(() => {
     if (
@@ -636,7 +666,7 @@ export const PostProcessing = () => {
     // 4. Dithering effect
     if (ppUniforms.ditheringEnabled) {
       const dither = new DitheringEffect({
-        gridSize: ppUniforms.ditheringGridSize ?? 2,
+        gridSize: ppUniforms.ditheringGridSize ?? 3,
         pixelSizeRatio: ppUniforms.ditheringPixelSizeRatio ?? 1,
         grayscaleOnly: ppUniforms.ditheringGrayscaleOnly ?? false,
         blendFunction: ppUniforms.ditheringBlendMode ?? BlendFunction.NORMAL,
@@ -698,9 +728,7 @@ export const PostProcessing = () => {
   useFrame(({ gl, scene: currentScene, camera: currentCamera }) => {
     // Initialize composer if not yet created
     if (!composerRef.current) {
-      composerRef.current = new EffectComposer(gl, {
-        stencilBuffer: true,
-      })
+      composerRef.current = new EffectComposer(gl)
       handleResize()
     }
 
@@ -834,7 +862,7 @@ export const PostProcessing = () => {
 
     // Render the composer if available
     composerRef.current?.render()
-  }, 1)
+  })
 
   return null
 }

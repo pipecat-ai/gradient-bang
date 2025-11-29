@@ -237,9 +237,6 @@ importers:
       leva:
         specifier: 0.10.1
         version: 0.10.1(@types/react-dom@19.2.3(@types/react@19.2.4))(@types/react@19.2.4)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
-      maath:
-        specifier: ^0.10.8
-        version: 0.10.8(@types/three@0.181.0)(three@0.181.1)
       postprocessing:
         specifier: ^6.37.3
         version: 6.38.0(three@0.181.1)

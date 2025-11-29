@@ -109,6 +109,7 @@ export interface StarfieldConfig {
   }
   nebula?: Partial<NebulaConfig>
   milkyWay?: Partial<MilkyWayConfig>
+  tunnel?: Partial<TunnelConfig>
   volumetricClouds?: {
     enabled?: boolean
     count?: number
@@ -219,6 +220,21 @@ export interface MilkyWayConfig {
   // Distortion
   distortionAmount: number
   distortionScale: number
+}
+
+/**
+ * Configuration for Tunnel object
+ */
+export interface TunnelConfig {
+  enabled: boolean
+  speed: number
+  rotationSpeed: number
+  tunnelDepth: number
+  color: THREE.Color
+  whiteoutPeriod: number
+  enableWhiteout: boolean
+  blendMode: "additive" | "normal" | "multiply" | "screen"
+  noiseAnimationSpeed: number
 }
 
 /**

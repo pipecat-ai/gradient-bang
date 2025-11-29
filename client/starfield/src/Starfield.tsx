@@ -11,6 +11,7 @@ import { Dust } from "@/objects/Dust"
 import { Nebula } from "@/objects/Nebula"
 import { Stars } from "@/objects/Stars"
 import { Sun } from "@/objects/Sun"
+import { Tunnel } from "@/objects/Tunnel"
 import { VolumetricClouds } from "@/objects/VolumetricClouds"
 import type { PerformanceProfile, Scene, StarfieldConfig } from "@/types"
 import { useGameStore } from "@/useGameStore"
@@ -77,7 +78,6 @@ export function StarfieldComponent({
         dpr={dpr as number}
         gl={{
           antialias: false,
-          stencil: true,
         }}
         onCreated={({ gl, camera }) => {
           rendererRef.current = gl
@@ -96,8 +96,14 @@ export function StarfieldComponent({
         }}
       >
         <PerformanceMonitor
-          onIncline={() => setPerformance({ dpr: 2 })}
-          onDecline={() => setPerformance({ dpr: 1 })}
+          onIncline={() => {
+            setPerformance({ dpr: 2 })
+            console.log("[STARFIELD] Performance Profile: high")
+          }}
+          onDecline={() => {
+            setPerformance({ dpr: 1 })
+            console.log("[STARFIELD] Performance Profile: low")
+          }}
         />
 
         {debug && (
@@ -111,6 +117,7 @@ export function StarfieldComponent({
           <Suspense fallback={null}>
             <Fog />
             <Nebula />
+            <Tunnel />
             <Sun />
             <Stars />
             <Dust />
