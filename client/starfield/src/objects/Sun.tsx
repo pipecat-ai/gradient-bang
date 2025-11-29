@@ -5,7 +5,7 @@ import * as THREE from "three"
 
 import { getPalette } from "@/colors"
 import { sunFragmentShader, sunVertexShader } from "@/shaders/SunShader"
-import { LAYERS } from "@/Starfield"
+import { LAYERS } from "@/types"
 import { useGameStore } from "@/useGameStore"
 import { createValueNoiseTexture } from "@/utils/noise"
 

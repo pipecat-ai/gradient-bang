@@ -2,7 +2,7 @@ import type { StarfieldConfig } from "./types"
 
 export const defaultProfile: StarfieldConfig = {
   palette: "cosmicTeal",
-  backgroundImages: [
+  imageAssets: [
     "/skybox-1.png",
     "/skybox-2.png",
     "/skybox-3.png",

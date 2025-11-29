@@ -2,33 +2,44 @@ import { useEffect, useMemo, useRef } from "react"
 import { invalidate, useFrame, useLoader, useThree } from "@react-three/fiber"
 import { folder, useControls } from "leva"
 import * as THREE from "three"
+import { useShallow } from "zustand/react/shallow"
 
 import { getPalette } from "@/colors"
 import {
   shadowFragmentShader,
   shadowVertexShader,
 } from "@/fx/PlanetShadowShader"
-import { LAYERS } from "@/Starfield"
+import { LAYERS } from "@/types"
 import { useGameStore } from "@/useGameStore"
+
+const TRANSPARENT_PIXEL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/ax18ncAAAAASUVORK5CYII="
 
 export const Planet = () => {
   const groupRef = useRef<THREE.Group>(null)
-  const meshRef = useRef<THREE.Mesh>(null)
   const { camera } = useThree()
 
-  // Optimized zustand selectors - only subscribe to what we need
-  const backgroundImages = useGameStore(
-    (state) => state.starfieldConfig.backgroundImages
+  const { imageAssets, planetConfig, paletteKey } = useGameStore(
+    useShallow((state) => ({
+      imageAssets: state.starfieldConfig.imageAssets,
+      planetConfig: state.starfieldConfig.planet,
+      paletteKey: state.starfieldConfig.palette,
+    }))
   )
-  const planetConfig = useGameStore((state) => state.starfieldConfig.planet)
-  const paletteKey = useGameStore((state) => state.starfieldConfig.palette)
+  const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
 
   // Get active palette
-  const palette = getPalette(paletteKey)
+  const palette = useMemo(() => getPalette(paletteKey), [paletteKey])
+
+  const selectedImagePath = useMemo(() => {
+    if (!imageAssets?.length) return undefined
+    const index = planetConfig?.imageIndex ?? 0
+    return imageAssets[index] ?? imageAssets[0]
+  }, [imageAssets, planetConfig?.imageIndex])
 
   // Create simple options object for leva select
   const imageOptions = useMemo(() => {
-    const images = backgroundImages || []
+    const images = imageAssets || []
     return images.reduce(
       (acc, imagePath) => {
         acc[imagePath] = imagePath
@@ -36,13 +47,7 @@ export const Planet = () => {
       },
       {} as Record<string, string>
     )
-  }, [backgroundImages])
-
-  // Get the selected image path
-  const selectedImagePath =
-    backgroundImages && backgroundImages.length > 0
-      ? backgroundImages[planetConfig?.imageIndex ?? 0] || backgroundImages[0]
-      : "/skybox-1.png"
+  }, [imageAssets])
 
   const [
     {
@@ -66,31 +71,72 @@ export const Planet = () => {
         {
           enabled: {
             value: planetConfig?.enabled ?? true,
+            onChange: (value: boolean) => {
+              setStarfieldConfig({
+                planet: { ...planetConfig, enabled: value },
+              })
+            },
+            transient: false,
           },
           selectedImage: {
-            value: selectedImagePath,
+            value: selectedImagePath ?? "",
             options: imageOptions,
             label: "Image",
+            onChange: (value: string) => {
+              if (imageAssets && value) {
+                const newIndex = imageAssets.indexOf(value)
+                if (newIndex !== -1) {
+                  setStarfieldConfig({
+                    planet: { ...planetConfig, imageIndex: newIndex },
+                  })
+                }
+              }
+            },
+            transient: false,
           },
           scale: {
             value: planetConfig?.scale ?? 50,
             min: 10,
             max: 1000,
             step: 1,
+            onChange: (value: number) => {
+              setStarfieldConfig({
+                planet: { ...planetConfig, scale: value },
+              })
+            },
+            transient: false,
           },
           opacity: {
             value: planetConfig?.opacity ?? 1,
             min: 0,
             max: 1,
             step: 0.01,
+            onChange: (value: number) => {
+              setStarfieldConfig({
+                planet: { ...planetConfig, opacity: value },
+              })
+            },
+            transient: false,
           },
           position: {
             value: planetConfig?.position ?? { x: 0, y: 0 },
             step: 1,
+            onChange: (value: { x: number; y: number }) => {
+              setStarfieldConfig({
+                planet: { ...planetConfig, position: value },
+              })
+            },
+            transient: false,
           },
           tintColor: {
             value: planetConfig?.tintColor ?? `#${palette.tint.getHexString()}`,
             label: "Tint Color",
+            onChange: (value: string) => {
+              setStarfieldConfig({
+                planet: { ...planetConfig, tintColor: value },
+              })
+            },
+            transient: false,
           },
           tintIntensity: {
             value: planetConfig?.tintIntensity ?? 1.5,
@@ -98,10 +144,22 @@ export const Planet = () => {
             max: 2,
             step: 0.1,
             label: "Tint Intensity",
+            onChange: (value: number) => {
+              setStarfieldConfig({
+                planet: { ...planetConfig, tintIntensity: value },
+              })
+            },
+            transient: false,
           },
           shadowEnabled: {
             value: planetConfig?.shadowEnabled ?? true,
             label: "Shadow Enabled",
+            onChange: (value: boolean) => {
+              setStarfieldConfig({
+                planet: { ...planetConfig, shadowEnabled: value },
+              })
+            },
+            transient: false,
           },
           shadowRadius: {
             value: planetConfig?.shadowRadius ?? 0.6,
@@ -109,6 +167,12 @@ export const Planet = () => {
             max: 1.0,
             step: 0.1,
             label: "Shadow Radius",
+            onChange: (value: number) => {
+              setStarfieldConfig({
+                planet: { ...planetConfig, shadowRadius: value },
+              })
+            },
+            transient: false,
           },
           shadowOpacity: {
             value: planetConfig?.shadowOpacity ?? 0.85,
@@ -116,6 +180,12 @@ export const Planet = () => {
             max: 1,
             step: 0.01,
             label: "Shadow Opacity",
+            onChange: (value: number) => {
+              setStarfieldConfig({
+                planet: { ...planetConfig, shadowOpacity: value },
+              })
+            },
+            transient: false,
           },
           shadowFalloff: {
             value: planetConfig?.shadowFalloff ?? 0.8,
@@ -123,41 +193,149 @@ export const Planet = () => {
             max: 1.0,
             step: 0.1,
             label: "Shadow Falloff",
+            onChange: (value: number) => {
+              setStarfieldConfig({
+                planet: { ...planetConfig, shadowFalloff: value },
+              })
+            },
+            transient: false,
           },
           shadowColor: {
             value:
               planetConfig?.shadowColor ?? `#${palette.base.getHexString()}`,
             label: "Shadow Color",
+            onChange: (value: string) => {
+              setStarfieldConfig({
+                planet: { ...planetConfig, shadowColor: value },
+              })
+            },
+            transient: false,
           },
         },
         { collapsed: true }
       ),
     }),
-    [imageOptions, selectedImagePath]
+    [
+      imageOptions,
+      selectedImagePath,
+      imageAssets,
+      planetConfig,
+      setStarfieldConfig,
+      palette,
+    ]
   )
 
-  // Memoize the texture URL to prevent unnecessary reloads
-  const textureUrl = useMemo(() => {
-    // Use selectedImage from controls if available, otherwise fall back to store value
-    return selectedImage || selectedImagePath
-  }, [selectedImage, selectedImagePath])
+  const { x: positionX, y: positionY } = position
+
+  const resolvedTextureUrl = useMemo(() => {
+    if (selectedImage) return selectedImage
+    if (selectedImagePath) return selectedImagePath
+    if (imageAssets?.length) return imageAssets[0]
+    return null
+  }, [imageAssets, selectedImage, selectedImagePath])
+
+  const hasTexture = Boolean(resolvedTextureUrl)
+  const textureUrl = resolvedTextureUrl ?? TRANSPARENT_PIXEL
 
   // Load the texture using useLoader (only when textureUrl changes)
   const planetTexture = useLoader(THREE.TextureLoader, textureUrl)
 
-  // Sync palette changes to Leva controls
+  // Unified sync: store changes → Leva controls (one-way)
   useEffect(() => {
-    if (!planetConfig?.tintColor && !planetConfig?.shadowColor) {
-      set({
-        tintColor: `#${palette.tint.getHexString()}`,
-        shadowColor: `#${palette.base.getHexString()}`,
-      })
+    const updates: Record<
+      string,
+      string | number | boolean | { x: number; y: number }
+    > = {}
+
+    // Sync image selection
+    if (selectedImagePath && selectedImage !== selectedImagePath) {
+      updates.selectedImage = selectedImagePath
+    }
+
+    // Sync all planet config values
+    if (
+      planetConfig?.enabled !== undefined &&
+      enabled !== planetConfig.enabled
+    ) {
+      updates.enabled = planetConfig.enabled
+    }
+    if (planetConfig?.scale !== undefined && scale !== planetConfig.scale) {
+      updates.scale = planetConfig.scale
+    }
+    if (
+      planetConfig?.opacity !== undefined &&
+      opacity !== planetConfig.opacity
+    ) {
+      updates.opacity = planetConfig.opacity
+    }
+    if (
+      planetConfig?.position &&
+      (positionX !== planetConfig.position.x ||
+        positionY !== planetConfig.position.y)
+    ) {
+      // Create a fresh object (planetConfig.position may be readonly/frozen)
+      updates.position = {
+        x: planetConfig.position.x,
+        y: planetConfig.position.y,
+      }
+    }
+    if (planetConfig?.tintColor && tintColor !== planetConfig.tintColor) {
+      updates.tintColor = planetConfig.tintColor
+    }
+    if (
+      planetConfig?.tintIntensity !== undefined &&
+      tintIntensity !== planetConfig.tintIntensity
+    ) {
+      updates.tintIntensity = planetConfig.tintIntensity
+    }
+    if (
+      planetConfig?.shadowEnabled !== undefined &&
+      shadowEnabled !== planetConfig.shadowEnabled
+    ) {
+      updates.shadowEnabled = planetConfig.shadowEnabled
+    }
+    if (
+      planetConfig?.shadowRadius !== undefined &&
+      shadowRadius !== planetConfig.shadowRadius
+    ) {
+      updates.shadowRadius = planetConfig.shadowRadius
+    }
+    if (
+      planetConfig?.shadowOpacity !== undefined &&
+      shadowOpacity !== planetConfig.shadowOpacity
+    ) {
+      updates.shadowOpacity = planetConfig.shadowOpacity
+    }
+    if (
+      planetConfig?.shadowFalloff !== undefined &&
+      shadowFalloff !== planetConfig.shadowFalloff
+    ) {
+      updates.shadowFalloff = planetConfig.shadowFalloff
+    }
+    if (planetConfig?.shadowColor && shadowColor !== planetConfig.shadowColor) {
+      updates.shadowColor = planetConfig.shadowColor
+    }
+
+    // Apply all updates at once
+    if (Object.keys(updates).length > 0) {
+      set(updates)
     }
   }, [
-    paletteKey,
-    palette,
-    planetConfig?.tintColor,
-    planetConfig?.shadowColor,
+    planetConfig,
+    selectedImagePath,
+    selectedImage,
+    enabled,
+    scale,
+    opacity,
+    positionX,
+    positionY,
+    tintColor,
+    tintIntensity,
+    shadowEnabled,
+    shadowRadius,
+    shadowOpacity,
+    shadowFalloff,
+    shadowColor,
     set,
   ])
 
@@ -168,22 +346,30 @@ export const Planet = () => {
   }, [tintColor, tintIntensity])
 
   // Shadow material
-  const shadowMaterial = useMemo(() => {
-    return new THREE.ShaderMaterial({
-      vertexShader: shadowVertexShader,
-      fragmentShader: shadowFragmentShader,
-      uniforms: {
-        uRadius: { value: shadowRadius },
-        uOpacity: { value: shadowOpacity },
-        uFalloff: { value: shadowFalloff },
-        uColor: { value: new THREE.Color(shadowColor) },
-      },
-      transparent: true,
-      depthTest: true,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    })
-  }, [shadowFalloff, shadowOpacity, shadowRadius, shadowColor])
+  const shadowMaterial = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        vertexShader: shadowVertexShader,
+        fragmentShader: shadowFragmentShader,
+        uniforms: {
+          uRadius: { value: shadowRadius },
+          uOpacity: { value: shadowOpacity },
+          uFalloff: { value: shadowFalloff },
+          uColor: { value: new THREE.Color(shadowColor) },
+        },
+        transparent: true,
+        depthTest: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    [shadowColor, shadowFalloff, shadowOpacity, shadowRadius]
+  )
+
+  useEffect(() => {
+    return () => {
+      shadowMaterial.dispose()
+    }
+  }, [shadowMaterial])
 
   // Calculate dimensions based on texture aspect ratio
   const aspectRatio = planetTexture.width / planetTexture.height
@@ -191,10 +377,10 @@ export const Planet = () => {
   const height = scale
 
   useFrame(() => {
-    if (groupRef.current && meshRef.current) {
+    if (groupRef.current) {
       groupRef.current.position.set(
-        camera.position.x + position.x,
-        camera.position.y + position.y,
+        camera.position.x + positionX,
+        camera.position.y + positionY,
         camera.position.z - 100
       )
 
@@ -204,10 +390,22 @@ export const Planet = () => {
 
   useEffect(() => {
     invalidate()
-  }, [position, scale, opacity, textureUrl, tintColor, tintIntensity])
+  }, [
+    positionX,
+    positionY,
+    scale,
+    opacity,
+    textureUrl,
+    tintColor,
+    tintIntensity,
+  ])
 
-  // Return null if no background images available or planet is disabled
-  if (!backgroundImages || backgroundImages.length === 0) {
+  // Return null if no image assets available or planet is disabled
+  if (!imageAssets || imageAssets.length === 0) {
+    return null
+  }
+
+  if (!hasTexture || planetConfig?.imageIndex == null) {
     return null
   }
 
@@ -228,7 +426,7 @@ export const Planet = () => {
       )}
 
       {/* Planet mesh */}
-      <mesh ref={meshRef} renderOrder={1} layers={[LAYERS.BACKGROUND]}>
+      <mesh renderOrder={1} layers={[LAYERS.BACKGROUND]}>
         <planeGeometry args={[width, height]} />
         <meshBasicMaterial
           map={planetTexture}

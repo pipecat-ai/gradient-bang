@@ -7,7 +7,7 @@ import {
   tunnelFragmentShader,
   tunnelVertexShader,
 } from "@/shaders/TunnelShader"
-import { LAYERS } from "@/Starfield"
+import { LAYERS } from "@/types"
 import { useGameStore } from "@/useGameStore"
 
 export const Tunnel = () => {

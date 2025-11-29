@@ -18,7 +18,7 @@ export interface StarfieldPalette {
  */
 export const STARFIELD_PALETTES: readonly StarfieldPalette[] = [
   {
-    name: "default",
+    name: "celestialBlue",
     c1: new THREE.Color("#4a90e2"), // Soft blue
     c2: new THREE.Color("#e8885d"), // Muted orange
     tint: new THREE.Color("#d4e6f1"), // Very light blue tint
@@ -61,6 +61,33 @@ export const STARFIELD_PALETTES: readonly StarfieldPalette[] = [
     base: new THREE.Color("#0f0d0a"), // Dark warm black
     saturation: 0.08,
     contrast: 0.2,
+  },
+  {
+    name: "terminalGreen",
+    c1: new THREE.Color("#5a9e7c"), // Phosphor green
+    c2: new THREE.Color("#d4956f"), // Warm copper accent
+    tint: new THREE.Color("#c5e8d6"), // Pale green tint
+    base: new THREE.Color("#0a120e"), // Dark green-black
+    saturation: 0.25,
+    contrast: 0.18,
+  },
+  {
+    name: "amberMonitor",
+    c1: new THREE.Color("#b8945f"), // Warm amber
+    c2: new THREE.Color("#8a9e8e"), // Dusty sage
+    tint: new THREE.Color("#e8dcc7"), // Pale amber
+    base: new THREE.Color("#100e0a"), // Dark warm black
+    saturation: 0.15,
+    contrast: 0.17,
+  },
+  {
+    name: "cyberCyan",
+    c1: new THREE.Color("#4a9da6"), // Electric teal
+    c2: new THREE.Color("#c58a7a"), // Coral accent
+    tint: new THREE.Color("#c7e8eb"), // Pale cyan-blue
+    base: new THREE.Color("#0a0f12"), // Dark cyan-black
+    saturation: 0.35,
+    contrast: 0.19,
   },
 ] as const
 

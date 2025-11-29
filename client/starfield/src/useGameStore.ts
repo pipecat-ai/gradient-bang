@@ -1,3 +1,4 @@
+import { deepmerge } from "deepmerge-ts"
 import { produce } from "immer"
 import { create } from "zustand"
 
@@ -8,7 +9,6 @@ import {
   type PerformanceProfile,
   type PositionedGameObject,
   type Scene,
-  type SceneConfig,
   type StarfieldConfig,
   type StarfieldState,
 } from "./types"
@@ -36,11 +36,8 @@ interface AppState {
   positionedObjects: PositionedGameObject[]
   setPositionedObjects: (objects: PositionedGameObject[]) => void
 
-  // Scene Config
-  sceneConfig?: SceneConfig
-  setSceneConfig: (config: Partial<SceneConfig>) => void
+  // Scene Transition
   isSceneChanging: boolean
-  startSceneChange: (newConfig: SceneConfig) => void
   completeSceneChange: () => void
 
   // Scene Queue
@@ -109,57 +106,26 @@ export const useGameStore = create<AppState>((set) => ({
   resetReadyFlags: () => set({ readyFlags: {} }),
   allComponentsReady: () => true,
 
-  // Scene Config
-  sceneConfig: undefined,
-  setSceneConfig: (config: Partial<SceneConfig>) =>
-    set(
-      produce((draft) => {
-        draft.sceneConfig = {
-          ...draft.sceneConfig,
-          ...config,
-          nebula: {
-            ...draft.sceneConfig?.nebula,
-            ...config.nebula,
-          },
-          stars: {
-            ...draft.sceneConfig?.stars,
-            ...config.stars,
-          },
-          skybox: {
-            ...draft.sceneConfig?.skybox,
-            ...config.skybox,
-          },
-        }
-      })
-    ),
+  // Scene Transition
   isSceneChanging: false,
-  startSceneChange: (newConfig: SceneConfig) =>
-    set(
-      produce((draft) => {
-        draft.isSceneChanging = true
-        draft.sceneConfig = newConfig
-      })
-    ),
   completeSceneChange: () => {
-    // First mark the current scene as complete
     set(
       produce((draft) => {
+        // Mark scene change as complete - this triggers flash-out animation
         draft.isSceneChanging = false
+        // Resume rendering (for testing)
+        draft.isPaused = false
+        // Clear current scene
+        draft.currentScene = null
       })
     )
 
-    // Then process the next scene in the queue (if any)
-    // We need to do this in a separate set call to ensure state updates correctly
-    setTimeout(() => {
-      const state = useGameStore.getState()
-      if (state.sceneQueue.length > 0) {
-        console.log("[SCENE QUEUE] Scene completed, processing next in queue")
-        state.processNextScene()
-      } else {
-        console.log("[SCENE QUEUE] Scene completed, queue is empty")
-        set({ currentScene: null })
-      }
-    }, 0)
+    // Process next scene in queue if any
+    const state = useGameStore.getState()
+    if (state.sceneQueue.length > 0) {
+      console.log("[SCENE QUEUE] Processing next scene from queue")
+      state.processNextScene()
+    }
   },
 
   // Scene Queue
@@ -194,8 +160,19 @@ export const useGameStore = create<AppState>((set) => ({
               nextScene.id
             )
             draft.currentScene = nextScene
+            // Start scene change - this triggers flash-in animation
             draft.isSceneChanging = true
-            draft.sceneConfig = nextScene.config
+            // Pause rendering during scene change (for testing)
+            draft.isPaused = true
+
+            // Apply config changes immediately after setting isSceneChanging
+            // NOTE: In the future, this should be deferred until after the flash
+            // animation fully covers the screen to prevent visible jank
+            draft.starfieldConfig = deepmerge(
+              draft.starfieldConfig,
+              nextScene.config
+            ) as StarfieldConfig
+
             draft.positionedObjects = nextScene.gameObjects.map(
               (obj: GameObject) => ({
                 ...obj,
@@ -220,8 +197,19 @@ export const useGameStore = create<AppState>((set) => ({
         if (nextScene) {
           console.log("[SCENE QUEUE] Processing next scene:", nextScene.id)
           draft.currentScene = nextScene
+          // Start scene change - this triggers flash-in animation
           draft.isSceneChanging = true
-          draft.sceneConfig = nextScene.config
+          // Pause rendering during scene change (for testing)
+          draft.isPaused = true
+
+          // Apply config changes immediately after setting isSceneChanging
+          // NOTE: In the future, this should be deferred until after the flash
+          // animation fully covers the screen to prevent visible jank
+          draft.starfieldConfig = deepmerge(
+            draft.starfieldConfig,
+            nextScene.config
+          ) as StarfieldConfig
+
           draft.positionedObjects = nextScene.gameObjects.map(
             (obj: GameObject) => ({
               ...obj,

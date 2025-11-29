@@ -8,7 +8,7 @@ import {
   milkyWayFragmentShader,
   milkyWayVertexShader,
 } from "@/shaders/MilkyWayShader"
-import { LAYERS } from "@/Starfield"
+import { LAYERS } from "@/types"
 import { useGameStore } from "@/useGameStore"
 
 export const MilkyWay = () => {

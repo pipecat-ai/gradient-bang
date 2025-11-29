@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react"
 import { useThree } from "@react-three/fiber"
+
 import { useGameStore } from "@/useGameStore"
 
 export function SceneController() {
@@ -8,8 +9,9 @@ export function SceneController() {
     null
   )
 
-  const { isSceneChanging, allComponentsReady, completeSceneChange } =
-    useGameStore()
+  const isSceneChanging = useGameStore((state) => state.isSceneChanging)
+  const allComponentsReady = useGameStore((state) => state.allComponentsReady)
+  const completeSceneChange = useGameStore((state) => state.completeSceneChange)
 
   // Monitor ready flags during transition
   useEffect(() => {
@@ -18,6 +20,9 @@ export function SceneController() {
 
       // Bit of air for pacing
       transitionTimeoutRef.current = setTimeout(() => {
+        console.log(
+          "[SCENE CONTROLLER] Completing scene change and invalidating"
+        )
         completeSceneChange()
         invalidate()
       }, 500)

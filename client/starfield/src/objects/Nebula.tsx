@@ -8,7 +8,7 @@ import {
   nebulaFragmentShader,
   nebulaVertexShader,
 } from "@/shaders/NebulaShader"
-import { LAYERS } from "@/Starfield"
+import { LAYERS } from "@/types"
 import { useGameStore } from "@/useGameStore"
 
 export const Nebula = () => {

@@ -5,25 +5,26 @@ import deepEqual from "fast-deep-equal"
 import { Leva } from "leva"
 import * as THREE from "three"
 
+import { RenderingIndicator } from "@/components/RenderingIndicator"
 import { AnimationController } from "@/controllers/AnimationController"
 import { CameraController } from "@/controllers/Camera"
+import { EffectChainingController } from "@/controllers/EffectChainingController"
+import { PostProcessing } from "@/controllers/PostProcessing"
+import { SceneController } from "@/controllers/SceneController"
+import { useDevControls } from "@/hooks/useDevControls"
+import { usePerformanceProfile } from "@/hooks/usePerformanceProfile"
 import { Dust } from "@/objects/Dust"
+import { Fog } from "@/objects/Fog"
 import { Nebula } from "@/objects/Nebula"
+import { Planet } from "@/objects/Planet"
 import { Stars } from "@/objects/Stars"
 import { Sun } from "@/objects/Sun"
 import { Tunnel } from "@/objects/Tunnel"
 import { VolumetricClouds } from "@/objects/VolumetricClouds"
 import type { PerformanceProfile, Scene, StarfieldConfig } from "@/types"
+import { LAYERS } from "@/types"
+import { useCallbackStore } from "@/useCallbackStore"
 import { useGameStore } from "@/useGameStore"
-
-import { RenderingIndicator } from "./components/RenderingIndicator"
-import { EffectChainingController } from "./controllers/EffectChainingController"
-import { PostProcessing } from "./controllers/PostProcessing"
-import { useDevControls } from "./hooks/useDevControls"
-import { usePerformanceProfile } from "./hooks/usePerformanceProfile"
-import { Fog } from "./objects/Fog"
-import { Planet } from "./objects/Planet"
-import { useCallbackStore } from "./useCallbackStore"
 
 interface StarfieldBaseProps {
   config?: Partial<StarfieldConfig>
@@ -32,15 +33,6 @@ interface StarfieldBaseProps {
   scene?: Scene
   paused?: boolean
 }
-
-export const LAYERS = {
-  DEFAULT: 0, // Main scene objects
-  SKYBOX: 1, // Nebula
-  BACKGROUND: 2, // Skybox (Planet, Shadow)
-  FOREGROUND: 3, // Sun, Volumentrics
-  GAMEOBJECTS: 4, // GameObjects
-  DEBUG: 31, // Grid, debug helpers
-} as const
 
 export function StarfieldComponent({
   config,
@@ -113,7 +105,6 @@ export function StarfieldComponent({
             <RenderingIndicator />
           </>
         )}
-
         <AnimationController>
           <Suspense fallback={null}>
             <Fog />
@@ -123,6 +114,7 @@ export function StarfieldComponent({
             <Stars />
             <Dust />
             <VolumetricClouds />
+            <Planet />
 
             {/* DEBUG: Grid to visualize layers */}
             {/*debug && (
@@ -134,7 +126,6 @@ export function StarfieldComponent({
               />
             )*/}
           </Suspense>
-          <Planet />
 
           <CameraController />
           <EffectChainingController />
@@ -146,6 +137,7 @@ export function StarfieldComponent({
         <EffectChainingController />
           <SceneController />
           <PostProcessingMemo />*/}
+        <SceneController />
       </Canvas>
     </>
   )

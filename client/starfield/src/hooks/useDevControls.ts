@@ -5,6 +5,7 @@ import { getPaletteNames } from "@/colors"
 import type { PerformanceProfile } from "@/types"
 import { useAnimationStore } from "@/useAnimationStore"
 import { useGameStore } from "@/useGameStore"
+import { generateRandomScene } from "@/utils/scene"
 
 import { useSceneChange } from "./useSceneChange"
 
@@ -38,16 +39,20 @@ export const useDevControls = ({
             value: starfieldConfig.palette || "default",
             options: getPaletteNames(),
             label: "Color Palette",
+            onChange: (value: string) => {
+              setStarfieldConfig({ palette: value })
+            },
+            transient: false,
           },
-          ["Log Config"]: button(() => {
-            console.log("Config", useGameStore.getState().starfieldConfig)
-          }),
-          ["Generate New Scene"]: button(() => {
+          ["Generate Random Scene"]: button(() => {
             changeScene({
               id: Math.random().toString(36).substring(2, 15),
               gameObjects: [],
-              config: {},
+              config: generateRandomScene(),
             })
+          }),
+          ["Log Scene Config"]: button(() => {
+            console.log("Config", useGameStore.getState().starfieldConfig)
           }),
           ["Change to Scene 1"]: button(() => {
             changeScene({
@@ -60,7 +65,7 @@ export const useDevControls = ({
         { collapsed: true, order: -1 }
       ),
     }),
-    [starfieldConfig.palette]
+    [starfieldConfig.palette, setStarfieldConfig]
   )
 
   const [{ dpr }, setPerformance] = useControls(() => ({
@@ -142,11 +147,12 @@ export const useDevControls = ({
     })
   }, [isWarping, isDimmed, setTriggers])
 
+  // Sync store changes to Leva control (one-way: store → leva)
   useEffect(() => {
-    if (palette !== starfieldConfig.palette) {
-      setStarfieldConfig({ palette })
+    if (starfieldConfig.palette && palette !== starfieldConfig.palette) {
+      _setSceneControls({ palette: starfieldConfig.palette })
     }
-  }, [palette, starfieldConfig.palette, setStarfieldConfig])
+  }, [starfieldConfig.palette, palette, _setSceneControls])
 
   return { dpr, setPerformance }
 }

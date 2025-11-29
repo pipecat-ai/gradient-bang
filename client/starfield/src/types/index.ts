@@ -1,8 +1,17 @@
 import * as THREE from "three"
 
+export const LAYERS = {
+  DEFAULT: 0, // Main scene objects
+  SKYBOX: 1, // Nebula
+  BACKGROUND: 2, // Skybox (Planet, Shadow)
+  FOREGROUND: 3, // Sun, Volumentrics
+  GAMEOBJECTS: 4, // GameObjects
+  DEBUG: 31, // Grid, debug helpers
+} as const
+
 export interface StarfieldConfig {
   palette?: string
-  backgroundImages?: string[]
+  imageAssets?: string[]
   cameraBaseFov: number
   hyperspaceEnterTime?: number
   hyperspaceExitTime?: number
@@ -59,68 +68,15 @@ export interface StarfieldConfig {
     fade?: boolean
     speed?: number
   }
-  dust?: {
-    enabled?: boolean
-    opacity?: number
-    count?: number
-    radius?: number
-    size?: number
-    minDistance?: number
-    fadeRange?: number
-  }
-  fog?: {
-    enabled?: boolean
-    color?: string
-    near?: number
-    far?: number
-  }
-  planet?: {
-    enabled?: boolean
-    imageIndex?: number
-    scale?: number
-    opacity?: number
-    position?: { x: number; y: number }
-    tintColor?: string
-    tintIntensity?: number
-    shadowEnabled?: boolean
-    shadowRadius?: number
-    shadowOpacity?: number
-    shadowFalloff?: number
-    shadowColor?: string
-  }
-  sun?: {
-    enabled?: boolean
-    position?: { x: number; y: number; z: number }
-    scale?: number
-    intensity?: number
-    color?: string
-    coronaColor?: string
-  }
-  grading: {
-    enabled?: boolean
-    brightness?: number
-    contrast?: number
-    saturation?: number
-    tintEnabled?: boolean
-    tintIntensity?: number
-    tintContrast?: number
-    tintColorPrimary?: string
-    tintColorSecondary?: string
-  }
+  dust?: Partial<DustConfig>
+  fog?: Partial<FogConfig>
+  planet?: Partial<PlanetConfig>
+  sun?: Partial<SunConfig>
+  grading: Partial<GradingConfig>
   nebula?: Partial<NebulaConfig>
   milkyWay?: Partial<MilkyWayConfig>
   tunnel?: Partial<TunnelConfig>
-  volumetricClouds?: {
-    enabled?: boolean
-    count?: number
-    radius?: number
-    size?: number
-    opacity?: number
-    color?: string
-    blendMode?: "additive" | "normal"
-    minDistance?: number
-    fadeRange?: number
-  }
+  volumetricClouds?: Partial<VolumetricCloudsConfig>
 }
 
 export type PerformanceProfile = "low" | "mid" | "high"
@@ -267,13 +223,104 @@ export interface SkyboxConfig {
 }
 
 /**
+ * Configuration for Planet object
+ */
+export interface PlanetConfig {
+  enabled: boolean
+  imageIndex: number
+  scale: number
+  opacity: number
+  position: { x: number; y: number }
+  tintColor: string
+  tintIntensity: number
+  shadowEnabled: boolean
+  shadowRadius: number
+  shadowOpacity: number
+  shadowFalloff: number
+  shadowColor: string
+}
+
+/**
+ * Configuration for VolumetricClouds object
+ */
+export interface VolumetricCloudsConfig {
+  enabled: boolean
+  count: number
+  radius: number
+  size: number
+  opacity: number
+  color: string
+  blendMode: "additive" | "normal"
+  minDistance: number
+  fadeRange: number
+}
+
+/**
+ * Configuration for Sun object
+ */
+export interface SunConfig {
+  enabled: boolean
+  position: { x: number; y: number; z: number }
+  scale: number
+  intensity: number
+  color: string
+  coronaColor: string
+}
+
+/**
+ * Configuration for color grading and post-processing effects
+ */
+export interface GradingConfig {
+  enabled: boolean
+  brightness: number
+  contrast: number
+  saturation: number
+  tintEnabled: boolean
+  tintIntensity: number
+  tintContrast: number
+  tintColorPrimary: string
+  tintColorSecondary: string
+}
+
+/**
+ * Configuration for Dust particles
+ */
+export interface DustConfig {
+  enabled: boolean
+  opacity: number
+  count: number
+  radius: number
+  size: number
+  minDistance: number
+  fadeRange: number
+}
+
+/**
+ * Configuration for Fog effect
+ */
+export interface FogConfig {
+  enabled: boolean
+  color: string
+  near: number
+  far: number
+}
+
+/**
  * Scene configuration with nested object configs
  */
 export interface SceneConfig {
+  palette?: string
   nebula?: Partial<NebulaConfig>
   milkyWay?: Partial<MilkyWayConfig>
   stars?: Partial<StarsConfig>
   skybox?: Partial<SkyboxConfig>
+  planet?: Partial<PlanetConfig>
+  tunnel?: Partial<TunnelConfig>
+  volumetricClouds?: Partial<VolumetricCloudsConfig>
+  sun?: Partial<SunConfig>
+  grading?: Partial<GradingConfig>
+  dust?: Partial<DustConfig>
+  fog?: Partial<FogConfig>
 }
 
 /**
