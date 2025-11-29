@@ -182,6 +182,8 @@ export interface TunnelConfig {
   enableWhiteout: boolean
   blendMode: "additive" | "normal" | "multiply" | "screen"
   noiseAnimationSpeed: number
+  opacity: number
+  contrast: number
 }
 
 /**

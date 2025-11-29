@@ -25,6 +25,7 @@ export const useDevControls = ({
   const triggerShockwave = useAnimationStore((state) => state.triggerShockwave)
   const sceneQueueLength = useGameStore((state) => state.sceneQueue.length)
   const isSceneChanging = useGameStore((state) => state.isSceneChanging)
+  const setIsShaking = useAnimationStore((state) => state.setIsShaking)
   const currentSceneId = useGameStore((state) => state.currentScene?.id)
   const isWarpCooldownActive = useGameStore(
     (state) => state.isWarpCooldownActive
@@ -136,6 +137,17 @@ export const useDevControls = ({
     () => ({
       Triggers: folder(
         {
+          ["Camera Shake"]: folder(
+            {
+              ["Enable Camera Shake"]: button(() => {
+                setIsShaking(true)
+              }),
+              ["Disable Camera Shake"]: button(() => {
+                setIsShaking(false)
+              }),
+            },
+            { collapsed: true }
+          ),
           Warp: folder(
             {
               ["Start Warp"]: button(() => {

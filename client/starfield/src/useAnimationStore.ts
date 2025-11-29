@@ -13,6 +13,9 @@ interface AnimationStore {
 
   isAnimating: boolean
   setIsAnimating: (isAnimating: boolean) => void
+
+  isShaking: boolean
+  setIsShaking: (isShaking: boolean) => void
 }
 
 export const useAnimationStore = create<AnimationStore>((set) => ({
@@ -25,4 +28,6 @@ export const useAnimationStore = create<AnimationStore>((set) => ({
   setTriggerShockwave: (fn: () => void) => set({ triggerShockwave: fn }),
   isAnimating: false,
   setIsAnimating: (isAnimating: boolean) => set({ isAnimating }),
+  isShaking: false,
+  setIsShaking: (isShaking: boolean) => set({ isShaking }),
 }))

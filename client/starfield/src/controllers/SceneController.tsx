@@ -20,6 +20,7 @@ export function SceneController() {
   const isSceneChanging = useGameStore(
     (state: { isSceneChanging: boolean }) => state.isSceneChanging
   )
+  const setIsShaking = useAnimationStore((state) => state.setIsShaking)
 
   // Warp animation
   const { progress: warpProgress, isWarping } = useWarpAnimation()
@@ -175,25 +176,37 @@ export function SceneController() {
       sceneAppliedRef.current = false
       completingRef.current = false
 
-      // Apply the scene directly
-      applySceneChanges()
+      // Start shaking effect
+      setIsShaking(true)
 
-      // Wait for the pause duration before processing next
+      // Wait before applying scene changes (gives shaking time to be visible)
       setTrackedTimeout(() => {
         console.debug(
-          "[SCENE CONTROLLER] Instant scene pause complete, checking queue"
+          "[SCENE CONTROLLER] Pre-instant delay complete, applying scene"
         )
-        state.setIsSceneChanging(false)
 
-        // Process next scene if any
-        const updatedState = useGameStore.getState()
-        if (updatedState.sceneQueue.length > 0) {
+        // Apply the scene changes
+        applySceneChanges()
+
+        // Wait for the pause duration before processing next
+        setTrackedTimeout(() => {
           console.debug(
-            "[SCENE CONTROLLER] Processing next queued scene after instant transition"
+            "[SCENE CONTROLLER] Instant scene pause complete, checking queue"
           )
-          processNextInQueueRef.current?.()
-        }
-      }, SCENE_TRANSITION_TIMING.POST_INSTANT_PAUSE)
+          state.setIsSceneChanging(false)
+
+          // Process next scene if any
+          const updatedState = useGameStore.getState()
+          if (updatedState.sceneQueue.length > 0) {
+            console.debug(
+              "[SCENE CONTROLLER] Processing next queued scene after instant transition"
+            )
+            processNextInQueueRef.current?.()
+          } else {
+            setIsShaking(false)
+          }
+        }, SCENE_TRANSITION_TIMING.POST_INSTANT_PAUSE)
+      }, SCENE_TRANSITION_TIMING.PRE_INSTANT_DELAY)
     } else {
       console.debug(
         "[SCENE CONTROLLER] Processing scene with warp:",
@@ -207,9 +220,12 @@ export function SceneController() {
       sceneAppliedRef.current = false
       completingRef.current = false
 
+      // Ensure shaking is off for warp animations
+      setIsShaking(false)
+
       startWarp()
     }
-  }, [startWarp, applySceneChanges, setTrackedTimeout])
+  }, [startWarp, applySceneChanges, setTrackedTimeout, setIsShaking])
 
   // Keep ref updated
   useEffect(() => {
@@ -241,8 +257,9 @@ export function SceneController() {
     } else {
       // No more scenes, mark as complete immediately
       state.setIsSceneChanging(false)
+      setIsShaking(false)
     }
-  }, [setTrackedTimeout, startWarpCooldown])
+  }, [setTrackedTimeout, startWarpCooldown, setIsShaking])
 
   // Orchestration logic: enqueue scene
   const enqueueScene = useCallback(

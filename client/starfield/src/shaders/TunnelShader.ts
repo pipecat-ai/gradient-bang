@@ -21,11 +21,14 @@ export const tunnelFragmentShader = `
   uniform vec2 resolution;
   uniform float speed;
   uniform float rotationSpeed;
+  uniform float rotationAngle;
   uniform float tunnelDepth;
   uniform float whiteoutPeriod;
   uniform bool enableWhiteout;
   uniform vec3 tunnelColor;
   uniform float noiseAnimationSpeed;
+  uniform float opacity;
+  uniform float contrast;
   
   varying vec2 vUv;
   varying vec3 vWorldPosition;
@@ -64,24 +67,40 @@ export const tunnelFragmentShader = `
     // Calculate angle for rotation - use atan for proper seamless wrapping
     float angle = atan(direction.y, direction.x);
     angle = angle / TAU; // Normalize to [0, 1]
-    angle -= uTime * rotationSpeed;
+    angle -= rotationAngle;
     
-    // Use seamless wrapping with mirroring to remove seam
-    float x = fract(angle);
-    x = abs(x * 2.0 - 1.0); // Mirror at 0.5 to remove seam
-    polar.x = x;
+    // Use wrapped angle for seamless tiling
+    float wrappedAngle = fract(angle);
+    polar.x = wrappedAngle;
     
-    // Generate tunnel texture using fBm3
+    // Generate tunnel texture using fBm3 with seamless wrapping
+    // Sample twice and blend at the seam for perfect continuity
     // noiseAnimationSpeed controls how fast the noise evolves (0 = static)
-    float val = 0.45 + 0.55 * fBm3(
-      vec3(vec2(2.0, 0.5) * polar, noiseAnimationSpeed * uTime));
+    vec2 sampleCoord1 = vec2(2.0, 0.5) * polar;
+    vec2 sampleCoord2 = vec2(2.0, 0.5) * vec2(polar.x + 1.0, polar.y);
+    
+    float val1 = fBm3(vec3(sampleCoord1, noiseAnimationSpeed * uTime));
+    float val2 = fBm3(vec3(sampleCoord2, noiseAnimationSpeed * uTime));
+    
+    // Smooth blend weight near the seam
+    float blendWidth = 0.1; // 10% blend zone
+    float blendWeight = smoothstep(0.0, blendWidth, wrappedAngle) * 
+                        (1.0 - smoothstep(1.0 - blendWidth, 1.0, wrappedAngle));
+    
+    float val = mix(val2, val1, blendWeight);
+    val = 0.45 + 0.55 * val;
+    val = clamp(val, 0.0, 1.0);
+    
+    // Apply contrast/harshness
+    val = pow(val, 1.0 / contrast);
     val = clamp(val, 0.0, 1.0);
     
     // Apply tunnel color
     col.rgb = tunnelColor * vec3(val);
     
-    // Add white spots for detail
-    vec3 white = 0.35 * vec3(smoothstep(0.55, 1.0, val));
+    // Add white spots for detail - contrast also affects the threshold
+    float whiteThreshold = mix(0.55, 0.75, (contrast - 0.5) / 2.5);
+    vec3 white = 0.35 * vec3(smoothstep(whiteThreshold, 1.0, val));
     col.rgb += white;
     col.rgb = clamp(col.rgb, 0.0, 1.0);
     
@@ -102,6 +121,9 @@ export const tunnelFragmentShader = `
       col.rgb = mix(col.rgb, vec3(1.0), w_total);
     }
     
-    gl_FragColor = vec4(col.rgb, 1.0);
+    // Apply opacity
+    col.a = opacity;
+    
+    gl_FragColor = col;
   }
 `

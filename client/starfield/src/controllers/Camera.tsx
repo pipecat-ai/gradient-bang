@@ -10,6 +10,8 @@ import { useWarpAnimation } from "@/hooks/animations"
 //import type { PositionedGameObject } from "@/types"
 import { useGameStore } from "@/useGameStore"
 
+import { CameraShakeController } from "./CameraShakeController"
+
 //const DEFAULT_POSITION = new THREE.Vector3(0, 0, 0)
 
 export function CameraController() {
@@ -158,19 +160,23 @@ export function CameraController() {
   )*/
 
   return (
-    <CameraControlsImpl
-      makeDefault
-      ref={cameraControlsRef}
-      enabled={config.enabled}
-      smoothTime={config.smoothTime}
-      restThreshold={config.restThreshold}
-      dollySpeed={0.5}
-      truckSpeed={0.5}
-      // regress={true}
-      polarRotateSpeed={1}
-      azimuthRotateSpeed={1}
-      onTransitionStart={() => {}}
-      onRest={() => {}}
-    />
+    <>
+      <CameraControlsImpl
+        makeDefault
+        ref={cameraControlsRef}
+        enabled={config.enabled}
+        smoothTime={config.smoothTime}
+        restThreshold={config.restThreshold}
+        dollySpeed={0.5}
+        truckSpeed={0.5}
+        // regress={true}
+        polarRotateSpeed={1}
+        azimuthRotateSpeed={1}
+        onTransitionStart={() => {}}
+        onRest={() => {}}
+      />
+      {/* Camera shake effect - controlled via isShaking in animation store */}
+      <CameraShakeController cameraControlsRef={cameraControlsRef} />
+    </>
   )
 }
