@@ -1,14 +1,5 @@
 import * as THREE from "three"
 
-export const LAYERS = {
-  DEFAULT: 0, // Main scene objects
-  SKYBOX: 1, // Nebula
-  BACKGROUND: 2, // Skybox (Planet, Shadow)
-  FOREGROUND: 3, // Sun, Volumentrics
-  GAMEOBJECTS: 4, // GameObjects
-  DEBUG: 31, // Grid, debug helpers
-} as const
-
 export interface StarfieldConfig {
   palette?: string
   imageAssets?: string[]

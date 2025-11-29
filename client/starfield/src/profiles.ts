@@ -64,10 +64,6 @@ export const defaultProfile: StarfieldConfig = {
   },
   planet: {
     enabled: true,
-    imageIndex: 0,
-    scale: 100,
-    opacity: 1,
-    position: { x: 0, y: 0 },
   },
   sun: {
     enabled: true,

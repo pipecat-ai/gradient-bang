@@ -2,6 +2,7 @@ import { useLayoutEffect } from "react"
 import { useDetectGPU } from "@react-three/drei"
 import { folder, useControls } from "leva"
 
+import { PANEL_ORDERING } from "@/constants"
 import type { PerformanceProfile } from "@/types"
 import { useCallbackStore } from "@/useCallbackStore"
 import { useGameStore } from "@/useGameStore"
@@ -17,17 +18,21 @@ export const usePerformanceProfile = ({
   const { tier, isMobile } = useDetectGPU()
 
   const [{ forcedProfile }] = useControls(() => ({
-    "Scene Settings": folder({
-      Rendering: folder(
-        {
-          forcedProfile: {
-            value: undefined,
-            options: ["low", "mid", "high"] as PerformanceProfile[],
+    "Scene Settings": folder(
+      {
+        Performance: folder(
+          {
+            forcedProfile: {
+              value: undefined,
+              label: "Force Performance Profile",
+              options: ["low", "mid", "high"] as PerformanceProfile[],
+            },
           },
-        },
-        { collapsed: true, order: 99 }
-      ),
-    }),
+          { collapsed: true, order: 999 }
+        ),
+      },
+      { collapsed: true, order: PANEL_ORDERING.SCENE_SETTINGS }
+    ),
   }))
 
   useLayoutEffect(() => {

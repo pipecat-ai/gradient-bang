@@ -6,6 +6,7 @@ import { Leva } from "leva"
 import * as THREE from "three"
 
 import { RenderingIndicator } from "@/components/RenderingIndicator"
+import { LAYERS } from "@/constants"
 import { AnimationController } from "@/controllers/AnimationController"
 import { CameraController } from "@/controllers/Camera"
 import { EffectChainingController } from "@/controllers/EffectChainingController"
@@ -21,8 +22,7 @@ import { Stars } from "@/objects/Stars"
 import { Sun } from "@/objects/Sun"
 import { Tunnel } from "@/objects/Tunnel"
 import { VolumetricClouds } from "@/objects/VolumetricClouds"
-import type { PerformanceProfile, Scene, StarfieldConfig } from "@/types"
-import { LAYERS } from "@/types"
+import type { PerformanceProfile, StarfieldConfig } from "@/types"
 import { useCallbackStore } from "@/useCallbackStore"
 import { useGameStore } from "@/useGameStore"
 
@@ -30,8 +30,14 @@ interface StarfieldBaseProps {
   config?: Partial<StarfieldConfig>
   profile?: PerformanceProfile
   debug?: boolean
-  scene?: Scene
-  paused?: boolean
+}
+
+export interface StarfieldProps extends StarfieldBaseProps {
+  onStart?: () => void
+  onStop?: () => void
+  onCreated?: () => void
+  onUnsupported?: () => void
+  generateInitialScene?: boolean
 }
 
 export function StarfieldComponent({
@@ -56,14 +62,15 @@ export function StarfieldComponent({
     // Only update if actually different
     if (!deepEqual(prevConfigRef.current, config)) {
       console.debug("[STARFIELD] Updating Starfield Config:", config)
-      setStarfieldConfig(config)
+      // Note: we flag for deepmerge here to retain default values
+      setStarfieldConfig(config, true)
       prevConfigRef.current = config
     }
   }, [config, setStarfieldConfig])
 
   return (
     <>
-      <Leva collapsed hidden={!debug} />
+      <Leva hidden={!debug} />
 
       <Canvas
         frameloop={isPaused ? "never" : "demand"}
@@ -115,16 +122,6 @@ export function StarfieldComponent({
             <Dust />
             <VolumetricClouds />
             <Planet />
-
-            {/* DEBUG: Grid to visualize layers */}
-            {/*debug && (
-              <Grid
-                cellColor={"#FFFFFF"}
-                cellSize={1}
-                infiniteGrid
-                layers={[LAYERS.DEBUG]}
-              />
-            )*/}
           </Suspense>
 
           <CameraController />
@@ -132,11 +129,6 @@ export function StarfieldComponent({
           <PostProcessingMemo />
         </AnimationController>
 
-        {/*
-          <CameraController />
-        <EffectChainingController />
-          <SceneController />
-          <PostProcessingMemo />*/}
         <SceneController />
       </Canvas>
     </>
@@ -145,22 +137,30 @@ export function StarfieldComponent({
 
 export const PostProcessingMemo = memo(PostProcessing)
 
-export interface StarfieldProps extends StarfieldBaseProps {
-  onStart?: () => void
-  onStop?: () => void
-  onCreated?: () => void
-  onUnsupported?: () => void
-  // ETC
-}
+export const Starfield = ({
+  onStart,
+  onStop,
+  onCreated,
+  onUnsupported,
+  ...props
+}: StarfieldProps) => {
+  const callbacksRef = useRef({ onStart, onStop, onCreated, onUnsupported })
 
-export const Starfield = memo(
-  ({ onStart, onStop, onCreated, onUnsupported, ...props }: StarfieldProps) => {
+  useLayoutEffect(() => {
+    callbacksRef.current = { onStart, onStop, onCreated, onUnsupported }
+  })
+
+  // Only set up callbacks once
+  useLayoutEffect(() => {
+    const getCallbacks = () => callbacksRef.current
+
     useCallbackStore.setState({
-      onCreated: onCreated ?? (() => {}),
-      onStart: onStart ?? (() => {}),
-      onStop: onStop ?? (() => {}),
-      onUnsupported: onUnsupported ?? (() => {}),
+      onCreated: () => getCallbacks().onCreated?.(),
+      onStart: () => getCallbacks().onStart?.(),
+      onStop: () => getCallbacks().onStop?.(),
+      onUnsupported: () => getCallbacks().onUnsupported?.(),
     })
-    return <StarfieldComponent {...props} />
-  }
-)
+  }, [])
+
+  return <StarfieldComponent {...props} />
+}

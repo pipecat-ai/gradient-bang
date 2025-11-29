@@ -4,11 +4,11 @@ import { folder, useControls } from "leva"
 import * as THREE from "three"
 
 import { getPalette } from "@/colors"
+import { LAYERS } from "@/constants"
 import {
   milkyWayFragmentShader,
   milkyWayVertexShader,
 } from "@/shaders/MilkyWayShader"
-import { LAYERS } from "@/types"
 import { useGameStore } from "@/useGameStore"
 
 export const MilkyWay = () => {

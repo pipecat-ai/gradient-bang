@@ -14,7 +14,7 @@ import { useGameStore } from "@/useGameStore"
 
 export function CameraController() {
   const cameraControlsRef = useRef<CameraControlsImpl>(null)
-  const gameObjects = useGameStore((state) => state.positionedObjects)
+  //const gameObjects = useGameStore((state) => state.positionedObjects)
   //const [, setCurrentTarget] = useState<THREE.Vector3 | null>(null)
   const { cameraBaseFov, hyerpspaceUniforms } = useGameStore(
     (state) => state.starfieldConfig
@@ -26,8 +26,8 @@ export function CameraController() {
   const EPSILON = 0.05
   const POST_PROCESSING_ENABLED = true
 
-  const config = useControls(
-    {
+  const [config] = useControls(() => ({
+    "Scene Settings": folder({
       Camera: folder(
         {
           enabled: {
@@ -61,9 +61,8 @@ export function CameraController() {
         },
         { collapsed: true }
       ),
-    },
-    [gameObjects]
-  )
+    }),
+  }))
 
   useFrame(({ camera, gl, scene }) => {
     const perspectiveCamera = camera as PerspectiveCamera

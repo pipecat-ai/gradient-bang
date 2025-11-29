@@ -4,11 +4,11 @@ import { folder, useControls } from "leva"
 import * as THREE from "three"
 
 import { getPalette } from "@/colors"
+import { LAYERS } from "@/constants"
 import {
   nebulaFragmentShader,
   nebulaVertexShader,
 } from "@/shaders/NebulaShader"
-import { LAYERS } from "@/types"
 import { useGameStore } from "@/useGameStore"
 
 export const Nebula = () => {
@@ -22,7 +22,7 @@ export const Nebula = () => {
 
   // Leva controls for all nebula uniforms with palette cascade
   const [controls, set] = useControls(() => ({
-    "Nebula Settings": folder(
+    Nebula: folder(
       {
         enabled: {
           value: nebulaConfig?.enabled ?? true,

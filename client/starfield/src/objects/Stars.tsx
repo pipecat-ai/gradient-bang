@@ -8,7 +8,7 @@ import {
 } from "three"
 
 import { Stars as StarsComponent } from "@/components/Stars"
-import { LAYERS } from "@/types"
+import { LAYERS } from "@/constants"
 import { useGameStore } from "@/useGameStore"
 
 const BLENDING_MODES: Record<string, Blending> = {

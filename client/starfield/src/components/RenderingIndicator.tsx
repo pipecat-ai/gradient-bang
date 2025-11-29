@@ -19,7 +19,7 @@ export function RenderingIndicator() {
     isAnimating: {
       value: "Idle",
       editable: false,
-      label: "Is Animating",
+      label: "Animating",
       order: -998,
     },
   }))

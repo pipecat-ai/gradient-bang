@@ -3,11 +3,11 @@ import { useFrame, useThree } from "@react-three/fiber"
 import { useControls } from "leva"
 import * as THREE from "three"
 
+import { LAYERS } from "@/constants"
 import {
   tunnelFragmentShader,
   tunnelVertexShader,
 } from "@/shaders/TunnelShader"
-import { LAYERS } from "@/types"
 import { useGameStore } from "@/useGameStore"
 
 export const Tunnel = () => {
@@ -18,7 +18,7 @@ export const Tunnel = () => {
 
   // Leva controls for all tunnel uniforms
   const controls = useControls(
-    "Tunnel Settings",
+    "Tunnel",
     {
       enabled: {
         value: tunnelConfig?.enabled ?? false,

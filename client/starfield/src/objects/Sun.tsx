@@ -4,8 +4,8 @@ import { folder, useControls } from "leva"
 import * as THREE from "three"
 
 import { getPalette } from "@/colors"
+import { LAYERS } from "@/constants"
 import { sunFragmentShader, sunVertexShader } from "@/shaders/SunShader"
-import { LAYERS } from "@/types"
 import { useGameStore } from "@/useGameStore"
 import { createValueNoiseTexture } from "@/utils/noise"
 
@@ -23,7 +23,7 @@ export const Sun = () => {
 
   // Leva controls for all sun parameters with palette cascade
   const [controls, set] = useControls(() => ({
-    "Sun Settings": folder(
+    Sun: folder(
       {
         enabled: {
           value: sunConfig?.enabled ?? true,

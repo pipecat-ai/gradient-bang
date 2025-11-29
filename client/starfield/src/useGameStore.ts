@@ -15,11 +15,16 @@ import {
 
 interface AppState {
   starfieldConfig: StarfieldConfig
-  setStarfieldConfig: (config: Partial<StarfieldConfig>) => void
+  setStarfieldConfig: (
+    config: Partial<StarfieldConfig>,
+    deepMerge?: boolean
+  ) => void
   performanceProfile: PerformanceProfile
   setPerformanceProfile: (profile: PerformanceProfile) => void
 
   // State
+  isReady: boolean
+  setIsReady: (isReady: boolean) => void
   isPaused: boolean
   setIsPaused: (isPaused: boolean) => void
   togglePause: () => void
@@ -52,13 +57,15 @@ export const useGameStore = create<AppState>((set) => ({
   starfieldConfig: {
     ...defaultProfile,
   },
-  setStarfieldConfig: (config: Partial<StarfieldConfig>) =>
+  setStarfieldConfig: (config: Partial<StarfieldConfig>, deepMerge = false) =>
     set(
       produce((draft) => {
-        draft.starfieldConfig = {
-          ...draft.starfieldConfig,
-          ...config,
-        }
+        draft.starfieldConfig = deepMerge
+          ? (deepmerge(draft.starfieldConfig, config) as StarfieldConfig)
+          : {
+              ...draft.starfieldConfig,
+              ...config,
+            }
       })
     ),
 
@@ -68,6 +75,8 @@ export const useGameStore = create<AppState>((set) => ({
     set({ performanceProfile: profile }),
 
   // State
+  isReady: false,
+  setIsReady: (isReady: boolean) => set({ isReady }),
   isPaused: false,
   setIsPaused: (isPaused) =>
     set(
