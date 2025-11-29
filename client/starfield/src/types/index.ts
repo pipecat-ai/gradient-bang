@@ -322,3 +322,18 @@ export interface Scene {
   gameObjects: GameObject[]
   config: SceneConfig
 }
+
+/**
+ * Options for scene changes
+ */
+export interface SceneChangeOptions {
+  bypassAnimation?: boolean
+}
+
+/**
+ * Scene with options for queue processing
+ */
+export interface QueuedScene {
+  scene: Scene
+  options?: SceneChangeOptions
+}

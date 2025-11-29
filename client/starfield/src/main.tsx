@@ -10,7 +10,7 @@ createRoot(document.getElementById("root")!).render(
     <Starfield
       onCreated={() => console.log("Starfield created")}
       onUnsupported={() => console.log("Starfield unsupported")}
-      config={{ planet: { scale: 100 }, palette: "deepSpace" }}
+      config={{ planet: { scale: 100 } }}
     />
   </StrictMode>
 )

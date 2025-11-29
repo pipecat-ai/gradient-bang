@@ -13,3 +13,12 @@ export const PANEL_ORDERING = {
   TRIGGERS: -1,
   PERFORMANCE: 99,
 }
+
+export const SCENE_TRANSITION_TIMING = {
+  // Time to wait at warp peak for components to settle before starting exit
+  WARP_PEAK_SETTLE_TIME: 500,
+  // Time to wait between scenes after a warp animation completes
+  POST_WARP_PAUSE: 2000,
+  // Time to wait between scenes for instant (bypassed) transitions
+  POST_INSTANT_PAUSE: 2000,
+} as const

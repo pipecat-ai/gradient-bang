@@ -1,12 +1,10 @@
-import type { Scene } from "@/types"
-import { useGameStore } from "@/useGameStore"
+import type { Scene, SceneChangeOptions } from "@/types"
+import { useCallbackStore } from "@/useCallbackStore"
 
 export function useSceneChange() {
-  const enqueueScene = useGameStore((state) => state.enqueueScene)
-
-  const changeScene = (scene: Scene) => {
-    console.log("[useSceneChange] Requesting scene change:", scene)
-    enqueueScene(scene)
+  const changeScene = (scene: Scene, options?: SceneChangeOptions) => {
+    const enqueueScene = useCallbackStore.getState().enqueueScene
+    enqueueScene(scene, options)
   }
 
   return { changeScene }

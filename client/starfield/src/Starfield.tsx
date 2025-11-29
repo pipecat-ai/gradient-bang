@@ -52,7 +52,7 @@ export function StarfieldComponent({
 
   usePerformanceProfile({ initialProfile: profile })
 
-  const { dpr, setPerformance } = useDevControls({ profile })
+  const { dpr } = useDevControls({ profile })
 
   /* Handle config changes */
   const prevConfigRef = useRef<Partial<StarfieldConfig> | undefined>(undefined)
@@ -97,12 +97,12 @@ export function StarfieldComponent({
       >
         <PerformanceMonitor
           onIncline={() => {
-            setPerformance({ dpr: 2 })
-            console.log("[STARFIELD] Performance Profile: high")
+            //setPerformance({ dpr: 2 })
+            //console.log("[STARFIELD] Performance Profile: high")
           }}
           onDecline={() => {
-            setPerformance({ dpr: 1 })
-            console.log("[STARFIELD] Performance Profile: low")
+            //setPerformance({ dpr: 1 })
+            //console.log("[STARFIELD] Performance Profile: low")
           }}
         />
 
@@ -126,10 +126,9 @@ export function StarfieldComponent({
 
           <CameraController />
           <EffectChainingController />
+          <SceneController />
           <PostProcessingMemo />
         </AnimationController>
-
-        <SceneController />
       </Canvas>
     </>
   )

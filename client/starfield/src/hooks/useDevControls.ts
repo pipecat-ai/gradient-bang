@@ -23,7 +23,8 @@ export const useDevControls = ({
   const setStarfieldConfig = useGameStore((state) => state.setStarfieldConfig)
   const starfieldConfig = useGameStore((state) => state.starfieldConfig)
   const triggerShockwave = useAnimationStore((state) => state.triggerShockwave)
-
+  const sceneQueueLength = useGameStore((state) => state.sceneQueue.length)
+  const isSceneChanging = useGameStore((state) => state.isSceneChanging)
   const { changeScene } = useSceneChange()
 
   const logSceneConfig = () => {
@@ -53,12 +54,32 @@ export const useDevControls = ({
           },
           transient: false,
         },
+        sceneQueueLength: {
+          value: sceneQueueLength.toString(),
+          editable: false,
+          label: "Scene Queue Length",
+        },
+        sceneChanging: {
+          value: isSceneChanging.toString(),
+          editable: false,
+          label: "Scene Changing",
+        },
         ["Generate Random Scene"]: button(() => {
           changeScene({
             id: Math.random().toString(36).substring(2, 15),
             gameObjects: [],
             config: generateRandomScene(),
           })
+        }),
+        ["Random Scene no Animation"]: button(() => {
+          changeScene(
+            {
+              id: Math.random().toString(36).substring(2, 15),
+              gameObjects: [],
+              config: generateRandomScene(),
+            },
+            { bypassAnimation: true }
+          )
         }),
         ["Log Scene Config"]: button(logSceneConfig),
         ["Change to Scene 1"]: button(() => {
@@ -157,6 +178,13 @@ export const useDevControls = ({
   useEffect(() => {
     _setSceneControls({ palette: starfieldConfig.palette })
   }, [starfieldConfig.palette, _setSceneControls])
+
+  useEffect(() => {
+    _setSceneControls({
+      sceneQueueLength: sceneQueueLength.toString(),
+      sceneChanging: isSceneChanging.toString(),
+    })
+  }, [sceneQueueLength, isSceneChanging, _setSceneControls])
 
   return { dpr, setPerformance }
 }
