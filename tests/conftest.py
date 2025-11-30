@@ -553,6 +553,95 @@ def _stop_supabase_stack() -> None:
         pass
 
 
+def _db_container_name() -> str:
+    """Derive the local Supabase Postgres container name from config.toml."""
+    config_path = SUPABASE_WORKDIR / "supabase" / "config.toml"
+    if not config_path.exists():
+        config_path = SUPABASE_WORKDIR / "config.toml"
+    project_id = "supabase"
+    try:
+        import tomllib
+
+        with config_path.open("rb") as handle:
+            cfg = tomllib.load(handle)
+            project_id = cfg.get("project_id", project_id)
+    except Exception:
+        pass
+    return f"supabase_db_{project_id}"
+
+
+def _internal_supabase_url() -> str:
+    """URL the DB container can reach the API; overridable for Linux bridge setups."""
+    override = os.environ.get("SUPABASE_INTERNAL_URL")
+    if override:
+        return override.rstrip("/")
+    url = os.environ.get("SUPABASE_URL")
+    if not url and ENV_PATH.exists():
+        try:
+            with ENV_PATH.open() as env_file:
+                for line in env_file:
+                    if line.startswith("SUPABASE_URL="):
+                        url = line.strip().split("=", 1)[1]
+                        break
+        except Exception:
+            url = None
+    url = (url or "http://127.0.0.1:54321").rstrip("/")
+    # host.docker.internal works on macOS/Windows; Linux users can set SUPABASE_INTERNAL_URL.
+    return url.replace("127.0.0.1", "host.docker.internal")
+
+
+def _apply_local_combat_gucs() -> None:
+    """Reapply combat cron GUCs after a local db reset so pg_cron uses the right token."""
+    # Skip cloud deployments
+    if "supabase.co" in os.environ.get("SUPABASE_URL", ""):
+        return
+
+    token = os.environ.get("EDGE_API_TOKEN")
+    if not token and ENV_PATH.exists():
+        try:
+            with ENV_PATH.open() as env_file:
+                for line in env_file:
+                    if line.startswith("EDGE_API_TOKEN="):
+                        token = line.strip().split("=", 1)[1]
+                        break
+        except Exception:
+            token = None
+    token = token or "local-dev-token"
+    api_url = _internal_supabase_url()
+    container = _db_container_name()
+
+    statements = [
+        f"ALTER SYSTEM SET app.supabase_url='{api_url}';",
+        f"ALTER SYSTEM SET app.edge_api_token='{token}';",
+        "SELECT pg_reload_conf();",
+    ]
+
+    for stmt in statements:
+        cmd = [
+            "docker",
+            "exec",
+            "-e",
+            "PGPASSWORD=postgres",
+            container,
+            "psql",
+            "-U",
+            "supabase_admin",
+            "-d",
+            "postgres",
+            "-c",
+            stmt,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)  # noqa: S603
+        if result.returncode != 0:
+            print(
+                "[conftest] WARNING: Failed to set combat cron GUCs "
+                f"(container={container}): {result.stderr.strip()}"
+            )
+            return
+
+    print("[conftest] Applied combat cron GUCs for local stack")
+
+
 def _ensure_supabase_stack_running() -> None:
     global _SUPABASE_STACK_READY
     if _SUPABASE_STACK_READY:
@@ -575,10 +664,14 @@ def _ensure_supabase_stack_running() -> None:
             if result.returncode != 0:
                 print(f"[conftest] WARNING: DB reset failed: {result.stderr}")
                 # Continue anyway - test_reset will attempt cleanup
+            else:
+                _apply_local_combat_gucs()
         _SUPABASE_STACK_READY = True
         return
 
     _start_supabase_stack()
+    # Newly started stack needs the cron GUCs as well
+    _apply_local_combat_gucs()
     _SUPABASE_STACK_READY = True
 
 
@@ -826,19 +919,25 @@ def _invoke_edge_test_reset() -> None:
     # Start with zero characters - tests will explicitly create what they need
     character_ids = []
 
-    try:
-        resp = httpx.post(
-            f"{edge_url}/test_reset",
-            headers=headers,
-            json={"character_ids": character_ids},
-            timeout=120.0,
-        )
-        resp.raise_for_status()
-        payload = resp.json()
-        if not payload.get("success"):
-            raise RuntimeError(f"test_reset edge function failed: {payload}")
-    except Exception as exc:
-        raise RuntimeError(f"Failed to invoke test_reset edge function: {exc}") from exc
+    max_attempts = 6
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = httpx.post(
+                f"{edge_url}/test_reset",
+                headers=headers,
+                json={"character_ids": character_ids},
+                timeout=120.0,
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+            if not payload.get("success"):
+                raise RuntimeError(f"test_reset edge function failed: {payload}")
+            return
+        except Exception as exc:
+            if attempt == max_attempts:
+                raise RuntimeError(f"Failed to invoke test_reset edge function: {exc}") from exc
+            # 2xx/4xx that aren't retryable will still break fast on last attempt
+            time.sleep(2.0)
 
 
 async def _reset_supabase_state_async() -> None:

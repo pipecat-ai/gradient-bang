@@ -15,6 +15,7 @@ The projects demonstrates the full capabilities of realtime agentic workflows, s
 3. [Running a game server](#running-game-server)
 4. [Running the bot](#running-the-bot)
 5. [Deployment](#deployment)
+6. [Auth & secrets quick guide](#auth--secrets-quick-guide)
 
 ## Prerequisites
 
@@ -40,7 +41,7 @@ npx supabase login
 npx supabase projects create gb-game-server \
   --db-password some-secure-password \
   --region us-west-1 \
-  --org-id my-org \
+  --org-id my-supabase-org-slug \
   --size small
 ```
 
@@ -63,41 +64,46 @@ This may take some time on first run as required images are downloaded.
 npx supabase start --workdir deployment/ 
 ```
 
+> If you don’t plan to run the Supabase pytest suite, run the cron one-liner in the **Combat cron for local dev** section after this command to keep combat rounds auto-resolving.
+
 #### Create `.env.supabase` in project root
 
-Grab the required API keys:
+Grab the required API keys to create an .env.supabase file for your local Supabase stack configuration:
 
 ```bash
-npx supabase status -o env \
-  --override-name auth.anon_key=SUPABASE_ANON_KEY \
-  --override-name auth.service_role_key=SUPABASE_SERVICE_KEY \
-  --workdir deployment
+tok=$(openssl rand -hex 32)
+npx supabase status -o env --workdir deployment | awk -F= -v tok="$tok" '
+  $1=="API_URL"           {v=$2; gsub(/"/,"",v); print "SUPABASE_URL=" v}
+  $1=="ANON_KEY"          {v=$2; gsub(/"/,"",v); print "SUPABASE_ANON_KEY=" v}
+  $1=="SERVICE_ROLE_KEY"  {v=$2; gsub(/"/,"",v); print "SUPABASE_SERVICE_ROLE_KEY=" v}
+  $1=="FUNCTIONS_URL"     {v=$2; gsub(/"/,"",v); print "EDGE_FUNCTIONS_URL=" v}
+  END {print "EDGE_API_TOKEN=" tok}
+'  > .env.supabase
 ```
 
-Copy the following into `.env.supabase`:
+#### Combat cron for local dev
+
+- Just run the helper script after `supabase start` (and after any manual reset) to keep combat rounds auto-resolving:
 
 ```bash
-SUPABASE_URL=http://127.0.0.1:54321
-SUPABASE_ANON_KEY=eyJhbG...
-SUPABASE_SERVICE_ROLE_KEY=eyJhbG...
-
-# Edge function configuration
-EDGE_API_TOKEN=your-random-token-here  # Generate: openssl rand -hex 32
-EDGE_FUNCTIONS_URL=${SUPABASE_URL}/functions/v1
+scripts/supabase-reset-with-cron.sh
 ```
 
-#### Optional: Run tests to validate setup
+  - Reads `.env.supabase` for `EDGE_API_TOKEN` and `SUPABASE_URL`.
+  - Uses `SUPABASE_INTERNAL_URL` if you need a Linux bridge IP (e.g. `http://172.17.0.1:54321`).
+- If you run tests with `USE_SUPABASE_TESTS=1`, fixtures also reapply the GUCs automatically.
+
+#### Optional: Run tests to validate local Supabase stack configuration
+
+To reset your local DB and keep combat cron configured, use the helper script:
 
 ```bash
-set -a && source .env.supabase && set +a
-
-USE_SUPABASE_TESTS=1 uv run pytest tests/integration/ -v --supabase-dir deployment
+scripts/supabase-reset-with-cron.sh
 ```
-If you run tests, be sure to clear database after
 
-```bash
-npx supabase db reset --workdir deployment
-```
+> Quick testing guide:
+> - Local functions: start Supabase, run `supabase functions serve --env-file .env.supabase --no-verify-jwt`, then `USE_SUPABASE_TESTS=1 uv run pytest -m supabase --supabase-dir deployment`.
+> - Cloud: export production `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `EDGE_API_TOKEN` and run the same pytest command; fixtures detect `supabase.co` and skip local stack.
 
 ### 3. Generate world data / sector map
 
@@ -209,22 +215,39 @@ npx supabase link --workdir deployment/
 
 #### Create `.env.cloud environment
 
-Note: these can be obtained via `npx supabase projects api-keys`
+Generate it in one step (prompts for project ref and DB password):
 
 ```bash
-SUPABASE_URL=...
-SUPABASE_ANON_KEY=...
-SUPABASE_SERVICE_ROLE_KEY=...
-SUPABASE_DB_URL=...
-EDGE_API_TOKEN=super-secret-prod-token
-EDGE_FUNCTIONS_URL=...
-EDGE_JWT_SECRET=super-secret-jwt-token-with-at-least-32-characters-long
+read -p "Project ref (from Supabase dashboard URL): " PROJECT_REF
+read -s -p "DB password (from Settings → Database): " DB_PASS; echo
+EDGE_API_TOKEN=$(openssl rand -hex 32)
+npx supabase projects api-keys --project-ref "$PROJECT_REF" \
+| awk -v tok="$EDGE_API_TOKEN" -v pw="$DB_PASS" -v pr="$PROJECT_REF" '
+  /anon[[:space:]]*\|/         {anon=$3}
+  /service_role[[:space:]]*\|/ {srv=$3}
+  END {
+    host=pr ".supabase.co";
+    dbhost="db." host;
+    print "SUPABASE_URL=https://" host;
+    print "SUPABASE_ANON_KEY=" anon;
+    print "SUPABASE_SERVICE_ROLE_KEY=" srv;
+    print "SUPABASE_DB_URL=postgresql://postgres:" pw "@" dbhost ":5432/postgres";
+    print "EDGE_API_TOKEN=" tok;
+  }' > .env.cloud
 ```
 
 Load env into terminal:
 
 ```bash
 set -a && source .env.cloud && set +a
+
+Production secrets checklist (must be set in Supabase Edge Function secrets):
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_DB_URL` (needed for `supabase db push/diff/reset --linked`; copy the full password from the Dashboard → Settings → Database → Connection strings)
+- `EDGE_API_TOKEN` (rotate periodically)
+- Optional: `EDGE_FUNCTIONS_URL`, bot vars (`BOT_START_URL`, `BOT_START_API_KEY`).
 ```
 
 #### Push database
@@ -242,8 +265,10 @@ uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data/
 #### Deploy edge functions
 
 ```bash
-npx supabase functions deploy --workdir deployment/ --no-verify-jwt
+npx supabase functions deploy --workdir deployment/
 ```
+
+> Production: keep the default `verify_jwt=true` (gateway enforces `Authorization: Bearer $SUPABASE_ANON_KEY`) and also set `EDGE_API_TOKEN` in secrets; callers must send both headers. Use `--no-verify-jwt` only for local/dev convenience.
 
 Add required secrets
 
@@ -316,6 +341,14 @@ Apply to edge functions
 ```bash
 npx supabase secrets set --env-file .env.cloud
 ```
+
+## Auth & secrets quick guide
+
+- **Gateway check (Supabase)**: default `verify_jwt=true` requires `Authorization: Bearer $SUPABASE_ANON_KEY` (or a user access token). Keep this on in production; optional `--no-verify-jwt` only for local.
+- **App gate (gameplay)**: every gameplay edge function expects `X-API-Token: $EDGE_API_TOKEN` and uses `SUPABASE_SERVICE_ROLE_KEY` internally for DB access.
+- **Bot/client calls**: send both headers. The anon key can be public; the gameplay token must stay secret.
+- **Production secrets to set**: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `EDGE_API_TOKEN` (+ `EDGE_FUNCTIONS_URL` if overriding, bot envs if used).
+- **Combat cron**: ensure DB parameters `app.supabase_url` and `app.edge_api_token` are set to the live URL and the same `EDGE_API_TOKEN`.
 
 #### Point client to your production environment
 
