@@ -41,6 +41,7 @@ interface EventRow {
 }
 
 serve(async (req: Request): Promise<Response> => {
+  const tStart = performance.now();
   if (!validateApiToken(req)) {
     return unauthorizedResponse();
   }
@@ -66,13 +67,34 @@ serve(async (req: Request): Promise<Response> => {
 
   try {
     const result = await handleEventsSinceRequest(supabase, payload);
+    const tEnd = performance.now();
+    console.log('events_since.timing', {
+      request_id: requestId,
+      character_id: payload?.character_id,
+      since_event_id: payload?.since_event_id,
+      limit: payload?.limit,
+      duration_ms: Math.round(tEnd - tStart),
+      events: Array.isArray(result?.events) ? result.events.length : null,
+      has_more: result?.has_more ?? null,
+    });
     return successResponse({ request_id: requestId, ...result });
   } catch (err) {
     const validationResponse = respondWithError(err);
     if (validationResponse) {
       return validationResponse;
     }
-    console.error('events_since.unhandled', err);
+    // Log the full error plus a hint of inputs for diagnostics
+    try {
+      console.error('events_since.unhandled', {
+        error: err?.message ?? String(err),
+        stack: err?.stack,
+        character_id: payload?.character_id,
+        since_event_id: payload?.since_event_id,
+        limit: payload?.limit,
+      });
+    } catch (_logErr) {
+      console.error('events_since.unhandled', err);
+    }
     return errorResponse('internal server error', 500);
   }
 });
@@ -158,6 +180,9 @@ async function fetchEventsForCharacter(options: {
   const { supabase, characterId, sinceEventId, limit } = options;
 
   // Fetch character-specific events (via event_character_recipients)
+  // Apply a safety cap on limit to avoid heavy responses under high load
+  const cappedLimit = Math.min(limit, 50);
+
   const { data: charEvents, error: charError } = await supabase
     .from('events')
     .select(
@@ -183,11 +208,17 @@ async function fetchEventsForCharacter(options: {
     .eq('event_character_recipients.character_id', characterId)
     .gt('id', sinceEventId)
     .order('id', { ascending: true })
-    .limit(limit);
+    .limit(cappedLimit)
+    .returns<EventRow[]>();
 
   if (charError) {
-    console.error('events_since.fetch_character_events', charError);
-    throw new Error('failed to load character events');
+    console.error('events_since.fetch_character_events', {
+      message: charError.message,
+      details: charError.details,
+      hint: charError.hint,
+      code: charError.code,
+    });
+    throw new Error(`failed to load character events: ${charError.message || 'unknown error'}`);
   }
 
   // Fetch broadcast events (via event_broadcast_recipients)
@@ -215,11 +246,17 @@ async function fetchEventsForCharacter(options: {
     )
     .gt('id', sinceEventId)
     .order('id', { ascending: true })
-    .limit(limit);
+    .limit(cappedLimit)
+    .returns<EventRow[]>();
 
   if (broadcastError) {
-    console.error('events_since.fetch_broadcast_events', broadcastError);
-    throw new Error('failed to load broadcast events');
+    console.error('events_since.fetch_broadcast_events', {
+      message: broadcastError.message,
+      details: broadcastError.details,
+      hint: broadcastError.hint,
+      code: broadcastError.code,
+    });
+    throw new Error(`failed to load broadcast events: ${broadcastError.message || 'unknown error'}`);
   }
 
   // Merge and deduplicate by event id, keeping the version with character_recipients if present

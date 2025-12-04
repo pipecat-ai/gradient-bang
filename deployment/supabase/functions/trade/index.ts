@@ -1,10 +1,26 @@
 import { serve } from 'https://deno.land/std@0.197.0/http/server.ts';
 
-// Fix: Added senderId to trade event emission for corporation ship tracking
 import { validateApiToken, unauthorizedResponse, errorResponse, successResponse } from '../_shared/auth.ts';
 import { createServiceRoleClient } from '../_shared/client.ts';
-import { emitCharacterEvent, emitErrorEvent, buildEventSource } from '../_shared/events.ts';
-import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
+import { emitErrorEvent, buildEventSource } from '../_shared/events.ts';
+import { createPgClient } from '../_shared/pg.ts';
+import {
+  pgEnforceRateLimit,
+  pgLoadCharacter,
+  pgLoadShip,
+  pgLoadShipDefinition,
+  pgUpdateCharacterLastActive,
+  pgBuildStatusPayload,
+  pgEmitCharacterEvent,
+  pgEnsureActorAuthorization,
+  pgLoadPortBySector,
+  pgExecuteTradeTransaction,
+  pgRecordPortTransaction,
+  pgListCharactersInSector,
+  ActorAuthorizationError,
+  type PortRow,
+  type ShipTradeUpdate,
+} from '../_shared/pg_queries.ts';
 import {
   commodityKey,
   buildPortData,
@@ -13,18 +29,14 @@ import {
   getPortPrices,
   getPortStock,
   isCommodity,
-  loadPortBySector,
   portSupportsTrade,
   TradingValidationError,
   validateBuyTransaction,
   validateSellTransaction,
   type Commodity,
   type PortData,
-  type PortRow,
   type TradeType,
 } from '../_shared/trading.ts';
-import { buildStatusPayload, loadCharacter, loadShip, loadShipDefinition } from '../_shared/status.ts';
-import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 import { canonicalizeCharacterId } from '../_shared/ids.ts';
 import {
   parseJsonRequest,
@@ -35,6 +47,7 @@ import {
   resolveRequestId,
   respondWithError,
 } from '../_shared/request.ts';
+import type { Client } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
 
 class TradeError extends Error {
   status: number;
@@ -47,12 +60,6 @@ class TradeError extends Error {
 }
 
 // Optimistic concurrency control: Retry attempts for port inventory updates
-// Legacy uses pessimistic locking (async locks) which queues all requests
-// Supabase uses optimistic locking (version checks) which requires retries
-//
-// For high-concurrency scenarios (50 concurrent trades):
-// - Need ~15 attempts for 70% success rate (35/50 trades)
-// - Exponential backoff reduces retry collisions
 const MAX_PORT_ATTEMPTS = 15;
 
 serve(async (req: Request): Promise<Response> => {
@@ -84,25 +91,49 @@ serve(async (req: Request): Promise<Response> => {
   const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
-  try {
-    await enforceRateLimit(supabase, characterId, 'trade');
-  } catch (err) {
-    if (err instanceof RateLimitError) {
-      await emitErrorEvent(supabase, {
-        characterId,
-        method: 'trade',
-        requestId,
-        detail: 'Too many trade requests',
-        status: 429,
-      });
-      return errorResponse('Too many trade requests', 429);
-    }
-    console.error('trade.rate_limit', err);
-    return errorResponse('rate limit error', 500);
-  }
+  // Create PG client for direct database access
+  const pgClient = createPgClient();
+
+  // Timing trace
+  const trace: Record<string, number> = {};
+  const t0 = Date.now();
+  const mark = (label: string) => {
+    trace[label] = Date.now() - t0;
+  };
 
   try {
-    return await handleTrade(supabase, payload, characterId, requestId, adminOverride, actorCharacterId);
+    await pgClient.connect();
+    mark('pg_connect');
+
+    try {
+      await pgEnforceRateLimit(pgClient, characterId, 'trade');
+      mark('rate_limit');
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('rate limit')) {
+        await emitErrorEvent(supabase, {
+          characterId,
+          method: 'trade',
+          requestId,
+          detail: 'Too many trade requests',
+          status: 429,
+        });
+        return errorResponse('Too many trade requests', 429);
+      }
+      console.error('trade.rate_limit', err);
+      return errorResponse('rate limit error', 500);
+    }
+
+    return await handleTrade({
+      pgClient,
+      supabase,
+      payload,
+      characterId,
+      requestId,
+      adminOverride,
+      actorCharacterId,
+      trace,
+      mark,
+    });
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
       await emitErrorEvent(supabase, {
@@ -133,30 +164,54 @@ serve(async (req: Request): Promise<Response> => {
       status: 500,
     });
     return errorResponse('internal server error', 500);
+  } finally {
+    trace['total'] = Date.now() - t0;
+    console.log('trade.trace', { request_id: requestId, character_id: characterId, trace });
+    try {
+      await pgClient.end();
+    } catch {
+      // Ignore cleanup errors
+    }
   }
 });
 
-async function handleTrade(
-  supabase: ReturnType<typeof createServiceRoleClient>,
-  payload: Record<string, unknown>,
-  characterId: string,
-  requestId: string,
-  adminOverride: boolean,
-  actorCharacterId: string | null,
-): Promise<Response> {
+async function handleTrade({
+  pgClient,
+  supabase,
+  payload,
+  characterId,
+  requestId,
+  adminOverride,
+  actorCharacterId,
+  trace,
+  mark,
+}: {
+  pgClient: Client;
+  supabase: ReturnType<typeof createServiceRoleClient>;
+  payload: Record<string, unknown>;
+  characterId: string;
+  requestId: string;
+  adminOverride: boolean;
+  actorCharacterId: string | null;
+  trace: Record<string, number>;
+  mark: (label: string) => void;
+}): Promise<Response> {
   const source = buildEventSource('trade', requestId);
 
-  const character = await loadCharacter(supabase, characterId);
-  const ship = await loadShip(supabase, character.current_ship_id);
-  const shipDefinition = await loadShipDefinition(supabase, ship.ship_type);
+  const character = await pgLoadCharacter(pgClient, characterId);
+  mark('load_character');
+  const ship = await pgLoadShip(pgClient, character.current_ship_id);
+  mark('load_ship');
+  const shipDefinition = await pgLoadShipDefinition(pgClient, ship.ship_type);
+  mark('load_ship_definition');
 
-  await ensureActorAuthorization({
-    supabase,
+  await pgEnsureActorAuthorization(pgClient, {
     ship,
     actorCharacterId,
     adminOverride,
     targetCharacterId: characterId,
   });
+  mark('auth');
 
   if (ship.in_hyperspace) {
     throw new TradeError('Character is in hyperspace, cannot trade', 409);
@@ -187,7 +242,8 @@ async function handleTrade(
     throw new TradeError('quantity must be a positive integer');
   }
 
-  const portRowInitial = await loadPortBySector(supabase, sectorId);
+  const portRowInitial = await pgLoadPortBySector(pgClient, sectorId);
+  mark('load_port');
   if (!portRowInitial) {
     throw new TradeError('No port at current location', 400);
   }
@@ -197,8 +253,8 @@ async function handleTrade(
   const cargoCapacity = shipDefinition.cargo_holds ?? 0;
   const cargoUsed = cargoTotal(shipCargo);
 
-  const execution = await executeTradeWithPortRetry({
-    supabase,
+  const execution = await executeTradeWithRetry({
+    pgClient,
     sectorId,
     commodity,
     tradeType,
@@ -208,49 +264,44 @@ async function handleTrade(
     cargoCapacity,
     cargoUsed,
     initialPort: portRowInitial,
+    shipId: ship.ship_id,
+    ownerId: ship.owner_id,
+    mark,
   });
-
-  let shipUpdate = supabase
-    .from('ship_instances')
-    .update({
-      credits: execution.computation.updatedCredits,
-      cargo_qf: execution.computation.updatedCargo.quantum_foam,
-      cargo_ro: execution.computation.updatedCargo.retro_organics,
-      cargo_ns: execution.computation.updatedCargo.neuro_symbolics,
-    })
-    .eq('ship_id', ship.ship_id);
-  if (ship.owner_id) {
-    shipUpdate = shipUpdate.eq('owner_id', ship.owner_id);
-  }
-  const shipUpdateResult = await shipUpdate.select('ship_id').maybeSingle();
-  if (shipUpdateResult.error || !shipUpdateResult.data) {
-    console.error('trade.ship_update', shipUpdateResult.error);
-    await revertPortInventory(supabase, execution.originalPort, execution.updatedPort);
-    throw new TradeError('failed to update ship after trade', 500);
-  }
+  mark('trade_executed');
 
   const timestamp = execution.observedAt;
-  const { error: characterUpdateError } = await supabase
-    .from('characters')
-    .update({ last_active: timestamp })
-    .eq('character_id', characterId);
-  if (characterUpdateError) {
-    console.error('trade.character_update', characterUpdateError);
-  }
+  await pgUpdateCharacterLastActive(pgClient, characterId);
+  mark('update_last_active');
 
-  await recordPortTransaction(supabase, {
+  await pgRecordPortTransaction(pgClient, {
     sectorId,
     portId: execution.updatedPort.port_id,
     characterId,
     shipId: ship.ship_id,
-    commodity,
-    tradeType,
+    commodity: commodityKey(commodity),
     quantity,
+    transactionType: tradeType,
     pricePerUnit: execution.computation.pricePerUnit,
     totalPrice: execution.computation.totalPrice,
   });
+  mark('record_transaction');
 
-  const statusPayload = await buildStatusPayload(supabase, characterId);
+  // Build updated ship state for status payload (reuse character and definition)
+  const updatedShip = {
+    ...ship,
+    credits: execution.computation.updatedCredits,
+    cargo_qf: execution.computation.updatedCargo.quantum_foam,
+    cargo_ro: execution.computation.updatedCargo.retro_organics,
+    cargo_ns: execution.computation.updatedCargo.neuro_symbolics,
+  };
+
+  const statusPayload = await pgBuildStatusPayload(pgClient, characterId, {
+    character,
+    ship: updatedShip,
+    shipDefinition,
+  });
+  mark('build_status');
   const priceMap = getPortPrices(execution.portDataAfter);
   const stockMap = getPortStock(execution.portDataAfter);
   const portUpdatePayload = {
@@ -265,8 +316,8 @@ async function handleTrade(
     updated_at: timestamp,
   };
 
-  await emitCharacterEvent({
-    supabase,
+  await pgEmitCharacterEvent({
+    pg: pgClient,
     characterId,
     eventType: 'trade.executed',
     payload: {
@@ -291,9 +342,10 @@ async function handleTrade(
     actorCharacterId,
     corpId: ship.owner_corporation_id ?? character.corporation_id,
   });
+  mark('emit_trade_executed');
 
-  await emitCharacterEvent({
-    supabase,
+  await pgEmitCharacterEvent({
+    pg: pgClient,
     characterId,
     eventType: 'status.update',
     payload: statusPayload,
@@ -303,9 +355,10 @@ async function handleTrade(
     actorCharacterId,
     corpId: ship.owner_corporation_id ?? character.corporation_id,
   });
+  mark('emit_status_update');
 
-  await emitCharacterEvent({
-    supabase,
+  await pgEmitCharacterEvent({
+    pg: pgClient,
     characterId,
     eventType: 'port.update',
     payload: portUpdatePayload,
@@ -315,12 +368,26 @@ async function handleTrade(
     actorCharacterId,
     corpId: ship.owner_corporation_id ?? character.corporation_id,
   });
+  mark('emit_port_update');
 
-  await emitPortUpdateEvents(supabase, {
-    sectorId,
-    recipients: (await listCharactersInSector(supabase, sectorId)).filter((id) => id !== characterId),
-    payload: portUpdatePayload,
-  });
+  // Emit port update to other characters in sector
+  const otherCharacters = await pgListCharactersInSector(pgClient, sectorId, [characterId]);
+  mark('list_sector_chars');
+
+  if (otherCharacters.length > 0) {
+    await Promise.all(
+      otherCharacters.map((recipient) =>
+        pgEmitCharacterEvent({
+          pg: pgClient,
+          characterId: recipient,
+          eventType: 'port.update',
+          payload: portUpdatePayload,
+          sectorId,
+        })
+      )
+    );
+    mark('emit_port_broadcast');
+  }
 
   return successResponse({ request_id: requestId });
 }
@@ -345,8 +412,8 @@ function cargoTotal(cargo: Record<Commodity, number>): number {
   return cargo.quantum_foam + cargo.retro_organics + cargo.neuro_symbolics;
 }
 
-async function executeTradeWithPortRetry(params: {
-  supabase: ReturnType<typeof createServiceRoleClient>;
+async function executeTradeWithRetry(params: {
+  pgClient: Client;
   sectorId: number;
   commodity: Commodity;
   tradeType: TradeType;
@@ -356,6 +423,9 @@ async function executeTradeWithPortRetry(params: {
   cargoCapacity: number;
   cargoUsed: number;
   initialPort: PortRow;
+  shipId: string;
+  ownerId: string | null;
+  mark: (label: string) => void;
 }): Promise<{
   computation: TradeComputation;
   updatedPort: PortRow;
@@ -382,30 +452,49 @@ async function executeTradeWithPortRetry(params: {
     });
 
     const observedAt = new Date().toISOString();
-    const updateResult = await attemptPortUpdate(params.supabase, currentPort, computation.updatedPortStock, observedAt);
-    if (updateResult) {
-      console.log(`[trade.retry] SUCCESS on attempt ${attempt + 1}, new version ${updateResult.version}`);
+    const shipUpdates: ShipTradeUpdate = {
+      credits: computation.updatedCredits,
+      cargo_qf: computation.updatedCargo.quantum_foam,
+      cargo_ro: computation.updatedCargo.retro_organics,
+      cargo_ns: computation.updatedCargo.neuro_symbolics,
+    };
+
+    // Execute port + ship update in a transaction
+    const result = await pgExecuteTradeTransaction(params.pgClient, {
+      portRow: currentPort,
+      updatedStock: computation.updatedPortStock,
+      observedAt,
+      shipId: params.shipId,
+      ownerId: params.ownerId,
+      shipUpdates,
+    });
+
+    if (result.success) {
+      console.log(`[trade.retry] SUCCESS on attempt ${attempt + 1}, new version ${result.updatedPort.version}`);
+      params.mark(`trade_attempt_${attempt + 1}`);
       return {
         computation,
-        updatedPort: updateResult,
+        updatedPort: result.updatedPort,
         originalPort: currentPort,
         observedAt,
-        portDataAfter: buildPortData(updateResult),
+        portDataAfter: buildPortData(result.updatedPort),
       };
     }
 
+    if (result.reason === 'ship_update_failed') {
+      throw new TradeError('Failed to update ship after trade', 500);
+    }
+
+    // Version mismatch - retry with exponential backoff
     console.log(`[trade.retry] Port version mismatch on attempt ${attempt + 1}, refreshing...`);
 
-    // Exponential backoff with jitter to reduce retry collisions
-    // Spreads out retries over time instead of all hitting at once
-    // Base: 10ms, doubles each attempt, with random jitter (0-100%)
     const baseDelayMs = 10;
     const maxJitterMs = baseDelayMs * Math.pow(2, attempt);
     const jitterMs = Math.random() * maxJitterMs;
     console.log(`[trade.retry] Backing off ${jitterMs.toFixed(1)}ms before retry`);
     await new Promise(resolve => setTimeout(resolve, jitterMs));
 
-    const refreshed = await loadPortBySector(params.supabase, params.sectorId);
+    const refreshed = await pgLoadPortBySector(params.pgClient, params.sectorId);
     if (!refreshed) {
       throw new TradeError('Port became unavailable', 409);
     }
@@ -481,153 +570,6 @@ function computeTradeOutcome(params: {
     totalPrice,
     updatedPortStock: { ...portData.stock },
   };
-}
-
-async function attemptPortUpdate(
-  supabase: ReturnType<typeof createServiceRoleClient>,
-  portRow: PortRow,
-  updatedStock: Record<string, number>,
-  observedAt: string,
-): Promise<PortRow | null> {
-  const { data, error } = await supabase
-    .from('ports')
-    .update({
-      stock_qf: updatedStock['QF'],
-      stock_ro: updatedStock['RO'],
-      stock_ns: updatedStock['NS'],
-      last_updated: observedAt,
-      version: portRow.version + 1,
-    })
-    .eq('port_id', portRow.port_id)
-    .eq('version', portRow.version)
-    .select(
-      'port_id, sector_id, port_code, port_class, max_qf, max_ro, max_ns, stock_qf, stock_ro, stock_ns, version, last_updated',
-    )
-    .maybeSingle();
-
-  if (error) {
-    console.error('trade.port_update', error);
-    throw new TradeError('Failed to update port inventory', 500);
-  }
-
-  if (!data) {
-    return null;
-  }
-  return data as PortRow;
-}
-
-async function revertPortInventory(
-  supabase: ReturnType<typeof createServiceRoleClient>,
-  previous: PortRow,
-  current: PortRow,
-): Promise<void> {
-  const { error } = await supabase
-    .from('ports')
-    .update({
-      stock_qf: previous.stock_qf,
-      stock_ro: previous.stock_ro,
-      stock_ns: previous.stock_ns,
-      last_updated: new Date().toISOString(),
-      version: current.version + 1,
-    })
-    .eq('port_id', current.port_id)
-    .eq('version', current.version);
-  if (error) {
-    console.error('trade.port_revert', error);
-  }
-}
-
-async function recordPortTransaction(
-  supabase: ReturnType<typeof createServiceRoleClient>,
-  params: {
-    sectorId: number;
-    portId: number;
-    characterId: string;
-    shipId: string;
-    commodity: Commodity;
-    tradeType: TradeType;
-    quantity: number;
-    pricePerUnit: number;
-    totalPrice: number;
-  },
-): Promise<void> {
-  const { error } = await supabase
-    .from('port_transactions')
-    .insert({
-      sector_id: params.sectorId,
-      port_id: params.portId,
-      character_id: params.characterId,
-      ship_id: params.shipId,
-      commodity: commodityKey(params.commodity),
-      quantity: params.quantity,
-      transaction_type: params.tradeType,
-      price_per_unit: params.pricePerUnit,
-      total_price: params.totalPrice,
-    });
-  if (error) {
-    console.error('trade.port_transaction', error);
-  }
-}
-
-async function listCharactersInSector(
-  supabase: ReturnType<typeof createServiceRoleClient>,
-  sectorId: number,
-): Promise<string[]> {
-  const { data, error } = await supabase
-    .from('ship_instances')
-    .select('ship_id, in_hyperspace')
-    .eq('current_sector', sectorId);
-  if (error) {
-    console.error('trade.list_characters', error);
-    return [];
-  }
-  const shipIds = (data ?? [])
-    .filter((row) => row && row.in_hyperspace !== true)
-    .map((row) => row.ship_id)
-    .filter((shipId): shipId is string => typeof shipId === 'string' && shipId.length > 0);
-  if (shipIds.length === 0) {
-    return [];
-  }
-  const { data: characters, error: characterError } = await supabase
-    .from('characters')
-    .select('character_id, current_ship_id')
-    .in('current_ship_id', shipIds);
-  if (characterError) {
-    console.error('trade.list_characters.characters', characterError);
-    return [];
-  }
-  const ids = new Set<string>();
-  for (const row of characters ?? []) {
-    if (typeof row.character_id === 'string' && row.character_id.length > 0) {
-      ids.add(row.character_id);
-    }
-  }
-  return Array.from(ids);
-}
-
-async function emitPortUpdateEvents(
-  supabase: ReturnType<typeof createServiceRoleClient>,
-  params: {
-    sectorId: number;
-    recipients: string[];
-    payload: Record<string, unknown>;
-  },
-): Promise<void> {
-  if (params.recipients.length === 0) {
-    return;
-  }
-
-  await Promise.all(
-    params.recipients.map((recipient) =>
-      emitCharacterEvent({
-        supabase,
-        characterId: recipient,
-        eventType: 'port.update',
-        payload: params.payload,
-        sectorId: params.sectorId,
-      }),
-    ),
-  );
 }
 
 type TradeComputation = {

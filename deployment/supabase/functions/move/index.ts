@@ -1,23 +1,10 @@
 import { serve } from 'https://deno.land/std@0.197.0/http/server.ts';
+import { Client } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
 
 import { validateApiToken, unauthorizedResponse, errorResponse, successResponse } from '../_shared/auth.ts';
 import { createServiceRoleClient } from '../_shared/client.ts';
-import { emitCharacterEvent, emitErrorEvent, buildEventSource, emitSectorEnvelope } from '../_shared/events.ts';
-import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
-import {
-  buildLocalMapRegion,
-  buildSectorSnapshot,
-  getAdjacentSectors,
-  markSectorVisited,
-  loadMapKnowledge,
-} from '../_shared/map.ts';
-import {
-  buildStatusPayload,
-  loadCharacter,
-  loadShip,
-  loadShipDefinition,
-  type ShipRow,
-} from '../_shared/status.ts';
+import { emitCharacterEvent, emitErrorEvent, buildEventSource } from '../_shared/events.ts';
+import { createPgClient, connectWithCleanup } from '../_shared/pg.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -28,26 +15,42 @@ import {
   respondWithError,
 } from '../_shared/request.ts';
 import { canonicalizeCharacterId } from '../_shared/ids.ts';
-import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
-import { type ObserverMetadata } from '../_shared/observers.ts';
-import { emitMovementObservers } from '../_shared/movement.ts';
+import { ActorAuthorizationError } from '../_shared/actors.ts';
 import { checkGarrisonAutoEngage } from '../_shared/garrison_combat.ts';
-import { loadCombatForSector } from '../_shared/combat_state.ts';
+import { deserializeCombat } from '../_shared/combat_state.ts';
+import type { CharacterRow, ShipRow, ShipDefinitionRow } from '../_shared/status.ts';
+import type { SectorSnapshot, MapKnowledge } from '../_shared/map.ts';
+import { parseWarpEdges } from '../_shared/map.ts';
+
+// Import pg-based query functions
+import {
+  pgEnforceRateLimit,
+  pgLoadCharacter,
+  pgLoadShip,
+  pgLoadShipDefinition,
+  pgEnsureActorCanControlShip,
+  pgLoadCombatForSector,
+  pgGetAdjacentSectors,
+  pgBuildSectorSnapshot,
+  pgStartHyperspace,
+  pgFinishHyperspace,
+  pgUpdateCharacterLastActive,
+  pgBuildStatusPayload,
+  pgLoadMapKnowledge,
+  pgMarkSectorVisited,
+  pgBuildLocalMapRegion,
+  pgEmitCharacterEvent,
+  pgEmitMovementObservers,
+  pgCheckGarrisonAutoEngage,
+  RateLimitError,
+  MoveError,
+  type ObserverMetadata,
+} from '../_shared/pg_queries.ts';
 
 const BASE_MOVE_DELAY = Number(Deno.env.get('MOVE_DELAY_SECONDS_PER_TURN') ?? (2 / 3));
 const MOVE_DELAY_SCALE = Number(Deno.env.get('MOVE_DELAY_SCALE') ?? '1');
 const MAX_LOCAL_MAP_HOPS = 4;
 const MAX_LOCAL_MAP_NODES = 28;
-
-class MoveError extends Error {
-  status: number;
-
-  constructor(message: string, status = 400) {
-    super(message);
-    this.name = 'MoveError';
-    this.status = status;
-  }
-}
 
 serve(async (req: Request): Promise<Response> => {
   if (!validateApiToken(req)) {
@@ -55,89 +58,134 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   const supabase = createServiceRoleClient();
-  let payload;
-  try {
-    payload = await parseJsonRequest(req);
-  } catch (err) {
-    const response = respondWithError(err);
-    if (response) {
-      return response;
-    }
-    console.error('move.parse', err);
-    return errorResponse('invalid JSON payload', 400);
-  }
-
-  if (payload.healthcheck === true) {
-    return successResponse({ status: 'ok', token_present: Boolean(Deno.env.get('EDGE_API_TOKEN')) });
-  }
-
-  const requestId = resolveRequestId(payload);
-  const rawCharacterId = requireString(payload, 'character_id');
-  const characterId = await canonicalizeCharacterId(rawCharacterId);
-  const actorCharacterLabel = optionalString(payload, 'actor_character_id');
-  const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
-  const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
-
-
-  let toSector = optionalNumber(payload, 'to_sector');
-  if (toSector === null && 'to' in payload) {
-    toSector = optionalNumber(payload, 'to');
-  }
-  if (toSector === null || Number.isNaN(toSector)) {
-    return errorResponse('to_sector is required', 400);
-  }
-  if (toSector < 0) {
-    return errorResponse('to_sector must be non-negative', 400);
-  }
-  const destination = toSector;
+  const pgClient = createPgClient();
+  const tStart = performance.now();
+  const trace: Record<string, number> = {};
+  const mark = (label: string) => {
+    trace[label] = Math.round(performance.now() - tStart);
+  };
 
   try {
-    await enforceRateLimit(supabase, characterId, 'move');
-  } catch (err) {
-    if (err instanceof RateLimitError) {
-      await emitErrorEvent(supabase, {
-        characterId,
-        method: 'move',
-        requestId,
-        detail: 'Too many move requests',
-        status: 429,
-      });
-      return errorResponse('Too many move requests', 429);
+    try {
+      await pgClient.connect();
+      mark('pg_connect');
+    } catch (pgConnectError) {
+      console.error('move.pg_connect_error', pgConnectError);
+      return errorResponse(`Failed to connect to database: ${pgConnectError instanceof Error ? pgConnectError.message : 'unknown error'}`, 500);
     }
-    console.error('move.rate_limit', err);
-    return errorResponse('rate limit error', 500);
+
+    let payload;
+    try {
+      payload = await parseJsonRequest(req);
+    } catch (err) {
+      const response = respondWithError(err);
+      if (response) {
+        return response;
+      }
+      console.error('move.parse', err);
+      return errorResponse('invalid JSON payload', 400);
+    }
+
+    if (payload.healthcheck === true) {
+      return successResponse({ status: 'ok', token_present: Boolean(Deno.env.get('EDGE_API_TOKEN')) });
+    }
+
+    const requestId = resolveRequestId(payload);
+    const rawCharacterId = requireString(payload, 'character_id');
+    const characterId = await canonicalizeCharacterId(rawCharacterId);
+    const actorCharacterLabel = optionalString(payload, 'actor_character_id');
+    const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
+    const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
+
+    let toSector = optionalNumber(payload, 'to_sector');
+    if (toSector === null && 'to' in payload) {
+      toSector = optionalNumber(payload, 'to');
+    }
+    if (toSector === null || Number.isNaN(toSector)) {
+      return errorResponse('to_sector is required', 400);
+    }
+    if (toSector < 0) {
+      return errorResponse('to_sector must be non-negative', 400);
+    }
+    const destination = toSector;
+
+    try {
+      await pgEnforceRateLimit(pgClient, characterId, 'move');
+      mark('rate_limit');
+    } catch (err) {
+      if (err instanceof RateLimitError) {
+        await emitErrorEvent(supabase, {
+          characterId,
+          method: 'move',
+          requestId,
+          detail: 'Too many move requests',
+          status: 429,
+        });
+        return errorResponse('Too many move requests', 429);
+      }
+      console.error('move.rate_limit', err);
+      return errorResponse('rate limit error', 500);
+    }
+
+    const moveContext = {
+      supabase,
+      pgClient,
+      characterId,
+      destination,
+      requestId,
+      actorCharacterId,
+      adminOverride,
+      trace,
+      mark,
+    } as const;
+
+    const result = await handleMove(moveContext);
+    const tEnd = performance.now();
+    trace['total'] = Math.round(tEnd - tStart);
+    console.log('move.trace', {
+      request_id: requestId,
+      character_id: characterId,
+      destination,
+      trace,
+    });
+    return result;
+  } finally {
+    // pgClient may already be closed by completeMovement - safe to call end() anyway
+    try {
+      await pgClient.end();
+    } catch {
+      // Already closed, ignore
+    }
   }
-
-  const moveContext = {
-    supabase,
-    characterId,
-    destination,
-    requestId,
-    actorCharacterId,
-    adminOverride,
-  } as const;
-
-  return await handleMove(moveContext);
 });
 
-async function handleMove({ supabase, characterId, destination, requestId, actorCharacterId, adminOverride }: {
+async function handleMove({ supabase, pgClient, characterId, destination, requestId, actorCharacterId, adminOverride, trace, mark }: {
   supabase: ReturnType<typeof createServiceRoleClient>;
+  pgClient: Client;
   characterId: string;
   destination: number;
   requestId: string;
   actorCharacterId: string | null;
   adminOverride: boolean;
+  trace: Record<string, number>;
+  mark: (label: string) => void;
 }): Promise<Response> {
   const source = buildEventSource('move', requestId);
   let observerMetadata: ObserverMetadata;
 
-  let character;
-  let ship;
-  let shipDefinition;
+  let character: CharacterRow;
+  let ship: ShipRow;
+  let shipDefinition: ShipDefinitionRow;
   try {
-    character = await loadCharacter(supabase, characterId);
-    ship = await loadShip(supabase, character.current_ship_id);
-    shipDefinition = await loadShipDefinition(supabase, ship.ship_type);
+    // Load character first (needed to get current_ship_id)
+    character = await pgLoadCharacter(pgClient, characterId);
+    mark('load_character');
+
+    // Load ship (need ship_type for definition)
+    ship = await pgLoadShip(pgClient, character.current_ship_id);
+    mark('load_ship');
+    shipDefinition = await pgLoadShipDefinition(pgClient, ship.ship_type);
+    mark('load_ship_definition');
   } catch (err) {
     console.error('move.load_state', err);
     await emitErrorEvent(supabase, {
@@ -150,14 +198,16 @@ async function handleMove({ supabase, characterId, destination, requestId, actor
     return errorResponse('character not found', 404);
   }
 
+  // Actor authorization check
   try {
-    await ensureActorAuthorization({
-      supabase,
+    await ensureActorAuthorizationPg({
+      pgClient,
       ship,
       actorCharacterId,
       adminOverride,
       targetCharacterId: characterId,
     });
+    mark('auth');
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
       console.warn('move.authorization', err.message);
@@ -181,19 +231,30 @@ async function handleMove({ supabase, characterId, destination, requestId, actor
     return errorResponse('Character ship missing sector', 500);
   }
 
-  // Check if character is in combat
-  const combat = await loadCombatForSector(supabase, ship.current_sector);
-  if (combat && !combat.ended) {
-    // Check if this character is a participant in the combat
-    if (characterId in combat.participants) {
-      await emitErrorEvent(supabase, {
-        characterId,
-        method: 'move',
-        requestId,
-        detail: 'Cannot move while in combat',
-        status: 409,
-      });
-      return errorResponse('cannot move while in combat', 409);
+  // Parallelize combat check and adjacent sectors lookup
+  const [combatRow, adjacent] = await Promise.all([
+    pgLoadCombatForSector(pgClient, ship.current_sector),
+    pgGetAdjacentSectors(pgClient, ship.current_sector),
+  ]);
+  mark('load_combat_and_adjacent');
+
+  if (combatRow) {
+    const combat = deserializeCombat({
+      ...(combatRow.combat as Record<string, unknown>),
+      sector_id: combatRow.sector_id,
+    });
+    if (combat && !combat.ended) {
+      // Check if this character is a participant in the combat
+      if (characterId in combat.participants) {
+        await emitErrorEvent(supabase, {
+          characterId,
+          method: 'move',
+          requestId,
+          detail: 'Cannot move while in combat',
+          status: 409,
+        });
+        return errorResponse('cannot move while in combat', 409);
+      }
     }
   }
 
@@ -204,8 +265,6 @@ async function handleMove({ supabase, characterId, destination, requestId, actor
     shipName: shipDefinition.display_name,  // Always human-readable per codex convention
     shipType: ship.ship_type,
   };
-
-  const adjacent = await getAdjacentSectors(supabase, ship.current_sector);
   if (!adjacent.includes(destination)) {
     await emitErrorEvent(supabase, {
       characterId,
@@ -239,9 +298,10 @@ async function handleMove({ supabase, characterId, destination, requestId, actor
   const hyperspaceEta = new Date(Date.now() + hyperspaceSeconds * 1000).toISOString();
   let enteredHyperspace = false;
 
-  let destinationSnapshot;
+  let destinationSnapshot: SectorSnapshot;
   try {
-    destinationSnapshot = await buildSectorSnapshot(supabase, destination, characterId);
+    destinationSnapshot = await pgBuildSectorSnapshot(pgClient, destination, characterId);
+    mark('build_destination_snapshot');
   } catch (err) {
     console.error('move.destination_snapshot', err);
     await emitErrorEvent(supabase, {
@@ -255,23 +315,21 @@ async function handleMove({ supabase, characterId, destination, requestId, actor
   }
 
   try {
-    await startHyperspace({
-      supabase,
+    await pgStartHyperspace(pgClient, {
       shipId: ship.ship_id,
       currentSector: ship.current_sector,
       destination,
       eta: hyperspaceEta,
       newWarpTotal: ship.current_warp_power - warpCost,
     });
+    mark('start_hyperspace');
     enteredHyperspace = true;
 
-    await supabase
-      .from('characters')
-      .update({ last_active: new Date().toISOString() })
-      .eq('character_id', characterId);
+    await pgUpdateCharacterLastActive(pgClient, characterId);
+    mark('update_last_active');
 
-    await emitCharacterEvent({
-      supabase,
+    await pgEmitCharacterEvent({
+      pg: pgClient,
       characterId,
       eventType: 'movement.start',
       payload: {
@@ -284,9 +342,10 @@ async function handleMove({ supabase, characterId, destination, requestId, actor
       requestId,
       corpId: character.corporation_id,
     });
+    mark('emit_movement_start');
 
-    await emitMovementObservers({
-      supabase,
+    await pgEmitMovementObservers({
+      pg: pgClient,
       sectorId: ship.current_sector,
       metadata: observerMetadata,
       movement: 'depart',
@@ -296,7 +355,10 @@ async function handleMove({ supabase, characterId, destination, requestId, actor
 
     await completeMovement({
       supabase,
+      pgClient,
       character,
+      ship,
+      shipDefinition,
       characterId,
       shipId: ship.ship_id,
       destination,
@@ -305,6 +367,8 @@ async function handleMove({ supabase, characterId, destination, requestId, actor
       hyperspaceSeconds,
       destinationSnapshot,
       observerMetadata,
+      trace,
+      mark,
     });
 
     enteredHyperspace = false;
@@ -335,16 +399,81 @@ async function handleMove({ supabase, characterId, destination, requestId, actor
     return errorResponse('internal server error', 500);
   } finally {
     if (enteredHyperspace) {
-      await finishHyperspace({ supabase, shipId: ship.ship_id, destination: ship.current_sector ?? 0 });
+      // Original pgClient may have been closed during completeMovement,
+      // so we need a fresh connection for cleanup
+      const cleanupPg = createPgClient();
+      try {
+        await cleanupPg.connect();
+        await pgFinishHyperspace(cleanupPg, { shipId: ship.ship_id, destination: ship.current_sector ?? 0 });
+      } catch (cleanupErr) {
+        console.error('move.cleanup_hyperspace', cleanupErr);
+      } finally {
+        await cleanupPg.end();
+      }
     }
   }
 }
 
-// helper moved to _shared/actors.ts
+// pg-based actor authorization helper
+async function ensureActorAuthorizationPg({
+  pgClient,
+  ship,
+  actorCharacterId,
+  adminOverride,
+  targetCharacterId,
+  requireActorForCorporationShip = true,
+}: {
+  pgClient: Client;
+  ship: ShipRow | null;
+  actorCharacterId: string | null;
+  adminOverride: boolean;
+  targetCharacterId?: string | null;
+  requireActorForCorporationShip?: boolean;
+}): Promise<void> {
+  if (adminOverride) {
+    return;
+  }
+
+  if (!ship) {
+    if (actorCharacterId && targetCharacterId && actorCharacterId !== targetCharacterId) {
+      throw new ActorAuthorizationError('actor_character_id must match character_id unless admin_override is true', 403);
+    }
+    return;
+  }
+
+  const resolvedTargetId = targetCharacterId ?? ship.owner_character_id ?? ship.owner_id ?? ship.ship_id;
+
+  if (ship.owner_type === 'corporation') {
+    if (requireActorForCorporationShip && !actorCharacterId) {
+      throw new ActorAuthorizationError(
+        'actor_character_id is required when controlling a corporation ship',
+        400,
+      );
+    }
+    if (!ship.owner_corporation_id) {
+      throw new ActorAuthorizationError('Corporation ship is missing ownership data', 403);
+    }
+    if (!actorCharacterId) {
+      return;
+    }
+    const allowed = await pgEnsureActorCanControlShip(pgClient, actorCharacterId, ship.owner_corporation_id);
+    if (!allowed) {
+      throw new ActorAuthorizationError('Actor is not authorized to control this corporation ship', 403);
+    }
+    return;
+  }
+
+  if (actorCharacterId && actorCharacterId !== resolvedTargetId) {
+    throw new ActorAuthorizationError('actor_character_id must match character_id unless admin_override is true', 403);
+  }
+}
 
 async function completeMovement({
   supabase,
+  pgClient,
   character,
+  ship,
+  shipDefinition,
   characterId,
   shipId,
   destination,
@@ -353,33 +482,62 @@ async function completeMovement({
   hyperspaceSeconds,
   destinationSnapshot,
   observerMetadata,
+  trace,
+  mark,
 }: {
   supabase: ReturnType<typeof createServiceRoleClient>;
-  character: Awaited<ReturnType<typeof loadCharacter>>;
+  pgClient: Client;
+  character: CharacterRow;
+  ship: ShipRow;
+  shipDefinition: ShipDefinitionRow;
   characterId: string;
   shipId: string;
   destination: number;
   requestId: string;
   source: ReturnType<typeof buildEventSource>;
   hyperspaceSeconds: number;
-  destinationSnapshot: Record<string, unknown>;
+  destinationSnapshot: SectorSnapshot;
   observerMetadata: ObserverMetadata;
+  trace: Record<string, number>;
+  mark: (label: string) => void;
 }): Promise<void> {
+  // Release the connection BEFORE the delay to free it for other requests.
+  // This is critical for connection pool efficiency under concurrent load.
+  await pgClient.end();
+  mark('pg_release_for_delay');
+
+  if (hyperspaceSeconds > 0) {
+    await new Promise((resolve) => setTimeout(resolve, hyperspaceSeconds * 1000));
+  }
+  mark('delay_done');
+
+  // Reconnect AFTER the delay to complete the move
+  const pg = createPgClient();
   try {
-    if (hyperspaceSeconds > 0) {
-      await new Promise((resolve) => setTimeout(resolve, hyperspaceSeconds * 1000));
-    }
+    await connectWithCleanup(pg);
+    mark('pg_reconnect');
 
-    await finishHyperspace({ supabase, shipId, destination });
+    await pgFinishHyperspace(pg, { shipId, destination });
+    mark('finish_hyperspace');
 
-    await supabase
-      .from('characters')
-      .update({ last_active: new Date().toISOString() })
-      .eq('character_id', characterId);
+    await pgUpdateCharacterLastActive(pg, characterId);
+    mark('update_character_last_active');
 
-    const statusPayload = await buildStatusPayload(supabase, characterId);
-    const knowledge = await loadMapKnowledge(supabase, characterId);
-    const { firstVisit, knowledge: updatedKnowledge } = await markSectorVisited(supabase, {
+    // Re-load ship to get updated warp_power after move, but reuse character and definition
+    const updatedShip = await pgLoadShip(pg, shipId);
+    // Update ship's current_sector to destination for status payload
+    updatedShip.current_sector = destination;
+
+    const statusPayload = await pgBuildStatusPayload(pg, characterId, {
+      character,
+      ship: updatedShip,
+      shipDefinition,
+      sectorSnapshot: destinationSnapshot,
+    });
+    mark('build_status_complete');
+    const knowledge = await pgLoadMapKnowledge(pg, characterId);
+    mark('load_map_knowledge');
+    const { firstVisit, knowledge: updatedKnowledge } = await pgMarkSectorVisited(pg, {
       characterId,
       sectorId: destination,
       sectorSnapshot: destinationSnapshot,
@@ -394,8 +552,8 @@ async function completeMovement({
       first_visit: firstVisit,
     } as Record<string, unknown>;
 
-    await emitCharacterEvent({
-      supabase,
+    await pgEmitCharacterEvent({
+      pg,
       characterId,
       eventType: 'movement.complete',
       payload: movementCompletePayload,
@@ -404,28 +562,31 @@ async function completeMovement({
       requestId,
       corpId: character.corporation_id,
     });
+    mark('emit_movement_complete');
 
-    const mapRegion = await buildLocalMapRegion(supabase, {
+    const mapRegion = await pgBuildLocalMapRegion(pg, {
       characterId,
       centerSector: destination,
       mapKnowledge: updatedKnowledge,
       maxHops: MAX_LOCAL_MAP_HOPS,
       maxSectors: MAX_LOCAL_MAP_NODES,
     });
-    mapRegion['source'] = source;
+    mark('build_local_map');
+    (mapRegion as Record<string, unknown>)['source'] = source;
 
-    await emitCharacterEvent({
-      supabase,
+    await pgEmitCharacterEvent({
+      pg,
       characterId,
       eventType: 'map.local',
-      payload: mapRegion,
+      payload: mapRegion as Record<string, unknown>,
       sectorId: destination,
       requestId,
       corpId: character.corporation_id,
     });
+    mark('emit_map_local');
 
-    await emitMovementObservers({
-      supabase,
+    await pgEmitMovementObservers({
+      pg,
       sectorId: destination,
       metadata: observerMetadata,
       movement: 'arrive',
@@ -434,13 +595,23 @@ async function completeMovement({
     });
 
     // Check for garrison auto-combat after arrival
+    // Use fast pg check first, only fall back to REST if combat initiation needed
     try {
-      await checkGarrisonAutoEngage({
-        supabase,
+      const needsCombat = await pgCheckGarrisonAutoEngage({
+        pg,
         characterId,
         sectorId: destination,
         requestId,
       });
+      if (needsCombat) {
+        // Combat initiation needed - use REST version for full combat setup
+        await checkGarrisonAutoEngage({
+          supabase,
+          characterId,
+          sectorId: destination,
+          requestId,
+        });
+      }
     } catch (garrisonError) {
       // Log but don't fail the move if garrison combat fails
       console.error('move.garrison_auto_engage', garrisonError);
@@ -455,62 +626,7 @@ async function completeMovement({
       status: 500,
     });
     throw error; // Re-throw so caller knows completion failed
-  }
-}
-
-async function startHyperspace({
-  supabase,
-  shipId,
-  currentSector,
-  destination,
-  eta,
-  newWarpTotal,
-}: {
-  supabase: ReturnType<typeof createServiceRoleClient>;
-  shipId: string;
-  currentSector: number;
-  destination: number;
-  eta: string;
-  newWarpTotal: number;
-}): Promise<void> {
-  const { error, data } = await supabase
-    .from('ship_instances')
-    .update({
-      in_hyperspace: true,
-      hyperspace_destination: destination,
-      hyperspace_eta: eta,
-      current_warp_power: newWarpTotal,
-    })
-    .eq('ship_id', shipId)
-    .eq('in_hyperspace', false)
-    .eq('current_sector', currentSector)
-    .select('ship_id');
-  if (error || !data || data.length === 0) {
-    console.error('move.start_hyperspace', error);
-    throw new MoveError('failed to enter hyperspace', 409);
-  }
-}
-
-async function finishHyperspace({
-  supabase,
-  shipId,
-  destination,
-}: {
-  supabase: ReturnType<typeof createServiceRoleClient>;
-  shipId: string;
-  destination: number;
-}): Promise<void> {
-  const { error } = await supabase
-    .from('ship_instances')
-    .update({
-      current_sector: destination,
-      in_hyperspace: false,
-      hyperspace_destination: null,
-      hyperspace_eta: null,
-    })
-    .eq('ship_id', shipId);
-  if (error) {
-    console.error('move.finish_hyperspace', error);
-    throw new MoveError('failed to complete movement', 500);
+  } finally {
+    await pg.end();
   }
 }

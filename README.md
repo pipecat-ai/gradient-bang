@@ -64,7 +64,7 @@ This may take some time on first run as required images are downloaded.
 npx supabase start --workdir deployment/ 
 ```
 
-> If you don’t plan to run the Supabase pytest suite, run the cron one-liner in the **Combat cron for local dev** section after this command to keep combat rounds auto-resolving.
+> If you don’t plan to run the Supabase pytest suite, run the cron helper in the **Combat cron for local dev** section after this command to keep combat rounds auto-resolving.
 
 #### Create `.env.supabase` in project root
 
@@ -83,15 +83,17 @@ npx supabase status -o env --workdir deployment | awk -F= -v tok="$tok" '
 
 #### Combat cron for local dev
 
-- Just run the helper script after `supabase start` (and after any manual reset) to keep combat rounds auto-resolving:
+- Run the helper after `supabase start` (and after any manual reset) to keep combat rounds auto-resolving:
 
 ```bash
 scripts/supabase-reset-with-cron.sh
 ```
 
-  - Reads `.env.supabase` for `EDGE_API_TOKEN` and `SUPABASE_URL`.
+  - Reads `.env.supabase` for `SUPABASE_URL`, `EDGE_API_TOKEN`, `SUPABASE_ANON_KEY` and upserts all three into `app_runtime_config`.
   - Uses `SUPABASE_INTERNAL_URL` if you need a Linux bridge IP (e.g. `http://172.17.0.1:54321`).
-- If you run tests with `USE_SUPABASE_TESTS=1`, fixtures also reapply the GUCs automatically.
+- If you run tests with `USE_SUPABASE_TESTS=1`, fixtures seed `app_runtime_config` automatically.
+
+See `docs/combat_tick_cron_setup.md` for local/production seeding details and verification queries.
 
 #### Optional: Run tests to validate local Supabase stack configuration
 
@@ -102,8 +104,8 @@ scripts/supabase-reset-with-cron.sh
 ```
 
 > Quick testing guide:
-> - Local functions: start Supabase, run `supabase functions serve --env-file .env.supabase --no-verify-jwt`, then `USE_SUPABASE_TESTS=1 uv run pytest -m supabase --supabase-dir deployment`.
-> - Cloud: export production `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `EDGE_API_TOKEN` and run the same pytest command; fixtures detect `supabase.co` and skip local stack.
+> - Local functions: start Supabase, run `supabase functions serve --env-file .env.supabase --no-verify-jwt`, then `USE_SUPABASE_TESTS=1 uv run pytest tests/integration/test_combat_system.py` (tests are unmarked; no `-m supabase` needed).
+> - Cloud: `set -a; source .env.cloud; set +a` then `USE_SUPABASE_TESTS=1 uv run pytest tests/integration/test_combat_system.py`; fixtures detect `supabase.co` in `SUPABASE_URL` and skip local start/reset automatically (no `SUPABASE_SKIP_START` needed).
 
 ### 3. Generate world data / sector map
 
@@ -213,7 +215,7 @@ pnpm run dev
 npx supabase link --workdir deployment/
 ```
 
-#### Create `.env.cloud environment
+#### Create `.env.cloud` environment
 
 Generate it in one step (prompts for project ref and DB password):
 
@@ -245,15 +247,40 @@ Production secrets checklist (must be set in Supabase Edge Function secrets):
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `SUPABASE_DB_URL` (needed for `supabase db push/diff/reset --linked`; copy the full password from the Dashboard → Settings → Database → Connection strings)
+- `SUPABASE_DB_URL` (service-role Postgres URL; used by migrations and setup scripts)
 - `EDGE_API_TOKEN` (rotate periodically)
+- `SUPABASE_ANON_KEY` (also stored in app_runtime_config for cron auth)
 - Optional: `EDGE_FUNCTIONS_URL`, bot vars (`BOT_START_URL`, `BOT_START_API_KEY`).
 ```
 
 #### Push database
 
 ```bash
-npx supabase db push --workdir deployment/ --linked
+# Apply all SQL migrations to the linked project (includes manual migration files)
+npx supabase migration up --workdir deployment/ --db-url "$SUPABASE_DB_URL"
+
+#### Seed combat cron config (cloud)
+
+Populate `app_runtime_config` with the Supabase URL and edge token (run after migrations):
+
+```bash
+scripts/setup-production-combat-tick.sh
+```
+
+Verify:
+
+```bash
+psql "$SUPABASE_DB_URL" -c "SELECT key, updated_at FROM app_runtime_config WHERE key IN ('supabase_url','edge_api_token');"
+```
+
+#### Run combat/concurrency tests against cloud
+
+Load cloud env and run (fixtures will skip local stack automatically when `SUPABASE_URL` contains `supabase.co`):
+
+```bash
+set -a; source .env.cloud; set +a
+USE_SUPABASE_TESTS=1 uv run pytest tests/integration/test_combat_system.py tests/integration/test_concurrency.py
+```
 ```
 
 Add world data
@@ -348,7 +375,7 @@ npx supabase secrets set --env-file .env.cloud
 - **App gate (gameplay)**: every gameplay edge function expects `X-API-Token: $EDGE_API_TOKEN` and uses `SUPABASE_SERVICE_ROLE_KEY` internally for DB access.
 - **Bot/client calls**: send both headers. The anon key can be public; the gameplay token must stay secret.
 - **Production secrets to set**: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `EDGE_API_TOKEN` (+ `EDGE_FUNCTIONS_URL` if overriding, bot envs if used).
-- **Combat cron**: ensure DB parameters `app.supabase_url` and `app.edge_api_token` are set to the live URL and the same `EDGE_API_TOKEN`.
+- **Combat cron**: ensure `app_runtime_config` has `supabase_url` and `edge_api_token` set to the live values (use `scripts/setup-production-combat-tick.sh`).
 
 #### Point client to your production environment
 

@@ -23,7 +23,15 @@ logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 _TRUE_VALUES = {"1", "true", "on", "yes"}
 POLL_INTERVAL_SECONDS = max(0.25, float(os.getenv("SUPABASE_POLL_INTERVAL_SECONDS", "1.0")))
-POLL_LIMIT_DEFAULT = max(1, min(250, int(os.getenv("SUPABASE_POLL_LIMIT", "100"))))
+_POLL_LIMIT_ENV = os.getenv("SUPABASE_POLL_LIMIT")
+if _POLL_LIMIT_ENV is not None:
+    try:
+        POLL_LIMIT_DEFAULT = max(1, min(250, int(_POLL_LIMIT_ENV)))
+    except ValueError:
+        POLL_LIMIT_DEFAULT = 100
+else:
+    # Cloud: lower default to reduce payload size; local stays at 100
+    POLL_LIMIT_DEFAULT = 50 if "supabase.co" in (os.getenv("SUPABASE_URL") or "") else 100
 POLL_BACKOFF_MAX = max(1.0, float(os.getenv("SUPABASE_POLL_BACKOFF_MAX", "5.0")))
 
 
@@ -496,7 +504,19 @@ class AsyncGameClient(LegacyAsyncGameClient):
             "since_event_id": self._polling_last_event_id,
             "limit": self._poll_limit,
         }
-        response = await self._request("events_since", payload, skip_event_delivery=True)
+        # Basic retry on transient 5xx to avoid stalling long-running tests
+        attempts = 3
+        backoff = 0.5
+        for attempt in range(1, attempts + 1):
+            try:
+                response = await self._request("events_since", payload, skip_event_delivery=True)
+                break
+            except RPCError as exc:  # type: ignore
+                if exc.status >= 500 and attempt < attempts:
+                    await asyncio.sleep(backoff)
+                    backoff *= 2
+                    continue
+                raise
         events = response.get("events")
         if not isinstance(events, list):
             events = []

@@ -9,6 +9,7 @@ import type { CharacterRow, ShipRow, ShipDefinitionRow } from "./status.ts";
 import type { MapKnowledge, WarpEdge, SectorSnapshot } from "./map.ts";
 import { parseWarpEdges, normalizeMapKnowledge } from "./map.ts";
 import { resolvePlayerType } from "./status.ts";
+import { ActorAuthorizationError } from "./actors.ts";
 
 // Helper to convert BigInt values to numbers recursively
 // deno-postgres returns BigInt for int8 columns even with ::int cast
@@ -78,7 +79,7 @@ export async function pgLoadCharacter(
       character_id,
       name,
       current_ship_id,
-      credits_in_megabank::numeric as credits_in_megabank,
+      credits_in_megabank::bigint as credits_in_megabank,
       map_knowledge,
       player_metadata,
       first_visit,
@@ -118,7 +119,7 @@ export async function pgLoadShip(
       ship_name,
       current_sector::int as current_sector,
       in_hyperspace,
-      credits::numeric as credits,
+      credits::bigint as credits,
       cargo_qf::int as cargo_qf,
       cargo_ro::int as cargo_ro,
       cargo_ns::int as cargo_ns,
@@ -2120,4 +2121,213 @@ export async function pgExecuteTradeTransaction(
     }
     throw error;
   }
+}
+
+// ============================================================================
+// Join Function Helpers (direct PG)
+// ============================================================================
+
+export class JoinError extends Error {
+  status: number;
+
+  constructor(message: string, status = 500) {
+    super(message);
+    this.name = "JoinError";
+    this.status = status;
+  }
+}
+
+/**
+ * Resolve and validate the target sector for joining.
+ */
+export async function pgResolveTargetSector(
+  pg: Client,
+  params: {
+    sectorOverride: number | null;
+    fallbackSector: number;
+    defaultSector?: number;
+  }
+): Promise<number> {
+  const DEFAULT_START_SECTOR = params.defaultSector ?? 0;
+  const target = params.sectorOverride ?? params.fallbackSector ?? DEFAULT_START_SECTOR;
+
+  const result = await pg.queryObject<{ sector_id: number }>(
+    `SELECT sector_id::int FROM universe_structure WHERE sector_id = $1`,
+    [target]
+  );
+
+  if (!result.rows[0]) {
+    throw new JoinError(`invalid sector: ${target}`, 400);
+  }
+  return target;
+}
+
+/**
+ * Update ship state when joining (set sector, clear hyperspace).
+ */
+export async function pgUpdateShipState(
+  pg: Client,
+  params: {
+    shipId: string;
+    sectorId: number;
+    creditsOverride?: number | null;
+  }
+): Promise<void> {
+  const { shipId, sectorId, creditsOverride } = params;
+
+  if (typeof creditsOverride === "number") {
+    await pg.queryObject(
+      `UPDATE ship_instances
+      SET current_sector = $1,
+          in_hyperspace = false,
+          hyperspace_destination = NULL,
+          hyperspace_eta = NULL,
+          credits = $2
+      WHERE ship_id = $3`,
+      [sectorId, creditsOverride, shipId]
+    );
+  } else {
+    await pg.queryObject(
+      `UPDATE ship_instances
+      SET current_sector = $1,
+          in_hyperspace = false,
+          hyperspace_destination = NULL,
+          hyperspace_eta = NULL
+      WHERE ship_id = $2`,
+      [sectorId, shipId]
+    );
+  }
+}
+
+/**
+ * Ensure character is linked to their ship and update last_active.
+ */
+export async function pgEnsureCharacterShipLink(
+  pg: Client,
+  characterId: string,
+  shipId: string
+): Promise<void> {
+  await pg.queryObject(
+    `UPDATE characters
+    SET current_ship_id = $1, last_active = NOW()
+    WHERE character_id = $2`,
+    [shipId, characterId]
+  );
+}
+
+interface UniverseSectorRow {
+  sector_id: number;
+  position_x: number;
+  position_y: number;
+  warps: unknown;
+}
+
+function parseAdjacentIds(structure: UniverseSectorRow): number[] {
+  if (!Array.isArray(structure.warps)) {
+    return [];
+  }
+  return structure.warps
+    .map((entry: unknown) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+      const toValue = (entry as Record<string, unknown>)["to"];
+      const to = typeof toValue === "number" ? toValue : Number(toValue);
+      return Number.isFinite(to) ? to : null;
+    })
+    .filter((value): value is number => value !== null);
+}
+
+/**
+ * Upsert map knowledge entry for a sector (when joining).
+ */
+export async function pgUpsertKnowledgeEntry(
+  pg: Client,
+  params: {
+    characterId: string;
+    sectorId: number;
+    existingKnowledge?: MapKnowledge;
+  }
+): Promise<void> {
+  const { characterId, sectorId } = params;
+
+  // Fetch sector structure
+  const structResult = await pg.queryObject<UniverseSectorRow>(
+    `SELECT sector_id::int, position_x::int, position_y::int, warps
+    FROM universe_structure
+    WHERE sector_id = $1`,
+    [sectorId]
+  );
+
+  const structure = structResult.rows[0];
+  if (!structure) {
+    return; // Sector not found, skip update
+  }
+
+  // Load existing knowledge if not provided
+  let knowledge = params.existingKnowledge;
+  if (!knowledge) {
+    knowledge = await pgLoadMapKnowledge(pg, characterId);
+  }
+
+  const adjacent = parseAdjacentIds(structure);
+  const timestamp = new Date().toISOString();
+  const key = String(sectorId);
+
+  // Check if update is needed
+  const existing = knowledge.sectors_visited[key];
+  const sameAdjacency =
+    existing?.adjacent_sectors?.length === adjacent.length &&
+    existing.adjacent_sectors?.every((value, idx) => value === adjacent[idx]);
+
+  if (existing && sameAdjacency) {
+    // Just update timestamp
+    existing.last_visited = timestamp;
+  } else {
+    // Full update
+    knowledge.sectors_visited[key] = {
+      adjacent_sectors: adjacent,
+      position: [structure.position_x ?? 0, structure.position_y ?? 0],
+      last_visited: timestamp,
+    };
+  }
+
+  // Update total count
+  const total = Object.keys(knowledge.sectors_visited).length;
+  knowledge.total_sectors_visited = Math.max(knowledge.total_sectors_visited, total);
+
+  // Persist
+  await pgUpdateMapKnowledge(pg, characterId, knowledge);
+}
+
+/**
+ * Load a character with corporation info for join operations.
+ * Returns null if character not found.
+ */
+export async function pgLoadCharacterForJoin(
+  pg: Client,
+  characterId: string
+): Promise<(CharacterRow & { corporation_id: string | null }) | null> {
+  const result = await pg.queryObject<CharacterRow & { corporation_id: string | null }>(
+    `SELECT
+      character_id,
+      name,
+      current_ship_id,
+      credits_in_megabank::bigint as credits_in_megabank,
+      map_knowledge,
+      player_metadata,
+      first_visit,
+      last_active,
+      corporation_id,
+      corporation_joined_at
+    FROM characters
+    WHERE character_id = $1`,
+    [characterId]
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+  return convertBigInts(row);
 }

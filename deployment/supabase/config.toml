@@ -4,6 +4,10 @@
 # working directory name when running `supabase init`.
 project_id = "gb-world-server"
 
+# NOTE: Combat cron reads config from the app_runtime_config table; run
+# scripts/setup-local-combat-tick.sql (local) or scripts/setup-production-combat-tick.sh
+# (cloud) after a reset to seed supabase_url/edge_api_token.
+
 [api]
 enabled = true
 # Port to use for the API URL.

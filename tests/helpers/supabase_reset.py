@@ -69,39 +69,27 @@ def _resolve_supabase_cli_command() -> Optional[List[str]]:
 
 def _get_database_url() -> str:
     """Get the Supabase database URL with fallback chain.
-    
+
     Attempts to get DB URL in this order:
-    1. SUPABASE_DB_URL environment variable
-    2. Parse from .env.supabase file  
-    3. Query from Supabase CLI (supabase status -o env)
-    4. Use standard local default
-    
+    1. For cloud (SUPABASE_URL contains supabase.co): Use POSTGRES_POOLER_URL
+    2. For local: Query from Supabase CLI (supabase status -o env)
+    3. Fall back to standard local default
+
     Returns:
         Database connection URL
     """
-    # 1. Check environment variable first
-    if db_url := os.environ.get("SUPABASE_DB_URL"):
-        logger.debug("Using SUPABASE_DB_URL from environment")
-        return db_url
-    
-    # 2. Try to read from .env.supabase file
+    # 1. For cloud tests, use POSTGRES_POOLER_URL from environment
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    if "supabase.co" in supabase_url:
+        pooler_url = os.environ.get("POSTGRES_POOLER_URL")
+        if pooler_url:
+            logger.debug("Using POSTGRES_POOLER_URL for cloud database access")
+            return pooler_url
+        logger.warning("Cloud SUPABASE_URL detected but POSTGRES_POOLER_URL not set")
+
     repo_root = _get_repo_root()
-    env_file = repo_root / ".env.supabase"
-    
-    if env_file.exists():
-        try:
-            with env_file.open() as f:
-                for line in f:
-                    stripped = line.strip()
-                    if stripped.startswith("SUPABASE_DB_URL="):
-                        db_url = stripped.split("=", 1)[1].strip()
-                        if db_url:
-                            logger.debug("Using SUPABASE_DB_URL from .env.supabase")
-                            return db_url
-        except Exception as e:
-            logger.debug(f"Failed to read .env.supabase: {e}")
-    
-    # 3. Try to get from Supabase CLI status with env output format
+
+    # 2. Try to get from Supabase CLI status with env output format (local only)
     try:
         cli_command = _resolve_supabase_cli_command()
         if cli_command:
@@ -115,7 +103,7 @@ def _get_database_url() -> str:
                 check=False,
                 timeout=10,
             )
-            
+
             if result.returncode == 0 and result.stdout:
                 # Parse env format output: look for DB_URL=... line
                 for line in result.stdout.splitlines():
@@ -127,8 +115,8 @@ def _get_database_url() -> str:
                             return db_url
     except Exception as e:
         logger.debug(f"Failed to get DB URL from Supabase CLI: {e}")
-    
-    # 4. Use standard local Supabase default
+
+    # 3. Use standard local Supabase default
     default_url = "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
     logger.debug("Using default local Supabase DB URL")
     return default_url
@@ -704,7 +692,14 @@ def reset_supabase_state(character_ids: Iterable[str] | None = None) -> None:
 
     db_url = _get_database_url()
 
+    # Check if using cloud pooler (PgBouncer transaction mode)
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    is_cloud = "supabase.co" in supabase_url
+
     with psycopg.connect(db_url, autocommit=False) as conn:
+        # Disable prepared statements for cloud pooler (PgBouncer transaction mode)
+        if is_cloud:
+            conn.prepare_threshold = None
         with conn.cursor() as cur:
             cur.execute(
                 """

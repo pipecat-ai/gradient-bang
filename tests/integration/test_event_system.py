@@ -48,6 +48,9 @@ _TRUE_VALUES = {"1", "true", "on", "yes"}
 def _supabase_mode_enabled() -> bool:
     return os.environ.get("USE_SUPABASE_TESTS", "").strip().lower() in _TRUE_VALUES
 
+def _is_cloud_supabase() -> bool:
+    return "supabase.co" in os.environ.get("SUPABASE_URL", "")
+
 # =============================================================================
 # Helper Functions
 # =============================================================================
@@ -72,8 +75,9 @@ async def get_status(client, character_id):
         # Make the request
         await client.my_status(character_id=character_id)
 
-        # Wait for the event with timeout
-        status_data = await asyncio.wait_for(status_received, timeout=5.0)
+        # Wait for the event with timeout (higher for cloud Supabase)
+        timeout = 15.0 if _is_cloud_supabase() else 5.0
+        status_data = await asyncio.wait_for(status_received, timeout=timeout)
         return status_data
     finally:
         client.remove_event_handler(token)
@@ -955,11 +959,14 @@ class TestCharacterFiltering:
         client2.on("status.snapshot")(lambda p: events_char2.append({"event": "status.snapshot", "payload": p}))
 
         try:
+            # Cloud tests need longer wait times for event delivery
+            event_wait = 2.0 if _is_cloud_supabase() else 0.5
+
             # STEP 1: Both characters join
             print("STEP 1: Both characters join...")
             # Already joined via create_client_with_character()
             # Already joined via create_client_with_character()
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(event_wait)
 
             # Clear any join-related status events
             events_char1.clear()
@@ -972,12 +979,12 @@ class TestCharacterFiltering:
             # STEP 2: Character 1 calls my_status
             print("\nSTEP 2: Character 1 calls my_status()...")
             await client1.my_status(character_id=char1_id)
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(event_wait)
 
             # STEP 3: Character 2 calls my_status
             print("STEP 3: Character 2 calls my_status()...")
             await client2.my_status(character_id=char2_id)
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(event_wait)
 
             end_time = datetime.now(timezone.utc)
 
@@ -3329,7 +3336,8 @@ class TestMultiCharacterEventFanout:
             await player1.move(to_sector=1, character_id=player1_id)
             await player2.move(to_sector=1, character_id=player2_id)
             await player3.move(to_sector=1, character_id=player3_id)
-            await asyncio.sleep(0.5)
+            move_wait = 2.0 if _is_cloud_supabase() else 0.5
+            await asyncio.sleep(move_wait)
 
             # Clear movement events
             player1_events.clear()
@@ -3342,7 +3350,8 @@ class TestMultiCharacterEventFanout:
 
             # Player 1 initiates combat
             await player1.combat_initiate(character_id=player1_id)
-            await asyncio.sleep(2.0)
+            combat_event_wait = 6.0 if _is_cloud_supabase() else 2.0
+            await asyncio.sleep(combat_event_wait)
 
             end_time = datetime.now(timezone.utc)
 
