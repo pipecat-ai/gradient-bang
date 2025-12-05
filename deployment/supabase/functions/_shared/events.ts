@@ -87,10 +87,40 @@ export async function recordEventWithRecipients(options: RecordEventWithRecipien
     throw new Error(`failed to record event ${eventType}: ${error.message}`);
   }
 
+  // Parse the event_id from the RPC result
+  let eventId: number | null = null;
   if (typeof data === 'number') {
-    return data;
+    eventId = data;
+  } else if (typeof data === 'string') {
+    // PostgreSQL bigint may come back as string
+    const parsed = parseInt(data, 10);
+    if (!Number.isNaN(parsed)) {
+      eventId = parsed;
+    }
+  } else if (data && typeof data === 'object' && 'record_event_with_recipients' in data) {
+    // Direct SQL call returns { record_event_with_recipients: <value> }
+    const val = (data as Record<string, unknown>).record_event_with_recipients;
+    if (typeof val === 'number') {
+      eventId = val;
+    } else if (typeof val === 'string') {
+      const parsed = parseInt(val, 10);
+      if (!Number.isNaN(parsed)) {
+        eventId = parsed;
+      }
+    }
   }
-  return null;
+
+  if (eventId === null) {
+    console.error('events.recordEventWithRecipients.unexpected_response', {
+      eventType,
+      scope,
+      dataType: typeof data,
+      data: data,
+      recipientCount: recipientIds.length,
+    });
+  }
+
+  return eventId;
 }
 
 export function buildEventSource(method: string, requestId: string, sourceType = 'rpc'): EventSource {
@@ -142,10 +172,11 @@ export async function emitCharacterEvent(options: CharacterEventOptions): Promis
     ...additionalRecipients,
   ]);
   if (!recipients.length) {
+    console.warn('emitCharacterEvent.no_recipients', { eventType, characterId });
     return;
   }
 
-  await recordEventWithRecipients({
+  const eventId = await recordEventWithRecipients({
     supabase,
     eventType,
     scope: scope ?? 'direct',
@@ -160,6 +191,14 @@ export async function emitCharacterEvent(options: CharacterEventOptions): Promis
     actorCharacterId: actorCharacterId ?? senderId ?? characterId,
     recipients,
   });
+
+  if (eventId === null) {
+    console.error('emitCharacterEvent.event_not_recorded', {
+      eventType,
+      characterId,
+      recipientCount: recipients.length,
+    });
+  }
 }
 
 interface SectorEventOptions {

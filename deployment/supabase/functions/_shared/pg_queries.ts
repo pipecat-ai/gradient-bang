@@ -1,0 +1,2333 @@
+/**
+ * Direct PostgreSQL query helpers for edge functions.
+ * Uses the Deno Postgres client for efficient database access.
+ */
+
+import { Client } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
+import { RATE_LIMITS } from "./constants.ts";
+import type { CharacterRow, ShipRow, ShipDefinitionRow } from "./status.ts";
+import type { MapKnowledge, WarpEdge, SectorSnapshot } from "./map.ts";
+import { parseWarpEdges, normalizeMapKnowledge } from "./map.ts";
+import { resolvePlayerType } from "./status.ts";
+import { ActorAuthorizationError } from "./actors.ts";
+
+// Helper to convert BigInt values to numbers recursively
+// deno-postgres returns BigInt for int8 columns even with ::int cast
+function convertBigInts<T>(obj: T): T {
+  if (obj === null || obj === undefined) {
+    return obj;
+  }
+  if (typeof obj === "bigint") {
+    return Number(obj) as unknown as T;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(convertBigInts) as unknown as T;
+  }
+  if (typeof obj === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      result[key] = convertBigInts(value);
+    }
+    return result as T;
+  }
+  return obj;
+}
+
+// ============================================================================
+// Rate Limiting
+// ============================================================================
+
+export class RateLimitError extends Error {
+  constructor(message = "rate limit exceeded") {
+    super(message);
+    this.name = "RateLimitError";
+  }
+}
+
+export async function pgEnforceRateLimit(
+  pg: Client,
+  characterId: string | null,
+  endpoint: string
+): Promise<void> {
+  if (!characterId) {
+    return;
+  }
+
+  const rule = RATE_LIMITS[endpoint] ?? RATE_LIMITS.default;
+
+  const result = await pg.queryArray<[boolean]>(
+    `SELECT check_and_increment_rate_limit($1, $2, $3, $4)`,
+    [characterId, endpoint, rule.max, rule.window]
+  );
+
+  const allowed = result.rows[0]?.[0];
+  if (allowed !== true) {
+    throw new RateLimitError();
+  }
+}
+
+// ============================================================================
+// Character / Ship / Ship Definition Loading
+// ============================================================================
+
+export async function pgLoadCharacter(
+  pg: Client,
+  characterId: string
+): Promise<CharacterRow> {
+  const result = await pg.queryObject<CharacterRow>(
+    `SELECT
+      character_id,
+      name,
+      current_ship_id,
+      credits_in_megabank::bigint as credits_in_megabank,
+      map_knowledge,
+      player_metadata,
+      first_visit,
+      last_active,
+      corporation_id,
+      corporation_joined_at
+    FROM characters
+    WHERE character_id = $1`,
+    [characterId]
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    throw new Error(`character ${characterId} not found`);
+  }
+  if (!row.current_ship_id) {
+    throw new Error(`character ${characterId} does not have an assigned ship`);
+  }
+  return convertBigInts(row);
+}
+
+export async function pgLoadShip(
+  pg: Client,
+  shipId: string
+): Promise<ShipRow> {
+  const result = await pg.queryObject<ShipRow>(
+    `SELECT
+      ship_id,
+      owner_id,
+      owner_type,
+      owner_character_id,
+      owner_corporation_id,
+      acquired,
+      became_unowned,
+      former_owner_name,
+      ship_type,
+      ship_name,
+      current_sector::int as current_sector,
+      in_hyperspace,
+      credits::bigint as credits,
+      cargo_qf::int as cargo_qf,
+      cargo_ro::int as cargo_ro,
+      cargo_ns::int as cargo_ns,
+      current_warp_power::int as current_warp_power,
+      current_shields::int as current_shields,
+      current_fighters::int as current_fighters
+    FROM ship_instances
+    WHERE ship_id = $1`,
+    [shipId]
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    throw new Error(`ship ${shipId} not found`);
+  }
+  return convertBigInts(row);
+}
+
+export async function pgLoadShipDefinition(
+  pg: Client,
+  shipType: string
+): Promise<ShipDefinitionRow> {
+  const result = await pg.queryObject<ShipDefinitionRow>(
+    `SELECT
+      ship_type,
+      display_name,
+      cargo_holds::int as cargo_holds,
+      warp_power_capacity::int as warp_power_capacity,
+      turns_per_warp::int as turns_per_warp,
+      shields::int as shields,
+      fighters::int as fighters,
+      purchase_price::numeric as purchase_price
+    FROM ship_definitions
+    WHERE ship_type = $1`,
+    [shipType]
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    throw new Error(`ship definition ${shipType} missing`);
+  }
+  return convertBigInts(row);
+}
+
+// ============================================================================
+// Actor Authorization
+// ============================================================================
+
+export async function pgEnsureActorCanControlShip(
+  pg: Client,
+  actorId: string,
+  corpId: string
+): Promise<boolean> {
+  const result = await pg.queryObject<{ character_id: string }>(
+    `SELECT character_id
+    FROM corporation_members
+    WHERE corp_id = $1
+      AND character_id = $2
+      AND left_at IS NULL
+    LIMIT 1`,
+    [corpId, actorId]
+  );
+  return result.rows.length > 0;
+}
+
+// ============================================================================
+// Combat State
+// ============================================================================
+
+interface CombatRow {
+  sector_id: number;
+  combat: unknown;
+}
+
+export async function pgLoadCombatForSector(
+  pg: Client,
+  sectorId: number
+): Promise<{ combat: unknown; sector_id: number } | null> {
+  const result = await pg.queryObject<CombatRow>(
+    `SELECT sector_id::int, combat
+    FROM sector_contents
+    WHERE sector_id = $1`,
+    [sectorId]
+  );
+
+  const row = result.rows[0];
+  if (!row || !row.combat) {
+    return null;
+  }
+  return { combat: row.combat, sector_id: row.sector_id };
+}
+
+// ============================================================================
+// Universe Structure / Sectors
+// ============================================================================
+
+interface SectorRow {
+  sector_id: number;
+  position_x: number;
+  position_y: number;
+  warps: unknown;
+}
+
+export async function pgFetchSectorRow(
+  pg: Client,
+  sectorId: number
+): Promise<SectorRow | null> {
+  const result = await pg.queryObject<SectorRow>(
+    `SELECT sector_id::int, position_x::int, position_y::int, warps
+    FROM universe_structure
+    WHERE sector_id = $1`,
+    [sectorId]
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function pgGetAdjacentSectors(
+  pg: Client,
+  sectorId: number
+): Promise<number[]> {
+  const row = await pgFetchSectorRow(pg, sectorId);
+  return parseWarpEdges(row?.warps ?? []).map((edge) => edge.to);
+}
+
+// ============================================================================
+// Hyperspace Operations
+// ============================================================================
+
+export class MoveError extends Error {
+  status: number;
+
+  constructor(message: string, status = 400) {
+    super(message);
+    this.name = "MoveError";
+    this.status = status;
+  }
+}
+
+export async function pgStartHyperspace(
+  pg: Client,
+  params: {
+    shipId: string;
+    currentSector: number;
+    destination: number;
+    eta: string;
+    newWarpTotal: number;
+  }
+): Promise<void> {
+  const { shipId, currentSector, destination, eta, newWarpTotal } = params;
+
+  const result = await pg.queryObject<{ ship_id: string }>(
+    `UPDATE ship_instances
+    SET
+      in_hyperspace = true,
+      hyperspace_destination = $1,
+      hyperspace_eta = $2::timestamptz,
+      current_warp_power = $3
+    WHERE ship_id = $4
+      AND in_hyperspace = false
+      AND current_sector = $5
+    RETURNING ship_id`,
+    [destination, eta, newWarpTotal, shipId, currentSector]
+  );
+
+  if (result.rows.length === 0) {
+    throw new MoveError("failed to enter hyperspace", 409);
+  }
+}
+
+export async function pgFinishHyperspace(
+  pg: Client,
+  params: {
+    shipId: string;
+    destination: number;
+  }
+): Promise<void> {
+  const { shipId, destination } = params;
+
+  const result = await pg.queryObject(
+    `UPDATE ship_instances
+    SET
+      current_sector = $1,
+      in_hyperspace = false,
+      hyperspace_destination = NULL,
+      hyperspace_eta = NULL
+    WHERE ship_id = $2`,
+    [destination, shipId]
+  );
+
+  if (result.rowCount === 0) {
+    throw new MoveError("failed to complete movement", 500);
+  }
+}
+
+// ============================================================================
+// Character Updates
+// ============================================================================
+
+export async function pgUpdateCharacterLastActive(
+  pg: Client,
+  characterId: string
+): Promise<void> {
+  await pg.queryObject(
+    `UPDATE characters
+    SET last_active = NOW()
+    WHERE character_id = $1`,
+    [characterId]
+  );
+}
+
+export async function pgLoadMapKnowledge(
+  pg: Client,
+  characterId: string
+): Promise<MapKnowledge> {
+  const result = await pg.queryObject<{ map_knowledge: unknown }>(
+    `SELECT map_knowledge
+    FROM characters
+    WHERE character_id = $1`,
+    [characterId]
+  );
+
+  const row = result.rows[0];
+  return normalizeMapKnowledge(row?.map_knowledge ?? null);
+}
+
+export async function pgUpdateMapKnowledge(
+  pg: Client,
+  characterId: string,
+  knowledge: MapKnowledge
+): Promise<void> {
+  await pg.queryObject(
+    `UPDATE characters
+    SET map_knowledge = $1::jsonb
+    WHERE character_id = $2`,
+    [JSON.stringify(knowledge), characterId]
+  );
+}
+
+// ============================================================================
+// Sector Snapshot Building (for buildSectorSnapshot)
+// ============================================================================
+
+interface SectorContentsRow {
+  sector_id: number;
+  port_id: string | null;
+  salvage: unknown;
+}
+
+interface PortRow {
+  port_id: string;
+  port_code: string;
+  port_class: string;
+  max_qf: number;
+  max_ro: number;
+  max_ns: number;
+  stock_qf: number;
+  stock_ro: number;
+  stock_ns: number;
+  last_updated: string;
+}
+
+interface ShipInSectorRow {
+  ship_id: string;
+  ship_type: string;
+  ship_name: string | null;
+  owner_id: string | null;
+  owner_character_id: string | null;
+  owner_type: string | null;
+  former_owner_name: string | null;
+  became_unowned: string | null;
+  current_fighters: number;
+  current_shields: number;
+  cargo_qf: number;
+  cargo_ro: number;
+  cargo_ns: number;
+}
+
+interface GarrisonRow {
+  owner_id: string;
+  fighters: number;
+  mode: string;
+  toll_amount: number;
+  toll_balance: number;
+}
+
+interface CharacterOccupantRow {
+  character_id: string;
+  name: string;
+  first_visit: string | null;
+  player_metadata: Record<string, unknown> | null;
+  current_ship_id: string;
+  corporation_id: string | null;
+  corporation_joined_at: string | null;
+}
+
+interface CorpRow {
+  corp_id: string;
+  name: string;
+}
+
+function formatShipDisplayName(shipType: string): string {
+  if (!shipType) {
+    return "Ship";
+  }
+  return shipType
+    .split("_")
+    .filter((part) => part.length > 0)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+export async function pgBuildSectorSnapshot(
+  pg: Client,
+  sectorId: number,
+  currentCharacterId?: string
+): Promise<SectorSnapshot> {
+  // Single CTE query to fetch all sector data in one round trip
+  const result = await pg.queryObject<{
+    sector_id: number;
+    warps: unknown;
+    position_x: number;
+    position_y: number;
+    salvage: unknown[] | null;
+    port_json: string | null;
+    ships_json: string | null;
+    garrisons_json: string | null;
+    occupants_json: string | null;
+    corps_json: string | null;
+  }>(
+    `WITH
+    sector_base AS (
+      SELECT sector_id, warps, position_x, position_y
+      FROM universe_structure
+      WHERE sector_id = $1
+    ),
+    sector_contents AS (
+      SELECT sector_id, port_id, salvage
+      FROM sector_contents
+      WHERE sector_id = $1
+    ),
+    port_data AS (
+      SELECT p.port_id, p.port_code, p.port_class,
+             p.max_qf::int, p.max_ro::int, p.max_ns::int,
+             p.stock_qf::int, p.stock_ro::int, p.stock_ns::int,
+             p.last_updated
+      FROM ports p
+      WHERE p.sector_id = $1
+    ),
+    ships_data AS (
+      SELECT ship_id, ship_type, ship_name, owner_id, owner_character_id, owner_type,
+             former_owner_name, became_unowned,
+             current_fighters::int, current_shields::int,
+             cargo_qf::int, cargo_ro::int, cargo_ns::int
+      FROM ship_instances
+      WHERE current_sector = $1 AND in_hyperspace = false
+    ),
+    garrisons_data AS (
+      SELECT owner_id, fighters::int, mode,
+             toll_amount::numeric, toll_balance::numeric
+      FROM garrisons
+      WHERE sector_id = $1
+    ),
+    occupants_data AS (
+      SELECT c.character_id, c.name, c.first_visit, c.player_metadata,
+             c.current_ship_id, c.corporation_id, c.corporation_joined_at
+      FROM characters c
+      WHERE c.current_ship_id IN (SELECT ship_id FROM ships_data)
+    ),
+    all_character_ids AS (
+      SELECT character_id FROM occupants_data
+      UNION
+      SELECT owner_id FROM garrisons_data WHERE owner_id IS NOT NULL
+    ),
+    character_corp_info AS (
+      SELECT c.character_id, c.corporation_id, c.name
+      FROM characters c
+      WHERE c.character_id IN (SELECT character_id FROM all_character_ids)
+    ),
+    corp_ids AS (
+      SELECT DISTINCT corporation_id
+      FROM occupants_data
+      WHERE corporation_id IS NOT NULL
+    ),
+    corps_data AS (
+      SELECT corp.corp_id, corp.name, COUNT(cm.character_id)::int as member_count
+      FROM corporations corp
+      LEFT JOIN corporation_members cm ON cm.corp_id = corp.corp_id AND cm.left_at IS NULL
+      WHERE corp.corp_id IN (SELECT corporation_id FROM corp_ids)
+      GROUP BY corp.corp_id, corp.name
+    )
+    SELECT
+      sb.sector_id::int,
+      sb.warps,
+      sb.position_x::int,
+      sb.position_y::int,
+      sc.salvage,
+      (SELECT row_to_json(p) FROM port_data p) as port_json,
+      (SELECT COALESCE(json_agg(s), '[]'::json) FROM ships_data s) as ships_json,
+      (SELECT COALESCE(json_agg(g), '[]'::json) FROM garrisons_data g) as garrisons_json,
+      (SELECT COALESCE(json_agg(json_build_object(
+        'character_id', o.character_id,
+        'name', o.name,
+        'first_visit', o.first_visit,
+        'player_metadata', o.player_metadata,
+        'current_ship_id', o.current_ship_id,
+        'corporation_id', o.corporation_id,
+        'corporation_joined_at', o.corporation_joined_at,
+        'corp_name', cci.name
+      )), '[]'::json) FROM occupants_data o
+        LEFT JOIN character_corp_info cci ON cci.character_id = o.character_id
+      ) as occupants_json,
+      (SELECT COALESCE(json_agg(c), '[]'::json) FROM corps_data c) as corps_json
+    FROM sector_base sb
+    LEFT JOIN sector_contents sc ON sc.sector_id = sb.sector_id`,
+    [sectorId]
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    throw new Error(`sector ${sectorId} does not exist in universe_structure`);
+  }
+
+  // Parse JSON results
+  type PortJson = {
+    port_id: number;
+    port_code: string;
+    port_class: number;
+    max_qf: number;
+    max_ro: number;
+    max_ns: number;
+    stock_qf: number;
+    stock_ro: number;
+    stock_ns: number;
+    last_updated: string | null;
+  };
+  type ShipJson = {
+    ship_id: string;
+    ship_type: string;
+    ship_name: string | null;
+    owner_id: string | null;
+    owner_character_id: string | null;
+    owner_type: string | null;
+    former_owner_name: string | null;
+    became_unowned: string | null;
+    current_fighters: number;
+    current_shields: number;
+    cargo_qf: number;
+    cargo_ro: number;
+    cargo_ns: number;
+  };
+  type GarrisonJson = {
+    owner_id: string | null;
+    fighters: number;
+    mode: string;
+    toll_amount: number;
+    toll_balance: number;
+  };
+  type OccupantJson = {
+    character_id: string;
+    name: string;
+    first_visit: string | null;
+    player_metadata: Record<string, unknown> | null;
+    current_ship_id: string;
+    corporation_id: string | null;
+    corporation_joined_at: string | null;
+    corp_name: string | null;
+  };
+  type CorpJson = {
+    corp_id: string;
+    name: string;
+    member_count: number;
+  };
+
+  const portData: PortJson | null = row.port_json
+    ? (typeof row.port_json === 'string' ? JSON.parse(row.port_json) : row.port_json)
+    : null;
+  const ships: ShipJson[] = row.ships_json
+    ? (typeof row.ships_json === 'string' ? JSON.parse(row.ships_json) : row.ships_json)
+    : [];
+  const garrisons: GarrisonJson[] = row.garrisons_json
+    ? (typeof row.garrisons_json === 'string' ? JSON.parse(row.garrisons_json) : row.garrisons_json)
+    : [];
+  const occupants: OccupantJson[] = row.occupants_json
+    ? (typeof row.occupants_json === 'string' ? JSON.parse(row.occupants_json) : row.occupants_json)
+    : [];
+  const corps: CorpJson[] = row.corps_json
+    ? (typeof row.corps_json === 'string' ? JSON.parse(row.corps_json) : row.corps_json)
+    : [];
+
+  // Parse warps for adjacent sectors
+  const adjacentEdges = parseWarpEdges(row.warps);
+  const adjacent = adjacentEdges.map((edge) => edge.to);
+
+  // Build port object
+  let port: Record<string, unknown> | null = null;
+  if (portData) {
+    port = {
+      id: portData.port_id,
+      code: portData.port_code,
+      port_class: portData.port_class,
+      stock: {
+        quantum_foam: portData.stock_qf,
+        retro_organics: portData.stock_ro,
+        neuro_symbolics: portData.stock_ns,
+      },
+      capacity: {
+        quantum_foam: portData.max_qf,
+        retro_organics: portData.max_ro,
+        neuro_symbolics: portData.max_ns,
+      },
+      observed_at: portData.last_updated,
+    };
+  }
+
+  // Build maps for lookups
+  const occupantMap = new Map(occupants.map((o) => [o.current_ship_id, o]));
+  const corporationMap = new Map(corps.map((c) => [c.corp_id, c]));
+
+  // For garrison owner lookup, we need character info
+  // Query separately only if we have garrisons with owners not in occupants
+  const garrisonOwnerIds = garrisons
+    .map((g) => g.owner_id)
+    .filter((id): id is string => typeof id === "string");
+  const occupantCharIds = new Set(occupants.map((o) => o.character_id));
+  const missingOwnerIds = garrisonOwnerIds.filter((id) => !occupantCharIds.has(id));
+
+  let characterCorpMap = new Map<string, string | null>();
+  let characterNameMap = new Map<string, string>();
+
+  // Populate from occupants
+  for (const occ of occupants) {
+    characterCorpMap.set(occ.character_id, occ.corporation_id);
+    characterNameMap.set(occ.character_id, occ.name);
+  }
+
+  // If we have garrison owners not in occupants, fetch them separately
+  if (missingOwnerIds.length > 0) {
+    const extraChars = await pg.queryObject<{
+      character_id: string;
+      corporation_id: string | null;
+      name: string;
+    }>(
+      `SELECT character_id, corporation_id, name
+      FROM characters
+      WHERE character_id = ANY($1::uuid[])`,
+      [missingOwnerIds]
+    );
+    for (const char of extraChars.rows) {
+      characterCorpMap.set(char.character_id, char.corporation_id);
+      characterNameMap.set(char.character_id, char.name);
+    }
+  }
+
+  // Build players and unowned ships lists
+  const players: Record<string, unknown>[] = [];
+  const unownedShips: Record<string, unknown>[] = [];
+
+  for (const ship of ships) {
+    const occupant = ship.ship_id ? occupantMap.get(ship.ship_id) : null;
+
+    if (!occupant) {
+      const shipName = typeof ship.ship_name === "string" ? ship.ship_name.trim() : "";
+      const shipDisplayName = shipName.length > 0 ? shipName : formatShipDisplayName(ship.ship_type);
+      unownedShips.push({
+        ship_id: ship.ship_id,
+        ship_type: ship.ship_type,
+        ship_name: shipDisplayName,
+        owner_id: ship.owner_id ?? null,
+        owner_type: ship.owner_type ?? null,
+        former_owner_name: ship.former_owner_name ?? null,
+        became_unowned: ship.became_unowned ?? null,
+        fighters: ship.current_fighters ?? 0,
+        shields: ship.current_shields ?? 0,
+        cargo: {
+          quantum_foam: ship.cargo_qf ?? 0,
+          retro_organics: ship.cargo_ro ?? 0,
+          neuro_symbolics: ship.cargo_ns ?? 0,
+        },
+      });
+      continue;
+    }
+
+    if (occupant.character_id === currentCharacterId) {
+      continue;
+    }
+
+    const playerType = resolvePlayerType(occupant.player_metadata);
+    const characterMetadata = occupant.player_metadata ?? null;
+    const legacyDisplayName =
+      typeof characterMetadata?.legacy_display_name === "string"
+        ? (characterMetadata.legacy_display_name as string).trim()
+        : "";
+    const displayName = legacyDisplayName?.length
+      ? legacyDisplayName
+      : occupant.name ?? occupant.character_id;
+    const shipName = typeof ship.ship_name === "string" ? ship.ship_name.trim() : "";
+    const shipDisplayName = shipName.length > 0 ? shipName : formatShipDisplayName(ship.ship_type);
+
+    let corporationInfo: Record<string, unknown> | null = null;
+    if (occupant.corporation_id) {
+      const corpSummary = corporationMap.get(occupant.corporation_id);
+      if (corpSummary) {
+        corporationInfo = {
+          ...corpSummary,
+          joined_at: occupant.corporation_joined_at,
+        };
+      }
+    }
+
+    players.push({
+      created_at: occupant.first_visit ?? null,
+      id: occupant.character_id,
+      name: displayName,
+      player_type: playerType,
+      corporation: corporationInfo,
+      ship: {
+        ship_type: ship.ship_type,
+        ship_name: shipDisplayName,
+      },
+    });
+  }
+
+  // Build garrison object
+  let garrisonObject: Record<string, unknown> | null = null;
+  if (garrisons.length > 0) {
+    const garrison = garrisons[0];
+    const garrisonOwnerId = garrison.owner_id;
+    const currentCharacterCorpId = currentCharacterId
+      ? characterCorpMap.get(currentCharacterId)
+      : null;
+    const garrisonOwnerCorpId = garrisonOwnerId
+      ? characterCorpMap.get(garrisonOwnerId)
+      : null;
+
+    const isFriendly = Boolean(
+      currentCharacterId === garrisonOwnerId ||
+        (currentCharacterCorpId &&
+          garrisonOwnerCorpId &&
+          currentCharacterCorpId === garrisonOwnerCorpId)
+    );
+
+    const ownerName = garrisonOwnerId
+      ? characterNameMap.get(garrisonOwnerId) ?? "unknown"
+      : "unknown";
+
+    garrisonObject = {
+      owner_id: garrison.owner_id,
+      owner_name: ownerName,
+      fighters: garrison.fighters,
+      mode: garrison.mode,
+      toll_amount: garrison.toll_amount ?? 0,
+      toll_balance: garrison.toll_balance ?? 0,
+      is_friendly: isFriendly,
+    };
+  }
+
+  return convertBigInts({
+    id: sectorId,
+    adjacent_sectors: adjacent,
+    position: [row.position_x ?? 0, row.position_y ?? 0],
+    port,
+    players,
+    garrison: garrisonObject,
+    salvage: row.salvage && Array.isArray(row.salvage) ? row.salvage : [],
+    unowned_ships: unownedShips,
+    scene_config: null,
+  });
+}
+
+// ============================================================================
+// Status Payload Building
+// ============================================================================
+
+let cachedUniverseSize: number | null = null;
+
+async function pgLoadUniverseSize(pg: Client): Promise<number> {
+  if (cachedUniverseSize !== null) {
+    return cachedUniverseSize;
+  }
+  const result = await pg.queryObject<{ sector_count: number }>(
+    `SELECT sector_count::int
+    FROM universe_config
+    WHERE id = 1`,
+    []
+  );
+  cachedUniverseSize = result.rows[0]?.sector_count ?? 0;
+  return cachedUniverseSize;
+}
+
+function buildPlayerSnapshot(
+  character: CharacterRow,
+  playerType: string,
+  knowledge: MapKnowledge,
+  universeSize: number
+): Record<string, unknown> {
+  const sectorsVisited =
+    knowledge.total_sectors_visited ||
+    Object.keys(knowledge.sectors_visited).length;
+  return {
+    id: character.character_id,
+    name: character.name,
+    player_type: playerType,
+    credits_in_bank: character.credits_in_megabank ?? 0,
+    sectors_visited: sectorsVisited,
+    universe_size: universeSize,
+    created_at: character.first_visit,
+    last_active: character.last_active,
+  };
+}
+
+function buildShipSnapshot(
+  ship: ShipRow,
+  definition: ShipDefinitionRow
+): Record<string, unknown> {
+  const cargo = {
+    quantum_foam: ship.cargo_qf ?? 0,
+    retro_organics: ship.cargo_ro ?? 0,
+    neuro_symbolics: ship.cargo_ns ?? 0,
+  };
+  const cargoUsed =
+    cargo.quantum_foam + cargo.retro_organics + cargo.neuro_symbolics;
+  const cargoCapacity = definition.cargo_holds;
+  return {
+    ship_id: ship.ship_id,
+    ship_type: ship.ship_type,
+    ship_name: ship.ship_name ?? definition.display_name,
+    credits: ship.credits ?? 0,
+    cargo,
+    cargo_capacity: cargoCapacity,
+    empty_holds: Math.max(cargoCapacity - cargoUsed, 0),
+    warp_power: ship.current_warp_power ?? definition.warp_power_capacity,
+    warp_power_capacity: definition.warp_power_capacity,
+    turns_per_warp: definition.turns_per_warp,
+    shields: ship.current_shields ?? definition.shields,
+    max_shields: definition.shields,
+    fighters: ship.current_fighters ?? definition.fighters,
+    max_fighters: definition.fighters,
+  };
+}
+
+export interface PgBuildStatusPayloadOptions {
+  pg: Client;
+  characterId: string;
+  // Optional pre-loaded data to avoid re-fetching
+  character?: CharacterRow;
+  ship?: ShipRow;
+  shipDefinition?: ShipDefinitionRow;
+  sectorSnapshot?: SectorSnapshot;
+}
+
+export async function pgBuildStatusPayload(
+  pg: Client,
+  characterId: string,
+  options?: Omit<PgBuildStatusPayloadOptions, "pg" | "characterId">
+): Promise<Record<string, unknown>> {
+  // Use provided data or fetch if not provided
+  const character = options?.character ?? await pgLoadCharacter(pg, characterId);
+  const ship = options?.ship ?? await pgLoadShip(pg, character.current_ship_id);
+  const definition = options?.shipDefinition ?? await pgLoadShipDefinition(pg, ship.ship_type);
+  const knowledge = normalizeMapKnowledge(character.map_knowledge);
+  const universeSize = await pgLoadUniverseSize(pg);
+  const playerType = resolvePlayerType(character.player_metadata);
+  const player = buildPlayerSnapshot(character, playerType, knowledge, universeSize);
+  const shipSnapshot = buildShipSnapshot(ship, definition);
+  const sectorSnapshot = options?.sectorSnapshot ?? await pgBuildSectorSnapshot(
+    pg,
+    ship.current_sector ?? 0,
+    characterId
+  );
+
+  // Load corporation info with member count in a single query
+  let corporationPayload: Record<string, unknown> | null = null;
+  if (character.corporation_id) {
+    const corpResult = await pg.queryObject<{
+      corp_id: string;
+      name: string;
+      member_count: number;
+    }>(
+      `SELECT c.corp_id, c.name, COUNT(cm.character_id)::int as member_count
+      FROM corporations c
+      LEFT JOIN corporation_members cm ON cm.corp_id = c.corp_id AND cm.left_at IS NULL
+      WHERE c.corp_id = $1
+      GROUP BY c.corp_id, c.name`,
+      [character.corporation_id]
+    );
+    const corp = corpResult.rows[0];
+    if (corp) {
+      corporationPayload = {
+        corp_id: corp.corp_id,
+        name: corp.name,
+        member_count: corp.member_count ?? 0,
+        joined_at: character.corporation_joined_at,
+      };
+    }
+  }
+
+  return convertBigInts({
+    player,
+    ship: shipSnapshot,
+    sector: sectorSnapshot,
+    corporation: corporationPayload,
+  });
+}
+
+// ============================================================================
+// Local Map Building
+// ============================================================================
+
+interface UniverseRow {
+  sector_id: number;
+  position_x: number;
+  position_y: number;
+  warps: unknown;
+}
+
+async function pgFetchUniverseRows(
+  pg: Client,
+  sectorIds: number[]
+): Promise<Map<number, { position: [number, number]; warps: WarpEdge[] }>> {
+  if (sectorIds.length === 0) {
+    return new Map();
+  }
+  const uniqueIds = Array.from(new Set(sectorIds));
+  const result = await pg.queryObject<UniverseRow>(
+    `SELECT sector_id::int, position_x::int, position_y::int, warps
+    FROM universe_structure
+    WHERE sector_id = ANY($1::int[])`,
+    [uniqueIds]
+  );
+
+  const map = new Map<number, { position: [number, number]; warps: WarpEdge[] }>();
+  for (const row of result.rows) {
+    map.set(row.sector_id, {
+      position: [row.position_x ?? 0, row.position_y ?? 0],
+      warps: parseWarpEdges(row.warps),
+    });
+  }
+  return map;
+}
+
+async function pgLoadPortCodes(
+  pg: Client,
+  sectorIds: number[]
+): Promise<Record<number, string>> {
+  if (sectorIds.length === 0) {
+    return {};
+  }
+  const uniqueIds = Array.from(new Set(sectorIds));
+  const result = await pg.queryObject<{ sector_id: number; port_code: string }>(
+    `SELECT sector_id::int, port_code
+    FROM ports
+    WHERE sector_id = ANY($1::int[])`,
+    [uniqueIds]
+  );
+
+  const portCodes: Record<number, string> = {};
+  for (const row of result.rows) {
+    portCodes[row.sector_id] = row.port_code;
+  }
+  return portCodes;
+}
+
+interface LocalMapSector {
+  id: number;
+  visited: boolean;
+  hops_from_center: number;
+  position: [number, number];
+  port: string;
+  lanes: WarpEdge[];
+  adjacent_sectors?: number[];
+  last_visited?: string;
+}
+
+interface LocalMapRegionPayload {
+  center_sector: number;
+  sectors: LocalMapSector[];
+  total_sectors: number;
+  total_visited: number;
+  total_unvisited: number;
+}
+
+export async function pgBuildLocalMapRegion(
+  pg: Client,
+  params: {
+    characterId: string;
+    centerSector: number;
+    mapKnowledge?: MapKnowledge;
+    maxHops?: number;
+    maxSectors?: number;
+  }
+): Promise<LocalMapRegionPayload> {
+  const { characterId, centerSector } = params;
+  const maxHops = params.maxHops ?? 4;
+  const maxSectors = params.maxSectors ?? 28;
+
+  let knowledge = params.mapKnowledge;
+  if (!knowledge) {
+    knowledge = await pgLoadMapKnowledge(pg, characterId);
+  }
+
+  const visitedSet = new Set<number>(
+    Object.keys(knowledge.sectors_visited).map((key) => Number(key))
+  );
+
+  if (!visitedSet.has(centerSector)) {
+    visitedSet.add(centerSector);
+  }
+
+  const distanceMap = new Map<number, number>([[centerSector, 0]]);
+  const queue: Array<{ sector: number; hops: number }> = [
+    { sector: centerSector, hops: 0 },
+  ];
+  const explored = new Set<number>([centerSector]);
+  const unvisitedSeen = new Map<number, Set<number>>();
+  const adjacencyCache = new Map<number, number[]>();
+
+  const getAdjacency = async (sectorId: number): Promise<number[]> => {
+    if (adjacencyCache.has(sectorId)) {
+      return adjacencyCache.get(sectorId)!;
+    }
+    const knowledgeEntry = knowledge!.sectors_visited[String(sectorId)];
+    let neighbors: number[] | undefined;
+    if (knowledgeEntry?.adjacent_sectors) {
+      neighbors = knowledgeEntry.adjacent_sectors;
+    }
+    if (!neighbors) {
+      const row = await pgFetchSectorRow(pg, sectorId);
+      neighbors = parseWarpEdges(row?.warps ?? []).map((edge) => edge.to);
+    }
+    adjacencyCache.set(sectorId, neighbors ?? []);
+    return neighbors ?? [];
+  };
+
+  while (queue.length > 0 && distanceMap.size < maxSectors) {
+    const current = queue.shift()!;
+    if (current.hops >= maxHops) {
+      continue;
+    }
+    const neighbors = await getAdjacency(current.sector);
+    for (const neighbor of neighbors) {
+      if (!distanceMap.has(neighbor)) {
+        distanceMap.set(neighbor, current.hops + 1);
+      }
+      if (!explored.has(neighbor) && visitedSet.has(neighbor)) {
+        explored.add(neighbor);
+        queue.push({ sector: neighbor, hops: current.hops + 1 });
+      } else if (!visitedSet.has(neighbor)) {
+        if (!unvisitedSeen.has(neighbor)) {
+          unvisitedSeen.set(neighbor, new Set());
+        }
+        unvisitedSeen.get(neighbor)!.add(current.sector);
+      }
+      if (distanceMap.size >= maxSectors) {
+        break;
+      }
+    }
+  }
+
+  const sectorIds = Array.from(distanceMap.keys());
+  const [universeRows, portCodes] = await Promise.all([
+    pgFetchUniverseRows(pg, sectorIds),
+    pgLoadPortCodes(
+      pg,
+      sectorIds.filter((id) => visitedSet.has(id))
+    ),
+  ]);
+
+  const resultSectors: LocalMapSector[] = [];
+  for (const sectorId of sectorIds.sort((a, b) => a - b)) {
+    const hops = distanceMap.get(sectorId) ?? 0;
+    const universeRow = universeRows.get(sectorId);
+    const position = universeRow?.position ?? [0, 0];
+    const warps = universeRow?.warps ?? [];
+
+    if (visitedSet.has(sectorId)) {
+      const knowledgeEntry = knowledge.sectors_visited[String(sectorId)];
+      resultSectors.push({
+        id: sectorId,
+        visited: true,
+        hops_from_center: hops,
+        position,
+        port: portCodes[sectorId] ?? "",
+        lanes: warps,
+        adjacent_sectors: adjacencyCache.get(sectorId) ?? [],
+        last_visited: knowledgeEntry?.last_visited,
+      });
+    } else {
+      const seenFrom = Array.from(unvisitedSeen.get(sectorId) ?? []);
+      const derivedLanes: WarpEdge[] = [];
+      for (const source of seenFrom) {
+        const sourceRow = universeRows.get(source);
+        const match = sourceRow?.warps.find((warp) => warp.to === sectorId);
+        if (match) {
+          derivedLanes.push({
+            to: source,
+            two_way: match.two_way,
+            hyperlane: match.hyperlane,
+          });
+        } else {
+          derivedLanes.push({ to: source });
+        }
+      }
+      resultSectors.push({
+        id: sectorId,
+        visited: false,
+        hops_from_center: hops,
+        position,
+        port: "",
+        lanes: derivedLanes,
+      });
+    }
+  }
+
+  const totalVisited = resultSectors.filter((sector) => sector.visited).length;
+  const totalUnvisited = resultSectors.length - totalVisited;
+
+  return convertBigInts({
+    center_sector: centerSector,
+    sectors: resultSectors,
+    total_sectors: resultSectors.length,
+    total_visited: totalVisited,
+    total_unvisited: totalUnvisited,
+  });
+}
+
+// ============================================================================
+// Mark Sector Visited
+// ============================================================================
+
+function upsertVisitedSector(
+  knowledge: MapKnowledge,
+  sectorId: number,
+  adjacent: number[],
+  position: [number, number],
+  timestamp: string
+): { updated: boolean; knowledge: MapKnowledge } {
+  const key = String(sectorId);
+  const existing = knowledge.sectors_visited[key];
+  const sameAdjacency =
+    existing?.adjacent_sectors?.length === adjacent.length &&
+    existing.adjacent_sectors?.every((value, idx) => value === adjacent[idx]);
+  const sameTimestamp = existing?.last_visited === timestamp;
+
+  if (existing && sameAdjacency && sameTimestamp) {
+    return { updated: false, knowledge };
+  }
+
+  knowledge.sectors_visited[key] = {
+    adjacent_sectors: adjacent,
+    position,
+    last_visited: timestamp,
+  };
+  const total = Object.keys(knowledge.sectors_visited).length;
+  knowledge.total_sectors_visited = Math.max(
+    knowledge.total_sectors_visited,
+    total
+  );
+  return { updated: true, knowledge };
+}
+
+export async function pgMarkSectorVisited(
+  pg: Client,
+  params: {
+    characterId: string;
+    sectorId: number;
+    sectorSnapshot: SectorSnapshot;
+    knowledge?: MapKnowledge;
+  }
+): Promise<{ firstVisit: boolean; knowledge: MapKnowledge }> {
+  const { characterId, sectorId, sectorSnapshot } = params;
+  const knowledge = params.knowledge ?? (await pgLoadMapKnowledge(pg, characterId));
+  const sectorKey = String(sectorId);
+  const visitedBefore = Boolean(knowledge.sectors_visited[sectorKey]);
+  const timestamp = new Date().toISOString();
+
+  const { knowledge: nextKnowledge } = upsertVisitedSector(
+    knowledge,
+    sectorId,
+    sectorSnapshot.adjacent_sectors,
+    sectorSnapshot.position,
+    timestamp
+  );
+
+  const entry = nextKnowledge.sectors_visited[sectorKey] ?? {};
+  entry.port = sectorSnapshot.port ?? null;
+  entry.last_visited = timestamp;
+  nextKnowledge.sectors_visited[sectorKey] = entry;
+  nextKnowledge.current_sector = sectorId;
+  nextKnowledge.last_update = timestamp;
+
+  await pgUpdateMapKnowledge(pg, characterId, nextKnowledge);
+
+  return { firstVisit: !visitedBefore, knowledge: nextKnowledge };
+}
+
+// ============================================================================
+// Direct PG Event Recording
+// ============================================================================
+
+export interface EventRecipientSnapshot {
+  characterId: string;
+  reason: string;
+}
+
+export interface PgRecordEventOptions {
+  pg: Client;
+  eventType: string;
+  scope?: string;
+  direction?: string;
+  payload: Record<string, unknown>;
+  requestId?: string | null;
+  meta?: Record<string, unknown> | null;
+  sectorId?: number | null;
+  shipId?: string | null;
+  characterId?: string | null;
+  senderId?: string | null;
+  actorCharacterId?: string | null;
+  corpId?: string | null;
+  recipients?: EventRecipientSnapshot[];
+  broadcast?: boolean;
+}
+
+function dedupeRecipients(recipients: EventRecipientSnapshot[]): EventRecipientSnapshot[] {
+  if (!recipients.length) return [];
+  const seen = new Set<string>();
+  const deduped: EventRecipientSnapshot[] = [];
+  for (const r of recipients) {
+    const id = typeof r.characterId === "string" ? r.characterId.trim() : "";
+    const reason = typeof r.reason === "string" ? r.reason.trim() : "";
+    if (!id || !reason || seen.has(id)) continue;
+    seen.add(id);
+    deduped.push({ characterId: id, reason });
+  }
+  return deduped;
+}
+
+export async function pgRecordEvent(options: PgRecordEventOptions): Promise<number | null> {
+  const {
+    pg,
+    eventType,
+    scope = "direct",
+    direction = "event_out",
+    payload,
+    requestId,
+    meta,
+    sectorId,
+    shipId,
+    characterId,
+    senderId,
+    actorCharacterId,
+    corpId,
+    recipients = [],
+    broadcast = false,
+  } = options;
+
+  const normalizedRecipients = dedupeRecipients(recipients);
+  if (!normalizedRecipients.length && !broadcast) {
+    return null;
+  }
+
+  const recipientIds = normalizedRecipients.map((r) => r.characterId);
+  const recipientReasons = normalizedRecipients.map((r) => r.reason);
+
+  const result = await pg.queryObject<{ record_event_with_recipients: string }>(
+    `SELECT record_event_with_recipients(
+      $1, $2, $3, $4::uuid, $5::uuid, $6::int, $7::uuid, $8::uuid, $9::uuid,
+      $10::jsonb, $11::jsonb, $12, $13::uuid[], $14::text[], $15
+    )`,
+    [
+      eventType,
+      direction,
+      scope,
+      actorCharacterId ?? null,
+      corpId ?? null,
+      sectorId ?? null,
+      shipId ?? null,
+      characterId ?? null,
+      senderId ?? null,
+      JSON.stringify(payload ?? {}),
+      meta ? JSON.stringify(meta) : null,
+      requestId ?? null,
+      recipientIds,
+      recipientReasons,
+      broadcast,
+    ]
+  );
+
+  const returnVal = result.rows[0]?.record_event_with_recipients;
+  if (typeof returnVal === "string") {
+    return parseInt(returnVal, 10);
+  }
+  if (typeof returnVal === "number" || typeof returnVal === "bigint") {
+    return Number(returnVal);
+  }
+  return null;
+}
+
+export interface PgEmitCharacterEventOptions {
+  pg: Client;
+  characterId: string;
+  eventType: string;
+  payload: Record<string, unknown>;
+  senderId?: string | null;
+  sectorId?: number | null;
+  shipId?: string | null;
+  requestId?: string | null;
+  meta?: Record<string, unknown> | null;
+  corpId?: string | null;
+  recipientReason?: string;
+  additionalRecipients?: EventRecipientSnapshot[];
+  actorCharacterId?: string | null;
+  scope?: string;
+}
+
+export async function pgEmitCharacterEvent(options: PgEmitCharacterEventOptions): Promise<void> {
+  const {
+    pg,
+    characterId,
+    eventType,
+    payload,
+    senderId,
+    sectorId,
+    shipId,
+    requestId,
+    meta,
+    corpId,
+    recipientReason,
+    additionalRecipients = [],
+    actorCharacterId,
+    scope,
+  } = options;
+
+  const recipients = dedupeRecipients([
+    { characterId, reason: recipientReason ?? "direct" },
+    ...additionalRecipients,
+  ]);
+
+  if (!recipients.length) return;
+
+  await pgRecordEvent({
+    pg,
+    eventType,
+    scope: scope ?? "direct",
+    payload,
+    requestId,
+    meta,
+    corpId,
+    sectorId,
+    shipId,
+    characterId,
+    senderId,
+    actorCharacterId: actorCharacterId ?? senderId ?? characterId,
+    recipients,
+  });
+}
+
+// ============================================================================
+// Movement Observers (direct PG)
+// ============================================================================
+
+export interface ObserverMetadata {
+  characterId: string;
+  characterName: string;
+  shipId: string;
+  shipName: string;
+  shipType: string;
+}
+
+interface EventSource {
+  type: string;
+  method: string;
+  request_id: string;
+  timestamp: string;
+}
+
+async function pgListSectorObservers(
+  pg: Client,
+  sectorId: number,
+  exclude: string[] = []
+): Promise<string[]> {
+  const excludeSet = new Set(exclude);
+  const result = await pg.queryObject<{
+    owner_character_id: string | null;
+    owner_id: string | null;
+    owner_type: string | null;
+  }>(
+    `SELECT owner_character_id, owner_id, owner_type
+    FROM ship_instances
+    WHERE current_sector = $1
+      AND in_hyperspace = false
+      AND (owner_character_id IS NOT NULL OR owner_type = 'character')`,
+    [sectorId]
+  );
+
+  const observers: string[] = [];
+  for (const row of result.rows) {
+    const charId = row.owner_character_id ?? (row.owner_type === "character" ? row.owner_id : null);
+    if (!charId || excludeSet.has(charId)) continue;
+    if (!observers.includes(charId)) {
+      observers.push(charId);
+    }
+  }
+  return observers;
+}
+
+interface GarrisonRow {
+  owner_id: string | null;
+  fighters: number;
+  mode: string;
+  toll_amount: number;
+  deployed_at: string;
+}
+
+interface CharacterInfo {
+  character_id: string;
+  name: string;
+  corporation_id: string | null;
+}
+
+interface GarrisonContext {
+  garrisons: GarrisonRow[];
+  ownerMap: Map<string, CharacterInfo>;
+  membersByCorp: Map<string, string[]>;
+}
+
+async function pgLoadGarrisonContext(
+  pg: Client,
+  sectorId: number
+): Promise<GarrisonContext> {
+  const garrisonResult = await pg.queryObject<GarrisonRow>(
+    `SELECT owner_id, fighters::int, mode, toll_amount::numeric, deployed_at
+    FROM garrisons
+    WHERE sector_id = $1`,
+    [sectorId]
+  );
+
+  const garrisonRows = garrisonResult.rows;
+  const ownerIds = Array.from(
+    new Set(
+      garrisonRows
+        .map((row) => row.owner_id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0)
+    )
+  );
+
+  const ownerMap = new Map<string, CharacterInfo>();
+  const corpIds = new Set<string>();
+
+  if (ownerIds.length > 0) {
+    const ownerResult = await pg.queryObject<CharacterInfo>(
+      `SELECT character_id, name, corporation_id
+      FROM characters
+      WHERE character_id = ANY($1::uuid[])`,
+      [ownerIds]
+    );
+    for (const row of ownerResult.rows) {
+      ownerMap.set(row.character_id, row);
+      if (row.corporation_id) {
+        corpIds.add(row.corporation_id);
+      }
+    }
+  }
+
+  const membersByCorp = new Map<string, string[]>();
+  if (corpIds.size > 0) {
+    const corpIdList = Array.from(corpIds);
+    const memberResult = await pg.queryObject<{
+      character_id: string;
+      corporation_id: string | null;
+    }>(
+      `SELECT character_id, corporation_id
+      FROM characters
+      WHERE corporation_id = ANY($1::uuid[])`,
+      [corpIdList]
+    );
+    for (const row of memberResult.rows) {
+      if (!row.corporation_id) continue;
+      const list = membersByCorp.get(row.corporation_id) ?? [];
+      list.push(row.character_id);
+      membersByCorp.set(row.corporation_id, list);
+    }
+  }
+
+  return { garrisons: convertBigInts(garrisonRows), ownerMap, membersByCorp };
+}
+
+function buildCharacterMovedPayload(
+  metadata: ObserverMetadata,
+  movement: "depart" | "arrive",
+  source?: EventSource,
+  options?: { moveType?: string; extraFields?: Record<string, unknown> }
+): Record<string, unknown> {
+  const timestamp = new Date().toISOString();
+  const moveType = options?.moveType ?? "normal";
+  const extraFields = options?.extraFields;
+  const payload: Record<string, unknown> = {
+    player: { id: metadata.characterId, name: metadata.characterName },
+    ship: { ship_name: metadata.shipName, ship_type: metadata.shipType },
+    timestamp,
+    move_type: moveType,
+    movement,
+    name: metadata.characterName,
+    ship_type: metadata.shipType,
+  };
+  if (source) payload.source = source;
+  if (extraFields && Object.keys(extraFields).length) {
+    Object.assign(payload, extraFields);
+  }
+  return payload;
+}
+
+export interface PgMovementObserverOptions {
+  pg: Client;
+  sectorId: number;
+  metadata: ObserverMetadata;
+  movement: "depart" | "arrive";
+  source?: EventSource;
+  requestId?: string;
+  excludeCharacterIds?: string[];
+  moveType?: string;
+  extraPayload?: Record<string, unknown>;
+  includeGarrisons?: boolean;
+}
+
+export interface MovementObserverResult {
+  characterObservers: number;
+  garrisonRecipients: number;
+}
+
+export async function pgEmitMovementObservers(
+  options: PgMovementObserverOptions
+): Promise<MovementObserverResult> {
+  const {
+    pg,
+    sectorId,
+    metadata,
+    movement,
+    source,
+    requestId,
+    excludeCharacterIds,
+    moveType,
+    extraPayload,
+    includeGarrisons = true,
+  } = options;
+
+  const exclude = new Set<string>([metadata.characterId]);
+  if (excludeCharacterIds) {
+    for (const id of excludeCharacterIds) {
+      if (id) exclude.add(id);
+    }
+  }
+
+  const observers = await pgListSectorObservers(pg, sectorId, Array.from(exclude));
+  const payload = buildCharacterMovedPayload(metadata, movement, source, {
+    moveType,
+    extraFields: extraPayload,
+  });
+
+  // Emit to character observers
+  if (observers.length > 0) {
+    const recipients = dedupeRecipients(
+      observers.map((id) => ({ characterId: id, reason: "sector_snapshot" }))
+    );
+    if (recipients.length > 0) {
+      await pgRecordEvent({
+        pg,
+        eventType: "character.moved",
+        scope: "sector",
+        payload,
+        requestId,
+        sectorId,
+        actorCharacterId: metadata.characterId,
+        recipients,
+      });
+    }
+  }
+
+  // Emit to garrison owners and corp members
+  let garrisonRecipients = 0;
+  if (includeGarrisons) {
+    const { garrisons, ownerMap, membersByCorp } = await pgLoadGarrisonContext(pg, sectorId);
+
+    for (const garrison of garrisons) {
+      const ownerId = garrison.owner_id;
+      if (!ownerId) continue;
+
+      const owner = ownerMap.get(ownerId);
+      if (!owner || !owner.corporation_id) continue;
+
+      const corpMembers = membersByCorp.get(owner.corporation_id) ?? [];
+      const allRecipients = Array.from(new Set([ownerId, ...corpMembers]));
+      if (!allRecipients.length) continue;
+
+      const garrisonPayload = {
+        owner_id: owner.character_id,
+        owner_name: owner.name,
+        corporation_id: owner.corporation_id,
+        fighters: garrison.fighters,
+        mode: garrison.mode,
+        toll_amount: garrison.toll_amount,
+        deployed_at: garrison.deployed_at,
+      };
+
+      const eventPayload = { ...payload, garrison: garrisonPayload };
+      const recipientSnapshots = dedupeRecipients(
+        allRecipients.map((charId) => ({
+          characterId: charId,
+          reason: charId === owner.character_id ? "garrison_owner" : "garrison_corp_member",
+        }))
+      );
+
+      if (recipientSnapshots.length > 0) {
+        await pgRecordEvent({
+          pg,
+          eventType: "garrison.character_moved",
+          scope: "sector",
+          payload: eventPayload,
+          requestId,
+          sectorId,
+          actorCharacterId: owner.character_id,
+          recipients: recipientSnapshots,
+        });
+        garrisonRecipients += allRecipients.length;
+      }
+    }
+  }
+
+  if (observers.length || garrisonRecipients > 0) {
+    console.log("movement.observers.emitted", {
+      sector_id: sectorId,
+      movement,
+      character_id: metadata.characterId,
+      character_observers: observers.length,
+      garrison_recipients: garrisonRecipients,
+      request_id: requestId,
+    });
+  }
+
+  return { characterObservers: observers.length, garrisonRecipients };
+}
+
+// ============================================================================
+// Garrison Auto-Combat Check (direct PG)
+// ============================================================================
+
+interface GarrisonAutoEngageRow {
+  sector_id: number;
+  owner_id: string;
+  fighters: number;
+  mode: string;
+  toll_amount: number;
+  toll_balance: number;
+  deployed_at: string;
+}
+
+export interface PgCheckGarrisonAutoEngageOptions {
+  pg: Client;
+  characterId: string;
+  sectorId: number;
+  requestId: string;
+}
+
+/**
+ * Check if there are auto-engaging garrisons in a sector.
+ * Returns true if combat would be initiated (caller should handle via REST),
+ * false if no combat needed.
+ *
+ * This is an optimized check - it quickly returns false for the common case
+ * where no combat is needed, avoiding expensive REST calls.
+ */
+export async function pgCheckGarrisonAutoEngage(
+  options: PgCheckGarrisonAutoEngageOptions
+): Promise<boolean> {
+  const { pg, characterId, sectorId } = options;
+
+  // Check if character's ship is in hyperspace
+  const charResult = await pg.queryObject<{ current_ship_id: string }>(
+    `SELECT current_ship_id FROM characters WHERE character_id = $1`,
+    [characterId]
+  );
+  const charRow = charResult.rows[0];
+  if (!charRow?.current_ship_id) return false;
+
+  const shipResult = await pg.queryObject<{ in_hyperspace: boolean }>(
+    `SELECT in_hyperspace FROM ship_instances WHERE ship_id = $1`,
+    [charRow.current_ship_id]
+  );
+  if (shipResult.rows[0]?.in_hyperspace) return false;
+
+  // Check if there's existing active combat
+  const combatResult = await pg.queryObject<{ combat: unknown }>(
+    `SELECT combat FROM sector_contents WHERE sector_id = $1`,
+    [sectorId]
+  );
+  const combatRow = combatResult.rows[0];
+  if (combatRow?.combat) {
+    const combat = combatRow.combat as Record<string, unknown>;
+    if (combat && !combat.ended) return false; // Already in combat
+  }
+
+  // Load garrisons with fighters
+  const garrisonResult = await pg.queryObject<GarrisonAutoEngageRow>(
+    `SELECT sector_id::int, owner_id, fighters::int, mode,
+            toll_amount::numeric, toll_balance::numeric, deployed_at
+    FROM garrisons
+    WHERE sector_id = $1 AND fighters > 0`,
+    [sectorId]
+  );
+  const garrisons = garrisonResult.rows;
+
+  // Check for auto-engaging garrisons (offensive or toll mode)
+  const autoEngagingGarrisons = garrisons.filter(
+    (g) => g.mode === "offensive" || g.mode === "toll"
+  );
+  if (autoEngagingGarrisons.length === 0) return false;
+
+  // Get character's corporation
+  const charCorpResult = await pg.queryObject<{ corp_id: string }>(
+    `SELECT corp_id FROM corporation_members
+    WHERE character_id = $1 AND left_at IS NULL`,
+    [characterId]
+  );
+  const charCorpId = charCorpResult.rows[0]?.corp_id ?? null;
+
+  // Check if any garrison is not owned by same corporation
+  for (const garrison of autoEngagingGarrisons) {
+    const ownerId = garrison.owner_id;
+    if (!ownerId || ownerId === characterId) continue;
+    if (garrison.fighters <= 0) continue;
+
+    // Get garrison owner's corporation
+    const ownerCorpResult = await pg.queryObject<{ corp_id: string }>(
+      `SELECT corp_id FROM corporation_members
+      WHERE character_id = $1 AND left_at IS NULL`,
+      [ownerId]
+    );
+    const ownerCorpId = ownerCorpResult.rows[0]?.corp_id ?? null;
+
+    // Skip if same corporation
+    if (charCorpId && ownerCorpId === charCorpId) continue;
+
+    // Found an enemy garrison - combat should be initiated
+    return true;
+  }
+
+  return false; // All garrisons are friendly
+}
+
+// ============================================================================
+// Actor Authorization (direct PG)
+// ============================================================================
+
+export async function pgEnsureActorAuthorization(
+  pg: Client,
+  options: {
+    ship: ShipRow | null;
+    actorCharacterId: string | null;
+    adminOverride: boolean;
+    targetCharacterId?: string | null;
+    requireActorForCorporationShip?: boolean;
+  }
+): Promise<void> {
+  const {
+    ship,
+    actorCharacterId,
+    adminOverride,
+    targetCharacterId,
+    requireActorForCorporationShip = true,
+  } = options;
+
+  if (adminOverride) {
+    return;
+  }
+
+  // If no ship provided, only validate actor matches target
+  if (!ship) {
+    if (actorCharacterId && targetCharacterId && actorCharacterId !== targetCharacterId) {
+      throw new ActorAuthorizationError(
+        'actor_character_id must match character_id unless admin_override is true',
+        403
+      );
+    }
+    return;
+  }
+
+  const resolvedTargetId = targetCharacterId ?? ship.owner_character_id ?? ship.owner_id ?? ship.ship_id;
+
+  if (ship.owner_type === 'corporation') {
+    if (requireActorForCorporationShip && !actorCharacterId) {
+      throw new ActorAuthorizationError(
+        'actor_character_id is required when controlling a corporation ship',
+        400
+      );
+    }
+    if (!ship.owner_corporation_id) {
+      throw new ActorAuthorizationError('Corporation ship is missing ownership data', 403);
+    }
+    if (!actorCharacterId) {
+      return;
+    }
+    const allowed = await pgEnsureActorCanControlShip(pg, actorCharacterId, ship.owner_corporation_id);
+    if (!allowed) {
+      throw new ActorAuthorizationError('Actor is not authorized to control this corporation ship', 403);
+    }
+    return;
+  }
+
+  if (actorCharacterId && actorCharacterId !== resolvedTargetId) {
+    throw new ActorAuthorizationError(
+      'actor_character_id must match character_id unless admin_override is true',
+      403
+    );
+  }
+}
+
+// Import ActorAuthorizationError - re-export for convenience
+export { ActorAuthorizationError } from './actors.ts';
+
+// ============================================================================
+// Trading Functions (direct PG)
+// ============================================================================
+
+export interface PortRow {
+  port_id: number;
+  sector_id: number;
+  port_code: string;
+  port_class: number;
+  max_qf: number;
+  max_ro: number;
+  max_ns: number;
+  stock_qf: number;
+  stock_ro: number;
+  stock_ns: number;
+  version: number;
+  last_updated: string | null;
+}
+
+export async function pgLoadPortBySector(
+  pg: Client,
+  sectorId: number
+): Promise<PortRow | null> {
+  const result = await pg.queryObject<PortRow>(
+    `SELECT port_id::int, sector_id::int, port_code, port_class::int,
+            max_qf::int, max_ro::int, max_ns::int,
+            stock_qf::int, stock_ro::int, stock_ns::int,
+            version::int, last_updated
+    FROM ports
+    WHERE sector_id = $1`,
+    [sectorId]
+  );
+  return convertBigInts(result.rows[0]) ?? null;
+}
+
+export async function pgAttemptPortUpdate(
+  pg: Client,
+  portRow: PortRow,
+  updatedStock: { QF: number; RO: number; NS: number },
+  observedAt: string
+): Promise<PortRow | null> {
+  const result = await pg.queryObject<PortRow>(
+    `UPDATE ports
+    SET stock_qf = $1,
+        stock_ro = $2,
+        stock_ns = $3,
+        last_updated = $4,
+        version = $5
+    WHERE port_id = $6 AND version = $7
+    RETURNING port_id::int, sector_id::int, port_code, port_class::int,
+              max_qf::int, max_ro::int, max_ns::int,
+              stock_qf::int, stock_ro::int, stock_ns::int,
+              version::int, last_updated`,
+    [
+      updatedStock.QF,
+      updatedStock.RO,
+      updatedStock.NS,
+      observedAt,
+      portRow.version + 1,
+      portRow.port_id,
+      portRow.version,
+    ]
+  );
+  return convertBigInts(result.rows[0]) ?? null;
+}
+
+export async function pgRevertPortInventory(
+  pg: Client,
+  previous: PortRow,
+  current: PortRow
+): Promise<void> {
+  await pg.queryObject(
+    `UPDATE ports
+    SET stock_qf = $1,
+        stock_ro = $2,
+        stock_ns = $3,
+        last_updated = $4,
+        version = $5
+    WHERE port_id = $6 AND version = $7`,
+    [
+      previous.stock_qf,
+      previous.stock_ro,
+      previous.stock_ns,
+      new Date().toISOString(),
+      current.version + 1,
+      current.port_id,
+      current.version,
+    ]
+  );
+}
+
+export interface ShipTradeUpdate {
+  credits: number;
+  cargo_qf: number;
+  cargo_ro: number;
+  cargo_ns: number;
+}
+
+export async function pgUpdateShipAfterTrade(
+  pg: Client,
+  shipId: string,
+  ownerId: string | null,
+  updates: ShipTradeUpdate
+): Promise<boolean> {
+  let query = `UPDATE ship_instances
+    SET credits = $1,
+        cargo_qf = $2,
+        cargo_ro = $3,
+        cargo_ns = $4
+    WHERE ship_id = $5`;
+  const params: (string | number | null)[] = [
+    updates.credits,
+    updates.cargo_qf,
+    updates.cargo_ro,
+    updates.cargo_ns,
+    shipId,
+  ];
+
+  if (ownerId) {
+    query += ` AND owner_id = $6`;
+    params.push(ownerId);
+  }
+
+  query += ` RETURNING ship_id`;
+
+  const result = await pg.queryObject<{ ship_id: string }>(query, params);
+  return result.rows.length > 0;
+}
+
+export interface PortTransactionParams {
+  sectorId: number;
+  portId: number;
+  characterId: string;
+  shipId: string;
+  commodity: string; // 'QF' | 'RO' | 'NS'
+  quantity: number;
+  transactionType: 'buy' | 'sell';
+  pricePerUnit: number;
+  totalPrice: number;
+}
+
+export async function pgRecordPortTransaction(
+  pg: Client,
+  params: PortTransactionParams
+): Promise<void> {
+  await pg.queryObject(
+    `INSERT INTO port_transactions (
+      sector_id, port_id, character_id, ship_id,
+      commodity, quantity, transaction_type,
+      price_per_unit, total_price
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [
+      params.sectorId,
+      params.portId,
+      params.characterId,
+      params.shipId,
+      params.commodity,
+      params.quantity,
+      params.transactionType,
+      params.pricePerUnit,
+      params.totalPrice,
+    ]
+  );
+}
+
+export async function pgListCharactersInSector(
+  pg: Client,
+  sectorId: number,
+  excludeCharacterIds: string[] = []
+): Promise<string[]> {
+  // Get ships in sector that are not in hyperspace
+  const shipResult = await pg.queryObject<{ ship_id: string }>(
+    `SELECT ship_id
+    FROM ship_instances
+    WHERE current_sector = $1 AND in_hyperspace = false`,
+    [sectorId]
+  );
+
+  const shipIds = shipResult.rows.map((row) => row.ship_id).filter(Boolean);
+  if (shipIds.length === 0) {
+    return [];
+  }
+
+  // Get characters piloting those ships
+  const charResult = await pg.queryObject<{ character_id: string }>(
+    `SELECT character_id
+    FROM characters
+    WHERE current_ship_id = ANY($1::uuid[])`,
+    [shipIds]
+  );
+
+  const excludeSet = new Set(excludeCharacterIds);
+  const characterIds: string[] = [];
+  for (const row of charResult.rows) {
+    if (row.character_id && !excludeSet.has(row.character_id)) {
+      characterIds.push(row.character_id);
+    }
+  }
+  return characterIds;
+}
+
+// Execute port and ship updates in a transaction
+export async function pgExecuteTradeTransaction(
+  pg: Client,
+  params: {
+    portRow: PortRow;
+    updatedStock: { QF: number; RO: number; NS: number };
+    observedAt: string;
+    shipId: string;
+    ownerId: string | null;
+    shipUpdates: ShipTradeUpdate;
+  }
+): Promise<{ success: true; updatedPort: PortRow } | { success: false; reason: 'version_mismatch' | 'ship_update_failed' }> {
+  try {
+    await pg.queryObject('BEGIN');
+
+    // Attempt port update with version check
+    const portResult = await pg.queryObject<PortRow>(
+      `UPDATE ports
+      SET stock_qf = $1,
+          stock_ro = $2,
+          stock_ns = $3,
+          last_updated = $4,
+          version = $5
+      WHERE port_id = $6 AND version = $7
+      RETURNING port_id::int, sector_id::int, port_code, port_class::int,
+                max_qf::int, max_ro::int, max_ns::int,
+                stock_qf::int, stock_ro::int, stock_ns::int,
+                version::int, last_updated`,
+      [
+        params.updatedStock.QF,
+        params.updatedStock.RO,
+        params.updatedStock.NS,
+        params.observedAt,
+        params.portRow.version + 1,
+        params.portRow.port_id,
+        params.portRow.version,
+      ]
+    );
+
+    if (!portResult.rows[0]) {
+      await pg.queryObject('ROLLBACK');
+      return { success: false, reason: 'version_mismatch' };
+    }
+
+    // Update ship
+    let shipQuery = `UPDATE ship_instances
+      SET credits = $1,
+          cargo_qf = $2,
+          cargo_ro = $3,
+          cargo_ns = $4
+      WHERE ship_id = $5`;
+    const shipParams: (string | number | null)[] = [
+      params.shipUpdates.credits,
+      params.shipUpdates.cargo_qf,
+      params.shipUpdates.cargo_ro,
+      params.shipUpdates.cargo_ns,
+      params.shipId,
+    ];
+
+    if (params.ownerId) {
+      shipQuery += ` AND owner_id = $6`;
+      shipParams.push(params.ownerId);
+    }
+
+    shipQuery += ` RETURNING ship_id`;
+
+    const shipResult = await pg.queryObject<{ ship_id: string }>(shipQuery, shipParams);
+    if (!shipResult.rows[0]) {
+      await pg.queryObject('ROLLBACK');
+      return { success: false, reason: 'ship_update_failed' };
+    }
+
+    await pg.queryObject('COMMIT');
+    return { success: true, updatedPort: convertBigInts(portResult.rows[0]) };
+  } catch (error) {
+    try {
+      await pg.queryObject('ROLLBACK');
+    } catch {
+      // Ignore rollback errors
+    }
+    throw error;
+  }
+}
+
+// ============================================================================
+// Join Function Helpers (direct PG)
+// ============================================================================
+
+export class JoinError extends Error {
+  status: number;
+
+  constructor(message: string, status = 500) {
+    super(message);
+    this.name = "JoinError";
+    this.status = status;
+  }
+}
+
+/**
+ * Resolve and validate the target sector for joining.
+ */
+export async function pgResolveTargetSector(
+  pg: Client,
+  params: {
+    sectorOverride: number | null;
+    fallbackSector: number;
+    defaultSector?: number;
+  }
+): Promise<number> {
+  const DEFAULT_START_SECTOR = params.defaultSector ?? 0;
+  const target = params.sectorOverride ?? params.fallbackSector ?? DEFAULT_START_SECTOR;
+
+  const result = await pg.queryObject<{ sector_id: number }>(
+    `SELECT sector_id::int FROM universe_structure WHERE sector_id = $1`,
+    [target]
+  );
+
+  if (!result.rows[0]) {
+    throw new JoinError(`invalid sector: ${target}`, 400);
+  }
+  return target;
+}
+
+/**
+ * Update ship state when joining (set sector, clear hyperspace).
+ */
+export async function pgUpdateShipState(
+  pg: Client,
+  params: {
+    shipId: string;
+    sectorId: number;
+    creditsOverride?: number | null;
+  }
+): Promise<void> {
+  const { shipId, sectorId, creditsOverride } = params;
+
+  if (typeof creditsOverride === "number") {
+    await pg.queryObject(
+      `UPDATE ship_instances
+      SET current_sector = $1,
+          in_hyperspace = false,
+          hyperspace_destination = NULL,
+          hyperspace_eta = NULL,
+          credits = $2
+      WHERE ship_id = $3`,
+      [sectorId, creditsOverride, shipId]
+    );
+  } else {
+    await pg.queryObject(
+      `UPDATE ship_instances
+      SET current_sector = $1,
+          in_hyperspace = false,
+          hyperspace_destination = NULL,
+          hyperspace_eta = NULL
+      WHERE ship_id = $2`,
+      [sectorId, shipId]
+    );
+  }
+}
+
+/**
+ * Ensure character is linked to their ship and update last_active.
+ */
+export async function pgEnsureCharacterShipLink(
+  pg: Client,
+  characterId: string,
+  shipId: string
+): Promise<void> {
+  await pg.queryObject(
+    `UPDATE characters
+    SET current_ship_id = $1, last_active = NOW()
+    WHERE character_id = $2`,
+    [shipId, characterId]
+  );
+}
+
+interface UniverseSectorRow {
+  sector_id: number;
+  position_x: number;
+  position_y: number;
+  warps: unknown;
+}
+
+function parseAdjacentIds(structure: UniverseSectorRow): number[] {
+  if (!Array.isArray(structure.warps)) {
+    return [];
+  }
+  return structure.warps
+    .map((entry: unknown) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+      const toValue = (entry as Record<string, unknown>)["to"];
+      const to = typeof toValue === "number" ? toValue : Number(toValue);
+      return Number.isFinite(to) ? to : null;
+    })
+    .filter((value): value is number => value !== null);
+}
+
+/**
+ * Upsert map knowledge entry for a sector (when joining).
+ */
+export async function pgUpsertKnowledgeEntry(
+  pg: Client,
+  params: {
+    characterId: string;
+    sectorId: number;
+    existingKnowledge?: MapKnowledge;
+  }
+): Promise<void> {
+  const { characterId, sectorId } = params;
+
+  // Fetch sector structure
+  const structResult = await pg.queryObject<UniverseSectorRow>(
+    `SELECT sector_id::int, position_x::int, position_y::int, warps
+    FROM universe_structure
+    WHERE sector_id = $1`,
+    [sectorId]
+  );
+
+  const structure = structResult.rows[0];
+  if (!structure) {
+    return; // Sector not found, skip update
+  }
+
+  // Load existing knowledge if not provided
+  let knowledge = params.existingKnowledge;
+  if (!knowledge) {
+    knowledge = await pgLoadMapKnowledge(pg, characterId);
+  }
+
+  const adjacent = parseAdjacentIds(structure);
+  const timestamp = new Date().toISOString();
+  const key = String(sectorId);
+
+  // Check if update is needed
+  const existing = knowledge.sectors_visited[key];
+  const sameAdjacency =
+    existing?.adjacent_sectors?.length === adjacent.length &&
+    existing.adjacent_sectors?.every((value, idx) => value === adjacent[idx]);
+
+  if (existing && sameAdjacency) {
+    // Just update timestamp
+    existing.last_visited = timestamp;
+  } else {
+    // Full update
+    knowledge.sectors_visited[key] = {
+      adjacent_sectors: adjacent,
+      position: [structure.position_x ?? 0, structure.position_y ?? 0],
+      last_visited: timestamp,
+    };
+  }
+
+  // Update total count
+  const total = Object.keys(knowledge.sectors_visited).length;
+  knowledge.total_sectors_visited = Math.max(knowledge.total_sectors_visited, total);
+
+  // Persist
+  await pgUpdateMapKnowledge(pg, characterId, knowledge);
+}
+
+/**
+ * Load a character with corporation info for join operations.
+ * Returns null if character not found.
+ */
+export async function pgLoadCharacterForJoin(
+  pg: Client,
+  characterId: string
+): Promise<(CharacterRow & { corporation_id: string | null }) | null> {
+  const result = await pg.queryObject<CharacterRow & { corporation_id: string | null }>(
+    `SELECT
+      character_id,
+      name,
+      current_ship_id,
+      credits_in_megabank::bigint as credits_in_megabank,
+      map_knowledge,
+      player_metadata,
+      first_visit,
+      last_active,
+      corporation_id,
+      corporation_joined_at
+    FROM characters
+    WHERE character_id = $1`,
+    [characterId]
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+  return convertBigInts(row);
+}

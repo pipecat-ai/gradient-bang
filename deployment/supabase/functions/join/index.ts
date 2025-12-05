@@ -2,15 +2,26 @@ import { serve } from 'https://deno.land/std@0.197.0/http/server.ts';
 
 import { validateApiToken, unauthorizedResponse, errorResponse, successResponse } from '../_shared/auth.ts';
 import { createServiceRoleClient } from '../_shared/client.ts';
-import { emitCharacterEvent, buildEventSource } from '../_shared/events.ts';
-import { emitMovementObservers } from '../_shared/movement.ts';
-import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
-import { buildStatusPayload } from '../_shared/status.ts';
+import { createPgClient, connectWithCleanup } from '../_shared/pg.ts';
 import {
-  buildLocalMapRegion,
-  normalizeMapKnowledge,
-  upsertVisitedSector,
-} from '../_shared/map.ts';
+  pgLoadCharacterForJoin,
+  pgLoadShip,
+  pgLoadShipDefinition,
+  pgEnforceRateLimit,
+  RateLimitError,
+  pgEnsureActorAuthorization,
+  pgResolveTargetSector,
+  pgUpdateShipState,
+  pgEnsureCharacterShipLink,
+  pgUpsertKnowledgeEntry,
+  pgBuildStatusPayload,
+  pgBuildLocalMapRegion,
+  pgEmitCharacterEvent,
+  pgEmitMovementObservers,
+  JoinError,
+  type ObserverMetadata,
+} from '../_shared/pg_queries.ts';
+import { buildEventSource } from '../_shared/events.ts';
 import { loadCombatForSector, persistCombatState } from '../_shared/combat_state.ts';
 import { loadCharacterCombatants } from '../_shared/combat_participants.ts';
 import { buildRoundWaitingPayload } from '../_shared/combat_events.ts';
@@ -23,63 +34,17 @@ import {
   resolveRequestId,
   respondWithError,
 } from '../_shared/request.ts';
-import { type ObserverMetadata } from '../_shared/observers.ts';
 import { canonicalizeCharacterId } from '../_shared/ids.ts';
-import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
-
-type CharacterRow = {
-  character_id: string;
-  name: string;
-  current_ship_id: string | null;
-  map_knowledge: unknown;
-};
-
-type ShipRow = {
-  ship_id: string;
-  owner_id: string;
-  owner_type: 'character' | 'corporation' | 'unowned' | null;
-  owner_character_id: string | null;
-  owner_corporation_id: string | null;
-  ship_type: string;
-  ship_name: string | null;
-  current_sector: number | null;
-};
-
-type ShipDefinitionRow = {
-  ship_type: string;
-  display_name: string;
-  cargo_holds: number;
-  warp_power_capacity: number;
-  shields: number;
-  fighters: number;
-};
-
-interface UniverseSectorRow {
-  sector_id: number;
-  position_x: number;
-  position_y: number;
-  warps: unknown;
-}
+import { ActorAuthorizationError } from '../_shared/actors.ts';
+import { normalizeMapKnowledge } from '../_shared/map.ts';
 
 const DEFAULT_START_SECTOR = 0;
-const DEFAULT_SHIP_TYPE = 'kestrel_courier';
-
-class JoinError extends Error {
-  status: number;
-
-  constructor(message: string, status = 500) {
-    super(message);
-    this.name = 'JoinError';
-    this.status = status;
-  }
-}
 
 serve(async (req: Request): Promise<Response> => {
   if (!validateApiToken(req)) {
     return unauthorizedResponse();
   }
 
-  const supabase = createServiceRoleClient();
   let payload;
   try {
     payload = await parseJsonRequest(req);
@@ -98,7 +63,6 @@ serve(async (req: Request): Promise<Response> => {
 
   const requestId = resolveRequestId(payload);
   const characterId = requireString(payload, 'character_id');
-  const shipTypeOverride = optionalString(payload, 'ship_type');
   const sectorOverride = optionalNumber(payload, 'sector');
   const creditsOverride = optionalNumber(payload, 'credits');
   const rawActorCharacterId = optionalString(payload, 'actor_character_id');
@@ -113,14 +77,26 @@ serve(async (req: Request): Promise<Response> => {
   }
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
 
+  // Create PG client for main operations
+  const pg = createPgClient();
+  // Supabase client for combat operations (still REST-based)
+  const supabase = createServiceRoleClient();
+
   try {
-    const character = await loadCharacterRow(supabase, characterId);
+    await connectWithCleanup(pg);
+    const t0 = performance.now();
+
+    // Load character using PG
+    const character = await pgLoadCharacterForJoin(pg, characterId);
     if (!character) {
       throw new JoinError('Character is not registered', 404);
     }
+    console.log(`[join] pgLoadCharacter: ${(performance.now() - t0).toFixed(1)}ms`);
 
+    // Rate limiting
+    const t1 = performance.now();
     try {
-      await enforceRateLimit(supabase, characterId, 'join');
+      await pgEnforceRateLimit(pg, characterId, 'join');
     } catch (err) {
       if (err instanceof RateLimitError) {
         return errorResponse('Too many join requests', 429);
@@ -128,58 +104,82 @@ serve(async (req: Request): Promise<Response> => {
       console.error('join.rate_limit', err);
       throw new JoinError('rate limit error', 500);
     }
+    console.log(`[join] pgEnforceRateLimit: ${(performance.now() - t1).toFixed(1)}ms`);
 
     if (!character.current_ship_id) {
       throw new JoinError('character has no ship', 500);
     }
 
-    const ship = await loadShipRow(supabase, character.current_ship_id);
-    if (!ship) {
-      throw new JoinError('character ship not found', 500);
-    }
+    // Load ship using PG
+    const t2 = performance.now();
+    const ship = await pgLoadShip(pg, character.current_ship_id);
+    console.log(`[join] pgLoadShip: ${(performance.now() - t2).toFixed(1)}ms`);
 
-    await ensureActorAuthorization({
-      supabase,
+    // Actor authorization using PG
+    const t3 = performance.now();
+    await pgEnsureActorAuthorization(pg, {
       ship,
       actorCharacterId,
       adminOverride,
       targetCharacterId: characterId,
     });
+    console.log(`[join] pgEnsureActorAuthorization: ${(performance.now() - t3).toFixed(1)}ms`);
 
-    const shipDefinition = await loadShipDefinition(supabase, ship.ship_type);
+    // Load ship definition using PG
+    const t4 = performance.now();
+    const shipDefinition = await pgLoadShipDefinition(pg, ship.ship_type);
+    console.log(`[join] pgLoadShipDefinition: ${(performance.now() - t4).toFixed(1)}ms`);
+
     const previousSector = ship.current_sector;
 
-    const targetSector = await resolveTargetSector({
-      supabase,
+    // Resolve target sector using PG
+    const t5 = performance.now();
+    const targetSector = await pgResolveTargetSector(pg, {
       sectorOverride,
       fallbackSector: ship.current_sector ?? DEFAULT_START_SECTOR,
     });
+    console.log(`[join] pgResolveTargetSector: ${(performance.now() - t5).toFixed(1)}ms`);
 
-    await updateShipState({
-      supabase,
+    // Update ship state using PG
+    const t6 = performance.now();
+    await pgUpdateShipState(pg, {
       shipId: ship.ship_id,
       sectorId: targetSector,
       creditsOverride,
     });
+    console.log(`[join] pgUpdateShipState: ${(performance.now() - t6).toFixed(1)}ms`);
 
+    // Update our local copy
     ship.current_sector = targetSector;
 
-    await ensureCharacterShipLink(supabase, character.character_id, ship.ship_id);
+    // Ensure character-ship link using PG
+    const t7 = performance.now();
+    await pgEnsureCharacterShipLink(pg, character.character_id, ship.ship_id);
+    console.log(`[join] pgEnsureCharacterShipLink: ${(performance.now() - t7).toFixed(1)}ms`);
 
-    await upsertKnowledgeEntry({
-      supabase,
-      character,
+    // Update map knowledge using PG
+    const t8 = performance.now();
+    const knowledge = normalizeMapKnowledge(character.map_knowledge);
+    await pgUpsertKnowledgeEntry(pg, {
+      characterId: character.character_id,
       sectorId: targetSector,
+      existingKnowledge: knowledge,
     });
+    console.log(`[join] pgUpsertKnowledgeEntry: ${(performance.now() - t8).toFixed(1)}ms`);
 
     const source = buildEventSource('join', requestId);
 
-    // Emit status.snapshot FIRST
+    // Emit status.snapshot FIRST using PG
+    const t9 = performance.now();
     console.log(`[join] Emitting status.snapshot for ${characterId}`);
-    const statusPayload = await buildStatusPayload(supabase, characterId);
+    const statusPayload = await pgBuildStatusPayload(pg, characterId, {
+      character,
+      ship,
+      shipDefinition,
+    });
     statusPayload['source'] = source;
-    await emitCharacterEvent({
-      supabase,
+    await pgEmitCharacterEvent({
+      pg,
       characterId,
       eventType: 'status.snapshot',
       payload: statusPayload,
@@ -188,19 +188,21 @@ serve(async (req: Request): Promise<Response> => {
       requestId,
       corpId: character.corporation_id,
     });
-    console.log('[join] status.snapshot emitted');
+    console.log(`[join] status.snapshot emitted: ${(performance.now() - t9).toFixed(1)}ms`);
 
-    // Emit map.local SECOND
+    // Emit map.local SECOND using PG
+    const t10 = performance.now();
     console.log(`[join] Emitting map.local for ${characterId}`);
-    const mapPayload = await buildLocalMapRegion(supabase, {
+    const mapPayload = await pgBuildLocalMapRegion(pg, {
       characterId,
       centerSector: targetSector,
       maxHops: 4,
       maxSectors: 28,
+      mapKnowledge: knowledge,
     });
     mapPayload['source'] = source;
-    await emitCharacterEvent({
-      supabase,
+    await pgEmitCharacterEvent({
+      pg,
       characterId,
       eventType: 'map.local',
       payload: mapPayload,
@@ -208,7 +210,7 @@ serve(async (req: Request): Promise<Response> => {
       requestId,
       corpId: character.corporation_id,
     });
-    console.log('[join] map.local emitted');
+    console.log(`[join] map.local emitted: ${(performance.now() - t10).toFixed(1)}ms`);
 
     const observerMetadata: ObserverMetadata = {
       characterId: character.character_id,
@@ -218,9 +220,11 @@ serve(async (req: Request): Promise<Response> => {
       shipType: ship.ship_type,
     };
 
+    // Movement observers using PG
     if (previousSector !== null && previousSector !== targetSector) {
-      await emitMovementObservers({
-        supabase,
+      const t11 = performance.now();
+      await pgEmitMovementObservers({
+        pg,
         sectorId: previousSector,
         metadata: observerMetadata,
         movement: 'depart',
@@ -229,8 +233,8 @@ serve(async (req: Request): Promise<Response> => {
         requestId,
         extraPayload: { from_sector: previousSector },
       });
-      await emitMovementObservers({
-        supabase,
+      await pgEmitMovementObservers({
+        pg,
         sectorId: targetSector,
         metadata: observerMetadata,
         movement: 'arrive',
@@ -239,10 +243,12 @@ serve(async (req: Request): Promise<Response> => {
         requestId,
         extraPayload: { to_sector: targetSector },
       });
+      console.log(`[join] movement observers: ${(performance.now() - t11).toFixed(1)}ms`);
     }
 
     // Auto-join existing combat (if any) in the target sector
-    // This adds the character to participants but does NOT emit events yet
+    // Combat operations still use REST (Supabase client)
+    const t12 = performance.now();
     console.log('[join] Checking for existing combat to join');
     let activeEncounter = await autoJoinExistingCombat({
       supabase,
@@ -250,10 +256,11 @@ serve(async (req: Request): Promise<Response> => {
       sectorId: targetSector,
       requestId,
     });
+    console.log(`[join] autoJoinExistingCombat: ${(performance.now() - t12).toFixed(1)}ms`);
 
     // Check for garrison auto-engage (offensive/toll garrisons trigger combat on join)
     // This may CREATE a new combat encounter
-    // Matches legacy pattern from game-server/api/join.py
+    const t13 = performance.now();
     console.log('[join] Checking for garrison auto-engage');
     const { checkGarrisonAutoEngage } = await import('../_shared/garrison_combat.ts');
     await checkGarrisonAutoEngage({
@@ -262,38 +269,39 @@ serve(async (req: Request): Promise<Response> => {
       sectorId: targetSector,
       requestId,
     });
+    console.log(`[join] checkGarrisonAutoEngage: ${(performance.now() - t13).toFixed(1)}ms`);
 
     // After all combat setup is complete, check if there's an active combat encounter
-    // If garrison auto-engage created NEW combat, we need to reload the encounter
     if (!activeEncounter) {
       console.log('[join] Reloading combat state after garrison check');
       activeEncounter = await loadCombatForSector(supabase, targetSector);
     }
 
     // LAST: Emit combat.round_waiting if character is in active combat
-    // This must come AFTER status.snapshot and map.local
     if (activeEncounter && !activeEncounter.ended && activeEncounter.participants[characterId]) {
+      const t14 = performance.now();
       console.log(`[join] Emitting combat.round_waiting for ${characterId} in combat ${activeEncounter.combat_id}`);
-      const payload = buildRoundWaitingPayload(activeEncounter);
-      const source = buildEventSource('join', requestId);
-      payload.source = source;
+      const combatPayload = buildRoundWaitingPayload(activeEncounter);
+      const combatSource = buildEventSource('join', requestId);
+      combatPayload.source = combatSource;
 
-      // Emit ONLY to the joining character (not all participants)
-      await emitCharacterEvent({
-        supabase,
+      // Emit ONLY to the joining character using PG
+      await pgEmitCharacterEvent({
+        pg,
         characterId,
         eventType: 'combat.round_waiting',
-        payload,
+        payload: combatPayload,
         sectorId: targetSector,
         requestId,
         actorCharacterId: characterId,
         corpId: character.corporation_id,
       });
-      console.log('[join] combat.round_waiting emitted successfully');
+      console.log(`[join] combat.round_waiting emitted: ${(performance.now() - t14).toFixed(1)}ms`);
     } else {
       console.log('[join] No active combat or character not in combat, skipping combat.round_waiting');
     }
 
+    console.log(`[join] Total time: ${(performance.now() - t0).toFixed(1)}ms`);
     return successResponse({ request_id: requestId });
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
@@ -305,191 +313,14 @@ serve(async (req: Request): Promise<Response> => {
     }
     console.error('join.unhandled', err);
     return errorResponse('internal server error', 500);
+  } finally {
+    try {
+      await pg.end();
+    } catch {
+      // Ignore close errors
+    }
   }
 });
-
-async function loadCharacterRow(
-  supabase: ReturnType<typeof createServiceRoleClient>,
-  characterId: string,
-): Promise<CharacterRow | null> {
-  const { data, error } = await supabase
-    .from('characters')
-    .select('character_id, name, current_ship_id, map_knowledge')
-    .eq('character_id', characterId)
-    .maybeSingle();
-  if (error) {
-    console.error('join.character.load', error);
-    throw new JoinError('failed to load character', 500);
-  }
-  return (data as CharacterRow | null) ?? null;
-}
-
-
-async function loadShipRow(
-  supabase: ReturnType<typeof createServiceRoleClient>,
-  shipId: string,
-): Promise<ShipRow | null> {
-  const { data, error } = await supabase
-    .from('ship_instances')
-    .select('ship_id, owner_id, owner_type, owner_character_id, owner_corporation_id, ship_type, ship_name, current_sector')
-    .eq('ship_id', shipId)
-    .maybeSingle();
-  if (error) {
-    console.error('join.ship.load', error);
-    throw new JoinError('failed to load ship', 500);
-  }
-  return (data as ShipRow | null) ?? null;
-}
-
-async function loadShipDefinition(
-  supabase: ReturnType<typeof createServiceRoleClient>,
-  shipType: string,
-): Promise<ShipDefinitionRow> {
-  const { data, error } = await supabase
-    .from('ship_definitions')
-    .select('ship_type, display_name, cargo_holds, warp_power_capacity, shields, fighters')
-    .eq('ship_type', shipType)
-    .maybeSingle();
-  if (error) {
-    console.error('join.ship.definition', error);
-    throw new JoinError('failed to load ship definition', 500);
-  }
-  if (!data) {
-    throw new JoinError(`invalid ship type: ${shipType}`, 400);
-  }
-  return data as ShipDefinitionRow;
-}
-
-
-async function resolveTargetSector({
-  supabase,
-  sectorOverride,
-  fallbackSector,
-}: {
-  supabase: ReturnType<typeof createServiceRoleClient>;
-  sectorOverride: number | null;
-  fallbackSector: number;
-}): Promise<number> {
-  const target = sectorOverride ?? fallbackSector ?? DEFAULT_START_SECTOR;
-  const { data, error } = await supabase
-    .from('universe_structure')
-    .select('sector_id')
-    .eq('sector_id', target)
-    .maybeSingle();
-  if (error) {
-    console.error('join.sector.load', error);
-    throw new JoinError('failed to validate sector', 500);
-  }
-  if (!data) {
-    throw new JoinError(`invalid sector: ${target}`, 400);
-  }
-  return target;
-}
-
-async function updateShipState({
-  supabase,
-  shipId,
-  sectorId,
-  creditsOverride,
-}: {
-  supabase: ReturnType<typeof createServiceRoleClient>;
-  shipId: string;
-  sectorId: number;
-  creditsOverride: number | null;
-}): Promise<void> {
-  const updates: Record<string, unknown> = {
-    current_sector: sectorId,
-    in_hyperspace: false,
-    hyperspace_destination: null,
-    hyperspace_eta: null,
-  };
-  if (typeof creditsOverride === 'number') {
-    updates.credits = creditsOverride;
-  }
-  const { error } = await supabase
-    .from('ship_instances')
-    .update(updates)
-    .eq('ship_id', shipId);
-  if (error) {
-    console.error('join.ship.update', error);
-    throw new JoinError('failed to update ship state', 500);
-  }
-}
-
-async function ensureCharacterShipLink(
-  supabase: ReturnType<typeof createServiceRoleClient>,
-  characterId: string,
-  shipId: string,
-): Promise<void> {
-  const { error } = await supabase
-    .from('characters')
-    .update({ current_ship_id: shipId, last_active: new Date().toISOString() })
-    .eq('character_id', characterId);
-  if (error) {
-    console.error('join.character.update', error);
-    throw new JoinError('failed to update character state', 500);
-  }
-}
-
-async function upsertKnowledgeEntry({
-  supabase,
-  character,
-  sectorId,
-}: {
-  supabase: ReturnType<typeof createServiceRoleClient>;
-  character: CharacterRow;
-  sectorId: number;
-}): Promise<void> {
-  const { data, error } = await supabase
-    .from('universe_structure')
-    .select('sector_id, position_x, position_y, warps')
-    .eq('sector_id', sectorId)
-    .maybeSingle();
-  if (error) {
-    console.error('join.knowledge.structure', error);
-    throw new JoinError('failed to load sector structure', 500);
-  }
-  if (!data) {
-    return;
-  }
-  const knowledge = normalizeMapKnowledge(character.map_knowledge);
-  const adjacent = parseAdjacentIds(data);
-  const timestamp = new Date().toISOString();
-  const { updated } = upsertVisitedSector(
-    knowledge,
-    sectorId,
-    adjacent,
-    [data.position_x ?? 0, data.position_y ?? 0],
-    timestamp,
-  );
-  if (!updated) {
-    return;
-  }
-  const { error: updateError } = await supabase
-    .from('characters')
-    .update({ map_knowledge: knowledge })
-    .eq('character_id', character.character_id);
-  if (updateError) {
-    console.error('join.knowledge.update', updateError);
-    throw new JoinError('failed to update map knowledge', 500);
-  }
-}
-
-function parseAdjacentIds(structure: UniverseSectorRow): number[] {
-  if (!Array.isArray(structure.warps)) {
-    return [];
-  }
-  return structure.warps
-    .map((entry) => {
-      if (!entry || typeof entry !== 'object') {
-        return null;
-      }
-      const toValue = (entry as Record<string, unknown>)['to'];
-      const to = typeof toValue === 'number' ? toValue : Number(toValue);
-      return Number.isFinite(to) ? to : null;
-    })
-    .filter((value): value is number => value !== null);
-}
 
 /**
  * Check if character should auto-join existing combat in sector.
@@ -502,7 +333,7 @@ async function autoJoinExistingCombat(params: {
   sectorId: number;
   requestId: string;
 }): Promise<any | null> {
-  const { supabase, characterId, sectorId, requestId } = params;
+  const { supabase, characterId, sectorId } = params;
 
   console.log(`[join.autoJoinCombat] Checking for combat in sector ${sectorId} for ${characterId}`);
 
@@ -510,7 +341,7 @@ async function autoJoinExistingCombat(params: {
   const existingEncounter = await loadCombatForSector(supabase, sectorId);
   if (!existingEncounter || existingEncounter.ended) {
     console.log('[join.autoJoinCombat] No active combat found');
-    return null; // No active combat to join
+    return null;
   }
 
   console.log(`[join.autoJoinCombat] Found active combat ${existingEncounter.combat_id}`);
@@ -518,7 +349,7 @@ async function autoJoinExistingCombat(params: {
   // Check if character is already in this combat
   if (existingEncounter.participants[characterId]) {
     console.log('[join.autoJoinCombat] Character already in combat');
-    return existingEncounter; // Already participating
+    return existingEncounter;
   }
 
   // Load character combatant data
@@ -528,7 +359,7 @@ async function autoJoinExistingCombat(params: {
 
   if (!characterCombatant) {
     console.log('[join.autoJoinCombat] Character not found in combatants list');
-    return null; // Character not eligible for combat (might be in hyperspace, etc.)
+    return null;
   }
 
   console.log('[join.autoJoinCombat] Adding character to combat');
@@ -541,6 +372,5 @@ async function autoJoinExistingCombat(params: {
 
   console.log('[join.autoJoinCombat] Character added to combat, returning encounter');
 
-  // Return the encounter so caller can emit events in proper order
   return existingEncounter;
 }

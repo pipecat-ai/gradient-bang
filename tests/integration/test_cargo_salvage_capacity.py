@@ -14,6 +14,7 @@ These tests require a test server running on port 8002.
 """
 
 import asyncio
+import os
 import pytest
 import sys
 from pathlib import Path
@@ -27,6 +28,10 @@ from helpers.combat_helpers import create_test_character_knowledge
 
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.requires_server]
+
+
+def _is_cloud_supabase() -> bool:
+    return "supabase.co" in os.environ.get("SUPABASE_URL", "")
 
 
 # =============================================================================
@@ -46,7 +51,8 @@ async def get_status(client, character_id):
 
     try:
         await client.my_status(character_id=character_id)
-        status_data = await asyncio.wait_for(status_received, timeout=5.0)
+        timeout = 15.0 if _is_cloud_supabase() else 5.0
+        status_data = await asyncio.wait_for(status_received, timeout=timeout)
         return status_data
     finally:
         client.remove_event_handler(token)

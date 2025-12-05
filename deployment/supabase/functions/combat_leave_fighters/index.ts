@@ -2,13 +2,21 @@ import { serve } from 'https://deno.land/std@0.197.0/http/server.ts';
 
 import { validateApiToken, unauthorizedResponse, errorResponse, successResponse } from '../_shared/auth.ts';
 import { createServiceRoleClient } from '../_shared/client.ts';
+import { createPgClient, connectWithCleanup } from '../_shared/pg.ts';
 import {
   emitCharacterEvent,
   emitErrorEvent,
   emitSectorEnvelope,
   buildEventSource,
 } from '../_shared/events.ts';
-import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
+import {
+  pgLoadCharacter,
+  pgLoadShip,
+  pgEnforceRateLimit,
+  pgEnsureActorAuthorization,
+  RateLimitError,
+  ActorAuthorizationError,
+} from '../_shared/pg_queries.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -18,8 +26,6 @@ import {
   resolveRequestId,
   respondWithError,
 } from '../_shared/request.ts';
-import { loadCharacter, loadShip } from '../_shared/status.ts';
-import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 import { loadCharacterCombatants, loadCharacterNames, loadGarrisonCombatants } from '../_shared/combat_participants.ts';
 import { nowIso, type CombatEncounterState } from '../_shared/combat_types.ts';
 import { loadCombatForSector, persistCombatState } from '../_shared/combat_state.ts';
@@ -64,25 +70,32 @@ serve(async (req: Request): Promise<Response> => {
     return errorResponse('quantity is required', 400);
   }
 
-  try {
-    await enforceRateLimit(supabase, characterId, 'combat_leave_fighters');
-  } catch (err) {
-    if (err instanceof RateLimitError) {
-      await emitErrorEvent(supabase, {
-        characterId,
-        method: 'combat_leave_fighters',
-        requestId,
-        detail: 'Too many requests',
-        status: 429,
-      });
-      return errorResponse('Too many requests', 429);
-    }
-    console.error('combat_leave_fighters.rate_limit', err);
-    return errorResponse('rate limit error', 500);
-  }
+  // Create PG client for direct database access
+  const pg = createPgClient();
 
   try {
+    await connectWithCleanup(pg);
+
+    // Rate limiting via PG
+    try {
+      await pgEnforceRateLimit(pg, characterId, 'combat_leave_fighters');
+    } catch (err) {
+      if (err instanceof RateLimitError) {
+        await emitErrorEvent(supabase, {
+          characterId,
+          method: 'combat_leave_fighters',
+          requestId,
+          detail: 'Too many requests',
+          status: 429,
+        });
+        return errorResponse('Too many requests', 429);
+      }
+      console.error('combat_leave_fighters.rate_limit', err);
+      return errorResponse('rate limit error', 500);
+    }
+
     return await handleCombatLeaveFighters({
+      pg,
       supabase,
       requestId,
       characterId,
@@ -114,10 +127,17 @@ serve(async (req: Request): Promise<Response> => {
       status,
     });
     return errorResponse('leave fighters error', status);
+  } finally {
+    try {
+      await pg.end();
+    } catch {
+      // Ignore cleanup errors
+    }
   }
 });
 
 async function handleCombatLeaveFighters(params: {
+  pg: Awaited<ReturnType<typeof createPgClient>>;
   supabase: ReturnType<typeof createServiceRoleClient>;
   requestId: string;
   characterId: string;
@@ -129,6 +149,7 @@ async function handleCombatLeaveFighters(params: {
   adminOverride: boolean;
 }): Promise<Response> {
   const {
+    pg,
     supabase,
     requestId,
     characterId,
@@ -160,11 +181,12 @@ async function handleCombatLeaveFighters(params: {
     effectiveTollAmount = 0;
   }
 
-  // Load character and ship
-  const character = await loadCharacter(supabase, characterId);
-  const ship = await loadShip(supabase, character.current_ship_id);
-  await ensureActorAuthorization({
-    supabase,
+  // Load character and ship via PG
+  const character = await pgLoadCharacter(pg, characterId);
+  const ship = await pgLoadShip(pg, character.current_ship_id);
+
+  // Actor authorization via PG
+  await pgEnsureActorAuthorization(pg, {
     ship,
     actorCharacterId,
     adminOverride,

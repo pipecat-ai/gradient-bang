@@ -18,11 +18,20 @@ from helpers.corporation_utils import (
     REQUIRED_CORPORATION_FUNCTIONS,
 )
 
+
+def _is_cloud_supabase() -> bool:
+    return "supabase.co" in os.environ.get("SUPABASE_URL", "")
+
+
+# Cloud timeout multiplier - cloud tests need longer timeouts
+CLOUD_TIMEOUT_MULT = 3.0 if _is_cloud_supabase() else 1.0
+
+
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.integration,
     pytest.mark.requires_server,
-    pytest.mark.timeout(60),
+    pytest.mark.timeout(int(60 * CLOUD_TIMEOUT_MULT)),
     pytest.mark.requires_supabase_functions(*REQUIRED_CORPORATION_FUNCTIONS),
 ]
 
@@ -38,7 +47,7 @@ async def _find_unowned_ship_in_sector(client, ship_id: str, sector: int) -> dic
     try:
         # Wait for status.snapshot event which contains sector data
         status_task = asyncio.create_task(
-            client.wait_for_event("status.snapshot", timeout=5.0)
+            client.wait_for_event("status.snapshot", timeout=5.0 * CLOUD_TIMEOUT_MULT)
         )
         await client.my_status(character_id=client.character_id)
         status_event = await status_task
@@ -53,7 +62,7 @@ async def _find_unowned_ship_in_sector(client, ship_id: str, sector: int) -> dic
             await asyncio.sleep(EVENT_DELIVERY_WAIT)
 
             status_task = asyncio.create_task(
-                client.wait_for_event("status.snapshot", timeout=5.0)
+                client.wait_for_event("status.snapshot", timeout=5.0 * CLOUD_TIMEOUT_MULT)
             )
             await client.my_status(character_id=client.character_id)
             status_event = await status_task
@@ -673,7 +682,7 @@ async def test_corporation_event_log_records_fleet_activity(server_url, check_se
             status_task = asyncio.create_task(
                 ship_client.wait_for_event(
                     "status.snapshot",
-                    timeout=5.0,
+                    timeout=5.0 * CLOUD_TIMEOUT_MULT,
                     predicate=lambda event: event["payload"]["player"].get("id") == ship_id,
                 )
             )
@@ -683,7 +692,7 @@ async def test_corporation_event_log_records_fleet_activity(server_url, check_se
             sector_id = status_payload["sector"]["id"]
 
             trade_event_task = asyncio.create_task(
-                ship_client.wait_for_event("trade.executed", timeout=5.0)
+                ship_client.wait_for_event("trade.executed", timeout=5.0 * CLOUD_TIMEOUT_MULT)
             )
             await ship_client.trade(
                 commodity="neuro_symbolics",
@@ -696,7 +705,7 @@ async def test_corporation_event_log_records_fleet_activity(server_url, check_se
             transfer_event_task = asyncio.create_task(
                 ship_client.wait_for_event(
                     "credits.transfer",
-                    timeout=5.0,
+                    timeout=5.0 * CLOUD_TIMEOUT_MULT,
                     predicate=lambda event: event["payload"]
                     .get("transfer_direction")
                     == "sent",
@@ -705,7 +714,7 @@ async def test_corporation_event_log_records_fleet_activity(server_url, check_se
             founder_transfer_task = asyncio.create_task(
                 founder.wait_for_event(
                     "credits.transfer",
-                    timeout=5.0,
+                    timeout=5.0 * CLOUD_TIMEOUT_MULT,
                     predicate=lambda event: event["payload"]
                     .get("transfer_direction")
                     == "received",
@@ -720,7 +729,7 @@ async def test_corporation_event_log_records_fleet_activity(server_url, check_se
             await founder_transfer_task
 
             garrison_event_task = asyncio.create_task(
-                ship_client.wait_for_event("garrison.deployed", timeout=5.0)
+                ship_client.wait_for_event("garrison.deployed", timeout=5.0 * CLOUD_TIMEOUT_MULT)
             )
             await ship_client.combat_leave_fighters(
                 sector=sector_id,
@@ -820,14 +829,14 @@ async def test_multiple_corporation_ships_independent_control(server_url, check_
                 status_one_task = asyncio.create_task(
                     ship_one.wait_for_event(
                         "status.snapshot",
-                        timeout=5.0,
+                        timeout=15.0,  # Increased for cloud latency
                         predicate=lambda event: event["payload"]["ship"]["ship_id"] == ship_one_id,
                     )
                 )
                 status_two_task = asyncio.create_task(
                     ship_two.wait_for_event(
                         "status.snapshot",
-                        timeout=5.0,
+                        timeout=15.0,  # Increased for cloud latency
                         predicate=lambda event: event["payload"]["ship"]["ship_id"] == ship_two_id,
                     )
                 )
@@ -1046,7 +1055,7 @@ async def test_unowned_ships_only_visible_in_their_sector(server_url, check_serv
 
         # Nearby character should see the unowned ship
         near_task = asyncio.create_task(
-            nearby.wait_for_event("status.snapshot", timeout=5.0)
+            nearby.wait_for_event("status.snapshot", timeout=5.0 * CLOUD_TIMEOUT_MULT)
         )
         await nearby.my_status(character_id="test_corp_member_1")
         near_event = await near_task
@@ -1055,7 +1064,7 @@ async def test_unowned_ships_only_visible_in_their_sector(server_url, check_serv
 
         # Distant character (different sector) should not see it
         far_task = asyncio.create_task(
-            distant.wait_for_event("status.snapshot", timeout=5.0)
+            distant.wait_for_event("status.snapshot", timeout=5.0 * CLOUD_TIMEOUT_MULT)
         )
         await distant.my_status(character_id="test_corp_member_2")
         far_event = await far_task
