@@ -52,7 +52,8 @@ const PINNED_SECTORS: Record<string, number> = {
 };
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+const SUPABASE_SERVICE_ROLE_KEY =
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('SERVICE_ROLE_KEY');
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY');
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
@@ -64,7 +65,7 @@ async function supabaseRest(path: string, method: string, body?: unknown, return
   const url = `${SUPABASE_URL}/rest/v1${path}`;
   const headers: Record<string, string> = {
     'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-    'apikey': SUPABASE_ANON_KEY ?? SUPABASE_SERVICE_ROLE_KEY,
+    'apikey': SUPABASE_SERVICE_ROLE_KEY,
     'Content-Type': 'application/json',
     'Prefer': returnData ? 'return=representation' : 'return=minimal',
   };

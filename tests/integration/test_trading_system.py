@@ -14,6 +14,7 @@ These tests require a test server running on port 8002.
 """
 
 import asyncio
+import os
 import pytest
 import sys
 from datetime import datetime, timezone
@@ -21,6 +22,10 @@ from pathlib import Path
 
 # Add project paths
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+
+def _is_cloud_supabase() -> bool:
+    return "supabase.co" in os.environ.get("SUPABASE_URL", "")
 
 from conftest import EVENT_DELIVERY_WAIT
 from gradientbang.utils.api_client import AsyncGameClient, RPCError
@@ -59,8 +64,9 @@ async def get_status(client, character_id):
         # Make the request
         await client.my_status(character_id=character_id)
 
-        # Wait for the event with timeout
-        status_data = await asyncio.wait_for(status_received, timeout=5.0)
+        # Wait for the event with timeout (higher for cloud Supabase)
+        timeout = 15.0 if _is_cloud_supabase() else 5.0
+        status_data = await asyncio.wait_for(status_received, timeout=timeout)
         return status_data
     finally:
         client.remove_event_handler(token)

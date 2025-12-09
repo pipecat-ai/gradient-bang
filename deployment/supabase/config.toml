@@ -4,6 +4,10 @@
 # working directory name when running `supabase init`.
 project_id = "gb-world-server"
 
+# NOTE: Combat cron reads config from the app_runtime_config table; run
+# scripts/setup-local-combat-tick.sql (local) or scripts/setup-production-combat-tick.sh
+# (cloud) after a reset to seed supabase_url/edge_api_token.
+
 [api]
 enabled = true
 # Port to use for the API URL.
@@ -66,7 +70,7 @@ allowed_cidrs = ["0.0.0.0/0"]
 allowed_cidrs_v6 = ["::/0"]
 
 [realtime]
-enabled = true
+enabled = false
 # Bind realtime via either IPv4 or IPv6. (default: IPv4)
 # ip_version = "IPv6"
 # The maximum length in bytes of HTTP request headers. (default: 4096)

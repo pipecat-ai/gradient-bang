@@ -10,7 +10,7 @@ function getEnv(key: string): string {
 
 export function createServiceRoleClient(): SupabaseClient {
   const supabaseUrl = getEnv('SUPABASE_URL');
-  const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY');
+  const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY') ?? getEnv('SERVICE_ROLE_KEY');
 
   return createClient(supabaseUrl, serviceKey, {
     auth: {

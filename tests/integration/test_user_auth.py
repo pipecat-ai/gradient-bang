@@ -24,11 +24,28 @@ EDGE_URL = os.environ.get('EDGE_FUNCTIONS_URL', f"{API_URL}/functions/v1")
 # Helper Functions
 # =============================================================================
 
+def _is_auth_failure_response(data: dict) -> bool:
+    """Check if response indicates auth failure (handles both local and cloud formats).
+
+    Local format: {"success": false, "error": "..."}
+    Cloud format: {"code": 401, "message": "..."}
+    """
+    if data.get('success') is False:
+        return True
+    if data.get('code') == 401:
+        return True
+    return False
+
+
 def _generate_test_email() -> str:
-    """Generate a unique test email address."""
+    """Generate a unique test email address.
+
+    Uses mailinator.com domain which is accepted by both local and cloud Supabase.
+    Note: example.com is rejected by cloud Supabase's email validation.
+    """
     timestamp = int(time.time() * 1000)
     random_suffix = secrets.token_hex(4)
-    return f"test_{timestamp}_{random_suffix}@example.com"
+    return f"test_{timestamp}_{random_suffix}@mailinator.com"
 
 
 def _generate_test_character_name() -> str:
@@ -41,9 +58,14 @@ def _generate_test_character_name() -> str:
 
 def _call_register(email: str, password: str) -> httpx.Response:
     """Call the register edge function."""
+    anon_key = os.environ.get('SUPABASE_ANON_KEY', 'anon-key')
     return httpx.post(
         f"{EDGE_URL}/register",
-        headers={'Content-Type': 'application/json'},
+        headers={
+            'Content-Type': 'application/json',
+            'apikey': anon_key,
+            'Authorization': f'Bearer {anon_key}',
+        },
         json={'email': email, 'password': password},
         timeout=10.0,
     )
@@ -51,9 +73,14 @@ def _call_register(email: str, password: str) -> httpx.Response:
 
 def _call_login(email: str, password: str) -> httpx.Response:
     """Call the login edge function."""
+    anon_key = os.environ.get('SUPABASE_ANON_KEY', 'anon-key')
     return httpx.post(
         f"{EDGE_URL}/login",
-        headers={'Content-Type': 'application/json'},
+        headers={
+            'Content-Type': 'application/json',
+            'apikey': anon_key,
+            'Authorization': f'Bearer {anon_key}',
+        },
         json={'email': email, 'password': password},
         timeout=10.0,
     )
@@ -100,20 +127,49 @@ def _call_character_list(token: str) -> httpx.Response:
 def _clear_rate_limits() -> None:
     """
     Clear rate limit tables to avoid rate limiting during non-rate-limit tests.
-    
+
     This allows tests to run without hitting rate limits when we're not
     specifically testing rate limit behavior.
-    
+
     Clears both public_rate_limits (IP-based) and rate_limits (character-based).
+    Uses REST API for cloud, psql for local.
     """
     service_key = os.environ.get('SUPABASE_SERVICE_ROLE_KEY')
     if not service_key:
         pytest.skip('SUPABASE_SERVICE_ROLE_KEY required to clear rate limits')
-    
+
+    supabase_url = os.environ.get('SUPABASE_URL', '')
+    is_cloud = 'supabase.co' in supabase_url
+
+    if is_cloud:
+        # Use REST API to clear rate limits on cloud
+        headers = {
+            'apikey': service_key,
+            'Authorization': f'Bearer {service_key}',
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal',
+        }
+        # Delete from public_rate_limits (has id column)
+        resp1 = httpx.delete(
+            f"{supabase_url}/rest/v1/public_rate_limits?id=gt.0",
+            headers=headers,
+            timeout=10.0,
+        )
+        # Delete from rate_limits (uses composite key - delete all with non-empty endpoint)
+        resp2 = httpx.delete(
+            f"{supabase_url}/rest/v1/rate_limits?endpoint=neq.",
+            headers=headers,
+            timeout=10.0,
+        )
+        # 200 or 204 are success, 404 means table might not exist
+        if resp1.status_code not in (200, 204, 404) or resp2.status_code not in (200, 204, 404):
+            pytest.skip(f'Failed to clear rate limits via REST API: {resp1.status_code}, {resp2.status_code}')
+        return
+
     import subprocess
-    
+
     try:
-        # Clear both rate limit tables
+        # Clear both rate limit tables via psql for local
         result = subprocess.run(
             [
                 'psql',
@@ -131,20 +187,45 @@ def _clear_rate_limits() -> None:
         pytest.skip(f'Cannot clear rate limits - psql not available: {e}')
 
 
-def _verify_email_in_db(email: str) -> None:
+def _verify_email_in_db(email: str, user_id: str | None = None) -> None:
     """
     Directly verify a user's email in the database.
-    
+
     This bypasses the email confirmation flow for testing purposes.
-    Uses psql to update auth.users table directly.
+    Uses Admin API for cloud, psql for local.
+
+    Args:
+        email: The email to verify (used for psql lookup)
+        user_id: The user ID (required for cloud Admin API)
     """
     service_key = os.environ.get('SUPABASE_SERVICE_ROLE_KEY')
     if not service_key:
         pytest.skip('SUPABASE_SERVICE_ROLE_KEY required to verify emails')
-    
+
+    supabase_url = os.environ.get('SUPABASE_URL', '')
+    is_cloud = 'supabase.co' in supabase_url
+
+    if is_cloud:
+        if not user_id:
+            pytest.skip('user_id required to verify email on cloud')
+        # Use Admin API to confirm email on cloud
+        resp = httpx.put(
+            f"{supabase_url}/auth/v1/admin/users/{user_id}",
+            headers={
+                'Authorization': f'Bearer {service_key}',
+                'apikey': service_key,
+                'Content-Type': 'application/json',
+            },
+            json={'email_confirm': True},
+            timeout=10.0,
+        )
+        if resp.status_code not in (200, 204):
+            pytest.skip(f'Failed to verify email via Admin API: {resp.status_code} {resp.text}')
+        return
+
     # For local testing, we can directly update via psql
     import subprocess
-    
+
     try:
         # Update auth.users table to mark email as confirmed
         result = subprocess.run(
@@ -171,15 +252,15 @@ def _register_and_verify_user(email: str, password: str) -> dict:
     """
     # Small delay to avoid rate limiting between tests
     time.sleep(1)
-    
+
     resp = _call_register(email, password)
     assert resp.status_code == 201, f"Registration failed: {resp.text}"
     data = resp.json()
     assert data['success'] is True
-    
-    # Verify email in database
-    _verify_email_in_db(email)
-    
+
+    # Verify email in database (pass user_id for cloud)
+    _verify_email_in_db(email, user_id=data.get('user_id'))
+
     return data
 
 
@@ -202,11 +283,11 @@ def _login_and_get_token(email: str, password: str) -> str:
 @pytest.mark.edge
 def test_register_success():
     """Test successful user registration with valid credentials."""
+    # Clear rate limits to avoid issues from previous tests/runs
+    _clear_rate_limits()
+
     email = _generate_test_email()
     password = 'test_password_123'
-    
-    # Small delay to avoid rate limiting
-    time.sleep(1)
     
     resp = _call_register(email, password)
     
@@ -242,9 +323,9 @@ def test_register_invalid_email():
 @pytest.mark.edge
 def test_register_short_password():
     """Test registration with password that's too short."""
-    # Small delay to avoid rate limiting from previous test
-    time.sleep(1)
-    
+    # Clear rate limits to avoid issues from previous tests
+    _clear_rate_limits()
+
     email = _generate_test_email()
     short_password = '12345'  # Only 5 characters
     
@@ -260,15 +341,15 @@ def test_register_short_password():
 @pytest.mark.edge
 def test_register_duplicate_email():
     """Test that registering the same email twice fails appropriately."""
+    # Clear rate limits to avoid issues from previous tests
+    _clear_rate_limits()
+
     email = _generate_test_email()
     password = 'test_password_123'
-    
+
     # First registration should succeed
     resp1 = _call_register(email, password)
     assert resp1.status_code == 201
-    
-    # Wait a bit to avoid rate limiting
-    time.sleep(2)
     
     # Second registration with same email should fail
     resp2 = _call_register(email, password)
@@ -424,22 +505,22 @@ def test_character_create_requires_auth():
     
     # Try to create character without token (empty token)
     resp = _call_character_create('', character_name)
-    
+
     assert resp.status_code == 401
     data = resp.json()
-    assert data['success'] is False
+    assert _is_auth_failure_response(data)
 
 
 @pytest.mark.edge
 def test_character_create_invalid_token():
     """Test character creation with invalid token."""
     character_name = _generate_test_character_name()
-    
+
     resp = _call_character_create('invalid_token_xyz', character_name)
-    
+
     assert resp.status_code == 401
     data = resp.json()
-    assert data['success'] is False
+    assert _is_auth_failure_response(data)
 
 
 @pytest.mark.edge
@@ -664,20 +745,20 @@ def test_character_list_requires_auth():
     """Test that listing characters requires authentication."""
     # Try to list characters without token
     resp = _call_character_list('')
-    
+
     assert resp.status_code == 401
     data = resp.json()
-    assert data['success'] is False
+    assert _is_auth_failure_response(data)
 
 
 @pytest.mark.edge
 def test_character_list_invalid_token():
     """Test listing characters with invalid token."""
     resp = _call_character_list('invalid_token_xyz')
-    
+
     assert resp.status_code == 401
     data = resp.json()
-    assert data['success'] is False
+    assert _is_auth_failure_response(data)
 
 
 # =============================================================================
@@ -708,9 +789,9 @@ def test_full_user_flow():
     register_data = register_resp.json()
     assert register_data['success'] is True
     assert register_data['email_confirmed'] is False
-    
+
     # Step 2: Verify email
-    _verify_email_in_db(email)
+    _verify_email_in_db(email, user_id=register_data.get('user_id'))
     
     # Step 3: Login
     login_resp = _call_login(email, password)
@@ -794,7 +875,8 @@ def test_login_rate_limit():
     if resp.status_code == 429:
         pytest.skip("Registration rate limit hit - rate limiting is working, skipping login rate limit test")
     assert resp.status_code == 201
-    _verify_email_in_db(email)
+    reg_data = resp.json()
+    _verify_email_in_db(email, user_id=reg_data.get('user_id'))
     
     # Make 21+ login attempts rapidly to exceed the limit of 20
     responses = []
@@ -827,8 +909,9 @@ def test_character_create_rate_limit():
     if resp.status_code == 429:
         pytest.skip("Registration rate limit hit - rate limiting is working, skipping character_create rate limit test")
     assert resp.status_code == 201
-    _verify_email_in_db(email)
-    
+    reg_data = resp.json()
+    _verify_email_in_db(email, user_id=reg_data.get('user_id'))
+
     # Login to get token
     token = _login_and_get_token(email, password)
     
@@ -865,11 +948,12 @@ def test_character_list_rate_limit():
     if resp.status_code == 429:
         pytest.skip("Registration rate limit hit - rate limiting is working, skipping character_list rate limit test")
     assert resp.status_code == 201
-    _verify_email_in_db(email)
-    
+    reg_data = resp.json()
+    _verify_email_in_db(email, user_id=reg_data.get('user_id'))
+
     # Login to get token
     token = _login_and_get_token(email, password)
-    
+
     # Make 31+ character list requests rapidly to exceed the limit of 30
     responses = []
     for i in range(35):

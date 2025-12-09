@@ -31,6 +31,7 @@ from supabase import create_client, Client
 # Load environment variables
 
 BATCH_SIZE = 500  # Rows per batch insert
+PAGE_SIZE = 1000  # Rows per page when fetching (PostgREST max_rows default is 1000)
 
 
 class UniverseLoader:
@@ -83,6 +84,24 @@ class UniverseLoader:
             )
 
         print(f"✅ Validated {structure_count} sectors")
+
+    def _fetch_all(self, table: str, columns: str):
+        """Fetch all rows from a table, paging to avoid API max_rows limits."""
+        rows = []
+        offset = 0
+        while True:
+            resp = (
+                self.supabase.table(table)
+                .select(columns)
+                .range(offset, offset + PAGE_SIZE - 1)
+                .execute()
+            )
+            chunk = resp.data or []
+            rows.extend(chunk)
+            if len(chunk) < PAGE_SIZE:
+                break
+            offset += PAGE_SIZE
+        return rows
 
     def convert_port_stock(self, port_data: Dict, commodity_index: int) -> tuple[int, int]:
         """
@@ -153,8 +172,13 @@ class UniverseLoader:
             # Break circular dependencies first
             try:
                 self.supabase.table("characters").update({"current_ship_id": None}).neq("character_id", "00000000-0000-0000-0000-000000000000").execute()
+                self.supabase.table("characters").update({"corporation_id": None}).neq("character_id", "00000000-0000-0000-0000-000000000000").execute()
+                # founder_id is NOT NULL; set to dummy root character instead of NULL
+                self.supabase.table("corporations").update(
+                    {"founder_id": "00000000-0000-0000-0000-000000000000"}
+                ).neq("corp_id", "00000000-0000-0000-0000-000000000000").execute()
             except Exception as e:
-                print(f"   ⚠️  Could not NULL ship references: {e}")
+                print(f"   ⚠️  Could not clear circular FKs: {e}")
 
             # Delete corporations (references characters via founder_id)
             try:
@@ -422,23 +446,23 @@ class UniverseLoader:
 
         # Count rows in each table
         config_count = len(self.supabase.table("universe_config").select("id").execute().data)
-        structure_count = len(self.supabase.table("universe_structure").select("sector_id").execute().data)
+        structure_rows = self._fetch_all("universe_structure", "sector_id")
+        structure_count = len(structure_rows)
 
         # Query ports by sector_id (not port_id)
-        ports = self.supabase.table("ports").select("port_id, sector_id, port_code").execute().data
+        ports = self._fetch_all("ports", "port_id, sector_id, port_code")
         ports_count = len(ports)
 
         # Verify each port references valid sector
         print("   Verifying port foreign keys...")
         port_sectors = {p["sector_id"] for p in ports}
-        structure_sectors_result = self.supabase.table("universe_structure").select("sector_id").execute().data
-        structure_sectors = {s["sector_id"] for s in structure_sectors_result}
+        structure_sectors = {s["sector_id"] for s in structure_rows}
         orphaned_ports = port_sectors - structure_sectors
 
         if orphaned_ports:
             raise ValueError(f"Found {len(orphaned_ports)} ports with invalid sector references: {orphaned_ports}")
 
-        contents_count = len(self.supabase.table("sector_contents").select("sector_id").execute().data)
+        contents_count = len(self._fetch_all("sector_contents", "sector_id"))
 
         expected_sectors = structure["meta"]["sector_count"]
 
