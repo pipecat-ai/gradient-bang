@@ -27,44 +27,18 @@ The projects demonstrates the full capabilities of realtime agentic workflows, s
 - (Optional) - **[Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started)**: If you cannot use `npx`, install the CLI globally instead
 
 
-## Quickstart
-
-### 1. Create a new Supabase project
-
-> [!NOTE]
-> You can do this via the [Supabase Dashboard](https://app.supabase.com) if preferred
-
-
-```bash
-npx supabase login
-
-npx supabase projects create gb-game-server \
-  --db-password some-secure-password \
-  --region us-west-1 \
-  --org-id my-supabase-org-slug \
-  --size small
-```
-
-Push config from [/deployment/supabase](/deployment/supabase/) template:
-
-```bash
-npx supabase config push --workdir deployment
-```
-
-### 2. Local dev setup
+## Local dev setup
 
 > [!NOTE]
 > Docker must be available and running on your system
 
-#### Start Supabase locally
+### Start Supabase locally
 
 This may take some time on first run as required images are downloaded.
 
 ```bash
 npx supabase start --workdir deployment/ 
 ```
-
-> If you don’t plan to run the Supabase pytest suite, run the cron helper in the **Combat cron for local dev** section after this command to keep combat rounds auto-resolving.
 
 #### Create `.env.supabase` in project root
 
@@ -83,7 +57,7 @@ npx supabase status -o env --workdir deployment | awk -F= -v tok="$tok" '
 '  > .env.supabase
 ```
 
-#### Combat cron for local dev
+### Combat cron for local dev
 
 - Run the helper after `supabase start` (and after any manual reset) to keep combat rounds auto-resolving:
 
@@ -91,25 +65,15 @@ npx supabase status -o env --workdir deployment | awk -F= -v tok="$tok" '
 scripts/supabase-reset-with-cron.sh
 ```
 
-  - Reads `.env.supabase` for `SUPABASE_URL`, `EDGE_API_TOKEN`, `SUPABASE_ANON_KEY` and upserts all three into `app_runtime_config`.
-  - Uses `SUPABASE_INTERNAL_URL` if you need a Linux bridge IP (e.g. `http://172.17.0.1:54321`).
-- If you run tests with `USE_SUPABASE_TESTS=1`, fixtures seed `app_runtime_config` automatically.
-
 See `docs/combat_tick_cron_setup.md` for local/production seeding details and verification queries.
 
-#### Optional: Run tests to validate local Supabase stack configuration
-
-To reset your local DB and keep combat cron configured, use the helper script:
+### Optional: run Supabase tests
 
 ```bash
-scripts/supabase-reset-with-cron.sh
+set -a && source .env.supabase && set +a && USE_SUPABASE_TESTS=1 uv run pytest tests/integration -v
 ```
 
-> Quick testing guide:
-> - Local functions: start Supabase, run `supabase functions serve --env-file .env.supabase --no-verify-jwt`, then `USE_SUPABASE_TESTS=1 uv run pytest tests/integration/test_combat_system.py` (tests are unmarked; no `-m supabase` needed).
-> - Cloud: `set -a; source .env.cloud; set +a` then `USE_SUPABASE_TESTS=1 uv run pytest tests/integration/test_combat_system.py`; fixtures detect `supabase.co` in `SUPABASE_URL` and skip local start/reset automatically (no `SUPABASE_SKIP_START` needed).
-
-### 3. Generate world data / sector map
+### Generate world data / sector map
 
 Run the universe bang script with number of sectors to chart and random seed
 
@@ -119,13 +83,13 @@ uv run universe-bang 5000 1234
 
 This will create a `world-data` folder in the root of your project
 
-#### Copy world data to local Supabase database
+### Copy world data to local Supabase database
 
 ```bash
 uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data/
 ```
 
-### 4. Create user account and character
+## Create user account and character
 
 Run Supabase edge functions process (leave running)
 
@@ -133,7 +97,7 @@ Run Supabase edge functions process (leave running)
 npx supabase functions serve --no-verify-jwt --workdir deployment --env-file .env.supabase
 ```
 
-#### Create user account:
+### Create user account:
 
 Option 1: Manually via Studio dashboard: http://127.0.0.1:54323/project/default/auth/users
 
@@ -148,7 +112,7 @@ curl -X POST http://127.0.0.1:54321/functions/v1/register \
   }'
 ```
 
-#### Verify Email:
+### Verify Email:
 
 Open Inbucket (local email viewer) and click confirmation link. Note: In local dev, the redirect URL will not be found.
 
@@ -156,7 +120,7 @@ Open Inbucket (local email viewer) and click confirmation link. Note: In local d
 open http://127.0.0.1:54324
 ```
 
-#### Login and obtain access token:
+### Login and obtain access token:
 
 ```bash
 curl -X POST http://127.0.0.1:54321/functions/v1/login \
@@ -169,7 +133,7 @@ curl -X POST http://127.0.0.1:54321/functions/v1/login \
 
 **Grab the `access_token` for the next steps!**
 
-#### Test Character Creation
+### Test Character Creation
 
 Create a character (replace `YOUR_ACCESS_TOKEN` with the token from step 3):
 
@@ -182,7 +146,7 @@ curl -X POST http://127.0.0.1:54321/functions/v1/user_character_create \
   }'
 ```
 
-### 5. Run the Pipecat agent and game client
+### Run the Pipecat agent and game client
 
 Install Python dependencies:
 
@@ -198,7 +162,7 @@ set -a && source .env.supabase && set +a
 uv run bot
 ```
 
-#### Run web client
+### Run web client
 
 With both your Supabase functions and Pipecat bot running, in a new terminal window:
 
@@ -211,59 +175,71 @@ pnpm run dev
 
 ## Deployment 
 
-#### Link remote Supabase project
+If you want to run your own game world in the cloud, you will need a Supabase project. 
+
+### Create a new Supabase project
+
+> [!NOTE]
+> You can create a Supabase project via the [Supabase Dashboard](https://app.supabase.com) or using the comman line below.
+
 
 ```bash
-npx supabase link --workdir deployment/
+npx supabase login
+
+npx supabase projects create gb-game-server \
+  --db-password <some-secure-password> \
+  --region us-west-1 \
+  --org-id <my-supabase-org-slug> \
+  --size small
 ```
 
-#### Create `.env.cloud` environment
-
-Generate it in one step (prompts for project ref and DB password):
+Push config from [/deployment/supabase](/deployment/supabase/) template:
 
 ```bash
-read -p "Project ref (from Supabase dashboard URL): " PROJECT_REF
-read -s -p "DB password (from Settings → Database): " DB_PASS; echo
+npx supabase link --workdir deployment
+npx supabase config push --workdir deployment
+```
+
+### Create `.env.cloud` environment
+
+Generate it in one step (prompts for project ref and DB password).
+
+Note, this will create a POSTGRES_POOLER_URL that requires IPv6 routing from your machine. If you cannot use IPv6, you will need to click on the "<connect>" button that's in the top bar of your Supabase project dashboard and look up the "Method: Session Pooler" connection string. Change your POSTGRES_POOLER_URL to the Session Pooler format.
+
+```bash
+printf "Project ref (from Supabase dashboard URL): "; read PROJECT_REF
+printf "DB password (from Settings → Database): "; read -s DB_PASS; echo
 EDGE_API_TOKEN=$(openssl rand -hex 32)
-npx supabase projects api-keys --project-ref "$PROJECT_REF" \
+npx supabase projects api-keys --project-ref "$PROJECT_REF" --workdir deployment \
 | awk -v tok="$EDGE_API_TOKEN" -v pw="$DB_PASS" -v pr="$PROJECT_REF" '
   /anon[[:space:]]*\|/         {anon=$3}
   /service_role[[:space:]]*\|/ {srv=$3}
   END {
-    host=pr ".supabase.co";
-    dbhost="db." host;
-    print "SUPABASE_URL=https://" host;
+    print "SUPABASE_URL=https://" pr ".supabase.co";
     print "SUPABASE_ANON_KEY=" anon;
     print "SUPABASE_SERVICE_ROLE_KEY=" srv;
-    print "POSTGRES_POOLER_URL=postgres://postgres:" pw "@" dbhost ":6543/postgres";
+    print "POSTGRES_POOLER_URL=postgres://postgres:" pw "@db." pr ".supabase.co:6543/postgres";
     print "EDGE_API_TOKEN=" tok;
   }' > .env.cloud
 ```
 
-Load env into terminal:
+Load environment variables, so the next steps will work:
 
 ```bash
 set -a && source .env.cloud && set +a
 ```
 
-**Production secrets checklist** (must be set in Supabase Edge Function secrets):
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `POSTGRES_POOLER_URL` (Postgres pooler URL; used by migrations and setup scripts)
-- `EDGE_API_TOKEN` (rotate periodically)
-- Optional: bot vars (`BOT_START_URL`, `BOT_START_API_KEY`)
+### Push database structure
 
-#### Push database
+Apply all SQL migrations to the linked project
 
-```bash
-# Apply all SQL migrations to the linked project (includes manual migration files)
+```bash 
 npx supabase migration up --workdir deployment/ --db-url "$POSTGRES_POOLER_URL"
 ```
 
-#### Seed combat cron config (cloud)
+### Combat round resolution cron config (cloud)
 
-Populate `app_runtime_config` with the Supabase URL and edge token (run after migrations):
+Populate `app_runtime_config` with the Supabase URL and edge token (run after migrations).
 
 ```bash
 scripts/setup-production-combat-tick.sh
@@ -275,30 +251,15 @@ Verify:
 psql "$POSTGRES_POOLER_URL" -c "SELECT key, updated_at FROM app_runtime_config WHERE key IN ('supabase_url','edge_api_token');"
 ```
 
-#### Run combat/concurrency tests against cloud
+### Deploy edge functions
 
-Load cloud env and run (fixtures will skip local stack automatically when `SUPABASE_URL` contains `supabase.co`):
-
-```bash
-set -a; source .env.cloud; set +a
-USE_SUPABASE_TESTS=1 uv run pytest tests/integration/test_combat_system.py tests/integration/test_concurrency.py
-```
-
-#### Add world data
-
-```bash
-uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data/
-```
-
-#### Deploy edge functions
+Deploy edge functions to your Supabase project. You will see warnings about decorator flags. You can ignore them.
 
 ```bash
 npx supabase functions deploy --workdir deployment/
 ```
 
-> Production: keep the default `verify_jwt=true` (gateway enforces `Authorization: Bearer $SUPABASE_ANON_KEY`) and also set `EDGE_API_TOKEN` in secrets; callers must send both headers. Use `--no-verify-jwt` only for local/dev convenience.
-
-Add required secrets
+Add required secrets. Ignore the warnings about the SUPABASE_ variables. They are set automatically in the project.
 
 ```bash
 npx supabase secrets set --env-file .env.cloud
@@ -306,7 +267,28 @@ npx supabase secrets set --env-file .env.cloud
 
 Note: we will need to add `BOT_START_START_URL` and `BOT_START_API_KEY` later
 
-#### Deploy bot to Pipecat Cloud
+### Optional: run tests against your Supabase cloud project
+
+```bash
+set -a && source .env.cloud && set +a && USE_SUPABASE_TESTS=1 uv run pytest tests/integration -v
+```
+
+#### Add world data
+
+If you don't already have a universe, create it like this:
+
+```bash
+uv run universe-bang 5000 1234
+```
+
+Now load it into your Supabase project:
+
+```bash
+uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data/
+```
+
+
+### Deploy bot to Pipecat Cloud
 
 Create `.env.bot`
 
