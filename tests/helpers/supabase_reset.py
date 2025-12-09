@@ -109,7 +109,7 @@ def _get_database_url() -> str:
                 for line in result.stdout.splitlines():
                     stripped = line.strip()
                     if stripped.startswith("DB_URL="):
-                        db_url = stripped.split("=", 1)[1].strip()
+                        db_url = stripped.split("=", 1)[1].strip().strip('"')
                         if db_url:
                             logger.debug("Using DB_URL from Supabase CLI status")
                             return db_url

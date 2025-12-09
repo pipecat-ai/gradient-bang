@@ -76,8 +76,10 @@ npx supabase status -o env --workdir deployment | awk -F= -v tok="$tok" '
   $1=="API_URL"           {v=$2; gsub(/"/,"",v); print "SUPABASE_URL=" v}
   $1=="ANON_KEY"          {v=$2; gsub(/"/,"",v); print "SUPABASE_ANON_KEY=" v}
   $1=="SERVICE_ROLE_KEY"  {v=$2; gsub(/"/,"",v); print "SUPABASE_SERVICE_ROLE_KEY=" v}
-  $1=="FUNCTIONS_URL"     {v=$2; gsub(/"/,"",v); print "EDGE_FUNCTIONS_URL=" v}
-  END {print "EDGE_API_TOKEN=" tok}
+  END {
+    print "POSTGRES_POOLER_URL=postgresql://postgres:postgres@db:5432/postgres"
+    print "EDGE_API_TOKEN=" tok
+  }
 '  > .env.supabase
 ```
 
@@ -233,7 +235,7 @@ npx supabase projects api-keys --project-ref "$PROJECT_REF" \
     print "SUPABASE_URL=https://" host;
     print "SUPABASE_ANON_KEY=" anon;
     print "SUPABASE_SERVICE_ROLE_KEY=" srv;
-    print "SUPABASE_DB_URL=postgresql://postgres:" pw "@" dbhost ":5432/postgres";
+    print "POSTGRES_POOLER_URL=postgres://postgres:" pw "@" dbhost ":6543/postgres";
     print "EDGE_API_TOKEN=" tok;
   }' > .env.cloud
 ```
@@ -242,22 +244,22 @@ Load env into terminal:
 
 ```bash
 set -a && source .env.cloud && set +a
+```
 
-Production secrets checklist (must be set in Supabase Edge Function secrets):
+**Production secrets checklist** (must be set in Supabase Edge Function secrets):
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `SUPABASE_DB_URL` (service-role Postgres URL; used by migrations and setup scripts)
+- `POSTGRES_POOLER_URL` (Postgres pooler URL; used by migrations and setup scripts)
 - `EDGE_API_TOKEN` (rotate periodically)
-- `SUPABASE_ANON_KEY` (also stored in app_runtime_config for cron auth)
-- Optional: `EDGE_FUNCTIONS_URL`, bot vars (`BOT_START_URL`, `BOT_START_API_KEY`).
-```
+- Optional: bot vars (`BOT_START_URL`, `BOT_START_API_KEY`)
 
 #### Push database
 
 ```bash
 # Apply all SQL migrations to the linked project (includes manual migration files)
-npx supabase migration up --workdir deployment/ --db-url "$SUPABASE_DB_URL"
+npx supabase migration up --workdir deployment/ --db-url "$POSTGRES_POOLER_URL"
+```
 
 #### Seed combat cron config (cloud)
 
@@ -270,7 +272,7 @@ scripts/setup-production-combat-tick.sh
 Verify:
 
 ```bash
-psql "$SUPABASE_DB_URL" -c "SELECT key, updated_at FROM app_runtime_config WHERE key IN ('supabase_url','edge_api_token');"
+psql "$POSTGRES_POOLER_URL" -c "SELECT key, updated_at FROM app_runtime_config WHERE key IN ('supabase_url','edge_api_token');"
 ```
 
 #### Run combat/concurrency tests against cloud
@@ -281,9 +283,8 @@ Load cloud env and run (fixtures will skip local stack automatically when `SUPAB
 set -a; source .env.cloud; set +a
 USE_SUPABASE_TESTS=1 uv run pytest tests/integration/test_combat_system.py tests/integration/test_concurrency.py
 ```
-```
 
-Add world data
+#### Add world data
 
 ```bash
 uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data/
@@ -354,11 +355,9 @@ Update `.env.cloud` with additional bot envs:
 SUPABASE_URL=...
 SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
-SUPABASE_DB_URL=...
+POSTGRES_POOLER_URL=...
 EDGE_API_TOKEN=...
-EDGE_FUNCTIONS_URL=...
-EDGE_JWT_SECRET=...
-# Add these
+# Add these for bot integration
 BOT_START_URL=https://api.pipecat.daily.co/v1/public/{AGENT_NAME}/start
 BOT_START_API_KEY=...
 ```
@@ -374,7 +373,7 @@ npx supabase secrets set --env-file .env.cloud
 - **Gateway check (Supabase)**: default `verify_jwt=true` requires `Authorization: Bearer $SUPABASE_ANON_KEY` (or a user access token). Keep this on in production; optional `--no-verify-jwt` only for local.
 - **App gate (gameplay)**: every gameplay edge function expects `X-API-Token: $EDGE_API_TOKEN` and uses `SUPABASE_SERVICE_ROLE_KEY` internally for DB access.
 - **Bot/client calls**: send both headers. The anon key can be public; the gameplay token must stay secret.
-- **Production secrets to set**: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `EDGE_API_TOKEN` (+ `EDGE_FUNCTIONS_URL` if overriding, bot envs if used).
+- **Production secrets to set**: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `POSTGRES_POOLER_URL`, `EDGE_API_TOKEN` (+ bot envs if used).
 - **Combat cron**: ensure `app_runtime_config` has `supabase_url` and `edge_api_token` set to the live values (use `scripts/setup-production-combat-tick.sh`).
 
 #### Point client to your production environment
