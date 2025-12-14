@@ -10,12 +10,7 @@ The projects demonstrates the full capabilities of realtime agentic workflows, s
 
 ## Table of Contents
 
-1. [Prerequisites](#prerequisites)
-2. [Quickstart](#quickstart)
-3. [Running a game server](#running-game-server)
-4. [Running the bot](#running-the-bot)
-5. [Deployment](#deployment)
-6. [Auth & secrets quick guide](#auth--secrets-quick-guide)
+[ todo ]
 
 ## Prerequisites
 
@@ -94,7 +89,8 @@ uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data/
 Run Supabase edge functions process (leave running)
 
 ```bash
-npx supabase functions serve --no-verify-jwt --workdir deployment --env-file .env.supabase
+# use .env.supabase for local stack, or .env.cloud for cloud
+npx supabase functions serve --workdir deployment --no-verify-jwt --env-file .env.supabase
 ```
 
 ### Create user account:
@@ -144,6 +140,35 @@ curl -X POST http://127.0.0.1:54321/functions/v1/user_character_create \
   -d '{
     "name": "SpaceTrader"
   }'
+```
+
+The response includes the `character_id` (UUID) which you'll need for running the NPC agent.
+
+### Looking Up Character IDs
+
+To find the character ID for an existing character by name:
+
+```bash
+set -a && source .env.supabase && set +a
+uv run character-lookup "SpaceTrader"
+```
+
+This outputs the character UUID, which is used with `npc-run` and other scripts.
+
+### Running the NPC Task Agent
+
+Run autonomous tasks with a character using the text-based task agent:
+
+```bash
+set -a && source .env.supabase && set +a
+uv run npc-run <character-id> "Explore and find 5 new sectors"
+```
+
+Example with a looked-up character:
+
+```bash
+set -a && source .env.supabase && set +a
+uv run npc-run $(uv run character-lookup "SpaceTrader") "Check my status and move to an adjacent sector"
 ```
 
 ### Run the Pipecat agent and game client

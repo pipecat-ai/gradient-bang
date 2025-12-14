@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lookup a character ID by name using the local registry."""
+"""Lookup a character ID by name using Supabase or local registry."""
 
 from __future__ import annotations
 
@@ -12,6 +12,39 @@ import sys
 from gradientbang.game_server.core.character_registry import CharacterRegistry
 from gradientbang.utils.api_client import AsyncGameClient
 from gradientbang.utils.config import get_world_data_path
+
+
+def lookup_in_supabase(name: str) -> str | None:
+    """Query Supabase for character by name. Returns character_id or None."""
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    if not supabase_url or not supabase_key:
+        return None
+
+    try:
+        from supabase import create_client
+
+        client = create_client(supabase_url, supabase_key)
+        result = client.table("characters").select("character_id").eq("name", name).execute()
+        if result.data:
+            return result.data[0]["character_id"]
+    except Exception:
+        pass
+    return None
+
+
+def lookup_in_local_registry(name: str) -> str | None:
+    """Query local file registry for character by name. Returns character_id or None."""
+    registry_path = get_world_data_path() / "characters.json"
+    if not registry_path.exists():
+        return None
+
+    registry = CharacterRegistry(registry_path)
+    registry.load()
+    profile = registry.find_by_name(name)
+    if profile:
+        return profile.character_id
+    return None
 
 
 async def main_async() -> int:
@@ -29,15 +62,15 @@ async def main_async() -> int:
     )
     args = parser.parse_args()
 
-    registry_path = get_world_data_path() / "characters.json"
-    registry = CharacterRegistry(registry_path)
-    registry.load()
-    profile = registry.find_by_name(args.name)
-    if not profile:
+    # Try Supabase first if configured, then fall back to local registry
+    character_id = lookup_in_supabase(args.name)
+    if not character_id:
+        character_id = lookup_in_local_registry(args.name)
+
+    if not character_id:
         print(f"No character found with name '{args.name}'", file=sys.stderr)
         return 1
 
-    character_id = profile.character_id
     print(character_id)
 
     if args.verbose:

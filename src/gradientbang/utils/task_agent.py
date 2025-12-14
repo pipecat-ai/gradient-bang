@@ -154,6 +154,12 @@ DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash-preview-09-2025"
 DEFAULT_THINKING_BUDGET = 2048
 DEFAULT_INCLUDE_THOUGHTS = True
 EVENT_BATCH_INFERENCE_DELAY = 1.0
+ASYNC_COMPLETION_TIMEOUT = 5.0  # Timeout for waiting for async tool completion events
+
+# Tools that have async completion events - inference is deferred until the event arrives
+ASYNC_TOOL_COMPLETIONS = {
+    "move": "movement.complete",
+}
 
 
 class _GeminiThinkingModeContentFrame(Frame):
@@ -179,42 +185,110 @@ class _GeminiThinkingModeTracker(FrameProcessor):
             self._agent._llm_inflight = False
             should_queue_inference = False
             wait_in_idle_state = False
+            thought_only = True  # Track if frame contains only thought chunks
+            has_thought_content = False  # Track if there was actual thought text
             new_context = []
             output_message = ""
             for content in frame.contents:
+                content_has_actionable_parts = False
+                content_has_function_call = False  # Track if this content has function_call
                 for part in content.parts or []:
                     if part.text:
-                        if part.thought:
+                        if getattr(part, "thought", False):
                             logger.debug(f"[THOUGHT]: {part.text}")
+                            has_thought_content = True
                         else:
                             output_message += part.text
+                            thought_only = False
+                            content_has_actionable_parts = True
                     elif part.function_call:
                         should_queue_inference = True
+                        thought_only = False
+                        content_has_actionable_parts = True
+                        content_has_function_call = True
                         if part.function_call.name == "wait_in_idle_state":
                             wait_in_idle_state = True
-                new_context.append(LLMSpecificMessage(llm="google", message=content))
+                # Only add to context if this content has actionable (non-thought) parts
+                # Skip function_call content since it was already added during streaming
+                if content_has_actionable_parts and not content_has_function_call:
+                    new_context.append(LLMSpecificMessage(llm="google", message=content))
             if output_message:
                 self._agent._output(output_message, TaskOutputType.MESSAGE)
             if new_context:
                 await self.push_frame(LLMMessagesAppendFrame(messages=new_context))
 
             if should_queue_inference:
+                # Got function calls - reset thought-only counter and defer to tool completion
+                self._agent._consecutive_thought_only_count = 0
+                self._agent._thought_nudge_sent = False
                 if wait_in_idle_state:
                     logger.debug(
                         "wait_in_idle_state function call detected; deferring inference until events/timeout"
                     )
                 else:
-                    # todo: should we schedule inference again here as if we got an event, with the 1s watchdog timer?
                     logger.debug(
                         "Tool function call detected; deferring inference until tool completion"
                     )
-            else:
+            elif not thought_only:
+                # Got regular text output - reset counter and schedule follow-up
+                self._agent._consecutive_thought_only_count = 0
+                self._agent._thought_nudge_sent = False
                 logger.debug(
                     "No tool calls in _GeminiThinkingModeContentFrame. Scheduling follow-up inference."
                 )
                 self._agent._record_inference_reason("llm_continue")
                 if not self._agent._llm_inflight:
                     self._agent._start_inference_watchdog()
+            else:
+                # Thought-only frame - track consecutive occurrences to prevent infinite loops
+                self._agent._consecutive_thought_only_count += 1
+                count = self._agent._consecutive_thought_only_count
+                max_count = self._agent._max_consecutive_thought_only
+
+                if count >= max_count:
+                    # Inject a nudge message to prompt the model to take action
+                    if not self._agent._thought_nudge_sent:
+                        self._agent._thought_nudge_sent = True
+                        nudge_message = (
+                            "You have been thinking for several turns without taking action. "
+                            "Please call a tool function now to make progress on the task."
+                        )
+                        logger.warning(
+                            f"Reached max consecutive thought-only responses ({max_count}); "
+                            "injecting nudge message to prompt action."
+                        )
+                        await self.push_frame(
+                            LLMMessagesAppendFrame(
+                                messages=[{"role": "user", "content": nudge_message}]
+                            )
+                        )
+                        self._agent._consecutive_thought_only_count = 0
+                        self._agent._record_inference_reason("thought_nudge")
+                        if not self._agent._llm_inflight:
+                            self._agent._start_inference_watchdog()
+                    else:
+                        logger.warning(
+                            f"Reached max consecutive thought-only responses ({max_count}) "
+                            "after nudge; not scheduling follow-up to prevent infinite loop."
+                        )
+                elif has_thought_content:
+                    # LLM is actively thinking - allow follow-up but track count
+                    logger.debug(
+                        f"Thought-only frame with content ({count}/{max_count}); "
+                        "scheduling follow-up inference."
+                    )
+                    self._agent._record_inference_reason("llm_continue")
+                    if not self._agent._llm_inflight:
+                        self._agent._start_inference_watchdog()
+                else:
+                    # Empty response (0 completion tokens) - retry once
+                    logger.debug(
+                        f"Empty thought-only frame ({count}/{max_count}); "
+                        "scheduling follow-up inference."
+                    )
+                    self._agent._record_inference_reason("llm_continue")
+                    if not self._agent._llm_inflight:
+                        self._agent._start_inference_watchdog()
 
         await self.push_frame(frame, direction)
 
@@ -278,6 +352,15 @@ class TaskAgent:
         self._idle_wait_event: Optional[asyncio.Event] = None
         self._idle_wait_active: bool = False
         self._idle_wait_interrupt_reason: Optional[str] = None
+
+        # Async tool completion tracking
+        self._awaiting_completion_event: Optional[str] = None
+        self._completion_event_timeout: Optional[asyncio.TimerHandle] = None
+
+        # Track consecutive thought-only LLM responses to prevent infinite loops
+        self._consecutive_thought_only_count: int = 0
+        self._max_consecutive_thought_only: int = 5
+        self._thought_nudge_sent: bool = False
 
         self._synchronous_tools: Set[str] = set()
 
@@ -366,6 +449,24 @@ class TaskAgent:
                 except Exception:  # noqa: BLE001
                     pass
 
+            async def process_frame(self, frame: Frame, direction: FrameDirection):
+                # Store context before processing so it's accessible in _stream_content
+                # This is needed to add function_call to context immediately during streaming
+                from pipecat.frames.frames import LLMContextFrame
+                from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
+
+                context = None
+                if hasattr(frame, "context"):
+                    context = frame.context
+                elif isinstance(frame, LLMContextFrame):
+                    context = frame.context
+
+                self._current_context = context
+                try:
+                    await super().process_frame(frame, direction)
+                finally:
+                    self._current_context = None
+
             async def _stream_content(
                 self, params_from_context
             ) -> AsyncIterator[GenerateContentResponse]:
@@ -383,6 +484,7 @@ class TaskAgent:
                 except Exception:
                     raise
                 self._captured_candidate_contents.clear()
+                self._function_call_content_added = False
 
                 async def _capturing_stream() -> AsyncIterator[GenerateContentResponse]:
                     async for chunk in base_stream:
@@ -390,8 +492,35 @@ class TaskAgent:
                         candidate = candidates[0] if candidates else None
                         content = getattr(candidate, "content", None) if candidate else None
                         if content is not None:
-                            # logger.info(f"!!! {content}")
                             self._captured_candidate_contents.append(content)
+
+                            # If this content has a function_call, add it to context immediately
+                            # BEFORE the function executes. This prevents race conditions where
+                            # events and function_responses are added before the function_call.
+                            if not self._function_call_content_added:
+                                parts = getattr(content, "parts", None) or []
+                                for part in parts:
+                                    fc = getattr(part, "function_call", None)
+                                    if fc:
+                                        # Get context from stored reference
+                                        context = getattr(self, "_current_context", None)
+                                        logger.debug(
+                                            "Detected function_call in stream: name={} context={}",
+                                            getattr(fc, "name", "unknown"),
+                                            "available" if context else "None",
+                                        )
+                                        if context:
+                                            func_call_message = LLMSpecificMessage(
+                                                llm="google",
+                                                message=content.model_copy(deep=True),
+                                            )
+                                            context.add_message(func_call_message)
+                                            self._function_call_content_added = True
+                                            logger.debug(
+                                                "Added function_call to context immediately: {}",
+                                                getattr(fc, "name", "unknown"),
+                                            )
+                                        break
 
                         yield chunk
 
@@ -454,37 +583,59 @@ class TaskAgent:
                     for part in parts
                 )
 
-            def _find_previous_function_call_name(
-                self, messages: List[Any], start_index: int
+            def _extract_function_call_name_from_message(
+                self, candidate: Any
             ) -> Optional[str]:
-                for cursor in range(start_index, -1, -1):
-                    candidate = messages[cursor]
-                    if isinstance(candidate, LLMSpecificMessage):
-                        candidate_parts = getattr(candidate.message, "parts", None) or []
-                        for part in reversed(candidate_parts):
-                            function_call = getattr(part, "function_call", None)
-                            if function_call and getattr(function_call, "name", None):
-                                return getattr(function_call, "name")
-                    elif isinstance(candidate, dict):
-                        candidate_parts = candidate.get("parts") or []
-                        for part in reversed(candidate_parts):
-                            if not isinstance(part, dict):
-                                continue
-                            function_call = part.get("function_call")
-                            if function_call:
-                                name = function_call.get("name")
-                                if name:
-                                    return name
-                        tool_calls = candidate.get("tool_calls") or []
-                        for tool_call in reversed(tool_calls):
-                            if not isinstance(tool_call, dict):
-                                continue
-                            function_payload = tool_call.get("function", {})
-                            if not isinstance(function_payload, dict):
-                                continue
-                            name = function_payload.get("name")
+                """Extract a function_call name from a single message."""
+                if isinstance(candidate, LLMSpecificMessage):
+                    candidate_parts = getattr(candidate.message, "parts", None) or []
+                    for part in reversed(candidate_parts):
+                        function_call = getattr(part, "function_call", None)
+                        if function_call and getattr(function_call, "name", None):
+                            return getattr(function_call, "name")
+                elif isinstance(candidate, dict):
+                    candidate_parts = candidate.get("parts") or []
+                    for part in reversed(candidate_parts):
+                        if not isinstance(part, dict):
+                            continue
+                        function_call = part.get("function_call")
+                        if function_call:
+                            name = function_call.get("name")
                             if name:
                                 return name
+                    tool_calls = candidate.get("tool_calls") or []
+                    for tool_call in reversed(tool_calls):
+                        if not isinstance(tool_call, dict):
+                            continue
+                        function_payload = tool_call.get("function", {})
+                        if not isinstance(function_payload, dict):
+                            continue
+                        name = function_payload.get("name")
+                        if name:
+                            return name
+                return None
+
+            def _find_function_call_name(
+                self, messages: List[Any], current_index: int
+            ) -> Optional[str]:
+                """Search both backward and forward for a function_call name.
+
+                Due to pipeline race conditions, function_response messages may
+                appear before their corresponding function_call in the message
+                list. This method searches in both directions to find the name.
+                """
+                # First search backward (most common case)
+                for cursor in range(current_index, -1, -1):
+                    name = self._extract_function_call_name_from_message(messages[cursor])
+                    if name:
+                        return name
+
+                # Then search forward (handles race condition case)
+                for cursor in range(current_index + 1, len(messages)):
+                    name = self._extract_function_call_name_from_message(messages[cursor])
+                    if name:
+                        return name
+
                 return None
 
             def _create_function_response_message(
@@ -513,7 +664,8 @@ class TaskAgent:
             def _convert_function_response_message(
                 self,
                 raw_message: Dict[str, Any],
-                preceding_messages: List[Any],
+                all_messages: List[Any],
+                current_index: int,
             ) -> LLMSpecificMessage:
                 response_dict: Dict[str, Any] = {}
                 response_payload: Any = {}
@@ -539,9 +691,10 @@ class TaskAgent:
                         response_payload = raw_content
 
                 if not name:
-                    name = self._find_previous_function_call_name(
-                        preceding_messages, len(preceding_messages) - 1
-                    )
+                    # Search both backward and forward for function_call name
+                    # (handles pipeline race conditions where function_response
+                    # appears before function_call in the message list)
+                    name = self._find_function_call_name(all_messages, current_index)
 
                 return self._create_function_response_message(
                     name,
@@ -576,7 +729,7 @@ class TaskAgent:
 
                     if self._is_sanitized_function_message(message):
                         normalized_messages.append(
-                            self._convert_function_response_message(message, normalized_messages)
+                            self._convert_function_response_message(message, messages, idx)
                         )
                         changed = True
                         idx += 1
@@ -690,6 +843,31 @@ class TaskAgent:
 
         reason = event_name or "unknown"
         self._record_inference_reason(reason)
+
+        # Check if this is the completion event we're waiting for
+        if self._awaiting_completion_event and event_name == self._awaiting_completion_event:
+            logger.debug(
+                "Received awaited completion event: {}",
+                event_name,
+            )
+            self._awaiting_completion_event = None
+            if self._completion_event_timeout:
+                self._completion_event_timeout.cancel()
+                self._completion_event_timeout = None
+            # Schedule inference immediately with all accumulated events
+            if not self._llm_inflight:
+                asyncio.create_task(self._schedule_pending_inference())
+            return
+
+        # If we're awaiting a completion event but this isn't it, just record and wait
+        if self._awaiting_completion_event:
+            logger.debug(
+                "Recorded event while awaiting {}: {}",
+                self._awaiting_completion_event,
+                event_name,
+            )
+            return
+
         if self._tool_call_in_progress and not self._idle_wait_active:
             logger.debug(
                 "Recorded event during tool call; delaying inference reason={}",
@@ -787,6 +965,10 @@ class TaskAgent:
         self._cancel_inference_watchdog()
         self._tool_call_in_progress = False
         self._llm_inflight = False
+        self._awaiting_completion_event = None
+        if self._completion_event_timeout:
+            self._completion_event_timeout.cancel()
+        self._completion_event_timeout = None
         self._task_start_monotonic = time.perf_counter()
         _ = max_iterations  # retained for API compatibility; pipeline controls turns
 
@@ -1179,9 +1361,41 @@ class TaskAgent:
                 self._record_inference_reason(reason)
             elif not self._inference_reasons:
                 self._record_inference_reason("tool_result")
+
+            # Check if this tool has an expected async completion event
+            expected_event = ASYNC_TOOL_COMPLETIONS.get(tool_name)
+            if expected_event:
+                # Check if we already have the completion event in pending reasons
+                already_received = any(expected_event in r for r in self._inference_reasons)
+                if not already_received:
+                    # Defer inference until completion event arrives (or timeout)
+                    self._awaiting_completion_event = expected_event
+                    loop = asyncio.get_event_loop()
+                    self._completion_event_timeout = loop.call_later(
+                        ASYNC_COMPLETION_TIMEOUT,
+                        lambda: asyncio.create_task(self._on_completion_event_timeout()),
+                    )
+                    logger.debug(
+                        "Deferring inference until {} event arrives (tool={})",
+                        expected_event,
+                        tool_name,
+                    )
+                    return  # Don't schedule inference yet
+
             await self._schedule_pending_inference()
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"Failed to continue inference after tool result: {exc}")
+
+    async def _on_completion_event_timeout(self) -> None:
+        """Called if expected completion event doesn't arrive in time."""
+        if self._awaiting_completion_event:
+            logger.warning(
+                "Timeout waiting for {} event, proceeding with inference",
+                self._awaiting_completion_event,
+            )
+            self._awaiting_completion_event = None
+            self._completion_event_timeout = None
+            await self._schedule_pending_inference()
 
     async def _queue_pending_run_now(self) -> None:
         if self._llm_inflight:
