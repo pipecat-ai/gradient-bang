@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'darwin'",
@@ -457,13 +457,13 @@ wheels = [
 
 [[package]]
 name = "daily-python"
-version = "0.21.0"
+version = "0.22.0"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ff/11/99590f8b7aad077f3f9b5b59d39b010aee0bd01b14dece8ae1e93d8080e7/daily_python-0.21.0-cp37-abi3-macosx_10_15_x86_64.whl", hash = "sha256:bdec96417825181559769bb2258ae688d1215949a1878336194e36fb452274a8", size = 13277066, upload-time = "2025-10-29T00:20:49.523Z" },
-    { url = "https://files.pythonhosted.org/packages/e5/db/8c57f1a1b713ba3393584ac2be32d8074d3022a2c2c17c28eb4cd2aa3629/daily_python-0.21.0-cp37-abi3-macosx_11_0_arm64.whl", hash = "sha256:18677fa1415a0dc48b891cdf2fb8fe9dabc70e1b019d5aaa3d0699ccc8d187c9", size = 11644908, upload-time = "2025-10-29T00:20:52.106Z" },
-    { url = "https://files.pythonhosted.org/packages/64/b6/b03f2f58a367d6ef4bb728715471542fdfa68afa8a177670139c3a2aadb7/daily_python-0.21.0-cp37-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:97eb97352fe74227061b678e330b8befcfa4c694feb6eb2b09fe6eacec00ad6d", size = 13652356, upload-time = "2025-10-29T00:20:54.813Z" },
-    { url = "https://files.pythonhosted.org/packages/f6/76/bde65f6f8d4c1679dc6c185fa37dae9223f6ddb4b7ced728ef46504956f7/daily_python-0.21.0-cp37-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:68c3e36f609fc2fce79e4d17ecf1021eadd836506db6c5125f95c682bcf3612a", size = 14304643, upload-time = "2025-10-29T00:20:57.194Z" },
+    { url = "https://files.pythonhosted.org/packages/04/db/d6c311ba760123a9987a9ae291171c9a6af11ee4dbefdb661d65e2ac13a2/daily_python-0.22.0-cp37-abi3-macosx_10_15_x86_64.whl", hash = "sha256:2ef7591a7929c5d9e5ea78329ea049d2f313bd3d2d289f5f4ecce4bb3799c3d0", size = 13526264, upload-time = "2025-11-20T05:52:04.134Z" },
+    { url = "https://files.pythonhosted.org/packages/ab/47/f1f6d893e7aab4b2e3d3b20d0dd8fbf31c7a71597d274aae1d288e36fac3/daily_python-0.22.0-cp37-abi3-macosx_11_0_arm64.whl", hash = "sha256:0fbc8467c471ce536dc6214a24cc28cbc38ff61113b1714e09d0eafc2741fc5a", size = 12041400, upload-time = "2025-11-20T05:52:06.419Z" },
+    { url = "https://files.pythonhosted.org/packages/9d/c9/8f26944cd55ece2ab9c076fae5c1fcf4fdc8639ea6f2b861566d26ad9e00/daily_python-0.22.0-cp37-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:b8aa9531b0fa2852b41935697d184be86318eaee3b35f49e0b5714e53cdb524a", size = 14147194, upload-time = "2025-11-20T05:52:08.4Z" },
+    { url = "https://files.pythonhosted.org/packages/a8/02/d86f4cee39bcdb112d83e2cf12345d7a974cbad5dafb350788148644f16b/daily_python-0.22.0-cp37-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:8f49fceee92830aaf53a65053f332504b2cc62af79c38edb9bce8707c9fa4b0c", size = 14654605, upload-time = "2025-11-20T05:52:10.639Z" },
 ]
 
 [[package]]
@@ -921,7 +921,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 bot = [
-    { name = "pipecat-ai", extras = ["deepgram", "daily", "cartesia", "webrtc", "silero", "local-smart-turn", "google", "runner"], specifier = "==0.0.95" },
+    { name = "pipecat-ai", extras = ["deepgram", "daily", "cartesia", "webrtc", "silero", "local-smart-turn", "google", "runner"], specifier = "==0.0.97" },
     { name = "pipecat-ai-cli" },
 ]
 dev = [
@@ -1876,7 +1876,7 @@ wheels = [
 
 [[package]]
 name = "pipecat-ai"
-version = "0.0.95"
+version = "0.0.97"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiofiles" },
@@ -1896,9 +1896,9 @@ dependencies = [
     { name = "resampy" },
     { name = "soxr" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/30/b4/096f79474d4a2f9506027c0b55ea3f3a35af9087bafc9204db346c35a138/pipecat_ai-0.0.95.tar.gz", hash = "sha256:2bedbd52fa14f16980af8d919775d94f78c3ce23d8369f097f5df2f725c5c5f2", size = 10732782, upload-time = "2025-11-19T05:24:40.002Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8d/23/affeb18644f9aa3d4a5cb36a99160290a27a2a321fc34f53ecef0ebf058a/pipecat_ai-0.0.97.tar.gz", hash = "sha256:71ce27d1b5c9353958e3f4ac0c8ca18b8c00840d0be3f33350bd138d7329c24d", size = 10768149, upload-time = "2025-12-05T23:53:11.077Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5a/e0/3c6f2da402efe10e31ef946f839a1331176232e2dfb71eb8433ac9b4ce3a/pipecat_ai-0.0.95-py3-none-any.whl", hash = "sha256:a741f25e9bdc96bccf3b723da4ba05e5668f98289400c87e14261b0787722124", size = 10415565, upload-time = "2025-11-19T05:24:37.198Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/9a/e71f7ec77153fafa509928414086310984f2cce39cad17b915974580208b/pipecat_ai-0.0.97-py3-none-any.whl", hash = "sha256:dc637121ed4aece2053194bf0e94be0b984f2bd887f83118092c1fbd223a9374", size = 10448878, upload-time = "2025-12-05T23:53:08.447Z" },
 ]
 
 [package.optional-dependencies]
@@ -1911,6 +1911,7 @@ daily = [
 ]
 deepgram = [
     { name = "deepgram-sdk" },
+    { name = "websockets" },
 ]
 google = [
     { name = "google-cloud-speech" },

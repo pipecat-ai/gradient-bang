@@ -32,6 +32,8 @@ logger.enable("pipecat")
 _log_level = os.getenv("LOGURU_LEVEL", "INFO").upper()
 logger.configure(handlers=[{"sink": sys.stderr, "level": _log_level}])
 
+REPO_ROOT = get_repo_root()
+WORLD_DATA_DIR = get_world_data_path()
 SESSION_LOCK_DIR = REPO_ROOT / "logs" / "ship-sessions"
 KNOWLEDGE_DIR = WORLD_DATA_DIR / "character-map-knowledge"
 

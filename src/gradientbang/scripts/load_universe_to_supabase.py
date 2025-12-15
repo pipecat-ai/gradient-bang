@@ -312,7 +312,7 @@ class UniverseLoader:
                 "position_x": sector["position"]["x"],  # DOUBLE PRECISION
                 "position_y": sector["position"]["y"],  # DOUBLE PRECISION
                 "region": region_name,  # TEXT (converted from integer)
-                "warps": json.dumps(sector.get("warps", [])),  # Store as JSONB
+                "warps": sector.get("warps", []),  # Supabase client handles JSONB serialization
             }
             batch.append(row)
 
@@ -411,8 +411,8 @@ class UniverseLoader:
             row = {
                 "sector_id": sector_id,
                 "port_id": port_id,
-                "combat": json.dumps({}),  # Empty combat state
-                "salvage": json.dumps([]),  # Empty salvage
+                "combat": None,  # NULL when no combat
+                "salvage": [],   # Empty salvage array
             }
             batch.append(row)
 
