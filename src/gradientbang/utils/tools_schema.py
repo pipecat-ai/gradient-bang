@@ -272,7 +272,7 @@ class StartTask(GameClientTool):
     def schema(cls):
         return FunctionSchema(
             name="start_task",
-            description="Start a complex multi-step task for navigation, trading, or exploration. Can control your own ship or a corporation ship. When tasking a corporation ship, provide its ship_id - the ship can be in any sector and will execute the task autonomously.",
+            description="Start a complex multi-step task for navigation, trading, or exploration. Can control your own ship or a corporation ship. When tasking a corporation ship, you MUST first call corporation_info() to get the ship_id UUID, then pass that UUID here.",
             properties={
                 "task_description": {
                     "type": "string",
@@ -284,7 +284,7 @@ class StartTask(GameClientTool):
                 },
                 "ship_id": {
                     "type": "string",
-                    "description": "Corporation ship ID (character_id) to control. Use corporation_info() to find ship IDs. Omit this parameter to control your own ship instead.",
+                    "description": "Corporation ship UUID to control. MUST be a valid UUID from corporation_info(). Do NOT pass ship names - call corporation_info() first to get the UUID. Omit this parameter to control your own ship instead.",
                 },
             },
             required=["task_description"],
@@ -700,12 +700,14 @@ class PurchaseShip(GameClientTool):
 
 
 class CorporationInfo(GameClientTool):
-    def __call__(self, list_all=False):
+    def __call__(self, list_all=False, corp_id=None):
         """
         Get corporation information including members and ships.
 
         Args:
-            list_all: If True, list all corporations. Otherwise returns your corporation's info.
+            list_all: If True, list all corporations.
+            corp_id: If provided, look up a specific corporation by ID.
+                     If omitted, returns your own corporation's info.
         """
         character_id = self.game_client.character_id
 
@@ -714,9 +716,20 @@ class CorporationInfo(GameClientTool):
             result = self.game_client._request("corporation.list", {})
             return result
 
-        # Get your corporation info (server auto-detects from character_id)
+        if corp_id:
+            # Look up a specific corporation by ID
+            result = self.game_client._request(
+                "corporation.info",
+                {
+                    "character_id": character_id,
+                    "corp_id": corp_id,
+                },
+            )
+            return result
+
+        # Default: get your own corporation info (no corp_id needed)
         result = self.game_client._request(
-            "corporation.info",
+            "my_corporation",
             {
                 "character_id": character_id,
             },
@@ -728,11 +741,15 @@ class CorporationInfo(GameClientTool):
     def schema(cls):
         return FunctionSchema(
             name="corporation_info",
-            description="Get information about your corporation including members and ships. Can also list all corporations in the game.",
+            description="Get corporation information. By default returns your own corporation's info including members and ships. Can also look up a specific corporation by ID, or list all corporations.",
             properties={
                 "list_all": {
                     "type": "boolean",
-                    "description": "Set to true to list all corporations instead of getting your corporation's detailed info",
+                    "description": "Set to true to list all corporations in the game",
+                },
+                "corp_id": {
+                    "type": "string",
+                    "description": "Look up a specific corporation by its ID. Omit to get your own corporation's info.",
                 },
             },
             required=[],

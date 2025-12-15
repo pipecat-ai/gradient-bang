@@ -222,7 +222,7 @@ class VoiceTaskManager:
                 character_id=self.character_id, **kwargs
             ),
             "corporation_info": lambda **kwargs: self.game_client._request(
-                "corporation.list" if kwargs.get("list_all") else "corporation.info",
+                "corporation.list" if kwargs.get("list_all") else "my_corporation",
                 {} if kwargs.get("list_all") else {"character_id": self.character_id}
             ),
         }
@@ -589,12 +589,28 @@ class VoiceTaskManager:
             # Emit a standardized error as tool_result
             await params.result_callback(error_payload)
 
+    def _is_valid_uuid(self, value: str) -> bool:
+        """Check if a string is a valid UUID format."""
+        import re
+        uuid_pattern = re.compile(
+            r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+            re.IGNORECASE
+        )
+        return bool(uuid_pattern.match(value))
+
     async def _handle_start_task(self, params: FunctionCallParams):
         task_game_client = None
         try:
             logger.info(f"!!! start_task: {params.arguments}")
             task_desc = params.arguments.get("task_description", "")
             ship_id = params.arguments.get("ship_id")
+
+            # Validate ship_id is a proper UUID if provided
+            if ship_id and not self._is_valid_uuid(ship_id):
+                return {
+                    "success": False,
+                    "error": f"Invalid ship_id '{ship_id}'. The ship_id must be a UUID. Call corporation_info() first to get the ship_id for the ship you want to task.",
+                }
 
             # Determine target character (ship or player)
             target_character_id = ship_id if ship_id else self.character_id
