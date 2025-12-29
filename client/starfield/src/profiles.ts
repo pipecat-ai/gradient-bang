@@ -40,7 +40,7 @@ export const defaultProfile: StarfieldConfig = {
     ditheringEnabled: true,
   },
   sharpening: {
-    sharpeningEnabled: false,
+    sharpeningEnabled: true,
   },
   vignette: {
     vignetteEnabled: true,

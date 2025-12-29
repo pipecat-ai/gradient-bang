@@ -18,7 +18,6 @@ import * as THREE from "three"
 import { getPalette } from "@/colors"
 import { DitheringEffect } from "@/fx/DitherEffect"
 import { LayerDimEffect } from "@/fx/LayerDimEffect"
-import { LensFlareEffect } from "@/fx/LensFlare"
 import { ScanlineEffect } from "@/fx/ScanlineEffect"
 import { SharpenEffect } from "@/fx/SharpenEffect"
 import { TintEffect } from "@/fx/TintEffect"
@@ -40,7 +39,6 @@ export const PostProcessing = () => {
   const vignetteEffectRef = useRef<VignetteEffect | null>(null)
   const shockWaveEffectRef = useRef<ShockWaveEffect | null>(null)
   const layerDimEffectRef = useRef<LayerDimEffect | null>(null)
-  const lensFlareEffectRef = useRef<LensFlareEffect | null>(null)
   const tintEffectRef = useRef<TintEffect | null>(null)
   const ditheringEffectRef = useRef<DitheringEffect | null>(null)
   const scanlineEffectRef = useRef<ScanlineEffect | null>(null)
@@ -50,11 +48,6 @@ export const PostProcessing = () => {
   const shockwaveEpicenterRef = useRef(new THREE.Vector3())
   const shockwaveDirectionRef = useRef(new THREE.Vector3())
   const lastShockwaveSequenceRef = useRef(0)
-
-  // Lens flare color cache - avoid per-frame allocations
-  const lensFlareColorRef = useRef(new THREE.Color())
-  const lensFlareColorGainRef = useRef(new THREE.Color())
-  const lastLensFlareColorRef = useRef("")
 
   const starfieldConfig = useGameStore((state) => state.starfieldConfig)
   const {
@@ -85,14 +78,6 @@ export const PostProcessing = () => {
       console.debug(
         "[STARFIELD] PostProcessing - Size/DPR changed, resizing composer"
       )
-    }
-
-    // Update lens flare resolution
-    if (lensFlareEffectRef.current) {
-      const resolution = lensFlareEffectRef.current.uniforms.get("iResolution")
-      if (resolution) {
-        resolution.value.set(size.width, size.height)
-      }
     }
   }, [size.width, size.height, viewport.dpr])
 
@@ -137,7 +122,7 @@ export const PostProcessing = () => {
               label: "Enable Sharpening",
             },
             sharpeningIntensity: {
-              value: storedSharpening.sharpeningIntensity ?? 3.0,
+              value: storedSharpening.sharpeningIntensity ?? 1.0,
               label: "Intensity",
               min: 0,
               max: 20,
@@ -302,123 +287,6 @@ export const PostProcessing = () => {
           },
           { collapsed: true }
         ),
-        "Lens Flare": folder(
-          {
-            lensFlareEnabled: {
-              value: false,
-              label: "Enable Lens Flare",
-            },
-            lensFlarePositionX: {
-              value: -40,
-              min: -300,
-              max: 300,
-              step: 1,
-              label: "Position X",
-            },
-            lensFlarePositionY: {
-              value: 30,
-              min: -300,
-              max: 300,
-              step: 1,
-              label: "Position Y",
-            },
-            lensFlarePositionZ: {
-              value: -80,
-              min: -300,
-              max: 300,
-              step: 1,
-              label: "Position Z",
-            },
-            lensFlareEnableOcclusion: {
-              value: true,
-              label: "Enable Occlusion",
-            },
-            lensFlareAnamorphic: {
-              value: false,
-              label: "Anamorphic",
-            },
-            lensFlareColor: {
-              value: `#${palette.base.getHexString()}`,
-              label: "Color",
-            },
-            lensFlareBlendMode: {
-              value: BlendFunction.SCREEN,
-              options: {
-                Normal: BlendFunction.NORMAL,
-                Add: BlendFunction.ADD,
-                Screen: BlendFunction.SCREEN,
-                Overlay: BlendFunction.OVERLAY,
-                Multiply: BlendFunction.MULTIPLY,
-                Lighten: BlendFunction.LIGHTEN,
-                Darken: BlendFunction.DARKEN,
-                ColorDodge: BlendFunction.COLOR_DODGE,
-                ColorBurn: BlendFunction.COLOR_BURN,
-                LinearDodge: BlendFunction.LINEAR_DODGE,
-                LinearBurn: BlendFunction.LINEAR_BURN,
-              },
-              label: "Blend Mode",
-            },
-            lensFlareGlareSize: {
-              value: 0.35,
-              min: 0,
-              max: 1,
-              step: 0.01,
-              label: "Glare Size",
-            },
-            lensFlareEnableRays: {
-              value: true,
-              label: "Enable Star Rays",
-            },
-            lensFlareStarPoints: {
-              value: 6.0,
-              min: 3,
-              max: 12,
-              step: 1,
-              label: "Star Points",
-            },
-            lensFlareStarBurst: {
-              value: true,
-              label: "Enable Lens Dirt/Patterns",
-            },
-            lensFlareSecondaryGhosts: {
-              value: true,
-              label: "Enable Secondary Ghosts",
-            },
-            lensFlareAdditionalStreaks: {
-              value: true,
-              label: "Enable Additional Streaks",
-            },
-            lensFlareSize: {
-              value: 0.005,
-              min: 0,
-              max: 0.1,
-              step: 0.001,
-              label: "Flare Size",
-            },
-            lensFlareShape: {
-              value: 0.02,
-              min: 0,
-              max: 0.1,
-              step: 0.01,
-              label: "Flare Shape",
-            },
-            lensFlareHaloScale: {
-              value: 0.5,
-              min: 0,
-              max: 2,
-              step: 0.1,
-              label: "Halo Scale",
-            },
-            lensFlareGhostScale: {
-              value: 0.5,
-              min: 0,
-              max: 2,
-              step: 0.1,
-              label: "Ghost Scale",
-            },
-          },
-          { collapsed: true }
-        ),
         Grading: folder(
           {
             gradingEnabled: {
@@ -501,7 +369,6 @@ export const PostProcessing = () => {
       !storedGrading.saturation
     ) {
       set({
-        lensFlareColor: `#${palette.base.getHexString()}`,
         gradingContrast: palette.contrast,
         gradingSaturation: palette.saturation,
         tintColorPrimary: `#${palette.c1.getHexString()}`,
@@ -563,46 +430,6 @@ export const PostProcessing = () => {
     const layerDim = new LayerDimEffect({ opacity: 1.0 })
     layerDimEffectRef.current = layerDim
     orderedEffectPasses.push(new EffectPass(camera, layerDim))
-
-    if (ppUniforms.lensFlareEnabled) {
-      const flareColor = new THREE.Color(ppUniforms.lensFlareColor)
-      // Scale color to 0-255 range for shader (shader divides by 256)
-      const colorGain = new THREE.Color(
-        flareColor.r * 255,
-        flareColor.g * 255,
-        flareColor.b * 255
-      )
-      const lensFlare = new LensFlareEffect({
-        enabled: true,
-        blendFunction: ppUniforms.lensFlareBlendMode,
-        anamorphic: ppUniforms.lensFlareAnamorphic,
-        colorGain: colorGain,
-        glareSize: ppUniforms.lensFlareGlareSize,
-        starBurst: ppUniforms.lensFlareStarBurst,
-        secondaryGhosts: ppUniforms.lensFlareSecondaryGhosts,
-        aditionalStreaks: ppUniforms.lensFlareAdditionalStreaks,
-        starPoints: ppUniforms.lensFlareEnableRays
-          ? ppUniforms.lensFlareStarPoints
-          : 0,
-        flareSize: ppUniforms.lensFlareSize,
-        flareShape: ppUniforms.lensFlareShape,
-        haloScale: ppUniforms.lensFlareHaloScale,
-        ghostScale: ppUniforms.lensFlareGhostScale,
-        iResolution: [window.innerWidth, window.innerHeight],
-        lensPosition: [0, 0],
-        sourcePosition: new THREE.Vector3(
-          ppUniforms.lensFlarePositionX,
-          ppUniforms.lensFlarePositionY,
-          ppUniforms.lensFlarePositionZ
-        ),
-        enableOcclusion: ppUniforms.lensFlareEnableOcclusion,
-      })
-      lensFlareEffectRef.current = lensFlare
-      orderedEffectPasses.push(new EffectPass(camera, lensFlare))
-    } else {
-      lensFlareEffectRef.current?.dispose()
-      lensFlareEffectRef.current = null
-    }
 
     // 2. Vignette
     if (ppUniforms.vignetteEnabled) {
@@ -720,7 +547,7 @@ export const PostProcessing = () => {
   const { dimOpacity } = useLayerDim()
 
   // Animation uniform updates
-  useFrame(({ gl, scene: currentScene, camera: currentCamera }) => {
+  useFrame(({ gl, camera: currentCamera }) => {
     // Initialize composer if not yet created
     if (!composerRef.current) {
       composerRef.current = new EffectComposer(gl)
@@ -817,57 +644,6 @@ export const PostProcessing = () => {
     const layerDimEffect = layerDimEffectRef.current
     if (layerDimEffect) {
       layerDimEffect.opacity = dimValue
-    }
-
-    // Update lens flare effect
-    const lensFlareEffect = lensFlareEffectRef.current
-    if (lensFlareEffect && currentScene) {
-      // Update lens flare parameters from controls
-      lensFlareEffect.blendMode.blendFunction = ppUniforms.lensFlareBlendMode
-
-      // Only update color objects when the color value changes
-      if (lastLensFlareColorRef.current !== ppUniforms.lensFlareColor) {
-        lensFlareColorRef.current.set(ppUniforms.lensFlareColor)
-        // Scale color to 0-255 range for shader (shader divides by 256)
-        lensFlareColorGainRef.current.set(
-          lensFlareColorRef.current.r * 255,
-          lensFlareColorRef.current.g * 255,
-          lensFlareColorRef.current.b * 255
-        )
-        lastLensFlareColorRef.current = ppUniforms.lensFlareColor
-      }
-      lensFlareEffect.uniforms.get("colorGain")!.value =
-        lensFlareColorGainRef.current
-      lensFlareEffect.glareSize = ppUniforms.lensFlareGlareSize
-      lensFlareEffect.uniforms.get("anamorphic")!.value =
-        ppUniforms.lensFlareAnamorphic
-      lensFlareEffect.uniforms.get("starBurst")!.value =
-        ppUniforms.lensFlareStarBurst
-      lensFlareEffect.uniforms.get("secondaryGhosts")!.value =
-        ppUniforms.lensFlareSecondaryGhosts
-      lensFlareEffect.uniforms.get("aditionalStreaks")!.value =
-        ppUniforms.lensFlareAdditionalStreaks
-      lensFlareEffect.uniforms.get("starPoints")!.value =
-        ppUniforms.lensFlareEnableRays ? ppUniforms.lensFlareStarPoints : 0
-      lensFlareEffect.uniforms.get("flareSize")!.value =
-        ppUniforms.lensFlareSize
-      lensFlareEffect.uniforms.get("flareShape")!.value =
-        ppUniforms.lensFlareShape
-      lensFlareEffect.uniforms.get("haloScale")!.value =
-        ppUniforms.lensFlareHaloScale
-      lensFlareEffect.uniforms.get("ghostScale")!.value =
-        ppUniforms.lensFlareGhostScale
-      lensFlareEffect.enableOcclusion = ppUniforms.lensFlareEnableOcclusion
-
-      // Update source position (relative to camera)
-      lensFlareEffect.sourcePosition.set(
-        currentCamera.position.x + ppUniforms.lensFlarePositionX,
-        currentCamera.position.y + ppUniforms.lensFlarePositionY,
-        currentCamera.position.z + ppUniforms.lensFlarePositionZ
-      )
-
-      // Update position and occlusion
-      lensFlareEffect.updatePosition(currentCamera, currentScene)
     }
 
     // Render the composer if available

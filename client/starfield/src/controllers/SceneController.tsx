@@ -29,6 +29,7 @@ export function SceneController() {
     (state) => state.onWarpAnimationStart
   )
   const stopWarp = useAnimationStore((state) => state.stopWarp)
+  const setIsPaused = useGameStore((state) => state.setIsPaused)
   const sceneAppliedRef = useRef(false)
   const completingRef = useRef(false)
   const processNextInQueueRef = useRef<(() => void) | null>(null)
@@ -320,11 +321,14 @@ export function SceneController() {
         sceneAppliedRef.current = true
         applySceneChanges()
 
-        // TODO: Replace timeout with component ready check
+        // @TODO: Replace timeout with component ready check
+        setIsPaused(true)
+
         setTrackedTimeout(() => {
           console.debug(
             "[SCENE CONTROLLER] Components settled, starting warp exit"
           )
+          setIsPaused(false)
           stopWarp()
         }, SCENE_TRANSITION_TIMING.WARP_PEAK_SETTLE_TIME)
       }

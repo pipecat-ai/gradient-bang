@@ -17,6 +17,7 @@ const TRANSPARENT_PIXEL =
 
 export const Planet = () => {
   const groupRef = useRef<THREE.Group>(null)
+  const preloadedAssetsRef = useRef<Set<string>>(new Set())
   const { camera } = useThree()
 
   const { imageAssets, planetConfig, paletteKey } = useGameStore(
@@ -150,6 +151,22 @@ export const Planet = () => {
       },
     })
   }, [planetConfig, selectedImagePath, set])
+
+  useEffect(() => {
+    if (imageAssets && imageAssets.length > 0) {
+      const assetsToPreload = imageAssets.filter(
+        (imagePath) => !preloadedAssetsRef.current.has(imagePath)
+      )
+
+      if (assetsToPreload.length > 0) {
+        console.debug("[PLANET] Preloading image assets", assetsToPreload)
+        assetsToPreload.forEach((imagePath) => {
+          useLoader.preload(THREE.TextureLoader, imagePath)
+          preloadedAssetsRef.current.add(imagePath)
+        })
+      }
+    }
+  }, [imageAssets])
 
   const resolvedTextureUrl = useMemo(() => {
     if (planetUniforms.selectedImage) return planetUniforms.selectedImage
