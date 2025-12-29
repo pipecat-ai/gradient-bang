@@ -89,6 +89,7 @@ markers = [
     "requires_server: Requires live server on port 8002",
     "stress: Stress tests (slow, concurrent operations) - skip by default",
     "requires_supabase_functions(*names): Skip when named Supabase edge functions are not implemented",
+    "live_api: Tests that call prod external APIs (Gemini, etc.) - requires API keys",
 ]
 # Suppress deprecation warnings from third-party libraries
 filterwarnings = [

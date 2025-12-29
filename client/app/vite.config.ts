@@ -60,4 +60,7 @@ export default defineConfig(({ mode }) => ({
       }),
     },
   },
+  server: {
+    allowedHosts: ["khk-front.ngrok.app"],
+  },
 }))

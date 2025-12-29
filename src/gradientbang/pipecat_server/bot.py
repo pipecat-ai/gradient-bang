@@ -22,6 +22,7 @@ from pipecat.processors.frameworks.rtvi import (
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.parallel_pipeline import ParallelPipeline
 from pipecat.frames.frames import (
     Frame,
     LLMContextFrame,
@@ -56,6 +57,10 @@ else:
 from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
 
 from gradientbang.pipecat_server.voice_task_manager import VoiceTaskManager
+from gradientbang.pipecat_server.context_compression import (
+    ContextCompressionProducer,
+    ContextCompressionConsumer,
+)
 
 
 
@@ -250,7 +255,15 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     context = LLMContext(messages, tools=task_manager.get_tools_schema())
     context_aggregator = LLMContextAggregatorPair(context)
 
-    # Create pipeline
+    # Create compression producer and consumer for context management
+    google_api_key = os.getenv("GOOGLE_API_KEY")
+    compression_producer = ContextCompressionProducer(
+        api_key=google_api_key,
+        message_threshold=200,
+    )
+    compression_consumer = ContextCompressionConsumer(producer=compression_producer)
+
+    # Create pipeline with parallel compression branch
     logger.info("Create pipeline…")
     pipeline = Pipeline(
         [
@@ -258,12 +271,20 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             stt,
             rtvi,  # Add RTVI processor for transcription events
             context_aggregator.user(),
-            task_progress,
-            llm,
-            token_usage_metrics,
-            tts,
-            transport.output(),
-            context_aggregator.assistant(),
+            ParallelPipeline(
+                # Main branch
+                [
+                    task_progress,
+                    llm,
+                    token_usage_metrics,
+                    tts,
+                    transport.output(),
+                    context_aggregator.assistant(),
+                    compression_consumer,  # Receives compression results
+                ],
+                # Compression monitoring branch (sink)
+                [compression_producer],
+            ),
         ]
     )
 

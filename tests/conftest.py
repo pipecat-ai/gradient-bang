@@ -12,6 +12,7 @@ import contextlib
 import sys
 import time
 import types
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -117,13 +118,27 @@ def _ensure_pipecat_stub() -> None:
     class LLMTextFrame(Frame):
         pass
 
+    class SystemFrame(Frame):  # pragma: no cover - minimal stub
+        """Base class for system frames (StartFrame, EndFrame, etc.)."""
+        pass
+
+    class DataFrame(Frame):  # pragma: no cover - minimal stub
+        pass
+
+    class LLMContextFrame(Frame):  # pragma: no cover - minimal stub
+        def __init__(self, context=None):
+            self.context = context
+
     frames_mod.Frame = Frame
+    frames_mod.SystemFrame = SystemFrame
+    frames_mod.DataFrame = DataFrame
     frames_mod.FunctionCallResultProperties = FunctionCallResultProperties
     frames_mod.EndFrame = EndFrame
     frames_mod.LLMFullResponseEndFrame = LLMFullResponseEndFrame
     frames_mod.LLMMessagesAppendFrame = LLMMessagesAppendFrame
     frames_mod.LLMRunFrame = LLMRunFrame
     frames_mod.LLMTextFrame = LLMTextFrame
+    frames_mod.LLMContextFrame = LLMContextFrame
 
     # Pipeline
     _create_module("pipecat.pipeline", is_pkg=True)
@@ -182,8 +197,18 @@ def _ensure_pipecat_stub() -> None:
 
     class LLMContext:  # pragma: no cover - minimal stub
         def __init__(self, messages: Optional[List[Any]] = None, tools: Any = None):
-            self.messages = messages or []
+            self._messages = messages or []
             self.tools = tools
+
+        @property
+        def messages(self) -> List[Any]:
+            return self._messages
+
+        def add_message(self, message: Any) -> None:
+            self._messages.append(message)
+
+        def set_messages(self, messages: List[Any]) -> None:
+            self._messages = messages
 
     class LLMSpecificMessage:  # pragma: no cover - minimal stub
         def __init__(self, llm: str, message: Any):
@@ -210,6 +235,81 @@ def _ensure_pipecat_stub() -> None:
     llm_response_mod.LLMContextAggregatorPair = LLMContextAggregatorPair
     frame_processor_mod.FrameDirection = FrameDirection
     frame_processor_mod.FrameProcessor = FrameProcessor
+
+    # Producer/Consumer processors
+    producer_mod = _create_module("pipecat.processors.producer_processor")
+    consumer_mod = _create_module("pipecat.processors.consumer_processor")
+
+    class ProducerProcessor(FrameProcessor):  # pragma: no cover - minimal stub
+        def __init__(self, filter=None, passthrough=True):
+            super().__init__()
+            self._filter = filter
+            self._passthrough = passthrough
+            self._consumers: List[asyncio.Queue] = []
+
+        def add_consumer(self) -> asyncio.Queue:
+            queue = asyncio.Queue()
+            self._consumers.append(queue)
+            return queue
+
+        async def _produce(self, frame: Any) -> None:
+            for consumer in self._consumers:
+                await consumer.put(frame)
+
+        def create_task(self, coro) -> asyncio.Task:
+            return asyncio.create_task(coro)
+
+    class ConsumerProcessor(FrameProcessor):  # pragma: no cover - minimal stub
+        def __init__(self, producer=None, direction=None):
+            super().__init__()
+            self._producer = producer
+            self._direction = direction
+
+    producer_mod.ProducerProcessor = ProducerProcessor
+    consumer_mod.ConsumerProcessor = ConsumerProcessor
+
+    # Adapters
+    _create_module("pipecat.adapters", is_pkg=True)
+    _create_module("pipecat.adapters.services", is_pkg=True)
+    gemini_adapter_mod = _create_module("pipecat.adapters.services.gemini_adapter")
+
+    @dataclass
+    class _MockContent:  # pragma: no cover - stub for google.genai.types.Content
+        role: str
+        parts: List[Any]
+
+    @dataclass
+    class _MockPart:  # pragma: no cover - stub for google.genai.types.Part
+        text: str
+
+    class GeminiLLMAdapter:  # pragma: no cover - minimal stub
+        """Stub for GeminiLLMAdapter."""
+
+        @dataclass
+        class ConvertedMessages:
+            messages: List[Any]
+            system_instruction: Optional[str] = None
+
+        def _from_universal_context_messages(self, messages: List[Any]) -> "GeminiLLMAdapter.ConvertedMessages":
+            """Convert OpenAI-style messages to Gemini Content format (stub)."""
+            contents = []
+            for msg in messages:
+                if not isinstance(msg, dict):
+                    continue
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                gemini_role = "model" if role == "assistant" else "user"
+                if isinstance(content, str):
+                    text = content
+                elif isinstance(content, list):
+                    text_parts = [p.get("text", "") for p in content if isinstance(p, dict) and "text" in p]
+                    text = "\n".join(text_parts)
+                else:
+                    text = str(content)
+                contents.append(_MockContent(role=gemini_role, parts=[_MockPart(text=text)]))
+            return self.ConvertedMessages(messages=contents)
+
+    gemini_adapter_mod.GeminiLLMAdapter = GeminiLLMAdapter
 
     # Services
     _create_module("pipecat.services", is_pkg=True)
