@@ -37,7 +37,7 @@ export const Signup = () => {
 
     try {
       const response = await fetch(
-        `${import.meta.env.VITE_SERVER_URL}/player`,
+        `${import.meta.env.VITE_SERVER_URL || "http://localhost:54321/functions/v1"}/player`,
         {
           method: "POST",
           headers: {

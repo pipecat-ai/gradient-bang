@@ -18,7 +18,7 @@ import useGameStore from "@/stores/game"
 import { LeaderboardTable } from "../LeaderboardTable"
 
 const LEADERBOARD_URL =
-  (import.meta.env.VITE_SERVER_URL ?? "http://localhost:8000") +
+  (import.meta.env.VITE_SERVER_URL || "http://localhost:54321/functions/v1") +
   (import.meta.env.VITE_SERVER_LEADERBOARD_ENDPOINT ?? "/leaderboard_resources")
 
 export const Leaderboard = () => {

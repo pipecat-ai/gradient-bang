@@ -71,7 +71,7 @@ export const CharacterSelect = ({
     setIsLoading(true)
     try {
       const response = await fetch(
-        `${import.meta.env.VITE_SERVER_URL}/user_character_create`,
+        `${import.meta.env.VITE_SERVER_URL || "http://localhost:54321/functions/v1"}/user_character_create`,
         {
           method: "POST",
           headers: {

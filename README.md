@@ -46,6 +46,7 @@ npx supabase status -o env --workdir deployment | awk -F= -v tok="$tok" '
   $1=="ANON_KEY"          {v=$2; gsub(/"/,"",v); print "SUPABASE_ANON_KEY=" v}
   $1=="SERVICE_ROLE_KEY"  {v=$2; gsub(/"/,"",v); print "SUPABASE_SERVICE_ROLE_KEY=" v}
   END {
+    print "BOT_START_URL=http://host.docker.internal:7860/start"
     print "POSTGRES_POOLER_URL=postgresql://postgres:postgres@db:5432/postgres"
     print "EDGE_API_TOKEN=" tok
   }
@@ -131,6 +132,9 @@ curl -X POST http://127.0.0.1:54321/functions/v1/login \
 
 ### Test Character Creation
 
+> [!NOTE]
+> Character creation can be done via the web client (see below)
+
 Create a character (replace `YOUR_ACCESS_TOKEN` with the token from step 3):
 
 ```bash
@@ -179,11 +183,25 @@ Install Python dependencies:
 uv sync --all-groups
 ```
 
+Create `.env.bot` file. 
+
+_Note: Keep `BOT_USE_KRISP` to `0` in local dev ([see here](https://docs.pipecat.ai/deployment/pipecat-cloud/guides/krisp-viva#local-development))_
+
+```bash
+DEEPGRAM_API_KEY=<PUT YOUR KEY HERE>
+CARTESIA_API_KEY=<PUT YOUR KEY HERE>
+GOOGLE_API_KEY=<PUT YOUR KEY HERE>
+
+SUPABASE_URL=http://127.0.0.1:54321
+
+BOT_USE_KRISP=
+BOT_START_URL=http://host.docker.internal:7860/start
+BOT_START_API_KEY=
+```
+
 Run agent process:
 
 ```bash
-set -a && source .env.supabase && set +a
-
 uv run bot
 ```
 
@@ -196,6 +214,12 @@ cd client/
 
 pnpm i
 pnpm run dev
+```
+
+You can create a `.env` in the `client/app` directory to specify your Supabase URL if it differs from the default:
+
+```bash
+VITE_SERVER_URL=http://127.0.0.1:54321/functions/v1
 ```
 
 ## Deployment 

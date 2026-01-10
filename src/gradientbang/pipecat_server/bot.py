@@ -64,7 +64,7 @@ from gradientbang.pipecat_server.context_compression import (
 
 
 
-load_dotenv()
+load_dotenv(dotenv_path=".env.bot")
 
 # Configure loguru
 logger.remove()
@@ -194,6 +194,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     # Get server URL from environment or use default
     # Check SUPABASE_URL first (for cloud mode), then GAME_SERVER_URL, then default
     server_url = os.getenv("SUPABASE_URL") or os.getenv("GAME_SERVER_URL", "http://localhost:8000")
+    logger.info(f"Using server URL: {server_url}")
 
     character_id, character_display_name = await _resolve_character_identity(
         runner_args.body.get("character_id", None),

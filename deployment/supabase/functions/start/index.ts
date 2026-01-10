@@ -49,14 +49,8 @@ function corsResponse(body: unknown, status = 200): Response {
 
 serve(async (req: Request): Promise<Response> => {
   // Check for required environment variable
-  const botStartUrl = Deno.env.get("BOT_START_URL");
-  if (!botStartUrl) {
-    console.error("start.config", "BOT_START_URL environment variable not set");
-    return corsResponse(
-      { success: false, error: "Server configuration error" },
-      500
-    );
-  }
+  const botStartUrl =
+    Deno.env.get("BOT_START_URL") || "http://host.docker.internal:7860/start";
 
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
