@@ -25,6 +25,7 @@ dev = [
     "pytest-asyncio>=1.1.0",
     "pytest-timeout>=2.3.1"
 ]
+
 worldgen = [
     "numpy>=1.26.0",
     "scipy>=1.11.0",
@@ -32,16 +33,17 @@ worldgen = [
 ]
 
 bot = [
-    "pipecat-ai[deepgram,daily,cartesia,webrtc,silero,local-smart-turn,google,runner]==0.0.97",
+    "pipecat-ai[deepgram,daily,cartesia,webrtc,silero,local-smart-turn,google,runner]==0.0.98",
     "pipecat-ai-cli"
+]
+
+cli = [
+    "typer>=0.15.0",
 ]
 
 [project.scripts]
 # CLI
-gb-bot = "gradientbang.cli:run_bot"
-gb-npc = "gradientbang.cli:run_npc"
-gb-test-local = "gradientbang.cli:test_local"
-gb-test-cloud = "gradientbang.cli:test_cloud"
+gb = "gradientbang.cli:app"
 
 # Agent
 bot = "gradientbang.pipecat_server.__main__:main"

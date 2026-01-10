@@ -1,22 +1,25 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo } from "react"
 
-import type { GlobalProvider, Meta } from "@ladle/react";
-import { PipecatClient } from "@pipecat-ai/client-js";
+import type { GlobalProvider, Meta } from "@ladle/react"
+import { PipecatClient } from "@pipecat-ai/client-js"
 import {
   PipecatAppBase,
   usePipecatConnectionState,
-} from "@pipecat-ai/voice-ui-kit";
+} from "@pipecat-ai/voice-ui-kit"
 
-import { DotDivider } from "@/components/primitives/DotDivider";
-import { UserMicControl } from "@/components/UserMicControl";
+import { DotDivider } from "@/components/primitives/DotDivider"
+import { UserMicControl } from "@/components/UserMicControl"
 
-import { Button } from "../src/components/primitives/Button";
-import useGameStore from "../src/stores/game";
-import Error from "./../src/components/views/Error";
-import { GameProvider } from "./../src/GameContext";
-import { MessageSelect } from "./MessageSelect";
+import { Button } from "../src/components/primitives/Button"
+import useGameStore from "../src/stores/game"
+import Error from "./../src/components/views/Error"
+import { GameProvider } from "./../src/GameContext"
+import { MessageSelect } from "./MessageSelect"
 
-import "./global.css";
+import "./global.css"
+
+const endpoint =
+  (import.meta.env.VITE_BOT_URL || "http://localhost:7860") + "/start"
 
 const StoryWrapper = ({
   children,
@@ -25,26 +28,26 @@ const StoryWrapper = ({
   client,
   storyMeta,
 }: {
-  children: React.ReactNode;
-  handleConnect?: () => void;
-  handleDisconnect?: () => void;
-  client?: PipecatClient;
-  storyMeta?: Meta;
+  children: React.ReactNode
+  handleConnect?: () => void
+  handleDisconnect?: () => void
+  client?: PipecatClient
+  storyMeta?: Meta
 }) => {
-  const { isConnected, isConnecting } = usePipecatConnectionState();
-  const setGameState = useGameStore.use.setGameState();
-  const connecting = isConnecting || storyMeta?.connectOnMount;
+  const { isConnected, isConnecting } = usePipecatConnectionState()
+  const setGameState = useGameStore.use.setGameState()
+  const connecting = isConnecting || storyMeta?.connectOnMount
 
   useEffect(() => {
     if (storyMeta?.enableMic && client) {
-      client.initDevices();
+      client.initDevices()
     }
-  }, [storyMeta?.enableMic, client]);
+  }, [storyMeta?.enableMic, client])
 
   useEffect(() => {
-    if (!isConnected) return;
-    setGameState("ready");
-  }, [isConnected, setGameState]);
+    if (!isConnected) return
+    setGameState("ready")
+  }, [isConnected, setGameState])
 
   return (
     <>
@@ -79,8 +82,8 @@ const StoryWrapper = ({
 
       {children}
     </>
-  );
-};
+  )
+}
 
 export const Provider: GlobalProvider = ({ children, storyMeta }) => {
   const clientOptions = useMemo(
@@ -88,22 +91,20 @@ export const Provider: GlobalProvider = ({ children, storyMeta }) => {
       enableMic: storyMeta?.enableMic,
     }),
     [storyMeta?.enableMic]
-  );
+  )
 
   const themeProps = useMemo(
     () => ({
       defaultTheme: "dark" as const,
     }),
     []
-  );
+  )
 
   return (
     <PipecatAppBase
       startBotParams={{
-        endpoint: `${import.meta.env.VITE_BOT_URL}/start`,
-        requestData: {
-          start_on_join: false,
-        },
+        endpoint,
+        requestData: {},
       }}
       clientOptions={clientOptions}
       transportType="smallwebrtc"
@@ -120,7 +121,7 @@ export const Provider: GlobalProvider = ({ children, storyMeta }) => {
             <StoryWrapper
               client={client as unknown as PipecatClient}
               storyMeta={storyMeta}
-              handleConnect={handleConnect}
+              handleConnect={() => handleConnect()}
               handleDisconnect={handleDisconnect}
             >
               {children}
@@ -129,5 +130,5 @@ export const Provider: GlobalProvider = ({ children, storyMeta }) => {
         )
       }
     </PipecatAppBase>
-  );
-};
+  )
+}

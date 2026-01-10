@@ -23,9 +23,9 @@ const transport =
   "smallwebrtc"
 
 const endpoint =
-  queryParams.get("server") ||
-  import.meta.env.VITE_SERVER_URL + "/start" ||
-  "http://localhost:7860/start"
+  (queryParams.get("server") ||
+    import.meta.env.VITE_SERVER_URL ||
+    "http://localhost:54321/functions/v1") + "/start"
 
 useGameStore.getState().setBotConfig(
   {
@@ -47,7 +47,7 @@ createRoot(document.getElementById("root")!).render(
       noAudioOutput={Settings.disableRemoteAudio}
       initDevicesOnMount={false}
       transportOptions={{
-        offerUrlTemplate: `${import.meta.env.VITE_SERVER_URL}/start/:sessionId/api/offer`,
+        offerUrlTemplate: `${import.meta.env.VITE_SERVER_URL || "http://localhost:54321/functions/v1"}/start/:sessionId/api/offer`,
       }}
     >
       {({ handleConnect, error }) => (

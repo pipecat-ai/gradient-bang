@@ -88,9 +88,11 @@ class AsyncGameClient(LegacyAsyncGameClient):
             self._functions_url = edge_base.rstrip("/")
         else:
             self._functions_url = f"{self._supabase_url}/functions/v1"
+        """
         self._service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
         if not self._service_role_key:
             raise ValueError("SUPABASE_SERVICE_ROLE_KEY is required")
+        """
         self._anon_key = os.getenv("SUPABASE_ANON_KEY") or "anon-key"
         self._edge_api_token = (
             os.getenv("EDGE_API_TOKEN")

@@ -5,6 +5,7 @@ import os
 import sys
 
 
+
 from pipecat.utils.time import time_now_iso8601
 from pipecat.runner.utils import create_transport
 from pipecat.runner.types import RunnerArguments
@@ -43,11 +44,13 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.vad_analyzer import VADParams
+from gradientbang.utils.prompts import GAME_DESCRIPTION, CHAT_INSTRUCTIONS, VOICE_INSTRUCTIONS
+
+load_dotenv(dotenv_path=".env.bot")
 
 if os.getenv("BOT_USE_KRISP"):
     from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
 
-from gradientbang.utils.prompts import GAME_DESCRIPTION, CHAT_INSTRUCTIONS, VOICE_INSTRUCTIONS
 
 # Use Supabase client if SUPABASE_URL is set, otherwise use legacy WebSocket client
 if os.getenv("SUPABASE_URL"):
@@ -62,9 +65,6 @@ from gradientbang.pipecat_server.context_compression import (
     ContextCompressionConsumer,
 )
 
-
-
-load_dotenv()
 
 # Configure loguru
 logger.remove()
@@ -108,15 +108,15 @@ async def _resolve_character_identity(character_id: str | None, server_url: str)
         logger.info(f"Resolving character identity for character_id: {character_id}")
     else:
         logger.info("No character_id provided, using environment variables")
-        character_id = os.getenv("PIPECAT_CHARACTER_ID") or os.getenv("NPC_CHARACTER_ID")
+        character_id = os.getenv("BOT_TEST_CHARACTER_ID") or os.getenv("BOT_TEST_NPC_CHARACTER_NAME")
 
     if not character_id:
         raise RuntimeError(
-            "Set PIPECAT_CHARACTER_ID (or NPC_CHARACTER_ID) in the environment before starting the bot."
+            "Set BOT_TEST_CHARACTER_ID (or BOT_TEST_NPC_CHARACTER_NAME) in the environment before starting the bot."
         )
     display_name = (
-        os.getenv("PIPECAT_CHARACTER_NAME")
-        or os.getenv("NPC_CHARACTER_NAME")
+        os.getenv("BOT_TEST_CHARACTER_NAME")
+        or os.getenv("BOT_TEST_NPC_CHARACTER_NAME")
         or await _lookup_character_display_name(character_id, server_url)
         or character_id
     )
@@ -194,15 +194,14 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     # Get server URL from environment or use default
     # Check SUPABASE_URL first (for cloud mode), then GAME_SERVER_URL, then default
     server_url = os.getenv("SUPABASE_URL") or os.getenv("GAME_SERVER_URL", "http://localhost:8000")
+    logger.info(f"Using server URL: {server_url}")
 
     character_id, character_display_name = await _resolve_character_identity(
-        runner_args.body.get("character_id", None),
+        os.getenv("BOT_TEST_CHARACTER_ID") or runner_args.body.get("character_id", None),
         server_url
     )
     logger.info(
-        "Initializing VoiceTaskManager with character_id=%s display_name=%s",
-        character_id,
-        character_display_name,
+        f"Initializing VoiceTaskManager with character_id={character_id} display_name={character_display_name}"
     )
 
     # Create voice task manager

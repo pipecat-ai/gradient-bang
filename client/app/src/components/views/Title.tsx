@@ -32,13 +32,16 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
   const handleSignIn = async () => {
     setIsLoading(true)
     try {
-      const response = await fetch(`${import.meta.env.VITE_SERVER_URL}/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email: username, password }),
-      })
+      const response = await fetch(
+        `${import.meta.env.VITE_SERVER_URL || "http://localhost:54321/functions/v1"}/login`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ email: username, password }),
+        }
+      )
       if (!response.ok) {
         throw new Error("Failed to sign in")
       }
