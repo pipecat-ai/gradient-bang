@@ -5,6 +5,7 @@ import os
 import sys
 
 
+
 from pipecat.utils.time import time_now_iso8601
 from pipecat.runner.utils import create_transport
 from pipecat.runner.types import RunnerArguments
@@ -43,11 +44,13 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.vad_analyzer import VADParams
+from gradientbang.utils.prompts import GAME_DESCRIPTION, CHAT_INSTRUCTIONS, VOICE_INSTRUCTIONS
+
+load_dotenv(dotenv_path=".env.bot")
 
 if os.getenv("BOT_USE_KRISP"):
     from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
 
-from gradientbang.utils.prompts import GAME_DESCRIPTION, CHAT_INSTRUCTIONS, VOICE_INSTRUCTIONS
 
 # Use Supabase client if SUPABASE_URL is set, otherwise use legacy WebSocket client
 if os.getenv("SUPABASE_URL"):
@@ -62,9 +65,6 @@ from gradientbang.pipecat_server.context_compression import (
     ContextCompressionConsumer,
 )
 
-
-
-load_dotenv(dotenv_path=".env.bot")
 
 # Configure loguru
 logger.remove()

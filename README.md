@@ -194,9 +194,9 @@ GOOGLE_API_KEY=<PUT YOUR KEY HERE>
 
 SUPABASE_URL=http://127.0.0.1:54321
 
-BOT_USE_KRISP=
-BOT_START_URL=http://host.docker.internal:7860/start
+BOT_START_URL=
 BOT_START_API_KEY=
+BOT_USE_KRISP=
 ```
 
 Run agent process:
