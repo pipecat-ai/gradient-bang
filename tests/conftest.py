@@ -403,6 +403,130 @@ _ensure_pipecat_stub()
 import httpx
 import pytest
 from config import SUPABASE_WORKDIR
+
+
+# =============================================================================
+# Diagnostic Logging - Print config on startup
+# =============================================================================
+
+def _print_startup_diagnostics() -> None:
+    """Print comprehensive diagnostic info at test startup."""
+    # Local helper since _env_truthy is defined later in the file
+    _truthy_vals = {"1", "true", "on", "yes"}
+    def _is_truthy(name: str) -> bool:
+        return os.environ.get(name, "").strip().lower() in _truthy_vals
+    
+    print("\n" + "=" * 80)
+    print("PYTEST CONFTEST.PY - STARTUP DIAGNOSTICS")
+    print("=" * 80)
+    
+    # Basic paths
+    print("\n[PATHS]")
+    print(f"  REPO_ROOT:        {REPO_ROOT}")
+    print(f"  SUPABASE_WORKDIR: {SUPABASE_WORKDIR}")
+    print(f"  ENV_PATH:         {ENV_PATH} (exists: {ENV_PATH.exists()})")
+    print(f"  LOG_DIR:          {LOG_DIR} (exists: {LOG_DIR.exists()})")
+    print(f"  Current dir:      {Path.cwd()}")
+    
+    # Feature flags
+    print("\n[FEATURE FLAGS]")
+    print(f"  USE_SUPABASE_TESTS:     {_is_truthy('USE_SUPABASE_TESTS')} (env: {os.environ.get('USE_SUPABASE_TESTS', '<not set>')})")
+    print(f"  MANUAL_SUPABASE_STACK:  {_is_truthy('SUPABASE_MANUAL_STACK')} (env: {os.environ.get('SUPABASE_MANUAL_STACK', '<not set>')})")
+    print(f"  SUPABASE_SKIP_START:    {_is_truthy('SUPABASE_SKIP_START')} (env: {os.environ.get('SUPABASE_SKIP_START', '<not set>')})")
+    print(f"  SUPABASE_SKIP_DB_RESET: {_is_truthy('SUPABASE_SKIP_DB_RESET')} (env: {os.environ.get('SUPABASE_SKIP_DB_RESET', '<not set>')})")
+    
+    # Supabase environment
+    print("\n[SUPABASE ENVIRONMENT]")
+    print(f"  SUPABASE_URL:              {os.environ.get('SUPABASE_URL', '<not set>')}")
+    print(f"  SUPABASE_ANON_KEY:         {'<set>' if os.environ.get('SUPABASE_ANON_KEY') else '<not set>'}")
+    print(f"  SUPABASE_SERVICE_ROLE_KEY: {'<set>' if os.environ.get('SUPABASE_SERVICE_ROLE_KEY') else '<not set>'}")
+    print(f"  EDGE_API_TOKEN:            {'<set>' if os.environ.get('EDGE_API_TOKEN') else '<not set>'}")
+    print(f"  EDGE_FUNCTIONS_URL:        {os.environ.get('EDGE_FUNCTIONS_URL', '<not set>')}")
+    
+    # CLI detection
+    print("\n[SUPABASE CLI]")
+    cli_cmd = _resolve_supabase_cli_command()
+    print(f"  Resolved CLI command: {cli_cmd}")
+    print(f"  SUPABASE_CLI_COMMAND env: {os.environ.get('SUPABASE_CLI_COMMAND', '<not set>')}")
+    print(f"  SUPABASE_CLI env:         {os.environ.get('SUPABASE_CLI', '<not set>')}")
+    print(f"  'supabase' in PATH:       {which('supabase')}")
+    print(f"  'npx' in PATH:            {which('npx')}")
+    
+    # Check if stack is running (without blocking)
+    print("\n[STACK STATUS]")
+    if cli_cmd:
+        try:
+            result = subprocess.run(
+                [*cli_cmd, "--workdir", str(SUPABASE_WORKDIR), "status", "--output", "json"],
+                cwd=str(REPO_ROOT),
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            print(f"  supabase status exit code: {result.returncode}")
+            if result.returncode == 0:
+                print("  Stack is RUNNING")
+            else:
+                print("  Stack is NOT running or error occurred")
+                if result.stderr:
+                    print(f"  stderr: {result.stderr[:200]}...")
+        except subprocess.TimeoutExpired:
+            print("  supabase status TIMED OUT (>10s)")
+        except Exception as e:
+            print(f"  Error checking status: {e}")
+    else:
+        print("  No CLI available to check status")
+    
+    # .env.supabase contents (redacted)
+    print("\n[.env.supabase FILE]")
+    if ENV_PATH.exists():
+        try:
+            with ENV_PATH.open() as f:
+                lines = f.readlines()
+            print(f"  File exists with {len(lines)} lines")
+            for line in lines[:10]:
+                key = line.split("=")[0].strip() if "=" in line else line.strip()
+                if key and not key.startswith("#"):
+                    has_value = "=" in line and len(line.split("=", 1)[1].strip()) > 0
+                    print(f"    {key}: {'<has value>' if has_value else '<empty>'}")
+        except Exception as e:
+            print(f"  Error reading file: {e}")
+    else:
+        print("  File does not exist")
+    
+    # Test timing config
+    print("\n[TIMING CONFIG]")
+    print("  pytest-timeout (pyproject.toml): 60s")
+    print(f"  SUPABASE_START_TIMEOUT:   {os.environ.get('SUPABASE_START_TIMEOUT', '240')}s")
+    poll_interval = float(os.environ.get('SUPABASE_POLL_INTERVAL_SECONDS', '1.0'))
+    print(f"  SUPABASE_POLL_INTERVAL:   {poll_interval}s")
+    print(f"  EVENT_DELIVERY_WAIT:      {poll_interval + 0.5 if _is_truthy('USE_SUPABASE_TESTS') else 1.0}s")
+    
+    # Docker check
+    print("\n[DOCKER]")
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            containers = [c for c in result.stdout.strip().split("\n") if c]
+            supabase_containers = [c for c in containers if "supabase" in c.lower()]
+            print(f"  Docker running: Yes ({len(containers)} containers)")
+            print(f"  Supabase containers: {supabase_containers or 'None'}")
+        else:
+            print(f"  Docker not running or error: {result.stderr}")
+    except Exception as e:
+        print(f"  Docker check failed: {e}")
+    
+    print("\n" + "=" * 80)
+    print("END STARTUP DIAGNOSTICS")
+    print("=" * 80 + "\n")
+
+
+# NOTE: _print_startup_diagnostics() is called later in the file after all dependencies are defined
 from helpers.character_setup import register_all_test_characters
 from helpers.supabase_features import missing_supabase_functions
 from helpers.server_fixture import (
@@ -478,6 +602,8 @@ def pytest_configure(config):
 
 
 def _resolve_supabase_cli_command() -> Optional[List[str]]:
+    """Resolve the Supabase CLI command, preferring npx to match README instructions."""
+    # Explicit override takes priority
     cmd = os.environ.get("SUPABASE_CLI_COMMAND")
     if cmd:
         return shlex.split(cmd)
@@ -488,12 +614,14 @@ def _resolve_supabase_cli_command() -> Optional[List[str]]:
         if candidate.exists():
             return [str(candidate)]
 
+    # Prefer npx (matches README) over local binary to avoid version mismatches
+    if which("npx"):
+        return ["npx", "supabase"]
+
+    # Fallback to local binary if npx not available
     binary = which("supabase")
     if binary:
         return [binary]
-
-    if which("npx"):
-        return ["npx", "supabase@latest"]
 
     return None
 
@@ -506,6 +634,10 @@ if USE_SUPABASE_TESTS:
     from gradientbang.utils.supabase_client import AsyncGameClient as _SupabaseAsyncGameClient
 
     _api_client_module.AsyncGameClient = _SupabaseAsyncGameClient  # type: ignore[attr-defined]
+
+
+# Run startup diagnostics now that all dependencies are defined
+_print_startup_diagnostics()
 
 
 def _load_supabase_env() -> Dict[str, str]:
@@ -571,7 +703,7 @@ def _load_supabase_env() -> Dict[str, str]:
     return env_vars
 
 
-def _run_supabase_cli(*args: str) -> subprocess.CompletedProcess[str]:
+def _run_supabase_cli(*args: str, timeout: float = 120.0) -> subprocess.CompletedProcess[str]:
     if SUPABASE_CLI_COMMAND is None:
         raise RuntimeError(
             "Supabase CLI is required for USE_SUPABASE_TESTS=1. Install the CLI or set SUPABASE_CLI_COMMAND."
@@ -580,12 +712,31 @@ def _run_supabase_cli(*args: str) -> subprocess.CompletedProcess[str]:
     # Run from repo root but pass --workdir to tell CLI where the Supabase project is
     # The --workdir flag goes before the subcommand: supabase --workdir path start
     cmd = [*SUPABASE_CLI_COMMAND, "--workdir", str(SUPABASE_WORKDIR), *args]
-    return subprocess.run(
-        cmd,
-        cwd=str(REPO_ROOT),
-        capture_output=True,
-        text=True,
-    )
+    print(f"[conftest] Running: {' '.join(cmd)} (timeout={timeout}s)")
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        print(f"[conftest] Command completed with exit code {result.returncode}")
+        if result.returncode != 0 and result.stderr:
+            print(f"[conftest] stderr: {result.stderr[:500]}")
+        return result
+    except subprocess.TimeoutExpired as e:
+        print(f"[conftest] TIMEOUT after {timeout}s running: {' '.join(cmd)}")
+        print(f"[conftest] stdout so far: {e.stdout[:500] if e.stdout else '<none>'}")
+        print(f"[conftest] stderr so far: {e.stderr[:500] if e.stderr else '<none>'}")
+        # Return a failed result instead of raising
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=124,  # timeout exit code
+            stdout=str(e.stdout or ""),
+            stderr=f"TIMEOUT after {timeout}s: {e.stderr or ''}",
+        )
 
 
 def _stack_running() -> bool:
@@ -751,56 +902,97 @@ def _seed_combat_runtime_config() -> None:
 
 def _ensure_supabase_stack_running() -> None:
     global _SUPABASE_STACK_READY
+    print("\n[conftest] _ensure_supabase_stack_running() called")
+    print(f"[conftest]   _SUPABASE_STACK_READY = {_SUPABASE_STACK_READY}")
+    
     if _SUPABASE_STACK_READY:
+        print("[conftest]   -> Already ready, returning early")
         return
 
+    print(f"[conftest]   MANUAL_SUPABASE_STACK = {MANUAL_SUPABASE_STACK}")
     if MANUAL_SUPABASE_STACK:
+        print("[conftest]   -> Using manual stack, calling _require_manual_stack_ready()")
         _require_manual_stack_ready()
         _SUPABASE_STACK_READY = True
         return
 
     supabase_url = os.environ.get("SUPABASE_URL", "")
+    print(f"[conftest]   SUPABASE_URL = {supabase_url}")
     if "supabase.co" in supabase_url:
-        print("[conftest] Remote Supabase detected; skipping local stack start/reset")
+        print("[conftest]   -> Remote Supabase detected; skipping local stack start/reset")
         _SUPABASE_STACK_READY = True
         return
 
-    if _env_truthy("SUPABASE_SKIP_START"):
+    skip_start = _env_truthy("SUPABASE_SKIP_START")
+    print(f"[conftest]   SUPABASE_SKIP_START = {skip_start}")
+    if skip_start:
+        print("[conftest]   -> Skip start is set, returning")
         _SUPABASE_STACK_READY = True
         return
 
-    if _stack_running():
+    stack_running = _stack_running()
+    print(f"[conftest]   _stack_running() = {stack_running}")
+    
+    if stack_running:
         # Stack is running but may have stale database state - reset it
-        if SUPABASE_CLI_COMMAND and not _env_truthy("SUPABASE_SKIP_DB_RESET"):
-            print("\n[conftest] Resetting database to ensure clean state...")
-            result = _run_supabase_cli("db", "reset", "--local")
+        skip_db_reset = _env_truthy("SUPABASE_SKIP_DB_RESET")
+        print(f"[conftest]   SUPABASE_SKIP_DB_RESET = {skip_db_reset}")
+        print(f"[conftest]   SUPABASE_CLI_COMMAND = {SUPABASE_CLI_COMMAND}")
+        
+        if SUPABASE_CLI_COMMAND and not skip_db_reset:
+            print("\n[conftest] >>> About to reset database (this can take 30-60s)...")
+            print("[conftest] >>> If this hangs, set SUPABASE_SKIP_DB_RESET=1 to skip")
+            result = _run_supabase_cli("db", "reset", "--local", timeout=90.0)
             if result.returncode != 0:
-                print(f"[conftest] WARNING: DB reset failed: {result.stderr}")
+                print(f"[conftest] WARNING: DB reset failed (code {result.returncode}): {result.stderr[:300]}")
                 # Continue anyway - test_reset will attempt cleanup
             else:
+                print("[conftest] DB reset completed successfully")
                 _seed_combat_runtime_config()
+        else:
+            print(f"[conftest]   -> Skipping DB reset (skip_db_reset={skip_db_reset}, cli={SUPABASE_CLI_COMMAND is not None})")
         _SUPABASE_STACK_READY = True
         return
 
+    print("[conftest]   -> Stack not running, starting it now...")
     _start_supabase_stack()
     # Newly started stack needs the combat cron config as well
     _seed_combat_runtime_config()
     _SUPABASE_STACK_READY = True
+    print("[conftest]   -> Stack started and ready")
 
 
 def _ensure_supabase_ready() -> Dict[str, str]:
+    print("\n[conftest] _ensure_supabase_ready() called")
+    print(f"[conftest]   USE_SUPABASE_TESTS = {USE_SUPABASE_TESTS}")
+    
     if not USE_SUPABASE_TESTS:
+        print("[conftest]   -> Supabase tests disabled, returning empty env")
         return {}
 
-    print(f"\n[conftest] Preparing Supabase stack (Supabase directory: {SUPABASE_WORKDIR})")
+    print(f"[conftest] Preparing Supabase stack (Supabase directory: {SUPABASE_WORKDIR})")
+    
+    print("[conftest]   Step 1: Ensuring stack is running...")
     _ensure_supabase_stack_running()
+    
+    print("[conftest]   Step 2: Loading Supabase env...")
     env = _load_supabase_env()
+    print(f"[conftest]   Loaded {len(env)} env vars")
+    
+    print("[conftest]   Step 3: Ensuring functions are served...")
     _ensure_functions_served_for_tests()
+    
     global _SUPABASE_DB_BOOTSTRAPPED
+    print(f"[conftest]   Step 4: Bootstrap check (_SUPABASE_DB_BOOTSTRAPPED = {_SUPABASE_DB_BOOTSTRAPPED})")
     if not _SUPABASE_DB_BOOTSTRAPPED:
-        # Call test_reset edge function - fail loudly if it doesn't work
+        print("[conftest]   -> Calling test_reset edge function...")
         _invoke_test_reset_sync()
         _SUPABASE_DB_BOOTSTRAPPED = True
+        print("[conftest]   -> Bootstrap complete")
+    else:
+        print("[conftest]   -> Already bootstrapped, skipping")
+    
+    print("[conftest] _ensure_supabase_ready() complete\n")
     return env
 
 
