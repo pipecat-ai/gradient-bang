@@ -108,15 +108,15 @@ async def _resolve_character_identity(character_id: str | None, server_url: str)
         logger.info(f"Resolving character identity for character_id: {character_id}")
     else:
         logger.info("No character_id provided, using environment variables")
-        character_id = os.getenv("PIPECAT_CHARACTER_ID") or os.getenv("NPC_CHARACTER_ID")
+        character_id = os.getenv("BOT_TEST_CHARACTER_ID") or os.getenv("BOT_TEST_NPC_CHARACTER_NAME")
 
     if not character_id:
         raise RuntimeError(
-            "Set PIPECAT_CHARACTER_ID (or NPC_CHARACTER_ID) in the environment before starting the bot."
+            "Set BOT_TEST_CHARACTER_ID (or BOT_TEST_NPC_CHARACTER_NAME) in the environment before starting the bot."
         )
     display_name = (
-        os.getenv("PIPECAT_CHARACTER_NAME")
-        or os.getenv("NPC_CHARACTER_NAME")
+        os.getenv("BOT_TEST_CHARACTER_NAME")
+        or os.getenv("BOT_TEST_NPC_CHARACTER_NAME")
         or await _lookup_character_display_name(character_id, server_url)
         or character_id
     )
@@ -197,13 +197,11 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     logger.info(f"Using server URL: {server_url}")
 
     character_id, character_display_name = await _resolve_character_identity(
-        runner_args.body.get("character_id", None),
+        os.getenv("BOT_TEST_CHARACTER_ID") or runner_args.body.get("character_id", None),
         server_url
     )
     logger.info(
-        "Initializing VoiceTaskManager with character_id=%s display_name=%s",
-        character_id,
-        character_display_name,
+        f"Initializing VoiceTaskManager with character_id={character_id} display_name={character_display_name}"
     )
 
     # Create voice task manager

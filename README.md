@@ -46,7 +46,6 @@ npx supabase status -o env --workdir deployment | awk -F= -v tok="$tok" '
   $1=="ANON_KEY"          {v=$2; gsub(/"/,"",v); print "SUPABASE_ANON_KEY=" v}
   $1=="SERVICE_ROLE_KEY"  {v=$2; gsub(/"/,"",v); print "SUPABASE_SERVICE_ROLE_KEY=" v}
   END {
-    print "BOT_START_URL=http://host.docker.internal:7860/start"
     print "POSTGRES_POOLER_URL=postgresql://postgres:postgres@db:5432/postgres"
     print "EDGE_API_TOKEN=" tok
   }
@@ -193,10 +192,8 @@ CARTESIA_API_KEY=<PUT YOUR KEY HERE>
 GOOGLE_API_KEY=<PUT YOUR KEY HERE>
 
 SUPABASE_URL=http://127.0.0.1:54321
-
-BOT_START_URL=
-BOT_START_API_KEY=
-BOT_USE_KRISP=
+SUPABASE_SERVICE_ROLE_KEY=
+EDGE_API_TOKEN=
 ```
 
 Run agent process:
