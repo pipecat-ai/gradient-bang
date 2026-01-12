@@ -166,7 +166,7 @@ async function handlePathWithRegion(
     toSector,
   });
 
-  const knowledge = await loadMapKnowledge(supabase, characterId);
+  const { merged: knowledge } = await loadMapKnowledge(supabase, characterId);
   const regionPayload = await buildPathRegionPayload(supabase, {
     characterId,
     knowledge,

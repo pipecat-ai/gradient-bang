@@ -1,6 +1,6 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-import { buildSectorSnapshot, MapKnowledge, normalizeMapKnowledge } from './map.ts';
+import { buildSectorSnapshot, MapKnowledge, MapKnowledgeResult, normalizeMapKnowledge, loadMapKnowledge } from './map.ts';
 
 export interface CharacterRow {
   character_id: string;
@@ -192,16 +192,28 @@ export function resolvePlayerType(metadata: Record<string, unknown> | null | und
 export function buildPlayerSnapshot(
   character: CharacterRow,
   playerType: string,
-  knowledge: MapKnowledge,
+  knowledgeResult: MapKnowledgeResult,
   universeSize: number,
 ): Record<string, unknown> {
-  const sectorsVisited = knowledge.total_sectors_visited || Object.keys(knowledge.sectors_visited).length;
+  const { personal, corp, merged } = knowledgeResult;
+  const sectorsVisited =
+    personal.total_sectors_visited ||
+    Object.keys(personal.sectors_visited).length;
+  const corpSectorsVisited = corp
+    ? corp.total_sectors_visited || Object.keys(corp.sectors_visited).length
+    : null;
+  const totalSectorsKnown =
+    merged.total_sectors_visited ||
+    Object.keys(merged.sectors_visited).length;
+
   return {
     id: character.character_id,
     name: character.name,
     player_type: playerType,
     credits_in_bank: character.credits_in_megabank ?? 0,
     sectors_visited: sectorsVisited,
+    corp_sectors_visited: corpSectorsVisited,
+    total_sectors_known: totalSectorsKnown,
     universe_size: universeSize,
     created_at: character.first_visit,
     last_active: character.last_active,
@@ -271,10 +283,11 @@ export async function buildStatusPayload(
   const character = await loadCharacter(supabase, characterId);
   const ship = await loadShip(supabase, character.current_ship_id);
   const definition = await loadShipDefinition(supabase, ship.ship_type);
-  const knowledge = normalizeMapKnowledge(character.map_knowledge);
+  // Load both personal and corp knowledge with merge
+  const knowledgeResult = await loadMapKnowledge(supabase, characterId);
   const universeSize = await loadUniverseSize(supabase);
   const playerType = resolvePlayerType(character.player_metadata);
-  const player = buildPlayerSnapshot(character, playerType, knowledge, universeSize);
+  const player = buildPlayerSnapshot(character, playerType, knowledgeResult, universeSize);
   const shipSnapshot = buildShipSnapshot(ship, definition);
   const sectorSnapshot = await buildSectorSnapshot(supabase, ship.current_sector ?? 0, characterId);
 

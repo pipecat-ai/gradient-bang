@@ -180,6 +180,41 @@ export function normalizeMapKnowledge(raw: unknown): MapKnowledge {
   };
 }
 
+/**
+ * Merge two map knowledge objects. Used to combine personal and corp knowledge.
+ * For sectors that appear in both, the one with the newer last_visited timestamp wins.
+ */
+export function mergeMapKnowledge(
+  personal: MapKnowledge,
+  corp: MapKnowledge,
+): MapKnowledge {
+  const merged: MapKnowledge = {
+    total_sectors_visited: 0,
+    sectors_visited: { ...personal.sectors_visited },
+  };
+
+  for (const [sectorId, corpEntry] of Object.entries(corp.sectors_visited)) {
+    const personalEntry = merged.sectors_visited[sectorId];
+
+    if (!personalEntry) {
+      // Sector only in corp knowledge - add it
+      merged.sectors_visited[sectorId] = corpEntry;
+    } else {
+      // Both have it - use newer data
+      const corpTime = new Date(corpEntry.last_visited ?? 0).getTime();
+      const personalTime = new Date(personalEntry.last_visited ?? 0).getTime();
+
+      if (corpTime > personalTime) {
+        merged.sectors_visited[sectorId] = corpEntry;
+      }
+      // else keep personal (already in merged)
+    }
+  }
+
+  merged.total_sectors_visited = Object.keys(merged.sectors_visited).length;
+  return merged;
+}
+
 export async function fetchSectorRow(
   supabase: SupabaseClient,
   sectorId: number,
@@ -773,21 +808,99 @@ export async function getAdjacentSectors(
   return parseWarpEdges(row?.warps ?? []).map((edge) => edge.to);
 }
 
+export interface MapKnowledgeResult {
+  personal: MapKnowledge;
+  corp: MapKnowledge | null;
+  merged: MapKnowledge;
+  corporationId: string | null;
+}
+
 export async function loadMapKnowledge(
   supabase: SupabaseClient,
   characterId: string,
-): Promise<MapKnowledge> {
-  const { data, error } = await supabase
+): Promise<MapKnowledgeResult> {
+  // Load character's personal knowledge and corporation_id
+  const { data: charData, error: charError } = await supabase
+    .from('characters')
+    .select('map_knowledge, corporation_id')
+    .eq('character_id', characterId)
+    .maybeSingle();
+  if (charError) {
+    throw new Error(`failed to load map knowledge: ${charError.message}`);
+  }
+
+  const personal = normalizeMapKnowledge(charData?.map_knowledge ?? null);
+  const corporationId = charData?.corporation_id ?? null;
+
+  // If character is in a corporation, load corp knowledge in parallel-ready fashion
+  // Note: We already have corporationId, so we can query corp knowledge immediately
+  let corp: MapKnowledge | null = null;
+  if (corporationId) {
+    const { data: corpData, error: corpError } = await supabase
+      .from('corporation_map_knowledge')
+      .select('map_knowledge')
+      .eq('corp_id', corporationId)
+      .maybeSingle();
+    if (corpError) {
+      console.warn(`failed to load corp map knowledge: ${corpError.message}`);
+    } else if (corpData?.map_knowledge) {
+      corp = normalizeMapKnowledge(corpData.map_knowledge);
+    }
+  }
+
+  const merged = corp ? mergeMapKnowledge(personal, corp) : personal;
+
+  return { personal, corp, merged, corporationId };
+}
+
+/**
+ * Load map knowledge with both queries running in parallel.
+ * Use this when you already know the corporationId to avoid sequential queries.
+ */
+export async function loadMapKnowledgeParallel(
+  supabase: SupabaseClient,
+  characterId: string,
+  corporationId: string | null,
+): Promise<MapKnowledgeResult> {
+  // Run both queries in parallel when we already know corporationId
+  const charPromise = supabase
     .from('characters')
     .select('map_knowledge')
     .eq('character_id', characterId)
     .maybeSingle();
-  if (error) {
-    throw new Error(`failed to load map knowledge: ${error.message}`);
+
+  const corpPromise = corporationId
+    ? supabase
+        .from('corporation_map_knowledge')
+        .select('map_knowledge')
+        .eq('corp_id', corporationId)
+        .maybeSingle()
+    : Promise.resolve({ data: null, error: null });
+
+  const [charResult, corpResult] = await Promise.all([charPromise, corpPromise]);
+
+  if (charResult.error) {
+    throw new Error(`failed to load map knowledge: ${charResult.error.message}`);
   }
-  return normalizeMapKnowledge(data?.map_knowledge ?? null);
+
+  const personal = normalizeMapKnowledge(charResult.data?.map_knowledge ?? null);
+
+  let corp: MapKnowledge | null = null;
+  if (corpResult.error) {
+    console.warn(`failed to load corp map knowledge: ${corpResult.error.message}`);
+  } else if (corpResult.data?.map_knowledge) {
+    corp = normalizeMapKnowledge(corpResult.data.map_knowledge);
+  }
+
+  const merged = corp ? mergeMapKnowledge(personal, corp) : personal;
+
+  return { personal, corp, merged, corporationId };
 }
 
+/**
+ * @deprecated Use pgMarkSectorVisited instead. This Supabase version only updates
+ * personal knowledge and doesn't handle corporation ships properly.
+ */
 export async function markSectorVisited(
   supabase: SupabaseClient,
   params: {
@@ -798,7 +911,8 @@ export async function markSectorVisited(
   },
 ): Promise<{ firstVisit: boolean; knowledge: MapKnowledge }> {
   const { characterId, sectorId, sectorSnapshot } = params;
-  const knowledge = params.knowledge ?? (await loadMapKnowledge(supabase, characterId));
+  // Load personal knowledge only (this function doesn't handle corp ships)
+  const knowledge = params.knowledge ?? (await loadMapKnowledge(supabase, characterId)).personal;
   const sectorKey = String(sectorId);
   const visitedBefore = Boolean(knowledge.sectors_visited[sectorKey]);
   const timestamp = new Date().toISOString();

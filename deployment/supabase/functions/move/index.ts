@@ -535,21 +535,26 @@ async function completeMovement({
       sectorSnapshot: destinationSnapshot,
     });
     mark('build_status_complete');
-    const knowledge = await pgLoadMapKnowledge(pg, characterId);
-    mark('load_map_knowledge');
-    const { firstVisit, knowledge: updatedKnowledge } = await pgMarkSectorVisited(pg, {
+
+    // Mark sector visited (updates personal or corp knowledge depending on player type)
+    const { firstPersonalVisit, knownToCorp } = await pgMarkSectorVisited(pg, {
       characterId,
       sectorId: destination,
       sectorSnapshot: destinationSnapshot,
-      knowledge,
     });
+    mark('mark_sector_visited');
+
+    // Load merged knowledge for local map (personal + corp)
+    const { merged: mergedKnowledge } = await pgLoadMapKnowledge(pg, characterId);
+    mark('load_map_knowledge');
 
     const movementCompletePayload = {
       source,
       player: statusPayload.player,
       ship: statusPayload.ship,
       sector: statusPayload.sector,
-      first_visit: firstVisit,
+      first_visit: firstPersonalVisit,
+      known_to_corp: knownToCorp,
     } as Record<string, unknown>;
 
     await pgEmitCharacterEvent({
@@ -567,7 +572,7 @@ async function completeMovement({
     const mapRegion = await pgBuildLocalMapRegion(pg, {
       characterId,
       centerSector: destination,
-      mapKnowledge: updatedKnowledge,
+      mapKnowledge: mergedKnowledge,
       maxHops: MAX_LOCAL_MAP_HOPS,
       maxSectors: MAX_LOCAL_MAP_NODES,
     });

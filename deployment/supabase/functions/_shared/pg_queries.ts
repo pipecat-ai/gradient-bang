@@ -7,9 +7,10 @@ import { Client } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
 import { RATE_LIMITS } from "./constants.ts";
 import type { CharacterRow, ShipRow, ShipDefinitionRow } from "./status.ts";
 import type { MapKnowledge, WarpEdge, SectorSnapshot } from "./map.ts";
-import { parseWarpEdges, normalizeMapKnowledge } from "./map.ts";
+import { parseWarpEdges, normalizeMapKnowledge, mergeMapKnowledge } from "./map.ts";
 import { resolvePlayerType } from "./status.ts";
 import { ActorAuthorizationError } from "./actors.ts";
+import { getPortPrices, getPortStock, type PortData } from "./trading.ts";
 
 // Helper to convert BigInt values to numbers recursively
 // deno-postgres returns BigInt for int8 columns even with ::int cast
@@ -330,19 +331,40 @@ export async function pgUpdateCharacterLastActive(
   );
 }
 
+export interface MapKnowledgeResult {
+  personal: MapKnowledge;
+  corp: MapKnowledge | null;
+  merged: MapKnowledge;
+  corporationId: string | null;
+}
+
 export async function pgLoadMapKnowledge(
   pg: Client,
   characterId: string
-): Promise<MapKnowledge> {
-  const result = await pg.queryObject<{ map_knowledge: unknown }>(
-    `SELECT map_knowledge
-    FROM characters
-    WHERE character_id = $1`,
+): Promise<MapKnowledgeResult> {
+  const result = await pg.queryObject<{
+    map_knowledge: unknown;
+    corporation_id: string | null;
+    corp_map_knowledge: unknown | null;
+  }>(
+    `SELECT
+      c.map_knowledge,
+      c.corporation_id,
+      cmk.map_knowledge as corp_map_knowledge
+    FROM characters c
+    LEFT JOIN corporation_map_knowledge cmk ON cmk.corp_id = c.corporation_id
+    WHERE c.character_id = $1`,
     [characterId]
   );
 
   const row = result.rows[0];
-  return normalizeMapKnowledge(row?.map_knowledge ?? null);
+  const personal = normalizeMapKnowledge(row?.map_knowledge ?? null);
+  const corp = row?.corp_map_knowledge
+    ? normalizeMapKnowledge(row.corp_map_knowledge)
+    : null;
+  const merged = corp ? mergeMapKnowledge(personal, corp) : personal;
+
+  return { personal, corp, merged, corporationId: row?.corporation_id ?? null };
 }
 
 export async function pgUpdateMapKnowledge(
@@ -356,6 +378,68 @@ export async function pgUpdateMapKnowledge(
     WHERE character_id = $2`,
     [JSON.stringify(knowledge), characterId]
   );
+}
+
+// ============================================================================
+// Corporation Map Knowledge
+// ============================================================================
+
+export async function pgUpsertCorporationSectorKnowledge(
+  pg: Client,
+  params: {
+    corpId: string;
+    sectorId: number;
+    sectorSnapshot: SectorSnapshot;
+  }
+): Promise<{ firstVisit: boolean; knowledge: MapKnowledge }> {
+  const { corpId, sectorId, sectorSnapshot } = params;
+  const sectorKey = String(sectorId);
+  const timestamp = new Date().toISOString();
+
+  // Ensure row exists for corporation
+  await pg.queryObject(
+    `INSERT INTO corporation_map_knowledge (corp_id)
+    VALUES ($1)
+    ON CONFLICT (corp_id) DO NOTHING`,
+    [corpId]
+  );
+
+  // Load current corp knowledge
+  const result = await pg.queryObject<{ map_knowledge: unknown }>(
+    `SELECT map_knowledge
+    FROM corporation_map_knowledge
+    WHERE corp_id = $1`,
+    [corpId]
+  );
+
+  const knowledge = normalizeMapKnowledge(result.rows[0]?.map_knowledge ?? null);
+  const visitedBefore = Boolean(knowledge.sectors_visited[sectorKey]);
+
+  // Update the sector entry
+  const { knowledge: nextKnowledge } = upsertVisitedSector(
+    knowledge,
+    sectorId,
+    sectorSnapshot.adjacent_sectors,
+    sectorSnapshot.position,
+    timestamp
+  );
+
+  const entry = nextKnowledge.sectors_visited[sectorKey] ?? {};
+  entry.port = sectorSnapshot.port ?? null;
+  entry.last_visited = timestamp;
+  nextKnowledge.sectors_visited[sectorKey] = entry;
+  nextKnowledge.current_sector = sectorId;
+  nextKnowledge.last_update = timestamp;
+
+  // Save updated knowledge
+  await pg.queryObject(
+    `UPDATE corporation_map_knowledge
+    SET map_knowledge = $1::jsonb
+    WHERE corp_id = $2`,
+    [JSON.stringify(nextKnowledge), corpId]
+  );
+
+  return { firstVisit: !visitedBefore, knowledge: nextKnowledge };
 }
 
 // ============================================================================
@@ -623,23 +707,47 @@ export async function pgBuildSectorSnapshot(
   const adjacentEdges = parseWarpEdges(row.warps);
   const adjacent = adjacentEdges.map((edge) => edge.to);
 
-  // Build port object
+  // Build port object with calculated prices
   let port: Record<string, unknown> | null = null;
   if (portData) {
+    // Build PortData structure for price calculation
+    const portDataForPricing: PortData = {
+      code: portData.port_code,
+      class: portData.port_class,
+      stock: {
+        QF: portData.stock_qf,
+        RO: portData.stock_ro,
+        NS: portData.stock_ns,
+      },
+      max_capacity: {
+        QF: portData.max_qf,
+        RO: portData.max_ro,
+        NS: portData.max_ns,
+      },
+      buys: [],
+      sells: [],
+    };
+    // Determine buys/sells from port code
+    const commodityOrder = ["quantum_foam", "retro_organics", "neuro_symbolics"] as const;
+    for (let i = 0; i < commodityOrder.length; i++) {
+      const char = portData.port_code?.charAt(i) ?? "S";
+      if (char === "B") {
+        portDataForPricing.buys.push(commodityOrder[i]);
+      } else {
+        portDataForPricing.sells.push(commodityOrder[i]);
+      }
+    }
+
+    // Calculate prices based on supply/demand
+    const prices = getPortPrices(portDataForPricing);
+    const stock = getPortStock(portDataForPricing);
+
     port = {
       id: portData.port_id,
       code: portData.port_code,
       port_class: portData.port_class,
-      stock: {
-        quantum_foam: portData.stock_qf,
-        retro_organics: portData.stock_ro,
-        neuro_symbolics: portData.stock_ns,
-      },
-      capacity: {
-        quantum_foam: portData.max_qf,
-        retro_organics: portData.max_ro,
-        neuro_symbolics: portData.max_ns,
-      },
+      prices,
+      stock,
       observed_at: portData.last_updated,
     };
   }
@@ -828,18 +936,28 @@ async function pgLoadUniverseSize(pg: Client): Promise<number> {
 function buildPlayerSnapshot(
   character: CharacterRow,
   playerType: string,
-  knowledge: MapKnowledge,
+  knowledgeResult: MapKnowledgeResult,
   universeSize: number
 ): Record<string, unknown> {
+  const { personal, corp, merged } = knowledgeResult;
   const sectorsVisited =
-    knowledge.total_sectors_visited ||
-    Object.keys(knowledge.sectors_visited).length;
+    personal.total_sectors_visited ||
+    Object.keys(personal.sectors_visited).length;
+  const corpSectorsVisited = corp
+    ? corp.total_sectors_visited || Object.keys(corp.sectors_visited).length
+    : null;
+  const totalSectorsKnown =
+    merged.total_sectors_visited ||
+    Object.keys(merged.sectors_visited).length;
+
   return {
     id: character.character_id,
     name: character.name,
     player_type: playerType,
     credits_in_bank: character.credits_in_megabank ?? 0,
     sectors_visited: sectorsVisited,
+    corp_sectors_visited: corpSectorsVisited,
+    total_sectors_known: totalSectorsKnown,
     universe_size: universeSize,
     created_at: character.first_visit,
     last_active: character.last_active,
@@ -898,15 +1016,11 @@ export async function pgBuildStatusPayload(
     options?.ship ?? (await pgLoadShip(pg, character.current_ship_id));
   const definition =
     options?.shipDefinition ?? (await pgLoadShipDefinition(pg, ship.ship_type));
-  const knowledge = normalizeMapKnowledge(character.map_knowledge);
+  // Load both personal and corp knowledge with merge
+  const knowledgeResult = await pgLoadMapKnowledge(pg, characterId);
   const universeSize = await pgLoadUniverseSize(pg);
   const playerType = resolvePlayerType(character.player_metadata);
-  const player = buildPlayerSnapshot(
-    character,
-    playerType,
-    knowledge,
-    universeSize
-  );
+  const player = buildPlayerSnapshot(character, playerType, knowledgeResult, universeSize);
   const shipSnapshot = buildShipSnapshot(ship, definition);
   const sectorSnapshot =
     options?.sectorSnapshot ??
@@ -1042,7 +1156,8 @@ export async function pgBuildLocalMapRegion(
 
   let knowledge = params.mapKnowledge;
   if (!knowledge) {
-    knowledge = await pgLoadMapKnowledge(pg, characterId);
+    const result = await pgLoadMapKnowledge(pg, characterId);
+    knowledge = result.merged;
   }
 
   const visitedSet = new Set<number>(
@@ -1205,24 +1320,88 @@ function upsertVisitedSector(
   return { updated: true, knowledge };
 }
 
+export interface MarkSectorVisitedResult {
+  firstPersonalVisit: boolean;
+  knownToCorp: boolean;
+  knowledge: MapKnowledge;
+}
+
 export async function pgMarkSectorVisited(
   pg: Client,
   params: {
     characterId: string;
     sectorId: number;
     sectorSnapshot: SectorSnapshot;
-    knowledge?: MapKnowledge;
   }
-): Promise<{ firstVisit: boolean; knowledge: MapKnowledge }> {
+): Promise<MarkSectorVisitedResult> {
   const { characterId, sectorId, sectorSnapshot } = params;
-  const knowledge =
-    params.knowledge ?? (await pgLoadMapKnowledge(pg, characterId));
   const sectorKey = String(sectorId);
-  const visitedBefore = Boolean(knowledge.sectors_visited[sectorKey]);
   const timestamp = new Date().toISOString();
 
+  // Load character info with player_metadata, corporation_id, and both knowledge sources
+  const charResult = await pg.queryObject<{
+    player_metadata: Record<string, unknown> | null;
+    corporation_id: string | null;
+    map_knowledge: unknown;
+    corp_map_knowledge: unknown | null;
+  }>(
+    `SELECT
+      c.player_metadata,
+      c.corporation_id,
+      c.map_knowledge,
+      cmk.map_knowledge as corp_map_knowledge
+    FROM characters c
+    LEFT JOIN corporation_map_knowledge cmk ON cmk.corp_id = c.corporation_id
+    WHERE c.character_id = $1`,
+    [characterId]
+  );
+
+  const charRow = charResult.rows[0];
+  if (!charRow) {
+    throw new Error(`character ${characterId} not found`);
+  }
+
+  const playerType = resolvePlayerType(charRow.player_metadata);
+  const isCorporationShip = playerType === "corporation_ship";
+  const corpId = charRow.corporation_id;
+
+  // Corporation ship: update corp knowledge only
+  if (isCorporationShip) {
+    if (!corpId) {
+      // Corp ship without corporation (shouldn't happen, but handle gracefully)
+      console.warn(`Corp ship ${characterId} has no corporation_id, skipping knowledge update`);
+      const emptyKnowledge = normalizeMapKnowledge(null);
+      return { firstPersonalVisit: false, knownToCorp: false, knowledge: emptyKnowledge };
+    }
+
+    const result = await pgUpsertCorporationSectorKnowledge(pg, {
+      corpId,
+      sectorId,
+      sectorSnapshot,
+    });
+
+    return {
+      firstPersonalVisit: result.firstVisit, // First time corp learned this sector
+      knownToCorp: false, // N/A for corp ships
+      knowledge: result.knowledge,
+    };
+  }
+
+  // Human player: update personal knowledge
+  const personalKnowledge = normalizeMapKnowledge(charRow.map_knowledge);
+  const corpKnowledge = charRow.corp_map_knowledge
+    ? normalizeMapKnowledge(charRow.corp_map_knowledge)
+    : null;
+
+  // Check if corp already knew about this sector BEFORE we update personal knowledge
+  const knownToCorp = corpKnowledge
+    ? Boolean(corpKnowledge.sectors_visited[sectorKey])
+    : false;
+
+  const visitedBefore = Boolean(personalKnowledge.sectors_visited[sectorKey]);
+
   const { knowledge: nextKnowledge } = upsertVisitedSector(
-    knowledge,
+    personalKnowledge,
     sectorId,
     sectorSnapshot.adjacent_sectors,
     sectorSnapshot.position,
@@ -1238,7 +1417,11 @@ export async function pgMarkSectorVisited(
 
   await pgUpdateMapKnowledge(pg, characterId, nextKnowledge);
 
-  return { firstVisit: !visitedBefore, knowledge: nextKnowledge };
+  return {
+    firstPersonalVisit: !visitedBefore,
+    knownToCorp,
+    knowledge: nextKnowledge,
+  };
 }
 
 // ============================================================================
@@ -2333,10 +2516,11 @@ export async function pgUpsertKnowledgeEntry(
     return; // Sector not found, skip update
   }
 
-  // Load existing knowledge if not provided
+  // Load existing personal knowledge if not provided
   let knowledge = params.existingKnowledge;
   if (!knowledge) {
-    knowledge = await pgLoadMapKnowledge(pg, characterId);
+    const result = await pgLoadMapKnowledge(pg, characterId);
+    knowledge = result.personal;
   }
 
   const adjacent = parseAdjacentIds(structure);
