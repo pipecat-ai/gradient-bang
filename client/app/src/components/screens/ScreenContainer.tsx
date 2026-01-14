@@ -1,11 +1,11 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef } from "react"
 
-import { AnimatePresence, motion } from "motion/react";
-import { useClickAway } from "@uidotdev/usehooks";
+import { AnimatePresence, motion } from "motion/react"
+import { useClickAway } from "@uidotdev/usehooks"
 
-import { PortPanel } from "@/components/PortPanel";
-import { MapScreen } from "@/components/screens/MapScreen";
-import useGameStore from "@/stores/game";
+import { PortPanel } from "@/components/PortPanel"
+import { MapScreen } from "@/components/screens/MapScreen"
+import useGameStore from "@/stores/game"
 
 const variants = {
   enter: {
@@ -13,62 +13,61 @@ const variants = {
     transition: { delay: 0.4, duration: 0.3, easing: "ease-in-out" },
   },
   exit: { opacity: 0, transition: { duration: 0.2, easing: "ease-in-out" } },
-};
+}
 
 const ScreenBase = ({ children }: { children: React.ReactNode }) => {
   return (
     <div className="screen focus:outline-none pointer-events-auto">
       <div className="relative z-1 p-4">{children}</div>
     </div>
-  );
-};
+  )
+}
 
 export const ScreenContainer = () => {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null)
   //const screenRef = useRef<HTMLDivElement>(null);
 
-  const activeScreen = useGameStore.use.activeScreen?.();
-  const prevActiveScreenRef = useRef<UIScreen | undefined>(activeScreen);
-  const diamondFXInstance = useGameStore.use.diamondFXInstance?.();
-  const setActiveScreen = useGameStore.use.setActiveScreen?.();
+  const activeScreen = useGameStore.use.activeScreen?.()
+  const prevActiveScreenRef = useRef<UIScreen | undefined>(activeScreen)
+  const diamondFXInstance = useGameStore.use.diamondFXInstance?.()
+  const setActiveScreen = useGameStore.use.setActiveScreen?.()
 
   const screenRef = useClickAway<HTMLDivElement>((e) => {
-    const target = e.target as HTMLElement;
+    const target = e.target as HTMLElement
     const isMenuClick =
       target.closest('[role="tab"]') ||
-      target.closest('button[aria-controls="#screen-container"]');
+      target.closest('button[aria-controls="#screen-container"]')
 
     if (!isMenuClick && activeScreen) {
-      setActiveScreen(undefined);
+      setActiveScreen(undefined)
     }
-  });
+  })
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    e.preventDefault();
     switch (e.key) {
       case "Home":
       case "End":
       case "Escape":
-        e.preventDefault();
-        setActiveScreen(undefined);
-        break;
+        e.preventDefault()
+        setActiveScreen(undefined)
+        break
       default:
-        return;
+        return
     }
-  };
+  }
 
   useEffect(() => {
     if (prevActiveScreenRef.current && !activeScreen) {
-      diamondFXInstance?.clear(true);
+      diamondFXInstance?.clear(true)
     }
-    prevActiveScreenRef.current = activeScreen;
-  }, [activeScreen, diamondFXInstance]);
+    prevActiveScreenRef.current = activeScreen
+  }, [activeScreen, diamondFXInstance])
 
   useEffect(() => {
     if (activeScreen && containerRef.current) {
-      containerRef.current.focus();
+      containerRef.current.focus()
     }
-  }, [activeScreen]);
+  }, [activeScreen])
 
   return (
     <div className="absolute inset-ui-lg z-(--z-screens) flex items-center justify-center pointer-events-none">
@@ -85,7 +84,7 @@ export const ScreenContainer = () => {
             if (activeScreen && !diamondFXInstance?.isAnimating) {
               diamondFXInstance?.start("screen-container", false, true, {
                 half: true,
-              });
+              })
             }
           }}
         >
@@ -115,5 +114,5 @@ export const ScreenContainer = () => {
         </AnimatePresence>
       </div>
     </div>
-  );
-};
+  )
+}

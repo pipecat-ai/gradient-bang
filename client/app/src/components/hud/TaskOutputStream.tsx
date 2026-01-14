@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 
 import { button, useControls } from "leva"
+import { motion } from "motion/react"
 import { faker } from "@faker-js/faker"
 
 import { Card, CardContent } from "@/components/primitives/Card"
@@ -125,11 +126,13 @@ export const TaskOutputStreamComponent = ({ tasks }: { tasks: Task[] }) => {
           fullHeight={true}
           classNames={{ scrollbar: "*:first:bg-white/30" }}
         >
-          <div
-            className={cn(
-              "h-full flex flex-col justify-end transition-opacity duration-1000 hover:opacity-100 select-none",
-              isIdle ? "opacity-25" : "opacity-100"
-            )}
+          <motion.div
+            className="h-full flex flex-col justify-end hover:opacity-100 select-none"
+            animate={{ opacity: isIdle ? 0.25 : 1 }}
+            transition={{
+              duration: isIdle ? 1 : 0,
+              ease: "easeOut",
+            }}
           >
             <div>
               {visibleTasks.map((task) => {
@@ -140,7 +143,7 @@ export const TaskOutputStreamComponent = ({ tasks }: { tasks: Task[] }) => {
               })}
             </div>
             <div ref={bottomRef} className="h-0" />
-          </div>
+          </motion.div>
         </ScrollArea>
       </CardContent>
     </Card>
@@ -162,8 +165,6 @@ export const TaskOutputStream = () => {
     { collapsed: true }
   )
   // #endif
-
-  console.log("tasks", tasks)
 
   return <TaskOutputStreamComponent tasks={tasks} />
 }
