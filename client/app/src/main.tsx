@@ -23,9 +23,10 @@ const transport =
   "smallwebrtc"
 
 const endpoint =
-  (queryParams.get("server") ||
-    import.meta.env.VITE_SERVER_URL ||
-    "http://localhost:54321/functions/v1") + "/start"
+  (queryParams.get("server") || Settings.bypassTitle
+    ? import.meta.env.VITE_BOT_URL || "http://localhost:7860"
+    : import.meta.env.VITE_SERVER_URL ||
+      "http://localhost:54321/functions/v1") + "/start"
 
 useGameStore.getState().setBotConfig(
   {
@@ -46,9 +47,18 @@ createRoot(document.getElementById("root")!).render(
       noThemeProvider={true}
       noAudioOutput={Settings.disableRemoteAudio}
       initDevicesOnMount={false}
-      transportOptions={{
-        offerUrlTemplate: `${import.meta.env.VITE_SERVER_URL || "http://localhost:54321/functions/v1"}/start/:sessionId/api/offer`,
-      }}
+      transportOptions={
+        // Supabase edge function offer URL structure defers from Pipecat's default
+        // Note: bypass this if connecting directly to bot (useful in dev)
+        Settings.bypassTitle
+          ? undefined
+          : {
+              offerUrlTemplate: `${
+                import.meta.env.VITE_SERVER_URL ||
+                "http://localhost:54321/functions/v1"
+              }/start/:sessionId/api/offer`,
+            }
+      }
     >
       {({ handleConnect, error }) => (
         <GameProvider onConnect={handleConnect}>

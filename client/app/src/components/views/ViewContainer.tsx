@@ -16,7 +16,7 @@ export const ViewContainer = ({ error }: { error?: string | null }) => {
   const gameState = useGameStore.use.gameState()
   const { initialize } = useGameContext()
   const [viewState, setViewState] = useState<"title" | "preload" | "game">(
-    "title"
+    settings.bypassTitle ? "preload" : "title"
   )
 
   const handleViewStateChange = useCallback(

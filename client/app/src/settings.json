@@ -5,5 +5,5 @@
     "saveSettings": true,
     "bypassAssetCache": false,
     "showMobileWarning": true,
-    "useDevTools": true
+    "bypassTitle": true
 }

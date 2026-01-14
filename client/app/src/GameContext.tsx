@@ -150,7 +150,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
     const characterId = gameStore.character_id
     const accessToken = gameStore.access_token
-    if (!characterId || !accessToken) {
+    if (!gameStore.settings.bypassTitle && (!characterId || !accessToken)) {
       throw new Error(
         "Attempting to connect to bot without a character ID or access token"
       )
