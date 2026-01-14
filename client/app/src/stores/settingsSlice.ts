@@ -24,6 +24,7 @@ export interface SettingsSlice {
     saveSettings: boolean
     showMobileWarning: boolean
     bypassAssetCache: boolean
+    bypassTitle: boolean
   }
   setSettings: (settings: SettingsSlice["settings"]) => void
 
@@ -39,7 +40,7 @@ export interface SettingsSlice {
 }
 
 const defaultSettings = {
-  useDevTools: true,
+  useDevTools: false,
   ambienceVolume: 0.5,
   disabledAmbience: false,
   disabledSoundFX: false,
@@ -57,6 +58,7 @@ const defaultSettings = {
   saveSettings: true,
   showMobileWarning: true,
   bypassAssetCache: false,
+  bypassTitle: false,
 }
 
 export const createSettingsSlice: StateCreator<SettingsSlice> = (set, get) => ({
