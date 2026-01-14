@@ -4,6 +4,5 @@
     "disableRemoteAudio": false,
     "saveSettings": true,
     "bypassAssetCache": false,
-    "showMobileWarning": true,
-    "bypassTitle": true
+    "showMobileWarning": true
 }
