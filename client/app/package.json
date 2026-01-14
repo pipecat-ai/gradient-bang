@@ -72,7 +72,7 @@
     "vite-plugin-pwa": "^1.1.0"
   },
   "peerDependencies": {
-    "@pipecat-ai/daily-transport": "^1.4.1"
+    "@pipecat-ai/daily-transport": "^1.5.0"
   },
   "peerDependenciesMeta": {
     "@pipecat-ai/daily-transport": {
