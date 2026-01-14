@@ -352,14 +352,36 @@ class ContextCompressionProducer(ProducerProcessor):
         return len(text) // 4
 
     def _extract_recent_exchanges(self, messages: list, count: int = 3) -> list:
-        """Extract the most recent user/assistant message exchanges as Gemini Content."""
+        """Extract the most recent user/assistant message exchanges as Gemini Content.
+
+        Skips messages containing function/tool calls since they require paired
+        function responses to satisfy Gemini's turn ordering constraints.
+        """
         recent = []
         for msg in reversed(messages):
-            role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
-            if role in ("user", "assistant"):
-                recent.insert(0, msg)
-                if len(recent) >= count:
-                    break
+            if not isinstance(msg, dict):
+                continue
+            role = msg.get("role")
+            if role not in ("user", "assistant"):
+                continue
+            # Skip assistant messages with function/tool calls
+            if role == "assistant":
+                content = msg.get("content")
+                # Check for tool_calls field (OpenAI format)
+                if msg.get("tool_calls"):
+                    continue
+                # Check for function_call in content (various formats)
+                if isinstance(content, list):
+                    has_function_call = any(
+                        isinstance(part, dict)
+                        and ("function_call" in part or "functionCall" in part)
+                        for part in content
+                    )
+                    if has_function_call:
+                        continue
+            recent.insert(0, msg)
+            if len(recent) >= count:
+                break
         # Use Pipecat's adapter for conversion
         converted = self._adapter._from_universal_context_messages(recent)
         return converted.messages

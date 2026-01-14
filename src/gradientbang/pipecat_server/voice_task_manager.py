@@ -23,24 +23,11 @@ from gradientbang.utils.tools_schema import (
     PlotCourse,
     LocalMapRegion,
     ListKnownPorts,
-    PathWithRegion,
-    Move,
     StartTask,
     StopTask,
-    Trade,
-    RechargeWarpPower,
-    TransferWarpPower,
-    TransferCredits,
-    BankDeposit,
-    BankWithdraw,
-    DumpCargo,
     SendMessage,
-    PurchaseFighters,
     CombatInitiate,
     CombatAction,
-    PlaceFighters,
-    CollectFighters,
-    SalvageCollect,
     CorporationInfo,
     UI_SHOW_PANEL_SCHEMA,
 )
@@ -173,52 +160,13 @@ class VoiceTaskManager:
             "list_known_ports": lambda **kwargs: self.game_client.list_known_ports(
                 character_id=self.character_id, **kwargs
             ),
-            "path_with_region": lambda **kwargs: self.game_client.path_with_region(
-                character_id=self.character_id, **kwargs
-            ),
-            "move": lambda to_sector: self.game_client.move(
-                to_sector=to_sector, character_id=self.character_id
-            ),
-            "trade": lambda **kwargs: self.game_client.trade(
-                character_id=self.character_id, **kwargs
-            ),
-            "purchase_fighters": lambda **kwargs: self.game_client.purchase_fighters(
-                character_id=self.character_id, **kwargs
-            ),
-            "dump_cargo": lambda **kwargs: self.game_client.dump_cargo(
-                character_id=self.character_id, **kwargs
-            ),
             "send_message": lambda **kwargs: self.game_client.send_message(
-                character_id=self.character_id, **kwargs
-            ),
-            "recharge_warp_power": lambda amount: self.game_client.recharge_warp_power(
-                character_id=self.character_id, amount=amount
-            ),
-            "transfer_warp_power": lambda **kwargs: self.game_client.transfer_warp_power(
-                character_id=self.character_id, **kwargs
-            ),
-            "transfer_credits": lambda **kwargs: self.game_client.transfer_credits(
-                character_id=self.character_id, **kwargs
-            ),
-            "bank_deposit": lambda **kwargs: self.game_client.deposit_to_bank(
-                character_id=self.character_id, **kwargs
-            ),
-            "bank_withdraw": lambda **kwargs: self.game_client.withdraw_from_bank(
                 character_id=self.character_id, **kwargs
             ),
             "combat_initiate": lambda **kwargs: self.game_client.combat_initiate(
                 character_id=self.character_id, **kwargs
             ),
             "combat_action": lambda **kwargs: self.game_client.combat_action(
-                character_id=self.character_id, **kwargs
-            ),
-            "place_fighters": lambda **kwargs: self.game_client.combat_leave_fighters(
-                character_id=self.character_id, **kwargs
-            ),
-            "collect_fighters": lambda **kwargs: self.game_client.combat_collect_fighters(
-                character_id=self.character_id, **kwargs
-            ),
-            "salvage_collect": lambda **kwargs: self.game_client.salvage_collect(
                 character_id=self.character_id, **kwargs
             ),
             "corporation_info": lambda **kwargs: self.game_client._request(
@@ -778,6 +726,8 @@ class VoiceTaskManager:
 
     def get_tools_schema(self) -> ToolsSchema:
         # Use the central tool schemas for consistency with TUI/NPC
+        # Note: Most tools (Move, Trade, Banking, etc.) are only available through tasks.
+        # See prompts.py for the full list of task-only vs direct tools.
         return ToolsSchema(
             standard_tools=[
                 MyStatus.schema(),
@@ -785,22 +735,9 @@ class VoiceTaskManager:
                 PlotCourse.schema(),
                 LocalMapRegion.schema(),
                 ListKnownPorts.schema(),
-                PathWithRegion.schema(),
-                Move.schema(),
-                Trade.schema(),
-                DumpCargo.schema(),
-                RechargeWarpPower.schema(),
-                TransferWarpPower.schema(),
-                TransferCredits.schema(),
-                PurchaseFighters.schema(),
-                BankDeposit.schema(),
-                BankWithdraw.schema(),
                 SendMessage.schema(),
                 CombatInitiate.schema(),
                 CombatAction.schema(),
-                PlaceFighters.schema(),
-                CollectFighters.schema(),
-                SalvageCollect.schema(),
                 CorporationInfo.schema(),
                 StartTask.schema(),
                 StopTask.schema(),
