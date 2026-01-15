@@ -124,7 +124,6 @@ export const Planet = () => {
 
   // Sync: palette changes -> Leva controls
   useEffect(() => {
-    console.debug("[PLANET] Syncing palette changes to Leva controls")
     set({
       tintColor: `#${palette.tint.getHexString()}`,
       shadowColor: `#${palette.base.getHexString()}`,
@@ -134,12 +133,6 @@ export const Planet = () => {
   // Sync: store config -> Leva controls
   useEffect(() => {
     if (!planetConfig) return
-
-    console.debug("[PLANET] Syncing config to Leva controls", {
-      planetConfig,
-      selectedImagePath,
-    })
-
     // Omit imageIndex from leva config as we pass filename instead of index
     const { imageIndex: _imageIndex, ...rest } = planetConfig
     set({
@@ -159,7 +152,10 @@ export const Planet = () => {
       )
 
       if (assetsToPreload.length > 0) {
-        console.debug("[PLANET] Preloading image assets", assetsToPreload)
+        console.debug(
+          "[STARFIELD PLANET] Preloading image assets",
+          assetsToPreload
+        )
         assetsToPreload.forEach((imagePath) => {
           useLoader.preload(THREE.TextureLoader, imagePath)
           preloadedAssetsRef.current.add(imagePath)

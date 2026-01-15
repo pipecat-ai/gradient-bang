@@ -8,7 +8,6 @@ import {
 import { subscribeWithSelector } from "zustand/middleware"
 
 import type { DiamondFXController } from "@/fx/frame"
-import type { GalaxyStarfield } from "@/fx/starfield"
 
 import { type ChatSlice, createChatSlice } from "./chatSlice"
 import { type CombatSlice, createCombatSlice } from "./combatSlice"
@@ -56,7 +55,7 @@ export interface GameState {
   messages: ChatMessage[]
 
   /* Singleton Instances */
-  starfieldInstance?: GalaxyStarfield
+  starfieldReady: boolean
   diamondFXInstance?: DiamondFXController
 
   /* Buffers & Caches & Miscs */
@@ -85,7 +84,7 @@ export interface GameSlice extends GameState {
   setRegionalMapData: (regionalMapData: MapData) => void
   setCoursePlot: (coursePlot: CoursePlot) => void
   clearCoursePlot: () => void
-  setStarfieldInstance: (starfieldInstance: GalaxyStarfield | undefined) => void
+  setStarfieldReady: (starfieldReady: boolean) => void
   setDiamondFXInstance: (
     diamondFXInstance: DiamondFXController | undefined
   ) => void
@@ -118,7 +117,7 @@ const createGameSlice: StateCreator<
   course_plot: undefined, // @TODO: move to map slice
   messages: [],
 
-  starfieldInstance: undefined,
+  starfieldReady: false,
   diamondFXInstance: undefined,
 
   alertTransfer: 0,
@@ -248,8 +247,7 @@ const createGameSlice: StateCreator<
       })
     ),
 
-  setStarfieldInstance: (starfieldInstance: GalaxyStarfield | undefined) =>
-    set({ starfieldInstance }),
+  setStarfieldReady: (starfieldReady: boolean) => set({ starfieldReady }),
 
   setDiamondFXInstance: (diamondFXInstance: DiamondFXController | undefined) =>
     set({ diamondFXInstance }),

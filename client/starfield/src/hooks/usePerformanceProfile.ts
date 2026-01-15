@@ -23,7 +23,7 @@ export const usePerformanceProfile = ({
         Performance: folder(
           {
             forcedProfile: {
-              value: undefined,
+              value: initialProfile || "high",
               label: "Force Performance Profile",
               options: ["low", "mid", "high"] as PerformanceProfile[],
             },

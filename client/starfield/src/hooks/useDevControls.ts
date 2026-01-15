@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { button, folder, useControls } from "leva"
 
 import { getPaletteNames } from "@/colors"
@@ -30,6 +30,7 @@ export const useDevControls = ({
   const isWarpCooldownActive = useGameStore(
     (state) => state.isWarpCooldownActive
   )
+  const performanceProfile = useGameStore((state) => state.performanceProfile)
 
   const { changeScene } = useSceneChange()
 
@@ -37,12 +38,11 @@ export const useDevControls = ({
     // We combine the leva state with our starfield state so any changes
     // made are reflected in the output
     //const levaState = levaStore.getData()
-
     console.log("Config", useGameStore.getState().starfieldConfig) //, levaState)
   }
 
   const initialDPRValue = useMemo(() => {
-    return profile === "low" ? 0.5 : profile === "mid" ? 1.5 : 2
+    return profile === "low" ? 1 : profile === "mid" ? 1.5 : 2
   }, [profile])
 
   const [, _setSceneControls] = useControls(() => ({
@@ -200,6 +200,22 @@ export const useDevControls = ({
       dimStatus: isDimmed ? "Dimmed" : "Not Dimmed",
     })
   }, [isWarping, isDimmed, setTriggers])
+
+  // Sync: profile changes -> DPR control (only when profile changes, not on manual DPR edits)
+  // Initialize with null so the first render always syncs if a profile is set
+  const prevProfileRef = useRef<PerformanceProfile | null>(null)
+  useEffect(() => {
+    if (performanceProfile && prevProfileRef.current !== performanceProfile) {
+      const newDpr =
+        performanceProfile === "low"
+          ? 1
+          : performanceProfile === "mid"
+            ? 1.5
+            : 2
+      setPerformance({ dpr: newDpr })
+      prevProfileRef.current = performanceProfile
+    }
+  }, [performanceProfile, setPerformance])
 
   // Sync: store palette -> Leva controls
   useEffect(() => {

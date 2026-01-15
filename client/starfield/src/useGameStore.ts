@@ -64,12 +64,25 @@ export const useGameStore = create<AppState>(
     setStarfieldConfig: (config: Partial<StarfieldConfig>, deepMerge = false) =>
       set(
         produce((draft) => {
-          draft.starfieldConfig = deepMerge
-            ? (deepmerge(draft.starfieldConfig, config) as StarfieldConfig)
-            : {
-                ...draft.starfieldConfig,
-                ...config,
-              }
+          // Extract imageAssets - these should always replace, never merge
+          const { imageAssets, ...restConfig } = config
+
+          if (deepMerge) {
+            // Deep merge everything except imageAssets
+            draft.starfieldConfig = deepmerge(
+              draft.starfieldConfig,
+              restConfig
+            ) as StarfieldConfig
+            // Only update imageAssets if explicitly provided
+            if (imageAssets !== undefined) {
+              draft.starfieldConfig.imageAssets = imageAssets
+            }
+          } else {
+            draft.starfieldConfig = {
+              ...draft.starfieldConfig,
+              ...config,
+            }
+          }
         })
       ),
 

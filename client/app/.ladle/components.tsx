@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo } from "react"
 
+import { Leva } from "leva"
 import type { GlobalProvider, Meta } from "@ladle/react"
 import { PipecatClient } from "@pipecat-ai/client-js"
 import {
@@ -80,6 +81,7 @@ const StoryWrapper = ({
         </>
       )}
 
+      <Leva />
       {children}
     </>
   )
@@ -121,8 +123,8 @@ export const Provider: GlobalProvider = ({ children, storyMeta }) => {
             <StoryWrapper
               client={client as unknown as PipecatClient}
               storyMeta={storyMeta}
-              handleConnect={() => handleConnect()}
-              handleDisconnect={handleDisconnect}
+              handleConnect={() => handleConnect?.()}
+              handleDisconnect={() => handleDisconnect?.()}
             >
               {children}
             </StoryWrapper>

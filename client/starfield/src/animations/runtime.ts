@@ -34,7 +34,8 @@ export function useAnimationRuntime(
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current)
       rafRef.current = null
-      onStateChangeRef.current?.(false)
+      // Defer state change to avoid updating during render
+      queueMicrotask(() => onStateChangeRef.current?.(false))
     }
   }, [])
 
@@ -45,7 +46,8 @@ export function useAnimationRuntime(
       rafRef.current = requestAnimationFrame(tick)
     }
     rafRef.current = requestAnimationFrame(tick)
-    onStateChangeRef.current?.(true)
+    // Defer state change to avoid updating during render
+    queueMicrotask(() => onStateChangeRef.current?.(true))
   }, [invalidate])
 
   const start = useCallback(() => {

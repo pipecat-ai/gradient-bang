@@ -10,13 +10,13 @@ export const images = {
   skybox7: new URL("./images/skybox-7.png", import.meta.url).href,
   skybox8: new URL("./images/skybox-8.png", import.meta.url).href,
   skybox9: new URL("./images/skybox-9.png", import.meta.url).href,
-} as const;
+} as const
 
 // Videos
 export const videos = {
   title: new URL("./videos/title.mp4", import.meta.url).href,
   planetLoading: new URL("./videos/planet-loader.mp4", import.meta.url).href,
-} as const;
+} as const
 
 // Sounds
 export const sounds = {
@@ -32,9 +32,9 @@ export const sounds = {
   text: new URL("./sounds/text.wav", import.meta.url).href,
   ambience: new URL("./sounds/ambience.wav", import.meta.url).href,
   currency: new URL("./sounds/currency.wav", import.meta.url).href,
-} as const;
+} as const
 
 // JS Chunks
 export const chunks = {
-  starfield: () => import("@/fx/starfield"),
-} as const;
+  starfield: () => import("@gradient-bang/starfield"),
+} as const

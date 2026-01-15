@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useRef } from "react"
+import { type ReactNode, useCallback } from "react"
 
 import { type APIRequest, RTVIEvent } from "@pipecat-ai/client-js"
 import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react"
@@ -13,8 +13,6 @@ import {
   transferSummaryString,
 } from "@/utils/game"
 
-import type { StarfieldSceneConfig } from "./fx/starfield"
-import GameInstanceManager from "./GameInstanceManager"
 import type { Action, StartAction } from "./types/actions"
 import { RESOURCE_SHORT_NAMES } from "./types/constants"
 
@@ -66,8 +64,6 @@ const transformMessage = (e: ServerMessage): ServerMessage | undefined => {
 export function GameProvider({ children, onConnect }: GameProviderProps) {
   const gameStore = useGameStore()
   const client = usePipecatClient()
-
-  const instanceManagerRef = useRef<GameInstanceManager | null>(null)
 
   /**
    * Send user text input to server
@@ -132,17 +128,29 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
   const initialize = useCallback(async () => {
     console.debug("[GAME CONTEXT] Initializing...")
 
-    // Create the instance manager if it doesn't exist
-    if (!instanceManagerRef.current) {
-      console.debug("[GAME CONTEXT] Creating game instance manager")
-      instanceManagerRef.current = new GameInstanceManager()
-    }
-
     gameStore.setGameStateMessage(GameInitStateMessage.INIT)
     gameStore.setGameState("initializing")
 
     // 1. Construct and await heavier game instances
-    await instanceManagerRef.current?.create_instances()
+    if (gameStore.settings.renderStarfield) {
+      console.debug("[GAME CONTEXT] Waiting on Starfield ready...")
+      await new Promise<void>((resolve) => {
+        if (useGameStore.getState().starfieldReady) {
+          resolve()
+          return
+        }
+        const unsubscribe = useGameStore.subscribe(
+          (state) => state.starfieldReady,
+          (starfieldReady) => {
+            if (starfieldReady) {
+              unsubscribe()
+              resolve()
+            }
+          }
+        )
+      })
+    }
+
     await wait(1000)
 
     // 2. Connect to agent
@@ -171,7 +179,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
     }
 
     // 3. Wait for initial data and initialize anything that needs it
-    await instanceManagerRef.current?.initialize()
+    // @TODO: pass initial config to starfield here
     gameStore.setGameStateMessage(GameInitStateMessage.STARTING)
 
     console.debug("[GAME CONTEXT] Initialized, setting ready state")
@@ -288,16 +296,15 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
               gameStore.setUIState("moving")
 
-              // @TODO: move this logic to the game instance manager
-              const starfield = gameStore.starfieldInstance
+              // @TODO: implement starfield warpToSector
 
+              /*
               if (!starfield || !gameStore.settings.renderStarfield) {
                 console.error(
                   "[GAME] Starfield instance not found / disabled, skipping animation"
                 )
                 break
               }
-
               console.debug("[GAME] Updating Starfield to", newSector)
 
               starfield.warpToSector({
@@ -309,7 +316,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
                   : undefined,
                 bypassAnimation: gameStore.settings.fxBypassAnimation,
                 bypassFlash: gameStore.settings.fxBypassFlash,
-              })
+              })*/
 
               break
             }
