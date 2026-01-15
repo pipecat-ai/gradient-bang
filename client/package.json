@@ -2,6 +2,7 @@
   "name": "@gradient-bang/workspace",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "packageManager": "pnpm@10.14.0",
   "description": "Gradient Bang Web Client Workspace",
   "author": {
@@ -34,8 +35,5 @@
   "engines": {
     "node": ">=18.0.0",
     "pnpm": ">=8.0.0"
-  },
-  "dependencies": {
-    "@pipecat-ai/daily-transport": "^1.4.1"
   }
 }

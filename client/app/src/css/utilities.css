@@ -8,11 +8,9 @@
     inset: calc(var(--elbow-offset) * -1);
     transition: all 0.3s ease-in-out;
     background: 
-        /* Top-left corner: horizontal part */ linear-gradient(
-          var(--elbow-color),
-          var(--elbow-color)
-        )
-        top 0 left 0 / var(--elbow-size) var(--elbow-width) no-repeat,
+        /* Top-left corner: horizontal part */
+      linear-gradient(var(--elbow-color), var(--elbow-color)) top 0 left 0 /
+        var(--elbow-size) var(--elbow-width) no-repeat,
       /* Top-left corner: vertical part */
         linear-gradient(var(--elbow-color), var(--elbow-color)) top 0 left 0 /
         var(--elbow-width) var(--elbow-size) no-repeat,
@@ -23,24 +21,24 @@
         linear-gradient(var(--elbow-color), var(--elbow-color)) top 0 right 0 /
         var(--elbow-width) var(--elbow-size) no-repeat,
       /* Bottom-left corner: horizontal part */
-        linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 left 0 /
-        var(--elbow-size) var(--elbow-width) no-repeat,
+        linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 left
+        0 / var(--elbow-size) var(--elbow-width) no-repeat,
       /* Bottom-left corner: vertical part */
-        linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 left 0 /
-        var(--elbow-width) var(--elbow-size) no-repeat,
+        linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 left
+        0 / var(--elbow-width) var(--elbow-size) no-repeat,
       /* Bottom-right corner: horizontal part */
-        linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 right 0 /
-        var(--elbow-size) var(--elbow-width) no-repeat,
+        linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 right
+        0 / var(--elbow-size) var(--elbow-width) no-repeat,
       /* Bottom-right corner: vertical part */
-        linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 right 0 /
-        var(--elbow-width) var(--elbow-size) no-repeat;
+        linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 right
+        0 / var(--elbow-width) var(--elbow-size) no-repeat;
     pointer-events: none;
     opacity: var(--elbow-opacity);
   }
 }
 
 @utility elbow-* {
-  --elbow-color: --value(--color- *);
+  --elbow-color: --value(--color-*);
   --elbow-width: calc(--value(integer) * 1px);
   --elbow-opacity: calc(--modifier(integer) * 1%);
 }
@@ -73,17 +71,15 @@
     inset: calc(var(--bracket-offset) * -1);
     transition: all 0.3s ease-in-out;
     background: 
-        /* Left vertical line (full height) */ linear-gradient(
-          var(--bracket-color),
-          var(--bracket-color)
-        )
-        top 0 left 0 / var(--bracket-width) 100% no-repeat,
+        /* Left vertical line (full height) */
+      linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 left 0 /
+        var(--bracket-width) 100% no-repeat,
       /* Right vertical line (full height) */
         linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 right
         0 / var(--bracket-width) 100% no-repeat,
       /* Top-left horizontal cap */
-        linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 left 0 /
-        var(--bracket-size) var(--bracket-width) no-repeat,
+        linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 left
+        0 / var(--bracket-size) var(--bracket-width) no-repeat,
       /* Top-right horizontal cap */
         linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 right
         0 / var(--bracket-size) var(--bracket-width) no-repeat,
@@ -104,17 +100,15 @@
     position: absolute;
     inset: calc(var(--bracket-offset) * -1);
     background: 
-        /* Top horizontal line (full width) */ linear-gradient(
-          var(--bracket-color),
-          var(--bracket-color)
-        )
-        top 0 left 0 / 100% var(--bracket-width) no-repeat,
+        /* Top horizontal line (full width) */
+      linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 left 0 /
+        100% var(--bracket-width) no-repeat,
       /* Bottom horizontal line (full width) */
         linear-gradient(var(--bracket-color), var(--bracket-color)) bottom 0
         left 0 / 100% var(--bracket-width) no-repeat,
       /* Top-left vertical cap */
-        linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 left 0 /
-        var(--bracket-width) var(--bracket-size) no-repeat,
+        linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 left
+        0 / var(--bracket-width) var(--bracket-size) no-repeat,
       /* Top-right vertical cap */
         linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 right
         0 / var(--bracket-width) var(--bracket-size) no-repeat,
@@ -130,7 +124,7 @@
 }
 
 @utility bracket-* {
-  --bracket-color: --value(--color- *);
+  --bracket-color: --value(--color-*);
   --bracket-width: calc(--value(integer) * 1px);
   --bracket-opacity: calc(--modifier(integer) * 1%);
 }
@@ -148,9 +142,9 @@
 }
 
 @utility bg-dotted-* {
-  --dot-gap: --value(--dot-gap- *);
-  --dot-size: --value(--dot-size- *);
-  --dot-color: --value(--color- *, [color], --dot-color);
+  --dot-gap: --value(--dot-gap-*);
+  --dot-size: --value(--dot-size-*);
+  --dot-color: --value(--color-*, [color], --dot-color);
   --dot-opacity: calc(--modifier(integer) * 1%);
 
   background-image: radial-gradient(
@@ -165,14 +159,14 @@
 }
 
 @utility heading-* {
-  font-size: --value(--text-heading- *);
+  font-size: --value(--text-heading-*);
   font-weight: var(--font-weight-extrabold);
   letter-spacing: var(--tracking-wider);
   text-transform: uppercase;
 }
 
 @utility bg-stripes-* {
-  --stripe-color: --value(--color- *);
+  --stripe-color: --value(--color-*);
   --stripe-width: 1.5px;
   --stripe-gap: 8px;
   --stripe-bg: currentColor;
@@ -190,12 +184,12 @@
 }
 
 @utility bg-stripes-overlay-* {
-  --stripe-bg: --value(--color- *);
+  --stripe-bg: --value(--color-*);
 }
 
 @utility dotted-mask-* {
   --dot-mask-size: calc(--value(integer) * 1px);
-  --dot-mask-color: --value(--color- *);
+  --dot-mask-color: --value(--color-*);
   &:after {
     content: "";
     position: absolute;
@@ -219,7 +213,7 @@
 
 @utility cross-lines-* {
   position: relative;
-  --cross-color: --value(--color- *, [color], --cross-color);
+  --cross-color: --value(--color-*, [color], --cross-color);
   --cross-opacity: calc(--modifier(integer) * 1%);
   --cross-offset: 1px;
   --cross-width: 1px;
@@ -294,7 +288,8 @@
       var(--stripe-color) var(--stripe-gap),
       var(--stripe-color) var(--stripe-size)
     );
-    mask-image: linear-gradient(
+    mask-image:
+      linear-gradient(
         to right,
         black 0,
         black var(--stripe-border),
@@ -319,19 +314,19 @@
 }
 
 @utility stripe-frame-* {
-  --stripe-inset: --value(--spacing- *);
+  --stripe-inset: --value(--spacing-*);
   --stripe-inset: --spacing(--value(integer));
-  --stripe-color: --value(--color- *);
+  --stripe-color: --value(--color-*);
   --stripe-opacity: calc(--modifier(integer) * 1%);
 }
 
 @utility stripe-frame-size-* {
-  --stripe-size: --value(--spacing- *);
+  --stripe-size: --value(--spacing-*);
   --stripe-size: --spacing(--value(integer));
 }
 
 @utility stripe-frame-border-* {
-  --stripe-border: --value(--spacing- *);
+  --stripe-border: --value(--spacing-*);
   --stripe-border: --spacing(--value(integer));
 }
 
@@ -363,7 +358,7 @@
 
 @utility stripe-bar-* {
   --stripe-bar-width: calc(--value(integer) * 1px);
-  --stripe-bar-color: --value(--color- *);
+  --stripe-bar-color: --value(--color-*);
   --stripe-bar-opacity: calc(--modifier(integer) * 1%);
 }
 

@@ -7,10 +7,6 @@ settings:
 importers:
 
   .:
-    dependencies:
-      '@pipecat-ai/daily-transport':
-        specifier: ^1.4.1
-        version: 1.4.1(@pipecat-ai/client-js@1.5.0)
     devDependencies:
       '@eslint/js':
         specifier: ^9.39.1
@@ -1329,11 +1325,6 @@ packages:
       '@pipecat-ai/client-js': '*'
       react: '>=18'
       react-dom: '>=18'
-
-  '@pipecat-ai/daily-transport@1.4.1':
-    resolution: {integrity: sha512-4WpCyg939zDfHs6Lg/dpNSnVAODZcPscn++pt8hGb87Wt6QP2lJ75VQum00hmFzgw+N0c5GkmzqGA6o8niKvXA==}
-    peerDependencies:
-      '@pipecat-ai/client-js': ~1.4.0
 
   '@pipecat-ai/daily-transport@1.5.0':
     resolution: {integrity: sha512-dVe8XQjBxsQBWR3/567ClJYoEMIMN2+8gcdkbTGoK2EfQqnKIAxmIQo/o3hXzBrZe/PNzvoMOap7o7w2OnPQXQ==}
@@ -7825,11 +7816,6 @@ snapshots:
       - '@babel/core'
       - '@babel/template'
       - '@types/react'
-
-  '@pipecat-ai/daily-transport@1.4.1(@pipecat-ai/client-js@1.5.0)':
-    dependencies:
-      '@daily-co/daily-js': 0.84.0
-      '@pipecat-ai/client-js': 1.5.0
 
   '@pipecat-ai/daily-transport@1.5.0(@pipecat-ai/client-js@1.5.0)':
     dependencies:
