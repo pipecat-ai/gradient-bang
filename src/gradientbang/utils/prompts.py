@@ -377,6 +377,8 @@ To query local map area:
 To list known ports within a map area:
 - Use: list_known_ports()
 - Events: ports.list
+- Use: list_known_ports(from_sector=96, max_hops=0)
+- Events: ports.list
 - Use: list_known_ports(max_hops=10, port_type="BBB")
 - Events: ports.list
 - Use: list_known_ports(commodity="neuro_symbolics", trade_type="buy")

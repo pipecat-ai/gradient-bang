@@ -50,6 +50,7 @@ from pipecat.services.llm_service import FunctionCallParams, LLMService
 
 from gradientbang.utils.api_client import AsyncGameClient
 from gradientbang.utils.base_llm_agent import LLMConfig
+from gradientbang.utils.weave_tracing import init_weave, traced
 
 from gradientbang.utils.prompts import (
     TaskOutputType,
@@ -283,6 +284,9 @@ class TaskAgent:
         for event_name in self._event_names:
             self.game_client.on(event_name)(self._handle_event)
 
+        # Initialize Weave tracing if available
+        init_weave()
+
     def _default_llm_service_factory(self) -> LLMService:
         """Create the standard Pipecat GoogleLLMService with thinking enabled."""
         service = PipecatGoogleLLMService(
@@ -333,6 +337,7 @@ class TaskAgent:
     def reset_cancellation(self) -> None:
         self.cancelled = False
 
+    @traced
     async def _handle_event(self, event: Dict[str, Any]) -> None:
         event_name = event.get("event_name")
         summary = event.get("summary")
@@ -419,6 +424,7 @@ class TaskAgent:
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"Failed to write error event log: {exc}")
 
+    @traced
     async def run_task(
         self,
         task: str,
@@ -598,6 +604,7 @@ class TaskAgent:
         finished_payload = f"Task stopped because of an error: {detail}"
         self._output(self._timestamped_text(finished_payload), TaskOutputType.FINISHED)
 
+    @traced
     async def _handle_function_call(self, params: FunctionCallParams) -> None:
         tool_name = params.function_name
         tool_call_id = params.tool_call_id

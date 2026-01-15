@@ -19,6 +19,13 @@ else:
 from gradientbang.utils.prompts import TaskOutputType
 from gradientbang.utils.task_agent import TaskAgent, DEFAULT_GOOGLE_MODEL
 from gradientbang.utils.base_llm_agent import LLMConfig
+from gradientbang.utils.weave_tracing import (
+    init_weave,
+    traced,
+    trace_attributes,
+    voice_session_attributes,
+    task_attributes,
+)
 from gradientbang.utils.tools_schema import (
     MyStatus,
     LeaderboardResources,
@@ -177,6 +184,9 @@ class VoiceTaskManager:
                 {} if kwargs.get("list_all") else {"character_id": self.character_id}
             ),
         }
+
+        # Initialize Weave tracing if available
+        init_weave()
 
     def _generate_task_id(self) -> str:
         """Generate a new four-digit task ID."""
@@ -391,6 +401,7 @@ class VoiceTaskManager:
         if message_type != TaskOutputType.EVENT:
             self.task_buffer.append(text)
 
+    @traced
     async def _run_task_with_tracking(
         self,
         task_id: str,
@@ -410,8 +421,35 @@ class VoiceTaskManager:
             target_character_id: Character ID being controlled
             is_corp_ship: Whether this is a corporation ship
         """
-        was_cancelled = False
         task_type = "corp_ship" if is_corp_ship else "player_ship"
+
+        # Set trace attributes for this task session
+        # actor_id is always the human player controlling VoiceTaskManager
+        # ship_id is the entity being controlled (character_id for player, ship UUID for corp)
+        with trace_attributes(task_attributes(
+            task_id=task_id,
+            task_type=task_type,
+            ship_id=target_character_id,
+            actor_id=self.character_id,
+            task_description=task_description,
+        )):
+            return await self._run_task_impl(
+                task_id, task_agent, task_game_client, task_description,
+                target_character_id, is_corp_ship, task_type
+            )
+
+    async def _run_task_impl(
+        self,
+        task_id: str,
+        task_agent: TaskAgent,
+        task_game_client: AsyncGameClient,
+        task_description: str,
+        target_character_id: str,
+        is_corp_ship: bool,
+        task_type: str,
+    ):
+        """Implementation of _run_task_with_tracking, separated for trace attributes."""
+        was_cancelled = False
 
         try:
             logger.info(f"!!! running task {task_id} ({task_type}): {task_description}")
@@ -493,6 +531,7 @@ class VoiceTaskManager:
                 "Cancellation requested - stopping task...", "cancelled"
             )
 
+    @traced
     async def execute_tool_call(self, params: FunctionCallParams):
         """Generic executor for all declared tools, for tool calls from the
         conversation LLM.
@@ -502,6 +541,14 @@ class VoiceTaskManager:
         {result: ...} on success or {error: ...} on failure. Always calls
         params.result_callback with the same payload.
         """
+        with trace_attributes(voice_session_attributes(
+            character_id=self.character_id,
+            display_name=self.display_name,
+        )):
+            return await self._execute_tool_call_impl(params)
+
+    async def _execute_tool_call_impl(self, params: FunctionCallParams):
+        """Implementation of execute_tool_call, separated for trace attributes."""
         # Try to discover the tool name from params (Pipecat provides name)
         tool_name = getattr(params, "name", None) or getattr(
             params, "function_name", None
@@ -574,6 +621,7 @@ class VoiceTaskManager:
         )
         return bool(uuid_pattern.match(value))
 
+    @traced
     async def _handle_start_task(self, params: FunctionCallParams):
         task_game_client = None
         try:
@@ -680,6 +728,7 @@ class VoiceTaskManager:
                 await self.game_client.resume_event_delivery()
             return {"success": False, "error": str(e)}
 
+    @traced
     async def _handle_stop_task(self, params: FunctionCallParams):
         try:
             task_id = params.arguments.get("task_id")
