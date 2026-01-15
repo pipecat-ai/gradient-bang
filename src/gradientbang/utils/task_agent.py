@@ -1,12 +1,12 @@
 """
-Experimental task agent that routes task execution through a Pipecat pipeline.
+Task agent that routes task execution through a Pipecat pipeline.
 
 This implementation constructs a fresh Pipecat pipeline for each task.
 
 For verbose logging set the Pipecat log level either in code or using an environment variable. For example:
 
 ```
-LOGURU_LEVEL=DEBUG uv run npc/run_experimental_task.py khk-1 "Where am I?"
+LOGURU_LEVEL=DEBUG uv run bot
 ```
 """
 
@@ -19,29 +19,28 @@ import json
 import os
 import time
 from datetime import datetime, timezone
-from enum import Enum
 from pathlib import Path
-from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
 from loguru import logger
-from google.genai import types as genai_types
-from google.genai.types import Content, GenerateContentResponse
 
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
-    Frame,
-    FunctionCallResultProperties,
     EndFrame,
+    FunctionCallInProgressFrame,
+    FunctionCallResultProperties,
+    FunctionCallsStartedFrame,
     LLMFullResponseEndFrame,
-    LLMMessagesAppendFrame,
+    LLMFullResponseStartFrame,
     LLMRunFrame,
     LLMTextFrame,
+    LLMThoughtTextFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.aggregators.llm_context import LLMContext, LLMSpecificMessage
+from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
 )
@@ -52,245 +51,120 @@ from pipecat.services.llm_service import FunctionCallParams, LLMService
 from gradientbang.utils.api_client import AsyncGameClient
 from gradientbang.utils.base_llm_agent import LLMConfig
 
+from gradientbang.utils.prompts import (
+    TaskOutputType,
+    create_task_instruction_user_message,
+    create_task_system_message,
+)
 from gradientbang.utils.tools_schema import (
     MyStatus,
-    LeaderboardResources,
     PlotCourse,
     LocalMapRegion,
     ListKnownPorts,
-    #    PathWithRegion, # Advanced version of plot_course -- disabled for now
+    PathWithRegion,
     Move,
     Trade,
-    PurchaseFighters,
-    CreateCorporation,
-    JoinCorporation,
-    LeaveCorporation,
-    KickCorporationMember,
-    PurchaseShip,
-    EventQuery,
     SalvageCollect,
     SendMessage,
     RechargeWarpPower,
     TransferWarpPower,
-    TransferCredits,
-    BankDeposit,
-    BankWithdraw,
-    DumpCargo,
     PlaceFighters,
     CollectFighters,
-    CorporationInfo,
     TaskFinished,
-    WaitInIdleState,
-    CombatInitiate,
-    CombatAction,
 )
-from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
-from gradientbang.utils.prompts import GAME_DESCRIPTION, TASK_EXECUTION_INSTRUCTIONS
 
 
 load_dotenv()
 
-
-class TaskOutputType(Enum):
-    """Types of output messages from the task agent."""
-
-    STEP = "STEP"
-    ACTION = "ACTION"
-    EVENT = "EVENT"
-    MESSAGE = "MESSAGE"
-    ERROR = "ERROR"
-    FINISHED = "FINISHED"
-
-    def __str__(self):
-        return self.value
-
-
-def create_task_system_message() -> str:
-    """Create the system prompt for the LLM.
-
-    Returns:
-        Complete system prompt including game description and instructions
-    """
-    return f"""{GAME_DESCRIPTION}
-
-{TASK_EXECUTION_INSTRUCTIONS}
-"""
-
-
-def create_task_instruction_user_message(task: str) -> str:
-    """Create a task-specific prompt for the LLM.
-
-    Args:
-        task: The task to be completed.
-
-    Returns:
-        Formatted prompt for the current decision point.
-
-    Example:
-        >>> create_npc_task_prompt("Move to sector 10", {"current_sector": 0})
-        '# Agent Instructions\n...'
-    """
-    prompt_parts = [
-        "# Agent Instructions",
-        "",
-        "You are an autonomous agent. Execute this task step by step. After each step, observe the results and react accordingly. Responses you generate from each inference call will be used only internally to complete the task. The only information that is returned to the user is the final result message that is passed to the `finished` tool call.",
-        "",
-        "When you have completed the task, call the `finished` tool with a message to be returned to the user who initiated the task.",
-        "",
-        "# Current time (UTC)",
-        f"{datetime.now(timezone.utc).isoformat()}",
-        "",
-        "# Task Instructions",
-        "",
-        f"{task}",
-        "",
-    ]
-    return "\n".join(prompt_parts)
-
-
 DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash-preview-09-2025"
-# DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash"
 # DEFAULT_GOOGLE_MODEL = "gemini-2.5-pro-preview-06-05"
 DEFAULT_THINKING_BUDGET = 2048
 DEFAULT_INCLUDE_THOUGHTS = True
 EVENT_BATCH_INFERENCE_DELAY = 1.0
 ASYNC_COMPLETION_TIMEOUT = 5.0  # Timeout for waiting for async tool completion events
+MAX_NO_TOOL_NUDGES = 3  # Max times to nudge LLM when it responds without tool calls
+NO_TOOL_WATCHDOG_DELAY = 5.0  # Seconds to wait for events before nudging LLM
 
-# Tools that have async completion events - inference is deferred until the event arrives
+# Tools that have async completion events - inference is deferred until the event arrives.
+# Our design: all tools return {"status": "Executed."} immediately, and real data comes
+# from events. We must wait for the event before triggering inference, otherwise the
+# model will hallucinate the event data.
 ASYNC_TOOL_COMPLETIONS = {
     "move": "movement.complete",
+    "plot_course": "course.plot",
+    "my_status": "status.snapshot",
+    "local_map_region": "map.region",
+    "list_known_ports": "ports.list",
+    "trade": "trade.executed",
+    "recharge_warp_power": "warp.purchase",
+    "transfer_warp_power": "warp.transfer",
+    "salvage_collect": "salvage.collected",
+    "place_fighters": "garrison.deployed",
+    "collect_fighters": "garrison.collected",
+    "send_message": "chat.message",
 }
 
 
-class _GeminiThinkingModeContentFrame(Frame):
-    def __init__(self, contents: List[Content]):
-        super().__init__()
-        self.contents = contents
+class _ResponseStateTracker(FrameProcessor):
+    """Tracks response state and controls inference scheduling.
 
+    This processor monitors standard Pipecat frames to determine when to schedule
+    the next inference based on response content.
+    """
 
-class _GeminiThinkingModeTracker(FrameProcessor):
     def __init__(self, agent: "TaskAgent"):
         super().__init__()
         self._agent = agent
+        self._reset_state()
+
+    def _reset_state(self):
+        """Reset tracking state for a new response."""
+        self._has_function_calls = False
+        self._has_text_output = False
+        self._accumulated_text = ""
 
     async def process_frame(self, frame: Any, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
-        if isinstance(frame, LLMTextFrame):
-            # We do not want the assistant aggregator to assemble the assistant messages. We're going to add
-            # output chunks from Gemini directly to the context
-            return
+        if isinstance(frame, LLMFullResponseStartFrame):
+            self._reset_state()
 
-        if isinstance(frame, _GeminiThinkingModeContentFrame):
+        elif isinstance(frame, LLMTextFrame):
+            self._has_text_output = True
+            self._accumulated_text += frame.text
+
+        elif isinstance(frame, LLMThoughtTextFrame):
+            logger.debug(f"[THOUGHT]: {frame.text[:100]}...")
+
+        elif isinstance(frame, FunctionCallsStartedFrame):
+            # Track function calls early - this frame arrives before LLMFullResponseEndFrame
+            self._has_function_calls = True
+
+        elif isinstance(frame, FunctionCallInProgressFrame):
+            # Also track this for completeness
+            self._has_function_calls = True
+
+        elif isinstance(frame, LLMFullResponseEndFrame):
             self._agent._llm_inflight = False
-            should_queue_inference = False
-            wait_in_idle_state = False
-            thought_only = True  # Track if frame contains only thought chunks
-            has_thought_content = False  # Track if there was actual thought text
-            new_context = []
-            output_message = ""
-            for content in frame.contents:
-                content_has_actionable_parts = False
-                content_has_function_call = False  # Track if this content has function_call
-                for part in content.parts or []:
-                    if part.text:
-                        if getattr(part, "thought", False):
-                            logger.debug(f"[THOUGHT]: {part.text}")
-                            has_thought_content = True
-                        else:
-                            output_message += part.text
-                            thought_only = False
-                            content_has_actionable_parts = True
-                    elif part.function_call:
-                        should_queue_inference = True
-                        thought_only = False
-                        content_has_actionable_parts = True
-                        content_has_function_call = True
-                        if part.function_call.name == "wait_in_idle_state":
-                            wait_in_idle_state = True
-                # Only add to context if this content has actionable (non-thought) parts
-                # Skip function_call content since it was already added during streaming
-                if content_has_actionable_parts and not content_has_function_call:
-                    new_context.append(LLMSpecificMessage(llm="google", message=content))
-            if output_message:
-                self._agent._output(output_message, TaskOutputType.MESSAGE)
-            if new_context:
-                await self.push_frame(LLMMessagesAppendFrame(messages=new_context))
-
-            if should_queue_inference:
-                # Got function calls - reset thought-only counter and defer to tool completion
-                self._agent._consecutive_thought_only_count = 0
-                self._agent._thought_nudge_sent = False
-                if wait_in_idle_state:
-                    logger.debug(
-                        "wait_in_idle_state function call detected; deferring inference until events/timeout"
-                    )
-                else:
-                    logger.debug(
-                        "Tool function call detected; deferring inference until tool completion"
-                    )
-            elif not thought_only:
-                # Got regular text output - reset counter and schedule follow-up
-                self._agent._consecutive_thought_only_count = 0
-                self._agent._thought_nudge_sent = False
-                logger.debug(
-                    "No tool calls in _GeminiThinkingModeContentFrame. Scheduling follow-up inference."
-                )
-                self._agent._record_inference_reason("llm_continue")
-                if not self._agent._llm_inflight:
-                    self._agent._start_inference_watchdog()
-            else:
-                # Thought-only frame - track consecutive occurrences to prevent infinite loops
-                self._agent._consecutive_thought_only_count += 1
-                count = self._agent._consecutive_thought_only_count
-                max_count = self._agent._max_consecutive_thought_only
-
-                if count >= max_count:
-                    # Inject a nudge message to prompt the model to take action
-                    if not self._agent._thought_nudge_sent:
-                        self._agent._thought_nudge_sent = True
-                        nudge_message = (
-                            "You have been thinking for several turns without taking action. "
-                            "Please call a tool function now to make progress on the task."
-                        )
-                        logger.warning(
-                            f"Reached max consecutive thought-only responses ({max_count}); "
-                            "injecting nudge message to prompt action."
-                        )
-                        await self.push_frame(
-                            LLMMessagesAppendFrame(
-                                messages=[{"role": "user", "content": nudge_message}]
-                            )
-                        )
-                        self._agent._consecutive_thought_only_count = 0
-                        self._agent._record_inference_reason("thought_nudge")
-                        if not self._agent._llm_inflight:
-                            self._agent._start_inference_watchdog()
-                    else:
-                        logger.warning(
-                            f"Reached max consecutive thought-only responses ({max_count}) "
-                            "after nudge; not scheduling follow-up to prevent infinite loop."
-                        )
-                elif has_thought_content:
-                    # LLM is actively thinking - allow follow-up but track count
-                    logger.debug(
-                        f"Thought-only frame with content ({count}/{max_count}); "
-                        "scheduling follow-up inference."
-                    )
-                    self._agent._record_inference_reason("llm_continue")
-                    if not self._agent._llm_inflight:
-                        self._agent._start_inference_watchdog()
-                else:
-                    # Empty response (0 completion tokens) - retry once
-                    logger.debug(
-                        f"Empty thought-only frame ({count}/{max_count}); "
-                        "scheduling follow-up inference."
-                    )
-                    self._agent._record_inference_reason("llm_continue")
-                    if not self._agent._llm_inflight:
-                        self._agent._start_inference_watchdog()
+            await self._handle_response_end()
 
         await self.push_frame(frame, direction)
+
+    async def _handle_response_end(self):
+        """Handle end of LLM response - output text and control inference."""
+        # Output accumulated text to callback
+        if self._accumulated_text:
+            self._agent._output(self._accumulated_text, TaskOutputType.MESSAGE)
+
+        # Queue inference if function calls were made
+        if self._has_function_calls:
+            await self._agent._queue_pending_run_now()
+        else:
+            # LLM responded without tool calls - prompt it to continue or finish
+            logger.debug(
+                "No tool calls in response. Prompting LLM to continue or finish."
+            )
+            await self._agent._handle_no_tool_response()
 
 
 PipelineToolExecutor = Callable[
@@ -304,6 +178,7 @@ class TaskAgent:
 
     def __init__(
         self,
+        config: LLMConfig,
         game_client: AsyncGameClient,
         character_id: str,
         *,
@@ -315,18 +190,24 @@ class TaskAgent:
         thinking_budget: Optional[int] = None,
         idle_timeout_secs: Optional[float] = None,
     ):
-        api_key = os.getenv("GOOGLE_API_KEY")
+        api_key = config.api_key or os.getenv("GOOGLE_API_KEY")
         if not api_key:
             raise ValueError(
                 "Google API key must be provided in config or GOOGLE_API_KEY environment variable"
             )
 
+        self.config = LLMConfig(
+            api_key=api_key,
+            model=config.model or DEFAULT_GOOGLE_MODEL,
+        )
         self.game_client = game_client
         self.character_id = character_id
 
         self.output_callback = output_callback
         self._tool_call_event_callback = tool_call_event_callback
-        self._llm_service_factory = llm_service_factory or self._default_llm_service_factory
+        self._llm_service_factory = (
+            llm_service_factory or self._default_llm_service_factory
+        )
         self._thinking_budget = thinking_budget or DEFAULT_THINKING_BUDGET
         self._include_thoughts = DEFAULT_INCLUDE_THOUGHTS
         self._pipeline_idle_timeout_secs = idle_timeout_secs
@@ -345,58 +226,31 @@ class TaskAgent:
         self._inference_delay = EVENT_BATCH_INFERENCE_DELAY
         self._inference_watchdog_handle: Optional[asyncio.TimerHandle] = None
         self._llm_inflight: bool = False
+        self._awaiting_completion_event: Optional[str] = None
+        self._completion_event_timeout: Optional[asyncio.TimerHandle] = None
         self._task_start_monotonic: Optional[float] = None
         self._context: Optional[LLMContext] = None
         self._last_logged_message_count: int = 0
-        self._last_event_monotonic: float = time.perf_counter()
-        self._idle_wait_event: Optional[asyncio.Event] = None
-        self._idle_wait_active: bool = False
-        self._idle_wait_interrupt_reason: Optional[str] = None
-
-        # Async tool completion tracking
-        self._awaiting_completion_event: Optional[str] = None
-        self._completion_event_timeout: Optional[asyncio.TimerHandle] = None
-
-        # Track consecutive thought-only LLM responses to prevent infinite loops
-        self._consecutive_thought_only_count: int = 0
-        self._max_consecutive_thought_only: int = 5
-        self._thought_nudge_sent: bool = False
-
-        self._synchronous_tools: Set[str] = set()
+        self._no_tool_nudge_count: int = 0
+        self._no_tool_watchdog_handle: Optional[asyncio.TimerHandle] = None
 
         tools = tools_list or [
             MyStatus,
-            LeaderboardResources,
             PlotCourse,
             LocalMapRegion,
             ListKnownPorts,
+            PathWithRegion,
             Move,
             Trade,
-            PurchaseFighters,
-            CreateCorporation,
-            JoinCorporation,
-            LeaveCorporation,
-            KickCorporationMember,
-            PurchaseShip,
-            EventQuery,
-            DumpCargo,
             SalvageCollect,
             SendMessage,
             RechargeWarpPower,
             TransferWarpPower,
-            TransferCredits,
-            BankDeposit,
-            BankWithdraw,
             PlaceFighters,
             CollectFighters,
-            CorporationInfo,
-            CombatInitiate,
-            CombatAction,
-            WaitInIdleState,
             TaskFinished,
         ]
         self.set_tools(tools)
-        self._synchronous_tools = {LeaderboardResources.schema().name}
 
         self._event_names = [
             "status.snapshot",
@@ -413,356 +267,34 @@ class TaskAgent:
             "character.moved",
             "trade.executed",
             "port.update",
-            "fighter.purchase",
             "warp.purchase",
             "warp.transfer",
-            "credits.transfer",
             "garrison.deployed",
             "garrison.collected",
             "garrison.mode_changed",
             "salvage.collected",
-            "salvage.created",
-            "bank.transaction",
             "combat.round_waiting",
             "combat.round_resolved",
             "combat.ended",
             "combat.action_accepted",
             "chat.message",
-            "idle.complete",
-            "event.query",
             "error",
         ]
         for event_name in self._event_names:
             self.game_client.on(event_name)(self._handle_event)
 
     def _default_llm_service_factory(self) -> LLMService:
-        # todo: PR for Pipecat GoogleLLMService to add stop() and cancel() overrides
-        class GoogleLLMService(PipecatGoogleLLMService):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                self._captured_candidate_contents: List[Content] = []
-
-            async def cancel(self, frame):
-                await super().cancel(frame)
-                try:
-                    await self._client.aio.aclose()
-                except Exception:  # noqa: BLE001
-                    pass
-
-            async def process_frame(self, frame: Frame, direction: FrameDirection):
-                # Store context before processing so it's accessible in _stream_content
-                # This is needed to add function_call to context immediately during streaming
-                from pipecat.frames.frames import LLMContextFrame
-                from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
-
-                context = None
-                if hasattr(frame, "context"):
-                    context = frame.context
-                elif isinstance(frame, LLMContextFrame):
-                    context = frame.context
-
-                self._current_context = context
-                try:
-                    await super().process_frame(frame, direction)
-                finally:
-                    self._current_context = None
-
-            async def _stream_content(
-                self, params_from_context
-            ) -> AsyncIterator[GenerateContentResponse]:
-                run_reason = None
-                pending = getattr(self, "_agent_inference_reasons", None)
-                if pending:
-                    run_reason = pending[0]
-                logger.debug(
-                    "GoogleLLMService._stream_content invoked reason={} pending={}",
-                    run_reason,
-                    len(pending) if isinstance(pending, list) else -1,
+        """Create the standard Pipecat GoogleLLMService with thinking enabled."""
+        service = PipecatGoogleLLMService(
+            api_key=self.config.api_key or "",
+            model=self.config.model or DEFAULT_GOOGLE_MODEL,
+            params=PipecatGoogleLLMService.InputParams(
+                thinking=PipecatGoogleLLMService.ThinkingConfig(
+                    thinking_budget=self._thinking_budget,
+                    include_thoughts=self._include_thoughts,
                 )
-                try:
-                    base_stream = await super()._stream_content(params_from_context)
-                except Exception:
-                    raise
-                self._captured_candidate_contents.clear()
-                self._function_call_content_added = False
-
-                async def _capturing_stream() -> AsyncIterator[GenerateContentResponse]:
-                    async for chunk in base_stream:
-                        candidates = getattr(chunk, "candidates", None)
-                        candidate = candidates[0] if candidates else None
-                        content = getattr(candidate, "content", None) if candidate else None
-                        if content is not None:
-                            self._captured_candidate_contents.append(content)
-
-                            # If this content has a function_call, add it to context immediately
-                            # BEFORE the function executes. This prevents race conditions where
-                            # events and function_responses are added before the function_call.
-                            if not self._function_call_content_added:
-                                parts = getattr(content, "parts", None) or []
-                                for part in parts:
-                                    fc = getattr(part, "function_call", None)
-                                    if fc:
-                                        # Get context from stored reference
-                                        context = getattr(self, "_current_context", None)
-                                        logger.debug(
-                                            "Detected function_call in stream: name={} context={}",
-                                            getattr(fc, "name", "unknown"),
-                                            "available" if context else "None",
-                                        )
-                                        if context:
-                                            func_call_message = LLMSpecificMessage(
-                                                llm="google",
-                                                message=content.model_copy(deep=True),
-                                            )
-                                            context.add_message(func_call_message)
-                                            self._function_call_content_added = True
-                                            logger.debug(
-                                                "Added function_call to context immediately: {}",
-                                                getattr(fc, "name", "unknown"),
-                                            )
-                                        break
-
-                        yield chunk
-
-                return _capturing_stream()
-
-            async def push_frame(
-                self,
-                frame,
-                direction: FrameDirection = FrameDirection.DOWNSTREAM,
-            ):
-                if isinstance(frame, LLMFullResponseEndFrame):
-                    if self._captured_candidate_contents:
-                        contents_copy: List[Content] = [
-                            content.model_copy(deep=True)
-                            for content in self._captured_candidate_contents
-                        ]
-                        await super().push_frame(
-                            _GeminiThinkingModeContentFrame(contents=contents_copy)
-                        )
-                        self._captured_candidate_contents.clear()
-                    else:
-                        logger.warning("LLMFullResponseEndFrame but no candidate contents")
-
-                await super().push_frame(frame, direction)
-
-            def _is_sanitized_function_message(self, message: Any) -> bool:
-                if isinstance(message, LLMSpecificMessage):
-                    return False
-                if isinstance(message, dict):
-                    parts = message.get("parts") or []
-                    if parts and any(
-                        isinstance(part, dict) and part.get("function_response") is not None
-                        for part in parts
-                    ):
-                        return True
-                    if message.get("role") == "tool":
-                        return True
-                return False
-
-            @staticmethod
-            def _is_sanitized_function_call_only(message: Any) -> bool:
-                if not isinstance(message, dict):
-                    return False
-                parts = message.get("parts") or []
-                if not parts:
-                    tool_calls = message.get("tool_calls") or []
-                    if tool_calls and all(
-                        isinstance(call, dict)
-                        and call.get("function")
-                        and not message.get("content")
-                        for call in tool_calls
-                    ):
-                        return True
-                    return False
-                return all(
-                    isinstance(part, dict)
-                    and part.get("function_call") is not None
-                    and not part.get("function_response")
-                    and not part.get("text")
-                    for part in parts
-                )
-
-            def _extract_function_call_name_from_message(
-                self, candidate: Any
-            ) -> Optional[str]:
-                """Extract a function_call name from a single message."""
-                if isinstance(candidate, LLMSpecificMessage):
-                    candidate_parts = getattr(candidate.message, "parts", None) or []
-                    for part in reversed(candidate_parts):
-                        function_call = getattr(part, "function_call", None)
-                        if function_call and getattr(function_call, "name", None):
-                            return getattr(function_call, "name")
-                elif isinstance(candidate, dict):
-                    candidate_parts = candidate.get("parts") or []
-                    for part in reversed(candidate_parts):
-                        if not isinstance(part, dict):
-                            continue
-                        function_call = part.get("function_call")
-                        if function_call:
-                            name = function_call.get("name")
-                            if name:
-                                return name
-                    tool_calls = candidate.get("tool_calls") or []
-                    for tool_call in reversed(tool_calls):
-                        if not isinstance(tool_call, dict):
-                            continue
-                        function_payload = tool_call.get("function", {})
-                        if not isinstance(function_payload, dict):
-                            continue
-                        name = function_payload.get("name")
-                        if name:
-                            return name
-                return None
-
-            def _find_function_call_name(
-                self, messages: List[Any], current_index: int
-            ) -> Optional[str]:
-                """Search both backward and forward for a function_call name.
-
-                Due to pipeline race conditions, function_response messages may
-                appear before their corresponding function_call in the message
-                list. This method searches in both directions to find the name.
-                """
-                # First search backward (most common case)
-                for cursor in range(current_index, -1, -1):
-                    name = self._extract_function_call_name_from_message(messages[cursor])
-                    if name:
-                        return name
-
-                # Then search forward (handles race condition case)
-                for cursor in range(current_index + 1, len(messages)):
-                    name = self._extract_function_call_name_from_message(messages[cursor])
-                    if name:
-                        return name
-
-                return None
-
-            def _create_function_response_message(
-                self,
-                name: Optional[str],
-                response_payload: Any,
-                extra_fields: Dict[str, Any],
-            ) -> LLMSpecificMessage:
-                resolved_name = name or "tool_call_result"
-                part = genai_types.Part.from_function_response(
-                    name=resolved_name,
-                    response=response_payload if response_payload is not None else {},
-                )
-                for field in ("will_continue", "scheduling", "parts"):
-                    value = extra_fields.get(field)
-                    if value is not None:
-                        try:
-                            setattr(part.function_response, field, value)
-                        except AttributeError:
-                            pass
-                content = Content(role="user", parts=[part])
-                adapter = self.get_llm_adapter()
-                llm_id = adapter.id_for_llm_specific_messages if adapter else "google"
-                return LLMSpecificMessage(llm=llm_id, message=content)
-
-            def _convert_function_response_message(
-                self,
-                raw_message: Dict[str, Any],
-                all_messages: List[Any],
-                current_index: int,
-            ) -> LLMSpecificMessage:
-                response_dict: Dict[str, Any] = {}
-                response_payload: Any = {}
-                name: Optional[str] = None
-
-                parts = raw_message.get("parts") or []
-                if parts:
-                    first_part = parts[0]
-                    if isinstance(first_part, dict):
-                        response_dict = first_part.get("function_response", {}) or {}
-
-                if response_dict:
-                    response_payload = response_dict.get("response", {})
-                    name = response_dict.get("name")
-                else:
-                    raw_content = raw_message.get("content")
-                    if isinstance(raw_content, str):
-                        try:
-                            response_payload = json.loads(raw_content)
-                        except json.JSONDecodeError:
-                            response_payload = {"text": raw_content}
-                    elif raw_content is not None:
-                        response_payload = raw_content
-
-                if not name:
-                    # Search both backward and forward for function_call name
-                    # (handles pipeline race conditions where function_response
-                    # appears before function_call in the message list)
-                    name = self._find_function_call_name(all_messages, current_index)
-
-                return self._create_function_response_message(
-                    name,
-                    response_payload,
-                    response_dict,
-                )
-
-            def _remove_duplicate_function_call_messages(self, context: LLMContext) -> None:
-                messages = context.get_messages()
-                normalized_messages: List[Any] = []
-                changed = False
-                idx = 0
-
-                while idx < len(messages):
-                    message = messages[idx]
-
-                    if self._is_sanitized_function_call_only(message):
-                        changed = True
-                        idx += 1
-                        continue
-
-                    next_index = idx + 1
-                    if (
-                        isinstance(message, LLMSpecificMessage)
-                        and next_index < len(messages)
-                        and self._is_sanitized_function_call_only(messages[next_index])
-                    ):
-                        normalized_messages.append(message)
-                        changed = True
-                        idx += 2
-                        continue
-
-                    if self._is_sanitized_function_message(message):
-                        normalized_messages.append(
-                            self._convert_function_response_message(message, messages, idx)
-                        )
-                        changed = True
-                        idx += 1
-                        continue
-
-                    normalized_messages.append(message)
-                    idx += 1
-
-                if changed:
-                    context.set_messages(normalized_messages)
-
-            async def _process_context(self, context: Any):
-                if isinstance(context, LLMContext):
-                    self._remove_duplicate_function_call_messages(context)
-                result = await super()._process_context(context)
-                return result
-
-        service = GoogleLLMService(
-            api_key=os.getenv("GOOGLE_API_KEY"),
-            model=DEFAULT_GOOGLE_MODEL,
-            run_in_parallel=False,
-            params=GoogleLLMService.InputParams(
-                extra={
-                    "thinking_config": {
-                        "thinking_budget": self._thinking_budget,
-                        "include_thoughts": self._include_thoughts,
-                    }
-                }
             ),
         )
-
-        setattr(service, "_agent_inference_reasons", self._inference_reasons)
-
         return service
 
     def set_tools(self, tools_list: List[Any]) -> None:
@@ -780,9 +312,6 @@ class TaskAgent:
             init_args = {"game_client": self.game_client}
             init_args.update(init_kwargs)
             tool_instance = tool_class(**init_args)
-            binder = getattr(tool_instance, "bind_agent", None)
-            if callable(binder):
-                binder(self)
             self.tools[tool_class.schema().name] = tool_instance
             standard_tools.append(tool_class.schema())
 
@@ -797,16 +326,15 @@ class TaskAgent:
 
     def cancel(self) -> None:
         self.cancelled = True
-        self._output(self._timestamped_text("Execution cancelled"), TaskOutputType.FINISHED)
+        self._output(
+            self._timestamped_text("Execution cancelled"), TaskOutputType.FINISHED
+        )
 
     def reset_cancellation(self) -> None:
         self.cancelled = False
 
     async def _handle_event(self, event: Dict[str, Any]) -> None:
         event_name = event.get("event_name")
-        if self._idle_wait_event is not None and not self._idle_wait_event.is_set():
-            self._idle_wait_interrupt_reason = event_name or "unknown"
-            self._idle_wait_event.set()
         summary = event.get("summary")
         response_data = summary or event.get("payload")
         serialized_payload = self._serialize_output(response_data)
@@ -815,7 +343,6 @@ class TaskAgent:
         else:
             event_text = serialized_payload
         self._output(event_text, TaskOutputType.EVENT)
-        self._last_event_monotonic = time.perf_counter()
         event_message = {
             "role": "user",
             "content": f"<event name={event_name}>\n{response_data}\n</event>",
@@ -832,7 +359,9 @@ class TaskAgent:
                 if self._active_pipeline_task:
                     await self._active_pipeline_task.cancel()
             except Exception as exc:  # noqa: BLE001
-                logger.warning(f"Failed to cancel pipeline task after error event: {exc}")
+                logger.warning(
+                    f"Failed to cancel pipeline task after error event: {exc}"
+                )
             raise RuntimeError(f"Encountered error event: {event}")
 
         if event_name == "error":
@@ -868,7 +397,7 @@ class TaskAgent:
             )
             return
 
-        if self._tool_call_in_progress and not self._idle_wait_active:
+        if self._tool_call_in_progress:
             logger.debug(
                 "Recorded event during tool call; delaying inference reason={}",
                 reason,
@@ -890,70 +419,10 @@ class TaskAgent:
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"Failed to write error event log: {exc}")
 
-    async def wait_in_idle_state(self, seconds: int = 60) -> Dict[str, Any]:
-        """Remain idle while still processing incoming events for up to `seconds`."""
-
-        try:
-            duration = int(seconds)
-        except (TypeError, ValueError):
-            duration = 60
-        duration = max(1, min(60, duration))
-
-        anchor = self._last_event_monotonic
-        start = time.perf_counter()
-        wait_event = asyncio.Event()
-        self._idle_wait_event = wait_event
-        self._idle_wait_active = True
-        self._idle_wait_interrupt_reason = None
-
-        interrupted = False
-        try:
-            await asyncio.wait_for(wait_event.wait(), timeout=duration)
-            interrupted = True
-        except asyncio.TimeoutError:
-            interrupted = False
-        finally:
-            self._idle_wait_event = None
-            self._idle_wait_active = False
-
-        elapsed = time.perf_counter() - start
-        events_received = interrupted or (self._last_event_monotonic != anchor)
-        interrupt_reason = self._idle_wait_interrupt_reason
-        self._idle_wait_interrupt_reason = None
-
-        result: Dict[str, Any] = {
-            "requested_seconds": duration,
-            "waited_seconds": elapsed,
-            "events_received": events_received,
-            "emitted_idle_event": False,
-        }
-        if interrupt_reason:
-            result["interrupt_reason"] = interrupt_reason
-
-        if events_received:
-            return result
-
-        summary = {
-            "message": f"No events received for {elapsed:.1f} seconds.",
-            "waited_seconds": round(elapsed, 2),
-            "requested_seconds": duration,
-            "last_event_age": round(time.perf_counter() - anchor, 2),
-        }
-        synthetic_event = {
-            "event_name": "idle.complete",
-            "summary": summary,
-        }
-        # Temporarily mark as waiting so the synthetic event schedules inference.
-        self._idle_wait_active = True
-        await self._handle_event(synthetic_event)
-        self._idle_wait_active = False
-        result["emitted_idle_event"] = True
-        result["idle_event_summary"] = summary
-        return result
-
     async def run_task(
         self,
         task: str,
+        initial_state: Optional[Dict[str, Any]] = None,
         max_iterations: int = 100,
     ) -> bool:
         self.reset_cancellation()
@@ -961,6 +430,10 @@ class TaskAgent:
         self.finished_message = None
         self.clear_messages()
         self._step_counter = 0
+        self._no_tool_nudge_count = 0
+        if self._no_tool_watchdog_handle:
+            self._no_tool_watchdog_handle.cancel()
+        self._no_tool_watchdog_handle = None
         self._inference_reasons.clear()
         self._cancel_inference_watchdog()
         self._tool_call_in_progress = False
@@ -973,16 +446,15 @@ class TaskAgent:
         _ = max_iterations  # retained for API compatibility; pipeline controls turns
 
         self.add_message({"role": "system", "content": create_task_system_message()})
-        self.add_message({"role": "user", "content": create_task_instruction_user_message(task)})
+        self.add_message(
+            {"role": "user", "content": create_task_instruction_user_message(task)}
+        )
+        # Note: initial_state parameter kept for API compatibility but not used
 
         context = self._create_context()
         runner_task = self._setup_pipeline(context)
         self._context = context
         self._last_logged_message_count = len(context.get_messages())
-
-        # Kick off the first inference turn even if no events arrive immediately.
-        self._record_inference_reason("task_start")
-        await self._schedule_pending_inference()
 
         try:
             await self.game_client.resume_event_delivery()
@@ -1027,13 +499,11 @@ class TaskAgent:
         llm_service.register_function(None, self._handle_function_call)
 
         aggregator_pair = LLMContextAggregatorPair(context)
-        state_tracker = _GeminiThinkingModeTracker(self)
-        usage_metrics = TokenUsageMetricsProcessor(source="task")
+        state_tracker = _ResponseStateTracker(self)
         pipeline = Pipeline(
             [
                 aggregator_pair.user(),
                 llm_service,
-                usage_metrics,
                 state_tracker,
                 aggregator_pair.assistant(),
             ]
@@ -1046,8 +516,9 @@ class TaskAgent:
             pipeline,
             params=PipelineParams(
                 allow_interruptions=False,
-                enable_metrics=True,
-                enable_usage_metrics=True,
+                # todo: add metrics
+                enable_metrics=False,
+                enable_usage_metrics=False,
             ),
             **pipeline_task_kwargs,
         )
@@ -1072,7 +543,7 @@ class TaskAgent:
 
     def _timestamped_text(self, message: str) -> str:
         elapsed_ms = self._elapsed_ms()
-        return f"{elapsed_ms} ms elapsed - {message}"
+        return f"{elapsed_ms} ms - {message}"
 
     @staticmethod
     def _serialize_output(data: Any) -> str:
@@ -1141,27 +612,52 @@ class TaskAgent:
             return
 
         self._emit_step()
+        self._no_tool_nudge_count = 0  # Reset nudge counter on successful tool call
+        if self._no_tool_watchdog_handle:
+            self._no_tool_watchdog_handle.cancel()
+            self._no_tool_watchdog_handle = None
         action_text = f"{tool_name}({json.dumps(arguments)})"
         self._output(action_text, TaskOutputType.ACTION)
 
         if self._tool_call_event_callback:
             await self._tool_call_event_callback(tool_name, arguments)
 
-        is_synchronous_tool = tool_name in self._synchronous_tools
-
-        if not is_synchronous_tool:
-            # put a tool call result into the context saying we sent the request
-            tool_result = {"status": "Executed."}
-            properties = FunctionCallResultProperties(run_llm=False)
-            await params.result_callback(tool_result, properties=properties)
+        # put a tool call result into the context saying we sent the request
+        tool_result = {"status": "Executed."}
+        properties = FunctionCallResultProperties(run_llm=False)
+        await params.result_callback(tool_result, properties=properties)
 
         tool = self.tools.get(tool_name)
         if not tool:
+            message = self._format_tool_message(
+                tool_call_id, {"error": f"Unknown tool: {tool_name}"}
+            )
             error_text = self._timestamped_text(f"Unknown tool: {tool_name}")
             self._output(error_text, TaskOutputType.ERROR)
-            logger.debug("TOOL_RESULT unknown tool={} arguments={}", tool_name, arguments)
-            await self._on_tool_call_completed(tool_name, {"error": f"Unknown tool: {tool_name}"})
+            logger.debug(
+                "TOOL_RESULT unknown tool={} arguments={}", tool_name, arguments
+            )
+            await self._on_tool_call_completed(
+                tool_name, {"error": f"Unknown tool: {tool_name}"}
+            )
             return
+
+        # Pre-set awaiting flag for async completion tools BEFORE any yield points.
+        # This prevents race conditions where events arrive between tool completion
+        # and _on_tool_call_completed setting the flag.
+        expected_completion_event = ASYNC_TOOL_COMPLETIONS.get(tool_name)
+        if expected_completion_event:
+            self._awaiting_completion_event = expected_completion_event
+            loop = asyncio.get_event_loop()
+            self._completion_event_timeout = loop.call_later(
+                ASYNC_COMPLETION_TIMEOUT,
+                lambda: asyncio.create_task(self._on_completion_event_timeout()),
+            )
+            logger.debug(
+                "Pre-set awaiting {} event for tool {} before execution",
+                expected_completion_event,
+                tool_name,
+            )
 
         result_payload: Any = None
         error_message: Optional[Dict[str, Any]] = None
@@ -1173,6 +669,12 @@ class TaskAgent:
                 result = await result
             result_payload = result
         except Exception as exc:
+            # On error, clear the completion await since we'll handle error path
+            if expected_completion_event:
+                self._awaiting_completion_event = None
+                if self._completion_event_timeout:
+                    self._completion_event_timeout.cancel()
+                    self._completion_event_timeout = None
             error_payload = {"error": f"{exc}"}
             error_message = self._format_tool_message(tool_call_id, error_payload)
         finally:
@@ -1187,31 +689,6 @@ class TaskAgent:
             )
             await self._on_tool_call_completed(tool_name, error_payload)
             return
-
-        if is_synchronous_tool:
-            callback_payload = {"result": result_payload}
-            sync_properties = FunctionCallResultProperties(run_llm=True)
-            formatted_message = self._format_tool_message(tool_call_id, result_payload)
-            if getattr(self, "_context", None) is not None:
-                self._context.add_message(formatted_message)
-            else:
-                self.add_message(formatted_message)
-            try:
-                await params.result_callback(callback_payload, properties=sync_properties)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "Failed to deliver synchronous tool result tool={} error={}",
-                    tool_name,
-                    exc,
-                )
-            serialized_response = self._serialize_output(result_payload)
-            if serialized_response:
-                if len(serialized_response) > 500:
-                    serialized_response = serialized_response[:500] + "..."
-                message_text = self._timestamped_text(
-                    f"{tool_name} response: {serialized_response}"
-                )
-                self._output(message_text, TaskOutputType.MESSAGE)
 
         logger.debug(
             "TOOL_RESULT tool={} arguments={} result={}",
@@ -1236,7 +713,9 @@ class TaskAgent:
             content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         return {"role": "tool", "tool_call_id": tool_call_id, "content": content}
 
-    def _payload_from_tool_message(self, tool_message: Dict[str, Any]) -> Dict[str, Any]:
+    def _payload_from_tool_message(
+        self, tool_message: Dict[str, Any]
+    ) -> Dict[str, Any]:
         content = tool_message.get("content")
         if not content:
             return {"result": {}}
@@ -1262,7 +741,9 @@ class TaskAgent:
             try:
                 self.output_callback(text, type_value)
             except Exception:  # noqa: BLE001
-                logger.exception("output_callback failed type={} text={}", type_value, text)
+                logger.exception(
+                    "output_callback failed type={} text={}", type_value, text
+                )
 
     def _record_inference_reason(self, reason: str) -> None:
         if reason in self._inference_reasons:
@@ -1335,6 +816,15 @@ class TaskAgent:
         self._inference_reasons.clear()
 
         self._cancel_inference_watchdog()
+        # Cancel no-tool watchdog since inference is happening
+        if self._no_tool_watchdog_handle:
+            self._no_tool_watchdog_handle.cancel()
+            self._no_tool_watchdog_handle = None
+
+        # Reset nudge count - LLM gets a fresh chance to respond
+        # (only reset if this inference was triggered by events, not by a nudge)
+        if "no_tool_nudge" not in reasons_snapshot:
+            self._no_tool_nudge_count = 0
 
         logger.debug("Queueing LLM run reasons={}", reasons_snapshot)
         self._llm_inflight = True
@@ -1362,13 +852,30 @@ class TaskAgent:
             elif not self._inference_reasons:
                 self._record_inference_reason("tool_result")
 
-            # Check if this tool has an expected async completion event
+            # Check if this tool has an expected async completion event.
+            # Note: _awaiting_completion_event may already be set by _handle_function_call
+            # to prevent race conditions. Only set up the await if not already configured.
             expected_event = ASYNC_TOOL_COMPLETIONS.get(tool_name)
             if expected_event:
                 # Check if we already have the completion event in pending reasons
                 already_received = any(expected_event in r for r in self._inference_reasons)
-                if not already_received:
-                    # Defer inference until completion event arrives (or timeout)
+                if already_received:
+                    # Completion event already arrived, clear any pre-set await state
+                    if self._awaiting_completion_event == expected_event:
+                        self._awaiting_completion_event = None
+                        if self._completion_event_timeout:
+                            self._completion_event_timeout.cancel()
+                            self._completion_event_timeout = None
+                elif self._awaiting_completion_event == expected_event:
+                    # Already set up by _handle_function_call, just log and defer
+                    logger.debug(
+                        "Deferring inference until {} event arrives (tool={}, pre-configured)",
+                        expected_event,
+                        tool_name,
+                    )
+                    return  # Don't schedule inference yet
+                elif not self._awaiting_completion_event:
+                    # Not pre-configured, set it up now (fallback for tools not going through _handle_function_call)
                     self._awaiting_completion_event = expected_event
                     loop = asyncio.get_event_loop()
                     self._completion_event_timeout = loop.call_later(
@@ -1402,3 +909,84 @@ class TaskAgent:
             logger.debug("LLM inflight; not queuing inference.")
             return
         await self._schedule_pending_inference()
+
+    async def _handle_no_tool_response(self) -> None:
+        """Handle LLM response that had no tool calls.
+
+        Starts a watchdog timer to wait for events before nudging the LLM.
+        This allows events to accumulate in context before prompting for action.
+        """
+        if self.finished or self.cancelled:
+            return
+        if not self._active_pipeline_task or self._active_pipeline_task.has_finished():
+            return
+
+        # Don't start another watchdog if one is already running
+        if self._no_tool_watchdog_handle is not None:
+            return
+
+        logger.debug(
+            "No tool calls in response. Starting {:.1f}s watchdog for events.",
+            NO_TOOL_WATCHDOG_DELAY,
+        )
+        loop = asyncio.get_running_loop()
+        self._no_tool_watchdog_handle = loop.call_later(
+            NO_TOOL_WATCHDOG_DELAY,
+            self._no_tool_watchdog_fire,
+        )
+
+    def _no_tool_watchdog_fire(self) -> None:
+        """Called when no-tool watchdog expires. Nudges the LLM to make a tool call."""
+        self._no_tool_watchdog_handle = None
+
+        if self.finished or self.cancelled:
+            return
+        if not self._active_pipeline_task or self._active_pipeline_task.has_finished():
+            return
+
+        self._no_tool_nudge_count += 1
+
+        # If we've nudged too many times, force finish the task
+        if self._no_tool_nudge_count > MAX_NO_TOOL_NUDGES:
+            logger.warning(
+                "LLM failed to call tools after {} nudges, forcing task completion",
+                self._no_tool_nudge_count,
+            )
+            self.finished = True
+            self.finished_message = "Task stopped: LLM failed to call required tools"
+            finished_text = self._timestamped_text(self.finished_message)
+            self._output(finished_text, TaskOutputType.FINISHED)
+            asyncio.create_task(
+                self._active_pipeline_task.queue_frames([EndFrame()])
+            )
+            return
+
+        # Add a nudge message to the context
+        nudge_message = {
+            "role": "user",
+            "content": (
+                "You did not call any tools in your last response. "
+                "If the task is complete, call the `finished` tool with a summary message. "
+                "If more work is needed, call the appropriate tool to continue."
+            ),
+        }
+        if self._context is not None:
+            self._context.add_message(nudge_message)
+        else:
+            self.add_message(nudge_message)
+
+        logger.debug(
+            "No-tool watchdog fired. Added nudge message (attempt {}/{})",
+            self._no_tool_nudge_count,
+            MAX_NO_TOOL_NUDGES,
+        )
+        self._record_inference_reason("no_tool_nudge")
+
+        # Schedule inference asynchronously
+        async def _run_inference() -> None:
+            try:
+                await self._schedule_pending_inference()
+            except Exception as exc:
+                logger.warning(f"Failed to schedule inference after no-tool nudge: {exc}")
+
+        asyncio.create_task(_run_inference())

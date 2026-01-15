@@ -1,5 +1,9 @@
 """Prompt templates and game descriptions for Gradient Bang LLM agents."""
 
+from datetime import datetime, timezone
+from enum import Enum
+
+
 GAME_DESCRIPTION = """
 # Gradient Bang - Space Trading Game
 
@@ -265,7 +269,7 @@ You should approach each task methodically:
   - If the completion criteria are met, call the finished tool to complete the task
   - If it appears the plan is not working as intended, call the finished tool to complete the task and explain the reason.
 
-## Event-drive State Management
+## Event-driven State Management
 
 All tool calls return immediately with a simple response: "Executed."
 
@@ -276,6 +280,8 @@ The current game state is encapsulated in the event payload.
 Use the information in the event sequence to understand the result of the tool call and plan your next action.
 
 RELY STRICTLY ON EVENT-DRIVEN UPDATES TO DETERMINE IF AN ACTION IS COMPLETE.
+
+IMPORTANT: Events are delivered to you as user messages with XML-like format. Do NOT generate fake events or text that looks like events in your responses. Only call tools - do not output event-like text.
 
 ### Waiting for Events
 
@@ -316,6 +322,8 @@ If asked to "Move from sector 0 to sector 10", you would:
 5. NOTE THAT the move tool returns information the contents of the new sector, so you can observe the new sector after each move.
 6. Continue moving one sector at a time along the path. Use the move tool.
 7. When you have arrived at the destination sector, call the finished tool to complete the task.
+
+IMPORTANT: Once you have plotted a course, the full path is in your context. Do NOT call plot_course again after each move. Simply follow the path by calling move() for each sector in sequence. Re-plotting wastes time and resources.
 
 ## Task example: Move to a sector and buy a commodity
 
@@ -467,3 +475,60 @@ EXAMPLE_TASKS = [
     "Move 5 sectors in any direction and describe your journey",
     "Navigate to sector 50 and wait there for 5 seconds",
 ]
+
+
+class TaskOutputType(Enum):
+    """Types of output messages from the task agent."""
+
+    STEP = "STEP"
+    ACTION = "ACTION"
+    EVENT = "EVENT"
+    MESSAGE = "MESSAGE"
+    ERROR = "ERROR"
+    FINISHED = "FINISHED"
+
+    def __str__(self):
+        return self.value
+
+
+def create_task_system_message() -> str:
+    """Create the system prompt for the LLM.
+
+    Returns:
+        Complete system prompt including game description and instructions
+    """
+    return f"""{GAME_DESCRIPTION}
+
+{TASK_EXECUTION_INSTRUCTIONS}
+"""
+
+
+def create_task_instruction_user_message(task: str) -> str:
+    """Create a task-specific prompt for the LLM.
+
+    Args:
+        task: The task to be completed.
+
+    Returns:
+        Formatted prompt for the current decision point.
+
+    Example:
+        >>> create_npc_task_prompt("Move to sector 10", {"current_sector": 0})
+        '# Agent Instructions\n...'
+    """
+    prompt_parts = [
+        "# Agent Instructions",
+        "",
+        "You are an autonomous agent. Execute this task step by step. After each step, observe the results and react accordingly. Responses you generate from each inference call will be used only internally to complete the task. The only information that is returned to the user is the final result message that is passed to the `finished` tool call.",
+        "",
+        "When you have completed the task, call the `finished` tool with a message to be returned to the user who initiated the task.",
+        "",
+        "# Current time (UTC)",
+        f"{datetime.now(timezone.utc).isoformat()}",
+        "",
+        "# Task Instructions",
+        "",
+        f"{task}",
+        "",
+    ]
+    return "\n".join(prompt_parts)

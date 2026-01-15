@@ -15,7 +15,7 @@ from pipecat.adapters.services.gemini_adapter import GeminiLLMInvocationParams
 from pipecat.services.google.llm import GoogleLLMService
 
 from gradientbang.scripts.replay_gemini_invocation import normalize_messages, print_candidate_parts
-from gradientbang.utils.experimental_pipecat_agent import (
+from gradientbang.utils.task_agent import (
     DEFAULT_GOOGLE_MODEL,
     DEFAULT_INCLUDE_THOUGHTS,
     DEFAULT_THINKING_BUDGET,
