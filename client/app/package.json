@@ -55,6 +55,7 @@
     "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "@faker-js/faker": "^10.2.0",
     "@ladle/react": "^5.0.3",
     "@tailwindcss/vite": "^4.1.11",
     "@types/node": "^24.5.2",
