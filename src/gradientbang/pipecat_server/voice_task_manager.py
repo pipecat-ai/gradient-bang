@@ -8,7 +8,7 @@ from loguru import logger
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame, RTVIProcessor
-from pipecat.frames.frames import LLMMessagesAppendFrame
+from pipecat.frames.frames import FunctionCallResultProperties, LLMMessagesAppendFrame
 
 import os
 
@@ -16,7 +16,9 @@ if os.getenv("SUPABASE_URL"):
     from gradientbang.utils.supabase_client import AsyncGameClient
 else:
     from gradientbang.utils.api_client import AsyncGameClient
-from gradientbang.utils.task_agent import TaskAgent, TaskOutputType
+from gradientbang.utils.prompts import TaskOutputType
+from gradientbang.utils.task_agent import TaskAgent, DEFAULT_GOOGLE_MODEL
+from gradientbang.utils.base_llm_agent import LLMConfig
 from gradientbang.utils.tools_schema import (
     MyStatus,
     LeaderboardResources,
@@ -125,6 +127,7 @@ class VoiceTaskManager:
 
         # Create task agent driven by the Pipecat pipeline
         self.task_agent = TaskAgent(
+            config=LLMConfig(model=DEFAULT_GOOGLE_MODEL),
             game_client=self.game_client,
             character_id=self.character_id,
             output_callback=self._handle_agent_output,
@@ -225,16 +228,27 @@ class VoiceTaskManager:
             event_xml = f"<event name={event_name}>\n{summary}\n</event>"
 
         # Determine if this event should trigger LLM inference
-        # Only trigger inference when event came from voice agent's own tool calls
+        # Most events only trigger inference when they came from voice agent's own tool calls
         # (task events don't match our tracked request IDs and handle their own inference)
         inference_triggering_events = {
-            "ports.list",           # list_known_ports results
-            "map.region",           # local_map_region results
-            "path.region",          # path_with_region results
-            "chat.message",         # Direct messages to bot
-            "combat.round_resolved",# Combat updates
-            "combat.ended",         # Combat finished
-            "error",                # Error messages
+            "status.snapshot",       # my_status results
+            "ports.list",            # list_known_ports results
+            "map.region",            # local_map_region results
+            "course.plot",           # plot_course results
+            "chat.message",          # Direct messages to bot
+            "combat.round_waiting",  # Need to submit combat action
+            "combat.round_resolved", # Combat updates
+            "combat.ended",          # Combat finished
+            "error",                 # Error messages
+        }
+
+        # Events that should always trigger inference (don't require request_id match)
+        # These are external events the voice agent must respond to
+        always_trigger_events = {
+            "chat.message",          # Incoming messages from other players
+            "combat.round_waiting",  # Combat system waiting for action
+            "combat.round_resolved", # Combat round completed
+            "combat.ended",          # Combat finished
         }
 
         # Check if event came from voice agent's tool call
@@ -242,16 +256,17 @@ class VoiceTaskManager:
         is_voice_agent_event = event_request_id in self._voice_agent_request_ids
 
         # Debug logging for request ID tracking
-        logger.info(f"!!! EVENT ARRIVED: {event_name}")
-        logger.info(f"!!!   event keys: {list(event.keys())}")
-        logger.info(f"!!!   event_request_id: {event_request_id}")
-        logger.info(f"!!!   tracked IDs: {self._voice_agent_request_ids}")
-        logger.info(f"!!!   is_voice_agent_event: {is_voice_agent_event}")
-        logger.info(f"!!!   in inference_triggering_events: {event_name in inference_triggering_events}")
+        logger.debug(f"Event arrived: {event_name}")
+        logger.debug(f"  event_request_id: {event_request_id}")
+        logger.debug(f"  is_voice_agent_event: {is_voice_agent_event}")
 
-        # Only trigger inference if this is an important event AND from voice agent
-        should_run_llm = (event_name in inference_triggering_events) and is_voice_agent_event
-        logger.info(f"!!!   should_run_llm: {should_run_llm}")
+        # Trigger inference if:
+        # 1. Event is in always_trigger_events (external events needing response), OR
+        # 2. Event is in inference_triggering_events AND from voice agent's tool call
+        should_run_llm = (event_name in always_trigger_events) or (
+            (event_name in inference_triggering_events) and is_voice_agent_event
+        )
+        logger.debug(f"  should_run_llm: {should_run_llm}")
 
         await self.rtvi_processor.push_frame(
             LLMMessagesAppendFrame(
@@ -527,10 +542,23 @@ class VoiceTaskManager:
                     req_id = self.game_client.last_request_id
                 if req_id:
                     self._voice_agent_request_ids.add(req_id)
-                    logger.info(f"!!! TOOL COMPLETE: {tool_name} - tracking request_id={req_id}")
-                    logger.info(f"!!! TRACKED IDS: {self._voice_agent_request_ids}")
+                    logger.debug(f"Tool {tool_name} tracking request_id={req_id}")
 
-            await params.result_callback(payload)
+            # Tools that generate events return minimal ack - actual data comes via events.
+            # This prevents duplicate data in context (function_response + event).
+            # run_llm=False because the event arrival will trigger inference.
+            event_generating_tools = {
+                "my_status",        # generates status.snapshot
+                "plot_course",      # generates course.plot
+                "local_map_region", # generates map.region
+                "list_known_ports", # generates ports.list
+            }
+            if tool_name in event_generating_tools:
+                ack_payload = {"status": "Executed."}
+                properties = FunctionCallResultProperties(run_llm=False)
+                await params.result_callback(ack_payload, properties=properties)
+            else:
+                await params.result_callback(payload)
         except Exception as e:
             logger.error(f"tool '{tool_name}' failed: {e}")
             error_payload = {"error": str(e)}
@@ -592,6 +620,7 @@ class VoiceTaskManager:
 
             # Create task-specific agent with custom output callback
             task_agent = TaskAgent(
+                config=LLMConfig(model=DEFAULT_GOOGLE_MODEL),
                 game_client=task_game_client,
                 character_id=target_character_id,
                 output_callback=self._create_agent_output_callback(new_task_id, task_type),

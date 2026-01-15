@@ -46,7 +46,8 @@ if os.getenv("SUPABASE_URL"):
     from gradientbang.utils.supabase_client import AsyncGameClient
 else:
     from gradientbang.utils.api_client import AsyncGameClient
-from gradientbang.utils.task_agent import TaskAgent, TaskOutputType
+from gradientbang.utils.task_agent import TaskAgent
+from gradientbang.utils.prompts import TaskOutputType
 
 REPO_ROOT = get_repo_root()
 WORLD_DATA_DIR = get_world_data_path(ensure_exists=False)
