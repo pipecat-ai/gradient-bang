@@ -3,9 +3,10 @@ import { CardContent, Divider } from "@pipecat-ai/voice-ui-kit"
 
 import { ShipOSDPanel } from "@/components/ShipOSDPanel"
 import { useGameContext } from "@/hooks/useGameContext"
+import useGameStore from "@/stores/game"
 
 import { ChatPanel } from "../ChatPanel"
-import DeviceDropDown from "../DeviceDropDown"
+//import DeviceDropDown from "../DeviceDropDown"
 import { Button } from "../primitives/Button"
 import { DotDivider } from "../primitives/DotDivider"
 import { Separator } from "../primitives/Separator"
@@ -14,6 +15,8 @@ import { UserMicControl } from "../UserMicControl"
 
 export const RHS = () => {
   const { sendUserTextInput } = useGameContext()
+  const setActiveModal = useGameStore.use.setActiveModal()
+
   return (
     <div className="w-full rhs-perspective h-full">
       <div className="flex flex-row gap-2 w-full h-full ml-auto justify-end">
@@ -39,11 +42,18 @@ export const RHS = () => {
               <DotDivider className="mx-0" />
               <UserMicControl className="min-w-32" />
               <Separator orientation="vertical" />
-              <DeviceDropDown>
+              {/*<DeviceDropDown>
                 <Button size="icon" variant="secondary">
                   <SlidersHorizontalIcon weight="bold" />
                 </Button>
-              </DeviceDropDown>
+              </DeviceDropDown>*/}
+              <Button
+                size="icon"
+                variant="secondary"
+                onClick={() => setActiveModal("settings")}
+              >
+                <SlidersHorizontalIcon weight="bold" />
+              </Button>
             </div>
           </CardContent>
         </div>

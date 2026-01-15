@@ -43,7 +43,7 @@ export interface StarfieldProps extends StarfieldBaseProps {
 
 export function StarfieldComponent({
   config,
-  debug = true,
+  debug = false,
   profile,
 }: StarfieldBaseProps) {
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
@@ -125,7 +125,7 @@ export function StarfieldComponent({
             <Planet />
           </Suspense>
 
-          <CameraController />
+          <CameraController debug={debug} />
           <EffectChainingController />
           <SceneController />
           <PostProcessingMemo />

@@ -15,8 +15,9 @@ import { Progress } from "../primitives/Progress"
 import type { GetMapRegionAction } from "@/types/actions"
 
 const MAP_CONFIG: MiniMapConfig = {
-  max_bounds_distance: undefined,
+  max_bounds_distance: 100,
   show_sector_ids: true,
+  show_partial_lanes: true,
   show_ports: true,
 }
 
@@ -38,7 +39,7 @@ export const MapScreen = () => {
         type: "get-my-map",
         payload: {
           center_sector: sector?.id ?? 0,
-          max_hops: 50,
+          max_hops: 25,
           max_sectors: 1000,
         },
       } as GetMapRegionAction)
@@ -60,7 +61,7 @@ export const MapScreen = () => {
             config={MAP_CONFIG}
             current_sector_id={sector?.id ?? 0}
             map_data={mapData}
-            maxDistance={50}
+            maxDistance={15}
             showLegend={false}
             coursePlot={coursePlot}
             width={1100}
@@ -124,7 +125,10 @@ export const MapScreen = () => {
               value={(player?.sectors_visited / player?.universe_size) * 100}
               className="h-[12px] w-full"
             />
-            {(player?.sectors_visited / player?.universe_size) * 100}%
+            {((player?.sectors_visited / player?.universe_size) * 100).toFixed(
+              2
+            )}
+            %
           </Badge>
         </CardContent>
         <CoursePlotPanel />

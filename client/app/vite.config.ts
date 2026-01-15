@@ -60,4 +60,13 @@ export default defineConfig(({ mode }) => ({
       }),
     },
   },
+  optimizeDeps: {
+    exclude: ["@gradient-bang/starfield"],
+  },
+  server: {
+    watch: {
+      // Watch the starfield dist for changes
+      ignored: ["!**/node_modules/@gradient-bang/**"],
+    },
+  },
 }))
