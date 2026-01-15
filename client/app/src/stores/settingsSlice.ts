@@ -36,7 +36,7 @@ export interface SettingsSlice {
     startBotParams: APIRequest,
     transportType: "smallwebrtc" | "daily"
   ) => void
-  getBotStartParams: (characterId: string) => APIRequest
+  getBotStartParams: (characterId?: string, accessToken?: string) => APIRequest
 }
 
 const defaultSettings = {
@@ -94,7 +94,10 @@ export const createSettingsSlice: StateCreator<SettingsSlice> = (set, get) => ({
       })
     )
   },
-  getBotStartParams: (characterId: string, accessToken: string): APIRequest => {
+  getBotStartParams: (
+    characterId?: string,
+    accessToken?: string
+  ): APIRequest => {
     const params = get().botConfig.startBotParams
     const transportType = get().botConfig.transportType
     const requestData = {
@@ -110,7 +113,7 @@ export const createSettingsSlice: StateCreator<SettingsSlice> = (set, get) => ({
             createDailyRoom: false,
             enableDefaultIceServers: true,
           }),
-      body: { character_id: characterId },
+      ...(characterId && { body: { character_id: characterId } }),
     }
 
     return {

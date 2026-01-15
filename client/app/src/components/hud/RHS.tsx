@@ -1,26 +1,26 @@
-import { SlidersHorizontalIcon } from "@phosphor-icons/react";
-import { CardContent, Divider } from "@pipecat-ai/voice-ui-kit";
+import { SlidersHorizontalIcon } from "@phosphor-icons/react"
+import { CardContent, Divider } from "@pipecat-ai/voice-ui-kit"
 
-import { ConversationPanel } from "@/components/ConversationPanel";
-import { ShipOSDPanel } from "@/components/ShipOSDPanel";
-import { useGameContext } from "@/hooks/useGameContext";
+import { ShipOSDPanel } from "@/components/ShipOSDPanel"
+import { useGameContext } from "@/hooks/useGameContext"
 
-import DeviceDropDown from "../DeviceDropDown";
-import { Button } from "../primitives/Button";
-import { DotDivider } from "../primitives/DotDivider";
-import { Separator } from "../primitives/Separator";
-import { TextInputControl } from "../TextInputControl";
-import { UserMicControl } from "../UserMicControl";
+import { ChatPanel } from "../ChatPanel"
+import DeviceDropDown from "../DeviceDropDown"
+import { Button } from "../primitives/Button"
+import { DotDivider } from "../primitives/DotDivider"
+import { Separator } from "../primitives/Separator"
+import { TextInputControl } from "../TextInputControl"
+import { UserMicControl } from "../UserMicControl"
 
 export const RHS = () => {
-  const { sendUserTextInput } = useGameContext();
+  const { sendUserTextInput } = useGameContext()
   return (
     <div className="w-full rhs-perspective h-full">
       <div className="flex flex-row gap-2 w-full h-full ml-auto justify-end">
         <div className="flex flex-col gap-2 flex-1">
           <div className="flex flex-row gap-3 w-full h-full shadow-xlong mb-1">
             <ShipOSDPanel />
-            <ConversationPanel />
+            <ChatPanel />
           </div>
           <CardContent className="mt-auto flex flex-col gap-2">
             <Divider
@@ -32,7 +32,7 @@ export const RHS = () => {
             <div className="flex flex-row gap-2 items-center">
               <TextInputControl
                 onSend={(text) => {
-                  sendUserTextInput?.(text);
+                  sendUserTextInput?.(text)
                 }}
                 className="min-w-auto"
               />
@@ -49,5 +49,5 @@ export const RHS = () => {
         </div>
       </div>
     </div>
-  );
-};
+  )
+}
