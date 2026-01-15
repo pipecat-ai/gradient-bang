@@ -41,6 +41,10 @@ cli = [
     "typer>=0.15.0",
 ]
 
+tracing = [
+    "weave>=0.50",
+]
+
 [project.scripts]
 # CLI
 gb = "gradientbang.cli:app"
