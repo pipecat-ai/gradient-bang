@@ -61,6 +61,7 @@ serve(async (req: Request): Promise<Response> => {
     }
   }
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
+  const taskId = optionalString(payload, 'task_id');
 
   try {
     await enforceRateLimit(supabase, characterId, 'my_status');
@@ -107,6 +108,7 @@ serve(async (req: Request): Promise<Response> => {
       shipId: ship.ship_id,
       sectorId: ship.current_sector ?? null,
       requestId,
+      taskId,
       corpId: character.corporation_id,
     });
 

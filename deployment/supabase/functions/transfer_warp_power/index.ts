@@ -63,6 +63,7 @@ serve(async (req: Request): Promise<Response> => {
   const actorCharacterLabel = optionalString(payload, 'actor_character_id');
   const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
+  const taskId = optionalString(payload, 'task_id');
 
   try {
     await enforceRateLimit(supabase, fromCharacterId, 'transfer_warp_power');
@@ -90,6 +91,7 @@ serve(async (req: Request): Promise<Response> => {
       requestId,
       actorCharacterId,
       adminOverride,
+      taskId,
     );
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
@@ -132,6 +134,7 @@ async function handleTransfer(
   requestId: string,
   actorCharacterId: string | null,
   adminOverride: boolean,
+  taskId: string | null,
 ): Promise<Response> {
   const source = buildEventSource('transfer_warp_power', requestId);
 
@@ -229,6 +232,7 @@ async function handleTransfer(
       source,
     },
     requestId,
+    taskId,
     sectorId,
     shipId: fromShip.ship_id,
     actorCharacterId,
@@ -249,6 +253,7 @@ async function handleTransfer(
       source,
     },
     requestId,
+    taskId,
     sectorId,
     shipId: toShip.ship_id,
     actorCharacterId,
@@ -261,6 +266,7 @@ async function handleTransfer(
     eventType: 'status.update',
     payload: fromStatus,
     requestId,
+    taskId,
     sectorId,
     shipId: fromShip.ship_id,
     actorCharacterId,
@@ -272,6 +278,7 @@ async function handleTransfer(
     eventType: 'status.update',
     payload: toStatus,
     requestId,
+    taskId,
     sectorId,
     shipId: toShip.ship_id,
     actorCharacterId,

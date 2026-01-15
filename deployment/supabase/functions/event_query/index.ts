@@ -4,6 +4,7 @@ import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 import { validateApiToken, unauthorizedResponse, errorResponse, successResponse } from '../_shared/auth.ts';
 import { createServiceRoleClient } from '../_shared/client.ts';
+import { emitCharacterEvent, buildEventSource } from '../_shared/events.ts';
 import {
   parseJsonRequest,
   optionalString,
@@ -12,8 +13,8 @@ import {
   respondWithError,
 } from '../_shared/request.ts';
 
-const MAX_QUERY_RESULTS = 1024;
-const DEFAULT_LIMIT = 1000;
+const MAX_QUERY_RESULTS = 100;
+const DEFAULT_LIMIT = 100;
 
 const ADMIN_PASSWORD = Deno.env.get('EDGE_ADMIN_PASSWORD')
   ?? Deno.env.get('ADMIN_PASSWORD')
@@ -37,12 +38,14 @@ interface EventRow {
   payload: Record<string, unknown> | null;
   meta: Record<string, unknown> | null;
   corp_id: string | null;
+  task_id: string | null;
   event_character_recipients?: Array<{ character_id: string; reason: string }> | { character_id: string; reason: string };
 }
 
 interface EventQueryResult {
   events: JsonRecord[];
-  truncated: boolean;
+  has_more: boolean;
+  next_cursor: number | null;
   scope: 'personal' | 'corporation';
 }
 
@@ -82,7 +85,27 @@ serve(async (req: Request): Promise<Response> => {
 
   try {
     const result = await executeEventQuery(supabase, payload);
-    return successResponse({ request_id: requestId, ...result });
+
+    // Emit event with query results so TaskAgent can receive them via WebSocket
+    // This follows the same pattern as my_status and other async tools
+    const actorCharacterId = optionalString(payload, 'actor_character_id');
+    const characterId = optionalString(payload, 'character_id');
+    const targetCharacterId = actorCharacterId ?? characterId;
+
+    if (targetCharacterId) {
+      const source = buildEventSource('event_query', requestId);
+      const taskId = optionalString(payload, 'task_id');
+      await emitCharacterEvent({
+        supabase,
+        characterId: targetCharacterId,
+        eventType: 'event.query',
+        payload: { source, ...result },
+        requestId,
+        taskId,
+      });
+    }
+
+    return successResponse({ request_id: requestId });
   } catch (err) {
     const validationResponse = respondWithError(err);
     if (validationResponse) {
@@ -123,6 +146,13 @@ async function executeEventQuery(
   if (stringMatch !== null && !stringMatch.length) {
     throw new EventQueryError('string_match cannot be empty');
   }
+
+  const taskId = optionalString(payload, 'task_id');
+  const eventType = optionalString(payload, 'event_type');
+
+  // Cursor for pagination - event ID to paginate from
+  const cursorRaw = optionalNumber(payload, 'cursor');
+  const cursor = cursorRaw === null ? null : enforceInteger(cursorRaw, 'cursor');
 
   const maxRowsRaw = optionalNumber(payload, 'max_rows');
   const maxRows = clampQueryLimit(maxRowsRaw === null ? DEFAULT_LIMIT : enforceInteger(maxRowsRaw, 'max_rows'));
@@ -179,16 +209,19 @@ async function executeEventQuery(
   if (corporationId && !isAdmin) {
     corporationMemberIds = await loadCorporationMemberIds(supabase, corporationId);
     if (!corporationMemberIds.length) {
-      return { events: [], count: 0, truncated: false, scope: effectiveScope };
+      return { events: [], count: 0, has_more: false, next_cursor: null, scope: effectiveScope };
     }
   }
 
-  const { events, truncated } = await fetchEvents({
+  const { events, hasMore, nextCursor } = await fetchEvents({
     supabase,
     start,
     end,
     sector: sectorFilter,
     stringMatch,
+    taskId,
+    eventType,
+    cursor,
     limit: maxRows,
     sortDirection,
     queryCharacterId,
@@ -199,7 +232,8 @@ async function executeEventQuery(
   return {
     events,
     count: events.length,
-    truncated,
+    has_more: hasMore,
+    next_cursor: nextCursor,
     scope: effectiveScope,
   };
 }
@@ -210,18 +244,24 @@ async function fetchEvents(options: {
   end: Date;
   sector: number | null;
   stringMatch: string | null;
+  taskId: string | null;
+  eventType: string | null;
+  cursor: number | null;
   limit: number;
   sortDirection: 'forward' | 'reverse';
   queryCharacterId: string | null;
   corporationMemberIds: string[] | null;
   corporationId?: string | null;
-}): Promise<{ events: JsonRecord[]; truncated: boolean }> {
+}): Promise<{ events: JsonRecord[]; hasMore: boolean; nextCursor: number | null }> {
   const {
     supabase,
     start,
     end,
     sector,
     stringMatch,
+    taskId,
+    eventType,
+    cursor,
     limit,
     sortDirection,
     queryCharacterId,
@@ -239,7 +279,7 @@ async function fetchEvents(options: {
     // Admin mode: Query events directly without recipient filtering
     query = supabase
       .from('events')
-      .select('id,timestamp,direction,event_type,character_id,sender_id,sector_id,ship_id,request_id,payload,meta,corp_id')
+      .select('id,timestamp,direction,event_type,character_id,sender_id,sector_id,ship_id,request_id,payload,meta,corp_id,task_id')
       .gte('timestamp', start.toISOString())
       .lte('timestamp', end.toISOString())
       .order('id', { ascending })
@@ -261,6 +301,7 @@ async function fetchEvents(options: {
         payload,
         meta,
         corp_id,
+        task_id,
         event_character_recipients!inner(character_id, reason)
       `)
       .gte('timestamp', start.toISOString())
@@ -279,6 +320,27 @@ async function fetchEvents(options: {
 
   if (sector !== null) {
     query = query.eq('sector_id', sector);
+  }
+
+  // Filter by task_id if provided
+  if (taskId !== null) {
+    query = query.eq('task_id', taskId);
+  }
+
+  // Filter by event_type if provided
+  if (eventType !== null) {
+    query = query.eq('event_type', eventType);
+  }
+
+  // Cursor-based pagination: filter by event ID
+  // For forward sort (ascending): get events with id > cursor
+  // For reverse sort (descending): get events with id < cursor
+  if (cursor !== null) {
+    if (ascending) {
+      query = query.gt('id', cursor);
+    } else {
+      query = query.lt('id', cursor);
+    }
   }
 
   // Admin mode with corporation_id filter: only return events explicitly tagged
@@ -328,16 +390,26 @@ async function fetchEvents(options: {
 
   const senderLookup = await loadCharacterNames(supabase, allCharacterIds);
   const filteredRows = stringMatch ? filterRowsByString(rows, stringMatch) : rows;
-  const truncated = filteredRows.length > limit;
-  const sliced = truncated ? filteredRows.slice(0, limit) : filteredRows;
+  const hasMore = filteredRows.length > limit;
+  const sliced = hasMore ? filteredRows.slice(0, limit) : filteredRows;
   const events = sliced.map((row) => buildEventRecord(row, senderLookup));
-  return { events, truncated };
+
+  // Determine next cursor from the last event in the current page
+  // The cursor is the event ID, which can be used to fetch the next page
+  let nextCursor: number | null = null;
+  if (hasMore && sliced.length > 0) {
+    const lastRow = sliced[sliced.length - 1];
+    nextCursor = lastRow.id;
+  }
+
+  return { events, hasMore, nextCursor };
 }
 
 function buildEventRecord(row: EventRow, nameLookup: Map<string, string>): JsonRecord {
   const payload = row.payload && typeof row.payload === 'object' ? row.payload : {};
   const meta = row.meta && typeof row.meta === 'object' ? row.meta : null;
   const corporationId = typeof row.corp_id === 'string' ? row.corp_id : null;
+  const taskId = typeof row.task_id === 'string' ? row.task_id : null;
   const senderId = typeof row.sender_id === 'string' ? row.sender_id : null;
 
   // Extract receiver ID from joined event_character_recipients if available
@@ -362,6 +434,7 @@ function buildEventRecord(row: EventRow, nameLookup: Map<string, string>): JsonR
     receiver: receiverId ? nameLookup.get(receiverId) ?? receiverId : null,
     sector: row.sector_id,
     corporation_id: corporationId,
+    task_id: taskId,
     meta,
   };
 }

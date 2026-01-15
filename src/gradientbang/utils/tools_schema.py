@@ -326,7 +326,14 @@ class Trade(GameClientTool):
     def schema(cls):
         return FunctionSchema(
             name="trade",
-            description="Execute a trade transaction at the current port (buy or sell commodities)",
+            description=(
+                "Execute a trade at the current port. BEFORE CALLING, check your status info: "
+                "(1) Port code (e.g., BBS): position 1=QF, 2=RO, 3=NS. B=you SELL, S=you BUY. "
+                "(2) Empty holds: if 0, do NOT attempt to buy. "
+                "(3) Your cargo: only sell what you have. "
+                "Example: Port BBS means SELL QF (B), SELL RO (B), BUY NS (S). "
+                "Always SELL first to free holds before buying."
+            ),
             properties={
                 "commodity": {
                     "type": "string",
@@ -341,7 +348,10 @@ class Trade(GameClientTool):
                 "trade_type": {
                     "type": "string",
                     "enum": ["buy", "sell"],
-                    "description": "Whether to buy from or sell to the port",
+                    "description": (
+                        "Your action: 'buy' to purchase FROM the port (port must have S for that commodity), "
+                        "'sell' to sell TO the port (port must have B for that commodity)"
+                    ),
                 },
             },
             required=["commodity", "quantity", "trade_type"],
@@ -765,6 +775,9 @@ class EventQuery(GameClientTool):
         character_id=None,
         sector=None,
         corporation_id=None,
+        task_id=None,
+        event_type=None,
+        cursor=None,
         string_match=None,
         max_rows=None,
         sort_direction=None,
@@ -777,6 +790,9 @@ class EventQuery(GameClientTool):
             character_id=character_id,
             sector=sector,
             corporation_id=corporation_id,
+            task_id=task_id,
+            event_type=event_type,
+            cursor=cursor,
             string_match=string_match,
             max_rows=max_rows,
             sort_direction=sort_direction,
@@ -787,7 +803,11 @@ class EventQuery(GameClientTool):
     def schema(cls):
         return FunctionSchema(
             name="event_query",
-            description="Query the event log for a time range. Useful for diagnostics or summarizing recent activity.",
+            description=(
+                "Query the event log for a time range. Returns up to 100 events per call. "
+                "Response includes 'has_more' (boolean) and 'next_cursor' (event ID) for pagination. "
+                "To get more results, call again with cursor=next_cursor from the previous response."
+            ),
             properties={
                 "start": {
                     "type": "string",
@@ -814,14 +834,31 @@ class EventQuery(GameClientTool):
                     "type": "string",
                     "description": "Filter to events involving the given corporation",
                 },
+                "task_id": {
+                    "type": "string",
+                    "description": "Filter to events from a specific task execution (UUID)",
+                },
+                "event_type": {
+                    "type": "string",
+                    "description": "Filter to a specific event type (e.g., 'task.start', 'task.finish', 'movement.complete')",
+                },
+                "cursor": {
+                    "type": "integer",
+                    "description": (
+                        "Pagination cursor (event ID). For forward sort, returns events after this ID. "
+                        "For reverse sort, returns events before this ID. "
+                        "Use the 'next_cursor' value from a previous response to get the next page."
+                    ),
+                },
                 "string_match": {
                     "type": "string",
                     "description": "Optional literal substring to search for within event payloads",
                 },
                 "max_rows": {
                     "type": "integer",
-                    "description": "Maximum number of events to return (defaults to 1000, capped at server limit)",
+                    "description": "Maximum number of events to return (defaults to 100, max 100)",
                     "minimum": 1,
+                    "maximum": 100,
                 },
                 "sort_direction": {
                     "type": "string",

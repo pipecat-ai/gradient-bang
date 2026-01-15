@@ -96,6 +96,7 @@ serve(async (req: Request): Promise<Response> => {
     const actorCharacterLabel = optionalString(payload, 'actor_character_id');
     const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
     const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
+    const taskId = optionalString(payload, 'task_id');
 
     let toSector = optionalNumber(payload, 'to_sector');
     if (toSector === null && 'to' in payload) {
@@ -135,6 +136,7 @@ serve(async (req: Request): Promise<Response> => {
       requestId,
       actorCharacterId,
       adminOverride,
+      taskId,
       trace,
       mark,
     } as const;
@@ -159,7 +161,7 @@ serve(async (req: Request): Promise<Response> => {
   }
 });
 
-async function handleMove({ supabase, pgClient, characterId, destination, requestId, actorCharacterId, adminOverride, trace, mark }: {
+async function handleMove({ supabase, pgClient, characterId, destination, requestId, actorCharacterId, adminOverride, taskId, trace, mark }: {
   supabase: ReturnType<typeof createServiceRoleClient>;
   pgClient: Client;
   characterId: string;
@@ -167,6 +169,7 @@ async function handleMove({ supabase, pgClient, characterId, destination, reques
   requestId: string;
   actorCharacterId: string | null;
   adminOverride: boolean;
+  taskId: string | null;
   trace: Record<string, number>;
   mark: (label: string) => void;
 }): Promise<Response> {
@@ -340,6 +343,7 @@ async function handleMove({ supabase, pgClient, characterId, destination, reques
       shipId: ship.ship_id,
       sectorId: ship.current_sector,
       requestId,
+      taskId,
       corpId: character.corporation_id,
     });
     mark('emit_movement_start');
@@ -363,6 +367,7 @@ async function handleMove({ supabase, pgClient, characterId, destination, reques
       shipId: ship.ship_id,
       destination,
       requestId,
+      taskId,
       source,
       hyperspaceSeconds,
       destinationSnapshot,
@@ -478,6 +483,7 @@ async function completeMovement({
   shipId,
   destination,
   requestId,
+  taskId,
   source,
   hyperspaceSeconds,
   destinationSnapshot,
@@ -494,6 +500,7 @@ async function completeMovement({
   shipId: string;
   destination: number;
   requestId: string;
+  taskId: string | null;
   source: ReturnType<typeof buildEventSource>;
   hyperspaceSeconds: number;
   destinationSnapshot: SectorSnapshot;
@@ -560,6 +567,7 @@ async function completeMovement({
       shipId,
       sectorId: destination,
       requestId,
+      taskId,
       corpId: character.corporation_id,
     });
     mark('emit_movement_complete');
@@ -581,6 +589,7 @@ async function completeMovement({
       payload: mapRegion as Record<string, unknown>,
       sectorId: destination,
       requestId,
+      taskId,
       corpId: character.corporation_id,
     });
     mark('emit_map_local');

@@ -53,6 +53,7 @@ serve(async (req: Request): Promise<Response> => {
   const characterId = requireString(payload, 'character_id');
   const actorCharacterId = optionalString(payload, 'actor_character_id');
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
+  const taskId = optionalString(payload, 'task_id');
 
   try {
     await enforceRateLimit(supabase, characterId, 'plot_course');
@@ -171,6 +172,7 @@ async function handlePlotCourse(
     },
     sectorId: ship.current_sector ?? undefined,
     requestId,
+    taskId,
   });
 
   return successResponse({

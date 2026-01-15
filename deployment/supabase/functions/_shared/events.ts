@@ -33,6 +33,7 @@ export interface RecordEventWithRecipientsOptions {
   senderId?: string | null;
   actorCharacterId?: string | null;
   corpId?: string | null;
+  taskId?: string | null;
   recipients?: EventRecipientSnapshot[];
   broadcast?: boolean;
 }
@@ -52,6 +53,7 @@ export async function recordEventWithRecipients(options: RecordEventWithRecipien
     senderId,
     actorCharacterId,
     corpId,
+    taskId,
     recipients = [],
     broadcast = false,
   } = options;
@@ -80,6 +82,7 @@ export async function recordEventWithRecipients(options: RecordEventWithRecipien
     p_recipients: recipientIds,
     p_reasons: recipientReasons,
     p_is_broadcast: broadcast,
+    p_task_id: taskId ?? null,
   });
 
   if (error) {
@@ -143,6 +146,7 @@ interface CharacterEventOptions {
   requestId?: string | null;
   meta?: Record<string, unknown> | null;
   corpId?: string | null;
+  taskId?: string | null;
   recipientReason?: string;
   additionalRecipients?: EventRecipientSnapshot[];
   actorCharacterId?: string | null;
@@ -161,6 +165,7 @@ export async function emitCharacterEvent(options: CharacterEventOptions): Promis
     requestId,
     meta,
     corpId,
+    taskId,
     recipientReason,
     additionalRecipients = [],
     actorCharacterId,
@@ -184,6 +189,7 @@ export async function emitCharacterEvent(options: CharacterEventOptions): Promis
     requestId,
     meta,
     corpId,
+    taskId,
     sectorId,
     shipId,
     characterId,
@@ -209,6 +215,7 @@ interface SectorEventOptions {
   senderId?: string | null;
   requestId?: string | null;
   meta?: Record<string, unknown> | null;
+  taskId?: string | null;
   recipients?: EventRecipientSnapshot[];
   actorCharacterId?: string | null;
   scope?: EventScope;
@@ -223,6 +230,7 @@ export async function emitSectorEvent(options: SectorEventOptions): Promise<numb
     senderId,
     requestId,
     meta,
+    taskId,
     recipients = [],
     actorCharacterId,
     scope = 'sector',
@@ -240,6 +248,7 @@ export async function emitSectorEvent(options: SectorEventOptions): Promise<numb
     payload,
     requestId,
     meta,
+    taskId,
     sectorId,
     senderId,
     actorCharacterId: actorCharacterId ?? null,

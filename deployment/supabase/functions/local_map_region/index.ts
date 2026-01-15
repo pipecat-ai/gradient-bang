@@ -62,6 +62,7 @@ serve(async (req: Request): Promise<Response> => {
   const characterId = requireString(payload, "character_id");
   const actorCharacterId = optionalString(payload, "actor_character_id");
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
+  const taskId = optionalString(payload, "task_id");
 
   try {
     await enforceRateLimit(supabase, characterId, "local_map_region");
@@ -205,6 +206,7 @@ async function handleLocalMapRegion(
     payload: mapRegion,
     sectorId: centerSector,
     requestId,
+    taskId,
     corpId: character.corporation_id,
   });
 

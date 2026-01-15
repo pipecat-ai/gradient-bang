@@ -58,6 +58,7 @@ serve(async (req: Request): Promise<Response> => {
   const actorCharacterLabel = optionalString(payload, 'actor_character_id');
   const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
+  const taskId = optionalString(payload, 'task_id');
 
   try {
     await enforceRateLimit(supabase, characterId, 'recharge_warp_power');
@@ -85,6 +86,7 @@ serve(async (req: Request): Promise<Response> => {
       requestId,
       actorCharacterId,
       adminOverride,
+      taskId,
     );
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
@@ -127,6 +129,7 @@ async function handleRecharge(
   requestId: string,
   actorCharacterId: string | null,
   adminOverride: boolean,
+  taskId: string | null,
 ): Promise<Response> {
   const source = buildEventSource('recharge_warp_power', requestId);
 
@@ -218,6 +221,7 @@ async function handleRecharge(
     sectorId: ship.current_sector,
     shipId: ship.ship_id,
     requestId,
+    taskId,
     corpId: character.corporation_id,
   });
 
@@ -230,6 +234,7 @@ async function handleRecharge(
     sectorId: ship.current_sector,
     shipId: ship.ship_id,
     requestId,
+    taskId,
     corpId: character.corporation_id,
   });
 

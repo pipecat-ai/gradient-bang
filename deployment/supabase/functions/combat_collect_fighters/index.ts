@@ -50,6 +50,7 @@ serve(async (req: Request): Promise<Response> => {
   const quantity = optionalNumber(payload, 'quantity');
   const actorCharacterId = optionalString(payload, 'actor_character_id');
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
+  const taskId = optionalString(payload, 'task_id');
 
   if (sector === null || sector === undefined) {
     return errorResponse('sector is required', 400);
@@ -84,6 +85,7 @@ serve(async (req: Request): Promise<Response> => {
       quantity,
       actorCharacterId,
       adminOverride,
+      taskId,
     });
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
@@ -118,6 +120,7 @@ async function handleCombatCollectFighters(params: {
   quantity: number;
   actorCharacterId: string | null;
   adminOverride: boolean;
+  taskId: string | null;
 }): Promise<Response> {
   const {
     supabase,
@@ -127,6 +130,7 @@ async function handleCombatCollectFighters(params: {
     quantity,
     actorCharacterId,
     adminOverride,
+    taskId,
   } = params;
 
   // Validate quantity
@@ -267,6 +271,7 @@ async function handleCombatCollectFighters(params: {
       },
       sectorId: sector,
       requestId,
+      taskId,
       actorCharacterId: characterId,
       corpId: character.corporation_id,
     });
@@ -342,6 +347,7 @@ async function handleCombatCollectFighters(params: {
     },
     sectorId: sector,
     requestId,
+    taskId,
     actorCharacterId: characterId,
     corpId: character.corporation_id,
   });
@@ -364,6 +370,7 @@ async function handleCombatCollectFighters(params: {
       sectorId: sector,
       actorCharacterId: characterId,
       requestId,
+      taskId,
     });
   }
 
