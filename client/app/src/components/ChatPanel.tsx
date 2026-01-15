@@ -112,7 +112,7 @@ export const ChatPanel = () => {
           fullHeight={true}
           classNames={{ scrollbar: "*:first:bg-white/30" }}
         >
-          <div className="absolute inset-0 overflow-y-auto flex flex-col gap-3">
+          <div className="absolute inset-0 overflow-y-auto flex flex-col gap-2">
             {messages?.toReversed().map((message) => (
               <ChatMessageRow key={message.createdAt} message={message} />
             ))}
