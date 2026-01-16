@@ -198,7 +198,6 @@ serve(async (req: Request): Promise<Response> => {
       centerSector: targetSector,
       maxHops: 4,
       maxSectors: 28,
-      mapKnowledge: knowledge,
     });
     mapPayload['source'] = source;
     await pgEmitCharacterEvent({

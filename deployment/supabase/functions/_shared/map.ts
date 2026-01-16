@@ -40,6 +40,7 @@ export interface LocalMapSector {
   lanes: WarpEdge[];
   adjacent_sectors?: number[];
   last_visited?: string;
+  source?: 'player' | 'corp' | 'both';
 }
 
 export interface LocalMapRegionPayload {
@@ -745,6 +746,7 @@ export async function buildLocalMapRegion(
         lanes: warps,
         adjacent_sectors: adjacencyCache.get(sectorId) ?? [],
         last_visited: knowledgeEntry?.last_visited,
+        source: knowledgeEntry?.source,
       });
     } else {
       const seenFrom = Array.from(unvisitedSeen.get(sectorId) ?? []);
