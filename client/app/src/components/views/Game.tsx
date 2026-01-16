@@ -8,7 +8,7 @@ import { usePlaySound } from "@/hooks/usePlaySound"
 import { ActivityStream } from "@/hud/ActivityStream"
 import { ShipHUD } from "@/hud/ShipHUD"
 import { ShipVisor } from "@/hud/ShipVisor"
-import { StarField } from "@/hud/StarField"
+import { Starfield } from "@/hud/StarField"
 import { TopBar } from "@/hud/TopBar"
 import useGameStore from "@/stores/game"
 
@@ -23,29 +23,6 @@ export const Game = () => {
       playSound("ambience", { loop: true, once: true, volume: 0.5 })
     }
   }, [playSound, gameState])
-
-  useEffect(() => {
-    const handleKeyPress = (event: KeyboardEvent) => {
-      if (event.key === "p" || event.key === "P") {
-        const sector = useGameStore.getState().sector
-        if (sector?.port) {
-          const starfieldInstance = useGameStore.getState().starfieldInstance
-          if (starfieldInstance) {
-            starfieldInstance.selectGameObject("port")
-          }
-        }
-      }
-      if (event.key === "c" || event.key === "c") {
-        const starfieldInstance = useGameStore.getState().starfieldInstance
-        if (starfieldInstance) {
-          starfieldInstance.clearGameObjectSelection()
-        }
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyPress)
-    return () => window.removeEventListener("keydown", handleKeyPress)
-  }, [])
 
   return (
     <>
@@ -68,7 +45,7 @@ export const Game = () => {
 
       {/* Other Renderables */}
       <ShipVisor />
-      <StarField />
+      <Starfield />
       <Settings />
     </>
   )

@@ -8,6 +8,8 @@ import "./styles.css"
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <Starfield
+      debug={true}
+      profile="low"
       onCreated={() => console.log("Starfield created")}
       onUnsupported={() => console.log("Starfield unsupported")}
       onWarpAnimationStart={() => console.log("Warp animation started")}

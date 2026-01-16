@@ -1,5 +1,6 @@
 import { produce } from "immer"
 import { type StateCreator } from "zustand"
+import type { PerformanceProfile } from "@gradient-bang/starfield"
 import { type APIRequest } from "@pipecat-ai/client-js"
 
 import { getLocalSettings, setLocalSettings } from "@/utils/settings"
@@ -20,7 +21,7 @@ export interface SettingsSlice {
     startMuted: boolean
     fxBypassFlash: boolean
     fxBypassAnimation: boolean
-    qualityPreset: "text" | "low" | "high" | "auto"
+    qualityPreset: PerformanceProfile
     saveSettings: boolean
     showMobileWarning: boolean
     bypassAssetCache: boolean
@@ -54,7 +55,7 @@ const defaultSettings = {
   startMuted: false,
   fxBypassFlash: false,
   fxBypassAnimation: false,
-  qualityPreset: "high" as const,
+  qualityPreset: "high",
   saveSettings: true,
   showMobileWarning: true,
   bypassAssetCache: false,

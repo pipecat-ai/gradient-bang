@@ -10,12 +10,13 @@
     "url": "https://github.com/jptaylor"
   },
   "scripts": {
-    "dev": "turbo run dev",
+    "dev": "turbo run dev --filter=@gradient-bang/app",
     "dev:all": "turbo run dev stories",
-    "dev:stories": "turbo run stories",
-    "dev:starfield": "turbo run dev --filter=@gradient-bang/starfield",
+    "dev:stories": "turbo run stories --filter=@gradient-bang/app",
+    "dev:starfield": "turbo run dev:preview --filter=@gradient-bang/starfield",
     "build": "turbo run build",
     "build:app": "turbo run build --filter=@gradient-bang/app",
+    "build:starfield": "turbo run build --filter=@gradient-bang/starfield",
     "preview": "turbo run preview",
     "lint": "turbo run lint"
   },

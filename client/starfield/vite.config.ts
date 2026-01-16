@@ -36,13 +36,16 @@ export default defineConfig({
       formats: ["es"],
       fileName: "index",
     },
+    // Don't copy public folder to dist
+    copyPublicDir: false,
     rollupOptions: {
-      // Externalize only React and its ecosystem
+      // Externalize React and leva (shared with app)
       external: [
         "react",
         "react-dom",
         "react/jsx-runtime",
         "react/jsx-dev-runtime",
+        "leva",
       ],
       output: {
         // Preserve module structure for tree-shaking

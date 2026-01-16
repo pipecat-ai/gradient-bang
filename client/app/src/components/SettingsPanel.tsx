@@ -281,7 +281,7 @@ export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
                 <SettingSelect
                   label="Quality Preset"
                   id="quality-preset"
-                  options={["text", "low", "high"]}
+                  options={["low", "mid", "high"]}
                   value={formSettings.qualityPreset}
                   onChange={(value) =>
                     setFormSettings((prev) => ({

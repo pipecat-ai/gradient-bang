@@ -19,6 +19,13 @@
             "persistent": true
         },
         "dev": {
+            "dependsOn": [
+                "^build"
+            ],
+            "cache": false,
+            "persistent": true
+        },
+        "dev:preview": {
             "cache": false,
             "persistent": true
         },
@@ -28,6 +35,9 @@
             ]
         },
         "stories": {
+            "dependsOn": [
+                "^build"
+            ],
             "cache": false,
             "persistent": true
         }
