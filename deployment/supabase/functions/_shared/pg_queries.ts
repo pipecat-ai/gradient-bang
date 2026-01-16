@@ -331,17 +331,27 @@ export async function pgUpdateCharacterLastActive(
   );
 }
 
-export interface MapKnowledgeResult {
-  personal: MapKnowledge;
-  corp: MapKnowledge | null;
-  merged: MapKnowledge;
-  corporationId: string | null;
+/**
+ * Set source='player' on all entries in a MapKnowledge object.
+ * Used when there's no corp knowledge to merge.
+ */
+function setPlayerSource(knowledge: MapKnowledge): MapKnowledge {
+  const result: MapKnowledge = {
+    total_sectors_visited: knowledge.total_sectors_visited,
+    sectors_visited: {},
+    current_sector: knowledge.current_sector,
+    last_update: knowledge.last_update,
+  };
+  for (const [sectorId, entry] of Object.entries(knowledge.sectors_visited)) {
+    result.sectors_visited[sectorId] = { ...entry, source: 'player' };
+  }
+  return result;
 }
 
 export async function pgLoadMapKnowledge(
   pg: Client,
   characterId: string
-): Promise<MapKnowledgeResult> {
+): Promise<MapKnowledge> {
   const result = await pg.queryObject<{
     map_knowledge: unknown;
     corporation_id: string | null;
@@ -362,9 +372,9 @@ export async function pgLoadMapKnowledge(
   const corp = row?.corp_map_knowledge
     ? normalizeMapKnowledge(row.corp_map_knowledge)
     : null;
-  const merged = corp ? mergeMapKnowledge(personal, corp) : personal;
 
-  return { personal, corp, merged, corporationId: row?.corporation_id ?? null };
+  // Merge with source field, or set source='player' if no corp
+  return corp ? mergeMapKnowledge(personal, corp) : setPlayerSource(personal);
 }
 
 export async function pgUpdateMapKnowledge(
@@ -936,19 +946,25 @@ async function pgLoadUniverseSize(pg: Client): Promise<number> {
 function buildPlayerSnapshot(
   character: CharacterRow,
   playerType: string,
-  knowledgeResult: MapKnowledgeResult,
+  knowledge: MapKnowledge,
   universeSize: number
 ): Record<string, unknown> {
-  const { personal, corp, merged } = knowledgeResult;
-  const sectorsVisited =
-    personal.total_sectors_visited ||
-    Object.keys(personal.sectors_visited).length;
-  const corpSectorsVisited = corp
-    ? corp.total_sectors_visited || Object.keys(corp.sectors_visited).length
-    : null;
-  const totalSectorsKnown =
-    merged.total_sectors_visited ||
-    Object.keys(merged.sectors_visited).length;
+  // Derive stats from source field
+  let sectorsVisited = 0;
+  let corpSectorsVisited = 0;
+  let hasCorpKnowledge = false;
+
+  for (const entry of Object.values(knowledge.sectors_visited)) {
+    if (entry.source === 'player' || entry.source === 'both') {
+      sectorsVisited++;
+    }
+    if (entry.source === 'corp' || entry.source === 'both') {
+      corpSectorsVisited++;
+      hasCorpKnowledge = true;
+    }
+  }
+
+  const totalSectorsKnown = Object.keys(knowledge.sectors_visited).length;
 
   return {
     id: character.character_id,
@@ -956,7 +972,7 @@ function buildPlayerSnapshot(
     player_type: playerType,
     credits_in_bank: character.credits_in_megabank ?? 0,
     sectors_visited: sectorsVisited,
-    corp_sectors_visited: corpSectorsVisited,
+    corp_sectors_visited: hasCorpKnowledge ? corpSectorsVisited : null,
     total_sectors_known: totalSectorsKnown,
     universe_size: universeSize,
     created_at: character.first_visit,
@@ -1016,11 +1032,11 @@ export async function pgBuildStatusPayload(
     options?.ship ?? (await pgLoadShip(pg, character.current_ship_id));
   const definition =
     options?.shipDefinition ?? (await pgLoadShipDefinition(pg, ship.ship_type));
-  // Load both personal and corp knowledge with merge
-  const knowledgeResult = await pgLoadMapKnowledge(pg, characterId);
+  // Load merged knowledge (with source field set on each entry)
+  const knowledge = await pgLoadMapKnowledge(pg, characterId);
   const universeSize = await pgLoadUniverseSize(pg);
   const playerType = resolvePlayerType(character.player_metadata);
-  const player = buildPlayerSnapshot(character, playerType, knowledgeResult, universeSize);
+  const player = buildPlayerSnapshot(character, playerType, knowledge, universeSize);
   const shipSnapshot = buildShipSnapshot(ship, definition);
   const sectorSnapshot =
     options?.sectorSnapshot ??
@@ -1156,8 +1172,7 @@ export async function pgBuildLocalMapRegion(
 
   let knowledge = params.mapKnowledge;
   if (!knowledge) {
-    const result = await pgLoadMapKnowledge(pg, characterId);
-    knowledge = result.merged;
+    knowledge = await pgLoadMapKnowledge(pg, characterId);
   }
 
   const visitedSet = new Set<number>(
@@ -2519,8 +2534,12 @@ export async function pgUpsertKnowledgeEntry(
   // Load existing personal knowledge if not provided
   let knowledge = params.existingKnowledge;
   if (!knowledge) {
-    const result = await pgLoadMapKnowledge(pg, characterId);
-    knowledge = result.personal;
+    // Load personal knowledge directly (not merged) since we're updating the character's map_knowledge
+    const charResult = await pg.queryObject<{ map_knowledge: unknown }>(
+      `SELECT map_knowledge FROM characters WHERE character_id = $1`,
+      [characterId]
+    );
+    knowledge = normalizeMapKnowledge(charResult.rows[0]?.map_knowledge ?? null);
   }
 
   const adjacent = parseAdjacentIds(structure);

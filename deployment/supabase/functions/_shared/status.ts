@@ -1,6 +1,6 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-import { buildSectorSnapshot, MapKnowledge, MapKnowledgeResult, normalizeMapKnowledge, loadMapKnowledge } from './map.ts';
+import { buildSectorSnapshot, MapKnowledge, normalizeMapKnowledge, loadMapKnowledge } from './map.ts';
 
 export interface CharacterRow {
   character_id: string;
@@ -192,19 +192,25 @@ export function resolvePlayerType(metadata: Record<string, unknown> | null | und
 export function buildPlayerSnapshot(
   character: CharacterRow,
   playerType: string,
-  knowledgeResult: MapKnowledgeResult,
+  knowledge: MapKnowledge,
   universeSize: number,
 ): Record<string, unknown> {
-  const { personal, corp, merged } = knowledgeResult;
-  const sectorsVisited =
-    personal.total_sectors_visited ||
-    Object.keys(personal.sectors_visited).length;
-  const corpSectorsVisited = corp
-    ? corp.total_sectors_visited || Object.keys(corp.sectors_visited).length
-    : null;
-  const totalSectorsKnown =
-    merged.total_sectors_visited ||
-    Object.keys(merged.sectors_visited).length;
+  // Derive stats from source field
+  let sectorsVisited = 0;
+  let corpSectorsVisited = 0;
+  let hasCorpKnowledge = false;
+
+  for (const entry of Object.values(knowledge.sectors_visited)) {
+    if (entry.source === 'player' || entry.source === 'both') {
+      sectorsVisited++;
+    }
+    if (entry.source === 'corp' || entry.source === 'both') {
+      corpSectorsVisited++;
+      hasCorpKnowledge = true;
+    }
+  }
+
+  const totalSectorsKnown = Object.keys(knowledge.sectors_visited).length;
 
   return {
     id: character.character_id,
@@ -212,7 +218,7 @@ export function buildPlayerSnapshot(
     player_type: playerType,
     credits_in_bank: character.credits_in_megabank ?? 0,
     sectors_visited: sectorsVisited,
-    corp_sectors_visited: corpSectorsVisited,
+    corp_sectors_visited: hasCorpKnowledge ? corpSectorsVisited : null,
     total_sectors_known: totalSectorsKnown,
     universe_size: universeSize,
     created_at: character.first_visit,
@@ -283,11 +289,11 @@ export async function buildStatusPayload(
   const character = await loadCharacter(supabase, characterId);
   const ship = await loadShip(supabase, character.current_ship_id);
   const definition = await loadShipDefinition(supabase, ship.ship_type);
-  // Load both personal and corp knowledge with merge
-  const knowledgeResult = await loadMapKnowledge(supabase, characterId);
+  // Load merged knowledge (with source field set on each entry)
+  const knowledge = await loadMapKnowledge(supabase, characterId);
   const universeSize = await loadUniverseSize(supabase);
   const playerType = resolvePlayerType(character.player_metadata);
-  const player = buildPlayerSnapshot(character, playerType, knowledgeResult, universeSize);
+  const player = buildPlayerSnapshot(character, playerType, knowledge, universeSize);
   const shipSnapshot = buildShipSnapshot(ship, definition);
   const sectorSnapshot = await buildSectorSnapshot(supabase, ship.current_sector ?? 0, characterId);
 

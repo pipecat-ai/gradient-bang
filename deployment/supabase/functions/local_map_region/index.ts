@@ -150,7 +150,7 @@ async function handleLocalMapRegion(
     adminOverride,
     targetCharacterId: characterId,
   });
-  const { merged: knowledge } = await loadMapKnowledge(supabase, characterId);
+  const knowledge = await loadMapKnowledge(supabase, characterId);
 
   let centerSector = optionalNumber(payload, "center_sector");
   if (centerSector === null) {

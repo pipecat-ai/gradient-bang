@@ -279,7 +279,7 @@ async function handleListKnownPorts(
     adminOverride,
     targetCharacterId: characterId,
   });
-  const { merged: knowledge } = await loadMapKnowledge(supabase, characterId);
+  const knowledge = await loadMapKnowledge(supabase, characterId);
 
   const requestedFromSector = optionalNumber(payload, "from_sector");
   let fromSector: number | null = null;

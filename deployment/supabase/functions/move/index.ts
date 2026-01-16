@@ -545,7 +545,7 @@ async function completeMovement({
     mark('mark_sector_visited');
 
     // Load merged knowledge for local map (personal + corp)
-    const { merged: mergedKnowledge } = await pgLoadMapKnowledge(pg, characterId);
+    const mergedKnowledge = await pgLoadMapKnowledge(pg, characterId);
     mark('load_map_knowledge');
 
     const movementCompletePayload = {
