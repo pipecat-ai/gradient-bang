@@ -14,7 +14,7 @@ import {
   emitSectorEnvelope,
 } from "../_shared/events.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
-import { buildLocalMapRegion, normalizeMapKnowledge } from "../_shared/map.ts";
+import { buildLocalMapRegion, loadMapKnowledge } from "../_shared/map.ts";
 import { loadCharacter, loadShip } from "../_shared/status.ts";
 import {
   ensureActorAuthorization,
@@ -150,7 +150,7 @@ async function handleLocalMapRegion(
     adminOverride,
     targetCharacterId: characterId,
   });
-  const knowledge = normalizeMapKnowledge(character.map_knowledge);
+  const knowledge = await loadMapKnowledge(supabase, characterId);
 
   let centerSector = optionalNumber(payload, "center_sector");
   if (centerSector === null) {

@@ -81,18 +81,19 @@ def _format_cargo(cargo: Dict[str, int]) -> str:
     return f"{qf} QF | {ro} RO | {ns} NS"
 
 
-def _format_port(port: Dict[str, Any]) -> List[str]:
-    """Format port information with prices and stock.
+def _format_port_prices_compact(port: Dict[str, Any]) -> str:
+    """Format port with prices as compact single-line string.
 
-    Returns list of lines describing port trades.
+    Returns format like: 'BSS buys QF@45 sells RO@120,NS@85'
     """
     if not port:
-        return []
+        return ""
 
     code = port.get("code", "???")
-    lines = [f"Port: {code}"]
     prices = port.get("prices", {})
-    stock = port.get("stock", {})
+
+    if not code or not prices:
+        return code
 
     # Map commodities to their abbreviations and port code positions
     commodities = [
@@ -101,22 +102,39 @@ def _format_port(port: Dict[str, Any]) -> List[str]:
         ("neuro_symbolics", "NS", 2),
     ]
 
+    buys: List[str] = []
+    sells: List[str] = []
+
     for commodity, abbrev, idx in commodities:
         price = prices.get(commodity)
         if price is None:
             continue
 
-        # Determine if port buys or sells based on code letter
-        # B = port buys, S = port sells
-        if idx < len(code):
-            trade_type = "buying" if code[idx] == "B" else "selling"
+        # B = port buys (player sells), S = port sells (player buys)
+        if idx < len(code) and code[idx] == "B":
+            buys.append(f"{abbrev}@{price}")
         else:
-            trade_type = "unknown"
+            sells.append(f"{abbrev}@{price}")
 
-        units = stock.get(commodity, 0)
-        lines.append(f"  - {abbrev} {trade_type} {units} units at {price}")
+    parts = [code]
+    if buys:
+        parts.append(f"buys {','.join(buys)}")
+    if sells:
+        parts.append(f"sells {','.join(sells)}")
 
-    return lines
+    return " ".join(parts)
+
+
+def _format_port(port: Dict[str, Any]) -> List[str]:
+    """Format port information with prices.
+
+    Returns list with single line using compact format.
+    """
+    if not port:
+        return []
+
+    port_str = _format_port_prices_compact(port)
+    return [f"Port: {port_str}"]
 
 
 def _friendly_ship_type(raw_type: Optional[str]) -> str:
@@ -234,8 +252,12 @@ def _status_summary(result: Dict[str, Any], first_line: str) -> str:
     adjacent = sector.get("adjacent_sectors", [])
     lines.append(f"Adjacent sectors: {adjacent}")
 
+    # Exploration stats (personal, corp, and total)
     visited = player.get("sectors_visited") if isinstance(player, dict) else None
+    corp_visited = player.get("corp_sectors_visited") if isinstance(player, dict) else None
+    total_known = player.get("total_sectors_known") if isinstance(player, dict) else None
     universe_size = player.get("universe_size") if isinstance(player, dict) else None
+
     if (
         isinstance(visited, int)
         and visited >= 0
@@ -243,7 +265,16 @@ def _status_summary(result: Dict[str, Any], first_line: str) -> str:
         and universe_size > 0
     ):
         percentage = round((visited / universe_size) * 100)
-        lines.append(f"Visited {visited} sectors ({percentage}%).")
+        exploration_line = f"Explored {visited} sectors ({percentage}%)."
+
+        # Add corp and total knowledge if available
+        if isinstance(corp_visited, int) and corp_visited > 0:
+            exploration_line += f" Corp knows {corp_visited}."
+        if isinstance(total_known, int) and total_known > visited:
+            total_percentage = round((total_known / universe_size) * 100)
+            exploration_line += f" Total known: {total_known} ({total_percentage}%)."
+
+        lines.append(exploration_line)
     ship_name = ship.get("ship_name") or ship.get("name") or "unknown ship"
     ship_type_raw = ship.get("ship_type") or ship.get("ship_type_name")
     ship_type = _friendly_ship_type(ship_type_raw)
@@ -306,12 +337,24 @@ def move_summary(result: Dict[str, Any]) -> str:
 
     Args:
         result: Full move response containing player, ship, and sector data
+            - first_visit: True if this is the player's first personal visit
+            - known_to_corp: True if the corporation already knew about this sector
 
     Returns:
         Multi-line human-readable summary string
     """
     sector_id = result.get("sector", {}).get("id", "unknown")
-    return _status_summary(result, f"Now in sector {sector_id}.")
+    first_visit = result.get("first_visit", False)
+    known_to_corp = result.get("known_to_corp", False)
+
+    # Build first line with visit status
+    first_line = f"Now in sector {sector_id}."
+    if first_visit and known_to_corp:
+        first_line += " First personal visit (known to corp)."
+    elif first_visit:
+        first_line += " First visit!"
+
+    return _status_summary(result, first_line)
 
 
 def join_summary(result: Dict[str, Any]) -> str:
@@ -345,7 +388,6 @@ def status_update_summary(result: Dict[str, Any]) -> str:
     shields_max = ship.get("max_shields")
     fighters = ship.get("fighters")
     port = sector.get("port", {}) if isinstance(sector, dict) else {}
-    port_code = port.get("code") if isinstance(port, dict) else None
 
     parts: List[str] = [f"Sector {sector_id}"]
     if isinstance(ship_credits, (int, float)):
@@ -369,11 +411,14 @@ def status_update_summary(result: Dict[str, Any]) -> str:
         if isinstance(member_count, int):
             corp_part += f" ({member_count})"
         parts.append(corp_part)
-    if port_code:
-        parts.append(f"Port {port_code}")
+    if isinstance(port, dict) and port.get("code"):
+        port_str = _format_port_prices_compact(port)
+        parts.append(f"Port {port_str}")
 
     player_block = result.get("player") if isinstance(result, dict) else None
     visited = player_block.get("sectors_visited") if isinstance(player_block, dict) else None
+    corp_visited = player_block.get("corp_sectors_visited") if isinstance(player_block, dict) else None
+    total_known = player_block.get("total_sectors_known") if isinstance(player_block, dict) else None
     universe_size = (
         player_block.get("universe_size") if isinstance(player_block, dict) else None
     )
@@ -384,7 +429,12 @@ def status_update_summary(result: Dict[str, Any]) -> str:
         and universe_size > 0
     ):
         percentage = round((visited / universe_size) * 100)
-        parts.append(f"Visited {visited} sectors ({percentage}%)")
+        explore_part = f"Explored {visited} ({percentage}%)"
+        # Add total known if corp contributes additional knowledge
+        if isinstance(total_known, int) and total_known > visited:
+            total_percentage = round((total_known / universe_size) * 100)
+            explore_part += f", total known {total_known} ({total_percentage}%)"
+        parts.append(explore_part)
 
     return "Status update: " + "; ".join(parts) + "."
 
@@ -431,14 +481,14 @@ def list_known_ports_summary(result: Dict[str, Any]) -> str:
         hops = port_info.get("hops_from_start", 0)
         port_entry = sector.get("port")
         port_data = port_entry if isinstance(port_entry, dict) else {}
-        port_code = port_data.get("code", "???")
         last_visited = port_info.get("last_visited")
-        observed_at = None
         observed_at = port_data.get("observed_at")
         if observed_at is None:
             observed_at = port_info.get("updated_at")
 
-        port_line = f"  - Sector {sector_id} ({hops} hop{'s' if hops != 1 else ''}): {port_code}"
+        # Format port with prices
+        port_str = _format_port_prices_compact(port_data) if port_data else "???"
+        port_line = f"  - Sector {sector_id} ({hops} hop{'s' if hops != 1 else ''}): {port_str}"
 
         if last_visited:
             relative_time = _format_relative_time(last_visited)

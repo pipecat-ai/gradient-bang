@@ -1,6 +1,6 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-import { buildSectorSnapshot, MapKnowledge, normalizeMapKnowledge } from './map.ts';
+import { buildSectorSnapshot, MapKnowledge, normalizeMapKnowledge, loadMapKnowledge } from './map.ts';
 
 export interface CharacterRow {
   character_id: string;
@@ -195,13 +195,31 @@ export function buildPlayerSnapshot(
   knowledge: MapKnowledge,
   universeSize: number,
 ): Record<string, unknown> {
-  const sectorsVisited = knowledge.total_sectors_visited || Object.keys(knowledge.sectors_visited).length;
+  // Derive stats from source field
+  let sectorsVisited = 0;
+  let corpSectorsVisited = 0;
+  let hasCorpKnowledge = false;
+
+  for (const entry of Object.values(knowledge.sectors_visited)) {
+    if (entry.source === 'player' || entry.source === 'both') {
+      sectorsVisited++;
+    }
+    if (entry.source === 'corp' || entry.source === 'both') {
+      corpSectorsVisited++;
+      hasCorpKnowledge = true;
+    }
+  }
+
+  const totalSectorsKnown = Object.keys(knowledge.sectors_visited).length;
+
   return {
     id: character.character_id,
     name: character.name,
     player_type: playerType,
     credits_in_bank: character.credits_in_megabank ?? 0,
     sectors_visited: sectorsVisited,
+    corp_sectors_visited: hasCorpKnowledge ? corpSectorsVisited : null,
+    total_sectors_known: totalSectorsKnown,
     universe_size: universeSize,
     created_at: character.first_visit,
     last_active: character.last_active,
@@ -271,7 +289,8 @@ export async function buildStatusPayload(
   const character = await loadCharacter(supabase, characterId);
   const ship = await loadShip(supabase, character.current_ship_id);
   const definition = await loadShipDefinition(supabase, ship.ship_type);
-  const knowledge = normalizeMapKnowledge(character.map_knowledge);
+  // Load merged knowledge (with source field set on each entry)
+  const knowledge = await loadMapKnowledge(supabase, characterId);
   const universeSize = await loadUniverseSize(supabase);
   const playerType = resolvePlayerType(character.player_metadata);
   const player = buildPlayerSnapshot(character, playerType, knowledge, universeSize);

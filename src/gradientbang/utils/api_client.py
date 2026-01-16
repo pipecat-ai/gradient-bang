@@ -180,18 +180,14 @@ class AsyncGameClient:
             return map_local_summary(data, current)
 
         return {
-            "join": join_summary,
-            "my_status": join_summary,
             "status.snapshot": join_summary,
             "status.update": status_update_summary,
-            "move": move_summary,
             "movement.complete": move_summary,
             "movement.start": movement_start_summary,
-            "plot_course": plot_course_summary,
             "course.plot": plot_course_summary,
-            "list_known_ports": list_known_ports_summary,
-            "local_map_region": map_local_wrapper,
+            "ports.list": list_known_ports_summary,
             "map.local": map_local_wrapper,
+            "map.region": map_local_wrapper,
             "trade.executed": trade_executed_summary,
             "credits.transfer": transfer_summary,
             "warp.transfer": transfer_summary,
