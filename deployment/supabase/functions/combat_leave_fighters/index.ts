@@ -62,6 +62,7 @@ serve(async (req: Request): Promise<Response> => {
   const tollAmount = optionalNumber(payload, 'toll_amount') ?? 0;
   const actorCharacterId = optionalString(payload, 'actor_character_id');
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
+  const taskId = optionalString(payload, 'task_id');
 
   if (sector === null || sector === undefined) {
     return errorResponse('sector is required', 400);
@@ -105,6 +106,7 @@ serve(async (req: Request): Promise<Response> => {
       tollAmount,
       actorCharacterId,
       adminOverride,
+      taskId,
     });
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
@@ -147,6 +149,7 @@ async function handleCombatLeaveFighters(params: {
   tollAmount: number;
   actorCharacterId: string | null;
   adminOverride: boolean;
+  taskId: string | null;
 }): Promise<Response> {
   const {
     pg,
@@ -159,6 +162,7 @@ async function handleCombatLeaveFighters(params: {
     tollAmount,
     actorCharacterId,
     adminOverride,
+    taskId,
   } = params;
 
   // Validate quantity
@@ -304,6 +308,7 @@ async function handleCombatLeaveFighters(params: {
     senderId: characterId,
     sectorId: sector,
     requestId,
+    taskId,
     actorCharacterId: characterId,
     corpId: character.corporation_id,
   });

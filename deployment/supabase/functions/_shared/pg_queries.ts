@@ -1464,6 +1464,7 @@ export interface PgRecordEventOptions {
   senderId?: string | null;
   actorCharacterId?: string | null;
   corpId?: string | null;
+  taskId?: string | null;
   recipients?: EventRecipientSnapshot[];
   broadcast?: boolean;
 }
@@ -1501,6 +1502,7 @@ export async function pgRecordEvent(
     senderId,
     actorCharacterId,
     corpId,
+    taskId,
     recipients = [],
     broadcast = false,
   } = options;
@@ -1516,7 +1518,7 @@ export async function pgRecordEvent(
   const result = await pg.queryObject<{ record_event_with_recipients: string }>(
     `SELECT record_event_with_recipients(
       $1, $2, $3, $4::uuid, $5::uuid, $6::int, $7::uuid, $8::uuid, $9::uuid,
-      $10::jsonb, $11::jsonb, $12, $13::uuid[], $14::text[], $15
+      $10::jsonb, $11::jsonb, $12, $13::uuid[], $14::text[], $15, $16::uuid
     )`,
     [
       eventType,
@@ -1534,6 +1536,7 @@ export async function pgRecordEvent(
       recipientIds,
       recipientReasons,
       broadcast,
+      taskId ?? null,
     ]
   );
 
@@ -1558,6 +1561,7 @@ export interface PgEmitCharacterEventOptions {
   requestId?: string | null;
   meta?: Record<string, unknown> | null;
   corpId?: string | null;
+  taskId?: string | null;
   recipientReason?: string;
   additionalRecipients?: EventRecipientSnapshot[];
   actorCharacterId?: string | null;
@@ -1578,6 +1582,7 @@ export async function pgEmitCharacterEvent(
     requestId,
     meta,
     corpId,
+    taskId,
     recipientReason,
     additionalRecipients = [],
     actorCharacterId,
@@ -1599,6 +1604,7 @@ export async function pgEmitCharacterEvent(
     requestId,
     meta,
     corpId,
+    taskId,
     sectorId,
     shipId,
     characterId,

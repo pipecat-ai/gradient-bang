@@ -53,6 +53,7 @@ serve(async (req: Request): Promise<Response> => {
   const characterId = requireString(payload, 'character_id');
   const actorCharacterId = optionalString(payload, 'actor_character_id');
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
+  const taskId = optionalString(payload, 'task_id');
 
   try {
     await enforceRateLimit(supabase, characterId, 'plot_course');
@@ -72,7 +73,7 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    return await handlePlotCourse(supabase, payload, characterId, requestId, adminOverride, actorCharacterId);
+    return await handlePlotCourse(supabase, payload, characterId, requestId, adminOverride, actorCharacterId, taskId);
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
       await emitErrorEvent(supabase, {
@@ -113,6 +114,7 @@ async function handlePlotCourse(
   requestId: string,
   adminOverride: boolean,
   actorCharacterId: string | null,
+  taskId: string | null,
 ): Promise<Response> {
   const source = buildEventSource('plot_course', requestId);
 
@@ -171,6 +173,7 @@ async function handlePlotCourse(
     },
     sectorId: ship.current_sector ?? undefined,
     requestId,
+    taskId,
   });
 
   return successResponse({

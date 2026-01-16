@@ -190,6 +190,7 @@ serve(async (req: Request): Promise<Response> => {
     ? await canonicalizeCharacterId(actorCharacterLabel)
     : null;
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
+  const taskId = optionalString(payload, "task_id");
 
   try {
     await enforceRateLimit(supabase, characterId, "list_known_ports");
@@ -215,7 +216,8 @@ serve(async (req: Request): Promise<Response> => {
       characterId,
       requestId,
       actorCharacterId,
-      adminOverride
+      adminOverride,
+      taskId
     );
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
@@ -266,7 +268,8 @@ async function handleListKnownPorts(
   characterId: string,
   requestId: string,
   actorCharacterId: string | null,
-  adminOverride: boolean
+  adminOverride: boolean,
+  taskId: string | null
 ): Promise<Response> {
   const source = buildEventSource("list_known_ports", requestId);
 
@@ -453,6 +456,7 @@ async function handleListKnownPorts(
     payload: payloadBody,
     sectorId: fromSector,
     requestId,
+    taskId,
     corpId: character.corporation_id,
   });
 

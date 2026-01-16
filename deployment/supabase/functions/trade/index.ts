@@ -90,6 +90,7 @@ serve(async (req: Request): Promise<Response> => {
   const actorCharacterLabel = optionalString(payload, 'actor_character_id');
   const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
+  const taskId = optionalString(payload, 'task_id');
 
   // Create PG client for direct database access
   const pgClient = createPgClient();
@@ -131,6 +132,7 @@ serve(async (req: Request): Promise<Response> => {
       requestId,
       adminOverride,
       actorCharacterId,
+      taskId,
       trace,
       mark,
     });
@@ -183,6 +185,7 @@ async function handleTrade({
   requestId,
   adminOverride,
   actorCharacterId,
+  taskId,
   trace,
   mark,
 }: {
@@ -193,6 +196,7 @@ async function handleTrade({
   requestId: string;
   adminOverride: boolean;
   actorCharacterId: string | null;
+  taskId: string | null;
   trace: Record<string, number>;
   mark: (label: string) => void;
 }): Promise<Response> {
@@ -340,6 +344,7 @@ async function handleTrade({
     shipId: ship.ship_id,
     requestId,
     actorCharacterId,
+    taskId,
     corpId: ship.owner_corporation_id ?? character.corporation_id,
   });
   mark('emit_trade_executed');
@@ -353,6 +358,7 @@ async function handleTrade({
     shipId: ship.ship_id,
     requestId,
     actorCharacterId,
+    taskId,
     corpId: ship.owner_corporation_id ?? character.corporation_id,
   });
   mark('emit_status_update');
@@ -366,6 +372,7 @@ async function handleTrade({
     shipId: ship.ship_id,
     requestId,
     actorCharacterId,
+    taskId,
     corpId: ship.owner_corporation_id ?? character.corporation_id,
   });
   mark('emit_port_update');

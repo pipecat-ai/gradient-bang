@@ -60,6 +60,7 @@ serve(async (req: Request): Promise<Response> => {
   const salvageId = requireString(payload, 'salvage_id');
   const actorCharacterId = optionalString(payload, 'actor_character_id');
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
+  const taskId = optionalString(payload, 'task_id');
 
   try {
     await enforceRateLimit(supabase, characterId, 'salvage_collect');
@@ -86,6 +87,7 @@ serve(async (req: Request): Promise<Response> => {
       salvageId,
       actorCharacterId,
       adminOverride,
+      taskId,
     });
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
@@ -119,6 +121,7 @@ async function handleSalvageCollect(params: {
   salvageId: string;
   actorCharacterId: string | null;
   adminOverride: boolean;
+  taskId: string | null;
 }): Promise<Response> {
   const {
     supabase,
@@ -127,6 +130,7 @@ async function handleSalvageCollect(params: {
     salvageId,
     actorCharacterId,
     adminOverride,
+    taskId,
   } = params;
 
   // Load character and ship
@@ -409,6 +413,7 @@ async function handleSalvageCollect(params: {
     },
     sectorId,
     requestId,
+    taskId,
     actorCharacterId: characterId,
     corpId: character.corporation_id,
   });
@@ -423,6 +428,7 @@ async function handleSalvageCollect(params: {
     payload: statusPayload,
     sectorId,
     requestId,
+    taskId,
     actorCharacterId: characterId,
     corpId: character.corporation_id,
   });

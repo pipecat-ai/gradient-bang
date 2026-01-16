@@ -314,7 +314,7 @@ Examples:
 
             events = result.get("events", [])
             count = result.get("count", 0)
-            truncated = result.get("truncated", False)
+            has_more = result.get("has_more", False)
 
             # Client-side filtering by event type
             if args.event_type:
@@ -333,7 +333,7 @@ Examples:
                 output = {
                     "events": events,
                     "count": count,
-                    "truncated": truncated,
+                    "has_more": has_more,
                 }
                 print(json.dumps(output, indent=2))
             elif args.summary:
@@ -344,8 +344,8 @@ Examples:
                 print(format_table(events, verbose=args.verbose, no_truncate=args.no_truncate))
 
             # Show truncation warning
-            if truncated:
-                print(f"\n⚠ Warning: Results truncated at 1024 events. Use more specific filters.", file=sys.stderr)
+            if has_more:
+                print(f"\n⚠ Warning: More results available. Use cursor pagination or more specific filters.", file=sys.stderr)
 
             return 0
 

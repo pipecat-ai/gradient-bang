@@ -48,6 +48,7 @@ serve(async (req: Request): Promise<Response> => {
   const toName = optionalString(payload, 'to_name');
   const actorCharacterId = optionalString(payload, 'actor_character_id');
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
+  const taskId = optionalString(payload, 'task_id');
 
   // Validate message type
   if (!['broadcast', 'direct'].includes(msgType)) {
@@ -87,6 +88,7 @@ serve(async (req: Request): Promise<Response> => {
       toName,
       actorCharacterId,
       adminOverride,
+      taskId,
     });
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
@@ -108,6 +110,7 @@ async function handleSendMessage(params: {
   toName: string | null;
   actorCharacterId: string | null;
   adminOverride: boolean;
+  taskId: string | null;
 }): Promise<Response> {
   const {
     supabase,
@@ -118,6 +121,7 @@ async function handleSendMessage(params: {
     toName,
     actorCharacterId,
     adminOverride,
+    taskId,
   } = params;
 
   // Load sender character and ship for actor authorization
@@ -205,6 +209,7 @@ async function handleSendMessage(params: {
     scope,
     payload: publicRecord,
     requestId,
+    taskId,
     senderId: characterId,
     actorCharacterId: characterId,
     recipients,

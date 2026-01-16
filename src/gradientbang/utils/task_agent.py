@@ -3,6 +3,35 @@ Task agent that routes task execution through a Pipecat pipeline.
 
 This implementation constructs a fresh Pipecat pipeline for each task.
 
+## Async Tool Pattern (IMPORTANT FOR NEW TOOLS)
+
+All tools in this agent use an async event-based pattern. This is critical because:
+
+1. **Non-blocking execution**: The game world is live. Combat events, chat messages,
+   and other events can arrive at any time. Blocking RPC calls would cause us to
+   miss these events.
+
+2. **Hallucination prevention**: If a tool returns data directly in the RPC response,
+   the LLM only sees {"status": "Executed."} and will hallucinate the actual data.
+
+### How it works:
+
+1. Tool is called → returns {"status": "Executed."} immediately to the LLM
+2. Server processes the request and emits an event (e.g., "trade.executed")
+3. TaskAgent receives the event via WebSocket with the actual data
+4. Event data is added to the LLM context
+5. LLM inference proceeds with real data
+
+### Adding a new tool:
+
+1. Create the tool class in tools_schema.py
+2. Have the Supabase edge function emit an event with results (see my_status as example)
+3. Add the tool to ASYNC_TOOL_COMPLETIONS below: {"tool_name": "event.type"}
+4. Add the event type to self._event_names in __init__
+
+If you return data directly in the RPC response without emitting an event,
+the LLM will hallucinate because it never sees the actual data.
+
 For verbose logging set the Pipecat log level either in code or using an environment variable. For example:
 
 ```
@@ -18,6 +47,7 @@ import inspect
 import json
 import os
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
@@ -72,6 +102,7 @@ from gradientbang.utils.tools_schema import (
     PlaceFighters,
     CollectFighters,
     TaskFinished,
+    EventQuery,
 )
 
 
@@ -87,9 +118,14 @@ MAX_NO_TOOL_NUDGES = 3  # Max times to nudge LLM when it responds without tool c
 NO_TOOL_WATCHDOG_DELAY = 5.0  # Seconds to wait for events before nudging LLM
 
 # Tools that have async completion events - inference is deferred until the event arrives.
-# Our design: all tools return {"status": "Executed."} immediately, and real data comes
-# from events. We must wait for the event before triggering inference, otherwise the
-# model will hallucinate the event data.
+# See module docstring for full explanation of this pattern.
+#
+# IMPORTANT: When adding a new tool, you MUST:
+#   1. Have the edge function emit an event (not return data in RPC response)
+#   2. Add the mapping here: "tool_name": "event.type"
+#   3. Add the event type to self._event_names in __init__
+#
+# Failure to do this will cause the LLM to hallucinate tool results.
 ASYNC_TOOL_COMPLETIONS = {
     "move": "movement.complete",
     "plot_course": "course.plot",
@@ -103,6 +139,7 @@ ASYNC_TOOL_COMPLETIONS = {
     "place_fighters": "garrison.deployed",
     "collect_fighters": "garrison.collected",
     "send_message": "chat.message",
+    "event_query": "event.query",
 }
 
 
@@ -234,6 +271,8 @@ class TaskAgent:
         self._last_logged_message_count: int = 0
         self._no_tool_nudge_count: int = 0
         self._no_tool_watchdog_handle: Optional[asyncio.TimerHandle] = None
+        self._task_id: Optional[str] = None
+        self._task_description: Optional[str] = None
 
         tools = tools_list or [
             MyStatus,
@@ -249,6 +288,7 @@ class TaskAgent:
             TransferWarpPower,
             PlaceFighters,
             CollectFighters,
+            EventQuery,
             TaskFinished,
         ]
         self.set_tools(tools)
@@ -279,6 +319,7 @@ class TaskAgent:
             "combat.ended",
             "combat.action_accepted",
             "chat.message",
+            "event.query",
             "error",
         ]
         for event_name in self._event_names:
@@ -449,7 +490,22 @@ class TaskAgent:
             self._completion_event_timeout.cancel()
         self._completion_event_timeout = None
         self._task_start_monotonic = time.perf_counter()
+        self._task_id = str(uuid.uuid4())
+        self._task_description = task
         _ = max_iterations  # retained for API compatibility; pipeline controls turns
+
+        # Set task_id on game_client so all API calls are tagged with this task
+        self.game_client.current_task_id = self._task_id
+
+        # Emit task.start event
+        try:
+            await self.game_client.task_lifecycle(
+                task_id=self._task_id,
+                event_type="start",
+                task_description=task,
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to emit task.start event: {exc}")
 
         self.add_message({"role": "system", "content": create_task_system_message()})
         self.add_message(
@@ -487,6 +543,8 @@ class TaskAgent:
                     success = True
                     break
         finally:
+            # Clear task_id from game_client so subsequent calls aren't tagged
+            self.game_client.current_task_id = None
             if self._active_pipeline_task:
                 await self._active_pipeline_task.cancel()
             await runner_task
@@ -525,6 +583,15 @@ class TaskAgent:
                 # todo: add metrics
                 enable_metrics=False,
                 enable_usage_metrics=False,
+            ),
+            # Reset idle timeout on LLM activity frames, not speech frames (default).
+            # This prevents false idle detection in text-based task agents.
+            # Include function call frames because the LLM may respond with only
+            # tool calls (no text), which wouldn't reset the idle timer otherwise.
+            idle_timeout_frames=(
+                LLMTextFrame,
+                FunctionCallsStartedFrame,
+                LLMFullResponseStartFrame,
             ),
             **pipeline_task_kwargs,
         )
@@ -615,6 +682,18 @@ class TaskAgent:
             self.finished_message = arguments.get("message", "Done")
             finished_text = self._timestamped_text(self.finished_message)
             self._output(finished_text, TaskOutputType.FINISHED)
+
+            # Emit task.finish event
+            if self._task_id:
+                try:
+                    await self.game_client.task_lifecycle(
+                        task_id=self._task_id,
+                        event_type="finish",
+                        task_summary=self.finished_message,
+                    )
+                except Exception as exc:
+                    logger.warning(f"Failed to emit task.finish event: {exc}")
+
             await params.llm.push_frame(EndFrame())
             return
 

@@ -124,6 +124,9 @@ class AsyncGameClient:
         # Track the player's latest known sector for contextual summaries
         self._current_sector: Optional[int] = None
 
+        # Task ID to attach to all API calls (set by TaskAgent during task execution)
+        self._current_task_id: Optional[str] = None
+
         # Optional summary formatters: endpoint/event name -> formatter function
         self._summary_formatters: Dict[str, Callable[[Dict[str, Any]], str]] = (
             self._build_default_summaries()
@@ -155,6 +158,16 @@ class AsyncGameClient:
                 "unless allow_corp_actorless_control=True"
             )
         self._actor_character_id = actor_character_id
+
+    @property
+    def current_task_id(self) -> Optional[str]:
+        """Return the current task ID for request tagging."""
+        return self._current_task_id
+
+    @current_task_id.setter
+    def current_task_id(self, value: Optional[str]) -> None:
+        """Set the current task ID to attach to all subsequent API requests."""
+        self._current_task_id = value
 
     def set_summary_formatter(
         self, endpoint: str, formatter: Callable[[Dict[str, Any]], str]
@@ -558,6 +571,9 @@ class AsyncGameClient:
         # Auto-inject actor_character_id if explicitly set
         if self._actor_character_id and "actor_character_id" not in enriched_payload:
             enriched_payload["actor_character_id"] = self._actor_character_id
+        # Auto-inject task_id if set (for TaskAgent task correlation)
+        if self._current_task_id and "task_id" not in enriched_payload:
+            enriched_payload["task_id"] = self._current_task_id
         frame = {
             "id": req_id,
             "type": "rpc",
@@ -947,13 +963,20 @@ class AsyncGameClient:
         character_id: Optional[str] = None,
         sector: Optional[int] = None,
         corporation_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+        event_type: Optional[str] = None,
+        cursor: Optional[int] = None,
         string_match: Optional[str] = None,
         max_rows: Optional[int] = None,
         sort_direction: Optional[str] = None,
         actor_character_id: Optional[str] = None,
         event_scope: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Query event logs within a time range."""
+        """Query event logs within a time range.
+
+        Returns up to 100 events per call. Response includes 'has_more' and
+        'next_cursor' for pagination. To get more results, pass cursor=next_cursor.
+        """
 
         payload: Dict[str, Any] = {
             "start": start,
@@ -967,6 +990,12 @@ class AsyncGameClient:
             payload["sector"] = sector
         if corporation_id:
             payload["corporation_id"] = corporation_id
+        if task_id:
+            payload["task_id"] = task_id
+        if event_type:
+            payload["event_type"] = event_type
+        if cursor is not None:
+            payload["cursor"] = cursor
         if string_match:
             payload["string_match"] = string_match
         if max_rows is not None:
@@ -985,6 +1014,42 @@ class AsyncGameClient:
             payload.setdefault("actor_character_id", actor_value)
 
         return await self._request("event.query", payload)
+
+    async def task_lifecycle(
+        self,
+        *,
+        task_id: str,
+        event_type: str,
+        task_description: Optional[str] = None,
+        task_summary: Optional[str] = None,
+        character_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Emit a task lifecycle event (start or finish).
+
+        Args:
+            task_id: UUID identifying this task execution
+            event_type: Either 'start' or 'finish'
+            task_description: Task description (for start events)
+            task_summary: Task summary/result (for finish events)
+            character_id: Character ID (defaults to bound character)
+        """
+        if event_type not in ("start", "finish"):
+            raise ValueError("event_type must be 'start' or 'finish'")
+
+        if character_id is None:
+            character_id = self._character_id
+
+        payload: Dict[str, Any] = {
+            "character_id": character_id,
+            "task_id": task_id,
+            "event_type": event_type,
+        }
+        if task_description is not None:
+            payload["task_description"] = task_description
+        if task_summary is not None:
+            payload["task_summary"] = task_summary
+
+        return await self._request("task.lifecycle", payload)
 
     async def create_corporation(
         self,

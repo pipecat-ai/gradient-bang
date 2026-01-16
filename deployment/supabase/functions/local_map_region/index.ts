@@ -62,6 +62,7 @@ serve(async (req: Request): Promise<Response> => {
   const characterId = requireString(payload, "character_id");
   const actorCharacterId = optionalString(payload, "actor_character_id");
   const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
+  const taskId = optionalString(payload, "task_id");
 
   try {
     await enforceRateLimit(supabase, characterId, "local_map_region");
@@ -87,7 +88,8 @@ serve(async (req: Request): Promise<Response> => {
       characterId,
       requestId,
       actorCharacterId,
-      adminOverride
+      adminOverride,
+      taskId
     );
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
@@ -138,7 +140,8 @@ async function handleLocalMapRegion(
   characterId: string,
   requestId: string,
   actorCharacterId: string | null,
-  adminOverride: boolean
+  adminOverride: boolean,
+  taskId: string | null
 ): Promise<Response> {
   const source = buildEventSource("local_map_region", requestId);
   const character = await loadCharacter(supabase, characterId);
@@ -205,6 +208,7 @@ async function handleLocalMapRegion(
     payload: mapRegion,
     sectorId: centerSector,
     requestId,
+    taskId,
     corpId: character.corporation_id,
   });
 

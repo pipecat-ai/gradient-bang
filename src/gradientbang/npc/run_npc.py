@@ -16,6 +16,7 @@ from loguru import logger
 
 from gradientbang.utils.config import get_repo_root, get_world_data_path
 from gradientbang.utils.api_client import AsyncGameClient, RPCError
+from gradientbang.utils.base_llm_agent import LLMConfig
 from gradientbang.utils.task_agent import TaskAgent
 
 from gradientbang.utils.api_client import RPCError  # noqa: E402
@@ -121,7 +122,7 @@ def _log_join_error(
     detail = (getattr(exc, "detail", "") or str(exc)).strip()
     status = getattr(exc, "status", "unknown")
     logger.error(
-        "JOIN failed status=%s detail=%s actor=%s target=%s",
+        "JOIN failed status={} detail={} actor={} target={}",
         status,
         detail,
         actor_id or target_id,
@@ -132,28 +133,28 @@ def _log_join_error(
     if "actor_character_id is required" in lower_detail:
         logger.info(
             "Provide a corporation member with --ship-id. "
-            "Example: uv run npc/run_npc.py corp-member --ship-id %s \"<task>\"",
+            "Example: uv run npc/run_npc.py corp-member --ship-id {} \"<task>\"",
             target_id,
         )
     elif "not authorized" in lower_detail:
         logger.info(
-            "Actor %s is not in the owning corporation for ship %s.",
+            "Actor {} is not in the owning corporation for ship {}.",
             actor_id,
             target_id,
         )
     elif "not registered" in lower_detail:
         logger.info(
-            "Register ship %s in the character registry before launching the agent.",
+            "Register ship {} in the character registry before launching the agent.",
             target_id,
         )
     elif "has an active session" in lower_detail:
         logger.info(
-            "Wait for the existing TaskAgent run on ship %s to finish or clear the lock.",
+            "Wait for the existing TaskAgent run on ship {} to finish or clear the lock.",
             target_id,
         )
     elif "knowledge" in lower_detail:
         logger.info(
-            "Create world-data/character-map-knowledge/%s.json before retrying.",
+            "Create world-data/character-map-knowledge/{}.json before retrying.",
             target_id,
         )
 
@@ -248,11 +249,12 @@ async def run_task(args: argparse.Namespace) -> int:
         logger.info("JOINED target={}", target_character_id)
 
         agent = TaskAgent(
+            config=LLMConfig(model=DEFAULT_MODEL),
             game_client=game_client,
             character_id=target_character_id,
         )
 
-        logger.info('TASK_START task="%s"', args.task)
+        logger.info('TASK_START task="{}"', args.task)
         success = await agent.run_task(task=args.task)
 
         if success:
@@ -264,7 +266,7 @@ async def run_task(args: argparse.Namespace) -> int:
             final_status = await game_client.my_status(target_character_id)
             summary = final_status.get("summary")
             if summary:
-                logger.info("FINAL_STATUS %s", summary)
+                logger.info("FINAL_STATUS {}", summary)
 
     return 0 if success else 1
 
@@ -279,7 +281,7 @@ def main() -> int:
             except RuntimeError as exc:
                 logger.error(str(exc))
                 logger.info(
-                    "Use uv run scripts/corporation_lookup.py %s --ships to inspect the fleet.",
+                    "Use uv run scripts/corporation_lookup.py {} --ships to inspect the fleet.",
                     args.actor_id,
                 )
                 return 1
@@ -292,7 +294,7 @@ def main() -> int:
             except SessionLockError as exc:
                 logger.error(str(exc))
                 logger.info(
-                    "If this is stale, remove the lock file in %s",
+                    "If this is stale, remove the lock file in {}",
                     SESSION_LOCK_DIR,
                 )
                 return 1
@@ -302,7 +304,7 @@ def main() -> int:
         logger.info("INTERRUPTED by user")
         return 130
     except Exception as exc:  # pragma: no cover - diagnostic path
-        logger.exception("ERROR: %s", exc)
+        logger.exception("ERROR: {}", exc)
         return 1
     finally:
         if release_lock:
