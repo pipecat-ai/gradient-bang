@@ -73,7 +73,7 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    return await handlePlotCourse(supabase, payload, characterId, requestId, adminOverride, actorCharacterId);
+    return await handlePlotCourse(supabase, payload, characterId, requestId, adminOverride, actorCharacterId, taskId);
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
       await emitErrorEvent(supabase, {
@@ -114,6 +114,7 @@ async function handlePlotCourse(
   requestId: string,
   adminOverride: boolean,
   actorCharacterId: string | null,
+  taskId: string | null,
 ): Promise<Response> {
   const source = buildEventSource('plot_course', requestId);
 

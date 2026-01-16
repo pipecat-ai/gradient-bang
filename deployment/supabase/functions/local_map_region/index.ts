@@ -88,7 +88,8 @@ serve(async (req: Request): Promise<Response> => {
       characterId,
       requestId,
       actorCharacterId,
-      adminOverride
+      adminOverride,
+      taskId
     );
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
@@ -139,7 +140,8 @@ async function handleLocalMapRegion(
   characterId: string,
   requestId: string,
   actorCharacterId: string | null,
-  adminOverride: boolean
+  adminOverride: boolean,
+  taskId: string | null
 ): Promise<Response> {
   const source = buildEventSource("local_map_region", requestId);
   const character = await loadCharacter(supabase, characterId);

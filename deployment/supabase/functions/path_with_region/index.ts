@@ -82,7 +82,7 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    return await handlePathWithRegion(supabase, payload, characterId, requestId, actorCharacterId, adminOverride);
+    return await handlePathWithRegion(supabase, payload, characterId, requestId, actorCharacterId, adminOverride, taskId);
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
       await emitErrorEvent(supabase, {
@@ -123,6 +123,7 @@ async function handlePathWithRegion(
   requestId: string,
   actorCharacterId: string | null,
   adminOverride: boolean,
+  taskId: string | null,
 ): Promise<Response> {
   const source = buildEventSource('path_with_region', requestId);
 
