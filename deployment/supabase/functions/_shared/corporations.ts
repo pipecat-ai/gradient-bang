@@ -26,6 +26,7 @@ export interface CorporationShipSummary {
   sector: number | null;
   owner_type: string;
   control_ready: boolean;
+  credits: number;
   cargo: {
     quantum_foam: number;
     retro_organics: number;
@@ -223,6 +224,7 @@ export async function fetchCorporationShipSummaries(
       sector: typeof row.current_sector === 'number' ? row.current_sector : null,
       owner_type: row.owner_type ?? 'unowned',
       control_ready: controlReady.has(shipId),
+      credits: Number(row.credits ?? 0),
       cargo,
       cargo_capacity: cargoCapacity,
       warp_power: Number(row.current_warp_power ?? definition?.warp_power_capacity ?? 0),
@@ -268,7 +270,7 @@ export function buildCorporationMemberPayload(
 export async function emitCorporationEvent(
   supabase: SupabaseClient,
   corpId: string,
-  options: { eventType: string; payload: Record<string, unknown>; requestId: string; memberIds?: string[]; actorCharacterId?: string | null },
+  options: { eventType: string; payload: Record<string, unknown>; requestId: string; memberIds?: string[]; actorCharacterId?: string | null; taskId?: string | null },
 ): Promise<void> {
   let recipients = options.memberIds;
   if (!recipients) {
@@ -294,6 +296,7 @@ export async function emitCorporationEvent(
     requestId: options.requestId,
     corpId,
     actorCharacterId: options.actorCharacterId ?? null,
+    taskId: options.taskId ?? null,
     recipients: uniqueRecipients.map((characterId) => ({ characterId, reason: 'corp_snapshot' })),
   });
 

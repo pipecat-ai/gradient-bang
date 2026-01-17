@@ -59,16 +59,17 @@ serve(async (req: Request): Promise<Response> => {
   const actorCharacterLabel = optionalString(payload, 'actor_character_id');
   const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
+  const taskId = optionalString(payload, 'task_id');
 
   // Try to get a character_id from the payload for error logging
   const characterIdForErrors = optionalString(payload, 'character_id') ?? actorCharacterId;
 
   try {
     if (direction === 'deposit') {
-      return await handleDeposit(supabase, payload, requestId, actorCharacterId, adminOverride);
+      return await handleDeposit(supabase, payload, requestId, actorCharacterId, adminOverride, taskId);
     }
     if (direction === 'withdraw') {
-      return await handleWithdraw(supabase, payload, requestId, actorCharacterId, adminOverride);
+      return await handleWithdraw(supabase, payload, requestId, actorCharacterId, adminOverride, taskId);
     }
     throw new BankTransferError("direction must be 'deposit' or 'withdraw'", 400);
   } catch (err) {
@@ -139,6 +140,7 @@ async function handleDeposit(
   requestId: string,
   actorCharacterId: string | null,
   adminOverride: boolean,
+  taskId: string | null,
 ): Promise<Response> {
   console.log('[bank_transfer.deposit] Starting deposit handler', { requestId, payload });
 
@@ -338,6 +340,7 @@ async function handleDeposit(
         shipId,
         actorCharacterId,
         corpId: target.corporation_id,
+        taskId,
       },
     );
     console.log('[bank_transfer.deposit] Emitted bank transaction event');
@@ -356,6 +359,7 @@ async function handleDeposit(
     shipId,
     actorCharacterId,
     corpId: target.corporation_id,
+    taskId,
   });
 
   if (resolvedSourceCharacter && resolvedSourceCharacter !== targetCharacterId) {
@@ -372,6 +376,7 @@ async function handleDeposit(
       shipId,
       actorCharacterId,
       corpId: sourceChar.corporation_id,
+      taskId,
     });
   }
 
@@ -392,6 +397,7 @@ async function handleWithdraw(
   requestId: string,
   actorCharacterId: string | null,
   adminOverride: boolean,
+  taskId: string | null,
 ): Promise<Response> {
   const characterLabel = requireString(payload, 'character_id');
   const characterId = await canonicalizeCharacterId(characterLabel);
@@ -475,6 +481,7 @@ async function handleWithdraw(
       shipId: ship.ship_id,
       actorCharacterId,
       corpId: character.corporation_id,
+      taskId,
     },
   );
 
@@ -488,6 +495,7 @@ async function handleWithdraw(
     shipId: ship.ship_id,
     actorCharacterId,
     corpId: character.corporation_id,
+    taskId,
   });
 
   return successResponse({ request_id: requestId });
@@ -497,7 +505,7 @@ async function emitBankTransaction(
   supabase: SupabaseClient,
   characterId: string,
   payload: Record<string, unknown>,
-  options: { requestId?: string | null; sectorId?: number | null; shipId?: string | null; actorCharacterId?: string | null; corpId?: string | null } = {},
+  options: { requestId?: string | null; sectorId?: number | null; shipId?: string | null; actorCharacterId?: string | null; corpId?: string | null; taskId?: string | null } = {},
 ): Promise<void> {
   await emitCharacterEvent({
     supabase,
@@ -506,6 +514,7 @@ async function emitBankTransaction(
     payload,
     requestId: options.requestId,
     sectorId: options.sectorId,
+    taskId: options.taskId,
     shipId: options.shipId ?? undefined,
     actorCharacterId: options.actorCharacterId ?? null,
     corpId: options.corpId ?? null,

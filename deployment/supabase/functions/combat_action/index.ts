@@ -51,6 +51,7 @@ serve(async (req: Request): Promise<Response> => {
   const targetId = optionalString(payload, 'target_id');
   const actorCharacterId = optionalString(payload, 'actor_character_id');
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
+  const taskId = optionalString(payload, 'task_id');
 
   try {
     await enforceRateLimit(supabase, characterId, 'combat_action');
@@ -82,6 +83,7 @@ serve(async (req: Request): Promise<Response> => {
       payload,
       actorCharacterId,
       adminOverride,
+      taskId,
     });
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
@@ -120,6 +122,7 @@ async function handleCombatAction(params: {
   payload: Record<string, unknown>;
   actorCharacterId: string | null;
   adminOverride: boolean;
+  taskId: string | null;
 }): Promise<Response> {
   const {
     supabase,
@@ -133,6 +136,7 @@ async function handleCombatAction(params: {
     payload,
     actorCharacterId,
     adminOverride,
+    taskId,
   } = params;
 
   const character = await loadCharacter(supabase, characterId);
@@ -235,6 +239,7 @@ async function handleCombatAction(params: {
     },
     sectorId: encounter.sector_id,
     requestId,
+    taskId,
   });
 
   return successResponse({ success: true, combat_id: encounter.combat_id });

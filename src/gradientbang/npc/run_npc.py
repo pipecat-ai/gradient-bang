@@ -10,11 +10,10 @@ import os
 import sys
 from contextlib import suppress
 from datetime import datetime, timezone
-from pathlib import Path
 
 from loguru import logger
 
-from gradientbang.utils.config import get_repo_root, get_world_data_path
+from gradientbang.utils.config import get_repo_root
 from gradientbang.utils.api_client import AsyncGameClient, RPCError
 from gradientbang.utils.base_llm_agent import LLMConfig
 from gradientbang.utils.task_agent import TaskAgent
@@ -34,9 +33,7 @@ _log_level = os.getenv("LOGURU_LEVEL", "INFO").upper()
 logger.configure(handlers=[{"sink": sys.stderr, "level": _log_level}])
 
 REPO_ROOT = get_repo_root()
-WORLD_DATA_DIR = get_world_data_path()
 SESSION_LOCK_DIR = REPO_ROOT / "logs" / "ship-sessions"
-KNOWLEDGE_DIR = WORLD_DATA_DIR / "character-map-knowledge"
 
 
 class SessionLockError(RuntimeError):
@@ -96,21 +93,6 @@ def _acquire_ship_session_lock(
             lock_path.unlink()
 
     return release
-
-
-def _require_ship_knowledge(ship_id: str) -> None:
-    world_root = KNOWLEDGE_DIR.parent
-    if not world_root.exists():
-        raise RuntimeError(
-            "world-data directory not found. Generate the universe before launching "
-            "corporation ships."
-        )
-    knowledge_path = KNOWLEDGE_DIR / f"{ship_id}.json"
-    if not knowledge_path.exists():
-        raise RuntimeError(
-            f"Missing character knowledge for {ship_id}. "
-            f"Create {knowledge_path} before launching the agent."
-        )
 
 
 def _log_join_error(
@@ -276,15 +258,6 @@ def main() -> int:
     release_lock = None
     try:
         if args.ship_id:
-            try:
-                _require_ship_knowledge(args.ship_id)
-            except RuntimeError as exc:
-                logger.error(str(exc))
-                logger.info(
-                    "Use uv run scripts/corporation_lookup.py {} --ships to inspect the fleet.",
-                    args.actor_id,
-                )
-                return 1
             try:
                 release_lock = _acquire_ship_session_lock(
                     args.ship_id,

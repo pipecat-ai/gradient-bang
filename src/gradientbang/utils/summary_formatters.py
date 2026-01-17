@@ -172,9 +172,11 @@ def _format_players(players: List[Dict[str, Any]]) -> List[str]:
         corp_suffix = f" [{corp_name}]" if corp_name else ""
         player_type = player.get("player_type")
         if player_type == "corporation_ship":
-            display_name = ship_name or name
+            # Use character name (has UUID suffix) so LLM uses correct name for transfers
+            # Quotes signal the entire string is the name (including bracket suffix)
+            display_name = name or ship_name
             lines.append(
-                f"  - Corp ship {display_name} ({ship_type}){corp_suffix}"
+                f'  - Corp ship "{display_name}" ({ship_type}){corp_suffix}'
             )
         else:
             lines.append(

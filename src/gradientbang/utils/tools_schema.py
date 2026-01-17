@@ -670,12 +670,32 @@ class PurchaseShip(GameClientTool):
             name="purchase_ship",
             description=(
                 "Purchase a ship for personal use or on behalf of your corporation. "
-                "Corporation purchases draw from bank credits and may seed initial ship credits."
+                "Personal purchases use ship credits (with trade-in value from current ship). "
+                "Corporation purchases draw from bank credits and may seed initial ship credits. "
+                "Note: autonomous ships (autonomous_probe, autonomous_light_hauler) can ONLY be "
+                "purchased for corporations, not for personal use."
             ),
             properties={
                 "ship_type": {
                     "type": "string",
-                    "description": "Ship type identifier (e.g., 'kestrel_courier', 'atlas_hauler')",
+                    "enum": [
+                        "kestrel_courier",       # 25,000 - starter ship
+                        "sparrow_scout",         # 35,000 - recon
+                        "wayfarer_freighter",    # 120,000 - main trader
+                        "pioneer_lifter",        # 220,000 - logistics
+                        "atlas_hauler",          # 260,000 - bulk cargo
+                        "corsair_raider",        # 180,000 - pirate
+                        "pike_frigate",          # 300,000 - assault
+                        "bulwark_destroyer",     # 450,000 - line combat
+                        "aegis_cruiser",         # 700,000 - control/escort
+                        "sovereign_starcruiser", # 2,500,000 - flagship
+                        "autonomous_probe",      # 1,000 - corp only
+                        "autonomous_light_hauler",  # 5,000 - corp only
+                    ],
+                    "description": (
+                        "Ship type to purchase. Autonomous types (autonomous_probe, "
+                        "autonomous_light_hauler) are corporation-only."
+                    ),
                 },
                 "purchase_type": {
                     "type": "string",

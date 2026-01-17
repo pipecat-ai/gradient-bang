@@ -103,6 +103,19 @@ from gradientbang.utils.tools_schema import (
     CollectFighters,
     TaskFinished,
     EventQuery,
+    PurchaseFighters,
+    CreateCorporation,
+    JoinCorporation,
+    LeaveCorporation,
+    KickCorporationMember,
+    PurchaseShip,
+    BankDeposit,
+    BankWithdraw,
+    TransferCredits,
+    DumpCargo,
+    CombatInitiate,
+    CombatAction,
+    CorporationInfo,
 )
 
 
@@ -129,6 +142,7 @@ NO_TOOL_WATCHDOG_DELAY = 5.0  # Seconds to wait for events before nudging LLM
 ASYNC_TOOL_COMPLETIONS = {
     "move": "movement.complete",
     "plot_course": "course.plot",
+    "path_with_region": "path.region",
     "my_status": "status.snapshot",
     "local_map_region": "map.region",
     "list_known_ports": "ports.list",
@@ -140,6 +154,18 @@ ASYNC_TOOL_COMPLETIONS = {
     "collect_fighters": "garrison.collected",
     "send_message": "chat.message",
     "event_query": "event.query",
+    "purchase_fighters": "fighter.purchase",
+    "purchase_ship": "status.update",
+    "bank_deposit": "bank.transaction",
+    "bank_withdraw": "bank.transaction",
+    "transfer_credits": "credits.transfer",
+    "dump_cargo": "salvage.created",
+    "create_corporation": "corporation.created",
+    "join_corporation": "corporation.member_joined",
+    "leave_corporation": "corporation.member_left",
+    "kick_corporation_member": "corporation.member_kicked",
+    "combat_initiate": "combat.round_waiting",
+    "combat_action": "combat.action_accepted",
 }
 
 
@@ -285,6 +311,19 @@ class TaskAgent:
             PlaceFighters,
             CollectFighters,
             EventQuery,
+            PurchaseFighters,
+            CreateCorporation,
+            JoinCorporation,
+            LeaveCorporation,
+            KickCorporationMember,
+            CorporationInfo,
+            PurchaseShip,
+            BankDeposit,
+            BankWithdraw,
+            TransferCredits,
+            DumpCargo,
+            CombatInitiate,
+            CombatAction,
             TaskFinished,
         ]
         self.set_tools(tools)
@@ -316,6 +355,16 @@ class TaskAgent:
             "combat.action_accepted",
             "chat.message",
             "event.query",
+            "fighter.purchase",
+            "bank.transaction",
+            "credits.transfer",
+            "salvage.created",
+            "corporation.created",
+            "corporation.member_joined",
+            "corporation.member_left",
+            "corporation.member_kicked",
+            "corporation.ship_purchased",
+            "ship.traded_in",
             "error",
         ]
         for event_name in self._event_names:
@@ -698,27 +747,31 @@ class TaskAgent:
         if self._tool_call_event_callback:
             await self._tool_call_event_callback(tool_name, arguments)
 
-        # put a tool call result into the context saying we sent the request
-        tool_result = {"status": "Executed."}
-        properties = FunctionCallResultProperties(run_llm=False)
-        await params.result_callback(tool_result, properties=properties)
-
         tool = self.tools.get(tool_name)
         if not tool:
-            message = self._format_tool_message(
-                tool_call_id, {"error": f"Unknown tool: {tool_name}"}
-            )
+            # Put error result into context
+            error_result = {"error": f"Unknown tool: {tool_name}"}
+            properties = FunctionCallResultProperties(run_llm=False)
+            await params.result_callback(error_result, properties=properties)
             error_text = self._timestamped_text(f"Unknown tool: {tool_name}")
             self._output(error_text, TaskOutputType.ERROR)
             logger.debug("TOOL_RESULT unknown tool={} arguments={}", tool_name, arguments)
-            await self._on_tool_call_completed(tool_name, {"error": f"Unknown tool: {tool_name}"})
+            await self._on_tool_call_completed(tool_name, error_result)
             return
 
-        # Pre-set awaiting flag for async completion tools BEFORE any yield points.
-        # This prevents race conditions where events arrive between tool completion
-        # and _on_tool_call_completed setting the flag.
+        # Check if this is an async tool that will deliver results via events
         expected_completion_event = ASYNC_TOOL_COMPLETIONS.get(tool_name)
-        if expected_completion_event:
+        is_async_tool = expected_completion_event is not None
+
+        if is_async_tool:
+            # For async tools, put a placeholder result into context - actual data comes via events
+            tool_result = {"status": "Executed."}
+            properties = FunctionCallResultProperties(run_llm=False)
+            await params.result_callback(tool_result, properties=properties)
+
+            # Pre-set awaiting flag for async completion tools BEFORE any yield points.
+            # This prevents race conditions where events arrive between tool completion
+            # and _on_tool_call_completed setting the flag.
             self._awaiting_completion_event = expected_completion_event
             loop = asyncio.get_event_loop()
             self._completion_event_timeout = loop.call_later(
@@ -732,7 +785,6 @@ class TaskAgent:
             )
 
         result_payload: Any = None
-        error_message: Optional[Dict[str, Any]] = None
         error_payload: Optional[Any] = None
         try:
             self._tool_call_in_progress = True
@@ -742,25 +794,33 @@ class TaskAgent:
             result_payload = result
         except Exception as exc:
             # On error, clear the completion await since we'll handle error path
-            if expected_completion_event:
+            if is_async_tool:
                 self._awaiting_completion_event = None
                 if self._completion_event_timeout:
                     self._completion_event_timeout.cancel()
                     self._completion_event_timeout = None
             error_payload = {"error": f"{exc}"}
-            error_message = self._format_tool_message(tool_call_id, error_payload)
         finally:
             self._tool_call_in_progress = False
 
-        if error_message is not None:
+        if error_payload is not None:
+            if not is_async_tool:
+                # For sync tools with errors, put error result into context
+                properties = FunctionCallResultProperties(run_llm=False)
+                await params.result_callback(error_payload, properties=properties)
             logger.debug(
                 "TOOL_RESULT error tool={} arguments={} payload={}",
                 tool_name,
                 arguments,
-                error_message,
+                error_payload,
             )
             await self._on_tool_call_completed(tool_name, error_payload)
             return
+
+        if not is_async_tool:
+            # For sync tools, put actual result into context so LLM sees the data
+            properties = FunctionCallResultProperties(run_llm=False)
+            await params.result_callback(result_payload, properties=properties)
 
         logger.debug(
             "TOOL_RESULT tool={} arguments={} result={}",

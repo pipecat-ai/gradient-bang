@@ -59,6 +59,7 @@ serve(async (req: Request): Promise<Response> => {
   const actorCharacterLabel = optionalString(payload, 'actor_character_id');
   const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
+  const taskId = optionalString(payload, 'task_id');
 
   try {
     await enforceRateLimit(supabase, characterId, 'dump_cargo');
@@ -78,7 +79,7 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    return await handleDumpCargo(supabase, payload, characterId, requestId, actorCharacterId, adminOverride);
+    return await handleDumpCargo(supabase, payload, characterId, requestId, actorCharacterId, adminOverride, taskId);
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
       await emitErrorEvent(supabase, {
@@ -156,6 +157,7 @@ async function handleDumpCargo(
   requestId: string,
   actorCharacterId: string | null,
   adminOverride: boolean,
+  taskId: string | null,
 ): Promise<Response> {
   const manifest = parseManifest(payload['items'] ?? payload['cargo']);
   const character = await loadCharacter(supabase, characterId);
@@ -229,6 +231,7 @@ async function handleDumpCargo(
     requestId,
     actorCharacterId,
     corpId: character.corporation_id,
+    taskId,
   });
 
   const statusPayload = await buildStatusPayload(supabase, characterId);
@@ -242,6 +245,7 @@ async function handleDumpCargo(
     requestId,
     actorCharacterId,
     corpId: character.corporation_id,
+    taskId,
   });
 
   const sectorSnapshot = await buildSectorSnapshot(supabase, ship.current_sector);
@@ -252,6 +256,7 @@ async function handleDumpCargo(
     payload: sectorSnapshot,
     requestId,
     actorCharacterId: characterId,
+    taskId,
   });
 
   return successResponse({ request_id: requestId });

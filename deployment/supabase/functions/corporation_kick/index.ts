@@ -62,6 +62,7 @@ serve(async (req: Request): Promise<Response> => {
   const characterId = await canonicalizeCharacterId(rawCharacterId);
   const targetId = await canonicalizeCharacterId(targetLabel);
   const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
+  const taskId = optionalString(payload, 'task_id');
 
   ensureActorMatches(actorCharacterId, characterId);
 
@@ -98,6 +99,7 @@ serve(async (req: Request): Promise<Response> => {
       characterLabel,
       targetLabel,
       requestId,
+      taskId,
     });
     return successResponse({ request_id: requestId });
   } catch (err) {
@@ -116,8 +118,9 @@ async function handleKick(params: {
   characterLabel: string;
   targetLabel: string;
   requestId: string;
+  taskId: string | null;
 }): Promise<void> {
-  const { supabase, characterId, targetId, characterLabel, targetLabel, requestId } = params;
+  const { supabase, characterId, targetId, characterLabel, targetLabel, requestId, taskId } = params;
   const kicker = await loadCharacterSummary(supabase, characterId, 'Character not found');
   const target = await loadCharacterSummary(supabase, targetId, {
     notFoundDetail: 'Target is not in your corporation',
@@ -187,6 +190,7 @@ async function handleKick(params: {
     payload,
     requestId,
     memberIds: recipients,
+    taskId,
   });
 }
 

@@ -62,6 +62,7 @@ serve(async (req: Request): Promise<Response> => {
   const actorCharacterLabel = optionalString(payload, 'actor_character_id');
   const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
+  const taskId = optionalString(payload, 'task_id');
 
   try {
     await enforceRateLimit(supabase, characterId, 'purchase_fighters');
@@ -89,6 +90,7 @@ serve(async (req: Request): Promise<Response> => {
       requestId,
       actorCharacterId,
       adminOverride,
+      taskId,
     );
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
@@ -131,6 +133,7 @@ async function handlePurchase(
   requestId: string,
   actorCharacterId: string | null,
   adminOverride: boolean,
+  taskId: string | null,
 ): Promise<Response> {
   const unitsRequestedRaw = optionalNumber(payload, 'units');
   if (unitsRequestedRaw === null || !Number.isFinite(unitsRequestedRaw)) {
@@ -260,6 +263,7 @@ async function handlePurchase(
     requestId,
     actorCharacterId,
     corpId: character.corporation_id,
+    taskId,
   });
 
   await emitCharacterEvent({
@@ -272,6 +276,7 @@ async function handlePurchase(
     requestId,
     actorCharacterId,
     corpId: character.corporation_id,
+    taskId,
   });
 
   return successResponse({ request_id: requestId, units_purchased: unitsToBuy });

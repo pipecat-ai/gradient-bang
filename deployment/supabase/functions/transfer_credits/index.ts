@@ -65,6 +65,7 @@ serve(async (req: Request): Promise<Response> => {
   const actorCharacterLabel = optionalString(payload, 'actor_character_id');
   const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
+  const taskId = optionalString(payload, 'task_id');
 
   try {
     await enforceRateLimit(supabase, fromCharacterId, 'transfer_credits');
@@ -84,7 +85,7 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    return await handleTransfer(supabase, payload, fromCharacterId, toPlayerName, requestId, actorCharacterId, adminOverride);
+    return await handleTransfer(supabase, payload, fromCharacterId, toPlayerName, requestId, actorCharacterId, adminOverride, taskId);
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
       await emitErrorEvent(supabase, {
@@ -119,6 +120,7 @@ async function handleTransfer(
   requestId: string,
   actorCharacterId: string | null,
   adminOverride: boolean,
+  taskId: string | null,
 ): Promise<Response> {
   const amountRaw = optionalNumber(payload, 'amount');
   if (amountRaw === null || !Number.isInteger(amountRaw) || amountRaw <= 0) {
@@ -226,6 +228,7 @@ async function handleTransfer(
     shipId: fromRecord.ship.ship_id,
     actorCharacterId,
     corpId: fromRecord.character.corporation_id,
+    taskId,
   });
 
   await emitCharacterEvent({
@@ -239,6 +242,7 @@ async function handleTransfer(
     shipId: toRecord.ship.ship_id,
     actorCharacterId,
     corpId: toRecord.character.corporation_id,
+    taskId,
   });
 
   await emitCharacterEvent({
@@ -251,6 +255,7 @@ async function handleTransfer(
     shipId: fromRecord.ship.ship_id,
     actorCharacterId,
     corpId: fromRecord.character.corporation_id,
+    taskId,
   });
   await emitCharacterEvent({
     supabase,
@@ -262,6 +267,7 @@ async function handleTransfer(
     shipId: toRecord.ship.ship_id,
     actorCharacterId,
     corpId: toRecord.character.corporation_id,
+    taskId,
   });
 
   return successResponse({ request_id: requestId });
@@ -305,11 +311,12 @@ async function resolveCharacterByNameAndSector(
   if (sectorId === null) {
     return null;
   }
+  // Escape special characters and use prefix matching so "Wildfell" matches "Wildfell [8fd931d7]"
   const pattern = playerName.replace(/[%_]/g, (ch) => `\\${ch}`);
   const { data, error } = await supabase
     .from('characters')
     .select('character_id, name, current_ship_id')
-    .ilike('name', pattern)
+    .ilike('name', `${pattern}%`)
     .neq('character_id', excludeCharacterId)
     .limit(5);
 
