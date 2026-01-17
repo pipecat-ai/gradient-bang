@@ -1,6 +1,7 @@
 from loguru import logger
 from dotenv import load_dotenv
 import asyncio
+from datetime import datetime, timedelta, timezone
 import os
 import sys
 
@@ -360,6 +361,144 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             await task_manager.game_client.list_known_ports(
                 task_manager.character_id
             )
+            return
+
+        # Client requested task history
+        if msg_type == "get-task-history":
+            try:
+                # Get optional ship_id and max_rows from message data
+                ship_id = msg_data.get("ship_id") if isinstance(msg_data, dict) else None
+                max_rows_raw = msg_data.get("max_rows") if isinstance(msg_data, dict) else None
+                max_rows = int(max_rows_raw) if max_rows_raw is not None else 50
+
+                end_time = datetime.now(timezone.utc)
+                start_time = end_time - timedelta(days=30)  # Last 30 days
+
+                target_character = ship_id or task_manager.character_id
+
+                # Query task.start and task.finish events in parallel
+                # (API doesn't support OR filters, so we run both concurrently)
+                start_query = task_manager.game_client.event_query(
+                    start=start_time.isoformat(),
+                    end=end_time.isoformat(),
+                    character_id=target_character,
+                    filter_event_type="task.start",
+                    max_rows=max_rows + 10,
+                    sort_direction="reverse",
+                )
+                finish_query = task_manager.game_client.event_query(
+                    start=start_time.isoformat(),
+                    end=end_time.isoformat(),
+                    character_id=target_character,
+                    filter_event_type="task.finish",
+                    max_rows=max_rows + 10,
+                    sort_direction="reverse",
+                )
+                start_result, finish_result = await asyncio.gather(start_query, finish_query)
+
+                start_events = start_result.get("events", [])
+                finish_events = finish_result.get("events", [])
+
+                # Build map of finish events by task_id
+                finish_by_task_id: dict = {}
+                for event in finish_events:
+                    task_id = event.get("task_id")
+                    if task_id:
+                        finish_by_task_id[task_id] = event
+
+                # Build task history entries from start events
+                tasks = []
+                for start_event in start_events:
+                    task_id = start_event.get("task_id")
+                    if not task_id:
+                        continue
+                    finish_event = finish_by_task_id.get(task_id)
+                    start_payload = start_event.get("payload", {})
+                    finish_payload = finish_event.get("payload", {}) if finish_event else {}
+                    tasks.append({
+                        "task_id": task_id,
+                        "started": start_event.get("timestamp"),
+                        "ended": finish_event.get("timestamp") if finish_event else None,
+                        "start_instructions": start_payload.get("task_description") or start_payload.get("instructions") or "",
+                        "end_summary": finish_payload.get("summary") or finish_payload.get("result") if finish_event else None,
+                    })
+
+                # Sort by start time descending and limit
+                tasks.sort(key=lambda t: t["started"] or "", reverse=True)
+                tasks = tasks[:max_rows]
+
+                # Emit task.history event directly to client
+                await rtvi.push_frame(
+                    RTVIServerMessageFrame(
+                        {
+                            "frame_type": "event",
+                            "event": "task.history",
+                            "payload": {
+                                "tasks": tasks,
+                                "total_count": len(tasks),
+                            },
+                        }
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Failed to fetch task history")
+                await rtvi.push_frame(
+                    RTVIServerMessageFrame({"frame_type": "error", "error": str(exc)})
+                )
+            return
+
+        # Client requested task events
+        if msg_type == "get-task-events":
+            try:
+                if not isinstance(msg_data, dict) or not msg_data.get("task_id"):
+                    raise ValueError("get-task-events requires task_id in message data")
+                task_id = msg_data.get("task_id")
+
+                # Pagination params
+                cursor_raw = msg_data.get("cursor")
+                cursor = int(cursor_raw) if cursor_raw is not None else None
+                max_rows_raw = msg_data.get("max_rows")
+                max_rows = int(max_rows_raw) if max_rows_raw is not None else None
+
+                # Use event_query with filter_task_id filter - last 24 hours by default
+                end_time = datetime.now(timezone.utc)
+                start_time = end_time - timedelta(hours=24)
+                result = await task_manager.game_client.event_query(
+                    start=start_time.isoformat(),
+                    end=end_time.isoformat(),
+                    filter_task_id=task_id,
+                    character_id=task_manager.character_id,
+                    cursor=cursor,
+                    max_rows=max_rows,
+                )
+                # Emit event.query result directly to client
+                await rtvi.push_frame(
+                    RTVIServerMessageFrame(
+                        {
+                            "frame_type": "event",
+                            "event": "event.query",
+                            "payload": result,
+                        }
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Failed to fetch task events")
+                await rtvi.push_frame(
+                    RTVIServerMessageFrame({"frame_type": "error", "error": str(exc)})
+                )
+            return
+
+        # Client requested ships list
+        if msg_type == "get-my-ships":
+            try:
+                await task_manager.game_client.list_user_ships(
+                    character_id=task_manager.character_id,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Failed to fetch user ships")
+                await rtvi.push_frame(
+                    RTVIServerMessageFrame({"frame_type": "error", "error": str(exc)})
+                )
             return
 
         if msg_type == "get-my-map":

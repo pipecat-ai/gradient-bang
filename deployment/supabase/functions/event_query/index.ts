@@ -105,7 +105,8 @@ serve(async (req: Request): Promise<Response> => {
       });
     }
 
-    return successResponse({ request_id: requestId });
+    // Return data directly (for programmatic use) AND emit event (for WebSocket clients)
+    return successResponse({ request_id: requestId, ...result });
   } catch (err) {
     const validationResponse = respondWithError(err);
     if (validationResponse) {
@@ -139,16 +140,17 @@ async function executeEventQuery(
     throw new EventQueryError('character_id or actor_character_id required for non-admin queries', 403);
   }
 
-  const sectorValue = optionalNumber(payload, 'sector');
-  const sectorFilter = sectorValue === null ? null : enforceInteger(sectorValue, 'sector');
+  // Filter fields use filter_ prefix to distinguish from metadata fields
+  const sectorValue = optionalNumber(payload, 'filter_sector');
+  const sectorFilter = sectorValue === null ? null : enforceInteger(sectorValue, 'filter_sector');
 
-  const stringMatch = optionalString(payload, 'string_match');
+  const stringMatch = optionalString(payload, 'filter_string_match');
   if (stringMatch !== null && !stringMatch.length) {
-    throw new EventQueryError('string_match cannot be empty');
+    throw new EventQueryError('filter_string_match cannot be empty');
   }
 
-  const taskId = optionalString(payload, 'task_id');
-  const eventType = optionalString(payload, 'event_type');
+  const filterTaskId = optionalString(payload, 'filter_task_id');
+  const filterEventType = optionalString(payload, 'filter_event_type');
 
   // Cursor for pagination - event ID to paginate from
   const cursorRaw = optionalNumber(payload, 'cursor');
@@ -219,8 +221,8 @@ async function executeEventQuery(
     end,
     sector: sectorFilter,
     stringMatch,
-    taskId,
-    eventType,
+    filterTaskId,
+    filterEventType,
     cursor,
     limit: maxRows,
     sortDirection,
@@ -235,6 +237,18 @@ async function executeEventQuery(
     has_more: hasMore,
     next_cursor: nextCursor,
     scope: effectiveScope,
+    filters: {
+      start: start.toISOString(),
+      end: end.toISOString(),
+      max_rows: maxRows,
+      sort_direction: sortDirection,
+      ...(sectorFilter !== null && { filter_sector: sectorFilter }),
+      ...(filterTaskId !== null && { filter_task_id: filterTaskId }),
+      ...(filterEventType !== null && { filter_event_type: filterEventType }),
+      ...(stringMatch !== null && { filter_string_match: stringMatch }),
+      ...(corporationId !== null && { corporation_id: corporationId }),
+      ...(queryCharacterId !== null && { character_id: queryCharacterId }),
+    },
   };
 }
 
@@ -244,8 +258,8 @@ async function fetchEvents(options: {
   end: Date;
   sector: number | null;
   stringMatch: string | null;
-  taskId: string | null;
-  eventType: string | null;
+  filterTaskId: string | null;
+  filterEventType: string | null;
   cursor: number | null;
   limit: number;
   sortDirection: 'forward' | 'reverse';
@@ -259,8 +273,8 @@ async function fetchEvents(options: {
     end,
     sector,
     stringMatch,
-    taskId,
-    eventType,
+    filterTaskId,
+    filterEventType,
     cursor,
     limit,
     sortDirection,
@@ -323,13 +337,13 @@ async function fetchEvents(options: {
   }
 
   // Filter by task_id if provided
-  if (taskId !== null) {
-    query = query.eq('task_id', taskId);
+  if (filterTaskId !== null) {
+    query = query.eq('task_id', filterTaskId);
   }
 
   // Filter by event_type if provided
-  if (eventType !== null) {
-    query = query.eq('event_type', eventType);
+  if (filterEventType !== null) {
+    query = query.eq('event_type', filterEventType);
   }
 
   // Cursor-based pagination: filter by event ID

@@ -27,6 +27,7 @@ import {
   type CoursePlotMessage,
   type CreditsTransferMessage,
   type ErrorMessage,
+  type EventQueryMessage,
   type IncomingChatMessage,
   type MapLocalMessage,
   type MovementCompleteMessage,
@@ -36,8 +37,10 @@ import {
   type SalvageCreatedMessage,
   type SectorUpdateMessage,
   type ServerMessage,
+  type ShipsListMessage,
   type StatusMessage,
   type TaskCompleteMessage,
+  type TaskHistoryMessage,
   type TaskOutputMessage,
   type TradeExecutedMessage,
   type WarpPurchaseMessage,
@@ -778,6 +781,29 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               if (data.was_cancelled) {
                 gameStore.setTaskWasCancelled(true)
               }
+              break
+            }
+
+            // ----- HISTORY QUERIES
+
+            case "task.history": {
+              console.debug("[GAME EVENT] Task history", gameEvent.payload)
+              const data = gameEvent.payload as TaskHistoryMessage
+              gameStore.setTaskHistory(data.tasks)
+              break
+            }
+
+            case "ships.list": {
+              console.debug("[GAME EVENT] Ships list", gameEvent.payload)
+              const data = gameEvent.payload as ShipsListMessage
+              gameStore.setUserShips(data.ships)
+              break
+            }
+
+            case "event.query": {
+              console.debug("[GAME EVENT] Event query", gameEvent.payload)
+              const data = gameEvent.payload as EventQueryMessage
+              gameStore.setTaskEvents(data.events)
               break
             }
 

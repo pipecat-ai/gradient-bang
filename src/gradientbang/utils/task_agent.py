@@ -109,7 +109,7 @@ from gradientbang.utils.tools_schema import (
 load_dotenv()
 
 DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash-preview-09-2025"
-# DEFAULT_GOOGLE_MODEL = "gemini-2.5-pro-preview-06-05"
+# DEFAULT_GOOGLE_MODEL = "gemini-3-flash-preview"
 DEFAULT_THINKING_BUDGET = 2048
 DEFAULT_INCLUDE_THOUGHTS = True
 EVENT_BATCH_INFERENCE_DELAY = 1.0
@@ -199,9 +199,7 @@ class _ResponseStateTracker(FrameProcessor):
             await self._agent._queue_pending_run_now()
         else:
             # LLM responded without tool calls - prompt it to continue or finish
-            logger.debug(
-                "No tool calls in response. Prompting LLM to continue or finish."
-            )
+            logger.debug("No tool calls in response. Prompting LLM to continue or finish.")
             await self._agent._handle_no_tool_response()
 
 
@@ -243,9 +241,7 @@ class TaskAgent:
 
         self.output_callback = output_callback
         self._tool_call_event_callback = tool_call_event_callback
-        self._llm_service_factory = (
-            llm_service_factory or self._default_llm_service_factory
-        )
+        self._llm_service_factory = llm_service_factory or self._default_llm_service_factory
         self._thinking_budget = thinking_budget or DEFAULT_THINKING_BUDGET
         self._include_thoughts = DEFAULT_INCLUDE_THOUGHTS
         self._pipeline_idle_timeout_secs = idle_timeout_secs
@@ -371,9 +367,7 @@ class TaskAgent:
 
     def cancel(self) -> None:
         self.cancelled = True
-        self._output(
-            self._timestamped_text("Execution cancelled"), TaskOutputType.FINISHED
-        )
+        self._output(self._timestamped_text("Execution cancelled"), TaskOutputType.FINISHED)
 
     def reset_cancellation(self) -> None:
         self.cancelled = False
@@ -405,9 +399,7 @@ class TaskAgent:
                 if self._active_pipeline_task:
                     await self._active_pipeline_task.cancel()
             except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    f"Failed to cancel pipeline task after error event: {exc}"
-                )
+                logger.warning(f"Failed to cancel pipeline task after error event: {exc}")
             raise RuntimeError(f"Encountered error event: {event}")
 
         if event_name == "error":
@@ -508,9 +500,7 @@ class TaskAgent:
             logger.warning(f"Failed to emit task.start event: {exc}")
 
         self.add_message({"role": "system", "content": create_task_system_message()})
-        self.add_message(
-            {"role": "user", "content": create_task_instruction_user_message(task)}
-        )
+        self.add_message({"role": "user", "content": create_task_instruction_user_message(task)})
         # Note: initial_state parameter kept for API compatibility but not used
 
         context = self._create_context()
@@ -720,12 +710,8 @@ class TaskAgent:
             )
             error_text = self._timestamped_text(f"Unknown tool: {tool_name}")
             self._output(error_text, TaskOutputType.ERROR)
-            logger.debug(
-                "TOOL_RESULT unknown tool={} arguments={}", tool_name, arguments
-            )
-            await self._on_tool_call_completed(
-                tool_name, {"error": f"Unknown tool: {tool_name}"}
-            )
+            logger.debug("TOOL_RESULT unknown tool={} arguments={}", tool_name, arguments)
+            await self._on_tool_call_completed(tool_name, {"error": f"Unknown tool: {tool_name}"})
             return
 
         # Pre-set awaiting flag for async completion tools BEFORE any yield points.
@@ -799,9 +785,7 @@ class TaskAgent:
             content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         return {"role": "tool", "tool_call_id": tool_call_id, "content": content}
 
-    def _payload_from_tool_message(
-        self, tool_message: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _payload_from_tool_message(self, tool_message: Dict[str, Any]) -> Dict[str, Any]:
         content = tool_message.get("content")
         if not content:
             return {"result": {}}
@@ -827,9 +811,7 @@ class TaskAgent:
             try:
                 self.output_callback(text, type_value)
             except Exception:  # noqa: BLE001
-                logger.exception(
-                    "output_callback failed type={} text={}", type_value, text
-                )
+                logger.exception("output_callback failed type={} text={}", type_value, text)
 
     def _record_inference_reason(self, reason: str) -> None:
         if reason in self._inference_reasons:
@@ -1042,9 +1024,7 @@ class TaskAgent:
             self.finished_message = "Task stopped: LLM failed to call required tools"
             finished_text = self._timestamped_text(self.finished_message)
             self._output(finished_text, TaskOutputType.FINISHED)
-            asyncio.create_task(
-                self._active_pipeline_task.queue_frames([EndFrame()])
-            )
+            asyncio.create_task(self._active_pipeline_task.queue_frames([EndFrame()]))
             return
 
         # Add a nudge message to the context
