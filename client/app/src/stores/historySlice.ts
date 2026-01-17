@@ -2,6 +2,11 @@ import { produce } from "immer"
 import type { StateCreator } from "zustand"
 
 import { createLogEntrySignature } from "@/utils/game"
+import type {
+  TaskHistoryEntry,
+  ShipSummary,
+  EventQueryEntry,
+} from "@/types/messages"
 
 const MAX_MOVEMENT_HISTORY = 50
 
@@ -14,11 +19,26 @@ export interface HistorySlice {
 
   known_ports: Sector[] | undefined // Note: allow undefined here to handle fetching state
   setKnownPorts: (ports: Sector[]) => void
+
+  // Task history from server
+  task_history: TaskHistoryEntry[] | undefined
+  setTaskHistory: (tasks: TaskHistoryEntry[]) => void
+
+  // User's ships (personal + corporation)
+  user_ships: ShipSummary[] | undefined
+  setUserShips: (ships: ShipSummary[]) => void
+
+  // Task events (from event.query)
+  task_events: EventQueryEntry[] | undefined
+  setTaskEvents: (events: EventQueryEntry[]) => void
 }
 
 export const createHistorySlice: StateCreator<HistorySlice> = (set) => ({
   activity_log: [],
   known_ports: undefined,
+  task_history: undefined,
+  user_ships: undefined,
+  task_events: undefined,
 
   addActivityLogEntry: (entry: LogEntry) =>
     set(
@@ -68,6 +88,27 @@ export const createHistorySlice: StateCreator<HistorySlice> = (set) => ({
     set(
       produce((state) => {
         state.known_ports = ports
+      })
+    ),
+
+  setTaskHistory: (tasks: TaskHistoryEntry[]) =>
+    set(
+      produce((state) => {
+        state.task_history = tasks
+      })
+    ),
+
+  setUserShips: (ships: ShipSummary[]) =>
+    set(
+      produce((state) => {
+        state.user_ships = ships
+      })
+    ),
+
+  setTaskEvents: (events: EventQueryEntry[]) =>
+    set(
+      produce((state) => {
+        state.task_events = events
       })
     ),
 })

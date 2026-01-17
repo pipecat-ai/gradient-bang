@@ -324,6 +324,10 @@ class AsyncGameClient(LegacyAsyncGameClient):
         if canonical_actor is not None:
             enriched["actor_character_id"] = canonical_actor
 
+        # Auto-inject task_id if set (for TaskAgent task correlation)
+        if self._current_task_id and "task_id" not in enriched:
+            enriched["task_id"] = self._current_task_id
+
         return enriched
 
     async def purchase_fighters(

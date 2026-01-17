@@ -182,3 +182,70 @@ export interface CombatRoundWaitingMessage extends ServerMessagePayload {
 export interface CombatRoundResolvedMessage
   extends ServerMessagePayload,
     CombatRound {}
+
+// --- Task History Messages
+
+export interface TaskHistoryEntry {
+  task_id: string
+  started: string // ISO8601
+  ended: string | null // null if running
+  start_instructions: string
+  end_summary: string | null
+}
+
+export interface TaskHistoryMessage extends ServerMessagePayload {
+  tasks: TaskHistoryEntry[]
+  total_count: number
+}
+
+// --- Ships List Messages
+
+export interface ShipSummary {
+  ship_id: string
+  ship_type: string
+  name: string
+  sector: number | null
+  owner_type: "personal" | "corporation"
+  cargo: {
+    quantum_foam: number
+    retro_organics: number
+    neuro_symbolics: number
+  }
+  cargo_capacity: number
+  warp_power: number
+  warp_power_capacity: number
+  shields: number
+  max_shields: number
+  fighters: number
+  max_fighters: number
+  credits: number
+  is_task_running?: boolean
+}
+
+export interface ShipsListMessage extends ServerMessagePayload {
+  ships: ShipSummary[]
+}
+
+// --- Event Query Messages (for task events)
+
+export interface EventQueryEntry {
+  __event_id: number
+  timestamp: string
+  direction: string
+  event: string
+  payload: Record<string, unknown>
+  sender: string | null
+  receiver: string | null
+  sector: number | null
+  corporation_id: string | null
+  task_id: string | null
+  meta: Record<string, unknown> | null
+}
+
+export interface EventQueryMessage extends ServerMessagePayload {
+  events: EventQueryEntry[]
+  count: number
+  has_more: boolean
+  next_cursor: number | null
+  scope: "personal" | "corporation"
+}

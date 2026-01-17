@@ -17,6 +17,7 @@ from gradientbang.utils.summary_formatters import (
     combat_round_waiting_summary,
     combat_round_resolved_summary,
     character_moved_summary,
+    event_query_summary,
     garrison_character_moved_summary,
     join_summary,
     list_known_ports_summary,
@@ -30,6 +31,8 @@ from gradientbang.utils.summary_formatters import (
     garrison_combat_alert_summary,
     sector_update_summary,
     status_update_summary,
+    task_finish_summary,
+    task_start_summary,
     trade_executed_summary,
     transfer_summary,
 )
@@ -192,6 +195,14 @@ class AsyncGameClient:
                     current = current_candidate
             return map_local_summary(data, current)
 
+        def event_query_wrapper(
+            data: Dict[str, Any], client: "AsyncGameClient" = self
+        ) -> str:
+            def nested_summary(event_name: str, payload: Dict[str, Any]) -> Optional[str]:
+                return client._get_summary(event_name, payload)
+
+            return event_query_summary(data, nested_summary)
+
         return {
             "status.snapshot": join_summary,
             "status.update": status_update_summary,
@@ -216,6 +227,9 @@ class AsyncGameClient:
             "garrison.combat_alert": garrison_combat_alert_summary,
             "garrison.character_moved": garrison_character_moved_summary,
             "sector.update": sector_update_summary,
+            "task.start": task_start_summary,
+            "task.finish": task_finish_summary,
+            "event.query": event_query_wrapper,
         }
 
     def _set_current_sector(self, candidate: Any) -> None:
@@ -571,7 +585,10 @@ class AsyncGameClient:
         # Auto-inject actor_character_id if explicitly set
         if self._actor_character_id and "actor_character_id" not in enriched_payload:
             enriched_payload["actor_character_id"] = self._actor_character_id
-        # Auto-inject task_id if set (for TaskAgent task correlation)
+        # Auto-inject task_id if set (for TaskAgent task correlation).
+        # This tags events created during this task with the task's ID.
+        # Query endpoints use filter_* prefixed fields for filtering, so
+        # auto-injected task_id won't accidentally become a filter.
         if self._current_task_id and "task_id" not in enriched_payload:
             enriched_payload["task_id"] = self._current_task_id
         frame = {
@@ -961,21 +978,26 @@ class AsyncGameClient:
         end: str,
         admin_password: Optional[str] = None,
         character_id: Optional[str] = None,
-        sector: Optional[int] = None,
         corporation_id: Optional[str] = None,
-        task_id: Optional[str] = None,
-        event_type: Optional[str] = None,
         cursor: Optional[int] = None,
-        string_match: Optional[str] = None,
         max_rows: Optional[int] = None,
         sort_direction: Optional[str] = None,
         actor_character_id: Optional[str] = None,
         event_scope: Optional[str] = None,
+        # Filter fields - use filter_ prefix to distinguish from event metadata
+        filter_sector: Optional[int] = None,
+        filter_task_id: Optional[str] = None,
+        filter_event_type: Optional[str] = None,
+        filter_string_match: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Query event logs within a time range.
 
         Returns up to 100 events per call. Response includes 'has_more' and
         'next_cursor' for pagination. To get more results, pass cursor=next_cursor.
+
+        Filter parameters (filter_*) are used to filter query results.
+        Metadata parameters (character_id, task_id via auto-injection) identify
+        the caller and are used for permissions and tagging the query event.
         """
 
         payload: Dict[str, Any] = {
@@ -986,24 +1008,26 @@ class AsyncGameClient:
             payload["admin_password"] = admin_password
         if character_id:
             payload["character_id"] = character_id
-        if sector is not None:
-            payload["sector"] = sector
         if corporation_id:
             payload["corporation_id"] = corporation_id
-        if task_id:
-            payload["task_id"] = task_id
-        if event_type:
-            payload["event_type"] = event_type
         if cursor is not None:
             payload["cursor"] = cursor
-        if string_match:
-            payload["string_match"] = string_match
         if max_rows is not None:
             payload["max_rows"] = max_rows
         if sort_direction:
             payload["sort_direction"] = sort_direction
         if event_scope:
             payload["event_scope"] = event_scope
+
+        # Filter fields use filter_ prefix
+        if filter_sector is not None:
+            payload["filter_sector"] = filter_sector
+        if filter_task_id:
+            payload["filter_task_id"] = filter_task_id
+        if filter_event_type:
+            payload["filter_event_type"] = filter_event_type
+        if filter_string_match:
+            payload["filter_string_match"] = filter_string_match
 
         actor_value = (
             actor_character_id
@@ -1014,6 +1038,31 @@ class AsyncGameClient:
             payload.setdefault("actor_character_id", actor_value)
 
         return await self._request("event.query", payload)
+
+    async def list_user_ships(
+        self,
+        *,
+        character_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """List all ships accessible to the user.
+
+        Returns the user's personal ship and any corporation ships.
+
+        Args:
+            character_id: User's personal character ID (defaults to bound character)
+
+        Returns:
+            Dict with 'ships' array containing ship details including
+            ship_id, ship_type, name, sector, owner_type, cargo, credits, etc.
+        """
+        if character_id is None:
+            character_id = self._character_id
+
+        payload: Dict[str, Any] = {
+            "character_id": character_id,
+        }
+
+        return await self._request("list.user.ships", payload)
 
     async def task_lifecycle(
         self,
