@@ -61,6 +61,7 @@ serve(async (req: Request): Promise<Response> => {
   const characterId = requireString(payload, 'character_id');
   const actorCharacterId = optionalString(payload, 'actor_character_id');
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
+  const taskId = optionalString(payload, 'task_id');
 
   try {
     await enforceRateLimit(supabase, characterId, 'combat_initiate');
@@ -87,6 +88,7 @@ serve(async (req: Request): Promise<Response> => {
       requestId,
       actorCharacterId,
       adminOverride,
+      taskId,
     });
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
@@ -120,8 +122,9 @@ async function handleCombatInitiate(params: {
   requestId: string;
   actorCharacterId: string | null;
   adminOverride: boolean;
+  taskId: string | null;
 }): Promise<Response> {
-  const { supabase, characterId, requestId, actorCharacterId, adminOverride } = params;
+  const { supabase, characterId, requestId, actorCharacterId, adminOverride, taskId } = params;
   const character = await loadCharacter(supabase, characterId);
   const shipId = character.current_ship_id;
   if (!shipId) {
@@ -273,7 +276,7 @@ async function handleCombatInitiate(params: {
   }
 
   await persistCombatState(supabase, encounter);
-  await emitRoundWaitingEvents(supabase, encounter, requestId);
+  await emitRoundWaitingEvents(supabase, encounter, requestId, taskId);
 
   return successResponse({
     success: true,
@@ -287,6 +290,7 @@ async function emitRoundWaitingEvents(
   supabase: ReturnType<typeof createServiceRoleClient>,
   encounter: CombatEncounterState,
   requestId: string,
+  taskId: string | null,
 ): Promise<void> {
   const payload = buildRoundWaitingPayload(encounter);
   const source = buildEventSource('combat.round_waiting', requestId);
@@ -308,6 +312,7 @@ async function emitRoundWaitingEvents(
         requestId,
         senderId,
         actorCharacterId: recipient,
+        taskId,
       }),
     ),
   );
@@ -319,5 +324,6 @@ async function emitRoundWaitingEvents(
     payload,
     requestId,
     senderId,
+    taskId,
   });
 }

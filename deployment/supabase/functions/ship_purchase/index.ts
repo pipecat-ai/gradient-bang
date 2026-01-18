@@ -60,6 +60,7 @@ serve(async (req: Request): Promise<Response> => {
   const purchaseType = purchaseTypeInput ?? (forCorporation ? CORPORATION_PURCHASE : PERSONAL_PURCHASE);
   const actorCharacterId = optionalString(payload, 'actor_character_id');
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
+  const taskId = optionalString(payload, 'task_id');
 
   if (actorCharacterId && actorCharacterId !== characterId && !adminOverride) {
     return errorResponse('actor_character_id must match character_id unless admin_override is true', 403);
@@ -88,9 +89,9 @@ serve(async (req: Request): Promise<Response> => {
 
   try {
     if (purchaseType === CORPORATION_PURCHASE) {
-      return await handleCorporationPurchase(supabase, payload, characterId, shipTypeRaw, requestId);
+      return await handleCorporationPurchase(supabase, payload, characterId, shipTypeRaw, requestId, taskId);
     }
-    return await handlePersonalPurchase(supabase, payload, characterId, shipTypeRaw, requestId);
+    return await handlePersonalPurchase(supabase, payload, characterId, shipTypeRaw, requestId, taskId);
   } catch (err) {
     if (err instanceof ShipPurchaseError) {
       await emitErrorEvent(supabase, {
@@ -120,6 +121,7 @@ async function handlePersonalPurchase(
   characterId: string,
   shipType: string,
   requestId: string,
+  taskId: string | null,
 ): Promise<Response> {
   if (isAutonomousShipType(shipType)) {
     throw new ShipPurchaseError('Autonomous ship types may only be purchased for corporations');
@@ -201,6 +203,7 @@ async function handlePersonalPurchase(
     sectorId,
     requestId,
     corpId: character.corporation_id,
+    taskId,
   });
 
   if (currentShip.ship_id) {
@@ -223,6 +226,7 @@ async function handlePersonalPurchase(
       sectorId,
       requestId,
       corpId: character.corporation_id,
+      taskId,
     });
   }
 
@@ -241,6 +245,7 @@ async function handleCorporationPurchase(
   characterId: string,
   shipType: string,
   requestId: string,
+  taskId: string | null,
 ): Promise<Response> {
   const initialCreditsRaw = optionalNumber(payload, 'initial_ship_credits');
   const initialShipCredits = initialCreditsRaw === null ? 0 : Math.floor(initialCreditsRaw);
@@ -331,6 +336,7 @@ async function handleCorporationPurchase(
     sectorId: currentShip.current_sector ?? 0,
     requestId,
     corpId,
+    taskId,
   });
 
   const corpEventPayload = {
@@ -350,6 +356,7 @@ async function handleCorporationPurchase(
     eventType: 'corporation.ship_purchased',
     payload: corpEventPayload,
     requestId,
+    taskId,
   });
 
   return successResponse({

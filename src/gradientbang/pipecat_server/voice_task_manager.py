@@ -126,6 +126,9 @@ class VoiceTaskManager:
             "combat.action_accepted",
             "chat.message",
             "error",
+            # Client history query events (relayed via event system)
+            "event.query",
+            "ships.list",
         ]
         for event_name in self._event_names:
             self.game_client.on(event_name)(self._relay_event)
@@ -213,9 +216,64 @@ class VoiceTaskManager:
         logger.info(f"Join successful as {self.display_name}: {result}")
         return result
 
+    def _get_voice_summary(self, event_name: str, event: Dict[str, Any]) -> Optional[str]:
+        """Get a condensed summary suitable for voice LLM context.
+
+        For verbose events like event.query, produces a much shorter summary
+        than the TaskAgent receives. Falls back to the standard summary.
+        """
+        payload = event.get("payload", {})
+
+        if event_name == "event.query":
+            # Very condensed: count + key filter context
+            count = payload.get("count", 0)
+            has_more = payload.get("has_more", False)
+            filters = payload.get("filters", {})
+
+            # Build filter context from most relevant filters
+            filter_parts = []
+            if filters.get("filter_event_type"):
+                filter_parts.append(f"type={filters['filter_event_type']}")
+            if filters.get("filter_task_id"):
+                filter_parts.append("task-scoped")
+            if filters.get("filter_sector"):
+                filter_parts.append(f"sector {filters['filter_sector']}")
+
+            if filter_parts:
+                filter_str = f" ({', '.join(filter_parts)})"
+            else:
+                filter_str = ""
+
+            summary = f"Query returned {count} events{filter_str}."
+            if has_more:
+                summary += " More available."
+
+            return summary
+
+        # Fall back to standard summary
+        return event.get("summary")
+
     async def _relay_event(self, event: Dict[str, Any]) -> None:
         event_name = event.get("event_name")
         payload = event.get("payload")
+
+        # Enrich ships.list with is_task_running for each ship
+        if event_name == "ships.list" and isinstance(payload, dict):
+            ships = payload.get("ships")
+            if isinstance(ships, list):
+                # Build set of ship IDs with active tasks
+                active_ship_ids = set()
+                for task_info in self._active_tasks.values():
+                    asyncio_task = task_info.get("asyncio_task")
+                    if asyncio_task and not asyncio_task.done():
+                        target_id = task_info.get("target_character_id")
+                        if target_id:
+                            active_ship_ids.add(target_id)
+
+                for ship in ships:
+                    if isinstance(ship, dict) and "ship_id" in ship:
+                        ship["is_task_running"] = ship["ship_id"] in active_ship_ids
+
         await self.rtvi_processor.push_frame(
             RTVIServerMessageFrame(
                 {
@@ -226,7 +284,11 @@ class VoiceTaskManager:
             )
         )
 
-        summary = event.get("summary", payload)
+        # Use voice-specific condensed summary for verbose events
+        if event_name:
+            summary = self._get_voice_summary(str(event_name), event) or payload
+        else:
+            summary = payload
 
         # Find the task_id for this event (if it belongs to a task)
         task_id = self._get_task_id_for_character(self.character_id)
@@ -398,7 +460,7 @@ class VoiceTaskManager:
         )
 
         # append for the LLM only the information that won't have arrived as events
-        if message_type != TaskOutputType.EVENT:
+        if message_type != TaskOutputType.EVENT.value:
             self.task_buffer.append(text)
 
     @traced

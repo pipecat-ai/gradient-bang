@@ -60,6 +60,7 @@ serve(async (req: Request): Promise<Response> => {
   const corpId = requireString(payload, 'corp_id');
   const inviteCode = requireString(payload, 'invite_code');
   const actorCharacterId = optionalString(payload, 'actor_character_id');
+  const taskId = optionalString(payload, 'task_id');
   ensureActorMatches(actorCharacterId, characterId);
 
   try {
@@ -87,6 +88,7 @@ serve(async (req: Request): Promise<Response> => {
       corpId,
       inviteCode,
       requestId,
+      taskId,
     });
     return successResponse({ ...result, request_id: requestId });
   } catch (err) {
@@ -105,8 +107,9 @@ async function handleJoin(params: {
   corpId: string;
   inviteCode: string;
   requestId: string;
+  taskId: string | null;
 }): Promise<Record<string, unknown>> {
-  const { supabase, characterId, characterLabel, corpId, inviteCode, requestId } = params;
+  const { supabase, characterId, characterLabel, corpId, inviteCode, requestId, taskId } = params;
   const character = await loadCharacter(supabase, characterId);
   if (character.corporation_id) {
     throw new CorporationJoinError('Already in a corporation', 400);
@@ -165,6 +168,7 @@ async function handleJoin(params: {
     payload: eventPayload,
     requestId,
     memberIds: members.map((member) => member.character_id),
+    taskId,
   });
 
   return {

@@ -5,7 +5,7 @@ reducing token usage when sending tool results to the LLM.
 """
 
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Callable, Dict, Any, List, Optional, Tuple
 from collections import defaultdict
 
 from gradientbang.game_server.ships import ShipType, get_ship_stats
@@ -172,9 +172,11 @@ def _format_players(players: List[Dict[str, Any]]) -> List[str]:
         corp_suffix = f" [{corp_name}]" if corp_name else ""
         player_type = player.get("player_type")
         if player_type == "corporation_ship":
-            display_name = ship_name or name
+            # Use character name (has UUID suffix) so LLM uses correct name for transfers
+            # Quotes signal the entire string is the name (including bracket suffix)
+            display_name = name or ship_name
             lines.append(
-                f"  - Corp ship {display_name} ({ship_type}){corp_suffix}"
+                f'  - Corp ship "{display_name}" ({ship_type}){corp_suffix}'
             )
         else:
             lines.append(
@@ -1098,3 +1100,114 @@ def chat_message_summary(event: Dict[str, Any]) -> str:
         return f"{from_name} → {to_name}: {content}"
     else:
         return f"{from_name}: {content}"
+
+
+def task_start_summary(event: Dict[str, Any]) -> str:
+    """Summarize task.start events showing task description."""
+    description = event.get("task_description", "")
+    return description if description else "Task started"
+
+
+def task_finish_summary(event: Dict[str, Any]) -> str:
+    """Summarize task.finish events showing task summary."""
+    summary = event.get("task_summary", "")
+    return summary if summary else "Task finished"
+
+
+def event_query_summary(
+    data: Dict[str, Any],
+    get_nested_summary: Callable[[str, Dict[str, Any]], Optional[str]],
+) -> str:
+    """Format event.query response with nested event summaries.
+
+    Args:
+        data: Full event.query response with events, filters, scope, etc.
+        get_nested_summary: Callback to get summary for nested event payloads.
+            Signature: (event_name, payload) -> Optional[str]
+
+    Returns:
+        Multi-line summary with header, per-event lines, and pagination info.
+    """
+    events = data.get("events", [])
+    count = data.get("count", len(events))
+    scope = data.get("scope", "unknown")
+    has_more = data.get("has_more", False)
+    next_cursor = data.get("next_cursor")
+    filters = data.get("filters", {})
+
+    # Build header
+    lines: List[str] = [f"Query returned {count} event{'s' if count != 1 else ''} (scope: {scope}):"]
+
+    # Show active filters (excluding time range and defaults)
+    filter_parts: List[str] = []
+    if filters.get("filter_sector") is not None:
+        filter_parts.append(f"filter_sector={filters['filter_sector']}")
+    if filters.get("filter_task_id"):
+        filter_parts.append(f"filter_task_id={filters['filter_task_id']}")
+    if filters.get("filter_event_type"):
+        filter_parts.append(f"filter_event_type={filters['filter_event_type']}")
+    if filters.get("filter_string_match"):
+        filter_parts.append(f"filter_string_match={filters['filter_string_match']}")
+    if filters.get("character_id"):
+        filter_parts.append(f"character_id={filters['character_id']}")
+    if filters.get("corporation_id"):
+        filter_parts.append(f"corporation_id={filters['corporation_id']}")
+
+    if filter_parts:
+        lines.append(f"Filters: {', '.join(filter_parts)}")
+
+    # Format each event
+    for idx, event in enumerate(events, start=1):
+        timestamp = event.get("timestamp")
+        event_type = event.get("event", "unknown")
+        payload = event.get("payload", {})
+
+        # Format timestamp as HH:MM:SSZ
+        time_str = _format_iso_clock(timestamp)
+
+        # Try to get nested summary
+        nested_summary = get_nested_summary(event_type, payload)
+        if nested_summary:
+            event_line = f"{idx}. [{time_str}] {event_type}: {nested_summary}"
+        else:
+            # Fallback: show payload keys or brief excerpt
+            if payload:
+                payload_preview = ", ".join(list(payload.keys())[:3])
+                if len(payload) > 3:
+                    payload_preview += ", ..."
+                event_line = f"{idx}. [{time_str}] {event_type}: {{{payload_preview}}}"
+            else:
+                event_line = f"{idx}. [{time_str}] {event_type}"
+
+        lines.append(event_line)
+
+        # Add context line for sender/receiver/sector/task_id if not filtered
+        context_parts: List[str] = []
+        sender = event.get("sender")
+        receiver = event.get("receiver")
+        sector = event.get("sector")
+        task_id = event.get("task_id")
+        corp_id = event.get("corporation_id")
+
+        # Only show if not already filtered
+        if sender and sender != filters.get("character_id"):
+            context_parts.append(f"from {sender}")
+        if receiver and receiver != filters.get("character_id"):
+            context_parts.append(f"to {receiver}")
+        if sector is not None and sector != filters.get("filter_sector"):
+            context_parts.append(f"sector {sector}")
+        if task_id and task_id != filters.get("filter_task_id"):
+            context_parts.append(f"task_id={task_id}")
+        if corp_id and corp_id != filters.get("corporation_id"):
+            context_parts.append(f"corp_id={corp_id}")
+
+        if context_parts:
+            lines.append(f"   {', '.join(context_parts)}")
+
+    # Pagination footer
+    if has_more and next_cursor:
+        lines.append(f"\n[More available, cursor={next_cursor}]")
+    elif has_more:
+        lines.append("\n[More available]")
+
+    return "\n".join(lines)

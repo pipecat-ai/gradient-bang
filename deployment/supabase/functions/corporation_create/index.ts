@@ -52,6 +52,7 @@ serve(async (req: Request): Promise<Response> => {
   const characterId = requireString(payload, 'character_id');
   const nameInput = requireString(payload, 'name');
   const actorCharacterId = optionalString(payload, 'actor_character_id');
+  const taskId = optionalString(payload, 'task_id');
   ensureActorMatches(actorCharacterId, characterId);
 
   const normalizedName = nameInput.trim();
@@ -77,7 +78,7 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    const result = await handleCreate({ supabase, characterId, normalizedName, requestId });
+    const result = await handleCreate({ supabase, characterId, normalizedName, requestId, taskId });
     return successResponse({ ...result, request_id: requestId });
   } catch (err) {
     if (err instanceof CorporationCreateError) {
@@ -93,8 +94,9 @@ async function handleCreate(params: {
   characterId: string;
   normalizedName: string;
   requestId: string;
+  taskId: string | null;
 }): Promise<Record<string, unknown>> {
-  const { supabase, characterId, normalizedName, requestId } = params;
+  const { supabase, characterId, normalizedName, requestId, taskId } = params;
   const character = await loadCharacter(supabase, characterId);
   if (character.corporation_id) {
     throw new CorporationCreateError('Already in a corporation', 400);
@@ -146,6 +148,7 @@ async function handleCreate(params: {
     sectorId: ship.current_sector ?? null,
     requestId,
     corpId: inserted.corp_id,
+    taskId,
   });
 
   return {

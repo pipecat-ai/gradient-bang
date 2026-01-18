@@ -670,12 +670,32 @@ class PurchaseShip(GameClientTool):
             name="purchase_ship",
             description=(
                 "Purchase a ship for personal use or on behalf of your corporation. "
-                "Corporation purchases draw from bank credits and may seed initial ship credits."
+                "Personal purchases use ship credits (with trade-in value from current ship). "
+                "Corporation purchases draw from bank credits and may seed initial ship credits. "
+                "Note: autonomous ships (autonomous_probe, autonomous_light_hauler) can ONLY be "
+                "purchased for corporations, not for personal use."
             ),
             properties={
                 "ship_type": {
                     "type": "string",
-                    "description": "Ship type identifier (e.g., 'kestrel_courier', 'atlas_hauler')",
+                    "enum": [
+                        "kestrel_courier",       # 25,000 - starter ship
+                        "sparrow_scout",         # 35,000 - recon
+                        "wayfarer_freighter",    # 120,000 - main trader
+                        "pioneer_lifter",        # 220,000 - logistics
+                        "atlas_hauler",          # 260,000 - bulk cargo
+                        "corsair_raider",        # 180,000 - pirate
+                        "pike_frigate",          # 300,000 - assault
+                        "bulwark_destroyer",     # 450,000 - line combat
+                        "aegis_cruiser",         # 700,000 - control/escort
+                        "sovereign_starcruiser", # 2,500,000 - flagship
+                        "autonomous_probe",      # 1,000 - corp only
+                        "autonomous_light_hauler",  # 5,000 - corp only
+                    ],
+                    "description": (
+                        "Ship type to purchase. Autonomous types (autonomous_probe, "
+                        "autonomous_light_hauler) are corporation-only."
+                    ),
                 },
                 "purchase_type": {
                     "type": "string",
@@ -773,30 +793,31 @@ class EventQuery(GameClientTool):
         end,
         admin_password=None,
         character_id=None,
-        sector=None,
         corporation_id=None,
-        task_id=None,
-        event_type=None,
         cursor=None,
-        string_match=None,
         max_rows=None,
         sort_direction=None,
         event_scope=None,
+        # Filter fields use filter_ prefix
+        filter_sector=None,
+        filter_task_id=None,
+        filter_event_type=None,
+        filter_string_match=None,
     ):
         return self.game_client.event_query(
             start=start,
             end=end,
             admin_password=admin_password,
             character_id=character_id,
-            sector=sector,
             corporation_id=corporation_id,
-            task_id=task_id,
-            event_type=event_type,
             cursor=cursor,
-            string_match=string_match,
             max_rows=max_rows,
             sort_direction=sort_direction,
             event_scope=event_scope,
+            filter_sector=filter_sector,
+            filter_task_id=filter_task_id,
+            filter_event_type=filter_event_type,
+            filter_string_match=filter_string_match,
         )
 
     @classmethod
@@ -823,24 +844,11 @@ class EventQuery(GameClientTool):
                 },
                 "character_id": {
                     "type": "string",
-                    "description": "Filter to a specific character's events",
-                },
-                "sector": {
-                    "type": "integer",
-                    "description": "Filter to events within a sector",
-                    "minimum": 0,
+                    "description": "Character ID for permissions (who is querying). Auto-injected if not provided.",
                 },
                 "corporation_id": {
                     "type": "string",
-                    "description": "Filter to events involving the given corporation",
-                },
-                "task_id": {
-                    "type": "string",
-                    "description": "Filter to events from a specific task execution (UUID)",
-                },
-                "event_type": {
-                    "type": "string",
-                    "description": "Filter to a specific event type (e.g., 'task.start', 'task.finish', 'movement.complete')",
+                    "description": "Corporation ID for scope (view corp events)",
                 },
                 "cursor": {
                     "type": "integer",
@@ -850,7 +858,20 @@ class EventQuery(GameClientTool):
                         "Use the 'next_cursor' value from a previous response to get the next page."
                     ),
                 },
-                "string_match": {
+                "filter_sector": {
+                    "type": "integer",
+                    "description": "Filter to events within a sector",
+                    "minimum": 0,
+                },
+                "filter_task_id": {
+                    "type": "string",
+                    "description": "Filter to events from a specific task execution (UUID)",
+                },
+                "filter_event_type": {
+                    "type": "string",
+                    "description": "Filter to a specific event type (e.g., 'task.start', 'task.finish', 'movement.complete')",
+                },
+                "filter_string_match": {
                     "type": "string",
                     "description": "Optional literal substring to search for within event payloads",
                 },

@@ -61,6 +61,7 @@ serve(async (req: Request): Promise<Response> => {
   const characterId = await canonicalizeCharacterId(rawCharacterId);
   const actorCharacterLabel = optionalString(payload, 'actor_character_id');
   const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
+  const taskId = optionalString(payload, 'task_id');
   ensureActorMatches(actorCharacterId, characterId);
 
   try {
@@ -81,7 +82,7 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    await handleLeave({ supabase, characterId, characterLabel, requestId });
+    await handleLeave({ supabase, characterId, characterLabel, requestId, taskId });
     return successResponse({ request_id: requestId });
   } catch (err) {
     if (err instanceof CorporationLeaveError) {
@@ -97,8 +98,9 @@ async function handleLeave(params: {
   characterId: string;
   characterLabel: string;
   requestId: string;
+  taskId: string | null;
 }): Promise<void> {
-  const { supabase, characterId, characterLabel, requestId } = params;
+  const { supabase, characterId, characterLabel, requestId, taskId } = params;
   const character = await loadCharacter(supabase, characterId);
   const corpId = character.corporation_id;
   if (!corpId) {
@@ -129,7 +131,7 @@ async function handleLeave(params: {
 
   const remainingMembers = await fetchCorporationMembers(supabase, corpId);
   if (!remainingMembers.length) {
-    await handleDisband({ supabase, corpId, corporationName: corporation.name, characterId, requestId });
+    await handleDisband({ supabase, corpId, corporationName: corporation.name, characterId, requestId, taskId });
     return;
   }
 
@@ -152,6 +154,7 @@ async function handleLeave(params: {
     payload,
     requestId,
     memberIds: remainingMembers.map((member) => member.character_id),
+    taskId,
   });
 }
 
@@ -161,8 +164,9 @@ async function handleDisband(params: {
   corporationName: string;
   characterId: string;
   requestId: string;
+  taskId: string | null;
 }): Promise<void> {
-  const { supabase, corpId, corporationName, characterId, requestId } = params;
+  const { supabase, corpId, corporationName, characterId, requestId, taskId } = params;
   const shipSummaries = await fetchCorporationShipSummaries(supabase, corpId);
   const shipIds = shipSummaries.map((ship) => ship.ship_id);
   const timestamp = new Date().toISOString();
@@ -211,6 +215,7 @@ async function handleDisband(params: {
     payload: disbandPayload,
     requestId,
     corpId: corpId,
+    taskId,
   });
 
   if (shipSummaries.length) {
@@ -232,7 +237,8 @@ async function handleDisband(params: {
       eventType: 'corporation.ships_abandoned',
       payload: shipsPayload,
       requestId,
-      corpId: corpId,  // Changed from meta to corpId parameter
+      corpId: corpId,
+      taskId,
     });
   }
 
