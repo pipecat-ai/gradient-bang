@@ -8,6 +8,7 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { loadCharacter, loadShip } from './status.ts';
 import { loadCharacterCombatants, loadCharacterNames, loadGarrisonCombatants } from './combat_participants.ts';
+import { getEffectiveCorporationId } from './corporations.ts';
 import { loadCombatForSector, persistCombatState } from './combat_state.ts';
 import { nowIso, type CombatEncounterState, type CombatantState } from './combat_types.ts';
 import { buildRoundWaitingPayload } from './combat_events.ts';
@@ -93,14 +94,8 @@ export async function checkGarrisonAutoEngage(params: {
     return false; // No auto-engaging garrisons
   }
 
-  // Get character's corporation membership
-  const { data: charCorpData } = await supabase
-    .from('corporation_members')
-    .select('corp_id')
-    .eq('character_id', characterId)
-    .is('left_at', null)
-    .maybeSingle();
-  const charCorpId = charCorpData?.corp_id ?? null;
+  // Get character's effective corporation (membership OR ship ownership for corp-owned ships)
+  const charCorpId = await getEffectiveCorporationId(supabase, characterId, ship.ship_id);
 
   // Check if any garrison is not owned by same corporation
   let hasEnemyGarrison = false;

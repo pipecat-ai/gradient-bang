@@ -574,7 +574,7 @@ function buildPortResult(
       neuro_symbolics: portRow.stock_ns,
     },
     prices,
-    observed_at: inSector ? null : rpcTimestamp,
+    observed_at: inSector ? null : portRow.last_updated,
   } as Record<string, unknown>;
 
   return {
@@ -583,7 +583,7 @@ function buildPortResult(
       position,
       port: portPayload,
     },
-    updated_at: rpcTimestamp,
+    updated_at: portRow.last_updated,
     hops_from_start: hops,
     last_visited: knowledgeEntry?.last_visited,
   };

@@ -907,52 +907,49 @@ def port_update_summary(event: Dict[str, Any]) -> str:
     return f"Port update at sector {sector_id} ({code}): {line}."
 
 
-def character_moved_summary(event: Dict[str, Any]) -> str:
+def character_moved_summary(
+    event: Dict[str, Any],
+    viewer_corporation_id: Optional[str] = None,
+) -> str:
     """Summarize character.moved events."""
-
     if not isinstance(event, dict):
         return "Character movement update."
 
     player = event.get("player") or {}
     ship = event.get("ship") or {}
+    owner_type = event.get("owner_type", "character")
+    owner_corp_id = event.get("owner_corporation_id")
 
-    name = player.get("name") or player.get("id") or event.get("name") or "Unknown pilot"
-
-    ship_name = ship.get("ship_name")
-    ship_type = ship.get("ship_type") or event.get("ship_type")
-
-    if ship_name and ship_type:
-        ship_descriptor = f"{ship_name} ({ship_type})"
-    else:
-        ship_descriptor = ship_name or ship_type or "unknown ship"
-
+    name = player.get("name") or player.get("id") or event.get("name") or "Unknown"
+    ship_name = ship.get("ship_name") or "unknown ship"
     movement = event.get("movement")
-    move_type = event.get("move_type")
 
-    to_sector = event.get("to_sector")
-    from_sector = event.get("from_sector")
-
+    # Determine movement verb
     if movement == "arrive":
-        return f"{name} in {ship_descriptor} arrived."
-    if movement == "depart":
-        return f"{name} in {ship_descriptor} departed."
+        verb = "arrived"
+    elif movement == "depart":
+        verb = "departed"
+    else:
+        verb = "movement update"
 
-    if to_sector is not None and from_sector is not None:
-        return f"{name} in {ship_descriptor} moved from {from_sector} to {to_sector}."
-    if to_sector is not None:
-        return f"{name} in {ship_descriptor} moved to {to_sector}."
-    if from_sector is not None:
-        return f"{name} in {ship_descriptor} departed sector {from_sector}."
+    # Corp ship format
+    if owner_type == "corporation":
+        if viewer_corporation_id and owner_corp_id == viewer_corporation_id:
+            corp_desc = "your corp"
+        else:
+            corp_desc = "another corp"
+        return f'Corp ship "{name}" ({ship_name}) owned by {corp_desc} {verb}.'
 
-    if move_type:
-        return f"{name} in {ship_descriptor} movement update [{move_type}]."
-    return f"{name} in {ship_descriptor} movement update."
+    # Player ship format (no enum string, just display name)
+    return f"{name} in {ship_name} {verb}."
 
 
-def garrison_character_moved_summary(event: Dict[str, Any]) -> str:
+def garrison_character_moved_summary(
+    event: Dict[str, Any],
+    viewer_corporation_id: Optional[str] = None,
+) -> str:
     """Summarize garrison.character_moved events for corporation members."""
-
-    base = character_moved_summary(event)
+    base = character_moved_summary(event, viewer_corporation_id)
     if not isinstance(event, dict):
         return base
 
@@ -1118,96 +1115,74 @@ def event_query_summary(
     data: Dict[str, Any],
     get_nested_summary: Callable[[str, Dict[str, Any]], Optional[str]],
 ) -> str:
-    """Format event.query response with nested event summaries.
+    """Format event.query response - detailed summary for TaskAgent LLM context.
 
-    Args:
-        data: Full event.query response with events, filters, scope, etc.
-        get_nested_summary: Callback to get summary for nested event payloads.
-            Signature: (event_name, payload) -> Optional[str]
+    This detailed format provides the LLM with properly summarized event data
+    including timestamps, nested summaries for each event, and context lines.
+    The raw payload would be too verbose and hurt instruction following.
 
-    Returns:
-        Multi-line summary with header, per-event lines, and pagination info.
+    When the query is NOT filtered by task_id, each event line includes a short
+    task ID (first 6 hex chars of the UUID) to allow the LLM to correlate events
+    with tasks and query further using the short ID prefix.
     """
     events = data.get("events", [])
     count = data.get("count", len(events))
-    scope = data.get("scope", "unknown")
     has_more = data.get("has_more", False)
-    next_cursor = data.get("next_cursor")
     filters = data.get("filters", {})
 
-    # Build header
-    lines: List[str] = [f"Query returned {count} event{'s' if count != 1 else ''} (scope: {scope}):"]
+    # Only show task_id if we didn't filter by it (avoid redundancy)
+    show_task_id = filters.get("filter_task_id") is None
 
-    # Show active filters (excluding time range and defaults)
-    filter_parts: List[str] = []
-    if filters.get("filter_sector") is not None:
-        filter_parts.append(f"filter_sector={filters['filter_sector']}")
-    if filters.get("filter_task_id"):
-        filter_parts.append(f"filter_task_id={filters['filter_task_id']}")
-    if filters.get("filter_event_type"):
-        filter_parts.append(f"filter_event_type={filters['filter_event_type']}")
-    if filters.get("filter_string_match"):
-        filter_parts.append(f"filter_string_match={filters['filter_string_match']}")
-    if filters.get("character_id"):
-        filter_parts.append(f"character_id={filters['character_id']}")
-    if filters.get("corporation_id"):
-        filter_parts.append(f"corporation_id={filters['corporation_id']}")
+    if not events:
+        result = f"Query returned {count} event{'s' if count != 1 else ''}."
+        if has_more:
+            result += " More available."
+        return result
 
-    if filter_parts:
-        lines.append(f"Filters: {', '.join(filter_parts)}")
+    lines: List[str] = [f"Query returned {count} event{'s' if count != 1 else ''}:"]
 
-    # Format each event
-    for idx, event in enumerate(events, start=1):
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+
+        event_name = event.get("event", "unknown")
         timestamp = event.get("timestamp")
-        event_type = event.get("event", "unknown")
         payload = event.get("payload", {})
-
-        # Format timestamp as HH:MM:SSZ
-        time_str = _format_iso_clock(timestamp)
-
-        # Try to get nested summary
-        nested_summary = get_nested_summary(event_type, payload)
-        if nested_summary:
-            event_line = f"{idx}. [{time_str}] {event_type}: {nested_summary}"
-        else:
-            # Fallback: show payload keys or brief excerpt
-            if payload:
-                payload_preview = ", ".join(list(payload.keys())[:3])
-                if len(payload) > 3:
-                    payload_preview += ", ..."
-                event_line = f"{idx}. [{time_str}] {event_type}: {{{payload_preview}}}"
-            else:
-                event_line = f"{idx}. [{time_str}] {event_type}"
-
-        lines.append(event_line)
-
-        # Add context line for sender/receiver/sector/task_id if not filtered
-        context_parts: List[str] = []
-        sender = event.get("sender")
-        receiver = event.get("receiver")
-        sector = event.get("sector")
         task_id = event.get("task_id")
-        corp_id = event.get("corporation_id")
 
-        # Only show if not already filtered
-        if sender and sender != filters.get("character_id"):
-            context_parts.append(f"from {sender}")
-        if receiver and receiver != filters.get("character_id"):
-            context_parts.append(f"to {receiver}")
-        if sector is not None and sector != filters.get("filter_sector"):
-            context_parts.append(f"sector {sector}")
-        if task_id and task_id != filters.get("filter_task_id"):
-            context_parts.append(f"task_id={task_id}")
-        if corp_id and corp_id != filters.get("corporation_id"):
-            context_parts.append(f"corp_id={corp_id}")
+        # Format timestamp
+        time_str = _format_iso_clock(timestamp) if timestamp else "unknown"
 
-        if context_parts:
-            lines.append(f"   {', '.join(context_parts)}")
+        # Build task suffix - show first 6 chars as short ID for filtering
+        task_suffix = ""
+        if show_task_id and task_id:
+            short_task_id = task_id[:6] if len(task_id) >= 6 else task_id
+            task_suffix = f" [task={short_task_id}]"
 
-    # Pagination footer
-    if has_more and next_cursor:
-        lines.append(f"\n[More available, cursor={next_cursor}]")
-    elif has_more:
-        lines.append("\n[More available]")
+        # Try to get a nested summary for the event payload
+        nested_summary = None
+        if isinstance(payload, dict):
+            nested_summary = get_nested_summary(event_name, payload)
+
+        # Build event line
+        if nested_summary:
+            lines.append(f"  [{time_str}] {event_name}{task_suffix}: {nested_summary}")
+        elif isinstance(payload, dict) and payload:
+            # Provide a compact representation of key fields
+            compact_parts: List[str] = []
+            for key, value in list(payload.items())[:5]:
+                if isinstance(value, (str, int, float, bool)):
+                    compact_parts.append(f"{key}={value}")
+                elif isinstance(value, dict) and "id" in value:
+                    compact_parts.append(f"{key}.id={value['id']}")
+            if compact_parts:
+                lines.append(f"  [{time_str}] {event_name}{task_suffix}: {', '.join(compact_parts)}")
+            else:
+                lines.append(f"  [{time_str}] {event_name}{task_suffix}")
+        else:
+            lines.append(f"  [{time_str}] {event_name}{task_suffix}")
+
+    if has_more:
+        lines.append("More events available (use offset/limit to paginate).")
 
     return "\n".join(lines)

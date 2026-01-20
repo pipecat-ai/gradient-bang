@@ -382,3 +382,41 @@ async function loadControlReadySet(
   }
   return ready;
 }
+
+/**
+ * Get the effective corporation ID for a character.
+ * Checks corporation_members first (for player characters),
+ * then falls back to ship ownership (for corp-owned ships like autonomous probes).
+ */
+export async function getEffectiveCorporationId(
+  supabase: SupabaseClient,
+  characterId: string,
+  shipId?: string | null,
+): Promise<string | null> {
+  // First check corporation_members (for player characters)
+  const { data: memberData } = await supabase
+    .from('corporation_members')
+    .select('corp_id')
+    .eq('character_id', characterId)
+    .is('left_at', null)
+    .maybeSingle();
+
+  if (memberData?.corp_id) {
+    return memberData.corp_id;
+  }
+
+  // If not a member and shipId provided, check ship ownership
+  if (shipId) {
+    const { data: shipData } = await supabase
+      .from('ship_instances')
+      .select('owner_corporation_id')
+      .eq('ship_id', shipId)
+      .maybeSingle();
+
+    if (shipData?.owner_corporation_id) {
+      return shipData.owner_corporation_id;
+    }
+  }
+
+  return null;
+}

@@ -12,7 +12,6 @@ from gradientbang.utils.base_llm_agent import BaseLLMAgent, LLMConfig
 from gradientbang.utils.api_client import AsyncGameClient
 from gradientbang.utils.prompts import GAME_DESCRIPTION, CHAT_INSTRUCTIONS
 from gradientbang.utils.tools_schema import (
-    MyMap,
     MyStatus,
     PlotCourse,
     Move,
@@ -66,7 +65,6 @@ class ChatAgent(BaseLLMAgent):
         # Register tools for quick actions + task control
         self.set_tools(
             [
-                MyMap,
                 MyStatus,
                 PlotCourse,
                 Move,

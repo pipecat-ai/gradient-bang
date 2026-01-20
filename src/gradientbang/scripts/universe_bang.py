@@ -3,8 +3,9 @@
 # requires-python = ">=3.9"
 # dependencies = [
 #     "numpy",
-#     "scipy", 
+#     "scipy",
 #     "networkx",
+#     "loguru",
 # ]
 # ///
 """
@@ -94,8 +95,18 @@ MAX_PAIR_TUNING_PASSES = 2
 # --- Port inventory model ---
 SELL_MIN, SELL_MAX = 0.75, 1.10
 BUY_MIN, BUY_MAX = 0.90, 1.30
-PORT_DEFAULT_CAP = 1000
-PORT_STARTING_FILL = 0.70
+
+# Variable capacity per commodity (uniform random distribution)
+PORT_MIN_CAP = 1000      # Minimum capacity per commodity
+PORT_MAX_CAP = 10000     # Maximum capacity per commodity
+
+# Fresh port state: sellers at 100%, buyers at 0% stock
+PORT_STARTING_FILL_SELL = 1.0   # Sellers start at 100% stock (best prices)
+PORT_STARTING_FILL_BUY = 0.0    # Buyers start at 0% stock (max demand)
+
+# Legacy constants (kept for reference and mega port baseline)
+PORT_DEFAULT_CAP = 1000          # Legacy - only used as reference
+PORT_STARTING_FILL = 0.70        # Legacy - no longer used for fresh ports
 REGEN_FRACTION_STOCK = 0.25
 REGEN_FRACTION_DEMAND = 0.25
 
@@ -633,33 +644,56 @@ def complement_class(port_class: int) -> int:
 
 def build_port_object(
     port_class: int,
-    default_cap: int = PORT_DEFAULT_CAP,
-    start_fill: float = PORT_STARTING_FILL,
+    capacities: Optional[Dict[str, int]] = None,
     is_mega: bool = False
 ) -> dict:
-    """Create a port with inventory fields."""
+    """Create a port with inventory fields.
+
+    Args:
+        port_class: Port class (1-8) defining buy/sell pattern
+        capacities: Dict with 'QF', 'RO', 'NS' keys for per-commodity max capacity
+                   If None, uses random capacities between PORT_MIN_CAP and PORT_MAX_CAP
+        is_mega: If True, uses fixed MEGA_PORT_CAP (ignores random capacities)
+    """
     code = CLASS_DEFS[port_class]
-    
-    # Adjust capacity for mega port
-    capacity = default_cap * (MEGA_PORT_STOCK_MULTIPLIER if is_mega else 1)
-    
+
+    # Mega ports get fixed high capacity; regular ports get random
+    if is_mega:
+        # Fixed 100,000 capacity for mega port (predictable hub)
+        capacities = {
+            "QF": PORT_MAX_CAP * MEGA_PORT_STOCK_MULTIPLIER,
+            "RO": PORT_MAX_CAP * MEGA_PORT_STOCK_MULTIPLIER,
+            "NS": PORT_MAX_CAP * MEGA_PORT_STOCK_MULTIPLIER,
+        }
+    elif capacities is None:
+        # Random capacity per commodity for regular ports
+        capacities = {
+            "QF": random.randint(PORT_MIN_CAP, PORT_MAX_CAP),
+            "RO": random.randint(PORT_MIN_CAP, PORT_MAX_CAP),
+            "NS": random.randint(PORT_MIN_CAP, PORT_MAX_CAP),
+        }
+
     # Initialize inventories
     stock = {"QF": 0, "RO": 0, "NS": 0}
     stock_max = {"QF": 0, "RO": 0, "NS": 0}
     demand = {"QF": 0, "RO": 0, "NS": 0}
     demand_max = {"QF": 0, "RO": 0, "NS": 0}
-    
+
     buys, sells = [], []
     for com, idx in (("QF", 0), ("RO", 1), ("NS", 2)):
+        capacity = capacities[com]
+
         if code[idx] == "S":
+            # SELL commodity: start at 100% stock
             stock_max[com] = capacity
-            stock[com] = int(round(capacity * start_fill))
+            stock[com] = capacity  # 100% full
             sells.append(COM_LONG[com])
         else:  # 'B'
+            # BUY commodity: start at 0% stock (100% demand)
             demand_max[com] = capacity
-            demand[com] = int(round(capacity * start_fill))
+            demand[com] = capacity  # demand_max - demand = 0 stock
             buys.append(COM_LONG[com])
-    
+
     port_data = {
         "class": port_class,
         "code": code,
@@ -670,10 +704,10 @@ def build_port_object(
         "demand": demand,
         "demand_max": demand_max,
     }
-    
+
     if is_mega:
         port_data["is_mega"] = True
-    
+
     return port_data
 
 def place_ports(
@@ -966,10 +1000,15 @@ def main():
             "buy_max": BUY_MAX,
         },
         "port_inventory": {
-            "default_cap": PORT_DEFAULT_CAP,
-            "starting_fill": PORT_STARTING_FILL,
+            "min_cap": PORT_MIN_CAP,
+            "max_cap": PORT_MAX_CAP,
+            "starting_fill_sell": PORT_STARTING_FILL_SELL,
+            "starting_fill_buy": PORT_STARTING_FILL_BUY,
             "regen_fraction_stock": REGEN_FRACTION_STOCK,
             "regen_fraction_demand": REGEN_FRACTION_DEMAND,
+            # Legacy fields for reference
+            "legacy_default_cap": PORT_DEFAULT_CAP,
+            "legacy_starting_fill": PORT_STARTING_FILL,
         },
         "commodities": COM_LONG,
     }
@@ -984,8 +1023,6 @@ def main():
         if s in port_class_by_sector:
             port = build_port_object(
                 port_class_by_sector[s],
-                PORT_DEFAULT_CAP,
-                PORT_STARTING_FILL,
                 is_mega=(s == mega_port_sector)
             )
         

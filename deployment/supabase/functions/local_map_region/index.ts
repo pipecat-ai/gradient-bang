@@ -220,5 +220,6 @@ async function handleLocalMapRegion(
     requestId,
   });
 
-  return successResponse({ request_id: requestId });
+  // Return full payload synchronously for TaskAgent, while still emitting event for VoiceTaskManager
+  return successResponse({ request_id: requestId, ...mapRegion });
 }

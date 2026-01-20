@@ -176,9 +176,9 @@ class ListKnownPorts(GameClientTool):
                 },
                 "max_hops": {
                     "type": "integer",
-                    "description": "Maximum distance (default 5, max 10)",
+                    "description": "Maximum distance (default 5, max 100)",
                     "minimum": 1,
-                    "maximum": 10,
+                    "maximum": 100,
                     "default": 5,
                 },
                 "port_type": {
@@ -865,7 +865,10 @@ class EventQuery(GameClientTool):
                 },
                 "filter_task_id": {
                     "type": "string",
-                    "description": "Filter to events from a specific task execution (UUID)",
+                    "description": (
+                        "Filter to events from a specific task. Accepts full UUID or short ID "
+                        "(first 6 hex chars, e.g., '6c4393'). Short IDs appear in event summaries as [task=6c4393]."
+                    ),
                 },
                 "filter_event_type": {
                     "type": "string",
@@ -889,7 +892,11 @@ class EventQuery(GameClientTool):
                 "event_scope": {
                     "type": "string",
                     "enum": ["personal", "corporation"],
-                    "description": "Set to 'corporation' to automatically include events for your corporation when you're a member (falls back to personal if not in a corp).",
+                    "description": (
+                        "Scope of events to query. Defaults to 'personal' (only your own events). "
+                        "Use 'corporation' to see events for all corp members and corp-tagged events "
+                        "(e.g., corp ship tasks, shared trade history). Falls back to personal if not in a corp."
+                    ),
                 },
             },
             required=["start", "end"],

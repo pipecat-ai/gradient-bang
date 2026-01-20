@@ -141,10 +141,8 @@ NO_TOOL_WATCHDOG_DELAY = 5.0  # Seconds to wait for events before nudging LLM
 # Failure to do this will cause the LLM to hallucinate tool results.
 ASYNC_TOOL_COMPLETIONS = {
     "move": "movement.complete",
-    "plot_course": "course.plot",
     "path_with_region": "path.region",
     "my_status": "status.snapshot",
-    "local_map_region": "map.region",
     "list_known_ports": "ports.list",
     "trade": "trade.executed",
     "recharge_warp_power": "warp.purchase",
@@ -153,7 +151,7 @@ ASYNC_TOOL_COMPLETIONS = {
     "place_fighters": "garrison.deployed",
     "collect_fighters": "garrison.collected",
     "send_message": "chat.message",
-    "event_query": "event.query",
+    "event_query": "event.query",  # verbose payload needs summarization for LLM
     "purchase_fighters": "fighter.purchase",
     "purchase_ship": "status.update",
     "bank_deposit": "bank.transaction",
@@ -166,6 +164,19 @@ ASYNC_TOOL_COMPLETIONS = {
     "kick_corporation_member": "corporation.member_kicked",
     "combat_initiate": "combat.round_waiting",
     "combat_action": "combat.action_accepted",
+}
+
+# Events from sync tools that should NOT be added to LLM context.
+# The tool result already contains the data; the event still flows to
+# callbacks (e.g., VoiceTaskManager) but shouldn't duplicate in context.
+#
+# NOTE: event_query intentionally stays in ASYNC_TOOL_COMPLETIONS above.
+# The raw payload contains verbose per-event data that hurts LLM instruction
+# following. The summarized event (via event_query_summary) is more appropriate.
+# VoiceTaskManager has a separate condensed summary in _get_voice_summary().
+SYNC_TOOL_EVENTS = {
+    "local_map_region": "map.region",
+    "plot_course": "course.plot",
 }
 
 
@@ -295,6 +306,8 @@ class TaskAgent:
         self._no_tool_watchdog_handle: Optional[asyncio.TimerHandle] = None
         self._task_id: Optional[str] = None
         self._task_description: Optional[str] = None
+        # Counter for events to skip (supports concurrent tool calls)
+        self._skip_context_events: Dict[str, int] = {}
 
         tools = tools_list or [
             MyStatus,
@@ -432,6 +445,20 @@ class TaskAgent:
         else:
             event_text = serialized_payload
         self._output(event_text, TaskOutputType.EVENT)
+
+        # Skip context addition for events from sync tools (data already in tool result)
+        if event_name:
+            skip_count = self._skip_context_events.get(event_name, 0)
+            if skip_count > 0:
+                self._skip_context_events[event_name] = skip_count - 1
+                if self._skip_context_events[event_name] == 0:
+                    del self._skip_context_events[event_name]
+                logger.debug(
+                    "Skipping context addition for sync tool event: {}",
+                    event_name,
+                )
+                return  # Don't add to context, don't schedule inference
+
         event_message = {
             "role": "user",
             "content": f"<event name={event_name}>\n{response_data}\n</event>",
@@ -506,13 +533,38 @@ class TaskAgent:
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"Failed to write error event log: {exc}")
 
+    @property
+    def short_task_id(self) -> Optional[str]:
+        """Return first 6 chars of task_id for display/filtering.
+
+        This short ID format is used for:
+        - Human-readable display in summaries
+        - Prefix-based filtering in event_query
+        - Correlation between VoiceTaskManager and TaskAgent
+        """
+        return self._task_id[:6] if self._task_id else None
+
     @traced
     async def run_task(
         self,
         task: str,
         initial_state: Optional[Dict[str, Any]] = None,
         max_iterations: int = 100,
+        task_id: Optional[str] = None,
     ) -> bool:
+        """Run a task to completion.
+
+        Args:
+            task: Natural language task description
+            initial_state: Optional initial state (kept for API compatibility)
+            max_iterations: Max iterations (kept for API compatibility; pipeline controls turns)
+            task_id: Optional task ID (UUID string). If not provided, a new UUID is generated.
+                    Callers like VoiceTaskManager can provide a pre-generated task_id to
+                    enable correlation between the voice UI and the TaskAgent.
+
+        Returns:
+            True if task completed successfully, False otherwise
+        """
         self.reset_cancellation()
         self.finished = False
         self.finished_message = None
@@ -531,7 +583,8 @@ class TaskAgent:
             self._completion_event_timeout.cancel()
         self._completion_event_timeout = None
         self._task_start_monotonic = time.perf_counter()
-        self._task_id = str(uuid.uuid4())
+        # Use provided task_id or generate new one
+        self._task_id = task_id or str(uuid.uuid4())
         self._task_description = task
         _ = max_iterations  # retained for API compatibility; pipeline controls turns
 
@@ -784,6 +837,20 @@ class TaskAgent:
                 tool_name,
             )
 
+        # For sync tools with events, pre-mark the event for skipping BEFORE execution
+        # to prevent race condition where event arrives before tool call returns
+        sync_event_to_skip: Optional[str] = None
+        if tool_name in SYNC_TOOL_EVENTS:
+            sync_event_to_skip = SYNC_TOOL_EVENTS[tool_name]
+            self._skip_context_events[sync_event_to_skip] = (
+                self._skip_context_events.get(sync_event_to_skip, 0) + 1
+            )
+            logger.debug(
+                "Pre-marked {} event for context skip (tool={})",
+                sync_event_to_skip,
+                tool_name,
+            )
+
         result_payload: Any = None
         error_payload: Optional[Any] = None
         try:
@@ -799,6 +866,11 @@ class TaskAgent:
                 if self._completion_event_timeout:
                     self._completion_event_timeout.cancel()
                     self._completion_event_timeout = None
+            # On error, also clear any sync tool event skip marker
+            if sync_event_to_skip and sync_event_to_skip in self._skip_context_events:
+                self._skip_context_events[sync_event_to_skip] -= 1
+                if self._skip_context_events[sync_event_to_skip] <= 0:
+                    del self._skip_context_events[sync_event_to_skip]
             error_payload = {"error": f"{exc}"}
         finally:
             self._tool_call_in_progress = False

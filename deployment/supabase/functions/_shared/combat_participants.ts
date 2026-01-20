@@ -12,6 +12,7 @@ interface ShipRecord {
   in_hyperspace: boolean;
   owner_character_id: string | null;
   owner_type: string | null;
+  owner_corporation_id: string | null;
   is_escape_pod: boolean | null;
 }
 
@@ -92,6 +93,25 @@ export async function loadGarrisonCombatants(
     throw new Error('Failed to load garrisons');
   }
   const rows = (data ?? []).filter((row) => row.fighters > 0);
+  if (!rows.length) {
+    return [];
+  }
+
+  // Query corporation memberships for garrison owners
+  const ownerIds = rows.map(r => r.owner_id);
+  const { data: corpMemberships } = await supabase
+    .from('corporation_members')
+    .select('character_id, corp_id')
+    .in('character_id', ownerIds)
+    .is('left_at', null);
+
+  const ownerCorpMap = new Map<string, string>();
+  for (const row of corpMemberships ?? []) {
+    if (row.character_id && row.corp_id) {
+      ownerCorpMap.set(row.character_id, row.corp_id);
+    }
+  }
+
   return rows.map((row) => {
     const combatantId = `garrison:${row.sector_id}:${row.owner_id}`;
     const ownerName = ownerNames.get(row.owner_id) ?? row.owner_id;
@@ -114,6 +134,7 @@ export async function loadGarrisonCombatants(
         deployed_at: row.deployed_at,
         sector_id: row.sector_id,
         owner_name: ownerName,  // Store human-readable owner name in metadata
+        owner_corporation_id: ownerCorpMap.get(row.owner_id) ?? null,
       },
     };
     return { state, source: row };
@@ -127,7 +148,7 @@ export async function loadCharacterCombatants(
   const { data: ships, error: shipError } = await supabase
     .from<ShipRecord>('ship_instances')
     .select(
-      'ship_id, ship_type, ship_name, current_sector, current_fighters, current_shields, in_hyperspace, owner_character_id, owner_type, is_escape_pod',
+      'ship_id, ship_type, ship_name, current_sector, current_fighters, current_shields, in_hyperspace, owner_character_id, owner_type, owner_corporation_id, is_escape_pod',
     )
     .eq('current_sector', sectorId)
     .eq('in_hyperspace', false);
@@ -212,7 +233,10 @@ export async function loadCharacterCombatants(
         ship_id: ship.ship_id,
         ship_name: ship.ship_name ?? definition.display_name,
         ship_display_name: definition.display_name,
-        corporation_id: character.corporation_id,
+        // Use ship's owner_corporation_id for corp-owned ships, else character's corp_id
+        corporation_id: ship.owner_type === 'corporation'
+          ? ship.owner_corporation_id
+          : character.corporation_id,
         first_visit: character.first_visit,
       },
     };
