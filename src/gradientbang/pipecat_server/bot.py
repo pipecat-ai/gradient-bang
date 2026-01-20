@@ -32,6 +32,7 @@ from pipecat.frames.frames import (
     LLMMessagesAppendFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
+    BotSpeakingFrame,
     TranscriptionFrame,
     StartFrame,
     StopFrame,
@@ -65,6 +66,7 @@ from gradientbang.pipecat_server.context_compression import (
     ContextCompressionProducer,
     ContextCompressionConsumer,
 )
+from gradientbang.pipecat_server.frames import TaskActivityFrame
 
 
 # Configure loguru
@@ -289,6 +291,8 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     )
 
     # Create task with RTVI observer
+    # Configure idle_timeout_frames to include TaskActivityFrame so long-running tasks
+    # don't cause the pipeline to timeout when there's no voice interaction
     logger.info("Create task…")
     task = PipelineTask(
         pipeline,
@@ -298,6 +302,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             enable_usage_metrics=True,
         ),
         observers=[RTVIObserver(rtvi)],
+        idle_timeout_frames=(BotSpeakingFrame, UserStartedSpeakingFrame, TaskActivityFrame),
     )
 
     @rtvi.event_handler("on_client_ready")

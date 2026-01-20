@@ -1,5 +1,6 @@
 import asyncio
 import json
+import uuid
 from collections import deque
 from typing import Optional, Callable, Dict, Any, Mapping
 
@@ -18,6 +19,7 @@ else:
     from gradientbang.utils.api_client import AsyncGameClient
 from gradientbang.utils.prompts import TaskOutputType
 from gradientbang.utils.task_agent import TaskAgent, DEFAULT_GOOGLE_MODEL
+from gradientbang.pipecat_server.frames import TaskActivityFrame
 from gradientbang.utils.base_llm_agent import LLMConfig
 from gradientbang.utils.weave_tracing import (
     init_weave,
@@ -30,7 +32,6 @@ from gradientbang.utils.tools_schema import (
     MyStatus,
     LeaderboardResources,
     PlotCourse,
-    LocalMapRegion,
     ListKnownPorts,
     StartTask,
     StopTask,
@@ -144,9 +145,10 @@ class VoiceTaskManager:
         )
 
         # Task management - now supports multiple concurrent tasks
+        # Task IDs are now UUIDs (stored as full_task_id) with short IDs (first 6 hex chars)
+        # used as keys for human-readable tracking and event correlation
         self.rtvi_processor = rtvi_processor
-        self._task_id_counter = 0  # Auto-incrementing task ID counter
-        self._active_tasks: Dict[str, Dict[str, Any]] = {}  # task_id -> task info
+        self._active_tasks: Dict[str, Dict[str, Any]] = {}  # short_task_id -> task info
         self.task_buffer: deque = deque(maxlen=1000)
         self.task_running = False  # Deprecated, kept for backwards compatibility
         self.cancelled_via_tool = False
@@ -166,9 +168,6 @@ class VoiceTaskManager:
             ),
             "plot_course": lambda to_sector: self.game_client.plot_course(
                 to_sector=to_sector, character_id=self.character_id
-            ),
-            "local_map_region": lambda **kwargs: self.game_client.local_map_region(
-                character_id=self.character_id, **kwargs
             ),
             "list_known_ports": lambda **kwargs: self.game_client.list_known_ports(
                 character_id=self.character_id, **kwargs
@@ -191,10 +190,17 @@ class VoiceTaskManager:
         # Initialize Weave tracing if available
         init_weave()
 
-    def _generate_task_id(self) -> str:
-        """Generate a new four-digit task ID."""
-        self._task_id_counter += 1
-        return f"{self._task_id_counter:04d}"
+    def _generate_task_id(self) -> tuple[str, str]:
+        """Generate a new task ID using UUID.
+
+        Returns:
+            Tuple of (short_task_id, full_task_id) where:
+            - short_task_id: First 6 hex chars of UUID for display/tracking
+            - full_task_id: Full UUID string for database storage
+        """
+        full_task_id = str(uuid.uuid4())
+        short_task_id = full_task_id[:6]
+        return short_task_id, full_task_id
 
     def _get_task_type(self, ship_id: Optional[str]) -> str:
         """Determine task type based on whether it's controlling a corp ship."""
@@ -305,7 +311,6 @@ class VoiceTaskManager:
         inference_triggering_events = {
             "status.snapshot",       # my_status results
             "ports.list",            # list_known_ports results
-            "map.region",            # local_map_region results
             "course.plot",           # plot_course results
             "chat.message",          # Direct messages to bot
             "combat.round_waiting",  # Need to submit combat action
@@ -459,8 +464,19 @@ class VoiceTaskManager:
             )
         )
 
-        # append for the LLM only the information that won't have arrived as events
+        # Push task activity frame to reset idle timeout on main pipeline
+        await self.rtvi_processor.push_frame(
+            TaskActivityFrame(task_id=task_id or "", activity_type="output")
+        )
+
+        # Append to LLM context buffer:
+        # - For non-EVENT types: always add (steps, errors, finished, etc.)
+        # - For EVENT types: only add for corp_ship tasks, since those events
+        #   don't reach _relay_event (they go to a separate task_game_client)
+        # Player ship tasks share the main game_client, so events arrive via _relay_event
         if message_type != TaskOutputType.EVENT.value:
+            self.task_buffer.append(text)
+        elif task_type == "corp_ship":
             self.task_buffer.append(text)
 
     @traced
@@ -472,16 +488,19 @@ class VoiceTaskManager:
         task_description: str,
         target_character_id: str,
         is_corp_ship: bool,
+        full_task_id: Optional[str] = None,
     ):
         """Run a task to completion with multi-task tracking.
 
         Args:
-            task_id: Unique task identifier
+            task_id: Short task identifier (first 6 hex chars of UUID) for display
             task_agent: TaskAgent instance for this task
             task_game_client: AsyncGameClient for this task
             task_description: Natural language task description
             target_character_id: Character ID being controlled
             is_corp_ship: Whether this is a corporation ship
+            full_task_id: Full UUID task identifier for database storage. If not provided,
+                         a new UUID is generated by TaskAgent.
         """
         task_type = "corp_ship" if is_corp_ship else "player_ship"
 
@@ -497,7 +516,7 @@ class VoiceTaskManager:
         )):
             return await self._run_task_impl(
                 task_id, task_agent, task_game_client, task_description,
-                target_character_id, is_corp_ship, task_type
+                target_character_id, is_corp_ship, task_type, full_task_id
             )
 
     async def _run_task_impl(
@@ -509,14 +528,16 @@ class VoiceTaskManager:
         target_character_id: str,
         is_corp_ship: bool,
         task_type: str,
+        full_task_id: Optional[str] = None,
     ):
         """Implementation of _run_task_with_tracking, separated for trace attributes."""
         was_cancelled = False
 
         try:
             logger.info(f"!!! running task {task_id} ({task_type}): {task_description}")
+            # Pass full_task_id to TaskAgent so events are tagged with the UUID
             success = await task_agent.run_task(
-                task=task_description, max_iterations=100
+                task=task_description, max_iterations=100, task_id=full_task_id
             )
             logger.info(f"!!! task {task_id} result: {success}")
 
@@ -564,14 +585,15 @@ class VoiceTaskManager:
 
     async def _run_task(self, task_description: str):
         """Legacy method for backwards compatibility. Redirects to tracked version."""
-        task_id = self._generate_task_id()
+        short_task_id, full_task_id = self._generate_task_id()
         await self._run_task_with_tracking(
-            task_id=task_id,
+            task_id=short_task_id,
             task_agent=self.task_agent,
             task_game_client=self.game_client,
             task_description=task_description,
             target_character_id=self.character_id,
             is_corp_ship=False,
+            full_task_id=full_task_id,
         )
 
     def cancel_task(self, via_tool: bool = True):
@@ -659,14 +681,26 @@ class VoiceTaskManager:
             event_generating_tools = {
                 "my_status",        # generates status.snapshot
                 "plot_course",      # generates course.plot
-                "local_map_region", # generates map.region
                 "list_known_ports", # generates ports.list
             }
+
+            # Tools that need explicit run_llm=True because they don't emit
+            # inference-triggering events
+            direct_response_tools = {
+                "corporation_info",
+                "leaderboard_resources",
+            }
+
             if tool_name in event_generating_tools:
                 ack_payload = {"status": "Executed."}
                 properties = FunctionCallResultProperties(run_llm=False)
                 await params.result_callback(ack_payload, properties=properties)
+            elif tool_name in direct_response_tools:
+                # These tools return data directly without events - trigger inference
+                properties = FunctionCallResultProperties(run_llm=True)
+                await params.result_callback(payload, properties=properties)
             else:
+                # Other tools (send_message, combat_*) emit events that trigger inference
                 await params.result_callback(payload)
         except Exception as e:
             logger.error(f"tool '{tool_name}' failed: {e}")
@@ -710,8 +744,10 @@ class VoiceTaskManager:
                         "error": f"Ship {target_character_id[:8]}... already has task {task_id} running. Stop it first.",
                     }
 
-            # Generate new task ID
-            new_task_id = self._generate_task_id()
+            # Generate new task ID - returns (short_task_id, full_task_id)
+            # short_task_id (6 hex chars) is used for UI display and tracking
+            # full_task_id (full UUID) is stored in database for event correlation
+            short_task_id, full_task_id = self._generate_task_id()
             task_type = self._get_task_type(ship_id)
 
             # Create a new game client for this task (if corp ship)
@@ -733,7 +769,7 @@ class VoiceTaskManager:
                 config=LLMConfig(model=DEFAULT_GOOGLE_MODEL),
                 game_client=task_game_client,
                 character_id=target_character_id,
-                output_callback=self._create_agent_output_callback(new_task_id, task_type),
+                output_callback=self._create_agent_output_callback(short_task_id, task_type),
             )
 
             # call my_status so the first thing the task gets is a status.snapshot event
@@ -746,21 +782,23 @@ class VoiceTaskManager:
                     await self.game_client.resume_event_delivery()
                 raise
 
-            # Start the task
+            # Start the task - pass full_task_id so events are tagged with the UUID
             asyncio_task = asyncio.create_task(
                 self._run_task_with_tracking(
-                    task_id=new_task_id,
+                    task_id=short_task_id,
                     task_agent=task_agent,
                     task_game_client=task_game_client,
                     task_description=task_desc,
                     target_character_id=target_character_id,
                     is_corp_ship=(ship_id is not None),
+                    full_task_id=full_task_id,
                 )
             )
 
-            # Track the task
-            self._active_tasks[new_task_id] = {
-                "task_id": new_task_id,
+            # Track the task using short_task_id as the key
+            self._active_tasks[short_task_id] = {
+                "task_id": short_task_id,
+                "full_task_id": full_task_id,  # Store full UUID for event queries
                 "task_type": task_type,
                 "target_character_id": target_character_id,
                 "actor_character_id": actor_character_id,
@@ -778,8 +816,8 @@ class VoiceTaskManager:
 
             return {
                 "success": True,
-                "message": f"Task {new_task_id} started",
-                "task_id": new_task_id,
+                "message": f"Task {short_task_id} started",
+                "task_id": short_task_id,
                 "task_type": task_type,
             }
         except Exception as e:
@@ -873,7 +911,6 @@ class VoiceTaskManager:
                 MyStatus.schema(),
                 LeaderboardResources.schema(),
                 PlotCourse.schema(),
-                LocalMapRegion.schema(),
                 ListKnownPorts.schema(),
                 SendMessage.schema(),
                 CombatInitiate.schema(),

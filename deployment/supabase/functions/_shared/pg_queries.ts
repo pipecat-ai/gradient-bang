@@ -1624,6 +1624,8 @@ export interface ObserverMetadata {
   shipId: string;
   shipName: string;
   shipType: string;
+  ownerType: 'character' | 'corporation' | 'unowned';
+  ownerCorporationId: string | null;
 }
 
 interface EventSource {
@@ -1758,6 +1760,8 @@ function buildCharacterMovedPayload(
   const payload: Record<string, unknown> = {
     player: { id: metadata.characterId, name: metadata.characterName },
     ship: { ship_name: metadata.shipName, ship_type: metadata.shipType },
+    owner_type: metadata.ownerType,
+    owner_corporation_id: metadata.ownerCorporationId,
     timestamp,
     move_type: moveType,
     movement,
@@ -1986,11 +1990,13 @@ export async function pgCheckGarrisonAutoEngage(
   );
   if (autoEngagingGarrisons.length === 0) return false;
 
-  // Get character's corporation
-  const charCorpResult = await pg.queryObject<{ corp_id: string }>(
-    `SELECT corp_id FROM corporation_members
-    WHERE character_id = $1 AND left_at IS NULL`,
-    [characterId]
+  // Get character's effective corporation (membership first, then ship ownership)
+  const charCorpResult = await pg.queryObject<{ corp_id: string | null }>(
+    `SELECT COALESCE(
+      (SELECT corp_id FROM corporation_members WHERE character_id = $1 AND left_at IS NULL),
+      (SELECT owner_corporation_id FROM ship_instances WHERE ship_id = $2)
+    ) as corp_id`,
+    [characterId, charRow.current_ship_id]
   );
   const charCorpId = charCorpResult.rows[0]?.corp_id ?? null;
 

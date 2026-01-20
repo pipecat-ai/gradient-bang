@@ -166,13 +166,20 @@ export async function resolveEncounterRound(options: {
 function buildCorporationMap(encounter: CombatEncounterState): Map<string, string | null> {
   const map = new Map<string, string | null>();
   for (const participant of Object.values(encounter.participants)) {
-    if (participant.combatant_type !== 'character') {
-      continue;
+    if (participant.combatant_type === 'character') {
+      const metadata = participant.metadata as Record<string, unknown> | undefined;
+      const corpId = typeof metadata?.corporation_id === 'string' ? metadata.corporation_id : null;
+      const key = participant.owner_character_id ?? participant.combatant_id;
+      map.set(key, corpId);
     }
-    const metadata = participant.metadata as Record<string, unknown> | undefined;
-    const corpId = typeof metadata?.corporation_id === 'string' ? metadata.corporation_id : null;
-    const key = participant.owner_character_id ?? participant.combatant_id;
-    map.set(key, corpId);
+    // Also add garrison owner's corp ID so garrisons don't target corpmates
+    if (participant.combatant_type === 'garrison' && participant.owner_character_id) {
+      const metadata = participant.metadata as Record<string, unknown> | undefined;
+      const ownerCorpId = typeof metadata?.owner_corporation_id === 'string'
+        ? metadata.owner_corporation_id
+        : null;
+      map.set(participant.owner_character_id, ownerCorpId);
+    }
   }
   return map;
 }

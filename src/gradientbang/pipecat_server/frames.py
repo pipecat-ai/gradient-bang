@@ -35,3 +35,19 @@ class GradientBangContextCompressionFrame(DataFrame):
     original_approx_tokens: int
     compressed_approx_tokens: int
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+@dataclass
+class TaskActivityFrame(DataFrame):
+    """Frame to signal task activity and reset idle timeout.
+
+    Push this frame when task activity occurs (output, events, progress)
+    to prevent the main pipeline from timing out during long-running tasks.
+
+    Attributes:
+        task_id: Identifier of the active task
+        activity_type: Type of activity ("output", "event", "progress")
+    """
+
+    task_id: str
+    activity_type: str  # "output", "event", "progress"

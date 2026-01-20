@@ -127,6 +127,9 @@ class AsyncGameClient:
         # Track the player's latest known sector for contextual summaries
         self._current_sector: Optional[int] = None
 
+        # Track the player's corporation ID for contextual summaries
+        self._corporation_id: Optional[str] = None
+
         # Task ID to attach to all API calls (set by TaskAgent during task execution)
         self._current_task_id: Optional[str] = None
 
@@ -199,9 +202,25 @@ class AsyncGameClient:
             data: Dict[str, Any], client: "AsyncGameClient" = self
         ) -> str:
             def nested_summary(event_name: str, payload: Dict[str, Any]) -> Optional[str]:
+                if event_name == "event.query":
+                    # Prevent recursive expansion - nested event.query gets single line
+                    count = payload.get("count", 0)
+                    has_more = payload.get("has_more", False)
+                    more_str = " (more available)" if has_more else ""
+                    return f"nested query returned {count} events{more_str}"
                 return client._get_summary(event_name, payload)
 
             return event_query_summary(data, nested_summary)
+
+        def character_moved_wrapper(
+            data: Dict[str, Any], client: "AsyncGameClient" = self
+        ) -> str:
+            return character_moved_summary(data, client._corporation_id)
+
+        def garrison_character_moved_wrapper(
+            data: Dict[str, Any], client: "AsyncGameClient" = self
+        ) -> str:
+            return garrison_character_moved_summary(data, client._corporation_id)
 
         return {
             "status.snapshot": join_summary,
@@ -217,7 +236,7 @@ class AsyncGameClient:
             "warp.transfer": transfer_summary,
             "chat.message": chat_message_summary,
             "port.update": port_update_summary,
-            "character.moved": character_moved_summary,
+            "character.moved": character_moved_wrapper,
             "combat.round_waiting": combat_round_waiting_summary,
             "combat.action_accepted": combat_action_accepted_summary,
             "combat.round_resolved": combat_round_resolved_summary,
@@ -225,7 +244,7 @@ class AsyncGameClient:
             "salvage.created": salvage_created_summary,
             "salvage.collected": salvage_collected_summary,
             "garrison.combat_alert": garrison_combat_alert_summary,
-            "garrison.character_moved": garrison_character_moved_summary,
+            "garrison.character_moved": garrison_character_moved_wrapper,
             "sector.update": sector_update_summary,
             "task.start": task_start_summary,
             "task.finish": task_finish_summary,
@@ -266,6 +285,20 @@ class AsyncGameClient:
         if sector_id is not None:
             self._set_current_sector(sector_id)
 
+    def _maybe_update_corporation_id(
+        self, event_name: str, payload: Mapping[str, Any]
+    ) -> None:
+        """Extract and cache the player's corporation ID from status events."""
+        if event_name not in {"status.snapshot", "status.update"}:
+            return
+        corporation = payload.get("corporation")
+        if isinstance(corporation, Mapping):
+            corp_id = corporation.get("corp_id")
+            if isinstance(corp_id, str):
+                self._corporation_id = corp_id
+            elif corp_id is None:
+                self._corporation_id = None  # Player left corp
+
     def _get_summary(self, name: str, data: Dict[str, Any]) -> Optional[str]:
         """Run a registered summary formatter and return the summary string."""
 
@@ -305,6 +338,7 @@ class AsyncGameClient:
 
         if isinstance(payload, Mapping):
             self._maybe_update_current_sector(event_name, payload)
+            self._maybe_update_corporation_id(event_name, payload)
 
         event_message: Dict[str, Any] = {
             "event_name": event_name,

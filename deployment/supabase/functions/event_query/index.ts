@@ -39,6 +39,7 @@ interface EventRow {
   meta: Record<string, unknown> | null;
   corp_id: string | null;
   task_id: string | null;
+  actor_character_id: string | null;
   event_character_recipients?: Array<{ character_id: string; reason: string }> | { character_id: string; reason: string };
 }
 
@@ -88,21 +89,35 @@ serve(async (req: Request): Promise<Response> => {
 
     // Emit event with query results so TaskAgent can receive them via WebSocket
     // This follows the same pattern as my_status and other async tools
+    // Use character_id as the recipient - this is the entity (ship or character)
+    // executing the query. The game client polls for this entity's events.
     const actorCharacterId = optionalString(payload, 'actor_character_id');
     const characterId = optionalString(payload, 'character_id');
-    const targetCharacterId = actorCharacterId ?? characterId;
+    const targetCharacterId = characterId ?? actorCharacterId;
+
+    console.log('[Info] event_query.emit_check', {
+      actorCharacterId,
+      characterId,
+      targetCharacterId,
+      willEmit: !!targetCharacterId,
+    });
 
     if (targetCharacterId) {
       const source = buildEventSource('event_query', requestId);
       const taskId = optionalString(payload, 'task_id');
-      await emitCharacterEvent({
-        supabase,
-        characterId: targetCharacterId,
-        eventType: 'event.query',
-        payload: { source, ...result },
-        requestId,
-        taskId,
-      });
+      try {
+        await emitCharacterEvent({
+          supabase,
+          characterId: targetCharacterId,
+          eventType: 'event.query',
+          payload: { source, ...result },
+          requestId,
+          taskId,
+        });
+        console.log('[Info] event_query.emit_success', { targetCharacterId, requestId });
+      } catch (emitErr) {
+        console.error('[Error] event_query.emit_failed', { targetCharacterId, requestId, error: String(emitErr) });
+      }
     }
 
     // Return data directly (for programmatic use) AND emit event (for WebSocket clients)
@@ -151,6 +166,11 @@ async function executeEventQuery(
 
   const filterTaskId = optionalString(payload, 'filter_task_id');
   const filterEventType = optionalString(payload, 'filter_event_type');
+
+  // When filter_task_id is provided, use expanded scope to find tasks
+  // the user is authorized to see (actor, corp member, or recipient)
+  // This bypasses normal personal scope filtering for targeted task lookups
+  const useExpandedTaskScope = filterTaskId !== null;
 
   // Cursor for pagination - event ID to paginate from
   const cursorRaw = optionalNumber(payload, 'cursor');
@@ -229,6 +249,8 @@ async function executeEventQuery(
     queryCharacterId,
     corporationMemberIds,
     corporationId,
+    expandedTaskScope: useExpandedTaskScope,
+    actorCharacterId: actorCandidate,
   });
 
   return {
@@ -266,6 +288,8 @@ async function fetchEvents(options: {
   queryCharacterId: string | null;
   corporationMemberIds: string[] | null;
   corporationId?: string | null;
+  expandedTaskScope?: boolean;
+  actorCharacterId?: string | null;
 }): Promise<{ events: JsonRecord[]; hasMore: boolean; nextCursor: number | null }> {
   const {
     supabase,
@@ -281,6 +305,8 @@ async function fetchEvents(options: {
     queryCharacterId,
     corporationMemberIds,
     corporationId,
+    expandedTaskScope = false,
+    actorCharacterId = null,
   } = options;
 
   const ascending = sortDirection === 'forward';
@@ -289,11 +315,16 @@ async function fetchEvents(options: {
   let query;
   const isAdminMode = !queryCharacterId && !corporationMemberIds;
 
-  if (isAdminMode) {
-    // Admin mode: Query events directly without recipient filtering
+  // Use direct query (no recipient join) for admin mode or expanded task scope
+  // Expanded task scope queries all events matching the task_id, then post-filters
+  // for authorization (actor started it, corp member, or direct recipient)
+  const useDirectQuery = isAdminMode || expandedTaskScope;
+
+  if (useDirectQuery) {
+    // Admin or expanded task scope mode: Query events directly without recipient filtering
     query = supabase
       .from('events')
-      .select('id,timestamp,direction,event_type,character_id,sender_id,sector_id,ship_id,request_id,payload,meta,corp_id,task_id')
+      .select('id,timestamp,direction,event_type,character_id,sender_id,sector_id,ship_id,request_id,payload,meta,corp_id,task_id,actor_character_id')
       .gte('timestamp', start.toISOString())
       .lte('timestamp', end.toISOString())
       .order('id', { ascending })
@@ -316,6 +347,7 @@ async function fetchEvents(options: {
         meta,
         corp_id,
         task_id,
+        actor_character_id,
         event_character_recipients!inner(character_id, reason)
       `)
       .gte('timestamp', start.toISOString())
@@ -337,8 +369,18 @@ async function fetchEvents(options: {
   }
 
   // Filter by task_id if provided
+  // Short IDs (≤12 chars) use prefix matching on the task_id_prefix generated column
+  // This enables filtering by short task ID (e.g., "6c4393" matches "6c4393e4-4217-...")
+  // Full UUIDs (36 chars) use exact matching for performance
   if (filterTaskId !== null) {
-    query = query.eq('task_id', filterTaskId);
+    if (filterTaskId.length <= 12) {
+      // Short ID: prefix match using generated column
+      // Uses idx_events_task_id_prefix index for efficient lookups
+      query = query.ilike('task_id_prefix', `${filterTaskId}%`);
+    } else {
+      // Full UUID: exact match
+      query = query.eq('task_id', filterTaskId);
+    }
   }
 
   // Filter by event_type if provided
@@ -386,6 +428,31 @@ async function fetchEvents(options: {
           : [row.event_character_recipients];
         return recipients.some((r) => corporationMemberIds.includes(r.character_id));
       }
+      return false;
+    });
+  }
+
+  // For expanded task scope (filter_task_id provided), post-filter to events
+  // the user is authorized to see: actor started it, corp member, or direct recipient
+  if (expandedTaskScope && !isAdminMode && actorCharacterId) {
+    // Load actor's corporation ID for authorization check
+    const authorizedCorpId = await fetchCharacterCorporationId(supabase, actorCharacterId);
+
+    // Load event recipients for filtering
+    const eventIds = rows.map((r) => r.id);
+    const recipientMap = await loadEventRecipients(supabase, eventIds);
+
+    rows = rows.filter((row) => {
+      // User started this action
+      if (row.actor_character_id === actorCharacterId) return true;
+
+      // User's corp owns this task (event tagged with their corp_id)
+      if (authorizedCorpId && row.corp_id === authorizedCorpId) return true;
+
+      // User is a direct recipient
+      const recipients = recipientMap.get(row.id) || [];
+      if (recipients.includes(actorCharacterId)) return true;
+
       return false;
     });
   }
@@ -627,6 +694,31 @@ async function loadCorporationMemberIds(
   }
 
   return (data as Array<{ character_id: string }>).map((row) => row.character_id);
+}
+
+async function loadEventRecipients(
+  supabase: SupabaseClient,
+  eventIds: number[],
+): Promise<Map<number, string[]>> {
+  if (!eventIds.length) return new Map();
+
+  const { data, error } = await supabase
+    .from('event_character_recipients')
+    .select('event_id, character_id')
+    .in('event_id', eventIds);
+
+  if (error) {
+    console.error('event_query.load_recipients', error);
+    return new Map();
+  }
+
+  const map = new Map<number, string[]>();
+  for (const row of data ?? []) {
+    const existing = map.get(row.event_id) || [];
+    existing.push(row.character_id);
+    map.set(row.event_id, existing);
+  }
+  return map;
 }
 
 function filterRowsByString(rows: EventRow[], needle: string): EventRow[] {

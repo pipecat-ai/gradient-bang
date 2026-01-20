@@ -28,6 +28,7 @@ import {
 } from '../_shared/request.ts';
 import { loadCharacterCombatants, loadCharacterNames, loadGarrisonCombatants } from '../_shared/combat_participants.ts';
 import { nowIso, type CombatEncounterState } from '../_shared/combat_types.ts';
+import { getEffectiveCorporationId } from '../_shared/corporations.ts';
 import { loadCombatForSector, persistCombatState } from '../_shared/combat_state.ts';
 import { buildRoundWaitingPayload } from '../_shared/combat_events.ts';
 import { computeNextCombatDeadline } from '../_shared/combat_resolution.ts';
@@ -320,6 +321,7 @@ async function handleCombatLeaveFighters(params: {
     await autoInitiateCombatIfOffensive({
       supabase,
       characterId,
+      shipId: ship.ship_id,
       sector,
       requestId,
       garrisonFighters: updatedGarrison.fighters,
@@ -345,23 +347,18 @@ function generateCombatId(): string {
 async function autoInitiateCombatIfOffensive(params: {
   supabase: ReturnType<typeof createServiceRoleClient>;
   characterId: string;
+  shipId: string;
   sector: number;
   requestId: string;
   garrisonFighters: number;
 }): Promise<void> {
-  const { supabase, characterId, sector, requestId, garrisonFighters } = params;
+  const { supabase, characterId, shipId, sector, requestId, garrisonFighters } = params;
 
   // Load all character combatants in the sector
   const participantStates = await loadCharacterCombatants(supabase, sector);
 
-  // Get garrison owner's corporation membership
-  const { data: ownerCorpData } = await supabase
-    .from('corporation_members')
-    .select('corp_id')
-    .eq('character_id', characterId)
-    .is('left_at', null)
-    .maybeSingle();
-  const ownerCorpId = ownerCorpData?.corp_id ?? null;
+  // Get garrison owner's effective corporation (membership OR ship ownership for corp-owned ships)
+  const ownerCorpId = await getEffectiveCorporationId(supabase, characterId, shipId);
 
   // Find targetable opponents (exclude self, corp members, escape pods, no-fighter ships)
   const opponents = participantStates.filter((participant) => {

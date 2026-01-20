@@ -16,6 +16,7 @@ import {
 } from '../_shared/request.ts';
 import { loadCharacterCombatants, loadCharacterNames, loadGarrisonCombatants } from '../_shared/combat_participants.ts';
 import { nowIso, CombatEncounterState } from '../_shared/combat_types.ts';
+import { getEffectiveCorporationId } from '../_shared/corporations.ts';
 import { loadCombatForSector, persistCombatState } from '../_shared/combat_state.ts';
 import { buildRoundWaitingPayload } from '../_shared/combat_events.ts';
 import { computeNextCombatDeadline } from '../_shared/combat_resolution.ts';
@@ -164,14 +165,8 @@ async function handleCombatInitiate(params: {
   );
   const garrisons = await loadGarrisonCombatants(supabase, sectorId, ownerNames);
 
-  // Get initiator's corporation membership
-  const { data: initiatorCorpData } = await supabase
-    .from('corporation_members')
-    .select('corp_id')
-    .eq('character_id', characterId)
-    .is('left_at', null)
-    .maybeSingle();
-  const initiatorCorpId = initiatorCorpData?.corp_id ?? null;
+  // Get initiator's effective corporation (membership OR ship ownership for corp-owned ships)
+  const initiatorCorpId = await getEffectiveCorporationId(supabase, characterId, shipId);
 
   // Validate targetable opponents exist
   let hasTargetableOpponent = false;

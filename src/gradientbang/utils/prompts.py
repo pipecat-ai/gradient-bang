@@ -141,7 +141,6 @@ You can perform some functions by calling tools. Other functions require a task 
 Tools you can call directly:
   - my_status
   - plot_course
-  - local_map_region
   - list_known_ports
   - corporation_info
   - send_message

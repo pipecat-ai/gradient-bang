@@ -19,6 +19,7 @@ import {
 } from '../_shared/request.ts';
 import { loadCharacter, loadShip } from '../_shared/status.ts';
 import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
+import { getEffectiveCorporationId } from '../_shared/corporations.ts';
 import { computeSectorVisibilityRecipients } from '../_shared/visibility.ts';
 import { recordEventWithRecipients } from '../_shared/events.ts';
 
@@ -174,20 +175,10 @@ async function handleCombatCollectFighters(params: {
   // If not, check if character's corporation owns a garrison
   let collectorCorpId: string | null = null;
   if (!ownGarrison) {
-    // Get character's corporation
-    const { data: membershipData, error: membershipError } = await supabase
-      .from('corporation_members')
-      .select('corp_id')
-      .eq('character_id', characterId)
-      .is('left_at', null)
-      .maybeSingle();
+    // Get collector's effective corporation (membership OR ship ownership for corp-owned ships)
+    collectorCorpId = await getEffectiveCorporationId(supabase, characterId, ship.ship_id);
 
-    if (membershipError) {
-      console.error('combat_collect_fighters.membership_check', membershipError);
-      // Continue without corp check - not a fatal error
-    } else if (membershipData) {
-      collectorCorpId = membershipData.corp_id;
-
+    if (collectorCorpId) {
       // Find garrisons owned by corp members
       const { data: corpMemberships, error: corpMemberError } = await supabase
         .from('corporation_members')
