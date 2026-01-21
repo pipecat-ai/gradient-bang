@@ -125,6 +125,7 @@ class VoiceTaskManager:
             "combat.round_resolved",
             "combat.ended",
             "combat.action_accepted",
+            "ship.destroyed",
             "chat.message",
             "error",
             # Client history query events (relayed via event system)
@@ -297,13 +298,24 @@ class VoiceTaskManager:
             summary = payload
 
         # Find the task_id for this event (if it belongs to a task)
-        task_id = self._get_task_id_for_character(self.character_id)
+        task_id: Optional[str] = None
+        payload_task_id: Optional[str] = None
+        if isinstance(payload, Mapping):
+            candidate = payload.get("__task_id") or payload.get("task_id")
+            if isinstance(candidate, str) and candidate.strip():
+                payload_task_id = candidate.strip()
+
+        if payload_task_id:
+            task_id = self._get_task_id_for_full(payload_task_id)
+
+        if not task_id:
+            task_id = self._get_task_id_for_character(self.character_id)
 
         # Build event XML with optional task_id
         if task_id:
-            event_xml = f"<event name={event_name} task_id={task_id}>\n{summary}\n</event>"
+            event_xml = f"<event name=\"{event_name}\" task_id=\"{task_id}\">\n{summary}\n</event>"
         else:
-            event_xml = f"<event name={event_name}>\n{summary}\n</event>"
+            event_xml = f"<event name=\"{event_name}\">\n{summary}\n</event>"
 
         # Determine if this event should trigger LLM inference
         # Most events only trigger inference when they came from voice agent's own tool calls
@@ -373,6 +385,17 @@ class VoiceTaskManager:
         for task_id, task_info in self._active_tasks.items():
             if task_info.get("target_character_id") == character_id:
                 return task_id
+        return None
+
+    def _get_task_id_for_full(self, task_id: str) -> Optional[str]:
+        """Resolve a full UUID task_id to the short task_id used for display."""
+        if not task_id:
+            return None
+        if task_id in self._active_tasks:
+            return task_id
+        for short_id, task_info in self._active_tasks.items():
+            if task_info.get("full_task_id") == task_id:
+                return short_id
         return None
 
     def get_task_progress(self) -> str:
@@ -471,13 +494,14 @@ class VoiceTaskManager:
 
         # Append to LLM context buffer:
         # - For non-EVENT types: always add (steps, errors, finished, etc.)
-        # - For EVENT types: only add for corp_ship tasks, since those events
-        #   don't reach _relay_event (they go to a separate task_game_client)
-        # Player ship tasks share the main game_client, so events arrive via _relay_event
+        # - EVENT types are NOT added to task_buffer. EVENT lines still flow to client
+        #   via task_output RTVI for task panel display. Structured events reach LLM
+        #   via _relay_event from main game client polling.
+        # With corp visibility, corp ship events now reach the human player via _relay_event,
+        # so we no longer need to add EVENT lines for corp_ship tasks (prevents duplicates).
         if message_type != TaskOutputType.EVENT.value:
             self.task_buffer.append(text)
-        elif task_type == "corp_ship":
-            self.task_buffer.append(text)
+        # EVENT lines are UI-only now - LLM gets events via _relay_event
 
     @traced
     async def _run_task_with_tracking(

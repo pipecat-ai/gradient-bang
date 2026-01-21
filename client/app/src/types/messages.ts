@@ -183,6 +183,17 @@ export interface CombatRoundResolvedMessage
   extends ServerMessagePayload,
     CombatRound {}
 
+export interface ShipDestroyedMessage extends ServerMessagePayload {
+  ship_id: string;
+  ship_type: string;
+  ship_name: string | null;
+  player_type: "human" | "corporation_ship";
+  player_name: string;
+  sector: Sector;
+  combat_id: string;
+  salvage_created: boolean;
+}
+
 // --- Task History Messages
 
 export interface TaskHistoryEntry {

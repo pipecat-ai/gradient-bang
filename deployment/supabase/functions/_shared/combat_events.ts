@@ -46,7 +46,7 @@ function buildParticipantPayload(
   return {
     created_at: typeof metadata.first_visit === 'string' ? metadata.first_visit : new Date().toISOString(),
     name: participant.name,
-    player_type: 'human',
+    player_type: (metadata.player_type as string) ?? 'human',
     ship: shipPayload,
   };
 }
@@ -284,4 +284,43 @@ export async function buildCombatEndedPayloadForViewer(
   }
 
   return payload;
+}
+
+/**
+ * Extract corporation IDs from combat participants.
+ * Returns all unique corp IDs involved in the combat (from any participant).
+ */
+export function getCorpIdsFromParticipants(
+  participants: Record<string, CombatantState>,
+): string[] {
+  const corpIds = new Set<string>();
+  for (const participant of Object.values(participants)) {
+    const metadata = participant.metadata as Record<string, unknown> | undefined;
+    const corpId = metadata?.corporation_id as string | undefined;
+    if (corpId) {
+      corpIds.add(corpId);
+    }
+    // Also check garrison owner's corporation_id
+    const ownerCorpId = metadata?.owner_corporation_id as string | undefined;
+    if (ownerCorpId) {
+      corpIds.add(ownerCorpId);
+    }
+  }
+  return Array.from(corpIds);
+}
+
+/**
+ * Collect character IDs from combat participants.
+ * Returns only character combatants (not garrisons).
+ */
+export function collectParticipantIds(encounter: CombatEncounterState): string[] {
+  const ids: Set<string> = new Set();
+  for (const participant of Object.values(encounter.participants)) {
+    if (participant.combatant_type !== 'character') {
+      continue;
+    }
+    const key = participant.owner_character_id ?? participant.combatant_id;
+    ids.add(key);
+  }
+  return Array.from(ids);
 }

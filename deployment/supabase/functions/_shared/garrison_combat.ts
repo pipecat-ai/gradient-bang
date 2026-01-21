@@ -11,9 +11,10 @@ import { loadCharacterCombatants, loadCharacterNames, loadGarrisonCombatants } f
 import { getEffectiveCorporationId } from './corporations.ts';
 import { loadCombatForSector, persistCombatState } from './combat_state.ts';
 import { nowIso, type CombatEncounterState, type CombatantState } from './combat_types.ts';
-import { buildRoundWaitingPayload } from './combat_events.ts';
+import { buildRoundWaitingPayload, getCorpIdsFromParticipants, collectParticipantIds } from './combat_events.ts';
 import { computeNextCombatDeadline } from './combat_resolution.ts';
-import { emitCharacterEvent, emitSectorEnvelope, buildEventSource } from './events.ts';
+import { buildEventSource, recordEventWithRecipients } from './events.ts';
+import { computeEventRecipients } from './visibility.ts';
 
 const MIN_PARTICIPANTS = 2;
 
@@ -217,33 +218,32 @@ async function emitRoundWaitingEvents(
   const payload = buildRoundWaitingPayload(encounter);
   const source = buildEventSource('combat.round_waiting', requestId);
   payload.source = source;
-  const senderId = typeof encounter.context?.initiator === 'string' ? encounter.context.initiator : null;
 
-  const recipients = Object.values(encounter.participants)
-    .filter((participant) => participant.combatant_type === 'character')
-    .map((participant) => participant.owner_character_id ?? participant.combatant_id);
+  // Get direct participant IDs and corp IDs for visibility
+  const directRecipients = collectParticipantIds(encounter);
+  const corpIds = getCorpIdsFromParticipants(encounter.participants);
 
-  await Promise.all(
-    recipients.map((recipient) =>
-      emitCharacterEvent({
-        supabase,
-        characterId: recipient,
-        eventType: 'combat.round_waiting',
-        payload,
-        sectorId: encounter.sector_id,
-        requestId,
-        senderId,
-        actorCharacterId: recipient,
-      }),
-    ),
-  );
-
-  await emitSectorEnvelope({
+  // Compute ALL recipients: participants + sector observers + corp members (deduped)
+  const allRecipients = await computeEventRecipients({
     supabase,
     sectorId: encounter.sector_id,
+    corpIds,
+    directRecipients,
+  });
+
+  if (allRecipients.length === 0) {
+    return;
+  }
+
+  // Single emission to all unique recipients
+  await recordEventWithRecipients({
+    supabase,
     eventType: 'combat.round_waiting',
+    scope: 'sector',
     payload,
     requestId,
-    senderId,
+    sectorId: encounter.sector_id,
+    actorCharacterId: null, // System-originated
+    recipients: allRecipients,
   });
 }

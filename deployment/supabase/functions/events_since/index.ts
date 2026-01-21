@@ -29,6 +29,7 @@ interface EventRow {
   actor_character_id: string | null;
   sector_id: number | null;
   corp_id: string | null;
+  task_id: string | null;
   inserted_at: string;
   request_id: string | null;
   meta: Record<string, unknown> | null;
@@ -196,6 +197,7 @@ async function fetchEventsForCharacter(options: {
         sector_id,
         corp_id,
         inserted_at,
+        task_id,
         request_id,
         meta,
         direction,
@@ -235,6 +237,7 @@ async function fetchEventsForCharacter(options: {
         sector_id,
         corp_id,
         inserted_at,
+        task_id,
         request_id,
         meta,
         direction,
@@ -288,16 +291,21 @@ function normalizeEventRow(row: EventRow): JsonRecord {
       ? [row.event_character_recipients as unknown as { character_id: string; reason: string }]
       : [];
   const recipientReason = recipients.length ? recipients[0]?.reason ?? null : null;
+  const basePayload = row.payload ?? {};
+  const payload = typeof row.task_id === 'string' && row.task_id.length > 0
+    ? { ...basePayload, __task_id: row.task_id }
+    : basePayload;
 
   return {
     id: row.id,
     event_type: row.event_type,
     timestamp: row.timestamp,
-    payload: row.payload ?? {},
+    payload,
     scope: row.scope,
     actor_character_id: row.actor_character_id,
     sector_id: row.sector_id,
     corp_id: row.corp_id,
+    task_id: row.task_id,
     inserted_at: row.inserted_at,
     request_id: row.request_id,
     meta: row.meta,

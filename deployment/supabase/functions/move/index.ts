@@ -601,6 +601,11 @@ async function completeMovement({
     });
     mark('emit_map_local');
 
+    // For arrival events, include corp visibility if it's a corp ship
+    const corpIds = ship.owner_type === 'corporation' && ship.owner_corporation_id
+      ? [ship.owner_corporation_id]
+      : [];
+
     await pgEmitMovementObservers({
       pg,
       sectorId: destination,
@@ -608,6 +613,7 @@ async function completeMovement({
       movement: 'arrive',
       source,
       requestId,
+      corpIds, // Corp visibility for arrivals
     });
 
     // Check for garrison auto-combat after arrival

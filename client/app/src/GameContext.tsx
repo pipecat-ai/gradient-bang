@@ -37,6 +37,7 @@ import {
   type SalvageCreatedMessage,
   type SectorUpdateMessage,
   type ServerMessage,
+  type ShipDestroyedMessage,
   type ShipsListMessage,
   type StatusMessage,
   type TaskCompleteMessage,
@@ -687,6 +688,23 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               gameStore.addActivityLogEntry({
                 type: "combat.session.ended",
                 message: `Combat session ended with result: [${data.result}]`,
+              })
+
+              break
+            }
+
+            case "ship.destroyed": {
+              console.debug("[GAME EVENT] Ship destroyed", gameEvent.payload)
+              const data = gameEvent.payload as ShipDestroyedMessage
+
+              const shipDescription =
+                data.player_type === "corporation_ship"
+                  ? `Corporation ship [${data.ship_name ?? data.ship_type}]`
+                  : `[${data.player_name}]'s ship`
+
+              gameStore.addActivityLogEntry({
+                type: "ship.destroyed",
+                message: `${shipDescription} destroyed in [sector ${data.sector.id}]${data.salvage_created ? " - salvage created" : ""}`,
               })
 
               break

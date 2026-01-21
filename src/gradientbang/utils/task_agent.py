@@ -366,6 +366,7 @@ class TaskAgent:
             "combat.round_resolved",
             "combat.ended",
             "combat.action_accepted",
+            "ship.destroyed",
             "chat.message",
             "event.query",
             "fighter.purchase",

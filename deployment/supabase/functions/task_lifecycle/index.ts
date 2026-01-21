@@ -13,6 +13,7 @@ import {
   resolveRequestId,
   respondWithError,
 } from '../_shared/request.ts';
+import { computeCorpMemberRecipients } from '../_shared/visibility.ts';
 
 /**
  * Task lifecycle event emitter.
@@ -77,6 +78,41 @@ serve(async (req: Request): Promise<Response> => {
       eventPayload.task_summary = taskSummary;
     }
 
+    // Server-side corp lookup for visibility
+    // First check corp membership
+    const { data: membership } = await supabase
+      .from('corporation_members')
+      .select('corp_id')
+      .eq('character_id', characterId)
+      .is('left_at', null)
+      .maybeSingle();
+
+    let effectiveCorpId: string | null = membership?.corp_id ?? null;
+
+    // Also check if this is a corp ship (for corp ships, character_id == ship_id)
+    // Query ship_instances directly - simpler and avoids timing issues if pseudo-character is deleted
+    if (!effectiveCorpId) {
+      const { data: shipData } = await supabase
+        .from('ship_instances')
+        .select('owner_type, owner_corporation_id')
+        .eq('ship_id', characterId)
+        .maybeSingle();
+
+      if (shipData?.owner_type === 'corporation') {
+        effectiveCorpId = shipData.owner_corporation_id ?? null;
+      }
+    }
+
+    // Get corp member recipients if in a corp
+    let additionalRecipients: { characterId: string; reason: string }[] = [];
+    if (effectiveCorpId) {
+      additionalRecipients = await computeCorpMemberRecipients(
+        supabase,
+        [effectiveCorpId],
+        [characterId], // exclude the acting character
+      );
+    }
+
     // Emit the task lifecycle event
     await emitCharacterEvent({
       supabase,
@@ -88,6 +124,7 @@ serve(async (req: Request): Promise<Response> => {
       taskId,
       recipientReason: 'task_owner',
       scope: 'self',
+      additionalRecipients, // Corp members added here
     });
 
     return successResponse({
