@@ -202,6 +202,22 @@ Run agent process:
 uv run bot
 ```
 
+#### Linux users
+
+On Linux, `host.docker.internal` doesn't resolve automatically like it does on macOS. You need to:
+
+1. Add the bot URL to `.env.supabase` using the Docker bridge gateway IP:
+
+```bash
+BOT_START_URL=http://172.17.0.1:7860/start
+```
+
+2. Run the bot bound to all interfaces so Docker can reach it:
+
+```bash
+uv run bot --host 0.0.0.0
+```
+
 ### Run web client
 
 With both your Supabase functions and Pipecat bot running, in a new terminal window:
