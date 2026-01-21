@@ -64,7 +64,7 @@ importers:
         version: 1.8.1(@pipecat-ai/client-js@1.5.0)
       '@pipecat-ai/voice-ui-kit':
         specifier: ^0.5.1-rc.5
-        version: 0.5.1-rc.5(@daily-co/daily-js@0.84.0)(@pipecat-ai/client-js@1.5.0)(@pipecat-ai/client-react@1.1.0(@babel/core@7.28.5)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.5.0)(@types/react@19.2.4)(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@pipecat-ai/daily-transport@1.5.0(@pipecat-ai/client-js@1.5.0))(@pipecat-ai/small-webrtc-transport@1.8.1(@pipecat-ai/client-js@1.5.0))(@types/react-dom@19.2.3(@types/react@19.2.4))(@types/react@19.2.4)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(three@0.181.1)(use-sync-external-store@1.6.0(react@19.2.0))
+        version: 0.5.1-rc.5(@daily-co/daily-js@0.84.0)(@pipecat-ai/client-js@1.5.0)(@pipecat-ai/client-react@1.1.0(@babel/core@7.28.5)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.5.0)(@types/react@19.2.4)(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@pipecat-ai/daily-transport@1.5.0(@pipecat-ai/client-js@1.5.0))(@pipecat-ai/small-webrtc-transport@1.8.1(@pipecat-ai/client-js@1.5.0))(@types/react-dom@19.2.3(@types/react@19.2.4))(@types/react@19.2.4)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(three@0.181.2)(use-sync-external-store@1.6.0(react@19.2.0))
       '@radix-ui/react-collapsible':
         specifier: ^1.1.12
         version: 1.1.12(@types/react-dom@19.2.3(@types/react@19.2.4))(@types/react@19.2.4)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -104,9 +104,6 @@ importers:
       '@uidotdev/usehooks':
         specifier: ^2.4.1
         version: 2.4.1(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
-      camera-controls:
-        specifier: ^3.1.0
-        version: 3.1.1(three@0.181.1)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -145,19 +142,13 @@ importers:
         version: 10.1.0(@types/react@19.2.4)(react@19.2.0)
       react-spring:
         specifier: ^10.0.3
-        version: 10.0.3(@react-three/fiber@9.4.0(@types/react@19.2.4)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react-native@0.82.1(@babel/core@7.28.5)(@types/react@19.2.4)(react@19.2.0))(react@19.2.0)(three@0.181.1))(konva@10.0.9)(react-dom@19.2.0(react@19.2.0))(react-konva@19.2.0(@types/react@19.2.4)(konva@10.0.9)(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react-native@0.82.1(@babel/core@7.28.5)(@types/react@19.2.4)(react@19.2.0))(react-zdog@1.2.2)(react@19.2.0)(three@0.181.1)(zdog@1.1.3)
-      stats.js:
-        specifier: ^0.17.0
-        version: 0.17.0
+        version: 10.0.3(@react-three/fiber@9.4.0(@types/react@19.2.4)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react-native@0.82.1(@babel/core@7.28.5)(@types/react@19.2.4)(react@19.2.0))(react@19.2.0)(three@0.181.2))(konva@10.0.9)(react-dom@19.2.0(react@19.2.0))(react-konva@19.2.0(@types/react@19.2.4)(konva@10.0.9)(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react-native@0.82.1(@babel/core@7.28.5)(@types/react@19.2.4)(react@19.2.0))(react-zdog@1.2.2)(react@19.2.0)(three@0.181.2)(zdog@1.1.3)
       tailwind-merge:
         specifier: ^3.3.1
         version: 3.4.0
       tailwindcss:
         specifier: ^4.1.11
         version: 4.1.17
-      three:
-        specifier: ^0.181.0
-        version: 0.181.1
       tw-animate-css:
         specifier: ^1.4.0
         version: 1.4.0
@@ -189,12 +180,6 @@ importers:
       '@types/react-dom':
         specifier: ^19.1.6
         version: 19.2.3(@types/react@19.2.4)
-      '@types/stats.js':
-        specifier: ^0.17.4
-        version: 0.17.4
-      '@types/three':
-        specifier: ^0.181.0
-        version: 0.181.0
       '@types/uuid':
         specifier: ^10.0.0
         version: 10.0.0
@@ -241,7 +226,7 @@ importers:
         specifier: ^10.2.0
         version: 10.2.0
       leva:
-        specifier: 0.10.1
+        specifier: ^0.10.0
         version: 0.10.1(@types/react-dom@19.2.3(@types/react@19.2.4))(@types/react@19.2.4)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       postprocessing:
         specifier: ^6.38.0
@@ -5855,9 +5840,6 @@ packages:
     peerDependencies:
       three: '>=0.128.0'
 
-  three@0.181.1:
-    resolution: {integrity: sha512-bz9xZUQMw3pJbjKy7roiwXWgAp+oVUa+4k5o0oBAQ+IFJuru1xzvtk63h6k72XZanXS/SgoEhV6927Vgazyq2w==}
-
   three@0.181.2:
     resolution: {integrity: sha512-k/CjiZ80bYss6Qs7/ex1TBlPD11whT9oKfT8oTGiHa34W4JRd1NiH/Tr1DbHWQ2/vMUypxksLnF2CfmlmM5XFQ==}
 
@@ -7829,7 +7811,7 @@ snapshots:
       dequal: 2.0.3
       lodash: 4.17.21
 
-  '@pipecat-ai/voice-ui-kit@0.5.1-rc.5(@daily-co/daily-js@0.84.0)(@pipecat-ai/client-js@1.5.0)(@pipecat-ai/client-react@1.1.0(@babel/core@7.28.5)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.5.0)(@types/react@19.2.4)(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@pipecat-ai/daily-transport@1.5.0(@pipecat-ai/client-js@1.5.0))(@pipecat-ai/small-webrtc-transport@1.8.1(@pipecat-ai/client-js@1.5.0))(@types/react-dom@19.2.3(@types/react@19.2.4))(@types/react@19.2.4)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(three@0.181.1)(use-sync-external-store@1.6.0(react@19.2.0))':
+  '@pipecat-ai/voice-ui-kit@0.5.1-rc.5(@daily-co/daily-js@0.84.0)(@pipecat-ai/client-js@1.5.0)(@pipecat-ai/client-react@1.1.0(@babel/core@7.28.5)(@babel/template@7.27.2)(@pipecat-ai/client-js@1.5.0)(@types/react@19.2.4)(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@pipecat-ai/daily-transport@1.5.0(@pipecat-ai/client-js@1.5.0))(@pipecat-ai/small-webrtc-transport@1.8.1(@pipecat-ai/client-js@1.5.0))(@types/react-dom@19.2.3(@types/react@19.2.4))(@types/react@19.2.4)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(three@0.181.2)(use-sync-external-store@1.6.0(react@19.2.0))':
     dependencies:
       '@daily-co/daily-js': 0.84.0
       '@pipecat-ai/client-js': 1.5.0
@@ -7856,7 +7838,7 @@ snapshots:
     optionalDependencies:
       '@pipecat-ai/daily-transport': 1.5.0(@pipecat-ai/client-js@1.5.0)
       '@pipecat-ai/small-webrtc-transport': 1.8.1(@pipecat-ai/client-js@1.5.0)
-      three: 0.181.1
+      three: 0.181.2
     transitivePeerDependencies:
       - '@types/react'
       - '@types/react-dom'
@@ -8769,16 +8751,6 @@ snapshots:
       '@react-spring/types': 10.0.3
       react: 19.2.0
 
-  '@react-spring/three@10.0.3(@react-three/fiber@9.4.0(@types/react@19.2.4)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react-native@0.82.1(@babel/core@7.28.5)(@types/react@19.2.4)(react@19.2.0))(react@19.2.0)(three@0.181.1))(react@19.2.0)(three@0.181.1)':
-    dependencies:
-      '@react-spring/animated': 10.0.3(react@19.2.0)
-      '@react-spring/core': 10.0.3(react@19.2.0)
-      '@react-spring/shared': 10.0.3(react@19.2.0)
-      '@react-spring/types': 10.0.3
-      '@react-three/fiber': 9.4.0(@types/react@19.2.4)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react-native@0.82.1(@babel/core@7.28.5)(@types/react@19.2.4)(react@19.2.0))(react@19.2.0)(three@0.181.1)
-      react: 19.2.0
-      three: 0.181.1
-
   '@react-spring/three@10.0.3(@react-three/fiber@9.4.0(@types/react@19.2.4)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react-native@0.82.1(@babel/core@7.28.5)(@types/react@19.2.4)(react@19.2.0))(react@19.2.0)(three@0.181.2))(react@19.2.0)(three@0.181.2)':
     dependencies:
       '@react-spring/animated': 10.0.3(react@19.2.0)
@@ -8842,29 +8814,6 @@ snapshots:
     transitivePeerDependencies:
       - '@types/react'
       - '@types/three'
-      - immer
-
-  '@react-three/fiber@9.4.0(@types/react@19.2.4)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react-native@0.82.1(@babel/core@7.28.5)(@types/react@19.2.4)(react@19.2.0))(react@19.2.0)(three@0.181.1)':
-    dependencies:
-      '@babel/runtime': 7.28.4
-      '@types/react-reconciler': 0.32.3(@types/react@19.2.4)
-      '@types/webxr': 0.5.24
-      base64-js: 1.5.1
-      buffer: 6.0.3
-      its-fine: 2.0.0(@types/react@19.2.4)(react@19.2.0)
-      react: 19.2.0
-      react-reconciler: 0.31.0(react@19.2.0)
-      react-use-measure: 2.1.7(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
-      scheduler: 0.25.0
-      suspend-react: 0.1.3(react@19.2.0)
-      three: 0.181.1
-      use-sync-external-store: 1.6.0(react@19.2.0)
-      zustand: 5.0.8(@types/react@19.2.4)(immer@10.2.0)(react@19.2.0)(use-sync-external-store@1.6.0(react@19.2.0))
-    optionalDependencies:
-      react-dom: 19.2.0(react@19.2.0)
-      react-native: 0.82.1(@babel/core@7.28.5)(@types/react@19.2.4)(react@19.2.0)
-    transitivePeerDependencies:
-      - '@types/react'
       - immer
 
   '@react-three/fiber@9.4.0(@types/react@19.2.4)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react-native@0.82.1(@babel/core@7.28.5)(@types/react@19.2.4)(react@19.2.0))(react@19.2.0)(three@0.181.2)':
@@ -9870,10 +9819,6 @@ snapshots:
   camelcase@6.3.0: {}
 
   camelcase@8.0.0: {}
-
-  camera-controls@3.1.1(three@0.181.1):
-    dependencies:
-      three: 0.181.1
 
   camera-controls@3.1.1(three@0.181.2):
     dependencies:
@@ -12618,12 +12563,12 @@ snapshots:
       react: 19.2.0
       react-dom: 19.2.0(react@19.2.0)
 
-  react-spring@10.0.3(@react-three/fiber@9.4.0(@types/react@19.2.4)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react-native@0.82.1(@babel/core@7.28.5)(@types/react@19.2.4)(react@19.2.0))(react@19.2.0)(three@0.181.1))(konva@10.0.9)(react-dom@19.2.0(react@19.2.0))(react-konva@19.2.0(@types/react@19.2.4)(konva@10.0.9)(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react-native@0.82.1(@babel/core@7.28.5)(@types/react@19.2.4)(react@19.2.0))(react-zdog@1.2.2)(react@19.2.0)(three@0.181.1)(zdog@1.1.3):
+  react-spring@10.0.3(@react-three/fiber@9.4.0(@types/react@19.2.4)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react-native@0.82.1(@babel/core@7.28.5)(@types/react@19.2.4)(react@19.2.0))(react@19.2.0)(three@0.181.2))(konva@10.0.9)(react-dom@19.2.0(react@19.2.0))(react-konva@19.2.0(@types/react@19.2.4)(konva@10.0.9)(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react-native@0.82.1(@babel/core@7.28.5)(@types/react@19.2.4)(react@19.2.0))(react-zdog@1.2.2)(react@19.2.0)(three@0.181.2)(zdog@1.1.3):
     dependencies:
       '@react-spring/core': 10.0.3(react@19.2.0)
       '@react-spring/konva': 10.0.3(konva@10.0.9)(react-konva@19.2.0(@types/react@19.2.4)(konva@10.0.9)(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react@19.2.0)
       '@react-spring/native': 10.0.3(react-native@0.82.1(@babel/core@7.28.5)(@types/react@19.2.4)(react@19.2.0))(react@19.2.0)
-      '@react-spring/three': 10.0.3(@react-three/fiber@9.4.0(@types/react@19.2.4)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react-native@0.82.1(@babel/core@7.28.5)(@types/react@19.2.4)(react@19.2.0))(react@19.2.0)(three@0.181.1))(react@19.2.0)(three@0.181.1)
+      '@react-spring/three': 10.0.3(@react-three/fiber@9.4.0(@types/react@19.2.4)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react-native@0.82.1(@babel/core@7.28.5)(@types/react@19.2.4)(react@19.2.0))(react@19.2.0)(three@0.181.2))(react@19.2.0)(three@0.181.2)
       '@react-spring/web': 10.0.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@react-spring/zdog': 10.0.3(react-dom@19.2.0(react@19.2.0))(react-zdog@1.2.2)(react@19.2.0)(zdog@1.1.3)
       react: 19.2.0
@@ -13239,8 +13184,6 @@ snapshots:
       fflate: 0.6.10
       potpack: 1.0.2
       three: 0.181.2
-
-  three@0.181.1: {}
 
   three@0.181.2: {}
 

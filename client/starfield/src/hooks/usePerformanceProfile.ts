@@ -1,4 +1,4 @@
-import { useLayoutEffect } from "react"
+import { useEffect } from "react"
 import { useDetectGPU } from "@react-three/drei"
 import { folder, useControls } from "leva"
 
@@ -35,7 +35,7 @@ export const usePerformanceProfile = ({
     ),
   }))
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     let targetProfile: PerformanceProfile = "high"
 
     if (tier === 0 || (isMobile && tier <= 1)) {
