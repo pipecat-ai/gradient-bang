@@ -45,6 +45,7 @@ export const GameInitStateMessage = {
 
 export interface GameState {
   player: PlayerSelf
+  corporation?: Corporation
   character_id?: string
   access_token?: string
   ship: ShipSelf
@@ -75,6 +76,7 @@ export interface GameSlice extends GameState {
   addMessage: (message: ChatMessage) => void
   setPlayer: (player: Partial<PlayerSelf>) => void
   setSector: (sector: Sector) => void
+  setCorporation: (corporation: Corporation) => void
   updateSector: (sector: Partial<Sector>) => void
   addSectorPlayer: (player: Player) => void
   removeSectorPlayer: (player: Player) => void
@@ -108,6 +110,7 @@ const createGameSlice: StateCreator<
   GameSlice
 > = (set, get) => ({
   player: {} as PlayerSelf,
+  corporation: undefined,
   character_id: undefined,
   access_token: undefined,
   ship: {} as ShipSelf,
@@ -115,7 +118,7 @@ const createGameSlice: StateCreator<
   local_map_data: undefined, // @TODO: move to map slice
   regional_map_data: undefined, // @TODO: move to map slice
   course_plot: undefined, // @TODO: move to map slice
-  messages: [],
+  messages: [], // @TODO: move to chat slice
 
   starfieldReady: false,
   diamondFXInstance: undefined,
@@ -221,7 +224,7 @@ const createGameSlice: StateCreator<
         state.regional_map_data = regionalMapData
       })
     ),
-
+ 
   setShip: (ship: Partial<Ship>) =>
     set(
       produce((state) => {
@@ -230,6 +233,13 @@ const createGameSlice: StateCreator<
         } else {
           state.ship = ship as Ship
         }
+      })
+    ),
+
+  setCorporation: (corporation: Corporation) =>
+    set(
+      produce((state) => {
+        state.corporation = corporation
       })
     ),
 

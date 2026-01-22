@@ -3,21 +3,33 @@ declare global {
 
   interface PlayerBase {
     id: string
-    last_active?: string
     name: string
+    player_type: "npc" | "human"
+    last_active?: string
     created_at?: string
   }
 
   interface PlayerSelf extends PlayerBase {
-    credits_in_bank: number
-    sectors_visited: number
     universe_size: number
+    sectors_visited: number
+    total_sectors_known: number
+    credits_in_bank: number
+    corp_sectors_visited?: number
   }
 
   interface Player extends PlayerBase {
     player_type: "npc" | "human"
     ship: Ship
   }
+
+   // --- CORPORATION
+
+   interface Corporation {
+    corp_id: string
+    name: string
+    member_count: number
+    joined_at: string
+   }
 
   // --- RESOURCE
 
@@ -31,25 +43,16 @@ declare global {
     ship_type: string
     fighters?: number
     shields?: number
-
     max_shields?: number
     max_fighters?: number
   }
 
-  interface ShipType {
-    id: string
-    name: string
-    max_cargo: number
-    max_fighters: number
-    max_holds: number
-    max_shields: number
-    max_warp_power: number
-  }
-
   interface ShipSelf extends Ship {
+    ship_id: string
     cargo: Record<Resource, number>
     cargo_capacity: number
     empty_holds: number
+    turns_per_warp: number
     warp_power: number
     warp_power_capacity: number
     credits: number
@@ -79,13 +82,16 @@ declare global {
   }
 
   interface Sector {
-    adjacent_sectors?: number[]
     id: number
+    adjacent_sectors?: number[]
+    position: [number, number]
     last_visited?: string
     planets?: Planet[]
     players?: Player[]
     port?: Port
     region?: Region
+    unowned_ships?: Ship[]
+
     scene_config?: unknown
 
     // Not yet implemented
@@ -147,15 +153,17 @@ declare global {
 
   interface MapSectorNode {
     id: number
-    hops_from_center?: number
-    position: [number, number]
-    adjacent_sectors?: number[]
-    visited?: boolean
     port?: string
-    region?: string
     lanes: MapLane[]
-    is_mega?: boolean
+    source?: 'player' | 'corp' | 'both'
+    visited: boolean
+    position: [number, number]
     last_visited?: string
+    adjacent_sectors?: number[]
+    hops_from_center?: number
+    
+    region?: string //@TODO: Unused
+    is_mega?: boolean //@TODO: Unused
   }
 
   interface MapLane {

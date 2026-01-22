@@ -39,6 +39,7 @@ export interface StatusMessage extends ServerMessagePayload {
   player: PlayerSelf;
   ship: ShipSelf;
   sector: Sector;
+  corporation?: Corporation;
 }
 
 export interface MovementStartMessage extends ServerMessagePayload {

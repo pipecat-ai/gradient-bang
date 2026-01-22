@@ -13,7 +13,7 @@ import {
   transferSummaryString,
 } from "@/utils/game"
 
-import type { Action, StartAction } from "./types/actions"
+import type { GameAction, StartAction } from "./types/actions"
 import { RESOURCE_SHORT_NAMES } from "./types/constants"
 
 import {
@@ -99,7 +99,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
    * Dispatch game action to server
    */
   const dispatchAction = useCallback(
-    (action: Action) => {
+    (action: GameAction) => {
       if (!client) {
         console.error("[GAME CONTEXT] Client not available")
         return
@@ -110,11 +110,12 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
         )
         return
       }
+      const payload = "payload" in action ? action.payload : {}
       console.debug(
         `[GAME CONTEXT] Dispatching action: "${action.type}"`,
-        action.payload
+        payload
       )
-      client.sendClientMessage(action.type, action.payload ?? {})
+      client.sendClientMessage(action.type, payload)
     },
     [client]
   )
@@ -226,6 +227,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               // Update store
               gameStore.setState({
                 player: status.player,
+                corporation: status.corporation,
                 ship: status.ship,
                 sector: status.sector,
               })
@@ -454,9 +456,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
               gameStore.addActivityLogEntry({
                 type: "salvage.created",
-                message: `Salvage created in [sector ${
-                  data.sector.id
-                }] ${salvageCreatedSummaryString(data.salvage_details)}`,
+                message: `Salvage created in [sector ${data.sector.id
+                  }] ${salvageCreatedSummaryString(data.salvage_details)}`,
               })
 
               gameStore.addToast({
@@ -474,9 +475,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
               gameStore.addActivityLogEntry({
                 type: "salvage.collected",
-                message: `Salvage collected in [sector ${
-                  data.sector.id
-                }] ${salvageCollectedSummaryString(data.salvage_details)}`,
+                message: `Salvage collected in [sector ${data.sector.id
+                  }] ${salvageCollectedSummaryString(data.salvage_details)}`,
               })
 
               gameStore.addToast({
@@ -523,11 +523,9 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
               gameStore.addActivityLogEntry({
                 type: "trade.executed",
-                message: `Trade executed: ${
-                  data.trade.trade_type === "buy" ? "Bought" : "Sold"
-                } ${data.trade.units} [${
-                  RESOURCE_SHORT_NAMES[data.trade.commodity]
-                }] for [CR ${data.trade.total_price}]`,
+                message: `Trade executed: ${data.trade.trade_type === "buy" ? "Bought" : "Sold"
+                  } ${data.trade.units} [${RESOURCE_SHORT_NAMES[data.trade.commodity]
+                  }] for [CR ${data.trade.total_price}]`,
               })
 
               gameStore.addToast({
@@ -738,9 +736,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
               gameStore.addActivityLogEntry({
                 type: "error",
-                message: `Ship Protocol Failure: ${
-                  data.endpoint ?? "Unknown"
-                } - ${data.error}`,
+                message: `Ship Protocol Failure: ${data.endpoint ?? "Unknown"
+                  } - ${data.error}`,
               })
               break
             }
@@ -779,9 +776,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               gameStore.setTaskInProgress(false)
               gameStore.addActivityLogEntry({
                 type: "task.complete",
-                message: `${
-                  data.was_cancelled ? "Task cancelled" : "Task completed"
-                }`,
+                message: `${data.was_cancelled ? "Task cancelled" : "Task completed"
+                  }`,
               })
 
               //@TODO Properly handle task failures

@@ -13,7 +13,7 @@ import {
 
 import { useGameContext } from "@/hooks/useGameContext";
 
-import type { Action, ActionType } from "@/types/actions";
+import type { ActionType, GameAction } from "@/types/actions";
 
 export const EventDispatcher: Story = () => {
   const { dispatchAction } = useGameContext();
@@ -44,10 +44,11 @@ export const EventDispatcher: Story = () => {
       }
     }
 
+    // Cast needed for dynamic dispatch in dev story
     dispatchAction({
-      type: selectedEventType as ActionType,
+      type: selectedEventType,
       payload: parsedPayload,
-    } as Action);
+    } as GameAction);
   };
 
   return (

@@ -81,6 +81,9 @@ This will create a `world-data` folder in the root of your project
 ### Copy world data to local Supabase database
 
 ```bash
+# Load .env.supabsae to env (if not done already)
+set -a && source .env.supabase
+
 uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data/
 ```
 

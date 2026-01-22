@@ -1,27 +1,26 @@
 import { useMemo } from "react";
 
+import { button, useControls } from "leva";
 import type { Story } from "@ladle/react";
-import { Divider } from "@pipecat-ai/voice-ui-kit";
 
+import { ChatPanel } from "@/components/ChatPanel";
 import { CoursePlotPanel } from "@/components/CoursePlotPanel";
 import { ActivityStream } from "@/components/hud/ActivityStream";
-import MiniMap from "@/components/hud/MiniMap";
-import { TaskOutputStream } from "@/components/hud/TaskOutputStream";
 import { MovementHistoryPanel } from "@/components/MovementHistoryPanel";
-import { Button } from "@/components/primitives/Button";
+import { Divider } from "@/components/primitives/Divider";
+import { SectorMap } from "@/components/SectorMap";
 import { SettingsPanel } from "@/components/SettingsPanel";
-import { TaskStatusBadge } from "@/components/TaskStatusBadge";
 import { TextInputControl } from "@/components/TextInputControl";
 import { WarpBadge } from "@/components/WarpBadge";
 import { useGameContext } from "@/hooks/useGameContext";
 import { useNotificationSound } from "@/hooks/useNotificationSound";
 import useGameStore from "@/stores/game";
 
-import { MOCK_TASK_DATA } from "./mock.stories";
 
 export const Init: Story = () => {
   const coursePlot = useGameStore.use.course_plot?.();
   const player = useGameStore((state) => state.player);
+  const corporation = useGameStore((state) => state.corporation);
   const ship = useGameStore((state) => state.ship);
   const sector = useGameStore((state) => state.sector);
   const localMapData = useGameStore((state) => state.local_map_data);
@@ -29,6 +28,13 @@ export const Init: Story = () => {
   useNotificationSound();
 
   const { dispatchAction, sendUserTextInput } = useGameContext();
+
+  useControls({
+    ["Get My Status"]: button(() => dispatchAction({ type: "get-my-status" })),
+    ["Get Known Port List"]: button(() => dispatchAction({ type: "get-known-ports" })),
+    ["Get My Map"]: button(() => dispatchAction({ type: "get-my-map", payload: { center_sector: sector?.id ?? 0 } })),
+    ["Get My Ships"]: button(() => dispatchAction({ type: "get-my-ships" })),
+  })
 
   // Filter in the component
   const directMessages = useMemo(
@@ -38,6 +44,9 @@ export const Init: Story = () => {
         .sort((a, b) => a.timestamp.localeCompare(b.timestamp)),
     [messages]
   );
+
+  // Memoize Map config to prevent unnecessary re-renders
+  const mapConfig = useMemo(() => ({ debug: true }), []);
 
   return (
     <>
@@ -50,45 +59,57 @@ export const Init: Story = () => {
             sendUserTextInput?.(text);
           }}
         />
-        <Divider />
-
-        <Button onClick={() => dispatchAction({ type: "get-my-status" })}>
-          Get My Status
-        </Button>
-        <Button onClick={() => dispatchAction({ type: "get-known-ports" })}>
-          Get Known Port List
-        </Button>
-        <Button onClick={() => dispatchAction({ type: "get-my-map" })}>
-          Get my map
-        </Button>
       </div>
-      <div className="story-card">
-        <h3 className="story-heading">Player:</h3>
-        {player && (
-          <ul className="story-value-list">
-            {Object.entries(player).map(([key, value]) => (
-              <li key={key}>
-                <span>{key}</span> <span>{value?.toString()}</span>
-              </li>
-            ))}
-          </ul>
-        )}
 
-        <h3 className="story-heading">Ship:</h3>
-        {ship && (
-          <ul className="story-value-list">
-            {Object.entries(ship).map(([key, value]) => (
-              <li key={key}>
-                <span className="flex-1">{key}</span>
-                <span className="flex-1">
-                  {typeof value === "object"
-                    ? JSON.stringify(value)
-                    : value?.toString()}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+      <div className="story-card h-[360px] shrink-0 relative">
+        <ChatPanel />
+      </div>
+
+      <div className="story-card">
+
+        <div className="story-card">
+          <h3 className="story-heading">Player:</h3>
+          {player && (
+            <ul className="story-value-list">
+              {Object.entries(player).map(([key, value]) => (
+                <li key={key}>
+                  <span>{key}</span> <span>{value?.toString()}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="story-card">
+          <h3 className="story-heading">Corporation:</h3>
+          {corporation && (
+            <ul className="story-value-list">
+              {Object.entries(corporation).map(([key, value]) => (
+                <li key={key}>
+                  <span>{key}</span> <span>{value?.toString()}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="story-card">
+          <h3 className="story-heading">Ship:</h3>
+          {ship && (
+            <ul className="story-value-list">
+              {Object.entries(ship).map(([key, value]) => (
+                <li key={key}>
+                  <span className="flex-1">{key}</span>
+                  <span className="flex-1">
+                    {typeof value === "object"
+                      ? JSON.stringify(value)
+                      : value?.toString()}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
         <WarpBadge />
 
@@ -116,13 +137,13 @@ export const Init: Story = () => {
           </ul>
           {sector && localMapData && (
             <div className="w-[440px] h-[520px]">
-              <MiniMap
+              <SectorMap
                 current_sector_id={sector.id}
                 map_data={localMapData}
                 width={440}
                 height={440}
                 maxDistance={2}
-                config={{ debug: true }}
+                config={mapConfig}
                 coursePlot={coursePlot}
               />
             </div>
@@ -153,7 +174,7 @@ Init.meta = {
   connectOnMount: false,
   enableMic: false,
   disableAudioOutput: true,
-  messages: [["Fetch current status", "Tell me my current status."]],
+  useDevTools: true,
 };
 
 export const Settings: Story = () => {
@@ -172,81 +193,6 @@ export const Settings: Story = () => {
 
 Settings.meta = {
   disconnectedStory: true,
-  connectOnMount: false,
-  enableMic: false,
-  disableAudioOutput: true,
-};
-
-export const TaskOutput: Story = () => {
-  const { sendUserTextInput } = useGameContext();
-  const addTask = useGameStore.use.addTask();
-  const setTaskInProgress = useGameStore.use.setTaskInProgress();
-  const setTaskWasCancelled = useGameStore.use.setTaskWasCancelled();
-  const taskInProgress = useGameStore.use.taskInProgress();
-
-  return (
-    <>
-      <div className="story-description">
-        <TextInputControl
-          onSend={(text) => {
-            sendUserTextInput?.(text);
-          }}
-        />
-        <Button
-          onClick={() => {
-            addTask(
-              MOCK_TASK_DATA[0].summary,
-              MOCK_TASK_DATA[0].type as TaskType
-            );
-          }}
-        >
-          Add Task
-        </Button>
-        <Button
-          onClick={() => {
-            addTask("Task complete", "COMPLETE");
-          }}
-        >
-          Add Complete Task
-        </Button>
-        <Button
-          onClick={() => {
-            MOCK_TASK_DATA.forEach((task) => {
-              addTask(task.summary, task.type as TaskType);
-            });
-          }}
-        >
-          Add mock
-        </Button>
-        <Button
-          onClick={() => {
-            setTaskInProgress(!taskInProgress);
-          }}
-        >
-          Toggle task in progress
-        </Button>
-        <Button
-          onClick={() => {
-            setTaskWasCancelled(true);
-          }}
-        >
-          Set task cancelled
-        </Button>
-      </div>
-      <div className="story-card">
-        <div className="w-full h-full">
-          <div className="h-[400px]">
-            <TaskOutputStream />
-          </div>
-          <TaskStatusBadge />
-        </div>
-      </div>
-    </>
-  );
-};
-
-TaskOutput.meta = {
-  disconnectedStory: false,
   connectOnMount: false,
   enableMic: false,
   disableAudioOutput: true,

@@ -8,14 +8,12 @@ import {
   usePipecatConnectionState,
 } from "@pipecat-ai/voice-ui-kit"
 
-import { DotDivider } from "@/components/primitives/DotDivider"
 import { UserMicControl } from "@/components/UserMicControl"
 
 import { Button } from "../src/components/primitives/Button"
 import useGameStore from "../src/stores/game"
 import Error from "./../src/components/views/Error"
 import { GameProvider } from "./../src/GameContext"
-import { MessageSelect } from "./MessageSelect"
 
 import "./global.css"
 
@@ -37,7 +35,6 @@ const StoryWrapper = ({
 }) => {
   const { isConnected, isConnecting } = usePipecatConnectionState()
   const setGameState = useGameStore.use.setGameState()
-  const connecting = isConnecting || storyMeta?.connectOnMount
 
   useEffect(() => {
     if (storyMeta?.enableMic && client) {
@@ -58,7 +55,7 @@ const StoryWrapper = ({
             <div>
               {!isConnected ? (
                 <Button onClick={handleConnect}>
-                  {connecting ? "Connecting..." : "Connect [SPACE]"}
+                  {isConnecting ? "Connecting..." : "Connect"}
                 </Button>
               ) : (
                 <Button onClick={handleDisconnect} variant="secondary">
@@ -72,16 +69,12 @@ const StoryWrapper = ({
               ) : (
                 <UserMicControl disabled />
               )}
-              <DotDivider />
-              {storyMeta?.messages && (
-                <MessageSelect messages={storyMeta?.messages ?? []} />
-              )}
             </div>
           </div>
         </>
       )}
 
-      <Leva />
+      <Leva hidden={!storyMeta?.useDevTools} />
       {children}
     </>
   )

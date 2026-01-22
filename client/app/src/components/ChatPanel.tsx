@@ -28,13 +28,12 @@ const ChatMessageRow = ({ message }: { message: ConversationMessage }) => {
   return (
     <div className="flex flex-col gap-0 text-[11px]">
       <div
-        className={`${
-          message.role === "assistant"
+        className={`${message.role === "assistant"
             ? "text-agent"
             : message.role === "user"
               ? "text-client"
               : "text-warning"
-        } font-extrabold text-[11px] uppercase`}
+          } font-extrabold text-[11px] uppercase`}
       >
         <span className="opacity-50">[{timeString}]</span> {message.role}:
       </div>
@@ -87,7 +86,7 @@ export const ChatPanel = () => {
   // #endif
 
   const clxConnected =
-    "flex-1 h-full bg-card/60 border border-border  dotted-mask-42 dotted-mask-black relative"
+    "flex-1 h-full bg-card/60 border border-border dotted-mask-42 dotted-mask-black relative"
   const clxDisconnected =
     "flex-1 h-full opacity-40 stripe-frame-white/30 border border-border"
 
