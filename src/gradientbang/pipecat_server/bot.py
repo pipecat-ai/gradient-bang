@@ -420,12 +420,28 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                     finish_event = finish_by_task_id.get(task_id)
                     start_payload = start_event.get("payload", {})
                     finish_payload = finish_event.get("payload", {}) if finish_event else {}
+                    end_summary = None
+                    end_status = None
+                    if finish_event:
+                        end_summary = (
+                            finish_payload.get("task_summary")
+                            or finish_payload.get("summary")
+                            or finish_payload.get("result")
+                        )
+                        end_status = finish_payload.get("task_status")
                     tasks.append({
                         "task_id": task_id,
                         "started": start_event.get("timestamp"),
                         "ended": finish_event.get("timestamp") if finish_event else None,
                         "start_instructions": start_payload.get("task_description") or start_payload.get("instructions") or "",
-                        "end_summary": finish_payload.get("summary") or finish_payload.get("result") if finish_event else None,
+                        "end_summary": end_summary,
+                        "end_status": end_status,
+                        "actor_character_id": start_payload.get("actor_character_id"),
+                        "actor_character_name": start_payload.get("actor_character_name"),
+                        "task_scope": start_payload.get("task_scope"),
+                        "ship_id": start_payload.get("ship_id"),
+                        "ship_name": start_payload.get("ship_name"),
+                        "ship_type": start_payload.get("ship_type"),
                     })
 
                 # Sort by start time descending and limit
@@ -488,6 +504,24 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.exception("Failed to fetch task events")
+                await rtvi.push_frame(
+                    RTVIServerMessageFrame({"frame_type": "error", "error": str(exc)})
+                )
+            return
+
+        # Client requested task cancellation
+        if msg_type == "cancel-task":
+            try:
+                if not isinstance(msg_data, dict) or not msg_data.get("task_id"):
+                    raise ValueError("cancel-task requires task_id in message data")
+                task_id = msg_data.get("task_id")
+
+                await task_manager.game_client.task_cancel(
+                    task_id=task_id,
+                    character_id=task_manager.character_id,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Failed to cancel task via client message")
                 await rtvi.push_frame(
                     RTVIServerMessageFrame({"frame_type": "error", "error": str(exc)})
                 )
