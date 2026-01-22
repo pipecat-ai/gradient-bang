@@ -30,7 +30,7 @@ import {
 export type MapConfig = Partial<
     Omit<
         SectorMapConfigBase,
-        | "current_sector_id"
+        | "center_sector_id"
         | "nodeStyles"
         | "laneStyles"
         | "labelStyles"
@@ -54,7 +54,8 @@ export type MapConfig = Partial<
 }
 
 interface MapProps {
-    current_sector_id: number
+    center_sector_id: number
+    current_sector_id?: number
     config?: MapConfig
     map_data: MapData
     width?: number
@@ -105,6 +106,7 @@ const courseplotsEqual = (
 }
 
 const MapComponent = ({
+    center_sector_id,
     current_sector_id,
     config,
     map_data,
@@ -120,23 +122,23 @@ const MapComponent = ({
 
     // Warn if center sector doesn't exist in map data
     useEffect(() => {
-        const exists = normalizedMapData.some((sector) => sector.id === current_sector_id)
+        const exists = normalizedMapData.some((sector) => sector.id === center_sector_id)
         if (!exists && normalizedMapData.length > 0) {
             console.warn(
-                `[SectorMap] Center sector ${current_sector_id} not found in map data. ` +
-                `Map will render without current sector highlight.`
+                `[SectorMap] Center sector ${center_sector_id} not found in map data. ` +
+                `Map will render without centering.`
             )
         }
-    }, [normalizedMapData, current_sector_id])
+    }, [normalizedMapData, center_sector_id])
     const containerRef = useRef<HTMLDivElement | null>(null)
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const controllerRef = useRef<SectorMapController | null>(null)
-    const prevSectorIdRef = useRef<number>(current_sector_id)
+    const prevSectorIdRef = useRef<number>(center_sector_id)
     const previousMapRef = useRef<MapData | null>(null)
     const lastMaxDistanceRef = useRef<number | undefined>(maxDistance)
     const lastConfigRef = useRef<Omit<
         SectorMapConfigBase,
-        "current_sector_id"
+        "center_sector_id"
     > | null>(null)
     const lastCoursePlotRef = useRef<CoursePlot | null | undefined>(coursePlot)
 
@@ -167,11 +169,11 @@ const MapComponent = ({
     // re-renders when parent passes a new object with the same values
     const configKey = JSON.stringify(config)
 
-    const baseConfig = useMemo<Omit<SectorMapConfigBase, "current_sector_id">>(() => {
+    const baseConfig = useMemo<Omit<SectorMapConfigBase, "center_sector_id">>(() => {
         const parsedConfig = configKey ? JSON.parse(configKey) : {}
         return deepmerge(DEFAULT_SECTORMAP_CONFIG, parsedConfig) as Omit<
             SectorMapConfigBase,
-            "current_sector_id"
+            "center_sector_id"
         >
     }, [configKey])
 
@@ -244,12 +246,12 @@ const MapComponent = ({
                 width: lastDimensionsRef.current.width,
                 height: lastDimensionsRef.current.height,
                 data: normalizedMapData,
-                config: { ...baseConfig, current_sector_id },
+                config: { ...baseConfig, center_sector_id, current_sector_id },
                 maxDistance,
                 coursePlot,
             })
             controllerRef.current = controller
-            prevSectorIdRef.current = current_sector_id
+            prevSectorIdRef.current = center_sector_id
             previousMapRef.current = normalizedMapData
             lastMaxDistanceRef.current = maxDistance
             lastConfigRef.current = baseConfig
@@ -259,7 +261,7 @@ const MapComponent = ({
 
         // Compute changes BEFORE logging to enable early exit
         const topologyChanged = mapTopologyChanged(previousMapRef.current, normalizedMapData)
-        const sectorChanged = current_sector_id !== prevSectorIdRef.current
+        const sectorChanged = center_sector_id !== prevSectorIdRef.current
         const maxDistanceChanged = lastMaxDistanceRef.current !== maxDistance
         const configChanged = lastConfigRef.current !== baseConfig
         const coursePlotChanged = !courseplotsEqual(
@@ -288,7 +290,7 @@ const MapComponent = ({
 
         controller.updateProps({
             maxDistance,
-            ...(configChanged && { config: { ...baseConfig, current_sector_id } }),
+            ...(configChanged && { config: { ...baseConfig, center_sector_id, current_sector_id } }),
             data: normalizedMapData,
             coursePlot,
         })
@@ -299,9 +301,9 @@ const MapComponent = ({
             maxDistanceChanged ||
             coursePlotChanged
         ) {
-            console.debug("[GAME SECTOR MAP] Moving to sector", current_sector_id)
-            controller.moveToSector(current_sector_id, normalizedMapData)
-            prevSectorIdRef.current = current_sector_id
+            console.debug("[GAME SECTOR MAP] Moving to sector", center_sector_id)
+            controller.moveToSector(center_sector_id, normalizedMapData)
+            prevSectorIdRef.current = center_sector_id
         } else if (configChanged) {
             console.debug("[GAME SECTOR MAP] Rendering SectorMap")
             controller.render()
@@ -312,7 +314,7 @@ const MapComponent = ({
         lastConfigRef.current = baseConfig
         lastCoursePlotRef.current = coursePlot
 
-    }, [current_sector_id, normalizedMapData, maxDistance, baseConfig, coursePlot])
+    }, [center_sector_id, current_sector_id, normalizedMapData, maxDistance, baseConfig, coursePlot])
 
     // Update click callback when it changes
     useEffect(() => {
@@ -498,6 +500,7 @@ const areMapPropsEqual = (
     nextProps: MapProps
 ): boolean => {
     // Check cheap primitives FIRST - if any differ, skip other checks entirely
+    if (prevProps.center_sector_id !== nextProps.center_sector_id) return false
     if (prevProps.current_sector_id !== nextProps.current_sector_id) return false
     if (prevProps.width !== nextProps.width) return false
     if (prevProps.height !== nextProps.height) return false
