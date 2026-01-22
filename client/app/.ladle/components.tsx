@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from "react"
+import React, { memo, useEffect, useMemo, useRef } from "react"
 
 import { Leva } from "leva"
 import type { GlobalProvider, Meta } from "@ladle/react"
@@ -81,7 +81,7 @@ const StoryWrapper = ({
   )
 }
 
-export const Provider: GlobalProvider = ({ children, storyMeta }) => {
+export const Provider: GlobalProvider = memo(({ children, storyMeta }) => {
   const clientOptions = useMemo(
     () => ({
       enableMic: storyMeta?.enableMic,
@@ -89,42 +89,43 @@ export const Provider: GlobalProvider = ({ children, storyMeta }) => {
     [storyMeta?.enableMic]
   )
 
-  const themeProps = useMemo(
-    () => ({
-      defaultTheme: "dark" as const,
-    }),
-    []
-  )
-
   return (
     <PipecatAppBase
       startBotParams={{
         endpoint,
-        requestData: {},
+        requestData: {
+          createDailyRoom: false,
+          enableDefaultIceServers: true,
+          transport: "webrtc"
+        },
       }}
       clientOptions={clientOptions}
       transportType="smallwebrtc"
-      noThemeProvider={false}
-      themeProps={themeProps}
-      connectOnMount={storyMeta?.connectOnMount}
+      transportOptions={{
+        waitForICEGathering: true
+      }}
+      noThemeProvider={true}
       noAudioOutput={storyMeta?.disableAudioOutput}
     >
-      {({ client, handleConnect, handleDisconnect, error }) =>
-        error ? (
-          <Error onRetry={handleConnect}>{error}</Error>
+      {({ client, error, handleConnect, handleDisconnect }) =>
+        !client ? (
+          <></>
         ) : (
-          <GameProvider>
-            <StoryWrapper
-              client={client as unknown as PipecatClient}
-              storyMeta={storyMeta}
-              handleConnect={() => handleConnect?.()}
-              handleDisconnect={() => handleDisconnect?.()}
-            >
-              {children}
-            </StoryWrapper>
-          </GameProvider>
-        )
-      }
+          error ? (
+            <Error onRetry={handleConnect}>{error}</Error>
+          ) : (
+            <GameProvider>
+              <StoryWrapper
+                client={client as unknown as PipecatClient}
+                storyMeta={storyMeta}
+                handleConnect={() => handleConnect?.()}
+                handleDisconnect={() => handleDisconnect?.()}
+              >
+                {children}
+              </StoryWrapper>
+            </GameProvider>
+          )
+        )}
     </PipecatAppBase>
   )
-}
+})

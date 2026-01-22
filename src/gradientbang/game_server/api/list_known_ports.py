@@ -2,18 +2,17 @@
 
 import logging
 from collections import deque
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
 from gradientbang.game_server.api.utils import (
-    sector_contents,
-    rpc_success,
-    build_event_source,
-    emit_error_event,
     apply_port_observation,
-    enforce_actor_authorization,
+    build_event_source,
     build_log_context,
+    emit_error_event,
+    enforce_actor_authorization,
+    rpc_success,
 )
 from gradientbang.game_server.rpc.events import event_dispatcher
 
@@ -63,9 +62,7 @@ async def handle(request: Dict[str, Any], world) -> Dict[str, Any]:
         if character_id in world.characters:
             from_sector = world.characters[character_id].sector
         else:
-            from_sector = (
-                knowledge.current_sector if knowledge.current_sector is not None else 0
-            )
+            from_sector = knowledge.current_sector if knowledge.current_sector is not None else 0
     else:
         try:
             from_sector = int(from_sector)
@@ -86,7 +83,7 @@ async def handle(request: Dict[str, Any], world) -> Dict[str, Any]:
 
     try:
         max_hops = int(max_hops)
-        if max_hops < 0 or max_hops > 10:
+        if max_hops < 0 or max_hops > 100:
             raise ValueError
     except (TypeError, ValueError):
         await _fail(
@@ -158,9 +155,8 @@ async def handle(request: Dict[str, Any], world) -> Dict[str, Any]:
                     in_sector = False
                     if character_id in world.characters:
                         char_state = world.characters[character_id]
-                        in_sector = (
-                            getattr(char_state, "sector", None) == current
-                            and not getattr(char_state, "in_hyperspace", False)
+                        in_sector = getattr(char_state, "sector", None) == current and not getattr(
+                            char_state, "in_hyperspace", False
                         )
 
                     event_port, observed_at = apply_port_observation(

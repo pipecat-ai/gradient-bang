@@ -124,10 +124,6 @@ export const BigMapStory: Story = () => {
     set({ center_sector: node.id ?? 0 });
   }, [set]);
 
-
-  console.log("CURRENT SECTOR", current_sector);
-  console.log("CENTER SECTOR", center_sector);
-
   return <>
     <div className="story-description flex flex-col gap-4">
       <TextInputControl
