@@ -63,6 +63,7 @@ interface MapProps {
     showLegend?: boolean
     debug?: boolean
     coursePlot?: CoursePlot | null
+    onNodeClick?: (node: MapSectorNode) => void
 }
 
 const RESIZE_DELAY = 300
@@ -112,7 +113,21 @@ const MapComponent = ({
     maxDistance = 2,
     showLegend = true,
     coursePlot,
+    onNodeClick,
 }: MapProps) => {
+    // Normalize map_data to always be an array (memoized to avoid dependency changes)
+    const normalizedMapData = useMemo(() => map_data ?? [], [map_data])
+
+    // Warn if center sector doesn't exist in map data
+    useEffect(() => {
+        const exists = normalizedMapData.some((sector) => sector.id === current_sector_id)
+        if (!exists && normalizedMapData.length > 0) {
+            console.warn(
+                `[SectorMap] Center sector ${current_sector_id} not found in map data. ` +
+                `Map will render without current sector highlight.`
+            )
+        }
+    }, [normalizedMapData, current_sector_id])
     const containerRef = useRef<HTMLDivElement | null>(null)
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const controllerRef = useRef<SectorMapController | null>(null)
@@ -228,14 +243,14 @@ const MapComponent = ({
             controller = createSectorMapController(canvas, {
                 width: lastDimensionsRef.current.width,
                 height: lastDimensionsRef.current.height,
-                data: map_data,
+                data: normalizedMapData,
                 config: { ...baseConfig, current_sector_id },
                 maxDistance,
                 coursePlot,
             })
             controllerRef.current = controller
             prevSectorIdRef.current = current_sector_id
-            previousMapRef.current = map_data
+            previousMapRef.current = normalizedMapData
             lastMaxDistanceRef.current = maxDistance
             lastConfigRef.current = baseConfig
             lastCoursePlotRef.current = coursePlot
@@ -243,7 +258,7 @@ const MapComponent = ({
         }
 
         // Compute changes BEFORE logging to enable early exit
-        const topologyChanged = mapTopologyChanged(previousMapRef.current, map_data)
+        const topologyChanged = mapTopologyChanged(previousMapRef.current, normalizedMapData)
         const sectorChanged = current_sector_id !== prevSectorIdRef.current
         const maxDistanceChanged = lastMaxDistanceRef.current !== maxDistance
         const configChanged = lastConfigRef.current !== baseConfig
@@ -274,7 +289,7 @@ const MapComponent = ({
         controller.updateProps({
             maxDistance,
             ...(configChanged && { config: { ...baseConfig, current_sector_id } }),
-            data: map_data,
+            data: normalizedMapData,
             coursePlot,
         })
 
@@ -285,22 +300,35 @@ const MapComponent = ({
             coursePlotChanged
         ) {
             console.debug("[GAME SECTOR MAP] Moving to sector", current_sector_id)
-            controller.moveToSector(current_sector_id, map_data)
+            controller.moveToSector(current_sector_id, normalizedMapData)
             prevSectorIdRef.current = current_sector_id
         } else if (configChanged) {
             console.debug("[GAME SECTOR MAP] Rendering SectorMap")
             controller.render()
         }
 
-        previousMapRef.current = map_data
+        previousMapRef.current = normalizedMapData
         lastMaxDistanceRef.current = maxDistance
         lastConfigRef.current = baseConfig
         lastCoursePlotRef.current = coursePlot
-    }, [current_sector_id, map_data, maxDistance, baseConfig, coursePlot])
 
+    }, [current_sector_id, normalizedMapData, maxDistance, baseConfig, coursePlot])
+
+    // Update click callback when it changes
+    useEffect(() => {
+        const controller = controllerRef.current
+        if (controller) {
+            controller.setOnNodeClick(onNodeClick ?? null)
+        }
+    }, [onNodeClick])
+
+    // Cleanup effect
     useEffect(() => {
         return () => {
             console.debug("[GAME SECTOR MAP] Cleaning up SectorMap controller")
+            if (controllerRef.current) {
+                controllerRef.current.cleanup()
+            }
             controllerRef.current = null
         }
     }, [])
@@ -326,7 +354,7 @@ const MapComponent = ({
                     objectFit: "contain",
                 }}
             />
-            {showLegend && (
+            {showLegend && baseConfig.nodeStyles && (
                 <div
                     style={{
                         display: "flex",
@@ -488,6 +516,9 @@ const areMapPropsEqual = (
     // via mapTopologyChanged() and courseplotsEqual() with early-exit optimization
     if (prevProps.map_data !== nextProps.map_data) return false
     if (prevProps.coursePlot !== nextProps.coursePlot) return false
+
+    // Callback - reference equality (updates handled by separate useEffect)
+    if (prevProps.onNodeClick !== nextProps.onNodeClick) return false
 
     return true
 }

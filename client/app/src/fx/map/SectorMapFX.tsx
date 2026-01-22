@@ -14,10 +14,11 @@ export interface SectorMapConfigBase {
     show_ports: boolean;
     show_hyperlanes: boolean;
     show_partial_lanes: boolean;
-    /** Maximum distance in hex tiles from current sector to include in bounds calculation. Sectors beyond this distance are ignored for framing but still rendered if within maxDistance hops. */
     max_bounds_distance?: number;
-    /** Maximum length (in pixels) for partial lanes to culled sectors. If undefined, lanes extend to the culled sector. */
     partial_lane_max_length?: number;
+    clickable: boolean;
+    hover_scale_factor?: number;
+    hover_animation_duration?: number;
     nodeStyles: NodeStyles;
     laneStyles: LaneStyles;
     labelStyles: LabelStyles;
@@ -29,7 +30,7 @@ export interface NodeStyle {
     fill: string;
     border: string;
     borderWidth: number;
-    outline: string; // "none" to skip outline
+    outline: string;
     outlineWidth: number;
 }
 
@@ -43,6 +44,8 @@ export interface NodeStyles {
     coursePlotMid: NodeStyle;
     coursePlotPassed: NodeStyle;
     crossRegion: NodeStyle;
+    hovered: Partial<NodeStyle>;
+    selected: Partial<NodeStyle>;
 }
 
 export const DEFAULT_NODE_STYLES: NodeStyles = {
@@ -108,6 +111,14 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
         borderWidth: 2,
         outline: "none",
         outlineWidth: 0,
+    },
+    hovered: {
+        outline: "rgba(255,255,255,0.5)",
+        outlineWidth: 4,
+    },
+    selected: {
+        outline: "rgba(255,200,0,0.6)",
+        outlineWidth: 5,
     },
 };
 
@@ -328,6 +339,9 @@ export const DEFAULT_SECTORMAP_CONFIG: Omit<
     show_partial_lanes: true,
     max_bounds_distance: 7,
     partial_lane_max_length: 40,
+    clickable: false,
+    hover_scale_factor: 1.15,
+    hover_animation_duration: 150,
     nodeStyles: DEFAULT_NODE_STYLES,
     laneStyles: DEFAULT_LANE_STYLES,
     labelStyles: DEFAULT_LABEL_STYLES,
@@ -437,7 +451,9 @@ function drawHex(
     ctx.stroke();
 }
 
-/** BFS traversal to find all sectors reachable within maxDistance jumps */
+/** BFS traversal to find all sectors reachable within maxDistance jumps.
+ * If currentSectorId is not found in data, returns all sectors with distance 0
+ * (no center sector, but map still renders). */
 function calculateReachableSectors(
     data: MapData,
     currentSectorId: number,
@@ -446,7 +462,12 @@ function calculateReachableSectors(
     const reachableMap = new Map<number, number>();
     const index = createSectorIndex(data);
     const currentSector = index.get(currentSectorId);
-    if (!currentSector) return reachableMap;
+
+    // If current sector not found, include all sectors so map still renders
+    if (!currentSector) {
+        data.forEach((sector) => reachableMap.set(sector.id, 0));
+        return reachableMap;
+    }
 
     const queue: Array<{ id: number; distance: number }> = [
         { id: currentSectorId, distance: 0 },
@@ -504,7 +525,8 @@ function calculateSectorBounds(
     return { minX, minY, maxX, maxY };
 }
 
-/** Calculate camera transform to optimally frame all connected sectors */
+/** Calculate camera transform to optimally frame all connected sectors.
+ * If currentSectorId is not found, frames all sectors in data. */
 function calculateCameraTransform(
     data: MapData,
     currentSectorId: number,
@@ -541,6 +563,7 @@ function calculateCameraTransform(
                 boundsData = [currentSector];
             }
         }
+        // If currentSector not found, boundsData remains as all data (no filtering)
     }
 
     const bounds = calculateSectorBounds(boundsData, scale, hexSize);
@@ -1073,53 +1096,71 @@ function renderSector(
     currentRegion?: string,
     opacity = 1,
     coursePlotSectors: Set<number> | null = null,
-    coursePlot: CoursePlot | null = null
+    coursePlot: CoursePlot | null = null,
+    hoveredSectorId: number | null = null,
+    selectedSectorId: number | null = null,
+    animatingSectorId: number | null = null,
+    hoverScale = 1
 ) {
     const world = hexToWorld(node.position[0], node.position[1], scale);
     const isCurrent = node.id === config.current_sector_id;
     const isVisited = Boolean(node.visited) || isCurrent;
     const isCrossRegion =
         currentRegion && node.region && node.region !== currentRegion;
+    const isHovered = node.id === hoveredSectorId;
+    const isSelected = node.id === selectedSectorId;
+    const isAnimating = node.id === animatingSectorId;
 
     const finalOpacity = opacity;
     const isInPlot = coursePlotSectors ? coursePlotSectors.has(node.id) : true;
 
-    // Determine node type priority
-    let nodeStyle: NodeStyle;
+    // Apply hover scale to animating node (includes both hover-in and hover-out)
+    const effectiveHexSize = isAnimating ? hexSize * hoverScale : hexSize;
+
+    // Determine base node style (without hover/selected overlays)
+    let baseStyle: NodeStyle;
     if (coursePlot && isInPlot) {
         const currentIndex = coursePlot.path.indexOf(config.current_sector_id);
         const nodeIndex = coursePlot.path.indexOf(node.id);
 
         if (node.id === config.current_sector_id && nodeIndex !== -1) {
             // Player is at this node in the course
-            nodeStyle = config.nodeStyles.coursePlotStart;
+            baseStyle = config.nodeStyles.coursePlotStart;
         } else if (node.id === coursePlot.to_sector) {
             // Final destination
-            nodeStyle = config.nodeStyles.coursePlotEnd;
+            baseStyle = config.nodeStyles.coursePlotEnd;
         } else if (
             nodeIndex !== -1 &&
             currentIndex !== -1 &&
             nodeIndex < currentIndex
         ) {
             // Node is behind current position in course
-            nodeStyle = config.nodeStyles.coursePlotPassed;
+            baseStyle = config.nodeStyles.coursePlotPassed;
         } else if (nodeIndex !== -1) {
             // Node is ahead in course
-            nodeStyle = config.nodeStyles.coursePlotMid;
+            baseStyle = config.nodeStyles.coursePlotMid;
         } else {
             // Fallback for nodes in plot set but not in path (shouldn't happen)
-            nodeStyle = config.nodeStyles.coursePlotMid;
+            baseStyle = config.nodeStyles.coursePlotMid;
         }
     } else if (coursePlotSectors && !isInPlot) {
-        nodeStyle = config.nodeStyles.muted;
+        baseStyle = config.nodeStyles.muted;
     } else if (isCurrent) {
-        nodeStyle = config.nodeStyles.current;
+        baseStyle = config.nodeStyles.current;
     } else if (isCrossRegion) {
-        nodeStyle = config.nodeStyles.crossRegion;
+        baseStyle = config.nodeStyles.crossRegion;
     } else if (isVisited) {
-        nodeStyle = config.nodeStyles.visited;
+        baseStyle = config.nodeStyles.visited;
     } else {
-        nodeStyle = config.nodeStyles.unvisited;
+        baseStyle = config.nodeStyles.unvisited;
+    }
+
+    // Apply hover/selected overlays on top of base style
+    let nodeStyle: NodeStyle = baseStyle;
+    if (isSelected) {
+        nodeStyle = { ...baseStyle, ...config.nodeStyles.selected };
+    } else if (isHovered) {
+        nodeStyle = { ...baseStyle, ...config.nodeStyles.hovered };
     }
 
     // Render outline if specified
@@ -1131,7 +1172,7 @@ function renderSector(
             ctx,
             world.x,
             world.y,
-            hexSize + nodeStyle.outlineWidth / 2 + 2,
+            effectiveHexSize + nodeStyle.outlineWidth / 2 + 2,
             false
         );
         ctx.restore();
@@ -1142,7 +1183,7 @@ function renderSector(
     ctx.strokeStyle = applyAlpha(nodeStyle.border, finalOpacity);
     ctx.lineWidth = nodeStyle.borderWidth;
 
-    drawHex(ctx, world.x, world.y, hexSize, true);
+    drawHex(ctx, world.x, world.y, effectiveHexSize, true);
 
     if (config.show_ports && node.port) {
         const isMegaPort = node.is_mega || node.id === 0;
@@ -1158,9 +1199,14 @@ function renderSector(
             portColor = portStyle.color;
         }
 
+        // Scale port radius with animation
+        const effectivePortRadius = isAnimating
+            ? portStyle.radius * hoverScale
+            : portStyle.radius;
+
         ctx.fillStyle = applyAlpha(portColor, finalOpacity);
         ctx.beginPath();
-        ctx.arc(world.x, world.y, portStyle.radius, 0, Math.PI * 2);
+        ctx.arc(world.x, world.y, effectivePortRadius, 0, Math.PI * 2);
         ctx.fill();
     }
 
@@ -1170,7 +1216,11 @@ function renderSector(
         if (hopIndex !== -1) {
             const hopNumber = hopIndex + 1;
             ctx.save();
-            ctx.font = `bold ${hexSize * 0.8}px ${getCanvasFontFamily(ctx)}`;
+            // Scale font with animation
+            const effectiveFontSize = isAnimating
+                ? effectiveHexSize * 0.8
+                : hexSize * 0.8;
+            ctx.font = `bold ${effectiveFontSize}px ${getCanvasFontFamily(ctx)}`;
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
             ctx.fillStyle = applyAlpha("#ffffff", finalOpacity * 0.9);
@@ -1353,6 +1403,56 @@ function worldToScreen(
         x: (worldX + cameraState.offsetX) * cameraState.zoom + width / 2,
         y: (worldY + cameraState.offsetY) * cameraState.zoom + height / 2,
     };
+}
+
+/** Convert screen coordinates to world coordinates */
+function screenToWorld(
+    screenX: number,
+    screenY: number,
+    width: number,
+    height: number,
+    cameraState: CameraState
+): { x: number; y: number } {
+    return {
+        x: (screenX - width / 2) / cameraState.zoom - cameraState.offsetX,
+        y: (screenY - height / 2) / cameraState.zoom - cameraState.offsetY,
+    };
+}
+
+/** Check if a point is inside a hex */
+function isPointInHex(
+    px: number,
+    py: number,
+    hexCenterX: number,
+    hexCenterY: number,
+    hexSize: number
+): boolean {
+    const dx = Math.abs(px - hexCenterX);
+    const dy = Math.abs(py - hexCenterY);
+    const sqrt3 = Math.sqrt(3);
+
+    // Quick bounding box check
+    if (dx > hexSize || dy > (hexSize * sqrt3) / 2) return false;
+
+    // Detailed hex boundary check
+    return (hexSize * sqrt3) / 2 - dy >= dx / 2;
+}
+
+/** Find sector at a world coordinate point */
+function findSectorAtPoint(
+    worldX: number,
+    worldY: number,
+    data: MapData,
+    scale: number,
+    hexSize: number
+): MapSectorNode | null {
+    for (const sector of data) {
+        const world = hexToWorld(sector.position[0], sector.position[1], scale);
+        if (isPointInHex(worldX, worldY, world.x, world.y, hexSize)) {
+            return sector;
+        }
+    }
+    return null;
 }
 
 /** Render sector ID labels at top-right of hexes */
@@ -1766,6 +1866,207 @@ function renderCoursePlotAnimation(
     ctx.restore();
 }
 
+/** Core rendering with explicit camera state and interaction state */
+function renderWithCameraStateAndInteraction(
+    canvas: HTMLCanvasElement,
+    props: SectorMapProps,
+    cameraState: CameraState,
+    hoveredSectorId: number | null,
+    selectedSectorId: number | null,
+    animatingSectorId: number | null,
+    hoverScale: number
+) {
+    const { width, height, config, coursePlot } = props;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    ctx.scale(dpr, dpr);
+
+    ctx.fillStyle = config.uiStyles.background.color;
+    ctx.fillRect(0, 0, width, height);
+
+    const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
+    const hexSize = config.hex_size ?? gridSpacing * 0.85;
+    const scale = gridSpacing;
+
+    // Pre-compute course plot Sets for O(1) lookups
+    const coursePlotSectors = coursePlot ? new Set(coursePlot.path) : null;
+    const coursePlotLanes = coursePlot
+        ? new Set(
+            coursePlot.path.slice(0, -1).map((from, i) => {
+                const to = coursePlot.path[i + 1];
+                return getUndirectedLaneKey(from, to);
+            })
+        )
+        : null;
+
+    // 1) Draw grid in world space
+    ctx.save();
+    ctx.translate(width / 2, height / 2);
+    ctx.scale(cameraState.zoom, cameraState.zoom);
+    ctx.translate(cameraState.offsetX, cameraState.offsetY);
+
+    if (config.show_grid) {
+        renderHexGrid(
+            ctx,
+            width,
+            height,
+            cameraState.zoom,
+            cameraState.offsetX,
+            cameraState.offsetY,
+            scale,
+            hexSize,
+            config.uiStyles.grid
+        );
+    }
+    ctx.restore();
+
+    // 2) Apply rectangular feather mask to background + grid (screen space)
+    const featherSize = Math.min(
+        config.uiStyles.edgeFeather.size,
+        Math.min(width, height) / 2
+    );
+    applyRectangularFeatherMask(ctx, width, height, featherSize);
+
+    // 3) Draw lanes and sectors in world space (unmasked)
+    ctx.save();
+    ctx.translate(width / 2, height / 2);
+    ctx.scale(cameraState.zoom, cameraState.zoom);
+    ctx.translate(cameraState.offsetX, cameraState.offsetY);
+
+    const hyperlaneLabels = config.show_warps
+        ? renderAllLanes(
+            ctx,
+            cameraState.filteredData,
+            props.data,
+            scale,
+            hexSize,
+            config,
+            coursePlotLanes,
+            coursePlot
+        )
+        : [];
+
+    const currentSector = findSector(
+        cameraState.filteredData,
+        config.current_sector_id
+    );
+    const currentRegion = currentSector?.region;
+
+    const fadingInIds = new Set(cameraState.fadingInData?.map((s) => s.id) ?? []);
+
+    if (cameraState.fadingOutData && cameraState.fadeProgress !== undefined) {
+        const fadeOpacity = 1 - cameraState.fadeProgress;
+        cameraState.fadingOutData.forEach((node) => {
+            renderSector(
+                ctx,
+                node,
+                scale,
+                hexSize,
+                config,
+                currentRegion,
+                fadeOpacity,
+                coursePlotSectors,
+                coursePlot,
+                hoveredSectorId,
+                selectedSectorId,
+                animatingSectorId,
+                hoverScale
+            );
+        });
+    }
+
+    cameraState.filteredData.forEach((node) => {
+        const opacity =
+            fadingInIds.has(node.id) && cameraState.fadeProgress !== undefined
+                ? cameraState.fadeProgress
+                : 1;
+        renderSector(
+            ctx,
+            node,
+            scale,
+            hexSize,
+            config,
+            currentRegion,
+            opacity,
+            coursePlotSectors,
+            coursePlot,
+            hoveredSectorId,
+            selectedSectorId,
+            animatingSectorId,
+            hoverScale
+        );
+    });
+
+    if (config.debug) {
+        renderDebugBounds(ctx, cameraState.filteredData, scale, hexSize);
+    }
+
+    ctx.restore();
+
+    renderSectorLabels(
+        ctx,
+        cameraState.filteredData,
+        scale,
+        hexSize,
+        width,
+        height,
+        cameraState,
+        config,
+        coursePlotSectors
+    );
+    renderPortLabels(
+        ctx,
+        cameraState.filteredData,
+        scale,
+        hexSize,
+        width,
+        height,
+        cameraState,
+        config,
+        coursePlotSectors
+    );
+
+    if (hyperlaneLabels.length > 0) {
+        const labelStyle = config.labelStyles.hyperlane;
+
+        ctx.save();
+        ctx.font = `${labelStyle.fontWeight} ${labelStyle.fontSize
+            }px ${getCanvasFontFamily(ctx)}`;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "alphabetic";
+        hyperlaneLabels.forEach((label) => {
+            const screenPos = worldToScreen(
+                label.x,
+                label.y,
+                width,
+                height,
+                cameraState
+            );
+            const metrics = ctx.measureText(label.text);
+            const ascent = metrics.actualBoundingBoxAscent ?? labelStyle.fontSize;
+            const descent = metrics.actualBoundingBoxDescent ?? 0;
+            const textHeight = ascent + descent;
+
+            const padding = labelStyle.padding;
+            ctx.fillStyle = labelStyle.backgroundColor;
+            ctx.fillRect(
+                screenPos.x - padding,
+                screenPos.y - ascent - padding,
+                metrics.width + padding * 2,
+                textHeight + padding * 2
+            );
+
+            ctx.fillStyle = labelStyle.textColor;
+            ctx.fillText(label.text, screenPos.x, screenPos.y);
+        });
+        ctx.restore();
+    }
+}
+
 export interface SectorMapController {
     render: () => void;
     moveToSector: (newSectorId: number, newMapData?: MapData) => void;
@@ -1773,6 +2074,10 @@ export interface SectorMapController {
     updateProps: (newProps: Partial<SectorMapProps>) => void;
     startCourseAnimation: () => void;
     stopCourseAnimation: () => void;
+    setOnNodeClick: (callback: ((node: MapSectorNode) => void) | null) => void;
+    getSelectedSectorId: () => number | null;
+    setSelectedSectorId: (id: number | null) => void;
+    cleanup: () => void;
 }
 
 /** Create minimap controller with imperative API */
@@ -1786,6 +2091,206 @@ export function createSectorMapController(
     let animationCompletionTimeout: number | null = null;
     let courseAnimationFrameId: number | null = null;
     let courseAnimationOffset = 0;
+
+    // Click interaction state
+    let hoveredSectorId: number | null = null;
+    let selectedSectorId: number | null = null;
+    let onNodeClickCallback: ((node: MapSectorNode) => void) | null = null;
+
+    // Hover animation state
+    // animatingSectorId tracks which sector is being animated (for smooth out-animation)
+    let animatingSectorId: number | null = null;
+    let hoverAnimationProgress = 0;
+    let hoverAnimationTarget = 0;
+    let hoverAnimationStartTime: number | null = null;
+    let hoverAnimationStartProgress = 0;
+    let hoverAnimationFrameId: number | null = null;
+
+    // Get mouse position relative to canvas
+    const getCanvasMousePosition = (event: MouseEvent): { x: number; y: number } => {
+        const rect = canvas.getBoundingClientRect();
+        return {
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
+        };
+    };
+
+    // Find sector under mouse position
+    const findSectorAtMouse = (screenX: number, screenY: number): MapSectorNode | null => {
+        if (!currentCameraState) return null;
+
+        const { width, height, config } = currentProps;
+        const gridSpacing = config.grid_spacing ?? Math.min(width, height) / 10;
+        const hexSize = config.hex_size ?? gridSpacing * 0.85;
+        const scale = gridSpacing;
+
+        const worldPos = screenToWorld(screenX, screenY, width, height, currentCameraState);
+        return findSectorAtPoint(worldPos.x, worldPos.y, currentCameraState.filteredData, scale, hexSize);
+    };
+
+    // Start hover animation loop
+    const startHoverAnimation = () => {
+        if (hoverAnimationFrameId !== null) return;
+
+        const animateHover = (currentTime: number) => {
+            if (hoverAnimationStartTime === null) {
+                hoverAnimationStartTime = currentTime;
+            }
+
+            const elapsed = currentTime - hoverAnimationStartTime;
+            const animationDuration = currentProps.config.hover_animation_duration ?? 150;
+            const progress = Math.min(elapsed / animationDuration, 1);
+            const easedProgress = easeInOutCubic(progress);
+
+            hoverAnimationProgress =
+                hoverAnimationStartProgress +
+                (hoverAnimationTarget - hoverAnimationStartProgress) * easedProgress;
+
+            // Re-render with current hover scale
+            if (currentCameraState) {
+                renderWithInteractionState();
+            }
+
+            if (progress < 1) {
+                hoverAnimationFrameId = requestAnimationFrame(animateHover);
+            } else {
+                hoverAnimationFrameId = null;
+                hoverAnimationStartTime = null;
+                // Clear animating sector when animation completes at 0 (hover out complete)
+                if (hoverAnimationTarget === 0) {
+                    animatingSectorId = null;
+                }
+            }
+        };
+
+        hoverAnimationFrameId = requestAnimationFrame(animateHover);
+    };
+
+    // Stop hover animation
+    const stopHoverAnimation = () => {
+        if (hoverAnimationFrameId !== null) {
+            cancelAnimationFrame(hoverAnimationFrameId);
+            hoverAnimationFrameId = null;
+            hoverAnimationStartTime = null;
+        }
+    };
+
+    // Set hover animation target and start animation
+    const setHoverTarget = (target: number, sectorId: number | null) => {
+        // If starting a new hover, set the animating sector
+        if (target === 1 && sectorId !== null) {
+            animatingSectorId = sectorId;
+        }
+        // If same target and same sector, nothing to do
+        if (hoverAnimationTarget === target && animatingSectorId === sectorId) return;
+
+        hoverAnimationStartProgress = hoverAnimationProgress;
+        hoverAnimationTarget = target;
+        hoverAnimationStartTime = null;
+        startHoverAnimation();
+    };
+
+    // Mouse event handlers
+    const handleMouseMove = (event: MouseEvent) => {
+        // Disable hover when not clickable or when course plot is active
+        if (!currentProps.config.clickable || currentProps.coursePlot) return;
+
+        const pos = getCanvasMousePosition(event);
+        const sector = findSectorAtMouse(pos.x, pos.y);
+        const newHoveredId = sector?.id ?? null;
+
+        if (newHoveredId !== hoveredSectorId) {
+            const previousHoveredId = hoveredSectorId;
+            hoveredSectorId = newHoveredId;
+
+            if (newHoveredId !== null) {
+                // Hovering over a new sector
+                setHoverTarget(1, newHoveredId);
+            } else if (previousHoveredId !== null) {
+                // Hovering out - animate out the previous sector
+                setHoverTarget(0, previousHoveredId);
+            }
+
+            // Update cursor
+            canvas.style.cursor = newHoveredId !== null ? "pointer" : "default";
+        }
+    };
+
+    const handleMouseClick = (event: MouseEvent) => {
+        // Disable click when not clickable or when course plot is active
+        if (!currentProps.config.clickable || currentProps.coursePlot) return;
+
+        const pos = getCanvasMousePosition(event);
+        const sector = findSectorAtMouse(pos.x, pos.y);
+
+        if (sector) {
+            selectedSectorId = sector.id;
+
+            // Re-render with selected state
+            if (currentCameraState) {
+                renderWithInteractionState();
+            }
+
+            // Call the callback
+            if (onNodeClickCallback) {
+                onNodeClickCallback(sector);
+            }
+        } else {
+            // Clicking empty space clears selection
+            if (selectedSectorId !== null) {
+                selectedSectorId = null;
+
+                // Re-render without selection
+                if (currentCameraState) {
+                    renderWithInteractionState();
+                }
+            }
+        }
+    };
+
+    const handleMouseLeave = () => {
+        // Disable interaction when not clickable or when course plot is active
+        if (!currentProps.config.clickable || currentProps.coursePlot) return;
+
+        if (hoveredSectorId !== null) {
+            const previousHoveredId = hoveredSectorId;
+            hoveredSectorId = null;
+            setHoverTarget(0, previousHoveredId);
+            canvas.style.cursor = "default";
+        }
+    };
+
+    // Attach/detach event listeners
+    const attachEventListeners = () => {
+        canvas.addEventListener("mousemove", handleMouseMove);
+        canvas.addEventListener("click", handleMouseClick);
+        canvas.addEventListener("mouseleave", handleMouseLeave);
+    };
+
+    const detachEventListeners = () => {
+        canvas.removeEventListener("mousemove", handleMouseMove);
+        canvas.removeEventListener("click", handleMouseClick);
+        canvas.removeEventListener("mouseleave", handleMouseLeave);
+        canvas.style.cursor = "default";
+    };
+
+    // Render with interaction state (hover/selected)
+    const renderWithInteractionState = () => {
+        if (!currentCameraState) return;
+
+        const scaleFactor = currentProps.config.hover_scale_factor ?? 1.15;
+        const hoverScale = 1 + (scaleFactor - 1) * hoverAnimationProgress;
+
+        renderWithCameraStateAndInteraction(
+            canvas,
+            currentProps,
+            currentCameraState,
+            hoveredSectorId,
+            selectedSectorId,
+            animatingSectorId,
+            hoverScale
+        );
+    };
 
     const render = () => {
         const {
@@ -1820,6 +2325,32 @@ export function createSectorMapController(
                 ctx.scale(dpr, dpr);
                 ctx.fillStyle = config.uiStyles.background.color;
                 ctx.fillRect(0, 0, width, height);
+
+                // Draw hex grid background even with no map data
+                if (config.show_grid) {
+                    const defaultZoom = 1;
+                    const defaultOffsetX = 0;
+                    const defaultOffsetY = 0;
+
+                    ctx.save();
+                    ctx.translate(width / 2, height / 2);
+                    ctx.scale(defaultZoom, defaultZoom);
+                    ctx.translate(defaultOffsetX, defaultOffsetY);
+
+                    renderHexGrid(
+                        ctx,
+                        width,
+                        height,
+                        defaultZoom,
+                        defaultOffsetX,
+                        defaultOffsetY,
+                        scale,
+                        hexSize,
+                        config.uiStyles.grid
+                    );
+                    ctx.restore();
+                }
+
                 const feather = Math.min(
                     config.uiStyles.edgeFeather.size,
                     Math.min(width, height) / 2
@@ -1894,6 +2425,7 @@ export function createSectorMapController(
             currentProps.coursePlot !== undefined && currentProps.coursePlot !== null;
         const hasCoursePlot =
             newProps.coursePlot !== undefined && newProps.coursePlot !== null;
+        const wasClickable = currentProps.config.clickable;
 
         Object.assign(currentProps, newProps);
         if (newProps.config) {
@@ -1903,8 +2435,29 @@ export function createSectorMapController(
         // Start or stop animation based on coursePlot presence
         if (hasCoursePlot && !hadCoursePlot) {
             startCourseAnimation();
+            // Clear hover/selection state when course plot becomes active
+            if (hoveredSectorId !== null || selectedSectorId !== null) {
+                hoveredSectorId = null;
+                selectedSectorId = null;
+                animatingSectorId = null;
+                hoverAnimationProgress = 0;
+                hoverAnimationTarget = 0;
+                stopHoverAnimation();
+                canvas.style.cursor = "default";
+            }
         } else if (!hasCoursePlot && hadCoursePlot) {
             stopCourseAnimation();
+        }
+
+        // Handle clickable config changes
+        const isClickable = currentProps.config.clickable;
+        if (isClickable && !wasClickable) {
+            attachEventListeners();
+        } else if (!isClickable && wasClickable) {
+            detachEventListeners();
+            hoveredSectorId = null;
+            hoverAnimationProgress = 0;
+            hoverAnimationTarget = 0;
         }
     };
 
@@ -1941,11 +2494,42 @@ export function createSectorMapController(
         }
     };
 
+    // New controller methods for click interaction
+    const setOnNodeClick = (callback: ((node: MapSectorNode) => void) | null) => {
+        onNodeClickCallback = callback;
+    };
+
+    const getSelectedSectorId = () => selectedSectorId;
+
+    const setSelectedSectorId = (id: number | null) => {
+        selectedSectorId = id;
+        if (currentCameraState) {
+            renderWithInteractionState();
+        }
+    };
+
+    const cleanup = () => {
+        detachEventListeners();
+        stopHoverAnimation();
+        stopCourseAnimation();
+        if (animationCleanup) {
+            animationCleanup();
+        }
+        if (animationCompletionTimeout !== null) {
+            window.clearTimeout(animationCompletionTimeout);
+        }
+    };
+
     render();
 
     // Start animation if coursePlot is already active
     if (props.coursePlot) {
         startCourseAnimation();
+    }
+
+    // Attach event listeners if clickable
+    if (props.config.clickable) {
+        attachEventListeners();
     }
 
     return {
@@ -1955,6 +2539,10 @@ export function createSectorMapController(
         updateProps,
         startCourseAnimation,
         stopCourseAnimation,
+        setOnNodeClick,
+        getSelectedSectorId,
+        setSelectedSectorId,
+        cleanup,
     };
 }
 
@@ -1989,6 +2577,32 @@ export function renderSectorMapCanvas(
             ctx.scale(dpr, dpr);
             ctx.fillStyle = config.uiStyles.background.color;
             ctx.fillRect(0, 0, width, height);
+
+            // Draw hex grid background even with no map data
+            if (config.show_grid) {
+                const defaultZoom = 1;
+                const defaultOffsetX = 0;
+                const defaultOffsetY = 0;
+
+                ctx.save();
+                ctx.translate(width / 2, height / 2);
+                ctx.scale(defaultZoom, defaultZoom);
+                ctx.translate(defaultOffsetX, defaultOffsetY);
+
+                renderHexGrid(
+                    ctx,
+                    width,
+                    height,
+                    defaultZoom,
+                    defaultOffsetX,
+                    defaultOffsetY,
+                    scale,
+                    hexSize,
+                    config.uiStyles.grid
+                );
+                ctx.restore();
+            }
+
             const feather = Math.min(
                 config.uiStyles.edgeFeather.size,
                 Math.min(width, height) / 2
@@ -2054,6 +2668,32 @@ export function updateCurrentSector(
             ctx.scale(dpr, dpr);
             ctx.fillStyle = config.uiStyles.background.color;
             ctx.fillRect(0, 0, width, height);
+
+            // Draw hex grid background even with no map data
+            if (config.show_grid) {
+                const defaultZoom = 1;
+                const defaultOffsetX = 0;
+                const defaultOffsetY = 0;
+
+                ctx.save();
+                ctx.translate(width / 2, height / 2);
+                ctx.scale(defaultZoom, defaultZoom);
+                ctx.translate(defaultOffsetX, defaultOffsetY);
+
+                renderHexGrid(
+                    ctx,
+                    width,
+                    height,
+                    defaultZoom,
+                    defaultOffsetX,
+                    defaultOffsetY,
+                    scale,
+                    hexSize,
+                    config.uiStyles.grid
+                );
+                ctx.restore();
+            }
+
             const feather = Math.min(
                 config.uiStyles.edgeFeather.size,
                 Math.min(width, height) / 2

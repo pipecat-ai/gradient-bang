@@ -54,12 +54,12 @@ const StoryWrapper = ({
           <div className="story-connect-bar">
             <div>
               {!isConnected ? (
-                <Button onClick={handleConnect}>
+                <Button onClick={handleConnect} disabled={isConnecting}>
                   {isConnecting ? "Connecting..." : "Connect"}
                 </Button>
               ) : (
                 <Button onClick={handleDisconnect} variant="secondary">
-                  Disconnected
+                  Disconnect
                 </Button>
               )}
             </div>
@@ -74,7 +74,7 @@ const StoryWrapper = ({
         </>
       )}
 
-      <Leva hidden={!storyMeta?.useDevTools} />
+      <Leva oneLineLabels hidden={!storyMeta?.useDevTools} />
       {children}
     </>
   )
