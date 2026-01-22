@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback } from "react"
+import { type ReactNode, useCallback, useRef } from "react"
 
 import { type APIRequest, RTVIEvent } from "@pipecat-ai/client-js"
 import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react"
@@ -98,7 +98,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
   /**
    * Dispatch game action to server
    */
-  const dispatchAction = useCallback(
+  const dispatchActionCallback = useCallback(
     (action: GameAction) => {
       if (!client) {
         console.error("[GAME CONTEXT] Client not available")
@@ -119,11 +119,17 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
     },
     [client]
   )
+  const dispatchActionRef = useRef(dispatchActionCallback)
+  dispatchActionRef.current = dispatchActionCallback
+  const dispatchAction = useCallback((action: GameAction) => {
+    dispatchActionRef.current(action)
+  }, [])
+
 
   // Dev-only: Expose to console using globalThis
   if (import.meta.env.DEV) {
     // @ts-expect-error - Dev-only console helper
-    globalThis.dispatchAction = dispatchAction
+    globalThis.dispatchAction = dispatchActionRef.current
   }
 
   /**
@@ -196,8 +202,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
     await wait(1000)
 
     // 5. Dispatch start event to bot to kick off the conversation
-    dispatchAction({ type: "start" } as StartAction)
-  }, [onConnect, gameStore, dispatchAction, client])
+    dispatchActionRef.current({ type: "start" } as StartAction)
+  }, [onConnect, gameStore, client])
 
   /**
    * Handle server message

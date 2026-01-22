@@ -54,7 +54,7 @@ export type MapConfig = Partial<
 }
 
 interface MapProps {
-    center_sector_id: number
+    center_sector_id?: number
     current_sector_id?: number
     config?: MapConfig
     map_data: MapData
@@ -106,7 +106,7 @@ const courseplotsEqual = (
 }
 
 const MapComponent = ({
-    center_sector_id,
+    center_sector_id: center_sector_id_prop,
     current_sector_id,
     config,
     map_data,
@@ -119,6 +119,9 @@ const MapComponent = ({
 }: MapProps) => {
     // Normalize map_data to always be an array (memoized to avoid dependency changes)
     const normalizedMapData = useMemo(() => map_data ?? [], [map_data])
+
+    // Default center_sector_id to current_sector_id if not provided
+    const center_sector_id = center_sector_id_prop ?? current_sector_id ?? 0
 
     // Warn if center sector doesn't exist in map data
     useEffect(() => {
@@ -133,7 +136,8 @@ const MapComponent = ({
     const containerRef = useRef<HTMLDivElement | null>(null)
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const controllerRef = useRef<SectorMapController | null>(null)
-    const prevSectorIdRef = useRef<number>(center_sector_id)
+    const prevCenterSectorIdRef = useRef<number>(center_sector_id)
+    const prevCurrentSectorIdRef = useRef<number | undefined>(current_sector_id)
     const previousMapRef = useRef<MapData | null>(null)
     const lastMaxDistanceRef = useRef<number | undefined>(maxDistance)
     const lastConfigRef = useRef<Omit<
@@ -251,7 +255,8 @@ const MapComponent = ({
                 coursePlot,
             })
             controllerRef.current = controller
-            prevSectorIdRef.current = center_sector_id
+            prevCenterSectorIdRef.current = center_sector_id
+            prevCurrentSectorIdRef.current = current_sector_id
             previousMapRef.current = normalizedMapData
             lastMaxDistanceRef.current = maxDistance
             lastConfigRef.current = baseConfig
@@ -261,7 +266,8 @@ const MapComponent = ({
 
         // Compute changes BEFORE logging to enable early exit
         const topologyChanged = mapTopologyChanged(previousMapRef.current, normalizedMapData)
-        const sectorChanged = center_sector_id !== prevSectorIdRef.current
+        const centerSectorChanged = center_sector_id !== prevCenterSectorIdRef.current
+        const currentSectorChanged = current_sector_id !== prevCurrentSectorIdRef.current
         const maxDistanceChanged = lastMaxDistanceRef.current !== maxDistance
         const configChanged = lastConfigRef.current !== baseConfig
         const coursePlotChanged = !courseplotsEqual(
@@ -272,7 +278,8 @@ const MapComponent = ({
         // Early exit if nothing has actually changed
         if (
             !topologyChanged &&
-            !sectorChanged &&
+            !centerSectorChanged &&
+            !currentSectorChanged &&
             !maxDistanceChanged &&
             !configChanged &&
             !coursePlotChanged
@@ -282,34 +289,39 @@ const MapComponent = ({
 
         console.debug("[GAME SECTOR MAP] Updating SectorMap", {
             topologyChanged,
-            sectorChanged,
+            centerSectorChanged,
+            currentSectorChanged,
             maxDistanceChanged,
             configChanged,
             coursePlotChanged,
         })
 
+        // Update config when config, center_sector_id, or current_sector_id changes
+        const needsConfigUpdate = configChanged || centerSectorChanged || currentSectorChanged
+
         controller.updateProps({
             maxDistance,
-            ...(configChanged && { config: { ...baseConfig, center_sector_id, current_sector_id } }),
+            ...(needsConfigUpdate && { config: { ...baseConfig, center_sector_id, current_sector_id } }),
             data: normalizedMapData,
             coursePlot,
         })
 
         if (
-            sectorChanged ||
+            centerSectorChanged ||
             topologyChanged ||
             maxDistanceChanged ||
             coursePlotChanged
         ) {
             console.debug("[GAME SECTOR MAP] Moving to sector", center_sector_id)
             controller.moveToSector(center_sector_id, normalizedMapData)
-            prevSectorIdRef.current = center_sector_id
-        } else if (configChanged) {
+            prevCenterSectorIdRef.current = center_sector_id
+        } else if (needsConfigUpdate) {
             console.debug("[GAME SECTOR MAP] Rendering SectorMap")
             controller.render()
         }
 
         previousMapRef.current = normalizedMapData
+        prevCurrentSectorIdRef.current = current_sector_id
         lastMaxDistanceRef.current = maxDistance
         lastConfigRef.current = baseConfig
         lastCoursePlotRef.current = coursePlot

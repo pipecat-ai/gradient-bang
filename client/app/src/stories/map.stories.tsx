@@ -27,10 +27,9 @@ export const BigMapStory: Story = () => {
   const coursePlot = useGameStore.use.course_plot?.()
   const setRegionalMapData = useGameStore.use.setRegionalMapData?.()
 
-  const [{ center_sector, show_legend }, set] = useControls(() => ({
+  const [{ current_sector, center_sector, show_legend }, set] = useControls(() => ({
     "Map": folder({
       ["Get My Map"]: button((get) => {
-
         dispatchAction({
           type: "get-my-map", payload: {
             center_sector: get('Map.center_sector'),
@@ -46,6 +45,10 @@ export const BigMapStory: Story = () => {
         setRegionalMapData(MEDIUM_MAP_DATA_MOCK);
       }),
       center_sector: {
+        value: sector?.id ?? 0,
+        step: 1,
+      },
+      current_sector: {
         value: sector?.id ?? 0,
         step: 1,
       },
@@ -71,42 +74,51 @@ export const BigMapStory: Story = () => {
     set({ center_sector: sector?.id ?? 0 });
   }, [set, sector]);
 
+  useEffect(() => {
+    set({ current_sector: sector?.id ?? 0 });
+  }, [set, sector?.id]);
+
   const [mapConfig] = useControls(() => ({
-    "Config": folder({
-      debug: {
-        value: true,
-      },
-      clickable: {
-        value: true,
-      },
-      max_bounds_distance: {
-        value: 15,
-        min: 1,
-        max: 50,
-        step: 1,
-      },
-      show_sector_ids: {
-        value: true,
-      },
-      show_partial_lanes: {
-        value: true,
-      },
-      show_ports: {
-        value: true,
-      },
-      show_hyperlanes: {
-        value: false,
-      },
-      show_grid: {
-        value: true,
-      },
-    }, { collapsed: true }),
+    "Map": folder({
+      ["Config"]: folder({
+        debug: {
+          value: true,
+        },
+        clickable: {
+          value: true,
+        },
+        max_bounds_distance: {
+          value: 15,
+          min: 1,
+          max: 50,
+          step: 1,
+        },
+        show_sector_ids: {
+          value: true,
+        },
+        show_partial_lanes: {
+          value: true,
+        },
+        show_ports: {
+          value: true,
+        },
+        show_hyperlanes: {
+          value: false,
+        },
+        show_grid: {
+          value: true,
+        },
+      }, { collapsed: true })
+    })
   }))
 
   const updateCenterSector = useCallback((node: MapSectorNode) => {
     set({ center_sector: node.id ?? 0 });
   }, [set]);
 
+
+  console.log("CURRENT SECTOR", current_sector);
+  console.log("CENTER SECTOR", center_sector);
 
   return <>
     <div className="story-description flex flex-col gap-4">
@@ -128,7 +140,7 @@ export const BigMapStory: Story = () => {
         {mapConfig && (
           <SectorMap
             center_sector_id={center_sector}
-            current_sector_id={sector?.id ?? 0}
+            current_sector_id={current_sector}
             config={mapConfig as MapConfig}
             map_data={mapData ?? []}
             width={1100}
@@ -191,7 +203,7 @@ export const BigMapStory: Story = () => {
 
 BigMapStory.meta = {
   connectOnMount: false,
-  enableMic: false,
-  disableAudioOutput: true,
+  enableMic: true,
+  disableAudioOutput: false,
   useDevTools: true,
 }
