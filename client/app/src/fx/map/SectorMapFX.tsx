@@ -2052,16 +2052,48 @@ export function createSectorMapController(
     // Movement animation lock
     let isMovingToSector = false;
 
-    // Get mouse position relative to canvas
+    // Get mouse position relative to canvas, accounting for object-fit: contain
     const getCanvasMousePosition = (event: MouseEvent): { x: number; y: number } => {
         const rect = canvas.getBoundingClientRect();
-        // Scale mouse coordinates to match canvas internal dimensions
-        // when CSS display size differs from logical size (e.g., due to maxWidth/maxHeight)
-        const scaleX = currentProps.width / rect.width;
-        const scaleY = currentProps.height / rect.height;
+        const dpr = window.devicePixelRatio || 1;
+
+        // Get actual logical dimensions from the canvas element
+        const logicalWidth = canvas.width / dpr;
+        const logicalHeight = canvas.height / dpr;
+
+        // With object-fit: contain, the content is scaled uniformly to fit
+        // and centered within the CSS box. We need to account for letterboxing.
+        const boxAspect = rect.width / rect.height;
+        const contentAspect = logicalWidth / logicalHeight;
+
+        let contentWidth: number;
+        let contentHeight: number;
+        let offsetX = 0;
+        let offsetY = 0;
+
+        if (boxAspect > contentAspect) {
+            // Box is wider than content - letterboxing on left/right
+            contentHeight = rect.height;
+            contentWidth = rect.height * contentAspect;
+            offsetX = (rect.width - contentWidth) / 2;
+        } else {
+            // Box is taller than content - letterboxing on top/bottom
+            contentWidth = rect.width;
+            contentHeight = rect.width / contentAspect;
+            offsetY = (rect.height - contentHeight) / 2;
+        }
+
+        // Position relative to the actual content area (accounting for letterboxing)
+        const contentRelativeX = (event.clientX - rect.left) - offsetX;
+        const contentRelativeY = (event.clientY - rect.top) - offsetY;
+
+        // Scale from content display size to logical coordinates
+        const scaleX = logicalWidth / contentWidth;
+        const scaleY = logicalHeight / contentHeight;
+
         return {
-            x: (event.clientX - rect.left) * scaleX,
-            y: (event.clientY - rect.top) * scaleY,
+            x: contentRelativeX * scaleX,
+            y: contentRelativeY * scaleY,
         };
     };
 

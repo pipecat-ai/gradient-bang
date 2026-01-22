@@ -5,6 +5,7 @@ import { Story } from "@ladle/react"
 
 import { ChatPanel } from "@/components/ChatPanel";
 import { CoursePlotPanel } from "@/components/CoursePlotPanel";
+import { MapZoomControls } from "@/components/MapZoomControls";
 import { MovementHistoryPanel } from "@/components/MovementHistoryPanel";
 import { Badge } from "@/components/primitives/Badge";
 import { CardContent, CardTitle } from "@/components/primitives/Card";
@@ -25,6 +26,7 @@ export const BigMapStory: Story = () => {
   const mapData = useGameStore.use.regional_map_data?.()
   const sector = useGameStore((state) => state.sector);
   const coursePlot = useGameStore.use.course_plot?.()
+  const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
   const setRegionalMapData = useGameStore.use.setRegionalMapData?.()
 
   const [{ current_sector, center_sector, show_legend }, set] = useControls(() => ({
@@ -78,7 +80,8 @@ export const BigMapStory: Story = () => {
     set({ current_sector: sector?.id ?? 0 });
   }, [set, sector?.id]);
 
-  const [mapConfig] = useControls(() => ({
+
+  const [mapConfig, setMapConfig] = useControls(() => ({
     "Map": folder({
       ["Config"]: folder({
         debug: {
@@ -88,7 +91,7 @@ export const BigMapStory: Story = () => {
           value: true,
         },
         max_bounds_distance: {
-          value: 15,
+          value: mapZoomLevel ?? 15,
           min: 1,
           max: 50,
           step: 1,
@@ -111,6 +114,11 @@ export const BigMapStory: Story = () => {
       }, { collapsed: true })
     })
   }))
+
+
+  useEffect(() => {
+    setMapConfig({ max_bounds_distance: mapZoomLevel ?? 15 });
+  }, [setMapConfig, mapZoomLevel]);
 
   const updateCenterSector = useCallback((node: MapSectorNode) => {
     set({ center_sector: node.id ?? 0 });
@@ -136,7 +144,8 @@ export const BigMapStory: Story = () => {
       <CardTitle className="heading-1 absolute top-0 left-0">
         Universe Map
       </CardTitle>
-      <div className="w-[1100px] h-[780px]">
+      <div className="w-[1100px] h-[780px] relative">
+        <MapZoomControls />
         {mapConfig && (
           <SectorMap
             center_sector_id={center_sector}
