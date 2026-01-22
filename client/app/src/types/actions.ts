@@ -2,7 +2,8 @@ export type ActionType =
   | "start"
   | "get-my-status"
   | "get-known-ports"
-  | "get-my-map";
+  | "get-my-map"
+  | "cancel-task";
 
 export interface Action {
   type: ActionType;
@@ -24,4 +25,9 @@ export interface GetKnownPortListAction extends Action {
 export interface GetMapRegionAction extends Action {
   type: "get-my-map";
   payload: { center_sector: number; max_hops: number; max_sectors: number };
+}
+
+export interface CancelTaskAction extends Action {
+  type: "cancel-task";
+  payload: { task_id: string };
 }

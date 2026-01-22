@@ -46,6 +46,7 @@ export interface CharacterCombatant extends CombatantState {
   metadata: {
     ship_id: string;
     corporation_id: string | null;
+    player_type: 'human' | 'corporation_ship';
   };
 }
 
@@ -237,6 +238,7 @@ export async function loadCharacterCombatants(
         corporation_id: ship.owner_type === 'corporation'
           ? ship.owner_corporation_id
           : character.corporation_id,
+        player_type: ship.owner_type === 'corporation' ? 'corporation_ship' : 'human',
         first_visit: character.first_visit,
       },
     };

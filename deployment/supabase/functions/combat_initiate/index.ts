@@ -2,7 +2,7 @@ import { serve } from 'https://deno.land/std@0.197.0/http/server.ts';
 
 import { validateApiToken, unauthorizedResponse, errorResponse, successResponse } from '../_shared/auth.ts';
 import { createServiceRoleClient } from '../_shared/client.ts';
-import { emitCharacterEvent, emitErrorEvent, emitSectorEnvelope, buildEventSource } from '../_shared/events.ts';
+import { emitErrorEvent, buildEventSource, recordEventWithRecipients } from '../_shared/events.ts';
 import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
 import { loadCharacter, loadShip } from '../_shared/status.ts';
 import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
@@ -18,8 +18,9 @@ import { loadCharacterCombatants, loadCharacterNames, loadGarrisonCombatants } f
 import { nowIso, CombatEncounterState } from '../_shared/combat_types.ts';
 import { getEffectiveCorporationId } from '../_shared/corporations.ts';
 import { loadCombatForSector, persistCombatState } from '../_shared/combat_state.ts';
-import { buildRoundWaitingPayload } from '../_shared/combat_events.ts';
+import { buildRoundWaitingPayload, getCorpIdsFromParticipants, collectParticipantIds } from '../_shared/combat_events.ts';
 import { computeNextCombatDeadline } from '../_shared/combat_resolution.ts';
+import { computeEventRecipients } from '../_shared/visibility.ts';
 
 const MIN_PARTICIPANTS = 2;
 
@@ -290,35 +291,33 @@ async function emitRoundWaitingEvents(
   const payload = buildRoundWaitingPayload(encounter);
   const source = buildEventSource('combat.round_waiting', requestId);
   payload.source = source;
-  const senderId = typeof encounter.context?.initiator === 'string' ? encounter.context.initiator : null;
 
-  const recipients = Object.values(encounter.participants)
-    .filter((participant) => participant.combatant_type === 'character')
-    .map((participant) => participant.owner_character_id ?? participant.combatant_id);
+  // Get direct participant IDs and corp IDs for visibility
+  const directRecipients = collectParticipantIds(encounter);
+  const corpIds = getCorpIdsFromParticipants(encounter.participants);
 
-  await Promise.all(
-    recipients.map((recipient) =>
-      emitCharacterEvent({
-        supabase,
-        characterId: recipient,
-        eventType: 'combat.round_waiting',
-        payload,
-        sectorId: encounter.sector_id,
-        requestId,
-        senderId,
-        actorCharacterId: recipient,
-        taskId,
-      }),
-    ),
-  );
-
-  await emitSectorEnvelope({
+  // Compute ALL recipients: participants + sector observers + corp members (deduped)
+  const allRecipients = await computeEventRecipients({
     supabase,
     sectorId: encounter.sector_id,
+    corpIds,
+    directRecipients,
+  });
+
+  if (allRecipients.length === 0) {
+    return;
+  }
+
+  // Single emission to all unique recipients
+  await recordEventWithRecipients({
+    supabase,
     eventType: 'combat.round_waiting',
+    scope: 'sector',
     payload,
     requestId,
-    senderId,
+    sectorId: encounter.sector_id,
+    actorCharacterId: null, // System-originated
+    recipients: allRecipients,
     taskId,
   });
 }
