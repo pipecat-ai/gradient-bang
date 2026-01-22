@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useRef } from "react"
+import { type ReactNode, useCallback } from "react"
 
 import { type APIRequest, RTVIEvent } from "@pipecat-ai/client-js"
 import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react"
@@ -98,7 +98,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
   /**
    * Dispatch game action to server
    */
-  const dispatchActionCallback = useCallback(
+  const dispatchAction = useCallback(
     (action: GameAction) => {
       if (!client) {
         console.error("[GAME CONTEXT] Client not available")
@@ -119,17 +119,11 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
     },
     [client]
   )
-  const dispatchActionRef = useRef(dispatchActionCallback)
-  dispatchActionRef.current = dispatchActionCallback
-  const dispatchAction = useCallback((action: GameAction) => {
-    dispatchActionRef.current(action)
-  }, [])
-
 
   // Dev-only: Expose to console using globalThis
   if (import.meta.env.DEV) {
     // @ts-expect-error - Dev-only console helper
-    globalThis.dispatchAction = dispatchActionRef.current
+    globalThis.dispatchAction = dispatchAction
   }
 
   /**
@@ -202,8 +196,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
     await wait(1000)
 
     // 5. Dispatch start event to bot to kick off the conversation
-    dispatchActionRef.current({ type: "start" } as StartAction)
-  }, [onConnect, gameStore, client])
+    dispatchAction({ type: "start" } as StartAction)
+  }, [onConnect, gameStore, client, dispatchAction])
 
   /**
    * Handle server message
@@ -214,7 +208,6 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
       (e: ServerMessage) => {
         if ("event" in e) {
           console.debug("[GAME EVENT] Server message received", e.event, e)
-
           // Transform server message tool call responses to normalized event messages
           // @TODO: remove this once game server changes
           const gameEvent = transformMessage(e)

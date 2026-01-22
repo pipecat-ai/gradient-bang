@@ -1,17 +1,17 @@
 """Local map region endpoint - returns known sectors around a center point."""
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Dict, Any, Optional
 
 from fastapi import HTTPException
 
 from gradientbang.game_server.api.utils import (
-    build_event_source,
     build_local_map_region,
-    build_log_context,
+    rpc_success,
+    build_event_source,
     emit_error_event,
     enforce_actor_authorization,
-    rpc_success,
+    build_log_context,
 )
 from gradientbang.game_server.rpc.events import event_dispatcher
 
@@ -61,7 +61,9 @@ async def handle(request: Dict[str, Any], world) -> Dict[str, Any]:
         if character_id in world.characters:
             center_sector = world.characters[character_id].sector
         else:
-            center_sector = knowledge.current_sector if knowledge.current_sector is not None else 0
+            center_sector = (
+                knowledge.current_sector if knowledge.current_sector is not None else 0
+            )
     else:
         try:
             center_sector = int(center_sector)

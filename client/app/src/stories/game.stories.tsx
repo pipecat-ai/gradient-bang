@@ -7,7 +7,6 @@ import { ChatPanel } from "@/components/ChatPanel";
 import { CoursePlotPanel } from "@/components/CoursePlotPanel";
 import { ActivityStream } from "@/components/hud/ActivityStream";
 import { MovementHistoryPanel } from "@/components/MovementHistoryPanel";
-import { Button } from "@/components/primitives/Button";
 import { Divider } from "@/components/primitives/Divider";
 import { SectorMap } from "@/components/SectorMap";
 import { SettingsPanel } from "@/components/SettingsPanel";
@@ -60,7 +59,6 @@ export const Init: Story = () => {
             sendUserTextInput?.(text);
           }}
         />
-        <Button onClick={() => { dispatchAction({ type: "get-my-status" }) }}>Get My Status</Button>
       </div>
 
       <div className="story-card h-[360px] shrink-0 relative">

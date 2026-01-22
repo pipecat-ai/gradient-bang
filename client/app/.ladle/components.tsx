@@ -49,7 +49,7 @@ const StoryWrapper = ({
           <div className="story-connect-bar">
             <div>
               {!isConnected ? (
-                <Button onClick={() => client.connect({
+                <Button onClick={() => client.startBotAndConnect({
                   endpoint
                 })} disabled={isConnecting}>
                   {isConnecting ? "Connecting..." : "Connect"}
@@ -104,7 +104,7 @@ export const Provider: GlobalProvider = memo(({ children, storyMeta }) => {
   }
 
   if (error) {
-    return <Error onRetry={() => client.connect()}>{error}</Error>
+    return <Error onRetry={() => client.startBotAndConnect({ endpoint })}>{error}</Error>
   }
 
   return (
