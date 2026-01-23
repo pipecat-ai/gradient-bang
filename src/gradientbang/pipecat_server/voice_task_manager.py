@@ -42,6 +42,8 @@ from gradientbang.utils.tools_schema import (
     UI_SHOW_PANEL_SCHEMA,
 )
 
+MAX_CORP_SHIP_TASKS = 3  # Maximum concurrent corp ship tasks per player
+
 
 def _extract_display_name(payload: Mapping[str, Any]) -> Optional[str]:
     """Extract the player's display name from a payload if available."""
@@ -125,14 +127,19 @@ class VoiceTaskManager:
             "combat.round_resolved",
             "combat.ended",
             "combat.action_accepted",
+            "ship.destroyed",
             "chat.message",
             "error",
             # Client history query events (relayed via event system)
             "event.query",
             "ships.list",
+            "task.start",
+            "task.finish",
         ]
         for event_name in self._event_names:
             self.game_client.on(event_name)(self._relay_event)
+
+        self.game_client.on("task.cancel")(self._handle_task_cancel_event)
 
         self.task_complete_callback = task_complete_callback
 
@@ -207,6 +214,14 @@ class VoiceTaskManager:
         if ship_id and ship_id != self.character_id:
             return "corp_ship"
         return "player_ship"
+
+    def _count_active_corp_ship_tasks(self) -> int:
+        """Count currently running corp ship tasks."""
+        return sum(
+            1
+            for task_info in self._active_tasks.values()
+            if task_info.get("is_corp_ship") and not task_info["asyncio_task"].done()
+        )
 
     def _update_display_name(self, payload: Mapping[str, Any]) -> None:
         candidate = _extract_display_name(payload)
@@ -297,13 +312,24 @@ class VoiceTaskManager:
             summary = payload
 
         # Find the task_id for this event (if it belongs to a task)
-        task_id = self._get_task_id_for_character(self.character_id)
+        task_id: Optional[str] = None
+        payload_task_id: Optional[str] = None
+        if isinstance(payload, Mapping):
+            candidate = payload.get("__task_id") or payload.get("task_id")
+            if isinstance(candidate, str) and candidate.strip():
+                payload_task_id = candidate.strip()
+
+        if payload_task_id:
+            task_id = self._get_task_id_for_full(payload_task_id)
+
+        if not task_id:
+            task_id = self._get_task_id_for_character(self.character_id)
 
         # Build event XML with optional task_id
         if task_id:
-            event_xml = f"<event name={event_name} task_id={task_id}>\n{summary}\n</event>"
+            event_xml = f"<event name=\"{event_name}\" task_id=\"{task_id}\">\n{summary}\n</event>"
         else:
-            event_xml = f"<event name={event_name}>\n{summary}\n</event>"
+            event_xml = f"<event name=\"{event_name}\">\n{summary}\n</event>"
 
         # Determine if this event should trigger LLM inference
         # Most events only trigger inference when they came from voice agent's own tool calls
@@ -373,6 +399,17 @@ class VoiceTaskManager:
         for task_id, task_info in self._active_tasks.items():
             if task_info.get("target_character_id") == character_id:
                 return task_id
+        return None
+
+    def _get_task_id_for_full(self, task_id: str) -> Optional[str]:
+        """Resolve a full UUID task_id to the short task_id used for display."""
+        if not task_id:
+            return None
+        if task_id in self._active_tasks:
+            return task_id
+        for short_id, task_info in self._active_tasks.items():
+            if task_info.get("full_task_id") == task_id:
+                return short_id
         return None
 
     def get_task_progress(self) -> str:
@@ -471,13 +508,14 @@ class VoiceTaskManager:
 
         # Append to LLM context buffer:
         # - For non-EVENT types: always add (steps, errors, finished, etc.)
-        # - For EVENT types: only add for corp_ship tasks, since those events
-        #   don't reach _relay_event (they go to a separate task_game_client)
-        # Player ship tasks share the main game_client, so events arrive via _relay_event
+        # - EVENT types are NOT added to task_buffer. EVENT lines still flow to client
+        #   via task_output RTVI for task panel display. Structured events reach LLM
+        #   via _relay_event from main game client polling.
+        # With corp visibility, corp ship events now reach the human player via _relay_event,
+        # so we no longer need to add EVENT lines for corp_ship tasks (prevents duplicates).
         if message_type != TaskOutputType.EVENT.value:
             self.task_buffer.append(text)
-        elif task_type == "corp_ship":
-            self.task_buffer.append(text)
+        # EVENT lines are UI-only now - LLM gets events via _relay_event
 
     @traced
     async def _run_task_with_tracking(
@@ -607,8 +645,6 @@ class VoiceTaskManager:
             self.cancelled_via_tool = via_tool
             # Set the cancellation flag first
             self.task_agent.cancel()
-            # Then cancel the asyncio task
-            self.current_task.cancel()
             self.task_running = False
             # Add immediate feedback
             self._handle_agent_output(
@@ -744,6 +780,18 @@ class VoiceTaskManager:
                         "error": f"Ship {target_character_id[:8]}... already has task {task_id} running. Stop it first.",
                     }
 
+            # Check corp ship task limit
+            if ship_id:
+                active_corp_tasks = self._count_active_corp_ship_tasks()
+                if active_corp_tasks >= MAX_CORP_SHIP_TASKS:
+                    return {
+                        "success": False,
+                        "error": (
+                            f"Cannot start more than {MAX_CORP_SHIP_TASKS} corp ship tasks. "
+                            f"Currently running {active_corp_tasks}. Stop a task first."
+                        ),
+                    }
+
             # Generate new task ID - returns (short_task_id, full_task_id)
             # short_task_id (6 hex chars) is used for UI display and tracking
             # full_task_id (full UUID) is stored in database for event correlation
@@ -770,6 +818,12 @@ class VoiceTaskManager:
                 game_client=task_game_client,
                 character_id=target_character_id,
                 output_callback=self._create_agent_output_callback(short_task_id, task_type),
+                task_metadata={
+                    "actor_character_id": self.character_id,
+                    "actor_character_name": self.display_name,
+                    "task_scope": task_type,
+                    "ship_id": ship_id if ship_id else None,
+                },
             )
 
             # call my_status so the first thing the task gets is a status.snapshot event
@@ -828,6 +882,33 @@ class VoiceTaskManager:
                 await self.game_client.resume_event_delivery()
             return {"success": False, "error": str(e)}
 
+    async def _handle_task_cancel_event(self, event: Dict[str, Any]) -> None:
+        """Handle incoming task.cancel events - cancel matching task if running."""
+        payload = event.get("payload", {})
+        task_id_to_cancel = payload.get("task_id")
+
+        if not task_id_to_cancel:
+            return
+
+        # Find task by full_task_id or short_task_id
+        matching_task_id = None
+        for short_id, task_info in self._active_tasks.items():
+            if task_info.get("full_task_id") == task_id_to_cancel or short_id == task_id_to_cancel:
+                matching_task_id = short_id
+                break
+
+        if not matching_task_id:
+            return
+
+        task_info = self._active_tasks[matching_task_id]
+        asyncio_task = task_info["asyncio_task"]
+        if asyncio_task.done():
+            return
+
+        task_agent = task_info["task_agent"]
+        task_agent.cancel()
+        logger.info(f"Cancelled task {matching_task_id} via task.cancel event")
+
     @traced
     async def _handle_stop_task(self, params: FunctionCallParams):
         try:
@@ -851,7 +932,6 @@ class VoiceTaskManager:
 
                 task_agent = task_info["task_agent"]
                 task_agent.cancel()
-                asyncio_task.cancel()
 
                 return {
                     "success": True,
@@ -869,17 +949,15 @@ class VoiceTaskManager:
                 if not player_ship_task_id:
                     # Fall back to legacy current_task
                     if self.current_task and not self.current_task.done():
-                        self.current_task.cancel()
+                        self.task_agent.cancel()
                         return {"success": True, "message": "Task cancelled"}
                     else:
                         return {"success": False, "error": "No player ship task is currently running"}
 
                 task_info = self._active_tasks[player_ship_task_id]
                 task_agent = task_info["task_agent"]
-                asyncio_task = task_info["asyncio_task"]
 
                 task_agent.cancel()
-                asyncio_task.cancel()
 
                 return {
                     "success": True,

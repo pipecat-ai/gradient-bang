@@ -234,6 +234,11 @@ serve(async (req: Request): Promise<Response> => {
         requestId,
         extraPayload: { from_sector: previousSector },
       });
+      // For arrival events, include corp visibility if it's a corp ship
+      const corpIds = ship.owner_type === 'corporation' && ship.owner_corporation_id
+        ? [ship.owner_corporation_id]
+        : [];
+
       await pgEmitMovementObservers({
         pg,
         sectorId: targetSector,
@@ -243,6 +248,7 @@ serve(async (req: Request): Promise<Response> => {
         source,
         requestId,
         extraPayload: { to_sector: targetSector },
+        corpIds, // Corp visibility for arrivals
       });
       console.log(`[join] movement observers: ${(performance.now() - t11).toFixed(1)}ms`);
     }

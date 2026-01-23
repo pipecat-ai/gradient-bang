@@ -174,3 +174,82 @@ async function loadSectorShipObservers(supabase: SupabaseClient, sectorId: numbe
     .filter((value): value is string => typeof value === 'string' && value.length > 0);
   return Array.from(new Set(ids));
 }
+
+/**
+ * Compute recipients who are members of the given corporation(s).
+ * Uses corporation_members table to get active members.
+ */
+export async function computeCorpMemberRecipients(
+  supabase: SupabaseClient,
+  corpIds: string[],
+  excludeCharacterIds: string[] = [],
+): Promise<EventRecipientSnapshot[]> {
+  if (!corpIds.length) {
+    return [];
+  }
+  const excludeSet = new Set(excludeCharacterIds);
+  const recipients: EventRecipientSnapshot[] = [];
+  const uniqueCorpIds = Array.from(new Set(corpIds));
+
+  const { data, error } = await supabase
+    .from('corporation_members')
+    .select('character_id, corp_id')
+    .in('corp_id', uniqueCorpIds)
+    .is('left_at', null);
+
+  if (error) {
+    console.error('visibility.corp_members.load', { corpIds: uniqueCorpIds, error });
+    return [];
+  }
+
+  for (const row of data ?? []) {
+    const memberId = row?.character_id;
+    if (!memberId || excludeSet.has(memberId)) {
+      continue;
+    }
+    recipients.push({ characterId: memberId, reason: 'corp_member' });
+  }
+
+  return dedupeRecipientSnapshots(recipients);
+}
+
+/**
+ * Unified helper for computing all event recipients with deduplication.
+ * Combines sector observers, corp members, and direct recipients.
+ */
+export async function computeEventRecipients(options: {
+  supabase: SupabaseClient;
+  sectorId?: number;
+  corpIds?: string[];
+  directRecipients?: string[];
+  excludeCharacterIds?: string[];
+}): Promise<EventRecipientSnapshot[]> {
+  const {
+    supabase,
+    sectorId,
+    corpIds = [],
+    directRecipients = [],
+    excludeCharacterIds = [],
+  } = options;
+
+  const allRecipients: EventRecipientSnapshot[] = [];
+
+  // Add direct recipients (e.g., combat participants)
+  for (const id of directRecipients) {
+    if (id) {
+      allRecipients.push({ characterId: id, reason: 'direct' });
+    }
+  }
+
+  // Add sector observers (if sectorId provided)
+  if (sectorId !== undefined) {
+    const sectorRecipients = await computeSectorVisibilityRecipients(supabase, sectorId, excludeCharacterIds);
+    allRecipients.push(...sectorRecipients);
+  }
+
+  // Add corp members
+  const corpRecipients = await computeCorpMemberRecipients(supabase, corpIds, excludeCharacterIds);
+  allRecipients.push(...corpRecipients);
+
+  return dedupeRecipientSnapshots(allRecipients);
+}

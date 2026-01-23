@@ -1786,11 +1786,48 @@ export interface PgMovementObserverOptions {
   moveType?: string;
   extraPayload?: Record<string, unknown>;
   includeGarrisons?: boolean;
+  /** Corp IDs whose members should receive this event (for arrival events) */
+  corpIds?: string[];
 }
 
 export interface MovementObserverResult {
   characterObservers: number;
   garrisonRecipients: number;
+  corpMemberRecipients: number;
+}
+
+/**
+ * Compute corp member recipients for event visibility.
+ */
+async function pgComputeCorpMemberRecipients(
+  pg: Client,
+  corpIds: string[],
+  excludeCharacterIds: string[] = []
+): Promise<EventRecipientSnapshot[]> {
+  if (!corpIds.length) {
+    return [];
+  }
+  const excludeSet = new Set(excludeCharacterIds);
+  const uniqueCorpIds = Array.from(new Set(corpIds));
+
+  const result = await pg.queryObject<{ character_id: string; corp_id: string }>(
+    `SELECT character_id, corp_id
+    FROM corporation_members
+    WHERE corp_id = ANY($1::uuid[])
+      AND left_at IS NULL`,
+    [uniqueCorpIds]
+  );
+
+  const recipients: EventRecipientSnapshot[] = [];
+  for (const row of result.rows) {
+    const memberId = row?.character_id;
+    if (!memberId || excludeSet.has(memberId)) {
+      continue;
+    }
+    recipients.push({ characterId: memberId, reason: "corp_member" });
+  }
+
+  return dedupeRecipients(recipients);
 }
 
 export async function pgEmitMovementObservers(
@@ -1807,6 +1844,7 @@ export async function pgEmitMovementObservers(
     moveType,
     extraPayload,
     includeGarrisons = true,
+    corpIds = [],
   } = options;
 
   const exclude = new Set<string>([metadata.characterId]);
@@ -1826,23 +1864,34 @@ export async function pgEmitMovementObservers(
     extraFields: extraPayload,
   });
 
-  // Emit to character observers
-  if (observers.length > 0) {
-    const recipients = dedupeRecipients(
-      observers.map((id) => ({ characterId: id, reason: "sector_snapshot" }))
+  // Get corp member recipients if corpIds provided (for arrival events)
+  let corpMemberRecipients: EventRecipientSnapshot[] = [];
+  if (corpIds.length > 0) {
+    corpMemberRecipients = await pgComputeCorpMemberRecipients(
+      pg,
+      corpIds,
+      Array.from(exclude)
     );
-    if (recipients.length > 0) {
-      await pgRecordEvent({
-        pg,
-        eventType: "character.moved",
-        scope: "sector",
-        payload,
-        requestId,
-        sectorId,
-        actorCharacterId: metadata.characterId,
-        recipients,
-      });
-    }
+  }
+
+  // Combine sector observers + corp members for character.moved event
+  const allRecipients = dedupeRecipients([
+    ...observers.map((id) => ({ characterId: id, reason: "sector_snapshot" })),
+    ...corpMemberRecipients,
+  ]);
+
+  // Emit to character observers + corp members
+  if (allRecipients.length > 0) {
+    await pgRecordEvent({
+      pg,
+      eventType: "character.moved",
+      scope: "sector",
+      payload,
+      requestId,
+      sectorId,
+      actorCharacterId: metadata.characterId,
+      recipients: allRecipients,
+    });
   }
 
   // Emit to garrison owners and corp members
@@ -1861,8 +1910,8 @@ export async function pgEmitMovementObservers(
       if (!owner || !owner.corporation_id) continue;
 
       const corpMembers = membersByCorp.get(owner.corporation_id) ?? [];
-      const allRecipients = Array.from(new Set([ownerId, ...corpMembers]));
-      if (!allRecipients.length) continue;
+      const allGarrisonRecipients = Array.from(new Set([ownerId, ...corpMembers]));
+      if (!allGarrisonRecipients.length) continue;
 
       const garrisonPayload = {
         owner_id: owner.character_id,
@@ -1876,7 +1925,7 @@ export async function pgEmitMovementObservers(
 
       const eventPayload = { ...payload, garrison: garrisonPayload };
       const recipientSnapshots = dedupeRecipients(
-        allRecipients.map((charId) => ({
+        allGarrisonRecipients.map((charId) => ({
           characterId: charId,
           reason:
             charId === owner.character_id
@@ -1896,23 +1945,25 @@ export async function pgEmitMovementObservers(
           actorCharacterId: owner.character_id,
           recipients: recipientSnapshots,
         });
-        garrisonRecipients += allRecipients.length;
+        garrisonRecipients += allGarrisonRecipients.length;
       }
     }
   }
 
-  if (observers.length || garrisonRecipients > 0) {
+  const corpMemberCount = corpMemberRecipients.length;
+  if (observers.length || garrisonRecipients > 0 || corpMemberCount > 0) {
     console.log("movement.observers.emitted", {
       sector_id: sectorId,
       movement,
       character_id: metadata.characterId,
       character_observers: observers.length,
       garrison_recipients: garrisonRecipients,
+      corp_member_recipients: corpMemberCount,
       request_id: requestId,
     });
   }
 
-  return { characterObservers: observers.length, garrisonRecipients };
+  return { characterObservers: observers.length, garrisonRecipients, corpMemberRecipients: corpMemberCount };
 }
 
 // ============================================================================

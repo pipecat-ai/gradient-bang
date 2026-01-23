@@ -262,6 +262,7 @@ class TaskAgent:
         llm_service_factory: Optional[Callable[[], LLMService]] = None,
         thinking_budget: Optional[int] = None,
         idle_timeout_secs: Optional[float] = None,
+        task_metadata: Optional[Dict[str, Any]] = None,
     ):
         api_key = config.api_key or os.getenv("GOOGLE_API_KEY")
         if not api_key:
@@ -306,6 +307,8 @@ class TaskAgent:
         self._no_tool_watchdog_handle: Optional[asyncio.TimerHandle] = None
         self._task_id: Optional[str] = None
         self._task_description: Optional[str] = None
+        self._task_metadata = task_metadata or {}
+        self._finish_emitted: bool = False
         # Counter for events to skip (supports concurrent tool calls)
         self._skip_context_events: Dict[str, int] = {}
 
@@ -366,6 +369,7 @@ class TaskAgent:
             "combat.round_resolved",
             "combat.ended",
             "combat.action_accepted",
+            "ship.destroyed",
             "chat.message",
             "event.query",
             "fighter.purchase",
@@ -586,6 +590,7 @@ class TaskAgent:
         # Use provided task_id or generate new one
         self._task_id = task_id or str(uuid.uuid4())
         self._task_description = task
+        self._finish_emitted = False
         _ = max_iterations  # retained for API compatibility; pipeline controls turns
 
         # Set task_id on game_client so all API calls are tagged with this task
@@ -597,6 +602,7 @@ class TaskAgent:
                 task_id=self._task_id,
                 event_type="start",
                 task_description=task,
+                task_metadata=self._task_metadata,
             )
         except Exception as exc:
             logger.warning(f"Failed to emit task.start event: {exc}")
@@ -620,10 +626,38 @@ class TaskAgent:
                         self._timestamped_text("Task cancelled"),
                         TaskOutputType.FINISHED,
                     )
+                    if self._task_id:
+                        try:
+                            await self.game_client.task_lifecycle(
+                                task_id=self._task_id,
+                                event_type="finish",
+                                task_summary="Cancelled by user",
+                                task_status="cancelled",
+                                task_metadata=self._task_metadata,
+                            )
+                            self._finish_emitted = True
+                        except Exception as exc:
+                            logger.warning(
+                                f"Failed to emit task.finish (cancelled): {exc}"
+                            )
                     return False
                 try:
                     await asyncio.sleep(1)
                 except asyncio.CancelledError:
+                    if self._task_id:
+                        try:
+                            await self.game_client.task_lifecycle(
+                                task_id=self._task_id,
+                                event_type="finish",
+                                task_summary="Cancelled by user",
+                                task_status="cancelled",
+                                task_metadata=self._task_metadata,
+                            )
+                            self._finish_emitted = True
+                        except Exception as exc:
+                            logger.warning(
+                                f"Failed to emit task.finish (cancelled): {exc}"
+                            )
                     raise
                 except Exception as error:
                     self._emit_error_and_finish(
@@ -635,6 +669,20 @@ class TaskAgent:
                     success = True
                     break
         finally:
+            if self.cancelled and self._task_id and not self._finish_emitted:
+                try:
+                    await self.game_client.task_lifecycle(
+                        task_id=self._task_id,
+                        event_type="finish",
+                        task_summary="Cancelled by user",
+                        task_status="cancelled",
+                        task_metadata=self._task_metadata,
+                    )
+                    self._finish_emitted = True
+                except Exception as exc:
+                    logger.warning(
+                        f"Failed to emit task.finish (cancelled): {exc}"
+                    )
             # Clear task_id from game_client so subsequent calls aren't tagged
             self.game_client.current_task_id = None
             if self._active_pipeline_task:
@@ -782,7 +830,10 @@ class TaskAgent:
                         task_id=self._task_id,
                         event_type="finish",
                         task_summary=self.finished_message,
+                        task_status="completed",
+                        task_metadata=self._task_metadata,
                     )
+                    self._finish_emitted = True
                 except Exception as exc:
                     logger.warning(f"Failed to emit task.finish event: {exc}")
 

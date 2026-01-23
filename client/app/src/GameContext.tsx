@@ -819,6 +819,37 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               break
             }
 
+            case "task.start": {
+              console.debug("[GAME EVENT] Task start", gameEvent.payload)
+              const data = gameEvent.payload as TaskStartMessage
+              if (data.task_id) {
+                gameStore.addActiveTask({
+                  task_id: data.task_id,
+                  task_description: data.task_description,
+                  started_at: data.source?.timestamp || new Date().toISOString(),
+                  actor_character_id: data.actor_character_id,
+                  actor_character_name: data.actor_character_name,
+                  task_scope: data.task_scope,
+                  ship_id: data.ship_id,
+                  ship_name: data.ship_name,
+                  ship_type: data.ship_type,
+                })
+              }
+              break
+            }
+
+            case "task.finish": {
+              console.debug("[GAME EVENT] Task finish", gameEvent.payload)
+              const data = gameEvent.payload as TaskFinishMessage
+              if (data.task_id) {
+                gameStore.removeActiveTask(data.task_id)
+              }
+              if (data.task_status === "cancelled") {
+                gameStore.setTaskWasCancelled(true)
+              }
+              break
+            }
+
             case "task_complete": {
               console.debug("[GAME EVENT] Task complete", gameEvent.payload)
               const data = gameEvent.payload as TaskCompleteMessage

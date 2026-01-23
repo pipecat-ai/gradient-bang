@@ -1105,6 +1105,8 @@ class AsyncGameClient:
         event_type: str,
         task_description: Optional[str] = None,
         task_summary: Optional[str] = None,
+        task_status: Optional[str] = None,
+        task_metadata: Optional[Dict[str, Any]] = None,
         character_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Emit a task lifecycle event (start or finish).
@@ -1114,6 +1116,8 @@ class AsyncGameClient:
             event_type: Either 'start' or 'finish'
             task_description: Task description (for start events)
             task_summary: Task summary/result (for finish events)
+            task_status: Optional status (e.g., "completed" or "cancelled")
+            task_metadata: Optional extra metadata to include in lifecycle payload
             character_id: Character ID (defaults to bound character)
         """
         if event_type not in ("start", "finish"):
@@ -1131,8 +1135,35 @@ class AsyncGameClient:
             payload["task_description"] = task_description
         if task_summary is not None:
             payload["task_summary"] = task_summary
+        if task_status is not None:
+            payload["task_status"] = task_status
+        if task_metadata:
+            for key, value in task_metadata.items():
+                if key not in payload:
+                    payload[key] = value
 
         return await self._request("task.lifecycle", payload)
+
+    async def task_cancel(
+        self,
+        *,
+        task_id: str,
+        character_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Request cancellation of a running task.
+
+        Args:
+            task_id: Task ID (full UUID or short prefix)
+            character_id: Character ID requesting the cancellation
+        """
+        if character_id is None:
+            character_id = self._character_id
+
+        payload: Dict[str, Any] = {
+            "character_id": character_id,
+            "task_id": task_id,
+        }
+        return await self._request("task.cancel", payload)
 
     async def create_corporation(
         self,

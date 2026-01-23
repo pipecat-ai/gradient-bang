@@ -92,9 +92,7 @@ export const TaskStatusBadge = () => {
                     [
                       task.ship_name ||
                         task.ship_type ||
-                        (task.ship_id
-                          ? `Ship ${task.ship_id.slice(0, 6)}`
-                          : null),
+                        (task.ship_id ? `Ship ${task.ship_id.slice(0, 6)}` : null),
                       task.actor_character_name ||
                         (task.actor_character_id
                           ? `Actor ${task.actor_character_id.slice(0, 6)}`

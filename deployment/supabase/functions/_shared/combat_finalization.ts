@@ -6,7 +6,8 @@ import {
   CombatantState,
 } from './combat_types.ts';
 import { appendSalvageEntry, buildSalvageEntry, SalvageEntry } from './salvage.ts';
-import { emitSectorEnvelope, buildEventSource } from './events.ts';
+import { emitSectorEnvelope, buildEventSource, recordEventWithRecipients } from './events.ts';
+import { computeEventRecipients } from './visibility.ts';
 
 interface ShipRow {
   ship_id: string;
@@ -23,6 +24,44 @@ interface ShipDefinitionRow {
   ship_type: string;
   display_name: string;
   purchase_price: number | null;
+}
+
+/**
+ * Tracks a corp ship that should be deleted AFTER combat.ended payloads are built.
+ */
+export interface DeferredCorpShipDeletion {
+  shipId: string;
+  characterId: string;
+}
+
+/**
+ * Result of handling a defeated character.
+ */
+interface HandleDefeatedResult {
+  salvage: SalvageEntry | null;
+  deferredDeletion: DeferredCorpShipDeletion | null;
+  shipDestroyedEvent: ShipDestroyedEventData | null;
+}
+
+/**
+ * Data for ship.destroyed event emission.
+ */
+interface ShipDestroyedEventData {
+  shipId: string;
+  shipType: string;
+  shipName: string | null;
+  playerType: 'human' | 'corporation_ship';
+  playerName: string;
+  corpId: string | null;
+  salvageCreated: boolean;
+}
+
+/**
+ * Result of finalizeCombat.
+ */
+export interface FinalizeCombatResult {
+  salvageEntries: SalvageEntry[];
+  deferredDeletions: DeferredCorpShipDeletion[];
 }
 
 async function loadShip(
@@ -109,38 +148,83 @@ async function handleDefeatedCharacter(
   encounter: CombatEncounterState,
   participant: CombatantState,
   definition: ShipDefinitionRow | undefined,
-): Promise<SalvageEntry | null> {
+): Promise<HandleDefeatedResult> {
   const metadata = (participant.metadata ?? {}) as Record<string, unknown>;
   const shipId = typeof metadata.ship_id === 'string' ? metadata.ship_id : null;
+  const playerType = (metadata.player_type as string) ?? 'human';
+  const isCorpShip = playerType === 'corporation_ship';
+  const corpId = (metadata.corporation_id as string) ?? null;
+
   if (!shipId) {
-    return null;
+    return { salvage: null, deferredDeletion: null, shipDestroyedEvent: null };
   }
+
   const ship = await loadShip(supabase, shipId);
   if (!ship) {
-    return null;
+    return { salvage: null, deferredDeletion: null, shipDestroyedEvent: null };
   }
+
   const cargo = buildCargoFromShip(ship);
   const credits = ship.credits ?? 0;
   const scrapBase = definition?.purchase_price ?? 0;
   const scrap = Math.max(5, Math.floor(scrapBase / 1000));
-  if (!Object.keys(cargo).length && scrap <= 0 && credits <= 0) {
-    await convertShipToEscapePod(supabase, shipId);
-    return null;
+  const hasSalvage = Object.keys(cargo).length > 0 || scrap > 0 || credits > 0;
+
+  let salvage: SalvageEntry | null = null;
+  if (hasSalvage) {
+    salvage = buildSalvageEntry(
+      { ship_name: ship.ship_name, ship_type: ship.ship_type },
+      definition?.display_name ?? ship.ship_type,
+      cargo,
+      scrap,
+      credits,
+      {
+        combat_id: encounter.combat_id,
+        ship_type: ship.ship_type,
+      },
+    );
+    await appendSalvageEntry(supabase, encounter.sector_id, salvage);
   }
-  const salvage = buildSalvageEntry(
-    { ship_name: ship.ship_name, ship_type: ship.ship_type },
-    definition?.display_name ?? ship.ship_type,
-    cargo,
-    scrap,
-    credits,
-    {
-      combat_id: encounter.combat_id,
-      ship_type: ship.ship_type,
-    },
-  );
-  await appendSalvageEntry(supabase, encounter.sector_id, salvage);
-  await convertShipToEscapePod(supabase, shipId);
-  return salvage;
+
+  // Build ship.destroyed event data (always emit, regardless of salvage)
+  const shipDestroyedEvent: ShipDestroyedEventData = {
+    shipId,
+    shipType: ship.ship_type,
+    shipName: ship.ship_name,
+    playerType: isCorpShip ? 'corporation_ship' : 'human',
+    playerName: participant.name,
+    corpId,
+    salvageCreated: salvage !== null,
+  };
+
+  // Handle ship destruction differently for corp ships vs human ships
+  if (isCorpShip) {
+    // Corp ships: update ship state to reflect destruction (but don't convert to escape pod)
+    // This ensures combat.ended payload shows destroyed state when loaded from DB
+    await supabase
+      .from('ship_instances')
+      .update({
+        current_fighters: 0,
+        current_shields: 0,
+      })
+      .eq('ship_id', shipId);
+
+    // Defer deletion until after combat.ended payloads are built
+    const characterId = participant.owner_character_id ?? participant.combatant_id;
+    return {
+      salvage,
+      deferredDeletion: { shipId, characterId },
+      shipDestroyedEvent,
+    };
+  } else {
+    // Human ships: convert to escape pod immediately
+    await convertShipToEscapePod(supabase, shipId);
+    return {
+      salvage,
+      deferredDeletion: null,
+      shipDestroyedEvent,
+    };
+  }
 }
 
 async function updateGarrisonState(
@@ -181,8 +265,9 @@ export async function finalizeCombat(
   encounter: CombatEncounterState,
   outcome: CombatRoundOutcome,
   requestId?: string,
-): Promise<SalvageEntry[]> {
+): Promise<FinalizeCombatResult> {
   const salvageEntries: SalvageEntry[] = [];
+  const deferredDeletions: DeferredCorpShipDeletion[] = [];
   const defeated = Object.entries(outcome.fighters_remaining ?? {}).filter(
     ([pid, remaining]) => remaining <= 0,
   );
@@ -205,10 +290,12 @@ export async function finalizeCombat(
       }
       continue;
     }
+
     const def = participant.ship_type ? definitionMap.get(participant.ship_type) : undefined;
-    const entry = await handleDefeatedCharacter(supabase, encounter, participant, def);
-    if (entry) {
-      salvageEntries.push(entry);
+    const result = await handleDefeatedCharacter(supabase, encounter, participant, def);
+
+    if (result.salvage) {
+      salvageEntries.push(result.salvage);
 
       // Emit salvage.created event to all sector occupants
       const timestamp = new Date().toISOString();
@@ -219,20 +306,36 @@ export async function finalizeCombat(
         payload: {
           source: buildEventSource('combat.ended', requestId ?? `combat:${encounter.combat_id}`),
           timestamp,
-          salvage_id: entry.salvage_id,
+          salvage_id: result.salvage.salvage_id,
           sector: { id: encounter.sector_id },
-          cargo: entry.cargo,
-          scrap: entry.scrap,
-          credits: entry.credits,
-          from_ship_type: entry.source.ship_type,
-          from_ship_name: entry.source.ship_name,
+          cargo: result.salvage.cargo,
+          scrap: result.salvage.scrap,
+          credits: result.salvage.credits,
+          from_ship_type: result.salvage.source.ship_type,
+          from_ship_name: result.salvage.source.ship_name,
         },
         requestId: requestId ?? `combat:${encounter.combat_id}`,
       });
     }
-    // Update participant state to reflect escape pod conversion for event payload
-    participant.ship_type = 'escape_pod';
-    participant.fighters = 0;
+
+    // Emit ship.destroyed event (always, regardless of salvage)
+    if (result.shipDestroyedEvent) {
+      await emitShipDestroyedEvent(
+        supabase,
+        encounter,
+        result.shipDestroyedEvent,
+        requestId ?? `combat:${encounter.combat_id}`,
+      );
+    }
+
+    if (result.deferredDeletion) {
+      deferredDeletions.push(result.deferredDeletion);
+      // DON'T update participant.ship_type for corp ships - they won't become escape pods
+    } else {
+      // Update participant state to reflect escape pod conversion for event payload
+      participant.ship_type = 'escape_pod';
+      participant.fighters = 0;
+    }
   }
 
   for (const [pid, participant] of Object.entries(encounter.participants)) {
@@ -243,5 +346,89 @@ export async function finalizeCombat(
     await updateGarrisonState(supabase, participant, remaining);
   }
 
-  return salvageEntries;
+  return { salvageEntries, deferredDeletions };
+}
+
+/**
+ * Emit ship.destroyed event with sector + corp visibility.
+ */
+async function emitShipDestroyedEvent(
+  supabase: SupabaseClient,
+  encounter: CombatEncounterState,
+  data: ShipDestroyedEventData,
+  requestId: string,
+): Promise<void> {
+  const timestamp = new Date().toISOString();
+  const payload = {
+    source: buildEventSource('ship.destroyed', requestId),
+    timestamp,
+    ship_id: data.shipId,
+    ship_type: data.shipType,
+    ship_name: data.shipName,
+    player_type: data.playerType,
+    player_name: data.playerName,
+    sector: { id: encounter.sector_id },
+    combat_id: encounter.combat_id,
+    salvage_created: data.salvageCreated,
+  };
+
+  // Compute recipients: sector observers + corp members (if any)
+  const recipients = await computeEventRecipients({
+    supabase,
+    sectorId: encounter.sector_id,
+    corpIds: data.corpId ? [data.corpId] : [],
+  });
+
+  if (recipients.length > 0) {
+    await recordEventWithRecipients({
+      supabase,
+      eventType: 'ship.destroyed',
+      scope: 'sector',
+      payload,
+      requestId,
+      sectorId: encounter.sector_id,
+      actorCharacterId: null, // System-originated
+      recipients,
+    });
+  }
+}
+
+/**
+ * Execute deferred corp ship deletions.
+ * Call this AFTER combat.ended events have been emitted.
+ */
+export async function executeCorpShipDeletions(
+  supabase: SupabaseClient,
+  deletions: DeferredCorpShipDeletion[],
+): Promise<void> {
+  for (const { shipId, characterId } of deletions) {
+    console.log('combat_finalization.deleting_corp_ship', { shipId, characterId });
+
+    // 1. Null out current_ship_id to break FK constraint
+    const { error: unlinkError } = await supabase
+      .from('characters')
+      .update({ current_ship_id: null })
+      .eq('character_id', characterId);
+    if (unlinkError) {
+      console.error('combat_finalization.unlink_ship', { characterId, error: unlinkError });
+    }
+
+    // 2. Delete pseudo-character record
+    const { error: charError } = await supabase
+      .from('characters')
+      .delete()
+      .eq('character_id', characterId);
+    if (charError) {
+      console.error('combat_finalization.delete_character', { characterId, error: charError });
+    }
+
+    // 3. Delete ship instance
+    const { error: shipError } = await supabase
+      .from('ship_instances')
+      .delete()
+      .eq('ship_id', shipId);
+    if (shipError) {
+      console.error('combat_finalization.delete_ship', { shipId, error: shipError });
+    }
+  }
 }

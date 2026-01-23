@@ -1,11 +1,12 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-import { emitCharacterEvent, emitSectorEnvelope, buildEventSource } from './events.ts';
+import { emitCharacterEvent, emitSectorEnvelope, buildEventSource, recordEventWithRecipients } from './events.ts';
 import { buildGarrisonActions } from './combat_garrison.ts';
 import { resolveRound } from './combat_engine.ts';
-import { finalizeCombat } from './combat_finalization.ts';
-import { buildRoundResolvedPayload, buildRoundWaitingPayload, buildCombatEndedPayload } from './combat_events.ts';
+import { finalizeCombat, executeCorpShipDeletions } from './combat_finalization.ts';
+import { buildRoundResolvedPayload, buildRoundWaitingPayload, getCorpIdsFromParticipants, collectParticipantIds } from './combat_events.ts';
 import { buildSectorSnapshot } from './map.ts';
+import { computeEventRecipients } from './visibility.ts';
 import {
   CombatEncounterState,
   RoundActionState,
@@ -75,9 +76,9 @@ export async function resolveEncounterRound(options: {
   encounter.pending_actions = {};
   encounter.awaiting_resolution = false;
 
-  const recipients = collectRecipients(encounter);
+  const recipients = collectParticipantIds(encounter);
 
-  await broadcastEvent({
+  await broadcastCombatEvent({
     supabase,
     recipients,
     encounter,
@@ -92,11 +93,12 @@ export async function resolveEncounterRound(options: {
     encounter.end_state = outcome.end_state;
     encounter.deadline = null;
 
-    const salvage = await finalizeCombat(supabase, encounter, outcome, requestId);
+    const { salvageEntries, deferredDeletions } = await finalizeCombat(supabase, encounter, outcome, requestId);
 
     console.log('combat_resolution.broadcasting_ended', { combat_id: encounter.combat_id, recipients: recipients.length });
 
     // Send personalized combat.ended event to each participant with their own ship data
+    // NO CORP VISIBILITY for combat.ended - personalized payload would corrupt client state
     // (matches legacy pattern from game-server/combat/callbacks.py:394-412)
     const { buildCombatEndedPayloadForViewer } = await import('./combat_events.ts');
     for (const recipient of recipients) {
@@ -104,7 +106,7 @@ export async function resolveEncounterRound(options: {
         supabase,
         encounter,
         outcome,
-        salvage,
+        salvageEntries,
         encounter.logs ?? [],
         recipient,
       );
@@ -118,6 +120,11 @@ export async function resolveEncounterRound(options: {
         sectorId: encounter.sector_id,
         requestId,
       });
+    }
+
+    // Execute deferred corp ship deletions AFTER combat.ended events are emitted
+    if (deferredDeletions.length > 0) {
+      await executeCorpShipDeletions(supabase, deferredDeletions);
     }
 
     // Emit sector.update to all sector occupants after combat ends
@@ -150,7 +157,7 @@ export async function resolveEncounterRound(options: {
     const waitingPayload = buildRoundWaitingPayload(encounter);
     waitingPayload.source = buildEventSource('combat.round_waiting', requestId);
 
-    await broadcastEvent({
+    await broadcastCombatEvent({
       supabase,
       recipients,
       encounter,
@@ -208,19 +215,11 @@ function buildTimeoutActions(encounter: CombatEncounterState): Record<string, Ro
   return actions;
 }
 
-function collectRecipients(encounter: CombatEncounterState): string[] {
-  const ids: Set<string> = new Set();
-  for (const participant of Object.values(encounter.participants)) {
-    if (participant.combatant_type !== 'character') {
-      continue;
-    }
-    const key = participant.owner_character_id ?? participant.combatant_id;
-    ids.add(key);
-  }
-  return Array.from(ids);
-}
-
-async function broadcastEvent(params: {
+/**
+ * Broadcast non-personalized combat events (combat.round_waiting, combat.round_resolved)
+ * with corp visibility. Uses unified recipient computation.
+ */
+async function broadcastCombatEvent(params: {
   supabase: SupabaseClient;
   recipients: string[];
   encounter: CombatEncounterState;
@@ -230,25 +229,31 @@ async function broadcastEvent(params: {
 }): Promise<void> {
   const { supabase, recipients, encounter, eventType, payload, requestId } = params;
 
-  await Promise.all(
-    recipients.map((recipient) =>
-      emitCharacterEvent({
-        supabase,
-        characterId: recipient,
-        eventType,
-        payload,
-        sectorId: encounter.sector_id,
-        requestId,
-      }),
-    ),
-  );
+  // Extract corp IDs from all participants (including garrisons)
+  const corpIds = getCorpIdsFromParticipants(encounter.participants);
 
-  await emitSectorEnvelope({
+  // Compute ALL recipients: participants + sector observers + corp members (deduped)
+  const allRecipients = await computeEventRecipients({
     supabase,
     sectorId: encounter.sector_id,
+    corpIds,
+    directRecipients: recipients,
+  });
+
+  if (allRecipients.length === 0) {
+    return;
+  }
+
+  // Single emission to all unique recipients
+  await recordEventWithRecipients({
+    supabase,
     eventType,
+    scope: 'sector',
     payload,
     requestId,
+    sectorId: encounter.sector_id,
+    actorCharacterId: null, // System-originated
+    recipients: allRecipients,
   });
 }
 
