@@ -24,6 +24,6 @@ RUN mkdir -p gradientbang && touch gradientbang/__init__.py
 COPY src/gradientbang/game_server/ gradientbang/game_server/
 COPY src/gradientbang/utils/ gradientbang/utils/
 COPY src/gradientbang/scripts/ gradientbang/scripts/
-COPY src/gradientbang/pipecat_server/voice_task_manager.py gradientbang/pipecat_server/voice_task_manager.py
+COPY src/gradientbang/pipecat_server/ gradientbang/pipecat_server/
 
 COPY src/gradientbang/pipecat_server/bot.py bot.py

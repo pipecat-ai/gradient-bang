@@ -21,7 +21,6 @@ The projects demonstrates the full capabilities of realtime agentic workflows, s
 - (Optional) **[Pipecat Cloud Account](https://docs.pipecat.ai/deployment/pipecat-cloud/introduction)**: Production agent hosting
 - (Optional) - **[Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started)**: If you cannot use `npx`, install the CLI globally instead
 
-
 ## Local dev setup
 
 > [!NOTE]
@@ -32,7 +31,7 @@ The projects demonstrates the full capabilities of realtime agentic workflows, s
 This may take some time on first run as required images are downloaded.
 
 ```bash
-npx supabase start --workdir deployment/ 
+npx supabase start --workdir deployment/
 ```
 
 #### Create `.env.supabase` in project root
@@ -185,7 +184,7 @@ Install Python dependencies:
 uv sync --all-groups
 ```
 
-Create `.env.bot` file. 
+Create `.env.bot` file.
 
 _Note: Keep `BOT_USE_KRISP` to `0` in local dev ([see here](https://docs.pipecat.ai/deployment/pipecat-cloud/guides/krisp-viva#local-development))_
 
@@ -222,15 +221,14 @@ You can create a `.env` in the `client/app` directory to specify your Supabase U
 VITE_SERVER_URL=http://127.0.0.1:54321/functions/v1
 ```
 
-## Deployment 
+## Deployment
 
-If you want to run your own game world in the cloud, you will need a Supabase project. 
+If you want to run your own game world in the cloud, you will need a Supabase project.
 
 ### Create a new Supabase project
 
 > [!NOTE]
 > You can create a Supabase project via the [Supabase Dashboard](https://app.supabase.com) or using the comman line below.
-
 
 ```bash
 npx supabase login
@@ -282,7 +280,7 @@ set -a && source .env.cloud && set +a
 
 Apply all SQL migrations to the linked project
 
-```bash 
+```bash
 npx supabase migration up --workdir deployment/ --db-url "$POSTGRES_POOLER_URL"
 ```
 
@@ -308,7 +306,7 @@ Deploy edge functions to your Supabase project. You will see warnings about deco
 npx supabase functions deploy --workdir deployment/
 ```
 
-Add required secrets. Ignore the warnings about the SUPABASE_ variables. They are set automatically in the project.
+Add required secrets. Ignore the warnings about the SUPABASE\_ variables. They are set automatically in the project.
 
 ```bash
 npx supabase secrets set --env-file .env.cloud
@@ -336,7 +334,6 @@ Now load it into your Supabase project:
 uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data/
 ```
 
-
 ### Deploy bot to Pipecat Cloud
 
 Create `.env.bot`
@@ -345,11 +342,15 @@ Create `.env.bot`
 DEEPGRAM_API_KEY=...
 CARTESIA_API_KEY=...
 GOOGLE_API_KEY=...
+
 SUPABASE_URL=https://{SUPABASE_PROJECT_ID}.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=...
+EDGE_API_TOKEN=...
+
+BOT_USE_KRISP=1
+
 # Optional:
 TOKEN_USAGE_LOG=logs/token_usage.csv
-BOT_USE_KRISP=1
 ```
 
 Create a new secret set on Pipecat Cloud:
@@ -358,7 +359,7 @@ Create a new secret set on Pipecat Cloud:
 pipecat cloud secrets set gb-bot-secrets --file .env.bot
 ```
 
-Build and deploy bot 
+Build and deploy bot
 
 Note: create image pull credentials if publishing to a private repository
 
@@ -367,7 +368,7 @@ docker build -f deployment/Dockerfile.bot -t gb-bot:latest .
 docker push gb-bot:latest
 
 cd deployment/
-pipecat cloud deploy 
+pipecat cloud deploy
 # ... or if public
 # pipecat cloud deploy --no-credentials
 ```
