@@ -8,6 +8,7 @@ import {
 import { subscribeWithSelector } from "zustand/middleware"
 
 import type { DiamondFXController } from "@/fx/frame"
+import usePipecatClientStore from "@/stores/client"
 
 import { type ChatSlice, createChatSlice } from "./chatSlice"
 import { type CombatSlice, createCombatSlice } from "./combatSlice"
@@ -15,6 +16,8 @@ import { createHistorySlice, type HistorySlice } from "./historySlice"
 import { createSettingsSlice, type SettingsSlice } from "./settingsSlice"
 import { createTaskSlice, type TaskSlice } from "./taskSlice"
 import { createUISlice, type UISlice } from "./uiSlice"
+
+import type { ActionType, GameAction } from "@/types/actions"
 
 type WithSelectors<S> = S extends { getState: () => infer T }
   ? S & { use: { [K in keyof T]: () => T[K] } }
@@ -43,12 +46,24 @@ export const GameInitStateMessage = {
   READY: "Game ready!",
 } as const
 
+type FetchPromiseEntry = {
+  promise: Promise<void>
+  resolve: () => void
+  reject: (error?: unknown) => void
+}
+
+interface ActiveProperty<T> {
+  data: T | undefined
+  last_updated: string | null
+}
+
 export interface GameState {
   player: PlayerSelf
   corporation?: Corporation
   character_id?: string
   access_token?: string
   ship: ShipSelf
+  ships: ActiveProperty<ShipSelf[]>
   sector?: Sector
   local_map_data?: MapData
   regional_map_data?: MapData
@@ -66,6 +81,8 @@ export interface GameState {
   /* Game State */
   gameState: GameInitState
   gameStateMessage?: string
+  fetchPromises: Partial<Record<ActionType, FetchPromiseEntry>>
+  dispatchAction: (action: GameAction) => Promise<void> | undefined
 }
 
 export interface GameSlice extends GameState {
@@ -75,13 +92,14 @@ export interface GameSlice extends GameState {
   setCharacterAndToken: (characterId: string, accessToken: string) => void
   addMessage: (message: ChatMessage) => void
   setPlayer: (player: Partial<PlayerSelf>) => void
+  setShip: (ship: Partial<ShipSelf>) => void
+  setShips: (ships: ShipSelf[]) => void
   setSector: (sector: Sector) => void
   setCorporation: (corporation: Corporation) => void
   updateSector: (sector: Partial<Sector>) => void
   addSectorPlayer: (player: Player) => void
   removeSectorPlayer: (player: Player) => void
   setSectorBuffer: (sector: Sector) => void
-  setShip: (ship: Partial<ShipSelf>) => void
   setLocalMapData: (localMapData: MapData) => void
   setRegionalMapData: (regionalMapData: MapData) => void
   setCoursePlot: (coursePlot: CoursePlot) => void
@@ -95,6 +113,9 @@ export interface GameSlice extends GameState {
   triggerAlert: (_ype: AlertTypes) => void
   setGameState: (gameState: GameInitState) => void
   setGameStateMessage: (gameStateMessage: string) => void
+  createFetchPromise: (actionType: ActionType) => Promise<void>
+  resolveFetchPromise: (actionType: ActionType) => void
+  rejectFetchPromise: (actionType: ActionType, error?: unknown) => void
 }
 
 const createGameSlice: StateCreator<
@@ -114,6 +135,7 @@ const createGameSlice: StateCreator<
   character_id: undefined,
   access_token: undefined,
   ship: {} as ShipSelf,
+  ships: { data: undefined, last_updated: null },
   sector: undefined,
   local_map_data: undefined, // @TODO: move to map slice
   regional_map_data: undefined, // @TODO: move to map slice
@@ -126,6 +148,32 @@ const createGameSlice: StateCreator<
   alertTransfer: 0,
   gameState: "not_ready",
   gameStateMessage: GameInitStateMessage.INIT,
+  fetchPromises: {},
+  dispatchAction: (action: GameAction) => {
+    const client = usePipecatClientStore.getState().client
+
+    if (!client) {
+      console.error("[GAME CLIENT] Client not available")
+      return
+    }
+    if (client.state !== "ready") {
+      console.error(
+        `[GAME CLIENT] Client not ready. Current state: ${client.state}`
+      )
+      return
+    }
+    const payload = "payload" in action ? action.payload : {}
+    console.debug(`[GAME CLIENT] Dispatching action: "${action.type}"`, payload)
+
+    let pendingPromise: Promise<void> | undefined
+    if (action.async) {
+      console.debug("[GAME CONTEXT] Action is async, creating promise")
+      pendingPromise = get().createFetchPromise(action.type)
+    }
+
+    client.sendClientMessage(action.type, payload)
+    return pendingPromise
+  },
 
   setCharacterId: (characterId: string) => set({ character_id: characterId }),
   setAccessToken: (accessToken: string) => set({ access_token: accessToken }),
@@ -136,10 +184,64 @@ const createGameSlice: StateCreator<
   setState: (newState: Partial<GameState>) =>
     set({ ...get(), ...newState }, true),
 
+  createFetchPromise: (actionType: ActionType) => {
+    const existing = get().fetchPromises[actionType]
+    if (existing) {
+      return existing.promise
+    }
+
+    let resolve!: () => void
+    let reject!: (error?: unknown) => void
+    const promise = new Promise<void>((resolveFn, rejectFn) => {
+      resolve = resolveFn
+      reject = rejectFn
+    })
+
+    set(
+      produce((state) => {
+        state.fetchPromises[actionType] = { promise, resolve, reject }
+      })
+    )
+
+    return promise
+  },
+
+  resolveFetchPromise: (actionType: ActionType) => {
+    const entry = get().fetchPromises[actionType]
+    if (!entry) return
+    entry.resolve()
+    set(
+      produce((state) => {
+        delete state.fetchPromises[actionType]
+      })
+    )
+  },
+
+  rejectFetchPromise: (actionType: ActionType, error?: unknown) => {
+    const entry = get().fetchPromises[actionType]
+    if (!entry) return
+    entry.reject(error)
+    set(
+      produce((state) => {
+        delete state.fetchPromises[actionType]
+      })
+    )
+  },
+
   setPlayer: (player: Partial<PlayerSelf>) =>
     set(
       produce((state) => {
         state.player = { ...state.player, ...player }
+      })
+    ),
+
+  setShips: (ships: ShipSelf[]) =>
+    set(
+      produce((state) => {
+        state.ships = {
+          data: ships,
+          last_updated: new Date().toISOString(),
+        }
       })
     ),
 
@@ -224,7 +326,7 @@ const createGameSlice: StateCreator<
         state.regional_map_data = regionalMapData
       })
     ),
- 
+
   setShip: (ship: Partial<Ship>) =>
     set(
       produce((state) => {

@@ -56,30 +56,29 @@ export interface TaskFinishMessage extends ServerMessagePayload {
 }
 
 export interface TaskStartMessage extends ServerMessagePayload {
-  task_id: string;
-  task_description?: string;
-  task_status?: string;
-  actor_character_id?: string;
-  actor_character_name?: string;
-  task_scope?: "player_ship" | "corp_ship";
-  ship_id?: string;
-  ship_name?: string | null;
-  ship_type?: string | null;
+  task_id: string
+  task_description?: string
+  task_status?: string
+  actor_character_id?: string
+  actor_character_name?: string
+  task_scope?: "player_ship" | "corp_ship"
+  ship_id?: string
+  ship_name?: string | null
+  ship_type?: string | null
 }
 
 export interface TaskFinishMessage extends ServerMessagePayload {
-  task_id: string;
-  task_summary?: string;
-  task_status?: string;
-  actor_character_id?: string;
-  actor_character_name?: string;
-  task_scope?: "player_ship" | "corp_ship";
-  ship_id?: string;
-  ship_name?: string | null;
-  ship_type?: string | null;
+  task_id: string
+  task_summary?: string
+  task_status?: string
+  actor_character_id?: string
+  actor_character_name?: string
+  task_scope?: "player_ship" | "corp_ship"
+  ship_id?: string
+  ship_name?: string | null
+  ship_type?: string | null
 }
-export interface IncomingChatMessage
-  extends ServerMessagePayload, ChatMessage {}
+export interface IncomingChatMessage extends ServerMessagePayload, ChatMessage {}
 
 export interface StatusMessage extends ServerMessagePayload {
   player: PlayerSelf
@@ -226,8 +225,7 @@ export interface CombatRoundWaitingMessage extends ServerMessagePayload {
   initiator?: string
 }
 
-export interface CombatRoundResolvedMessage
-  extends ServerMessagePayload, CombatRound {}
+export interface CombatRoundResolvedMessage extends ServerMessagePayload, CombatRound {}
 
 export interface ShipDestroyedMessage extends ServerMessagePayload {
   ship_id: string
@@ -241,14 +239,14 @@ export interface ShipDestroyedMessage extends ServerMessagePayload {
 }
 
 export interface ShipDestroyedMessage extends ServerMessagePayload {
-  ship_id: string;
-  ship_type: string;
-  ship_name: string | null;
-  player_type: "human" | "corporation_ship";
-  player_name: string;
-  sector: Sector;
-  combat_id: string;
-  salvage_created: boolean;
+  ship_id: string
+  ship_type: string
+  ship_name: string | null
+  player_type: "human" | "corporation_ship"
+  player_name: string
+  sector: Sector
+  combat_id: string
+  salvage_created: boolean
 }
 
 // --- Task History Messages
@@ -298,7 +296,7 @@ export interface ShipSummary {
 }
 
 export interface ShipsListMessage extends ServerMessagePayload {
-  ships: ShipSummary[]
+  ships: ShipSelf[]
 }
 
 // --- Event Query Messages (for task events)

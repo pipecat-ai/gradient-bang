@@ -2,11 +2,8 @@ import { produce } from "immer"
 import type { StateCreator } from "zustand"
 
 import { createLogEntrySignature } from "@/utils/game"
-import type {
-  TaskHistoryEntry,
-  ShipSummary,
-  EventQueryEntry,
-} from "@/types/messages"
+
+import type { EventQueryEntry, TaskHistoryEntry } from "@/types/messages"
 
 const MAX_MOVEMENT_HISTORY = 50
 
@@ -23,10 +20,6 @@ export interface HistorySlice {
   // Task history from server
   task_history: TaskHistoryEntry[] | undefined
   setTaskHistory: (tasks: TaskHistoryEntry[]) => void
-
-  // User's ships (personal + corporation)
-  user_ships: ShipSummary[] | undefined
-  setUserShips: (ships: ShipSummary[]) => void
 
   // Task events (from event.query)
   task_events: EventQueryEntry[] | undefined
@@ -95,13 +88,6 @@ export const createHistorySlice: StateCreator<HistorySlice> = (set) => ({
     set(
       produce((state) => {
         state.task_history = tasks
-      })
-    ),
-
-  setUserShips: (ships: ShipSummary[]) =>
-    set(
-      produce((state) => {
-        state.user_ships = ships
       })
     ),
 

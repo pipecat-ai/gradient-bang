@@ -141,21 +141,40 @@
   --bracket-offset: calc(--value(integer) * 1px * -1);
 }
 
-@utility bg-dotted-* {
-  --dot-gap: --value(--dot-gap-*);
-  --dot-size: --value(--dot-size-*);
-  --dot-color: --value(--color-*, [color], --dot-color);
-  --dot-opacity: calc(--modifier(integer) * 1%);
+/**
+ * Dotted Background
+ */
+@utility dotted-bg {
+  background-color: currentColor;
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='5' height='5'%3E%3Crect width='2' height='2' fill='white'/%3E%3C/svg%3E");
+  mask-size: 5px 5px;
+  mask-repeat: repeat;
+}
 
-  background-image: radial-gradient(
-    circle,
-    color-mix(in srgb, var(--dot-color) var(--dot-opacity), transparent)
-      var(--dot-size),
-    transparent var(--dot-size)
-  );
-  background-size: var(--dot-gap) var(--dot-gap);
-  background-position: 0 0;
-  background-repeat: repeat;
+@utility dotted-bg-sm {
+  background-color: currentColor;
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='5' height='5'%3E%3Crect width='2' height='2' fill='white'/%3E%3C/svg%3E");
+  mask-size: 5px 5px;
+  mask-repeat: repeat;
+}
+
+@utility dotted-bg-md {
+  background-color: currentColor;
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6'%3E%3Crect width='3' height='3' fill='white'/%3E%3C/svg%3E");
+  mask-size: 6px 6px;
+  mask-repeat: repeat;
+}
+
+@utility dotted-bg-lg {
+  background-color: currentColor;
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3Crect width='4' height='4' fill='white'/%3E%3C/svg%3E");
+  mask-size: 8px 8px;
+  mask-repeat: repeat;
+}
+
+@utility dotted-bg-* {
+  color: --value(--color-*);
+  opacity: calc(--modifier(integer) * 1%);
 }
 
 @utility heading-* {

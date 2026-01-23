@@ -34,14 +34,17 @@ export interface CancelTaskAction {
   type: "cancel-task"
   payload: { task_id: string }
 }
-// Discriminated union of all actions
-export type GameAction =
+
+type ActionMeta = { async?: boolean }
+
+export type GameAction = (
   | StartAction
   | GetMyStatusAction
   | GetKnownPortListAction
   | GetMapRegionAction
   | GetMyShipsAction
   | CancelTaskAction
+) &
+  ActionMeta
 
-// Extract action types for use in selects, etc.
 export type ActionType = GameAction["type"]

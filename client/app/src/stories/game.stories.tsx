@@ -33,7 +33,6 @@ export const Init: Story = () => {
     ["Get My Status"]: button(() => dispatchAction({ type: "get-my-status" })),
     ["Get Known Port List"]: button(() => dispatchAction({ type: "get-known-ports" })),
     ["Get My Map"]: button(() => dispatchAction({ type: "get-my-map", payload: { center_sector: sector?.id ?? 0 } })),
-    ["Get My Ships"]: button(() => dispatchAction({ type: "get-my-ships" })),
   })
 
   // Filter in the component

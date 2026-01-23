@@ -13,7 +13,7 @@ import {
   transferSummaryString,
 } from "@/utils/game"
 
-import type { GameAction, StartAction } from "./types/actions"
+import type { StartAction } from "./types/actions"
 import { RESOURCE_SHORT_NAMES } from "./types/constants"
 
 import {
@@ -56,6 +56,7 @@ interface GameProviderProps {
 export function GameProvider({ children, onConnect }: GameProviderProps) {
   const gameStore = useGameStore()
   const client = usePipecatClient()
+  const dispatchAction = useGameStore((state) => state.dispatchAction);
 
   /**
    * Send user text input to server
@@ -83,31 +84,6 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
     // @ts-expect-error - Dev-only console helper
     globalThis.sendUserTextInput = sendUserTextInput
   }
-
-  /**
-   * Dispatch game action to server
-   */
-  const dispatchAction = useCallback(
-    (action: GameAction) => {
-      if (!client) {
-        console.error("[GAME CONTEXT] Client not available")
-        return
-      }
-      if (client.state !== "ready") {
-        console.error(
-          `[GAME CONTEXT] Client not ready. Current state: ${client.state}`
-        )
-        return
-      }
-      const payload = "payload" in action ? action.payload : {}
-      console.debug(
-        `[GAME CONTEXT] Dispatching action: "${action.type}"`,
-        payload
-      )
-      client.sendClientMessage(action.type, payload)
-    },
-    [client]
-  )
 
   // Dev-only: Expose to console using globalThis
   if (import.meta.env.DEV) {
@@ -727,8 +703,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             }
 
             case "task.start": {
-              console.debug("[GAME EVENT] Task start", gameEvent.payload)
-              const data = gameEvent.payload as TaskStartMessage
+              console.debug("[GAME EVENT] Task start", e.payload)
+              const data = e.payload as TaskStartMessage
               if (data.task_id) {
                 gameStore.addActiveTask({
                   task_id: data.task_id,
@@ -746,8 +722,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             }
 
             case "task.finish": {
-              console.debug("[GAME EVENT] Task finish", gameEvent.payload)
-              const data = gameEvent.payload as TaskFinishMessage
+              console.debug("[GAME EVENT] Task finish", e.payload)
+              const data = e.payload as TaskFinishMessage
               if (data.task_id) {
                 gameStore.removeActiveTask(data.task_id)
               }
@@ -798,37 +774,6 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               break
             }
 
-            case "task.start": {
-              console.debug("[GAME EVENT] Task start", e.payload)
-              const data = e.payload as TaskStartMessage
-              if (data.task_id) {
-                gameStore.addActiveTask({
-                  task_id: data.task_id,
-                  task_description: data.task_description,
-                  started_at: data.source?.timestamp || new Date().toISOString(),
-                  actor_character_id: data.actor_character_id,
-                  actor_character_name: data.actor_character_name,
-                  task_scope: data.task_scope,
-                  ship_id: data.ship_id,
-                  ship_name: data.ship_name,
-                  ship_type: data.ship_type,
-                })
-              }
-              break
-            }
-
-            case "task.finish": {
-              console.debug("[GAME EVENT] Task finish", e.payload)
-              const data = e.payload as TaskFinishMessage
-              if (data.task_id) {
-                gameStore.removeActiveTask(data.task_id)
-              }
-              if (data.task_status === "cancelled") {
-                gameStore.setTaskWasCancelled(true)
-              }
-              break
-            }
-
             case "task_complete": {
               console.debug("[GAME EVENT] Task complete", e.payload)
               const data = e.payload as TaskCompleteMessage
@@ -859,7 +804,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             case "ships.list": {
               console.debug("[GAME EVENT] Ships list", e.payload)
               const data = e.payload as ShipsListMessage
-              gameStore.setUserShips(data.ships)
+              gameStore.setShips(data.ships)
+              gameStore.resolveFetchPromise("get-my-ships")
               break
             }
 

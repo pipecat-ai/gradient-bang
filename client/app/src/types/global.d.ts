@@ -21,14 +21,14 @@ declare global {
     ship: Ship
   }
 
-   // --- CORPORATION
+  // --- CORPORATION
 
-   interface Corporation {
+  interface Corporation {
     corp_id: string
     name: string
     member_count: number
     joined_at: string
-   }
+  }
 
   // --- RESOURCE
 
@@ -45,10 +45,11 @@ declare global {
     shields?: number
     max_shields?: number
     max_fighters?: number
+    owner_type: "personal" | "corporation" | "unowned"
+    current_task_id?: string | null
   }
 
   interface ShipSelf extends Ship {
-    ship_id: string
     cargo: Record<Resource, number>
     cargo_capacity: number
     empty_holds: number
@@ -71,12 +72,7 @@ declare global {
 
   // --- REGION AND SECTOR
   interface Region {
-    id:
-      | "core_worlds"
-      | "trade_federation"
-      | "frontier"
-      | "pirate_space"
-      | "neutral_zone"
+    id: "core_worlds" | "trade_federation" | "frontier" | "pirate_space" | "neutral_zone"
     name: string
     safe: boolean
   }
@@ -155,13 +151,13 @@ declare global {
     id: number
     port?: string
     lanes: MapLane[]
-    source?: 'player' | 'corp' | 'both'
+    source?: "player" | "corp" | "both"
     visited?: boolean
     position: [number, number]
     last_visited?: string
     adjacent_sectors?: number[]
     hops_from_center?: number
-    
+
     region?: string //@TODO: Unused
     is_mega?: boolean //@TODO: Unused
   }
@@ -193,12 +189,7 @@ declare global {
 
   type UIState = "idle" | "moving" | "combat" | "paused"
   type UIScreen = "self" | "messaging" | "trading" | "map" | "tasks" | "combat"
-  type UIModal =
-    | "settings"
-    | "leaderboard"
-    | "signup"
-    | "character_select"
-    | undefined
+  type UIModal = "settings" | "leaderboard" | "signup" | "character_select" | undefined
 
   // --- COMBAT
 
