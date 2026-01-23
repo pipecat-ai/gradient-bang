@@ -30,13 +30,18 @@ export interface GetMyShipsAction {
   type: "get-my-ships";
 }
 
+export interface CancelTaskAction {
+  type: "cancel-task";
+  payload: { task_id: string };
+}
 // Discriminated union of all actions
 export type GameAction =
   | StartAction
   | GetMyStatusAction
   | GetKnownPortListAction
   | GetMapRegionAction
-  | GetMyShipsAction;
+  | GetMyShipsAction
+  | CancelTaskAction;
 
 // Extract action types for use in selects, etc.
 export type ActionType = GameAction["type"];

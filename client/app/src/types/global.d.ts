@@ -4,7 +4,6 @@ declare global {
   interface PlayerBase {
     id: string
     name: string
-    player_type: "npc" | "human"
     last_active?: string
     created_at?: string
   }
@@ -18,7 +17,7 @@ declare global {
   }
 
   interface Player extends PlayerBase {
-    player_type: "npc" | "human"
+    player_type: "npc" | "human" | "corporation_ship"
     ship: Ship
   }
 
