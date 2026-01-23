@@ -35,6 +35,8 @@ from gradientbang.utils.summary_formatters import (
     task_start_summary,
     trade_executed_summary,
     transfer_summary,
+    ship_renamed_summary,
+    ships_list_summary,
 )
 
 
@@ -236,7 +238,9 @@ class AsyncGameClient:
             "warp.transfer": transfer_summary,
             "chat.message": chat_message_summary,
             "port.update": port_update_summary,
+            "ships.list": ships_list_summary,
             "character.moved": character_moved_wrapper,
+            "ship.renamed": ship_renamed_summary,
             "combat.round_waiting": combat_round_waiting_summary,
             "combat.action_accepted": combat_action_accepted_summary,
             "combat.round_resolved": combat_round_resolved_summary,
@@ -1313,6 +1317,35 @@ class AsyncGameClient:
 
         return await self._request("ship.purchase", payload)
 
+    async def rename_ship(
+        self,
+        *,
+        ship_name: str,
+        ship_id: Optional[str] = None,
+        character_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Rename a ship you own or a corporation ship you control."""
+
+        if not isinstance(ship_name, str) or not ship_name.strip():
+            raise ValueError("ship_name must be a non-empty string")
+
+        if character_id is None:
+            character_id = self._character_id
+        if character_id != self._character_id:
+            raise ValueError(
+                f"AsyncGameClient is bound to character_id {self._character_id!r}; "
+                f"received {character_id!r}"
+            )
+
+        payload: Dict[str, Any] = {
+            "character_id": character_id,
+            "ship_name": ship_name,
+        }
+        if ship_id is not None:
+            payload["ship_id"] = ship_id
+
+        return await self._request("ship.rename", payload)
+
     # DEPRECATED
     async def my_map(self, character_id: str) -> Dict[str, Any]:
         """Request cached map knowledge for the character.
@@ -1548,16 +1581,20 @@ class AsyncGameClient:
     async def transfer_warp_power(
         self,
         *,
-        to_player_name: str,
         units: int,
         character_id: str,
+        to_player_name: Optional[str] = None,
+        to_ship_id: Optional[str] = None,
+        to_ship_name: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Transfer warp power to another character in the same sector.
+        """Transfer warp power to another ship in the same sector.
 
         Args:
-            to_player_name: Display name of the recipient in the same sector
             units: Number of warp power units to transfer
             character_id: Character transferring warp power (must match bound ID)
+            to_player_name: Display name of the recipient in the same sector
+            to_ship_id: Ship UUID for the recipient ship
+            to_ship_name: Unique ship name for the recipient ship
 
         Returns:
             Minimal RPC acknowledgment (transfer data arrives via ``warp.transfer``)
@@ -1572,14 +1609,25 @@ class AsyncGameClient:
                 f"received {character_id!r}"
             )
 
-        if not isinstance(to_player_name, str) or not to_player_name.strip():
-            raise ValueError("to_player_name must be a non-empty string")
+        if not to_player_name and not to_ship_id and not to_ship_name:
+            raise ValueError("Must provide to_player_name, to_ship_id, or to_ship_name")
 
-        payload = {
+        payload: Dict[str, Any] = {
             "from_character_id": character_id,
             "units": units,
-            "to_player_name": to_player_name,
         }
+        if to_player_name:
+            if not isinstance(to_player_name, str) or not to_player_name.strip():
+                raise ValueError("to_player_name must be a non-empty string")
+            payload["to_player_name"] = to_player_name
+        if to_ship_id:
+            if not isinstance(to_ship_id, str) or not to_ship_id.strip():
+                raise ValueError("to_ship_id must be a non-empty string")
+            payload["to_ship_id"] = to_ship_id
+        if to_ship_name:
+            if not isinstance(to_ship_name, str) or not to_ship_name.strip():
+                raise ValueError("to_ship_name must be a non-empty string")
+            payload["to_ship_name"] = to_ship_name
 
         ack = await self._request("transfer_warp_power", payload)
         return ack
@@ -1587,16 +1635,20 @@ class AsyncGameClient:
     async def transfer_credits(
         self,
         *,
-        to_player_name: str,
         amount: int,
         character_id: str,
+        to_player_name: Optional[str] = None,
+        to_ship_id: Optional[str] = None,
+        to_ship_name: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Transfer on-hand credits to another character in the same sector.
+        """Transfer on-hand credits to another ship in the same sector.
 
         Args:
-            to_player_name: Display name of the recipient in the same sector
             amount: Credits to transfer (must be positive)
             character_id: Sender's character ID
+            to_player_name: Display name of the recipient in the same sector
+            to_ship_id: Ship UUID for the recipient ship
+            to_ship_name: Unique ship name for the recipient ship
 
         Returns:
             Success response dict
@@ -1612,11 +1664,27 @@ class AsyncGameClient:
                 f"received {character_id!r}"
             )
 
-        payload = {
+        if not to_player_name and not to_ship_id and not to_ship_name:
+            raise ValueError("Must provide to_player_name, to_ship_id, or to_ship_name")
+
+        payload: Dict[str, Any] = {
             "from_character_id": character_id,
-            "to_player_name": to_player_name,
             "amount": amount,
         }
+
+        if to_player_name:
+            if not isinstance(to_player_name, str) or not to_player_name.strip():
+                raise ValueError("to_player_name must be a non-empty string")
+            payload["to_player_name"] = to_player_name
+        if to_ship_id:
+            if not isinstance(to_ship_id, str) or not to_ship_id.strip():
+                raise ValueError("to_ship_id must be a non-empty string")
+            payload["to_ship_id"] = to_ship_id
+        if to_ship_name:
+            if not isinstance(to_ship_name, str) or not to_ship_name.strip():
+                raise ValueError("to_ship_name must be a non-empty string")
+            payload["to_ship_name"] = to_ship_name
+
         return await self._request("transfer_credits", payload)
 
     async def deposit_to_bank(
@@ -1934,6 +2002,8 @@ class AsyncGameClient:
         content: str,
         msg_type: str = "broadcast",
         to_name: Optional[str] = None,
+        to_ship_id: Optional[str] = None,
+        to_ship_name: Optional[str] = None,
         character_id: str = None,
     ) -> Dict[str, Any]:
         """Send a chat message via WebSocket server.
@@ -1941,7 +2011,9 @@ class AsyncGameClient:
         Args:
             content: Message text (<=512 chars)
             msg_type: "broadcast" or "direct"
-            to_name: Required if msg_type == "direct"
+            to_name: Recipient character name or ship name (required if direct and no ship target)
+            to_ship_id: Ship UUID to message directly
+            to_ship_name: Ship name to message directly
             character_id: Sender (must match bound ID)
 
         Returns:
@@ -1961,9 +2033,14 @@ class AsyncGameClient:
 
         payload = {"character_id": character_id, "type": msg_type, "content": content}
         if msg_type == "direct":
-            if not to_name:
-                raise ValueError("to_name is required for direct messages")
-            payload["to_name"] = to_name
+            if not to_name and not to_ship_id and not to_ship_name:
+                raise ValueError("to_name, to_ship_id, or to_ship_name is required for direct messages")
+            if to_name:
+                payload["to_name"] = to_name
+            if to_ship_id:
+                payload["to_ship_id"] = to_ship_id
+            if to_ship_name:
+                payload["to_ship_name"] = to_ship_name
         ack = await self._request("send_message", payload)
         return ack
 

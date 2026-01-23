@@ -109,7 +109,7 @@ serve(async (req: Request): Promise<Response> => {
       sectorId: ship.current_sector ?? null,
       requestId,
       taskId,
-      corpId: character.corporation_id,
+      scope: "direct",
     });
 
     return successResponse({ request_id: requestId });

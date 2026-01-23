@@ -11,7 +11,6 @@ import {
   emitCharacterEvent,
   emitErrorEvent,
   buildEventSource,
-  emitSectorEnvelope,
 } from "../_shared/events.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import { buildLocalMapRegion, loadMapKnowledge } from "../_shared/map.ts";
@@ -209,15 +208,7 @@ async function handleLocalMapRegion(
     sectorId: centerSector,
     requestId,
     taskId,
-    corpId: character.corporation_id,
-  });
-
-  await emitSectorEnvelope({
-    supabase,
-    sectorId: centerSector,
-    eventType: "map.region",
-    payload: mapRegion,
-    requestId,
+    scope: "direct",
   });
 
   // Return full payload synchronously for TaskAgent, while still emitting event for VoiceTaskManager

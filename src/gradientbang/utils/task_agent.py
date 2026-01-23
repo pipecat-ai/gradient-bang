@@ -101,6 +101,7 @@ from gradientbang.utils.tools_schema import (
     TransferWarpPower,
     PlaceFighters,
     CollectFighters,
+    WaitInIdleState,
     TaskFinished,
     EventQuery,
     PurchaseFighters,
@@ -109,6 +110,7 @@ from gradientbang.utils.tools_schema import (
     LeaveCorporation,
     KickCorporationMember,
     PurchaseShip,
+    RenameShip,
     BankDeposit,
     BankWithdraw,
     TransferCredits,
@@ -154,6 +156,7 @@ ASYNC_TOOL_COMPLETIONS = {
     "event_query": "event.query",  # verbose payload needs summarization for LLM
     "purchase_fighters": "fighter.purchase",
     "purchase_ship": "status.update",
+    "rename_ship": "ship.renamed",
     "bank_deposit": "bank.transaction",
     "bank_withdraw": "bank.transaction",
     "transfer_credits": "credits.transfer",
@@ -303,6 +306,7 @@ class TaskAgent:
         self._task_start_monotonic: Optional[float] = None
         self._context: Optional[LLMContext] = None
         self._last_logged_message_count: int = 0
+        self._idle_wait_event: Optional[asyncio.Event] = None
         self._no_tool_nudge_count: int = 0
         self._no_tool_watchdog_handle: Optional[asyncio.TimerHandle] = None
         self._task_id: Optional[str] = None
@@ -334,12 +338,14 @@ class TaskAgent:
             KickCorporationMember,
             CorporationInfo,
             PurchaseShip,
+            RenameShip,
             BankDeposit,
             BankWithdraw,
             TransferCredits,
             DumpCargo,
             CombatInitiate,
             CombatAction,
+            (WaitInIdleState, {"agent": self}),
             TaskFinished,
         ]
         self.set_tools(tools)
@@ -370,6 +376,7 @@ class TaskAgent:
             "combat.ended",
             "combat.action_accepted",
             "ship.destroyed",
+            "ship.renamed",
             "chat.message",
             "event.query",
             "fighter.purchase",
@@ -450,6 +457,9 @@ class TaskAgent:
             event_text = serialized_payload
         self._output(event_text, TaskOutputType.EVENT)
 
+        if self._idle_wait_event and not self._idle_wait_event.is_set():
+            self._idle_wait_event.set()
+
         # Skip context addition for events from sync tools (data already in tool result)
         if event_name:
             skip_count = self._skip_context_events.get(event_name, 0)
@@ -490,6 +500,15 @@ class TaskAgent:
 
         reason = event_name or "unknown"
         self._record_inference_reason(reason)
+
+        if event_name == "error" and self._awaiting_completion_event:
+            self._awaiting_completion_event = None
+            if self._completion_event_timeout:
+                self._completion_event_timeout.cancel()
+                self._completion_event_timeout = None
+            if not self._llm_inflight:
+                asyncio.create_task(self._schedule_pending_inference())
+            return
 
         # Check if this is the completion event we're waiting for
         if self._awaiting_completion_event and event_name == self._awaiting_completion_event:
@@ -536,6 +555,46 @@ class TaskAgent:
                 handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"Failed to write error event log: {exc}")
+
+    async def wait_in_idle_state(self, seconds: Optional[int] = None) -> Dict[str, Any]:
+        if seconds is None:
+            seconds = 60
+        try:
+            seconds = int(seconds)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("seconds must be an integer between 1 and 60") from exc
+        if seconds < 1 or seconds > 60:
+            raise ValueError("seconds must be between 1 and 60")
+
+        idle_event = asyncio.Event()
+        self._idle_wait_event = idle_event
+        start = time.monotonic()
+
+        try:
+            await asyncio.wait_for(idle_event.wait(), timeout=seconds)
+            elapsed = time.monotonic() - start
+            return {
+                "status": "event_received",
+                "elapsed_seconds": round(elapsed, 2),
+            }
+        except asyncio.TimeoutError:
+            elapsed = time.monotonic() - start
+            await self._handle_event(
+                {
+                    "event_name": "idle.complete",
+                    "payload": {
+                        "elapsed_seconds": round(elapsed, 2),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    },
+                }
+            )
+            return {
+                "status": "idle_complete",
+                "elapsed_seconds": round(elapsed, 2),
+            }
+        finally:
+            if self._idle_wait_event is idle_event:
+                self._idle_wait_event = None
 
     @property
     def short_task_id(self) -> Optional[str]:

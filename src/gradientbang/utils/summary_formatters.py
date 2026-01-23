@@ -7,8 +7,53 @@ reducing token usage when sending tool results to the LLM.
 from datetime import datetime, timezone
 from typing import Callable, Dict, Any, List, Optional, Tuple
 from collections import defaultdict
+import re
 
 from gradientbang.game_server.ships import ShipType, get_ship_stats
+
+_ID_PREFIX_LEN = 6
+_UUID_RE = re.compile(
+    r"[0-9a-fA-F]{8}-"
+    r"[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{12}"
+)
+_BRACKET_HEX_RE = re.compile(r"\[([0-9a-fA-F]{8,})\]")
+_ID_KEY_HINTS = ("ship", "character", "player", "actor", "owner", "target")
+
+
+def _short_id(value: Any, prefix_len: int = _ID_PREFIX_LEN) -> Optional[str]:
+    """Return a short ID prefix for known ID strings."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    return text[:prefix_len]
+
+
+def _shorten_embedded_ids(text: str, prefix_len: int = _ID_PREFIX_LEN) -> str:
+    """Shorten UUIDs or bracketed hex IDs embedded in display names."""
+    if not isinstance(text, str) or not text:
+        return text
+    text = _UUID_RE.sub(lambda match: match.group(0)[:prefix_len], text)
+    text = _BRACKET_HEX_RE.sub(lambda match: f"[{match.group(1)[:prefix_len]}]", text)
+    return text
+
+
+def _should_shorten_id_for_value_key(key: str) -> bool:
+    """Return True when key likely represents a ship/character identifier value."""
+    key_lower = key.lower()
+    if "id" not in key_lower:
+        return False
+    return any(hint in key_lower for hint in _ID_KEY_HINTS)
+
+
+def _should_shorten_id_for_object_key(key: str) -> bool:
+    """Return True when key likely represents a ship/character object."""
+    key_lower = key.lower()
+    return any(hint in key_lower for hint in _ID_KEY_HINTS)
 
 def _format_relative_time(timestamp_str: str) -> str:
     """Format an ISO timestamp as relative time (e.g., '5 minutes ago', '2 hours ago').
@@ -79,6 +124,21 @@ def _format_cargo(cargo: Dict[str, int]) -> str:
     ro = cargo.get("retro_organics", 0)
     ns = cargo.get("neuro_symbolics", 0)
     return f"{qf} QF | {ro} RO | {ns} NS"
+
+
+def _format_holds(ship: Dict[str, Any]) -> str:
+    """Format holds as 'holds N (empty M)'."""
+    cargo = ship.get("cargo") if isinstance(ship, dict) else {}
+    capacity = ship.get("cargo_capacity")
+    used = 0
+    if isinstance(cargo, dict):
+        for value in cargo.values():
+            if isinstance(value, (int, float)):
+                used += int(value)
+    if isinstance(capacity, (int, float)):
+        empty = max(int(capacity) - used, 0)
+        return f"holds {int(capacity)} (empty {empty})"
+    return "holds ?"
 
 
 def _format_port_prices_compact(port: Dict[str, Any]) -> str:
@@ -162,9 +222,9 @@ def _format_players(players: List[Dict[str, Any]]) -> List[str]:
 
     lines = ["Players:"]
     for player in players:
-        name = player.get("name", "unknown")
+        name = _shorten_embedded_ids(player.get("name", "unknown"))
         ship = player.get("ship", {})
-        ship_name = ship.get("ship_name", "unknown")
+        ship_name = _shorten_embedded_ids(ship.get("ship_name", "unknown"))
         ship_type_raw = ship.get("ship_type")
         ship_type = _friendly_ship_type(ship_type_raw)
         corp = player.get("corporation")
@@ -172,11 +232,13 @@ def _format_players(players: List[Dict[str, Any]]) -> List[str]:
         corp_suffix = f" [{corp_name}]" if corp_name else ""
         player_type = player.get("player_type")
         if player_type == "corporation_ship":
-            # Use character name (has UUID suffix) so LLM uses correct name for transfers
-            # Quotes signal the entire string is the name (including bracket suffix)
-            display_name = name or ship_name
+            # Use ship name (not character name) so ship-targeting tools can match.
+            display_name = ship_name or name
+            ship_id = player.get("id")
+            ship_id_prefix = _short_id(ship_id)
+            ship_id_suffix = f" ship_id={ship_id_prefix}" if ship_id_prefix else ""
             lines.append(
-                f'  - Corp ship "{display_name}" ({ship_type}){corp_suffix}'
+                f'  - Corp ship "{display_name}" ({ship_type}){corp_suffix}{ship_id_suffix}'
             )
         else:
             lines.append(
@@ -191,7 +253,7 @@ def _format_garrison(garrison: Dict[str, Any]) -> str:
     if not garrison:
         return "Garrison: None"
 
-    owner = garrison.get("owner_name", "unknown")
+    owner = _shorten_embedded_ids(garrison.get("owner_name", "unknown"))
     fighters = garrison.get("fighters", 0)
     mode = garrison.get("mode", "unknown")
     toll = garrison.get("toll_amount", 0)
@@ -241,6 +303,7 @@ def _status_summary(result: Dict[str, Any], first_line: str) -> str:
 
     # Build summary sections
     player_name = player.get("name") or player.get("display_name") or "Unknown player"
+    player_name = _shorten_embedded_ids(player_name)
     lines = [f"Player: {player_name}", first_line]
 
     if isinstance(corp, dict) and corp.get("name"):
@@ -278,6 +341,7 @@ def _status_summary(result: Dict[str, Any], first_line: str) -> str:
 
         lines.append(exploration_line)
     ship_name = ship.get("ship_name") or ship.get("name") or "unknown ship"
+    ship_name = _shorten_embedded_ids(ship_name)
     ship_type_raw = ship.get("ship_type") or ship.get("ship_type_name")
     ship_type = _friendly_ship_type(ship_type_raw)
     lines.append(f"Ship: {ship_name} ({ship_type})")
@@ -398,8 +462,9 @@ def status_update_summary(result: Dict[str, Any]) -> str:
             credit_part += f" (bank {int(bank_credits)})"
         parts.append(credit_part)
     ship_id = ship.get("ship_id")
-    if isinstance(ship_id, str) and ship_id.strip():
-        parts.append(f"Ship ID {ship_id}")
+    ship_id_prefix = _short_id(ship_id)
+    if ship_id_prefix:
+        parts.append(f"Ship ID {ship_id_prefix}")
     if isinstance(warp, (int, float)) and isinstance(warp_max, (int, float)):
         parts.append(f"Warp {int(warp)}/{int(warp_max)}")
     if isinstance(shields, (int, float)) and isinstance(shields_max, (int, float)):
@@ -580,7 +645,7 @@ def _format_participant_names(event: Dict[str, Any]) -> str:
             if not name and isinstance(entry.get("ship"), dict):
                 name = entry["ship"].get("ship_name")
             if name:
-                names.append(str(name))
+                names.append(_shorten_embedded_ids(str(name)))
     if not names:
         return "unknown opponents"
     if len(names) > 4:
@@ -620,7 +685,8 @@ def combat_action_accepted_summary(event: Dict[str, Any]) -> str:
     if isinstance(commit, (int, float)) and commit not in (0, 0.0):
         detail_parts.append(f"commit={int(commit)}")
     if target:
-        detail_parts.append(f"target={target}")
+        target_display = _short_id(target) if isinstance(target, str) else str(target)
+        detail_parts.append(f"target={target_display}")
     if destination is not None:
         detail_parts.append(f"dest={destination}")
 
@@ -739,9 +805,10 @@ def garrison_combat_alert_summary(event: Dict[str, Any]) -> str:
     garrison = event.get("garrison") if isinstance(event, dict) else {}
     owner_name = None
     if isinstance(garrison, dict):
-        owner_name = garrison.get("owner_name") or garrison.get("owner_id")
+        owner_name = garrison.get("owner_name") or _short_id(garrison.get("owner_id"))
     if not owner_name:
         owner_name = "unknown owner"
+    owner_name = _shorten_embedded_ids(str(owner_name))
 
     combat = event.get("combat") if isinstance(event, dict) else {}
     combat_id = combat.get("combat_id") if isinstance(combat, dict) else None
@@ -920,8 +987,17 @@ def character_moved_summary(
     owner_type = event.get("owner_type", "character")
     owner_corp_id = event.get("owner_corporation_id")
 
-    name = player.get("name") or player.get("id") or event.get("name") or "Unknown"
-    ship_name = ship.get("ship_name") or "unknown ship"
+    name = player.get("name")
+    if not name:
+        name = event.get("name")
+    if not name:
+        name = _short_id(player.get("id")) or "Unknown"
+    name = _shorten_embedded_ids(str(name))
+
+    ship_name_raw = ship.get("ship_name")
+    if not ship_name_raw:
+        ship_name_raw = event.get("ship_name") or ship.get("ship_type") or event.get("ship_type")
+    ship_name = _shorten_embedded_ids(ship_name_raw or "unknown ship")
     movement = event.get("movement")
 
     # Determine movement verb
@@ -938,7 +1014,7 @@ def character_moved_summary(
             corp_desc = "your corp"
         else:
             corp_desc = "another corp"
-        return f'Corp ship "{name}" ({ship_name}) owned by {corp_desc} {verb}.'
+        return f'Corp ship "{ship_name}" owned by {corp_desc} {verb}.'
 
     # Player ship format (no enum string, just display name)
     return f"{name} in {ship_name} {verb}."
@@ -957,7 +1033,8 @@ def garrison_character_moved_summary(
     if not isinstance(garrison, dict):
         return base
 
-    owner_name = garrison.get("owner_name") or garrison.get("owner_id") or "corp member"
+    owner_name = garrison.get("owner_name") or _short_id(garrison.get("owner_id")) or "corp member"
+    owner_name = _shorten_embedded_ids(str(owner_name))
     mode = garrison.get("mode")
     fighters = garrison.get("fighters")
 
@@ -981,8 +1058,8 @@ def transfer_summary(event: Dict[str, Any]) -> str:
     from_data = event.get("from", {})
     to_data = event.get("to", {})
 
-    from_name = from_data.get("name", "unknown")
-    to_name = to_data.get("name", "unknown")
+    from_name = _shorten_embedded_ids(from_data.get("name", "unknown"))
+    to_name = _shorten_embedded_ids(to_data.get("name", "unknown"))
 
     # Build transfer description
     parts = []
@@ -1008,6 +1085,60 @@ def transfer_summary(event: Dict[str, Any]) -> str:
         return f"Received {transfer_desc} from {from_name}."
     else:
         return f"Transfer: {transfer_desc} between {from_name} and {to_name}."
+
+
+def ships_list_summary(event: Dict[str, Any]) -> str:
+    """Summarize ships.list events with short identifiers."""
+    if not isinstance(event, dict):
+        return "Ships list received."
+
+    ships = event.get("ships")
+    if not isinstance(ships, list) or not ships:
+        return "Ships: none."
+
+    lines = [f"Ships: {len(ships)} total."]
+    for ship in ships:
+        if not isinstance(ship, dict):
+            continue
+        name = _shorten_embedded_ids(str(ship.get("name") or "Unnamed Vessel"))
+        ship_type = _friendly_ship_type(ship.get("ship_type"))
+        ship_id_prefix = _short_id(ship.get("ship_id"))
+        id_suffix = f" [{ship_id_prefix}]" if ship_id_prefix else ""
+        sector = ship.get("sector")
+        sector_display = sector if isinstance(sector, int) else "unknown"
+        holds = _format_holds(ship)
+        task_id = ship.get("current_task_id")
+        if isinstance(task_id, str) and task_id:
+            task_display = _short_id(task_id) or task_id
+        else:
+            task_display = "none"
+        details = [
+            f"{name}{id_suffix} ({ship_type}) in sector {sector_display}",
+            holds,
+            f"task {task_display}",
+        ]
+        lines.append("- " + "; ".join(details))
+
+    return "\n".join(lines)
+
+
+def ship_renamed_summary(event: Dict[str, Any]) -> str:
+    """Summarize ship.renamed events."""
+    if not isinstance(event, dict):
+        return "Ship renamed."
+
+    new_name = event.get("ship_name") or event.get("new_name")
+    old_name = event.get("previous_ship_name") or event.get("old_name")
+    if isinstance(new_name, str):
+        new_name = _shorten_embedded_ids(new_name)
+    if isinstance(old_name, str):
+        old_name = _shorten_embedded_ids(old_name)
+
+    if new_name and old_name and new_name != old_name:
+        return f'Renamed ship from \"{old_name}\" to \"{new_name}\".'
+    if new_name:
+        return f'Ship renamed to \"{new_name}\".'
+    return "Ship renamed."
 
 
 def salvage_created_summary(event: Dict[str, Any]) -> str:
@@ -1083,7 +1214,10 @@ def chat_message_summary(event: Dict[str, Any]) -> str:
     """
     msg_type = event.get("type", "unknown")
     from_name = event.get("from_name", event.get("from", "unknown"))
+    from_name = _shorten_embedded_ids(str(from_name))
     content = event.get("content", event.get("message", ""))
+    if isinstance(content, str):
+        content = _shorten_embedded_ids(content)
 
     # Truncate long messages
     max_length = 50
@@ -1094,6 +1228,7 @@ def chat_message_summary(event: Dict[str, Any]) -> str:
         return f"{from_name} (broadcast): {content}"
     elif msg_type == "direct":
         to_name = event.get("to_name", event.get("to", "unknown"))
+        to_name = _shorten_embedded_ids(str(to_name))
         return f"{from_name} → {to_name}: {content}"
     else:
         return f"{from_name}: {content}"
@@ -1172,9 +1307,16 @@ def event_query_summary(
             compact_parts: List[str] = []
             for key, value in list(payload.items())[:5]:
                 if isinstance(value, (str, int, float, bool)):
-                    compact_parts.append(f"{key}={value}")
+                    display_value = value
+                    if isinstance(value, str) and _should_shorten_id_for_value_key(key):
+                        display_value = _short_id(value) or value
+                    compact_parts.append(f"{key}={display_value}")
                 elif isinstance(value, dict) and "id" in value:
-                    compact_parts.append(f"{key}.id={value['id']}")
+                    nested_id = value.get("id")
+                    display_id = nested_id
+                    if isinstance(nested_id, str) and _should_shorten_id_for_object_key(key):
+                        display_id = _short_id(nested_id) or nested_id
+                    compact_parts.append(f"{key}.id={display_id}")
             if compact_parts:
                 lines.append(f"  [{time_str}] {event_name}{task_suffix}: {', '.join(compact_parts)}")
             else:

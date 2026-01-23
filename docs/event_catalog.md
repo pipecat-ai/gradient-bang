@@ -1170,6 +1170,38 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 - `net_cost` = price - trade_in_value (can be negative if downgrading)
 - Balance information not included; clients receive updated balances via `status.update`
 
+### ship.renamed
+**When emitted:** When a ship is renamed (personal or corporation)
+**Who receives it:** Personal ship rename → only the owning character. Corp ship rename → all corp members.
+**Source:** Supabase edge function `ship_rename`
+
+**Payload example:**
+```json
+{
+  "source": {
+    "type": "rpc",
+    "method": "ship_rename",
+    "request_id": "req-rename-01",
+    "timestamp": "2026-01-22T04:10:00.000Z"
+  },
+  "ship_id": "uuid-ship",
+  "ship_type": "kestrel_courier",
+  "ship_name": "Silver Comet",
+  "previous_ship_name": "Kestrel Courier",
+  "owner_type": "character",
+  "owner_character_id": "uuid-owner",
+  "owner_corporation_id": null,
+  "actor_id": "uuid-actor",
+  "actor_name": "Pilot",
+  "timestamp": "2026-01-22T04:10:00.000Z",
+  "changed": true
+}
+```
+
+**Notes:**
+- For personal ships, a `status.update` follows only when the name actually changes.
+- `changed=false` indicates a no-op rename (same name).
+
 ## Corporation Events
 
 ### corporation.ship_purchased

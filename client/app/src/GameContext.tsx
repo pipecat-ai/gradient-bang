@@ -53,20 +53,6 @@ interface GameProviderProps {
   onConnect?: (request: APIRequest) => void
 }
 
-//@TODO: remove this method once game server changes
-const transformMessage = (e: ServerMessage): ServerMessage | undefined => {
-  if (["tool_result", "tool_call"].includes(e.event)) {
-    console.debug(
-      "[GAME EVENT] Transforming server message",
-      e.event,
-      e.payload
-    )
-    console.warn("[GAME EVENT] Removing server message as legacy", e)
-    return undefined
-  }
-  return e
-}
-
 export function GameProvider({ children, onConnect }: GameProviderProps) {
   const gameStore = useGameStore()
   const client = usePipecatClient()
@@ -211,20 +197,13 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
       (e: ServerMessage) => {
         if ("event" in e) {
           console.debug("[GAME EVENT] Server message received", e.event, e)
-          // Transform server message tool call responses to normalized event messages
-          // @TODO: remove this once game server changes
-          const gameEvent = transformMessage(e)
-          if (!gameEvent) {
-            return
-          }
-
-          switch (gameEvent.event) {
+          switch (e.event) {
             // ----- STATUS
             case "status.snapshot":
             case "status.update": {
-              console.debug("[GAME EVENT] Status update", gameEvent.payload)
+              console.debug("[GAME EVENT] Status update", e.payload)
 
-              const status = gameEvent.payload as StatusMessage
+              const status = e.payload as StatusMessage
 
               // Update store
               gameStore.setState({
@@ -247,13 +226,13 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
             // ----- CHARACTERS / NPCS
             case "character.moved": {
-              console.debug("[GAME EVENT] Character moved", gameEvent.payload)
-              const data = gameEvent.payload as CharacterMovedMessage
+              console.debug("[GAME EVENT] Character moved", e.payload)
+              const data = e.payload as CharacterMovedMessage
 
               if (data.movement === "arrive") {
                 console.debug(
                   "[GAME EVENT] Adding player to sector",
-                  gameEvent.payload
+                  e.payload
                 )
                 gameStore.addSectorPlayer(data.player)
                 gameStore.addActivityLogEntry({
@@ -266,7 +245,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               } else if (data.movement === "depart") {
                 console.debug(
                   "[GAME EVENT] Removing player from sector",
-                  gameEvent.payload
+                  e.payload
                 )
                 gameStore.removeSectorPlayer(data.player)
                 gameStore.addActivityLogEntry({
@@ -288,8 +267,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
             // ----- MOVEMENT
             case "movement.start": {
-              console.debug("[GAME EVENT] Move started", gameEvent.payload)
-              const data = gameEvent.payload as MovementStartMessage
+              console.debug("[GAME EVENT] Move started", e.payload)
+              const data = e.payload as MovementStartMessage
 
               const gameStore = useGameStore.getState()
 
@@ -329,8 +308,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             }
 
             case "movement.complete": {
-              console.debug("[GAME EVENT] Move completed", gameEvent.payload)
-              const data = gameEvent.payload as MovementCompleteMessage
+              console.debug("[GAME EVENT] Move completed", e.payload)
+              const data = e.payload as MovementCompleteMessage
 
               // Update ship and player
               // This hydrates things like warp power, player last active, etc.
@@ -398,8 +377,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             }
 
             case "bank.transaction": {
-              console.debug("[GAME EVENT] Deposit", gameEvent.payload)
-              const data = gameEvent.payload as BankTransactionMessage
+              console.debug("[GAME EVENT] Deposit", e.payload)
+              const data = e.payload as BankTransactionMessage
 
               // Note: we do not need to update the player or ship state
               // as status.update is dispatched immediately after
@@ -433,8 +412,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             // ----- MAP
 
             case "sector.update": {
-              console.debug("[GAME EVENT] Sector update", gameEvent.payload)
-              const data = gameEvent.payload as SectorUpdateMessage
+              console.debug("[GAME EVENT] Sector update", e.payload)
+              const data = e.payload as SectorUpdateMessage
 
               gameStore.setSector(data as Sector)
 
@@ -449,8 +428,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             }
 
             case "salvage.created": {
-              console.debug("[GAME EVENT] Salvage created", gameEvent.payload)
-              const data = gameEvent.payload as SalvageCreatedMessage
+              console.debug("[GAME EVENT] Salvage created", e.payload)
+              const data = e.payload as SalvageCreatedMessage
 
               // Note: we update sector contents in proceeding sector.update event
 
@@ -472,8 +451,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             }
 
             case "salvage.collected": {
-              console.debug("[GAME EVENT] Salvage claimed", gameEvent.payload)
-              const data = gameEvent.payload as SalvageCollectedMessage
+              console.debug("[GAME EVENT] Salvage claimed", e.payload)
+              const data = e.payload as SalvageCollectedMessage
 
               gameStore.addActivityLogEntry({
                 type: "salvage.collected",
@@ -492,27 +471,27 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
             case "path.region":
             case "course.plot": {
-              console.debug("[GAME EVENT] Course plot", gameEvent.payload)
-              const data = gameEvent.payload as CoursePlotMessage
+              console.debug("[GAME EVENT] Course plot", e.payload)
+              const data = e.payload as CoursePlotMessage
 
               gameStore.setCoursePlot(data)
               break
             }
 
             case "map.region": {
-              console.debug("[GAME EVENT] Regional map data", gameEvent.payload)
+              console.debug("[GAME EVENT] Regional map data", e.payload)
 
               gameStore.setRegionalMapData(
-                (gameEvent.payload as MapLocalMessage).sectors
+                (e.payload as MapLocalMessage).sectors
               )
               break
             }
 
             case "map.local": {
-              console.debug("[GAME EVENT] Local map data", gameEvent.payload)
+              console.debug("[GAME EVENT] Local map data", e.payload)
 
               gameStore.setLocalMapData(
-                (gameEvent.payload as MapLocalMessage).sectors
+                (e.payload as MapLocalMessage).sectors
               )
               break
             }
@@ -520,8 +499,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             // ----- TRADING & COMMERCE
 
             case "trade.executed": {
-              console.debug("[GAME EVENT] Trade executed", gameEvent.payload)
-              const data = gameEvent.payload as TradeExecutedMessage
+              console.debug("[GAME EVENT] Trade executed", e.payload)
+              const data = e.payload as TradeExecutedMessage
 
               gameStore.addActivityLogEntry({
                 type: "trade.executed",
@@ -541,8 +520,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             }
 
             case "port.update": {
-              console.debug("[GAME EVENT] Port update", gameEvent.payload)
-              const data = gameEvent.payload as PortUpdateMessage
+              console.debug("[GAME EVENT] Port update", e.payload)
+              const data = e.payload as PortUpdateMessage
 
               // If update is for current sector, update port payload
               gameStore.updateSector(data.sector)
@@ -551,16 +530,16 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             }
 
             case "ports.list": {
-              console.debug("[GAME EVENT] Port list", gameEvent.payload)
+              console.debug("[GAME EVENT] Port list", e.payload)
               // @TODO: implement - waiting on shape of event to align to schema
-              //const data = gameEvent.payload as KnownPortListMessage;
+              //const data = e.payload as KnownPortListMessage;
               //gameStore.setKnownPorts(data.ports);
               break
             }
 
             case "warp.purchase": {
-              console.debug("[GAME EVENT] Warp purchase", gameEvent.payload)
-              const data = gameEvent.payload as WarpPurchaseMessage
+              console.debug("[GAME EVENT] Warp purchase", e.payload)
+              const data = e.payload as WarpPurchaseMessage
 
               // Largely a noop as status.update is dispatched immediately after
               // warp purchase. We just update activity log here for now.
@@ -586,7 +565,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
             case "warp.transfer":
             case "credits.transfer": {
-              const eventType = gameEvent.event as
+              const eventType = e.event as
                 | "warp.transfer"
                 | "credits.transfer"
               const transferType =
@@ -594,10 +573,10 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
               console.debug(
                 `[GAME EVENT] ${transferType} transfer`,
-                gameEvent.payload
+                e.payload
               )
 
-              const data = gameEvent.payload as
+              const data = e.payload as
                 | WarpTransferMessage
                 | CreditsTransferMessage
 
@@ -631,9 +610,9 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             case "combat.round_waiting": {
               console.debug(
                 "[GAME EVENT] Combat round waiting",
-                gameEvent.payload
+                e.payload
               )
-              const data = gameEvent.payload as CombatRoundWaitingMessage
+              const data = e.payload as CombatRoundWaitingMessage
 
               // Immediately set the UI state to be "combat" for user feedback
               gameStore.setUIState("combat")
@@ -654,9 +633,9 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             case "combat.round_resolved": {
               console.debug(
                 "[GAME EVENT] Combat round resolved",
-                gameEvent.payload
+                e.payload
               )
-              const data = gameEvent.payload as CombatRoundResolvedMessage
+              const data = e.payload as CombatRoundResolvedMessage
               gameStore.addCombatRound(data as CombatRound)
               gameStore.addActivityLogEntry({
                 type: "combat.round.resolved",
@@ -668,9 +647,9 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             case "combat.action_response": {
               console.debug(
                 "[GAME EVENT] Combat action response",
-                gameEvent.payload
+                e.payload
               )
-              const data = gameEvent.payload as CombatActionResponseMessage
+              const data = e.payload as CombatActionResponseMessage
 
               // @TODO: update store to log action round action
 
@@ -682,8 +661,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             }
 
             case "combat.ended": {
-              console.debug("[GAME EVENT] Combat ended", gameEvent.payload)
-              const data = gameEvent.payload as CombatRoundResolvedMessage
+              console.debug("[GAME EVENT] Combat ended", e.payload)
+              const data = e.payload as CombatRoundResolvedMessage
 
               // Return to idle UI state
               gameStore.setUIState("idle")
@@ -700,8 +679,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             }
 
             case "ship.destroyed": {
-              console.debug("[GAME EVENT] Ship destroyed", gameEvent.payload)
-              const data = gameEvent.payload as ShipDestroyedMessage
+              console.debug("[GAME EVENT] Ship destroyed", e.payload)
+              const data = e.payload as ShipDestroyedMessage
 
               const shipDescription =
                 data.player_type === "corporation_ship"
@@ -719,8 +698,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             // ----- MISC
 
             case "chat.message": {
-              console.debug("[GAME EVENT] Chat message", gameEvent.payload)
-              const data = gameEvent.payload as IncomingChatMessage
+              console.debug("[GAME EVENT] Chat message", e.payload)
+              const data = e.payload as IncomingChatMessage
 
               gameStore.addMessage(data as ChatMessage)
               gameStore.setNotifications({ newChatMessage: true })
@@ -779,8 +758,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             }
 
             case "error": {
-              console.debug("[GAME EVENT] Error", gameEvent.payload)
-              const data = gameEvent.payload as ErrorMessage
+              console.debug("[GAME EVENT] Error", e.payload)
+              const data = e.payload as ErrorMessage
 
               // @TODO: keep tabs on errors in separate store
 
@@ -793,7 +772,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             }
 
             case "ui-action": {
-              console.debug("[GAME EVENT] UI action", gameEvent.payload)
+              console.debug("[GAME EVENT] UI action", e.payload)
 
               /*const starfield = gameStore.starfieldInstance;
               if (starfield) {
@@ -806,8 +785,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             }
 
             case "task_output": {
-              console.debug("[GAME EVENT] Task output", gameEvent.payload)
-              const data = gameEvent.payload as TaskOutputMessage
+              console.debug("[GAME EVENT] Task output", e.payload)
+              const data = e.payload as TaskOutputMessage
               gameStore.setTaskInProgress(true)
               gameStore.addTask(data.text, data.task_message_type)
 
@@ -820,8 +799,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             }
 
             case "task.start": {
-              console.debug("[GAME EVENT] Task start", gameEvent.payload)
-              const data = gameEvent.payload as TaskStartMessage
+              console.debug("[GAME EVENT] Task start", e.payload)
+              const data = e.payload as TaskStartMessage
               if (data.task_id) {
                 gameStore.addActiveTask({
                   task_id: data.task_id,
@@ -839,8 +818,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             }
 
             case "task.finish": {
-              console.debug("[GAME EVENT] Task finish", gameEvent.payload)
-              const data = gameEvent.payload as TaskFinishMessage
+              console.debug("[GAME EVENT] Task finish", e.payload)
+              const data = e.payload as TaskFinishMessage
               if (data.task_id) {
                 gameStore.removeActiveTask(data.task_id)
               }
@@ -851,8 +830,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             }
 
             case "task_complete": {
-              console.debug("[GAME EVENT] Task complete", gameEvent.payload)
-              const data = gameEvent.payload as TaskCompleteMessage
+              console.debug("[GAME EVENT] Task complete", e.payload)
+              const data = e.payload as TaskCompleteMessage
 
               gameStore.setTaskInProgress(false)
               gameStore.addActivityLogEntry({
@@ -871,22 +850,22 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             // ----- HISTORY QUERIES
 
             case "task.history": {
-              console.debug("[GAME EVENT] Task history", gameEvent.payload)
-              const data = gameEvent.payload as TaskHistoryMessage
+              console.debug("[GAME EVENT] Task history", e.payload)
+              const data = e.payload as TaskHistoryMessage
               gameStore.setTaskHistory(data.tasks)
               break
             }
 
             case "ships.list": {
-              console.debug("[GAME EVENT] Ships list", gameEvent.payload)
-              const data = gameEvent.payload as ShipsListMessage
+              console.debug("[GAME EVENT] Ships list", e.payload)
+              const data = e.payload as ShipsListMessage
               gameStore.setUserShips(data.ships)
               break
             }
 
             case "event.query": {
-              console.debug("[GAME EVENT] Event query", gameEvent.payload)
-              const data = gameEvent.payload as EventQueryMessage
+              console.debug("[GAME EVENT] Event query", e.payload)
+              const data = e.payload as EventQueryMessage
               gameStore.setTaskEvents(data.events)
               break
             }
@@ -895,8 +874,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             default:
               console.warn(
                 "[GAME EVENT] Unhandled server action:",
-                gameEvent.event,
-                gameEvent.payload
+                e.event,
+                e.payload
               )
           }
 

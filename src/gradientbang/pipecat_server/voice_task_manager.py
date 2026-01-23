@@ -39,7 +39,10 @@ from gradientbang.utils.tools_schema import (
     CombatInitiate,
     CombatAction,
     CorporationInfo,
+    RenameShip,
     UI_SHOW_PANEL_SCHEMA,
+    _summarize_corporation_info,
+    _shorten_embedded_ids,
 )
 
 MAX_CORP_SHIP_TASKS = 3  # Maximum concurrent corp ship tasks per player
@@ -128,6 +131,7 @@ class VoiceTaskManager:
             "combat.ended",
             "combat.action_accepted",
             "ship.destroyed",
+            "ship.renamed",
             "chat.message",
             "error",
             # Client history query events (relayed via event system)
@@ -192,10 +196,54 @@ class VoiceTaskManager:
                 "corporation.list" if kwargs.get("list_all") else "my_corporation",
                 {} if kwargs.get("list_all") else {"character_id": self.character_id}
             ),
+            "rename_ship": lambda **kwargs: self.game_client.rename_ship(
+                character_id=self.character_id, **kwargs
+            ),
         }
 
         # Initialize Weave tracing if available
         init_weave()
+
+    async def close(self) -> None:
+        """Clean up all resources: cancel active tasks and close game clients."""
+        # Cancel all active task agents
+        for task_id, task_info in list(self._active_tasks.items()):
+            task_agent = task_info.get("task_agent")
+            asyncio_task = task_info.get("asyncio_task")
+
+            if task_agent and not task_agent.cancelled:
+                logger.info(f"Cancelling task {task_id} on disconnect")
+                task_agent.cancel()
+
+            # Wait for the asyncio task to finish (with timeout)
+            if asyncio_task and not asyncio_task.done():
+                try:
+                    await asyncio.wait_for(asyncio_task, timeout=5.0)
+                except asyncio.TimeoutError:
+                    logger.warning(f"Task {task_id} did not finish within timeout, forcing cancel")
+                    asyncio_task.cancel()
+                    try:
+                        await asyncio_task
+                    except asyncio.CancelledError:
+                        pass
+                except asyncio.CancelledError:
+                    pass
+
+            # Close corp ship game client if different from main client
+            task_game_client = task_info.get("task_game_client")
+            if task_game_client and task_game_client != self.game_client:
+                try:
+                    await task_game_client.close()
+                except Exception as e:
+                    logger.error(f"Failed to close task {task_id} game client: {e}")
+
+        self._active_tasks.clear()
+
+        # Close main game client
+        try:
+            await self.game_client.close()
+        except Exception as e:
+            logger.error(f"Failed to close main game client: {e}")
 
     def _generate_task_id(self) -> tuple[str, str]:
         """Generate a new task ID using UUID.
@@ -278,23 +326,6 @@ class VoiceTaskManager:
         event_name = event.get("event_name")
         payload = event.get("payload")
 
-        # Enrich ships.list with is_task_running for each ship
-        if event_name == "ships.list" and isinstance(payload, dict):
-            ships = payload.get("ships")
-            if isinstance(ships, list):
-                # Build set of ship IDs with active tasks
-                active_ship_ids = set()
-                for task_info in self._active_tasks.values():
-                    asyncio_task = task_info.get("asyncio_task")
-                    if asyncio_task and not asyncio_task.done():
-                        target_id = task_info.get("target_character_id")
-                        if target_id:
-                            active_ship_ids.add(target_id)
-
-                for ship in ships:
-                    if isinstance(ship, dict) and "ship_id" in ship:
-                        ship["is_task_running"] = ship["ship_id"] in active_ship_ids
-
         await self.rtvi_processor.push_frame(
             RTVIServerMessageFrame(
                 {
@@ -352,6 +383,7 @@ class VoiceTaskManager:
             "combat.round_waiting",  # Combat system waiting for action
             "combat.round_resolved", # Combat round completed
             "combat.ended",          # Combat finished
+            "ship.renamed",          # Corp ship renamed (want to know about all corp activity)
         }
 
         # Check if event came from voice agent's tool call
@@ -458,6 +490,69 @@ class VoiceTaskManager:
             return None
 
         return summary_line
+
+    @staticmethod
+    def _summarize_leaderboard_resources(result: Any) -> Optional[str]:
+        if not isinstance(result, dict):
+            return None
+        players = result.get("players")
+        corporations = result.get("corporations")
+        if not isinstance(players, list):
+            players = []
+        if not isinstance(corporations, list):
+            corporations = []
+
+        summary = f"Leaderboard: {len(players)} players, {len(corporations)} corporations."
+
+        def _extract_name(entry: Any, keys: tuple[str, ...]) -> Optional[str]:
+            if not isinstance(entry, dict):
+                return None
+            for key in keys:
+                candidate = entry.get(key)
+                if isinstance(candidate, str) and candidate.strip():
+                    return candidate.strip()
+            return None
+
+        top_player_name = _extract_name(players[0] if players else None, ("name", "player_name", "character_name"))
+        if top_player_name:
+            summary += f" Top player: {_shorten_embedded_ids(top_player_name)}."
+
+        top_corp_name = _extract_name(corporations[0] if corporations else None, ("name", "corp_name", "corporation_name"))
+        if top_corp_name:
+            summary += f" Top corp: {_shorten_embedded_ids(top_corp_name)}."
+
+        return summary
+
+    def _summarize_direct_response(self, tool_name: str, result: Any) -> Optional[str]:
+        if isinstance(result, dict):
+            summary = result.get("summary")
+            if isinstance(summary, str) and summary.strip():
+                return _shorten_embedded_ids(summary.strip())
+
+        if tool_name == "corporation_info":
+            summary = _summarize_corporation_info(result)
+            if isinstance(summary, str) and summary.strip():
+                return summary
+
+        if tool_name == "leaderboard_resources":
+            summary = self._summarize_leaderboard_resources(result)
+            if isinstance(summary, str) and summary.strip():
+                return summary
+
+        return None
+
+    async def _emit_tool_result(
+        self, tool_name: str, payload: Dict[str, Any]
+    ) -> None:
+        await self.rtvi_processor.push_frame(
+            RTVIServerMessageFrame(
+                {
+                    "frame_type": "event",
+                    "event": tool_name,
+                    "payload": payload,
+                }
+            )
+        )
 
     def _create_agent_output_callback(self, task_id: str, task_type: str) -> Callable:
         """Create a task-specific output callback that includes task_id and task_type."""
@@ -677,6 +772,23 @@ class VoiceTaskManager:
             # Fallback: try to peek at arguments for an injected name (not expected)
             tool_name = "unknown"
 
+        # Tools that generate events return minimal ack - actual data comes via events.
+        # This prevents duplicate data in context (function_response + event).
+        # run_llm=False because the event arrival will trigger inference.
+        event_generating_tools = {
+            "my_status",        # generates status.snapshot
+            "plot_course",      # generates course.plot
+            "list_known_ports", # generates ports.list
+            "rename_ship",      # generates ship.renamed
+        }
+
+        # Tools that need explicit run_llm=True because they don't emit
+        # inference-triggering events
+        direct_response_tools = {
+            "corporation_info",
+            "leaderboard_resources",
+        }
+
         try:
             # Gather arguments for the call
             arguments = params.arguments
@@ -711,28 +823,18 @@ class VoiceTaskManager:
                     self._voice_agent_request_ids.add(req_id)
                     logger.debug(f"Tool {tool_name} tracking request_id={req_id}")
 
-            # Tools that generate events return minimal ack - actual data comes via events.
-            # This prevents duplicate data in context (function_response + event).
-            # run_llm=False because the event arrival will trigger inference.
-            event_generating_tools = {
-                "my_status",        # generates status.snapshot
-                "plot_course",      # generates course.plot
-                "list_known_ports", # generates ports.list
-            }
-
-            # Tools that need explicit run_llm=True because they don't emit
-            # inference-triggering events
-            direct_response_tools = {
-                "corporation_info",
-                "leaderboard_resources",
-            }
-
             if tool_name in event_generating_tools:
                 ack_payload = {"status": "Executed."}
                 properties = FunctionCallResultProperties(run_llm=False)
                 await params.result_callback(ack_payload, properties=properties)
             elif tool_name in direct_response_tools:
-                # These tools return data directly without events - trigger inference
+                # These tools return data directly without events - trigger inference.
+                # Prefer summaries when available to avoid leaking large payloads.
+                await self._emit_tool_result(tool_name, payload)
+                summary = self._summarize_direct_response(tool_name, result)
+                if not summary:
+                    summary = f"{tool_name} completed."
+                payload = {"summary": summary}
                 properties = FunctionCallResultProperties(run_llm=True)
                 await params.result_callback(payload, properties=properties)
             else:
@@ -743,6 +845,11 @@ class VoiceTaskManager:
             error_payload = {"error": str(e)}
             # Emit a standardized error as tool_result
             await params.result_callback(error_payload)
+            if tool_name in direct_response_tools:
+                try:
+                    await self._emit_tool_result(tool_name, error_payload)
+                except Exception as emit_err:  # noqa: BLE001
+                    logger.error(f"tool '{tool_name}' failed to emit result: {emit_err}")
 
     def _is_valid_uuid(self, value: str) -> bool:
         """Check if a string is a valid UUID format."""
@@ -753,6 +860,51 @@ class VoiceTaskManager:
         )
         return bool(uuid_pattern.match(value))
 
+    async def _resolve_ship_id_prefix(self, prefix: str) -> Optional[str]:
+        if not isinstance(prefix, str):
+            return None
+        cleaned = prefix.strip().strip("[]").lower()
+        if not cleaned:
+            return None
+        if self._is_valid_uuid(cleaned):
+            return cleaned
+
+        # Use corporation info to resolve prefix without exposing full IDs to the LLM.
+        try:
+            corp_result = await self.game_client._request(
+                "my_corporation",
+                {"character_id": self.character_id},
+            )
+        except Exception as exc:
+            logger.error(f"Failed to resolve ship_id prefix: {exc}")
+            return None
+
+        corp = corp_result.get("corporation")
+        if not isinstance(corp, dict):
+            return None
+
+        ships = corp.get("ships")
+        if not isinstance(ships, list):
+            return None
+
+        matches = []
+        for ship in ships:
+            if not isinstance(ship, dict):
+                continue
+            ship_id = ship.get("ship_id")
+            if isinstance(ship_id, str) and ship_id.lower().startswith(cleaned):
+                matches.append(ship_id)
+
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise ValueError(
+                f"Ambiguous ship_id prefix '{cleaned}' matches {len(matches)} ships. "
+                "Use a longer prefix."
+            )
+
+        return None
+
     @traced
     async def _handle_start_task(self, params: FunctionCallParams):
         task_game_client = None
@@ -761,12 +913,24 @@ class VoiceTaskManager:
             task_desc = params.arguments.get("task_description", "")
             ship_id = params.arguments.get("ship_id")
 
-            # Validate ship_id is a proper UUID if provided
+            if isinstance(ship_id, str):
+                ship_id = ship_id.strip().strip("[]")
+
+            # Resolve short ship_id prefixes to full UUIDs if needed
             if ship_id and not self._is_valid_uuid(ship_id):
-                return {
-                    "success": False,
-                    "error": f"Invalid ship_id '{ship_id}'. The ship_id must be a UUID. Call corporation_info() first to get the ship_id for the ship you want to task.",
-                }
+                try:
+                    resolved = await self._resolve_ship_id_prefix(ship_id)
+                except ValueError as exc:
+                    return {"success": False, "error": str(exc)}
+                if not resolved:
+                    return {
+                        "success": False,
+                        "error": (
+                            f"Unknown ship_id '{ship_id}'. Use the short id shown in brackets "
+                            "for corp ships (e.g., Red Probe [5a8369]) or provide the full UUID."
+                        ),
+                    }
+                ship_id = resolved
 
             # Determine target character (ship or player)
             target_character_id = ship_id if ship_id else self.character_id
@@ -994,6 +1158,7 @@ class VoiceTaskManager:
                 CombatInitiate.schema(),
                 CombatAction.schema(),
                 CorporationInfo.schema(),
+                RenameShip.schema(),
                 StartTask.schema(),
                 StopTask.schema(),
                 UI_SHOW_PANEL_SCHEMA,

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 import { recordEventWithRecipients } from './events.ts';
+import { fetchActiveTaskIdsByShip } from './tasks.ts';
 import type { ShipDefinitionRow } from './status.ts';
 
 export interface CorporationRecord {
@@ -39,6 +40,7 @@ export interface CorporationShipSummary {
   max_shields: number;
   fighters: number;
   max_fighters: number;
+  current_task_id: string | null;
 }
 
 const INVITE_BYTES = 4;
@@ -201,6 +203,7 @@ export async function fetchCorporationShipSummaries(
 
   const definitionMap = await loadShipDefinitions(supabase, shipRows ?? []);
   const controlReady = await loadControlReadySet(supabase, shipIds);
+  const activeTasks = await fetchActiveTaskIdsByShip(supabase, shipIds);
   const summaries: CorporationShipSummary[] = [];
 
   for (const row of shipRows ?? []) {
@@ -233,6 +236,7 @@ export async function fetchCorporationShipSummaries(
       max_shields: definition?.shields ?? 0,
       fighters: Number(row.current_fighters ?? definition?.fighters ?? 0),
       max_fighters: definition?.fighters ?? 0,
+      current_task_id: activeTasks.get(shipId) ?? null,
     });
   }
 

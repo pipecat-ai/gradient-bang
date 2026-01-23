@@ -151,13 +151,19 @@ async function handlePersonalPurchase(
   }
 
   const remainingCredits = shipCredits - netCost;
-  const shipName = optionalString(payload, 'ship_name');
+  const shipNameOverride = optionalString(payload, 'ship_name');
+  let shipName = shipNameOverride ?? targetDefinition.display_name;
+  if (shipNameOverride) {
+    await ensureShipNameAvailable(supabase, shipName);
+  } else {
+    shipName = await generateUniqueShipName(supabase, shipName);
+  }
   const insertedShip = await insertShip({
     supabase,
     ownerType: 'character',
     ownerId: characterId,
     shipType,
-    shipName: shipName ?? targetDefinition.display_name,
+    shipName,
     sectorId: currentShip.current_sector ?? 0,
     definition: targetDefinition,
     credits: remainingCredits,
@@ -278,7 +284,12 @@ async function handleCorporationPurchase(
 
   const shipDefinition = await loadShipDefinition(supabase, shipType);
   const shipNameOverride = optionalString(payload, 'ship_name');
-  const shipName = shipNameOverride ?? shipDefinition.display_name;
+  let shipName = shipNameOverride ?? shipDefinition.display_name;
+  if (shipNameOverride) {
+    await ensureShipNameAvailable(supabase, shipName);
+  } else {
+    shipName = await generateUniqueShipName(supabase, shipName);
+  }
   const price = shipDefinition.purchase_price ?? 0;
   const totalCost = price + initialShipCredits;
   const bankBalance = character.credits_in_megabank ?? 0;
@@ -319,7 +330,6 @@ async function handleCorporationPurchase(
   await ensureCorporationShipCharacter({
     supabase,
     shipId: insertedShip.ship_id,
-    shipName,
     corpId,
     sectorId: currentShip.current_sector ?? 0,
     timestamp,
@@ -395,7 +405,6 @@ async function ensureNotInCombat(
 async function ensureCorporationShipCharacter(params: {
   supabase: ReturnType<typeof createServiceRoleClient>;
   shipId: string;
-  shipName: string;
   corpId: string;
   sectorId: number;
   timestamp: string;
@@ -409,7 +418,7 @@ async function ensureCorporationShipCharacter(params: {
     return;
   }
 
-  const baseName = params.shipName?.trim() ?? 'Corporation Ship';
+  const baseName = 'Corp Ship';
   let attempt = 0;
   while (attempt < 3) {
     const resolvedName = generateCorporationShipName(baseName, params.shipId, attempt);
@@ -451,11 +460,61 @@ async function ensureCorporationShipCharacter(params: {
 }
 
 function generateCorporationShipName(baseName: string, shipId: string, attempt: number): string {
-  const suffix = shipId.slice(0, 8);
+  const suffix = shipId.slice(0, 6);
   if (attempt === 0) {
     return `${baseName} [${suffix}]`;
   }
   return `${baseName} [${suffix}-${attempt}]`;
+}
+
+async function ensureShipNameAvailable(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  shipName: string,
+): Promise<void> {
+  const available = await isShipNameAvailable(supabase, shipName);
+  if (!available) {
+    throw new ShipPurchaseError('Ship name already exists', 409);
+  }
+}
+
+async function generateUniqueShipName(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  baseName: string,
+): Promise<string> {
+  let candidate = baseName;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const shipAvailable = await isShipNameAvailable(supabase, candidate);
+    if (shipAvailable) {
+      return candidate;
+    }
+    candidate = `${baseName} [${randomSuffix(3)}]`;
+  }
+  throw new ShipPurchaseError('Failed to generate unique ship name', 500);
+}
+
+async function isShipNameAvailable(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  shipName: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('ship_instances')
+    .select('ship_id')
+    .eq('ship_name', shipName)
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error('ship_purchase.ship_name_check', error);
+    throw new ShipPurchaseError('Failed to validate ship name', 500);
+  }
+  return !data;
+}
+
+function randomSuffix(bytes: number): string {
+  const values = new Uint8Array(bytes);
+  crypto.getRandomValues(values);
+  return Array.from(values)
+    .map((value) => value.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 type InsertShipParams = {

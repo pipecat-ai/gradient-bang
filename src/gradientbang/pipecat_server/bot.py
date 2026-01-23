@@ -634,6 +634,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         """Handle disconnection."""
         logger.info("Client disconnected")
         await task.cancel()
+        await task_manager.close()
         logger.info("Bot stopped")
 
     # Create runner and run the task
