@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { memo, useEffect, useMemo, useRef, useState } from "react"
 
 import { deepmerge } from "deepmerge-ts"
 
@@ -42,6 +42,18 @@ export type MiniMapConfig = Partial<
   uiStyles?: Partial<UIStyles>
 }
 
+interface MiniMapProps {
+  current_sector_id: number
+  config?: MiniMapConfig
+  map_data: MapData
+  width?: number
+  height?: number
+  maxDistance?: number
+  showLegend?: boolean
+  debug?: boolean
+  coursePlot?: CoursePlot | null
+}
+
 const RESIZE_DELAY = 300
 
 const mapTopologyChanged = (
@@ -80,7 +92,7 @@ const courseplotsEqual = (
   return a.from_sector === b.from_sector && a.to_sector === b.to_sector
 }
 
-export const MiniMap = ({
+const MiniMapComponent = ({
   current_sector_id,
   config,
   map_data,
@@ -89,17 +101,7 @@ export const MiniMap = ({
   maxDistance = 2,
   showLegend = true,
   coursePlot,
-}: {
-  current_sector_id: number
-  config?: MiniMapConfig
-  map_data: MapData
-  width?: number
-  height?: number
-  maxDistance?: number
-  showLegend?: boolean
-  debug?: boolean
-  coursePlot?: CoursePlot | null
-}) => {
+}: MiniMapProps) => {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const controllerRef = useRef<MiniMapController | null>(null)
@@ -135,13 +137,17 @@ export const MiniMap = ({
     height: effectiveHeight,
   })
 
-  const baseConfig = useMemo<Omit<MiniMapConfigBase, "current_sector_id">>(
-    () =>
-      deepmerge(DEFAULT_MINIMAP_CONFIG, {
-        ...config,
-      }) as Omit<MiniMapConfigBase, "current_sector_id">,
-    [config]
-  )
+  // Stabilize config comparison using JSON serialization to avoid
+  // re-renders when parent passes a new object with the same values
+  const configKey = JSON.stringify(config)
+
+  const baseConfig = useMemo<Omit<MiniMapConfigBase, "current_sector_id">>(() => {
+    const parsedConfig = configKey ? JSON.parse(configKey) : {}
+    return deepmerge(DEFAULT_MINIMAP_CONFIG, parsedConfig) as Omit<
+      MiniMapConfigBase,
+      "current_sector_id"
+    >
+  }, [configKey])
 
   // ResizeObserver effect for auto-sizing
   useEffect(() => {
@@ -225,8 +231,7 @@ export const MiniMap = ({
       return
     }
 
-    console.debug("[GAME MINIMAP] Updating MiniMap")
-
+    // Compute changes BEFORE logging to enable early exit
     const topologyChanged = mapTopologyChanged(previousMapRef.current, map_data)
     const sectorChanged = current_sector_id !== prevSectorIdRef.current
     const maxDistanceChanged = lastMaxDistanceRef.current !== maxDistance
@@ -235,6 +240,26 @@ export const MiniMap = ({
       lastCoursePlotRef.current,
       coursePlot
     )
+
+    // Early exit if nothing has actually changed
+    if (
+      !topologyChanged &&
+      !sectorChanged &&
+      !maxDistanceChanged &&
+      !configChanged &&
+      !coursePlotChanged
+    ) {
+      return
+    }
+
+    console.debug("[GAME MINIMAP] Updating MiniMap", {
+      topologyChanged,
+      sectorChanged,
+      maxDistanceChanged,
+      configChanged,
+      coursePlotChanged,
+    })
+
     controller.updateProps({
       maxDistance,
       ...(configChanged && { config: { ...baseConfig, current_sector_id } }),
@@ -425,5 +450,37 @@ export const MiniMap = ({
     </div>
   )
 }
+
+// Custom comparison function for React.memo to prevent unnecessary re-renders
+// Uses cheap checks only - heavy diffing (mapTopologyChanged, courseplotsEqual)
+// happens inside the component's useEffect for better performance
+const areMiniMapPropsEqual = (
+  prevProps: MiniMapProps,
+  nextProps: MiniMapProps
+): boolean => {
+  // Check cheap primitives FIRST - if any differ, skip other checks entirely
+  if (prevProps.current_sector_id !== nextProps.current_sector_id) return false
+  if (prevProps.width !== nextProps.width) return false
+  if (prevProps.height !== nextProps.height) return false
+  if (prevProps.maxDistance !== nextProps.maxDistance) return false
+  if (prevProps.showLegend !== nextProps.showLegend) return false
+
+  // Config - JSON comparison (cheap for small config objects)
+  if (prevProps.config !== nextProps.config) {
+    if (JSON.stringify(prevProps.config) !== JSON.stringify(nextProps.config)) {
+      return false
+    }
+  }
+
+  // Heavy objects - REFERENCE ONLY check in memo
+  // The component's internal useEffect handles the actual change detection
+  // via mapTopologyChanged() and courseplotsEqual() with early-exit optimization
+  if (prevProps.map_data !== nextProps.map_data) return false
+  if (prevProps.coursePlot !== nextProps.coursePlot) return false
+
+  return true
+}
+
+export const MiniMap = memo(MiniMapComponent, areMiniMapPropsEqual)
 
 export default MiniMap

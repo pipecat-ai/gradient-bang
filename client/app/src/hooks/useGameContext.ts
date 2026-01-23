@@ -1,13 +1,13 @@
 import { createContext, useContext } from "react";
 
-import type { Action } from "@/types/actions";
+import type { GameAction } from "@/types/actions";
 
 /**
  * Game context
  */
 interface GameContextProps {
   sendUserTextInput: (text: string) => void;
-  dispatchAction: (action: Action) => void;
+  dispatchAction: (action: GameAction) => void;
   initialize: () => void;
 }
 

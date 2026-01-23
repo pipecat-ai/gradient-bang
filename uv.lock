@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'linux'",
@@ -615,13 +615,13 @@ wheels = [
 
 [[package]]
 name = "daily-python"
-version = "0.22.0"
+version = "0.23.0"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/04/db/d6c311ba760123a9987a9ae291171c9a6af11ee4dbefdb661d65e2ac13a2/daily_python-0.22.0-cp37-abi3-macosx_10_15_x86_64.whl", hash = "sha256:2ef7591a7929c5d9e5ea78329ea049d2f313bd3d2d289f5f4ecce4bb3799c3d0", size = 13526264, upload-time = "2025-11-20T05:52:04.134Z" },
-    { url = "https://files.pythonhosted.org/packages/ab/47/f1f6d893e7aab4b2e3d3b20d0dd8fbf31c7a71597d274aae1d288e36fac3/daily_python-0.22.0-cp37-abi3-macosx_11_0_arm64.whl", hash = "sha256:0fbc8467c471ce536dc6214a24cc28cbc38ff61113b1714e09d0eafc2741fc5a", size = 12041400, upload-time = "2025-11-20T05:52:06.419Z" },
-    { url = "https://files.pythonhosted.org/packages/9d/c9/8f26944cd55ece2ab9c076fae5c1fcf4fdc8639ea6f2b861566d26ad9e00/daily_python-0.22.0-cp37-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:b8aa9531b0fa2852b41935697d184be86318eaee3b35f49e0b5714e53cdb524a", size = 14147194, upload-time = "2025-11-20T05:52:08.4Z" },
-    { url = "https://files.pythonhosted.org/packages/a8/02/d86f4cee39bcdb112d83e2cf12345d7a974cbad5dafb350788148644f16b/daily_python-0.22.0-cp37-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:8f49fceee92830aaf53a65053f332504b2cc62af79c38edb9bce8707c9fa4b0c", size = 14654605, upload-time = "2025-11-20T05:52:10.639Z" },
+    { url = "https://files.pythonhosted.org/packages/c7/3b/0f1465833787db21933caf9db0c4e45d10a31f477c2ae08ebe3edf31764d/daily_python-0.23.0-cp37-abi3-macosx_10_15_x86_64.whl", hash = "sha256:74998c9aabeccf8306def27219eb943df5a268f26ba7e25e0a105ced9425591a", size = 13450473, upload-time = "2025-12-18T03:21:50.488Z" },
+    { url = "https://files.pythonhosted.org/packages/b0/ca/7a9b581d411101454855c21559b1c9d9d58b6c527480548bba03e00a5641/daily_python-0.23.0-cp37-abi3-macosx_11_0_arm64.whl", hash = "sha256:ce80746f5cba434371a9cb9995d8c4ec19d1490bd993b7dfd35356d81bd68425", size = 11988100, upload-time = "2025-12-18T03:21:53.265Z" },
+    { url = "https://files.pythonhosted.org/packages/40/eb/15303b6ae2cdc5c591d6629d162085037697ca519d57751408c66f775991/daily_python-0.23.0-cp37-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:21a59b1730ae047f2335b9fdcf8ebb9fe05c3768dc4239ec955461f3f78476b0", size = 14094021, upload-time = "2025-12-18T03:21:55.606Z" },
+    { url = "https://files.pythonhosted.org/packages/65/b9/f063e4854ba6e4edeea46e082720b7af82fb3cbf27e60efce63dbe34fe6d/daily_python-0.23.0-cp37-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:00b22041ef85556cc06262f9b8e39b686bdf37d50219d07542d7a2f9c3d413d4", size = 14616886, upload-time = "2025-12-18T03:21:58.084Z" },
 ]
 
 [[package]]
@@ -1222,7 +1222,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 bot = [
-    { name = "pipecat-ai", extras = ["deepgram", "daily", "cartesia", "webrtc", "silero", "local-smart-turn", "google", "runner"], specifier = "==0.0.98" },
+    { name = "pipecat-ai", extras = ["deepgram", "daily", "cartesia", "webrtc", "silero", "local-smart-turn", "google", "runner"], specifier = "==0.0.100" },
     { name = "pipecat-ai-cli" },
 ]
 cli = [{ name = "typer", specifier = ">=0.15.0" }]
@@ -2150,7 +2150,7 @@ name = "nvidia-cudnn-cu12"
 version = "9.10.2.21"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12" },
+    { name = "nvidia-cublas-cu12", marker = "sys_platform == 'linux'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ba/51/e123d997aa098c61d029f76663dedbfb9bc8dcf8c60cbd6adbe42f76d049/nvidia_cudnn_cu12-9.10.2.21-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:949452be657fa16687d0930933f032835951ef0892b37d2d53824d1a84dc97a8", size = 706758467, upload-time = "2025-06-06T21:54:08.597Z" },
@@ -2161,7 +2161,7 @@ name = "nvidia-cufft-cu12"
 version = "11.3.3.83"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12" },
+    { name = "nvidia-nvjitlink-cu12", marker = "sys_platform == 'linux'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1f/13/ee4e00f30e676b66ae65b4f08cb5bcbb8392c03f54f2d5413ea99a5d1c80/nvidia_cufft_cu12-11.3.3.83-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:4d2dd21ec0b88cf61b62e6b43564355e5222e4a3fb394cac0db101f2dd0d4f74", size = 193118695, upload-time = "2025-03-07T01:45:27.821Z" },
@@ -2188,9 +2188,9 @@ name = "nvidia-cusolver-cu12"
 version = "11.7.3.90"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12" },
-    { name = "nvidia-cusparse-cu12" },
-    { name = "nvidia-nvjitlink-cu12" },
+    { name = "nvidia-cublas-cu12", marker = "sys_platform == 'linux'" },
+    { name = "nvidia-cusparse-cu12", marker = "sys_platform == 'linux'" },
+    { name = "nvidia-nvjitlink-cu12", marker = "sys_platform == 'linux'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/85/48/9a13d2975803e8cf2777d5ed57b87a0b6ca2cc795f9a4f59796a910bfb80/nvidia_cusolver_cu12-11.7.3.90-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:4376c11ad263152bd50ea295c05370360776f8c3427b30991df774f9fb26c450", size = 267506905, upload-time = "2025-03-07T01:47:16.273Z" },
@@ -2201,7 +2201,7 @@ name = "nvidia-cusparse-cu12"
 version = "12.5.8.93"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12" },
+    { name = "nvidia-nvjitlink-cu12", marker = "sys_platform == 'linux'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c2/f5/e1854cb2f2bcd4280c44736c93550cc300ff4b8c95ebe370d0aa7d2b473d/nvidia_cusparse_cu12-12.5.8.93-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:1ec05d76bbbd8b61b06a80e1eaf8cf4959c3d4ce8e711b65ebd0443bb0ebb13b", size = 288216466, upload-time = "2025-03-07T01:48:13.779Z" },
@@ -2453,7 +2453,7 @@ wheels = [
 
 [[package]]
 name = "pipecat-ai"
-version = "0.0.98"
+version = "0.0.100"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiofiles" },
@@ -2473,9 +2473,9 @@ dependencies = [
     { name = "resampy" },
     { name = "soxr" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/03/90/385e824872a2984b026632eb56bfb0743a878550ea81a390934ff599423d/pipecat_ai-0.0.98.tar.gz", hash = "sha256:dea72785874814c6fde945f9fe21c7f89710c7d573e7fc5a22835e566a66acc9", size = 10737874, upload-time = "2025-12-17T19:29:14.662Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/53/e9/f377fe49617721d41e3f6d563069849d6d1047c7b4cf4e6dfcb143a868a5/pipecat_ai-0.0.100.tar.gz", hash = "sha256:028a6203094f182461f8065a9c5fd92180038826a52ef1322dac2e258190f9f2", size = 10855536, upload-time = "2026-01-21T03:36:59.613Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/05/05/db4fbe09c585bf6cd75002a1be2bfefcb431ef75ef9eb4da08d21a48de9e/pipecat_ai-0.0.98-py3-none-any.whl", hash = "sha256:8d91ce3550a310451262542a0794ff06fa5fa17ada67fe7e34fc714062440a87", size = 10465474, upload-time = "2025-12-17T19:29:11.987Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/23/4f77c613fdcd5a581a5df0227bfd6e8554151e3f5a423c1e4b2a42b6d3d5/pipecat_ai-0.0.100-py3-none-any.whl", hash = "sha256:1f832329dcb0f5d26f0a478df3a40007b1d3032c9b84f66d3f80225bb59d2f30", size = 10539423, upload-time = "2026-01-21T03:36:56.974Z" },
 ]
 
 [package.optional-dependencies]

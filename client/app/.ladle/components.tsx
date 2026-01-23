@@ -1,21 +1,18 @@
-import React, { useEffect, useMemo } from "react"
+import React, { memo, useEffect, useMemo } from "react"
 
 import { Leva } from "leva"
 import type { GlobalProvider, Meta } from "@ladle/react"
 import { PipecatClient } from "@pipecat-ai/client-js"
-import {
-  PipecatAppBase,
-  usePipecatConnectionState,
-} from "@pipecat-ai/voice-ui-kit"
+import { PipecatClientProvider } from "@pipecat-ai/client-react"
+import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport"
 
-import { DotDivider } from "@/components/primitives/DotDivider"
+import { Button } from "@/components/primitives/Button"
 import { UserMicControl } from "@/components/UserMicControl"
-
-import { Button } from "../src/components/primitives/Button"
-import useGameStore from "../src/stores/game"
-import Error from "./../src/components/views/Error"
-import { GameProvider } from "./../src/GameContext"
-import { MessageSelect } from "./MessageSelect"
+import Error from "@/components/views/Error"
+import { GameProvider } from "@/GameContext"
+import { usePipecatConnectionState } from "@/hooks/usePipecatConnectionState"
+import usePipecatClientStore from "@/stores/client"
+import useGameStore from "@/stores/game"
 
 import "./global.css"
 
@@ -24,20 +21,15 @@ const endpoint =
 
 const StoryWrapper = ({
   children,
-  handleConnect,
-  handleDisconnect,
   client,
   storyMeta,
 }: {
   children: React.ReactNode
-  handleConnect?: () => void
-  handleDisconnect?: () => void
-  client?: PipecatClient
+  client: PipecatClient
   storyMeta?: Meta
 }) => {
   const { isConnected, isConnecting } = usePipecatConnectionState()
   const setGameState = useGameStore.use.setGameState()
-  const connecting = isConnecting || storyMeta?.connectOnMount
 
   useEffect(() => {
     if (storyMeta?.enableMic && client) {
@@ -57,12 +49,14 @@ const StoryWrapper = ({
           <div className="story-connect-bar">
             <div>
               {!isConnected ? (
-                <Button onClick={handleConnect}>
-                  {connecting ? "Connecting..." : "Connect [SPACE]"}
+                <Button onClick={() => client.startBotAndConnect({
+                  endpoint
+                })} disabled={isConnecting}>
+                  {isConnecting ? "Connecting..." : "Connect"}
                 </Button>
               ) : (
-                <Button onClick={handleDisconnect} variant="secondary">
-                  Disconnected
+                <Button onClick={() => client.disconnect()} variant="secondary">
+                  Disconnect
                 </Button>
               )}
             </div>
@@ -72,65 +66,57 @@ const StoryWrapper = ({
               ) : (
                 <UserMicControl disabled />
               )}
-              <DotDivider />
-              {storyMeta?.messages && (
-                <MessageSelect messages={storyMeta?.messages ?? []} />
-              )}
             </div>
           </div>
         </>
       )}
 
-      <Leva />
+      <Leva oneLineLabels hidden={!storyMeta?.useDevTools} />
+
       {children}
     </>
   )
 }
 
-export const Provider: GlobalProvider = ({ children, storyMeta }) => {
+export const Provider: GlobalProvider = memo(({ children, storyMeta }) => {
   const clientOptions = useMemo(
     () => ({
       enableMic: storyMeta?.enableMic,
     }),
     [storyMeta?.enableMic]
   )
+  const client = usePipecatClientStore((state) => state.client)
+  const setClient = usePipecatClientStore((state) => state.setClient)
+  const error = usePipecatClientStore((state) => state.error)
 
-  const themeProps = useMemo(
-    () => ({
-      defaultTheme: "dark" as const,
-    }),
-    []
-  )
+  useEffect(() => {
+    if (!client) {
+      const client = new PipecatClient({
+        transport: new SmallWebRTCTransport(),
+        ...clientOptions,
+      })
+      setClient(client)
+    }
+  }, [client, setClient, clientOptions])
+
+  if (!client) {
+    return <></>
+  }
+
+  if (error) {
+    return <Error onRetry={() => client.startBotAndConnect({ endpoint })}>{error}</Error>
+  }
 
   return (
-    <PipecatAppBase
-      startBotParams={{
-        endpoint,
-        requestData: {},
-      }}
-      clientOptions={clientOptions}
-      transportType="smallwebrtc"
-      noThemeProvider={false}
-      themeProps={themeProps}
-      connectOnMount={storyMeta?.connectOnMount}
-      noAudioOutput={storyMeta?.disableAudioOutput}
-    >
-      {({ client, handleConnect, handleDisconnect, error }) =>
-        error ? (
-          <Error onRetry={handleConnect}>{error}</Error>
-        ) : (
-          <GameProvider>
-            <StoryWrapper
-              client={client as unknown as PipecatClient}
-              storyMeta={storyMeta}
-              handleConnect={() => handleConnect?.()}
-              handleDisconnect={() => handleDisconnect?.()}
-            >
-              {children}
-            </StoryWrapper>
-          </GameProvider>
-        )
-      }
-    </PipecatAppBase>
+    <PipecatClientProvider client={client}>
+      <GameProvider>
+        <StoryWrapper
+          client={client}
+          storyMeta={storyMeta}
+        >
+          {children}
+        </StoryWrapper>
+      </GameProvider>
+    </PipecatClientProvider>
   )
-}
+})
