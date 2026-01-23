@@ -362,41 +362,69 @@ class AsyncGameClient(LegacyAsyncGameClient):
     async def transfer_warp_power(
         self,
         *,
-        to_player_name: str,
         units: int,
         character_id: str,
+        to_player_name: Optional[str] = None,
+        to_ship_id: Optional[str] = None,
+        to_ship_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         if character_id != self._character_id:
             raise ValueError(
                 f"AsyncGameClient is bound to character_id {self._character_id!r}; "
                 f"received {character_id!r}"
             )
-        if not isinstance(to_player_name, str) or not to_player_name.strip():
-            raise ValueError("to_player_name must be a non-empty string")
-        payload = {
+        if not to_player_name and not to_ship_id and not to_ship_name:
+            raise ValueError("Must provide to_player_name, to_ship_id, or to_ship_name")
+        payload: Dict[str, Any] = {
             "from_character_id": character_id,
             "units": units,
-            "to_player_name": to_player_name,
         }
+        if to_player_name:
+            if not isinstance(to_player_name, str) or not to_player_name.strip():
+                raise ValueError("to_player_name must be a non-empty string")
+            payload["to_player_name"] = to_player_name
+        if to_ship_id:
+            if not isinstance(to_ship_id, str) or not to_ship_id.strip():
+                raise ValueError("to_ship_id must be a non-empty string")
+            payload["to_ship_id"] = to_ship_id
+        if to_ship_name:
+            if not isinstance(to_ship_name, str) or not to_ship_name.strip():
+                raise ValueError("to_ship_name must be a non-empty string")
+            payload["to_ship_name"] = to_ship_name
         return await self._request("transfer_warp_power", payload)
 
     async def transfer_credits(
         self,
         *,
-        to_player_name: str,
         amount: int,
         character_id: str,
+        to_player_name: Optional[str] = None,
+        to_ship_id: Optional[str] = None,
+        to_ship_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         if character_id != self._character_id:
             raise ValueError(
                 f"AsyncGameClient is bound to character_id {self._character_id!r}; "
                 f"received {character_id!r}"
             )
-        payload = {
+        if not to_player_name and not to_ship_id and not to_ship_name:
+            raise ValueError("Must provide to_player_name, to_ship_id, or to_ship_name")
+        payload: Dict[str, Any] = {
             "from_character_id": character_id,
-            "to_player_name": to_player_name,
             "amount": amount,
         }
+        if to_player_name:
+            if not isinstance(to_player_name, str) or not to_player_name.strip():
+                raise ValueError("to_player_name must be a non-empty string")
+            payload["to_player_name"] = to_player_name
+        if to_ship_id:
+            if not isinstance(to_ship_id, str) or not to_ship_id.strip():
+                raise ValueError("to_ship_id must be a non-empty string")
+            payload["to_ship_id"] = to_ship_id
+        if to_ship_name:
+            if not isinstance(to_ship_name, str) or not to_ship_name.strip():
+                raise ValueError("to_ship_name must be a non-empty string")
+            payload["to_ship_name"] = to_ship_name
         return await self._request("transfer_credits", payload)
 
     async def deposit_to_bank(

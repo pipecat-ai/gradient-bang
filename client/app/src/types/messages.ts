@@ -294,7 +294,7 @@ export interface ShipSummary {
   fighters: number
   max_fighters: number
   credits: number
-  is_task_running?: boolean
+  current_task_id?: string | null
 }
 
 export interface ShipsListMessage extends ServerMessagePayload {

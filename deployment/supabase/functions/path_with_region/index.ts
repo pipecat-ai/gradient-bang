@@ -191,7 +191,7 @@ async function handlePathWithRegion(
     payload: payloadBody,
     requestId,
     taskId,
-    corpId: character.corporation_id,
+    scope: "direct",
   });
 
   // Path calculations are private - no sector broadcast needed

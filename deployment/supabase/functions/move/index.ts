@@ -265,7 +265,7 @@ async function handleMove({ supabase, pgClient, characterId, destination, reques
     characterId: character.character_id,
     characterName: character.name,
     shipId: ship.ship_id,
-    shipName: shipDefinition.display_name,  // Always human-readable per codex convention
+    shipName: ship.ship_name?.trim() || shipDefinition.display_name,
     shipType: ship.ship_type,
     ownerType: ship.owner_type,
     ownerCorporationId: ship.owner_corporation_id,

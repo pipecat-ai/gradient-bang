@@ -18,6 +18,7 @@ import {
   respondWithError,
 } from '../_shared/request.ts';
 import type { ShipDefinitionRow } from '../_shared/status.ts';
+import { fetchActiveTaskIdsByShip } from '../_shared/tasks.ts';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -40,7 +41,7 @@ interface ShipSummary {
   fighters: number;
   max_fighters: number;
   credits: number;
-  // is_task_running is added by VoiceTaskManager before relay
+  current_task_id: string | null;
 }
 
 interface ShipsListResult {
@@ -170,6 +171,7 @@ async function fetchUserShips(
 
   // 5. Build ship summaries
   const corpShipIdSet = new Set(corpShipIds);
+  const activeTasks = await fetchActiveTaskIdsByShip(supabase, shipIds);
 
   for (const row of shipRows ?? []) {
     if (!row || typeof row.ship_id !== 'string') {
@@ -203,6 +205,7 @@ async function fetchUserShips(
       fighters: Number(row.current_fighters ?? definition?.fighters ?? 0),
       max_fighters: definition?.fighters ?? 0,
       credits: Number(row.credits ?? 0),
+      current_task_id: activeTasks.get(shipId) ?? null,
     });
   }
 

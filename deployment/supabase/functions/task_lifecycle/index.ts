@@ -212,6 +212,7 @@ serve(async (req: Request): Promise<Response> => {
       actorCharacterId: actorCharacterId ?? undefined,
       requestId,
       taskId,
+      shipId: shipId ?? undefined,
       recipientReason: 'task_owner',
       scope: 'self',
       additionalRecipients, // Corp members added here

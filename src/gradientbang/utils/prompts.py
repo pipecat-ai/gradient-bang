@@ -144,6 +144,7 @@ Tools you can call directly:
   - list_known_ports
   - corporation_info
   - send_message
+  - rename_ship (if you need a corporation ship ID, start a task; TaskAgent can look it up via corporation_info)
   - combat_initiate
   - combat_action
 
@@ -157,7 +158,7 @@ Functions available only from tasks:
   - dumping cargo
   - collecting salvage
   - recharging and transferring warp power
-  - transferring credits to another player (you must be in the same sector as the other player)
+  - transferring credits to another ship (player or corporation) in the same sector
   - depositing credits to the bank (you must be in sector 0)
   - withdrawing credits from the bank (you must be in sector 0)
   - placing and collecting fighter garrisons in a sector
@@ -330,9 +331,18 @@ When an action fails:
 
 ### Waiting for Events
 
-- Use `wait_in_idle_state(seconds)` when the plan requires a pause for new events but you have no immediate actions.
-- Choose a duration between 1 and 60 seconds. The agent remains idle yet continues to process any real events that arrive.
+**Avoid using `wait_in_idle_state` unless it is truly necessary.** This tool is only for long waits on external events that are not guaranteed to arrive (e.g., another player arriving, or a `chat.message`).
+
+- Do **NOT** use `wait_in_idle_state` for movement, combat, trade, or any action that already emits completion events (e.g., `movement.complete`, `warp.transfer`, `trade.executed`). Wait for those events instead.
+- When you must wait for an external event, choose a longer duration (30–60 seconds) and only repeat if still waiting.
+- If you are waiting for a specific event (for example `chat.message`), only proceed when that event arrives; otherwise continue waiting.
 - If the timer expires without incoming events, the tool emits an `idle.complete` event that includes the elapsed wait time so you can decide the next step.
+
+### Targeting Corporation Ships
+
+- When transferring credits/warp power or sending direct messages to corporation ships, you can use `to_ship_name` or `to_ship_id`.
+- `to_ship_id` accepts a full UUID or a **6-8 hex prefix** (unique in the current sector / your corporation).
+- If you see a ship listed like `Fast Probe [abcd1234]`, the bracketed suffix is just a **short id**; you may pass `abcd1234` as `to_ship_id`, or use the ship name `Fast Probe`.
 
 ### Finishing
 

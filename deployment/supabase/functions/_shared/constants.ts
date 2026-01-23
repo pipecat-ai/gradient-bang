@@ -27,6 +27,7 @@ export const RATE_LIMITS: Record<string, RateLimitRule> = {
   dump_cargo: { max: 120, window: 60 }, // Up from 60
   purchase_fighters: { max: 60, window: 60 }, // Up from 30
   ship_purchase: { max: 30, window: 60 }, // Expensive DB operation, keep conservative
+  ship_rename: { max: 120, window: 60 }, // Rename ops (lightweight)
   combat_initiate: { max: 60, window: 60 }, // Up from 30
   combat_action: { max: 200, window: 60 }, // Rapid combat rounds (was 120)
   corporation_create: { max: 20, window: 60 }, // Up from 10

@@ -100,7 +100,9 @@ serve(async (req: Request): Promise<Response> => {
 
     // Extract ship settings
     const shipType = shipData.ship_type ?? DEFAULT_SHIP_TYPE;
-    const shipName = shipData.ship_name ?? null;
+    const shipNameRaw = shipData.ship_name;
+    const shipNameTrimmed = typeof shipNameRaw === 'string' ? shipNameRaw.trim() : '';
+    const shipName = shipNameTrimmed ? shipNameTrimmed : null;
     const cargo = shipData.cargo ?? {};
     const cargoQf = cargo.quantum_foam ?? 0;
     const cargoRo = cargo.retro_organics ?? 0;
@@ -131,6 +133,21 @@ serve(async (req: Request): Promise<Response> => {
 
     if (existingCharacter.data) {
       throw new CharacterCreateError(`Character name "${name}" already exists`, 409);
+    }
+
+    if (shipName) {
+      const existingShipName = await supabase
+        .from('ship_instances')
+        .select('ship_id')
+        .eq('ship_name', shipName)
+        .maybeSingle();
+      if (existingShipName.error) {
+        console.error('character_create.ship_name_check', existingShipName.error);
+        throw new CharacterCreateError('Failed to check ship name', 500);
+      }
+      if (existingShipName.data) {
+        throw new CharacterCreateError(`Ship name "${shipName}" already exists`, 409);
+      }
     }
 
     // Create character (without ship reference first)

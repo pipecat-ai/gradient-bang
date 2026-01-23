@@ -1,4 +1,5 @@
 import { serve } from 'https://deno.land/std@0.197.0/http/server.ts';
+import { validate as validateUuid } from 'https://deno.land/std@0.197.0/uuid/mod.ts';
 
 import { validateApiToken, unauthorizedResponse, errorResponse, successResponse } from '../_shared/auth.ts';
 import { createServiceRoleClient } from '../_shared/client.ts';
@@ -13,6 +14,7 @@ import {
 } from '../_shared/status.ts';
 import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
 import { canonicalizeCharacterId } from '../_shared/ids.ts';
+import { resolveShipByNameWithSuffixFallback, type ShipNameLookupError } from '../_shared/ship_names.ts';
 import {
   parseJsonRequest,
   requireString,
@@ -26,13 +28,40 @@ import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 class TransferWarpPowerError extends Error {
   status: number;
+  extra?: Record<string, unknown>;
 
-  constructor(message: string, status = 400) {
+  constructor(message: string, status = 400, extra?: Record<string, unknown>) {
     super(message);
     this.name = 'TransferWarpPowerError';
     this.status = status;
+    this.extra = extra;
   }
 }
+
+type TransferTargetQuery = {
+  toPlayerName: string | null;
+  toShipId: string | null;
+  toShipIdPrefix: string | null;
+  toShipName: string | null;
+};
+
+type TransferTarget = {
+  character: {
+    character_id: string;
+    name: string;
+    first_visit: string;
+    player_metadata: Record<string, unknown> | null;
+    current_ship_id: string;
+  };
+  ship: {
+    ship_id: string;
+    ship_type: string;
+    ship_name: string | null;
+    current_sector: number | null;
+    in_hyperspace: boolean;
+    current_warp_power: number | null;
+  };
+};
 
 serve(async (req: Request): Promise<Response> => {
   if (!validateApiToken(req)) {
@@ -59,7 +88,20 @@ serve(async (req: Request): Promise<Response> => {
   const requestId = resolveRequestId(payload);
   const fromCharacterLabel = requireString(payload, 'from_character_id');
   const fromCharacterId = await canonicalizeCharacterId(fromCharacterLabel);
-  const toPlayerName = requireString(payload, 'to_player_name');
+  const toPlayerName = optionalString(payload, 'to_player_name');
+  const toShipIdLabel = optionalString(payload, 'to_ship_id');
+  const toShipName = optionalString(payload, 'to_ship_name');
+  let toShipId: string | null = null;
+  let toShipIdPrefix: string | null = null;
+  try {
+    ({ shipId: toShipId, shipIdPrefix: toShipIdPrefix } = parseShipIdInput(toShipIdLabel));
+  } catch (err) {
+    if (err instanceof TransferWarpPowerError) {
+      return errorResponse(err.message, err.status, err.extra);
+    }
+    console.error('transfer_warp_power.ship_id_parse', err);
+    return errorResponse('invalid ship id', 400);
+  }
   const actorCharacterLabel = optionalString(payload, 'actor_character_id');
   const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
   const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
@@ -87,7 +129,7 @@ serve(async (req: Request): Promise<Response> => {
       supabase,
       payload,
       fromCharacterId,
-      toPlayerName,
+      { toPlayerName, toShipId, toShipIdPrefix, toShipName },
       requestId,
       actorCharacterId,
       adminOverride,
@@ -112,7 +154,7 @@ serve(async (req: Request): Promise<Response> => {
         detail: err.message,
         status: err.status,
       });
-      return errorResponse(err.message, err.status);
+      return errorResponse(err.message, err.status, err.extra);
     }
     console.error('transfer_warp_power.unhandled', err);
     await emitErrorEvent(supabase, {
@@ -130,7 +172,7 @@ async function handleTransfer(
   supabase: SupabaseClient,
   payload: Record<string, unknown>,
   fromCharacterId: string,
-  toPlayerName: string,
+  target: TransferTargetQuery,
   requestId: string,
   actorCharacterId: string | null,
   adminOverride: boolean,
@@ -157,14 +199,19 @@ async function handleTransfer(
     throw new TransferWarpPowerError('Sender is in hyperspace, cannot transfer warp power', 400);
   }
 
-  const toCharacterRecord = await findCharacterByNameInSector(
+  const { toPlayerName, toShipId, toShipIdPrefix, toShipName } = target;
+  if (!toPlayerName && !toShipId && !toShipIdPrefix && !toShipName) {
+    throw new TransferWarpPowerError('Must provide to_player_name, to_ship_id, or to_ship_name', 400);
+  }
+
+  const toCharacterRecord = await resolveTransferTarget(
     supabase,
-    toPlayerName,
+    { toPlayerName, toShipId, toShipIdPrefix, toShipName },
     fromShip.current_sector ?? null,
     fromCharacterId,
   );
   if (!toCharacterRecord) {
-    throw new TransferWarpPowerError('Target player not found in this sector', 404);
+    throw new TransferWarpPowerError('Target not found in this sector', 404);
   }
 
   const { character: toCharacter, ship: toShip } = toCharacterRecord;
@@ -308,23 +355,7 @@ async function findCharacterByNameInSector(
   name: string,
   sectorId: number | null,
   excludeCharacterId: string,
-): Promise<{
-  character: {
-    character_id: string;
-    name: string;
-    first_visit: string;
-    player_metadata: Record<string, unknown> | null;
-    current_ship_id: string;
-  };
-  ship: {
-    ship_id: string;
-    ship_type: string;
-    ship_name: string | null;
-    current_sector: number | null;
-    in_hyperspace: boolean;
-    current_warp_power: number | null;
-  };
-} | null> {
+): Promise<TransferTarget | null> {
   if (sectorId === null) {
     return null;
   }
@@ -333,7 +364,7 @@ async function findCharacterByNameInSector(
   const { data, error } = await supabase
     .from('characters')
     .select('character_id, name, first_visit, player_metadata, current_ship_id')
-    .ilike('name', pattern)
+    .ilike('name', `${pattern}%`)
     .neq('character_id', excludeCharacterId)
     .limit(5);
 
@@ -382,4 +413,157 @@ async function findCharacterByNameInSector(
   }
 
   return null;
+}
+
+async function resolveTransferTarget(
+  supabase: SupabaseClient,
+  target: TransferTargetQuery,
+  sectorId: number | null,
+  excludeCharacterId: string,
+): Promise<TransferTarget | null> {
+  if (target.toShipId) {
+    return await resolveCharacterByShipId(supabase, target.toShipId);
+  }
+  if (target.toShipIdPrefix) {
+    const resolvedId = await resolveShipIdByPrefixInSector(supabase, target.toShipIdPrefix, sectorId);
+    if (!resolvedId) {
+      return null;
+    }
+    return await resolveCharacterByShipId(supabase, resolvedId);
+  }
+  if (target.toShipName) {
+    return await resolveCharacterByShipName(supabase, target.toShipName);
+  }
+  if (target.toPlayerName) {
+    return await findCharacterByNameInSector(supabase, target.toPlayerName, sectorId, excludeCharacterId);
+  }
+  return null;
+}
+
+async function resolveCharacterByShipId(
+  supabase: SupabaseClient,
+  shipId: string,
+): Promise<TransferTarget | null> {
+  let ship;
+  try {
+    ship = await loadShip(supabase, shipId);
+  } catch (err) {
+    console.error('transfer_warp_power.lookup_ship_id', err);
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from('characters')
+    .select('character_id, name, first_visit, player_metadata, current_ship_id')
+    .eq('current_ship_id', ship.ship_id)
+    .maybeSingle();
+
+  if (error) {
+    console.error('transfer_warp_power.lookup_ship_character', error);
+    throw new TransferWarpPowerError('Failed to lookup target ship', 500);
+  }
+  if (!data || !data.current_ship_id) {
+    return null;
+  }
+
+  return {
+    character: {
+      character_id: data.character_id,
+      name: data.name,
+      first_visit: data.first_visit,
+      player_metadata: data.player_metadata,
+      current_ship_id: data.current_ship_id,
+    },
+    ship: {
+      ship_id: ship.ship_id,
+      ship_type: ship.ship_type,
+      ship_name: ship.ship_name,
+      current_sector: ship.current_sector,
+      in_hyperspace: ship.in_hyperspace,
+      current_warp_power: ship.current_warp_power,
+    },
+  };
+}
+
+async function resolveCharacterByShipName(
+  supabase: SupabaseClient,
+  shipName: string,
+): Promise<TransferTarget | null> {
+  let lookup;
+  try {
+    lookup = await resolveShipByNameWithSuffixFallback(supabase, shipName);
+  } catch (err) {
+    const stage = (err as ShipNameLookupError | null)?.stage;
+    const cause = err instanceof Error && 'cause' in err ? (err as Error & { cause?: unknown }).cause : err;
+    if (stage === 'suffix') {
+      console.error('transfer_warp_power.lookup_ship_name_suffix', cause);
+    } else {
+      console.error('transfer_warp_power.lookup_ship_name', cause);
+    }
+    throw new TransferWarpPowerError('Failed to lookup target ship', 500);
+  }
+
+  if (lookup.status === 'none') {
+    return null;
+  }
+
+  if (lookup.status === 'ambiguous') {
+    throw new TransferWarpPowerError(
+      'Ship name is ambiguous; use full ship name',
+      409,
+      {
+        base_name: lookup.base_name,
+        candidates: lookup.candidates,
+        total_matches: lookup.total_matches,
+      },
+    );
+  }
+
+  return await resolveCharacterByShipId(supabase, lookup.ship.ship_id);
+}
+
+async function resolveShipIdByPrefixInSector(
+  supabase: SupabaseClient,
+  prefix: string,
+  sectorId: number | null,
+): Promise<string | null> {
+  if (sectorId === null) {
+    return null;
+  }
+  const { data, error } = await supabase
+    .from('ship_instances')
+    .select('ship_id')
+    .eq('current_sector', sectorId);
+
+  if (error) {
+    console.error('transfer_warp_power.lookup_ship_prefix', error);
+    throw new TransferWarpPowerError('Failed to lookup target ship', 500);
+  }
+
+  const matches = (data ?? [])
+    .map((row) => row.ship_id)
+    .filter((shipId): shipId is string => typeof shipId === 'string')
+    .filter((shipId) => shipId.toLowerCase().startsWith(prefix));
+
+  if (matches.length > 1) {
+    throw new TransferWarpPowerError('Ship id prefix is ambiguous; use ship name or full ship_id', 409);
+  }
+
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function parseShipIdInput(
+  value: string | null,
+): { shipId: string | null; shipIdPrefix: string | null } {
+  if (!value) {
+    return { shipId: null, shipIdPrefix: null };
+  }
+  const trimmed = value.trim();
+  if (validateUuid(trimmed)) {
+    return { shipId: trimmed, shipIdPrefix: null };
+  }
+  if (/^[0-9a-f]{6,8}$/i.test(trimmed)) {
+    return { shipId: null, shipIdPrefix: trimmed.toLowerCase() };
+  }
+  throw new TransferWarpPowerError('to_ship_id must be a UUID or 6-8 hex prefix', 400);
 }

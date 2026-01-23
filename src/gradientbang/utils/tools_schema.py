@@ -1,7 +1,8 @@
 # tools_schema.py
 
 from abc import ABC
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
+import re
 
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.adapters.schemas.function_schema import FunctionSchema
@@ -10,6 +11,151 @@ from pipecat.adapters.services.open_ai_adapter import OpenAILLMAdapter
 from gradientbang.utils.api_client import AsyncGameClient
 
 from openai.types.chat import ChatCompletionToolParam
+
+
+_ID_PREFIX_LEN = 6
+_UUID_RE = re.compile(
+    r"[0-9a-fA-F]{8}-"
+    r"[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{12}"
+)
+_BRACKET_HEX_RE = re.compile(r"\[([0-9a-fA-F]{8,})\]")
+
+
+def _short_id(value: Any, prefix_len: int = _ID_PREFIX_LEN) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    return text[:prefix_len]
+
+
+def _shorten_embedded_ids(text: str, prefix_len: int = _ID_PREFIX_LEN) -> str:
+    if not isinstance(text, str) or not text:
+        return text
+    text = _UUID_RE.sub(lambda match: match.group(0)[:prefix_len], text)
+    text = _BRACKET_HEX_RE.sub(lambda match: f"[{match.group(1)[:prefix_len]}]", text)
+    return text
+
+
+def _friendly_ship_type(raw_type: Optional[str]) -> str:
+    if not isinstance(raw_type, str) or not raw_type:
+        return "unknown"
+    return raw_type.replace("_", " ").title()
+
+
+def _format_ship_holds(ship: Dict[str, Any]) -> str:
+    cargo = ship.get("cargo") if isinstance(ship, dict) else None
+    capacity = ship.get("cargo_capacity")
+    used = 0
+    if isinstance(cargo, dict):
+        for value in cargo.values():
+            if isinstance(value, (int, float)):
+                used += int(value)
+    if isinstance(capacity, (int, float)):
+        empty = max(int(capacity) - used, 0)
+        return f"holds {int(capacity)} (empty {empty})"
+    return "holds ?"
+
+
+def _summarize_corporation_info(result: Any) -> str:
+    if not isinstance(result, dict):
+        return "Corporation info unavailable."
+
+    corporations = result.get("corporations")
+    if isinstance(corporations, list):
+        count = len(corporations)
+        if count == 0:
+            return "No corporations found."
+        entries: List[str] = []
+        for corp in corporations[:5]:
+            if not isinstance(corp, dict):
+                continue
+            name = _shorten_embedded_ids(str(corp.get("name", "Unknown")))
+            member_count = corp.get("member_count")
+            if isinstance(member_count, int):
+                entries.append(f"{name} ({member_count})")
+            else:
+                entries.append(name)
+        summary = f"Corporations: {count} total. " + ", ".join(entries)
+        remaining = count - len(entries)
+        if remaining > 0:
+            summary += f", +{remaining} more"
+        return summary
+
+    corp = result.get("corporation")
+    if corp is None and any(
+        key in result for key in ("corp_id", "name", "member_count", "members", "ships")
+    ):
+        corp = result
+    if corp is None:
+        return "You are not in a corporation."
+    if not isinstance(corp, dict):
+        return "Corporation info unavailable."
+
+    corp_name = _shorten_embedded_ids(str(corp.get("name", "Unknown corporation")))
+    ships = corp.get("ships") if isinstance(corp.get("ships"), list) else []
+    ship_count = len(ships)
+    member_count = corp.get("member_count")
+    header = f"Corporation: {corp_name}"
+    if isinstance(member_count, int):
+        header += f" (members: {member_count}, ships: {ship_count})"
+    else:
+        header += f" (ships: {ship_count})"
+    lines = [header]
+
+    members = corp.get("members")
+    if isinstance(members, list) and members:
+        names: List[str] = []
+        for member in members:
+            if not isinstance(member, dict):
+                continue
+            name = member.get("name") or member.get("character_id")
+            if isinstance(name, str) and name:
+                names.append(_shorten_embedded_ids(name))
+        if names:
+            lines.append("Members: " + ", ".join(names))
+
+    if ships:
+        lines.append("Ships:")
+        for ship in ships:
+            if not isinstance(ship, dict):
+                continue
+            ship_name = ship.get("name") or ship.get("ship_name") or "Unnamed Vessel"
+            ship_name = _shorten_embedded_ids(str(ship_name))
+            ship_type = _friendly_ship_type(ship.get("ship_type"))
+            ship_id_prefix = _short_id(ship.get("ship_id"))
+            id_suffix = f" [{ship_id_prefix}]" if ship_id_prefix else ""
+            sector = ship.get("sector")
+            sector_display = sector if isinstance(sector, int) else "unknown"
+            details: List[str] = [
+                f"{ship_name}{id_suffix} ({ship_type}) in sector {sector_display}",
+                _format_ship_holds(ship),
+            ]
+            warp = ship.get("warp_power")
+            warp_max = ship.get("warp_power_capacity")
+            if isinstance(warp, (int, float)) and isinstance(warp_max, (int, float)):
+                details.append(f"warp {int(warp)}/{int(warp_max)}")
+            credits = ship.get("credits")
+            if isinstance(credits, (int, float)):
+                details.append(f"credits {int(credits)}")
+            current_task_id = ship.get("current_task_id")
+            if isinstance(current_task_id, str) and current_task_id:
+                task_display = _short_id(current_task_id) or current_task_id
+            else:
+                task_display = "none"
+            details.append(f"task {task_display}")
+            fighters = ship.get("fighters")
+            if isinstance(fighters, (int, float)):
+                details.append(f"fighters {int(fighters)}")
+            lines.append("- " + "; ".join(details))
+    else:
+        lines.append("Ships: none")
+
+    return "\n".join(lines)
 
 
 def get_openai_tools_list(game_client, tools_classes) -> List[ChatCompletionToolParam]:
@@ -272,7 +418,10 @@ class StartTask(GameClientTool):
     def schema(cls):
         return FunctionSchema(
             name="start_task",
-            description="Start a complex multi-step task for navigation, trading, or exploration. Can control your own ship or a corporation ship. When tasking a corporation ship, you MUST first call corporation_info() to get the ship_id UUID, then pass that UUID here.",
+            description=(
+                "Start a complex multi-step task for navigation, trading, or exploration. "
+                "Can control your own ship or a corporation ship."
+            ),
             properties={
                 "task_description": {
                     "type": "string",
@@ -284,7 +433,11 @@ class StartTask(GameClientTool):
                 },
                 "ship_id": {
                     "type": "string",
-                    "description": "Corporation ship UUID to control. MUST be a valid UUID from corporation_info(). Do NOT pass ship names - call corporation_info() first to get the UUID. Omit this parameter to control your own ship instead.",
+                    "description": (
+                        "Corporation ship ID to control. Accepts a full UUID or the short "
+                        "prefix shown in brackets (e.g., [5a8369]). Omit this parameter "
+                        "to control your own ship instead."
+                    ),
                 },
             },
             required=["task_description"],
@@ -425,10 +578,12 @@ class PurchaseFighters(GameClientTool):
 
 
 class TransferWarpPower(GameClientTool):
-    def __call__(self, to_player_name, units):
+    def __call__(self, units, to_player_name=None, to_ship_id=None, to_ship_name=None):
         return self.game_client.transfer_warp_power(
-            to_player_name=to_player_name,
             units=units,
+            to_player_name=to_player_name,
+            to_ship_id=to_ship_id,
+            to_ship_name=to_ship_name,
             character_id=self.game_client.character_id,
         )
 
@@ -436,11 +591,26 @@ class TransferWarpPower(GameClientTool):
     def schema(cls):
         return FunctionSchema(
             name="transfer_warp_power",
-            description="Transfer warp power to another character in the same sector",
+            description=(
+                "Transfer warp power to another ship in the same sector. Provide one of "
+                "to_player_name, to_ship_id, or to_ship_name. For corporation ships, "
+                "use corporation_info to find the ship_id. to_ship_id accepts a full UUID "
+                "or a 6-8 hex prefix (unique in the current sector). If you see a name like "
+                "'Fast Probe [abcd1234]', the bracket suffix is just a short id."
+            ),
             properties={
                 "to_player_name": {
                     "type": "string",
                     "description": "Display name of the recipient currently in your sector",
+                    "minLength": 1,
+                },
+                "to_ship_id": {
+                    "type": "string",
+                    "description": "Ship UUID or 6-8 hex prefix for the recipient ship",
+                },
+                "to_ship_name": {
+                    "type": "string",
+                    "description": "Unique ship name for the recipient ship (without bracket suffix)",
                     "minLength": 1,
                 },
                 "units": {
@@ -449,15 +619,17 @@ class TransferWarpPower(GameClientTool):
                     "minimum": 1,
                 },
             },
-            required=["to_player_name", "units"],
+            required=["units"],
         )
 
 
 class TransferCredits(GameClientTool):
-    def __call__(self, to_player_name, amount):
+    def __call__(self, to_player_name=None, amount=None, to_ship_id=None, to_ship_name=None):
         return self.game_client.transfer_credits(
-            to_player_name=to_player_name,
             amount=amount,
+            to_player_name=to_player_name,
+            to_ship_id=to_ship_id,
+            to_ship_name=to_ship_name,
             character_id=self.game_client.character_id,
         )
 
@@ -465,11 +637,26 @@ class TransferCredits(GameClientTool):
     def schema(cls):
         return FunctionSchema(
             name="transfer_credits",
-            description="Transfer on-hand credits to another character in the same sector.",
+            description=(
+                "Transfer on-hand credits to another ship in the same sector. Provide "
+                "one of to_player_name, to_ship_id, or to_ship_name. For corporation ships, "
+                "use corporation_info to find the ship_id. to_ship_id accepts a full UUID "
+                "or a 6-8 hex prefix (unique in the current sector). If you see a name like "
+                "'Fast Probe [abcd1234]', the bracket suffix is just a short id."
+            ),
             properties={
                 "to_player_name": {
                     "type": "string",
                     "description": "Display name of the recipient currently in your sector",
+                    "minLength": 1,
+                },
+                "to_ship_id": {
+                    "type": "string",
+                    "description": "Ship UUID or 6-8 hex prefix for the recipient ship",
+                },
+                "to_ship_name": {
+                    "type": "string",
+                    "description": "Unique ship name for the recipient ship (without bracket suffix)",
                     "minLength": 1,
                 },
                 "amount": {
@@ -478,7 +665,7 @@ class TransferCredits(GameClientTool):
                     "minimum": 1,
                 },
             },
-            required=["to_player_name", "amount"],
+            required=["amount"],
         )
 
 
@@ -643,13 +830,11 @@ class PurchaseShip(GameClientTool):
         initial_ship_credits=None,
         character_id=None,
     ):
-        if ship_name is None or not str(ship_name).strip():
-            raise ValueError("ship_name is required when purchasing a ship.")
-
         payload = {
             "ship_type": ship_type,
-            "ship_name": ship_name,
         }
+        if ship_name is not None and str(ship_name).strip():
+            payload["ship_name"] = ship_name
         if purchase_type is not None:
             payload["purchase_type"] = purchase_type
         if trade_in_ship_id is not None:
@@ -672,6 +857,8 @@ class PurchaseShip(GameClientTool):
                 "Purchase a ship for personal use or on behalf of your corporation. "
                 "Personal purchases use ship credits (with trade-in value from current ship). "
                 "Corporation purchases draw from bank credits and may seed initial ship credits. "
+                "If ship_name is omitted, the default display name is used and auto-suffixed "
+                "for uniqueness. "
                 "Note: autonomous ships (autonomous_probe, autonomous_light_hauler) can ONLY be "
                 "purchased for corporations, not for personal use."
             ),
@@ -704,7 +891,7 @@ class PurchaseShip(GameClientTool):
                 },
                 "ship_name": {
                     "type": "string",
-                    "description": "Display name for the new ship",
+                    "description": "Optional display name for the new ship",
                     "minLength": 1,
                 },
                 "trade_in_ship_id": {
@@ -725,12 +912,46 @@ class PurchaseShip(GameClientTool):
                     "description": "Character executing the purchase (defaults to the authenticated pilot)",
                 },
             },
-            required=["ship_type", "ship_name"],
+            required=["ship_type"],
+        )
+
+
+class RenameShip(GameClientTool):
+    def __call__(self, ship_name, ship_id=None):
+        payload = {"ship_name": ship_name}
+        if ship_id is not None:
+            payload["ship_id"] = ship_id
+        return self.game_client.rename_ship(**payload)
+
+    @classmethod
+    def schema(cls):
+        return FunctionSchema(
+            name="rename_ship",
+            description=(
+                "Rename a ship you own. For corporation ships, call corporation_info() "
+                "to find the ship_id. ship_id accepts a full UUID or a 6-8 hex prefix "
+                "(must uniquely identify a ship you control)."
+            ),
+            properties={
+                "ship_name": {
+                    "type": "string",
+                    "description": "New display name for the ship",
+                    "minLength": 1,
+                },
+                "ship_id": {
+                    "type": "string",
+                    "description": (
+                        "Corporation ship UUID or 6-8 hex prefix to rename. "
+                        "Omit this to rename your own active ship."
+                    ),
+                },
+            },
+            required=["ship_name"],
         )
 
 
 class CorporationInfo(GameClientTool):
-    def __call__(self, list_all=False, corp_id=None):
+    async def __call__(self, list_all=False, corp_id=None):
         """
         Get corporation information including members and ships.
 
@@ -743,29 +964,29 @@ class CorporationInfo(GameClientTool):
 
         if list_all:
             # List all corporations
-            result = self.game_client._request("corporation.list", {})
-            return result
+            result = await self.game_client._request("corporation.list", {})
+            return {"summary": _summarize_corporation_info(result)}
 
         if corp_id:
             # Look up a specific corporation by ID
-            result = self.game_client._request(
+            result = await self.game_client._request(
                 "corporation.info",
                 {
                     "character_id": character_id,
                     "corp_id": corp_id,
                 },
             )
-            return result
+            return {"summary": _summarize_corporation_info(result)}
 
         # Default: get your own corporation info (no corp_id needed)
-        result = self.game_client._request(
+        result = await self.game_client._request(
             "my_corporation",
             {
                 "character_id": character_id,
             },
         )
 
-        return result
+        return {"summary": _summarize_corporation_info(result)}
 
     @classmethod
     def schema(cls):
@@ -1021,11 +1242,20 @@ class DumpCargo(GameClientTool):
 
 
 class SendMessage(GameClientTool):
-    def __call__(self, content, msg_type="broadcast", to_name=None):
+    def __call__(
+        self,
+        content,
+        msg_type="broadcast",
+        to_name=None,
+        to_ship_id=None,
+        to_ship_name=None,
+    ):
         return self.game_client.send_message(
             content=content,
             msg_type=msg_type,
             to_name=to_name,
+            to_ship_id=to_ship_id,
+            to_ship_name=to_ship_name,
             character_id=self.game_client.character_id,
         )
 
@@ -1033,7 +1263,12 @@ class SendMessage(GameClientTool):
     def schema(cls):
         return FunctionSchema(
             name="send_message",
-            description="Send a chat message (broadcast or direct)",
+            description=(
+                "Send a chat message (broadcast or direct). For direct messages, you can "
+                "target by character name, ship name, or ship_id. to_ship_id accepts a full "
+                "UUID or a 6-8 hex prefix (unique within your corporation). If you see a "
+                "name like 'Fast Probe [abcd1234]', the bracket suffix is just a short id."
+            ),
             properties={
                 "content": {
                     "type": "string",
@@ -1047,7 +1282,15 @@ class SendMessage(GameClientTool):
                 },
                 "to_name": {
                     "type": "string",
-                    "description": "Recipient character name (required for direct)",
+                    "description": "Recipient character name or ship name (required for direct unless using ship_id)",
+                },
+                "to_ship_id": {
+                    "type": "string",
+                    "description": "Ship UUID or 6-8 hex prefix for the recipient ship (direct messages)",
+                },
+                "to_ship_name": {
+                    "type": "string",
+                    "description": "Ship name for the recipient ship (direct messages, no bracket suffix)",
                 },
             },
             required=["content"],
@@ -1180,6 +1423,8 @@ class WaitInIdleState(Tool):
             name="wait_in_idle_state",
             description=(
                 "Pause in an idle state while still listening for live events. "
+                "Use only for long waits on external events (e.g., another player arriving "
+                "or a chat.message). Do NOT use for movement/combat/trade completions. "
                 "If no events arrive before the timeout, an idle.complete event is emitted."
             ),
             properties={

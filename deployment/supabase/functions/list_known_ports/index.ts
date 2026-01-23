@@ -457,7 +457,7 @@ async function handleListKnownPorts(
     sectorId: fromSector,
     requestId,
     taskId,
-    corpId: character.corporation_id,
+    scope: "direct",
   });
 
   return successResponse({ request_id: requestId });
