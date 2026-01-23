@@ -6,33 +6,33 @@
  */
 
 export interface StartAction {
-  type: "start";
+  type: "start"
 }
 
 export interface GetMyStatusAction {
-  type: "get-my-status";
+  type: "get-my-status"
 }
 
 export interface GetKnownPortListAction {
-  type: "get-known-ports";
+  type: "get-known-ports"
 }
 
 export interface GetMapRegionAction {
-  type: "get-my-map";
+  type: "get-my-map"
   payload: {
-    center_sector: number;
-    max_hops?: number;
-    max_sectors?: number;
-  };
+    center_sector: number
+    max_hops?: number
+    max_sectors?: number
+  }
 }
 
 export interface GetMyShipsAction {
-  type: "get-my-ships";
+  type: "get-my-ships"
 }
 
 export interface CancelTaskAction {
-  type: "cancel-task";
-  payload: { task_id: string };
+  type: "cancel-task"
+  payload: { task_id: string }
 }
 // Discriminated union of all actions
 export type GameAction =
@@ -41,7 +41,7 @@ export type GameAction =
   | GetKnownPortListAction
   | GetMapRegionAction
   | GetMyShipsAction
-  | CancelTaskAction;
+  | CancelTaskAction
 
 // Extract action types for use in selects, etc.
-export type ActionType = GameAction["type"];
+export type ActionType = GameAction["type"]
