@@ -37,20 +37,11 @@ export const useDispatchInterval = <T>(
   actionType: ActionType,
   options: UseDispatchIntervalOptions<T> = {}
 ) => {
-  const {
-    data,
-    interval = null,
-    staleTime,
-    lastUpdated,
-    enabled = true,
-    debug = false,
-  } = options
+  const { data, interval = null, staleTime, lastUpdated, enabled = true, debug = false } = options
 
   const { isConnected } = usePipecatConnectionState()
   const dispatchAction = useGameStore((state) => state.dispatchAction)
-  const isFetching = useGameStore((state) =>
-    Boolean(state.fetchPromises[actionType])
-  )
+  const isFetching = useGameStore((state) => Boolean(state.fetchPromises[actionType]))
 
   const hasFetchedRef = useRef(false)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
@@ -69,8 +60,7 @@ export const useDispatchInterval = <T>(
   // Mount fetch - only if data is undefined
   useEffect(() => {
     const log = (msg: string) =>
-      debugRef.current &&
-      console.debug(`[useDispatchInterval:${actionType}] ${msg}`)
+      debugRef.current && console.debug(`[useDispatchInterval:${actionType}] ${msg}`)
 
     if (!enabled) {
       log("Disabled, skipping")
@@ -102,8 +92,7 @@ export const useDispatchInterval = <T>(
   // Interval fetch with stale time checking
   useEffect(() => {
     const log = (msg: string) =>
-      debugRef.current &&
-      console.debug(`[useDispatchInterval:${actionType}] ${msg}`)
+      debugRef.current && console.debug(`[useDispatchInterval:${actionType}] ${msg}`)
 
     if (!enabled || !isConnected || !interval) {
       log(
@@ -117,9 +106,7 @@ export const useDispatchInterval = <T>(
     intervalRef.current = setInterval(() => {
       // Read current lastUpdated value from ref at tick time
       const currentLastUpdated = lastUpdatedRef.current
-      const lastTime = currentLastUpdated
-        ? new Date(currentLastUpdated).getTime()
-        : 0
+      const lastTime = currentLastUpdated ? new Date(currentLastUpdated).getTime() : 0
       const isStale = !staleTime || lastTime < Date.now() - staleTime
 
       log(`Tick - lastUpdated=${currentLastUpdated}, isStale=${isStale}`)

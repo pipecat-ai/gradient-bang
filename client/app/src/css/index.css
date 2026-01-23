@@ -20,11 +20,12 @@
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
   --muted-foreground: oklch(87% 0 0);
-  --subtle: oklch(37.1% 0 0);
-  --subtle-background: oklch(26.9% 0 0);
-  --subtle-foreground: oklch(55.6% 0 0);
+  --subtle: oklch(55.6% 0 0);
+  --subtle-background: oklch(20.5% 0 0);
+  --subtle-foreground: oklch(70.8% 0 0);
   --accent: oklch(37.1% 0 0);
-  --accent-foreground: oklch(43.9% 0 0);
+  --accent-foreground: oklch(55.6% 0 0);
+  --accent-background: oklch(26.9% 0 0);
   --destructive: oklch(63.7% 0.237 25.331);
   --destructive-foreground: oklch(93.6% 0.032 17.717);
   --destructive-background: oklch(44.4% 0.177 26.899);
@@ -70,11 +71,11 @@
 
 @theme inline {
   --font-sans:
-    "TX-02", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+    "TX-02", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
   --font-sans:
-    "TX-02", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+    "TX-02", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
 
   /** Colors **/
   --color-background: var(--background);
@@ -94,6 +95,7 @@
   --color-subtle-background: var(--subtle-background);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-accent-background: var(--accent-background);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-destructive-background: var(--destructive-background);
@@ -131,12 +133,13 @@
   --spacing-screen-border-y: calc(var(--spacing) * 10);
   --spacing-screen-border-x: calc(var(--spacing) * 4);
 
+  --spacing-panel-gap: 3px;
+
   --height-ui-hud: 460px;
   --width-ui-hud-center: 500px;
   --width-ui-hud-lhs: 400px;
   --width-ui-hud-rhs: 400px;
-  --grid-cols-hud: minmax(var(--width-ui-hud-lhs), 700px)
-    minmax(240px, var(--width-ui-hud-center))
+  --grid-cols-hud: minmax(var(--width-ui-hud-lhs), 700px) minmax(240px, var(--width-ui-hud-center))
     minmax(var(--width-ui-hud-rhs), 700px);
 
   --height-toast: 160px;
@@ -168,15 +171,13 @@
   --shadow-long:
     0 28px 28px 18px rgba(0, 0, 0, 0.25), 0 25px 15px 0 rgba(0, 0, 0, 0.05),
     0 11px 11px 0 rgba(0, 0, 0, 0.09), 0 3px 6px 0 rgba(0, 0, 0, 0.1);
-  --shadow-short:
-    0px 10px 15px -3px rgb(0 0 0 / 0.05), 0px 4px 6px -2px rgb(0 0 0 / 0.02);
+  --shadow-short: 0px 10px 15px -3px rgb(0 0 0 / 0.05), 0px 4px 6px -2px rgb(0 0 0 / 0.02);
   --shadow-xshort:
-    0px 7px 3px rgb(0 0 0 / 0.01), 0px 4px 2px rgb(0 0 0 / 0.03),
-    0px 2px 2px rgb(0 0 0 / 0.04), 0px 0px 1px rgb(0 0 0 / 0.05);
+    0px 7px 3px rgb(0 0 0 / 0.01), 0px 4px 2px rgb(0 0 0 / 0.03), 0px 2px 2px rgb(0 0 0 / 0.04),
+    0px 0px 1px rgb(0 0 0 / 0.05);
 
   /* Outline Pulse Animation */
-  --animate-outline-pulse: outline-pulse 1s cubic-bezier(0.4, 0, 0.6, 1)
-    infinite;
+  --animate-outline-pulse: outline-pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 
   @keyframes outline-pulse {
     0%,
@@ -530,22 +531,15 @@ button {
 }
 
 .dotted-frame {
-  background-image: radial-gradient(
-    circle,
-    var(--color-input) 1px,
-    transparent 1px
-  );
+  background-image: radial-gradient(circle, var(--color-input) 1px, transparent 1px);
   background-size: 6px 6px;
   background-position: 0 0;
   background-repeat: repeat;
   mask-image:
     linear-gradient(to bottom, black 0%, black 70px, transparent 70px),
-    /* Bottom border */
-    linear-gradient(to top, black 0%, black 0, transparent 0),
-    /* Left border */
-    linear-gradient(to right, black 0%, black 70px, transparent 70px),
-    /* Right border */
-    linear-gradient(to left, black 0%, black 70px, transparent 70px);
+    /* Bottom border */ linear-gradient(to top, black 0%, black 0, transparent 0),
+    /* Left border */ linear-gradient(to right, black 0%, black 70px, transparent 70px),
+    /* Right border */ linear-gradient(to left, black 0%, black 70px, transparent 70px);
   mask-composite: add;
 }
 
@@ -556,11 +550,7 @@ button {
   left: 0;
   right: 0;
   height: 40px;
-  background-image: radial-gradient(
-    circle,
-    var(--color-background) 2px,
-    transparent 1px
-  );
+  background-image: radial-gradient(circle, var(--color-background) 2px, transparent 1px);
   background-size: 4px 4px;
   background-position: 0 0;
   background-repeat: repeat;

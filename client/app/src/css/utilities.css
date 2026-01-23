@@ -9,29 +9,27 @@
     transition: all 0.3s ease-in-out;
     background: 
         /* Top-left corner: horizontal part */
-      linear-gradient(var(--elbow-color), var(--elbow-color)) top 0 left 0 /
-        var(--elbow-size) var(--elbow-width) no-repeat,
-      /* Top-left corner: vertical part */
-        linear-gradient(var(--elbow-color), var(--elbow-color)) top 0 left 0 /
-        var(--elbow-width) var(--elbow-size) no-repeat,
+      linear-gradient(var(--elbow-color), var(--elbow-color)) top 0 left 0 / var(--elbow-size)
+        var(--elbow-width) no-repeat,
+      /* Top-left corner: vertical part */ linear-gradient(var(--elbow-color), var(--elbow-color))
+        top 0 left 0 / var(--elbow-width) var(--elbow-size) no-repeat,
       /* Top-right corner: horizontal part */
-        linear-gradient(var(--elbow-color), var(--elbow-color)) top 0 right 0 /
-        var(--elbow-size) var(--elbow-width) no-repeat,
-      /* Top-right corner: vertical part */
-        linear-gradient(var(--elbow-color), var(--elbow-color)) top 0 right 0 /
-        var(--elbow-width) var(--elbow-size) no-repeat,
+        linear-gradient(var(--elbow-color), var(--elbow-color)) top 0 right 0 / var(--elbow-size)
+        var(--elbow-width) no-repeat,
+      /* Top-right corner: vertical part */ linear-gradient(var(--elbow-color), var(--elbow-color))
+        top 0 right 0 / var(--elbow-width) var(--elbow-size) no-repeat,
       /* Bottom-left corner: horizontal part */
-        linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 left
-        0 / var(--elbow-size) var(--elbow-width) no-repeat,
+        linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 left 0 / var(--elbow-size)
+        var(--elbow-width) no-repeat,
       /* Bottom-left corner: vertical part */
-        linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 left
-        0 / var(--elbow-width) var(--elbow-size) no-repeat,
+        linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 left 0 / var(--elbow-width)
+        var(--elbow-size) no-repeat,
       /* Bottom-right corner: horizontal part */
-        linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 right
-        0 / var(--elbow-size) var(--elbow-width) no-repeat,
+        linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 right 0 / var(--elbow-size)
+        var(--elbow-width) no-repeat,
       /* Bottom-right corner: vertical part */
-        linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 right
-        0 / var(--elbow-width) var(--elbow-size) no-repeat;
+        linear-gradient(var(--elbow-color), var(--elbow-color)) bottom 0 right 0 /
+        var(--elbow-width) var(--elbow-size) no-repeat;
     pointer-events: none;
     opacity: var(--elbow-opacity);
   }
@@ -75,20 +73,16 @@
       linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 left 0 /
         var(--bracket-width) 100% no-repeat,
       /* Right vertical line (full height) */
-        linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 right
-        0 / var(--bracket-width) 100% no-repeat,
-      /* Top-left horizontal cap */
-        linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 left
-        0 / var(--bracket-size) var(--bracket-width) no-repeat,
-      /* Top-right horizontal cap */
-        linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 right
-        0 / var(--bracket-size) var(--bracket-width) no-repeat,
-      /* Bottom-left horizontal cap */
-        linear-gradient(var(--bracket-color), var(--bracket-color)) bottom 0
-        left 0 / var(--bracket-size) var(--bracket-width) no-repeat,
-      /* Bottom-right horizontal cap */
-        linear-gradient(var(--bracket-color), var(--bracket-color)) bottom 0
-        right 0 / var(--bracket-size) var(--bracket-width) no-repeat;
+        linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 right 0 /
+        var(--bracket-width) 100% no-repeat,
+      /* Top-left horizontal cap */ linear-gradient(var(--bracket-color), var(--bracket-color)) top
+        0 left 0 / var(--bracket-size) var(--bracket-width) no-repeat,
+      /* Top-right horizontal cap */ linear-gradient(var(--bracket-color), var(--bracket-color)) top
+        0 right 0 / var(--bracket-size) var(--bracket-width) no-repeat,
+      /* Bottom-left horizontal cap */ linear-gradient(var(--bracket-color), var(--bracket-color))
+        bottom 0 left 0 / var(--bracket-size) var(--bracket-width) no-repeat,
+      /* Bottom-right horizontal cap */ linear-gradient(var(--bracket-color), var(--bracket-color))
+        bottom 0 right 0 / var(--bracket-size) var(--bracket-width) no-repeat;
     pointer-events: none;
     opacity: var(--bracket-opacity);
   }
@@ -101,23 +95,19 @@
     inset: calc(var(--bracket-offset) * -1);
     background: 
         /* Top horizontal line (full width) */
-      linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 left 0 /
-        100% var(--bracket-width) no-repeat,
+      linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 left 0 / 100%
+        var(--bracket-width) no-repeat,
       /* Bottom horizontal line (full width) */
-        linear-gradient(var(--bracket-color), var(--bracket-color)) bottom 0
-        left 0 / 100% var(--bracket-width) no-repeat,
-      /* Top-left vertical cap */
-        linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 left
-        0 / var(--bracket-width) var(--bracket-size) no-repeat,
-      /* Top-right vertical cap */
-        linear-gradient(var(--bracket-color), var(--bracket-color)) top 0 right
-        0 / var(--bracket-width) var(--bracket-size) no-repeat,
-      /* Bottom-left vertical cap */
-        linear-gradient(var(--bracket-color), var(--bracket-color)) bottom 0
+        linear-gradient(var(--bracket-color), var(--bracket-color)) bottom 0 left 0 / 100%
+        var(--bracket-width) no-repeat,
+      /* Top-left vertical cap */ linear-gradient(var(--bracket-color), var(--bracket-color)) top 0
         left 0 / var(--bracket-width) var(--bracket-size) no-repeat,
-      /* Bottom-right vertical cap */
-        linear-gradient(var(--bracket-color), var(--bracket-color)) bottom 0
-        right 0 / var(--bracket-width) var(--bracket-size) no-repeat;
+      /* Top-right vertical cap */ linear-gradient(var(--bracket-color), var(--bracket-color)) top 0
+        right 0 / var(--bracket-width) var(--bracket-size) no-repeat,
+      /* Bottom-left vertical cap */ linear-gradient(var(--bracket-color), var(--bracket-color))
+        bottom 0 left 0 / var(--bracket-width) var(--bracket-size) no-repeat,
+      /* Bottom-right vertical cap */ linear-gradient(var(--bracket-color), var(--bracket-color))
+        bottom 0 right 0 / var(--bracket-width) var(--bracket-size) no-repeat;
     pointer-events: none;
     opacity: var(--bracket-opacity);
   }
@@ -177,6 +167,34 @@
   opacity: calc(--modifier(integer) * 1%);
 }
 
+/**
+ * Dashed Background
+ */
+@utility dashed-bg-vertical {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    currentColor 0px,
+    currentColor 2px,
+    transparent 2px,
+    transparent 6px
+  );
+}
+
+@utility dashed-bg-horizontal {
+  background-image: repeating-linear-gradient(
+    to right,
+    currentColor 0px,
+    currentColor 2px,
+    transparent 2px,
+    transparent 6px
+  );
+}
+
+@utility dashed-bg-* {
+  color: --value(--color-*);
+  opacity: calc(--modifier(integer) * 1%);
+}
+
 @utility heading-* {
   font-size: --value(--text-heading-*);
   font-weight: var(--font-weight-extrabold);
@@ -195,8 +213,7 @@
   background-image: repeating-linear-gradient(
     45deg,
     color-mix(in srgb, var(--stripe-color) var(--stripe-opacity), transparent),
-    color-mix(in srgb, var(--stripe-color) var(--stripe-opacity), transparent)
-      var(--stripe-width),
+    color-mix(in srgb, var(--stripe-color) var(--stripe-opacity), transparent) var(--stripe-width),
     var(--stripe-bg) var(--stripe-width),
     var(--stripe-bg) calc(var(--stripe-width) + var(--stripe-gap))
   );
@@ -216,11 +233,7 @@
     left: 0;
     right: 0;
     height: var(--dot-mask-size);
-    background-image: radial-gradient(
-      circle,
-      var(--dot-mask-color) 2px,
-      transparent 1px
-    );
+    background-image: radial-gradient(circle, var(--dot-mask-color) 2px, transparent 1px);
     background-size: 4px 4px;
     background-position: 0 0;
     background-repeat: repeat;
@@ -355,16 +368,8 @@
   --stripe-bar-opacity: 100%;
   background-image: repeating-linear-gradient(
     45deg,
-    color-mix(
-      in srgb,
-      var(--stripe-bar-color) var(--stripe-bar-opacity),
-      transparent
-    ),
-    color-mix(
-        in srgb,
-        var(--stripe-bar-color) var(--stripe-bar-opacity),
-        transparent
-      )
+    color-mix(in srgb, var(--stripe-bar-color) var(--stripe-bar-opacity), transparent),
+    color-mix(in srgb, var(--stripe-bar-color) var(--stripe-bar-opacity), transparent)
       var(--stripe-bar-width),
     transparent var(--stripe-bar-width),
     transparent calc(var(--stripe-bar-width) * 2)
@@ -404,18 +409,8 @@
     0deg,
     transparent,
     transparent 2px,
-    color-mix(
-        in srgb,
-        currentColor calc(var(--scanlines-opacity) * 100%),
-        transparent
-      )
-      2px,
-    color-mix(
-        in srgb,
-        currentColor calc(var(--scanlines-opacity) * 100%),
-        transparent
-      )
-      4px
+    color-mix(in srgb, currentColor calc(var(--scanlines-opacity) * 100%), transparent) 2px,
+    color-mix(in srgb, currentColor calc(var(--scanlines-opacity) * 100%), transparent) 4px
   );
   background-clip: padding-box;
 }

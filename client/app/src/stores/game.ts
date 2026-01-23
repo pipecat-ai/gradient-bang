@@ -1,10 +1,5 @@
 import { produce } from "immer"
-import {
-  create,
-  type StateCreator,
-  type StoreApi,
-  type UseBoundStore,
-} from "zustand"
+import { create, type StateCreator, type StoreApi, type UseBoundStore } from "zustand"
 import { subscribeWithSelector } from "zustand/middleware"
 
 import type { DiamondFXController } from "@/fx/frame"
@@ -19,18 +14,14 @@ import { createUISlice, type UISlice } from "./uiSlice"
 
 import type { ActionType, GameAction } from "@/types/actions"
 
-type WithSelectors<S> = S extends { getState: () => infer T }
-  ? S & { use: { [K in keyof T]: () => T[K] } }
-  : never
+type WithSelectors<S> =
+  S extends { getState: () => infer T } ? S & { use: { [K in keyof T]: () => T[K] } } : never
 
-const createSelectors = <S extends UseBoundStore<StoreApi<object>>>(
-  _store: S
-) => {
+const createSelectors = <S extends UseBoundStore<StoreApi<object>>>(_store: S) => {
   const store = _store as WithSelectors<typeof _store>
   store.use = {}
   for (const k of Object.keys(store.getState())) {
-    ;(store.use as Record<string, () => unknown>)[k] = () =>
-      store((s) => s[k as keyof typeof s])
+    ;(store.use as Record<string, () => unknown>)[k] = () => store((s) => s[k as keyof typeof s])
   }
 
   return store
@@ -63,7 +54,7 @@ export interface GameState {
   character_id?: string
   access_token?: string
   ship: ShipSelf
-  ships: ActiveProperty<ShipSelf[]>
+  ships: ActiveProperty<ShipSummary[]>
   sector?: Sector
   local_map_data?: MapData
   regional_map_data?: MapData
@@ -93,7 +84,7 @@ export interface GameSlice extends GameState {
   addMessage: (message: ChatMessage) => void
   setPlayer: (player: Partial<PlayerSelf>) => void
   setShip: (ship: Partial<ShipSelf>) => void
-  setShips: (ships: ShipSelf[]) => void
+  setShips: (ships: ShipSummary[]) => void
   setSector: (sector: Sector) => void
   setCorporation: (corporation: Corporation) => void
   updateSector: (sector: Partial<Sector>) => void
@@ -105,9 +96,7 @@ export interface GameSlice extends GameState {
   setCoursePlot: (coursePlot: CoursePlot) => void
   clearCoursePlot: () => void
   setStarfieldReady: (starfieldReady: boolean) => void
-  setDiamondFXInstance: (
-    diamondFXInstance: DiamondFXController | undefined
-  ) => void
+  setDiamondFXInstance: (diamondFXInstance: DiamondFXController | undefined) => void
   getIncomingMessageLength: () => number
 
   triggerAlert: (_ype: AlertTypes) => void
@@ -119,13 +108,7 @@ export interface GameSlice extends GameState {
 }
 
 const createGameSlice: StateCreator<
-  GameSlice &
-    ChatSlice &
-    CombatSlice &
-    HistorySlice &
-    TaskSlice &
-    UISlice &
-    SettingsSlice,
+  GameSlice & ChatSlice & CombatSlice & HistorySlice & TaskSlice & UISlice & SettingsSlice,
   [],
   [],
   GameSlice
@@ -157,9 +140,7 @@ const createGameSlice: StateCreator<
       return
     }
     if (client.state !== "ready") {
-      console.error(
-        `[GAME CLIENT] Client not ready. Current state: ${client.state}`
-      )
+      console.error(`[GAME CLIENT] Client not ready. Current state: ${client.state}`)
       return
     }
     const payload = "payload" in action ? action.payload : {}
@@ -181,8 +162,7 @@ const createGameSlice: StateCreator<
     set({ character_id: characterId, access_token: accessToken }),
 
   setGameStateMessage: (gameStateMessage: string) => set({ gameStateMessage }),
-  setState: (newState: Partial<GameState>) =>
-    set({ ...get(), ...newState }, true),
+  setState: (newState: Partial<GameState>) => set({ ...get(), ...newState }, true),
 
   createFetchPromise: (actionType: ActionType) => {
     const existing = get().fetchPromises[actionType]
@@ -235,7 +215,7 @@ const createGameSlice: StateCreator<
       })
     ),
 
-  setShips: (ships: ShipSelf[]) =>
+  setShips: (ships: ShipSummary[]) =>
     set(
       produce((state) => {
         state.ships = {
@@ -248,8 +228,7 @@ const createGameSlice: StateCreator<
   // TODO: implement this properly
   // @ts-expect-error - we don't care about the type here, just want to trigger the alert
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  triggerAlert: (type: AlertTypes) =>
-    set({ alertTransfer: Math.random() * 100 }),
+  triggerAlert: (type: AlertTypes) => set({ alertTransfer: Math.random() * 100 }),
 
   addMessage: (message: ChatMessage) =>
     set(
@@ -270,10 +249,7 @@ const createGameSlice: StateCreator<
   updateSector: (sectorUpdate: Partial<Sector>) =>
     set(
       produce((state) => {
-        if (
-          state.sector?.id !== undefined &&
-          sectorUpdate.id === state.sector.id
-        ) {
+        if (state.sector?.id !== undefined && sectorUpdate.id === state.sector.id) {
           state.sector = { ...state.sector, ...sectorUpdate }
         }
       })
@@ -283,9 +259,7 @@ const createGameSlice: StateCreator<
     set(
       produce((state) => {
         if (state.sector?.players) {
-          const index = state.sector.players.findIndex(
-            (p: Player) => p.id === player.id
-          )
+          const index = state.sector.players.findIndex((p: Player) => p.id === player.id)
           if (index !== -1) {
             state.sector.players[index] = player
           } else {
@@ -299,9 +273,7 @@ const createGameSlice: StateCreator<
     set(
       produce((state) => {
         if (state.sector?.players) {
-          state.sector.players = state.sector.players.filter(
-            (p: Player) => p.id !== player.id
-          )
+          state.sector.players = state.sector.players.filter((p: Player) => p.id !== player.id)
         }
       })
     ),
@@ -366,21 +338,14 @@ const createGameSlice: StateCreator<
 
   getIncomingMessageLength: () =>
     get().messages.filter(
-      (message) =>
-        message.type === "direct" && message.from_name !== get().player.name
+      (message) => message.type === "direct" && message.from_name !== get().player.name
     ).length,
 
   setGameState: (gameState: GameInitState) => set({ gameState }),
 })
 
 const useGameStoreBase = create<
-  GameSlice &
-    ChatSlice &
-    CombatSlice &
-    HistorySlice &
-    TaskSlice &
-    SettingsSlice &
-    UISlice
+  GameSlice & ChatSlice & CombatSlice & HistorySlice & TaskSlice & SettingsSlice & UISlice
 >()(
   subscribeWithSelector((...a) => ({
     ...createGameSlice(...a),

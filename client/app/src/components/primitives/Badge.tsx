@@ -1,6 +1,6 @@
-import { cva, type VariantProps } from "class-variance-authority";
+import { cva, type VariantProps } from "class-variance-authority"
 
-import { cn } from "@/utils/tailwind";
+import { cn } from "@/utils/tailwind"
 
 const badgeVariants = cva(
   "inline-flex items-center border justify-center uppercase gap-2 whitespace-nowrap duration-300 ease-in-out font-medium disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive self-start",
@@ -9,13 +9,12 @@ const badgeVariants = cva(
       variant: {
         default: "bg-muted border-border text-foreground",
         secondary:
-          "border-transparent bg-muted/60 text-foreground bracket-muted-foreground/40 elbow-muted-foreground/40",
+          "border-transparent bg-accent-background text-white bracket-subtle bracket-offset-1 elbow-subtle elbow-offset-1",
         count:
           "border-transparent bg-muted/60 motion-safe:bg-muted/50 text-foreground transition-colors duration-500 ",
         countIncrement: "bg-success-background text-success-foreground",
         countDecrement: "bg-warning-background text-warning-foreground",
-        highlight:
-          "border-transparent bg-fuel/20 text-fuel bracket-fuel bracket-offset-0",
+        highlight: "border-transparent bg-fuel/20 text-fuel bracket-fuel bracket-offset-0",
         success: "border-success bg-success/20 text-success-foreground",
         warning: "border-warning bg-warning-background text-warning-foreground",
       },
@@ -25,7 +24,7 @@ const badgeVariants = cva(
         elbow: "elbow elbow-1",
       },
       size: {
-        sm: "text-xs px-2 py-1",
+        sm: "text-xs px-1.5 py-1 gap-1.5",
         default: "text-sm px-3 py-3",
         lg: "text-base px-6 py-3",
       },
@@ -39,7 +38,7 @@ const badgeVariants = cva(
       {
         border: "elbow",
         size: "sm",
-        class: "elbow-size-6",
+        class: "elbow-size-4",
       },
       {
         border: "elbow",
@@ -104,7 +103,7 @@ const badgeVariants = cva(
       },
     ],
   }
-);
+)
 
 export const Badge = ({
   children,
@@ -115,27 +114,20 @@ export const Badge = ({
   ...props
 }: React.ComponentProps<"div"> & VariantProps<typeof badgeVariants>) => {
   return (
-    <div
-      className={cn(badgeVariants({ variant, border, size }), className)}
-      {...props}
-    >
+    <div className={cn(badgeVariants({ variant, border, size }), className)} {...props}>
       {children}
     </div>
-  );
-};
+  )
+}
 
 export const BadgeTitle = ({
   children,
   className,
 }: {
-  children: React.ReactNode;
-  className?: string;
+  children: React.ReactNode
+  className?: string
 }) => {
   return (
-    <span
-      className={cn("uppercase text-xs font-bold tracking-widest", className)}
-    >
-      {children}
-    </span>
-  );
-};
+    <span className={cn("uppercase text-xs font-bold tracking-widest", className)}>{children}</span>
+  )
+}

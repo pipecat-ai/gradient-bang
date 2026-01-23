@@ -296,7 +296,7 @@ export interface ShipSummary {
 }
 
 export interface ShipsListMessage extends ServerMessagePayload {
-  ships: ShipSelf[]
+  ships: ShipSummary[]
 }
 
 // --- Event Query Messages (for task events)
