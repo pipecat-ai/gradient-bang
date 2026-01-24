@@ -54,4 +54,5 @@ export const PlayerShipStory: Story = () => {
 
 PlayerShipStory.meta = {
   useDevTools: true,
+  enableMic: false,
 }
