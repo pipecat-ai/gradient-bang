@@ -21,9 +21,15 @@ export const BigMapStory: Story = () => {
   const player = useGameStore((state) => state.player)
   const mapData = useGameStore.use.regional_map_data?.()
   const sector = useGameStore((state) => state.sector)
+  const ships = useGameStore.use.ships?.()
   const coursePlot = useGameStore.use.course_plot?.()
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
   const setRegionalMapData = useGameStore.use.setRegionalMapData?.()
+  const getShipSectors = useGameStore.use.getShipSectors()
+
+  const shipSectors = ships?.data ? getShipSectors(false) : []
+
+  console.log(shipSectors)
 
   const [{ current_sector, center_sector, show_legend }, set] = useControls(() => ({
     Map: folder(
@@ -37,6 +43,11 @@ export const BigMapStory: Story = () => {
               max_sectors: get("Map.max_sectors"),
             },
           } as GetMapRegionAction)
+        }),
+        ["Get My Ships"]: button(() => {
+          dispatchAction({
+            type: "get-my-ships",
+          })
         }),
         ["Load Small Mock"]: button(() => {
           setRegionalMapData(SMALL_MAP_DATA_MOCK)
@@ -149,6 +160,7 @@ export const BigMapStory: Story = () => {
               showLegend={show_legend}
               onNodeClick={updateCenterSector}
               coursePlot={coursePlot ?? null}
+              ships={shipSectors}
             />
           )}
         </div>
@@ -175,10 +187,10 @@ export const BigMapStory: Story = () => {
             </div>
             <Badge border="elbow" className="text-xs w-full -elbow-offset-3 gap-3">
               <Progress
-                value={(player?.sectors_visited / player?.universe_size) * 100}
+                value={(player?.sectors_visited / (player?.universe_size ?? 0)) * 100}
                 className="h-[12px] w-full"
               />
-              {((player?.sectors_visited / player?.universe_size) * 100).toFixed(2)}%
+              {((player?.sectors_visited / (player?.universe_size ?? 0)) * 100).toFixed(2)}%
             </Badge>
           </CardContent>
           <CoursePlotPanel />
@@ -191,7 +203,7 @@ export const BigMapStory: Story = () => {
 
 BigMapStory.meta = {
   connectOnMount: false,
-  enableMic: true,
+  enableMic: false,
   disableAudioOutput: false,
   useDevTools: true,
 }

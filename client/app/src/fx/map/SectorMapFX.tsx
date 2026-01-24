@@ -797,10 +797,6 @@ function getUndirectedLaneKey(a: number, b: number): string {
   return a < b ? `${a}-${b}` : `${b}-${a}`
 }
 
-function hasReciprocalLane(fromNode: MapSectorNode, toNode: MapSectorNode): boolean {
-  return toNode.lanes.some((candidate) => candidate.to === fromNode.id)
-}
-
 /** Render a partial lane from an edge node to a culled (but visited) destination */
 function renderPartialLane(
   ctx: CanvasRenderingContext2D,
@@ -937,12 +933,16 @@ function renderAllLanes(
         return
       }
 
-      const isBidirectional = lane.two_way || hasReciprocalLane(fromNode, toNode)
+      const isBidirectional = lane.two_way
 
       if (isBidirectional) {
         const laneKey = getUndirectedLaneKey(fromNode.id, lane.to)
         if (renderedLanes.has(laneKey)) return
         renderedLanes.add(laneKey)
+      } else {
+        // For one-way lanes, only render from visited sectors
+        // (we only know about one-way lanes we've actually discovered)
+        if (!fromNode.visited) return
       }
 
       renderLane(
@@ -1414,14 +1414,14 @@ function renderSectorLabels(
   const labelOffset = config.sector_label_offset ?? 2
   const padding = labelStyle.padding
 
+  ctx.font = `${labelStyle.fontWeight} ${labelStyle.fontSize}px ${getCanvasFontFamily(ctx)}`
+
   data.forEach((node) => {
     // Skip labels for current sector (player's location)
     if (config.current_sector_id !== undefined && node.id === config.current_sector_id) return
 
-    // Use larger font size when hovered
     const isHovered = node.id === hoveredSectorId
-    const effectiveFontSize = isHovered ? labelStyle.hoveredFontSize : labelStyle.fontSize
-    ctx.font = `${labelStyle.fontWeight} ${effectiveFontSize}px ${getCanvasFontFamily(ctx)}`
+    const hoverScale = isHovered ? labelStyle.hoveredFontSize / labelStyle.fontSize : 1
 
     const worldPos = hexToWorld(node.position[0], node.position[1], scale)
     const angle = -Math.PI / 3
@@ -1445,16 +1445,21 @@ function renderSectorLabels(
     const labelOpacity =
       coursePlotSectors && !coursePlotSectors.has(node.id) ? labelStyle.mutedOpacity : 1
 
+    ctx.save()
+    ctx.translate(textX, textY)
+    ctx.scale(hoverScale, hoverScale)
+
     ctx.fillStyle = applyAlpha(labelStyle.backgroundColor, labelOpacity)
     ctx.fillRect(
-      textX - padding,
-      textY - ascent - padding,
+      -padding,
+      -ascent - padding,
       textWidth + padding * 2,
       textHeight + padding * 2
     )
 
     ctx.fillStyle = applyAlpha(labelStyle.textColor, labelOpacity)
-    ctx.fillText(text, textX, textY)
+    ctx.fillText(text, 0, 0)
+    ctx.restore()
   })
 
   ctx.restore()
@@ -1484,6 +1489,8 @@ function renderPortLabels(
   const labelOffset = config.sector_label_offset ?? 2
   const padding = labelStyle.padding
 
+  ctx.font = `${labelStyle.fontWeight} ${labelStyle.fontSize}px ${getCanvasFontFamily(ctx)}`
+
   data.forEach((node) => {
     if (!node.port) return
     // Skip labels for current sector (player's location)
@@ -1496,9 +1503,7 @@ function renderPortLabels(
     const isHovered = node.id === hoveredSectorId
     if (!isCentered && !isHovered) return
 
-    // Use larger font size when hovered
-    const effectiveFontSize = isHovered ? labelStyle.hoveredFontSize : labelStyle.fontSize
-    ctx.font = `${labelStyle.fontWeight} ${effectiveFontSize}px ${getCanvasFontFamily(ctx)}`
+    const hoverScale = isHovered ? labelStyle.hoveredFontSize / labelStyle.fontSize : 1
 
     const worldPos = hexToWorld(node.position[0], node.position[1], scale)
     const angle = Math.PI / 3
@@ -1522,16 +1527,21 @@ function renderPortLabels(
     const labelOpacity =
       coursePlotSectors && !coursePlotSectors.has(node.id) ? labelStyle.mutedOpacity : 1
 
+    ctx.save()
+    ctx.translate(textX, textY)
+    ctx.scale(hoverScale, hoverScale)
+
     ctx.fillStyle = applyAlpha(labelStyle.backgroundColor, labelOpacity)
     ctx.fillRect(
-      textX - padding,
-      textY - ascent - padding,
+      -padding,
+      -ascent - padding,
       textWidth + padding * 2,
       textHeight + padding * 2
     )
 
     ctx.fillStyle = applyAlpha(labelStyle.textColor, labelOpacity)
-    ctx.fillText(text, textX, textY)
+    ctx.fillText(text, 0, 0)
+    ctx.restore()
   })
 
   ctx.restore()
@@ -1563,17 +1573,14 @@ function renderShipLabels(
   const labelOffset = config.sector_label_offset ?? 2
   const padding = labelStyle.padding
 
+  ctx.font = `${labelStyle.fontWeight} ${labelStyle.fontSize}px ${getCanvasFontFamily(ctx)}`
+
   data.forEach((node) => {
     const shipCount = ships.get(node.id)
-    if (!shipCount) return
+    if (shipCount === undefined) return
 
-    // Skip labels for current sector (player's location)
-    if (config.current_sector_id !== undefined && node.id === config.current_sector_id) return
-
-    // Use larger font size when hovered
     const isHovered = node.id === hoveredSectorId
-    const effectiveFontSize = isHovered ? labelStyle.hoveredFontSize : labelStyle.fontSize
-    ctx.font = `${labelStyle.fontWeight} ${effectiveFontSize}px ${getCanvasFontFamily(ctx)}`
+    const hoverScale = isHovered ? labelStyle.hoveredFontSize / labelStyle.fontSize : 1
 
     // Position at top-left of hex (angle 2*PI/3 = 120 degrees)
     const worldPos = hexToWorld(node.position[0], node.position[1], scale)
@@ -1600,22 +1607,26 @@ function renderShipLabels(
     const iconGap = 2
     const totalWidth = iconSize + iconGap + textWidth
 
-    // Position label to the left of the edge point
-    const labelX = screenPos.x - totalWidth - labelOffset
+    // Position label to the left of the edge point (anchor at right edge)
+    const labelX = screenPos.x - labelOffset
     const labelY = screenPos.y
 
-    // Draw background
+    ctx.save()
+    ctx.translate(labelX, labelY)
+    ctx.scale(hoverScale, hoverScale)
+
+    // Draw background (offset to left from anchor)
     ctx.fillStyle = applyAlpha(labelStyle.backgroundColor, labelOpacity)
     ctx.fillRect(
-      labelX - padding,
-      labelY - ascent - padding,
+      -totalWidth - padding,
+      -ascent - padding,
       totalWidth + padding * 2,
       textHeight + padding * 2
     )
 
     // Draw ship icon
     ctx.save()
-    ctx.translate(labelX, labelY - ascent + (textHeight - iconSize) / 2)
+    ctx.translate(-totalWidth, -ascent + (textHeight - iconSize) / 2)
     const iconScale = iconSize / SHIP_ICON_VIEWBOX
     ctx.scale(iconScale, iconScale)
     ctx.fillStyle = applyAlpha(labelStyle.textColor, labelOpacity)
@@ -1624,7 +1635,8 @@ function renderShipLabels(
 
     // Draw count text
     ctx.fillStyle = applyAlpha(labelStyle.textColor, labelOpacity)
-    ctx.fillText(text, labelX + iconSize + iconGap, labelY)
+    ctx.fillText(text, -textWidth, 0)
+    ctx.restore()
   })
 
   ctx.restore()

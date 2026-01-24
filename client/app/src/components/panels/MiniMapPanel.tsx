@@ -12,7 +12,7 @@ export const MiniMapPanel = () => {
   const shipSectors = getShipSectors(false)
 
   return (
-    <div className="w-[440px] h-[440px] bg-card border">
+    <div className="bg-card border">
       <SectorMap
         current_sector_id={sector?.id ?? 0}
         config={MINIMAP_CONFIG}

@@ -241,11 +241,10 @@ const createGameSlice: StateCreator<
     ),
 
   getShipSectors: (includeSelf: boolean) => {
-    const shipSectors = get().ships.data?.map((s: ShipSelf) => s.sector ?? 0) ?? []
-    if (includeSelf) {
-      shipSectors.push(get().sector?.id ?? 0)
-    }
-    return shipSectors
+    const shipsData = get().ships.data ?? []
+    return includeSelf
+      ? shipsData.map((s: ShipSelf) => s.sector ?? 0)
+      : shipsData.filter((s: ShipSelf) => s.owner_type !== "personal").map((s: ShipSelf) => s.sector ?? 0)
   },
   // TODO: implement this properly
   // @ts-expect-error - we don't care about the type here, just want to trigger the alert
