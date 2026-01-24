@@ -136,6 +136,7 @@ export interface CharacterMovedMessage extends ServerMessagePayload {
   move_type: string
   name: string
   movement?: "depart" | "arrive"
+  sector?: number
 }
 
 export interface KnownPortListMessage extends ServerMessagePayload {

@@ -85,6 +85,7 @@ export interface GameSlice extends GameState {
   setPlayer: (player: Partial<PlayerSelf>) => void
   setShip: (ship: Partial<ShipSelf>) => void
   setShips: (ships: ShipSelf[]) => void
+  updateShip: (ship: Partial<ShipSelf> & { ship_id: string }) => void
   setSector: (sector: Sector) => void
   setCorporation: (corporation: Corporation) => void
   updateSector: (sector: Partial<Sector>) => void
@@ -221,6 +222,19 @@ const createGameSlice: StateCreator<
         state.ships = {
           data: ships,
           last_updated: new Date().toISOString(),
+        }
+      })
+    ),
+
+  updateShip: (ship: Partial<ShipSelf> & { ship_id: string }) =>
+    set(
+      produce((state) => {
+        if (state.ships.data) {
+          const index = state.ships.data.findIndex((s: ShipSelf) => s.ship_id === ship.ship_id)
+          if (index !== -1) {
+            Object.assign(state.ships.data[index], ship)
+            state.ships.last_updated = new Date().toISOString()
+          }
         }
       })
     ),
