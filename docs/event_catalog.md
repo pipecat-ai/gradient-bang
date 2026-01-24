@@ -804,7 +804,16 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 ```json
 {
   "name": "trader",
-  "ship_type": "kestrel_courier",
+  "player": {
+    "id": "character-uuid",
+    "name": "trader"
+  },
+  "ship": {
+    "ship_id": "ship-uuid",
+    "ship_name": "Kestrel Courier",
+    "ship_type": "kestrel_courier"
+  },
+  "sector": 123,
   "timestamp": "2025-10-07T14:25:00.000Z",
   "move_type": "normal",
   "movement": "depart"
@@ -815,7 +824,16 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 ```json
 {
   "name": "trader",
-  "ship_type": "kestrel_courier",
+  "player": {
+    "id": "character-uuid",
+    "name": "trader"
+  },
+  "ship": {
+    "ship_id": "ship-uuid",
+    "ship_name": "Kestrel Courier",
+    "ship_type": "kestrel_courier"
+  },
+  "sector": 456,
   "timestamp": "2025-10-07T14:25:02.000Z",
   "move_type": "normal",
   "movement": "arrive"
@@ -826,7 +844,16 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 ```json
 {
   "name": "trader",
-  "ship_type": "kestrel_courier",
+  "player": {
+    "id": "character-uuid",
+    "name": "trader"
+  },
+  "ship": {
+    "ship_id": "ship-uuid",
+    "ship_name": "Kestrel Courier",
+    "ship_type": "kestrel_courier"
+  },
+  "sector": 456,
   "timestamp": "2025-10-07T14:25:00.000Z",
   "move_type": "teleport",
   "movement": "arrive"
