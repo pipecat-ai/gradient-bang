@@ -4,14 +4,14 @@
  * Helper functions for logging all admin operations to the admin_actions table.
  */
 
-import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.7";
+import { SupabaseClient } from "@supabase/supabase-js";
 
 export interface AdminActionLog {
   action: string;
   admin_user?: string;
   target_id?: string;
   payload?: any;
-  result: 'success' | 'error';
+  result: "success" | "error";
   error?: string;
 }
 
@@ -23,31 +23,29 @@ export interface AdminActionLog {
  */
 export async function logAdminAction(
   supabase: SupabaseClient,
-  log: AdminActionLog
+  log: AdminActionLog,
 ): Promise<void> {
   try {
-    const { error } = await supabase
-      .from('admin_actions')
-      .insert({
-        action: log.action,
-        admin_user: log.admin_user || 'admin',
-        target_id: log.target_id,
-        payload: log.payload,
-        result: log.result,
-        error: log.error,
-      });
+    const { error } = await supabase.from("admin_actions").insert({
+      action: log.action,
+      admin_user: log.admin_user || "admin",
+      target_id: log.target_id,
+      payload: log.payload,
+      result: log.result,
+      error: log.error,
+    });
 
     if (error) {
-      console.error('admin_audit.log_failed', {
+      console.error("admin_audit.log_failed", {
         action: log.action,
-        error: error.message
+        error: error.message,
       });
     }
   } catch (err) {
     // Don't fail the request if audit logging fails
-    console.error('admin_audit.log_exception', {
+    console.error("admin_audit.log_exception", {
       action: log.action,
-      error: err instanceof Error ? err.message : String(err)
+      error: err instanceof Error ? err.message : String(err),
     });
   }
 }
@@ -65,7 +63,7 @@ export async function withAdminAudit<T>(
   supabase: SupabaseClient,
   action: string,
   operation: () => Promise<T>,
-  payload?: any
+  payload?: any,
 ): Promise<T> {
   try {
     const result = await operation();
@@ -74,7 +72,7 @@ export async function withAdminAudit<T>(
     await logAdminAction(supabase, {
       action,
       payload,
-      result: 'success',
+      result: "success",
       target_id: (result as any)?.character_id || (result as any)?.id,
     });
 
@@ -84,7 +82,7 @@ export async function withAdminAudit<T>(
     await logAdminAction(supabase, {
       action,
       payload,
-      result: 'error',
+      result: "error",
       error: error instanceof Error ? error.message : String(error),
     });
 

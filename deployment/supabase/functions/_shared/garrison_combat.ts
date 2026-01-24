@@ -5,21 +5,34 @@
  * Only offensive and toll mode garrisons trigger auto-combat. Defensive garrisons do not.
  */
 
-import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { loadCharacter, loadShip } from './status.ts';
-import { loadCharacterCombatants, loadCharacterNames, loadGarrisonCombatants } from './combat_participants.ts';
-import { getEffectiveCorporationId } from './corporations.ts';
-import { loadCombatForSector, persistCombatState } from './combat_state.ts';
-import { nowIso, type CombatEncounterState, type CombatantState } from './combat_types.ts';
-import { buildRoundWaitingPayload, getCorpIdsFromParticipants, collectParticipantIds } from './combat_events.ts';
-import { computeNextCombatDeadline } from './combat_resolution.ts';
-import { buildEventSource, recordEventWithRecipients } from './events.ts';
-import { computeEventRecipients } from './visibility.ts';
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { loadCharacter, loadShip } from "./status.ts";
+import {
+  loadCharacterCombatants,
+  loadCharacterNames,
+  loadGarrisonCombatants,
+} from "./combat_participants.ts";
+import { getEffectiveCorporationId } from "./corporations.ts";
+import { loadCombatForSector, persistCombatState } from "./combat_state.ts";
+import {
+  nowIso,
+  type CombatEncounterState,
+  type CombatantState,
+} from "./combat_types.ts";
+import {
+  buildRoundWaitingPayload,
+  getCorpIdsFromParticipants,
+  collectParticipantIds,
+} from "./combat_events.ts";
+import { computeNextCombatDeadline } from "./combat_resolution.ts";
+import { buildEventSource, recordEventWithRecipients } from "./events.ts";
+import { computeEventRecipients } from "./visibility.ts";
 
 const MIN_PARTICIPANTS = 2;
 
 function deterministicSeed(combatId: string): number {
-  const normalized = combatId.replace(/[^0-9a-f]/gi, '').slice(0, 12) || combatId;
+  const normalized =
+    combatId.replace(/[^0-9a-f]/gi, "").slice(0, 12) || combatId;
   const parsed = Number.parseInt(normalized, 16);
   if (Number.isFinite(parsed)) {
     return parsed >>> 0;
@@ -28,7 +41,7 @@ function deterministicSeed(combatId: string): number {
 }
 
 function generateCombatId(): string {
-  return crypto.randomUUID().replace(/-/g, '');
+  return crypto.randomUUID().replace(/-/g, "");
 }
 
 /**
@@ -64,31 +77,41 @@ export async function checkGarrisonAutoEngage(params: {
 
   // First, load garrisons to get their owner IDs
   const { data: garrisonData, error: garrisonError } = await supabase
-    .from('garrisons')
-    .select('sector_id, owner_id, fighters, mode, toll_amount, toll_balance, deployed_at')
-    .eq('sector_id', sectorId);
+    .from("garrisons")
+    .select(
+      "sector_id, owner_id, fighters, mode, toll_amount, toll_balance, deployed_at",
+    )
+    .eq("sector_id", sectorId);
 
   if (garrisonError) {
-    console.error('garrison_combat.load_garrisons', garrisonError);
+    console.error("garrison_combat.load_garrisons", garrisonError);
     return false;
   }
 
-  const garrisonRows = (garrisonData ?? []).filter((row: any) => row.fighters > 0);
+  const garrisonRows = (garrisonData ?? []).filter(
+    (row: any) => row.fighters > 0,
+  );
 
   // Collect all character IDs we need to look up names for
   const characterIds = [
-    ...participantStates.map((state) => state.owner_character_id ?? state.combatant_id),
+    ...participantStates.map(
+      (state) => state.owner_character_id ?? state.combatant_id,
+    ),
     ...garrisonRows.map((row: any) => row.owner_id),
   ];
 
   const ownerNames = await loadCharacterNames(supabase, characterIds);
-  const garrisons = await loadGarrisonCombatants(supabase, sectorId, ownerNames);
+  const garrisons = await loadGarrisonCombatants(
+    supabase,
+    sectorId,
+    ownerNames,
+  );
 
   // Check if there are any auto-engaging garrisons
   const autoEngagingGarrisons = garrisons.filter((garrison) => {
     const mode = garrison.state.metadata?.mode as string | undefined;
     // Only offensive and toll garrisons auto-engage, defensive do not
-    return mode === 'offensive' || mode === 'toll';
+    return mode === "offensive" || mode === "toll";
   });
 
   if (autoEngagingGarrisons.length === 0) {
@@ -96,7 +119,11 @@ export async function checkGarrisonAutoEngage(params: {
   }
 
   // Get character's effective corporation (membership OR ship ownership for corp-owned ships)
-  const charCorpId = await getEffectiveCorporationId(supabase, characterId, ship.ship_id);
+  const charCorpId = await getEffectiveCorporationId(
+    supabase,
+    characterId,
+    ship.ship_id,
+  );
 
   // Check if any garrison is not owned by same corporation
   let hasEnemyGarrison = false;
@@ -107,10 +134,10 @@ export async function checkGarrisonAutoEngage(params: {
 
     // Get garrison owner's corporation
     const { data: ownerCorpData } = await supabase
-      .from('corporation_members')
-      .select('corp_id')
-      .eq('character_id', ownerId)
-      .is('left_at', null)
+      .from("corporation_members")
+      .select("corp_id")
+      .eq("character_id", ownerId)
+      .is("left_at", null)
       .maybeSingle();
     const ownerCorpId = ownerCorpData?.corp_id ?? null;
 
@@ -146,7 +173,14 @@ async function initiateGarrisonCombat(params: {
   garrisons: Array<{ state: CombatantState; source: unknown }>;
   requestId: string;
 }): Promise<void> {
-  const { supabase, characterId, sectorId, participantStates, garrisons, requestId } = params;
+  const {
+    supabase,
+    characterId,
+    sectorId,
+    participantStates,
+    garrisons,
+    requestId,
+  } = params;
 
   // Build participants map
   const participants: Record<string, CombatantState> = {};
@@ -158,7 +192,7 @@ async function initiateGarrisonCombat(params: {
   }
 
   if (Object.keys(participants).length < MIN_PARTICIPANTS) {
-    console.warn('garrison_combat: Not enough participants for combat');
+    console.warn("garrison_combat: Not enough participants for combat");
     return;
   }
 
@@ -168,9 +202,9 @@ async function initiateGarrisonCombat(params: {
   const tollRegistry: Record<string, unknown> = {};
   for (const garrison of garrisons) {
     const metadata = (garrison.state.metadata ?? {}) as Record<string, unknown>;
-    const mode = String(metadata.mode ?? 'offensive').toLowerCase();
+    const mode = String(metadata.mode ?? "offensive").toLowerCase();
 
-    if (mode === 'toll') {
+    if (mode === "toll") {
       const garrisonId = garrison.state.combatant_id;
       tollRegistry[garrisonId] = {
         owner_id: garrison.state.owner_character_id,
@@ -216,7 +250,7 @@ async function emitRoundWaitingEvents(
   requestId: string,
 ): Promise<void> {
   const payload = buildRoundWaitingPayload(encounter);
-  const source = buildEventSource('combat.round_waiting', requestId);
+  const source = buildEventSource("combat.round_waiting", requestId);
   payload.source = source;
 
   // Get direct participant IDs and corp IDs for visibility
@@ -238,8 +272,8 @@ async function emitRoundWaitingEvents(
   // Single emission to all unique recipients
   await recordEventWithRecipients({
     supabase,
-    eventType: 'combat.round_waiting',
-    scope: 'sector',
+    eventType: "combat.round_waiting",
+    scope: "sector",
     payload,
     requestId,
     sectorId: encounter.sector_id,

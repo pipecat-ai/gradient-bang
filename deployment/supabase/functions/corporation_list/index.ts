@@ -1,26 +1,31 @@
-import { serve } from 'https://deno.land/std@0.197.0/http/server.ts';
+import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 
-import { validateApiToken, unauthorizedResponse, successResponse, errorResponse } from '../_shared/auth.ts';
-import { createServiceRoleClient } from '../_shared/client.ts';
-import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
+import {
+  validateApiToken,
+  unauthorizedResponse,
+  successResponse,
+  errorResponse,
+} from "../_shared/auth.ts";
+import { createServiceRoleClient } from "../_shared/client.ts";
+import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import {
   parseJsonRequest,
   optionalString,
   resolveRequestId,
   respondWithError,
-} from '../_shared/request.ts';
+} from "../_shared/request.ts";
 
 class CorporationListError extends Error {
   status: number;
 
   constructor(message: string, status = 400) {
     super(message);
-    this.name = 'CorporationListError';
+    this.name = "CorporationListError";
     this.status = status;
   }
 }
 
-serve(async (req: Request): Promise<Response> => {
+Deno.serve(async (req: Request): Promise<Response> => {
   if (!validateApiToken(req)) {
     return unauthorizedResponse();
   }
@@ -33,27 +38,30 @@ serve(async (req: Request): Promise<Response> => {
     if (response) {
       return response;
     }
-    console.error('corporation_list.parse', err);
-    return errorResponse('invalid JSON payload', 400);
+    console.error("corporation_list.parse", err);
+    return errorResponse("invalid JSON payload", 400);
   }
 
   if (payload.healthcheck === true) {
-    return successResponse({ status: 'ok', token_present: Boolean(Deno.env.get('EDGE_API_TOKEN')) });
+    return successResponse({
+      status: "ok",
+      token_present: Boolean(Deno.env.get("EDGE_API_TOKEN")),
+    });
   }
 
   const supabase = createServiceRoleClient();
   const requestId = resolveRequestId(payload);
-  const characterId = optionalString(payload, 'character_id');
+  const characterId = optionalString(payload, "character_id");
 
   if (characterId) {
     try {
-      await enforceRateLimit(supabase, characterId, 'corporation_list');
+      await enforceRateLimit(supabase, characterId, "corporation_list");
     } catch (err) {
       if (err instanceof RateLimitError) {
-        return errorResponse('Too many corporation requests', 429);
+        return errorResponse("Too many corporation requests", 429);
       }
-      console.error('corporation_list.rate_limit', err);
-      return errorResponse('rate limit error', 500);
+      console.error("corporation_list.rate_limit", err);
+      return errorResponse("rate limit error", 500);
     }
   }
 
@@ -64,8 +72,8 @@ serve(async (req: Request): Promise<Response> => {
     if (err instanceof CorporationListError) {
       return errorResponse(err.message, err.status);
     }
-    console.error('corporation_list.unhandled', err);
-    return errorResponse('internal server error', 500);
+    console.error("corporation_list.unhandled", err);
+    return errorResponse("internal server error", 500);
   }
 });
 
@@ -73,20 +81,23 @@ async function loadCorporationSummaries(
   supabase: ReturnType<typeof createServiceRoleClient>,
 ): Promise<Array<Record<string, unknown>>> {
   const { data: corps, error } = await supabase
-    .from('corporations')
-    .select('corp_id, name, founded');
+    .from("corporations")
+    .select("corp_id, name, founded");
   if (error) {
-    console.error('corporation_list.corporations', error);
-    throw new CorporationListError('Failed to load corporations', 500);
+    console.error("corporation_list.corporations", error);
+    throw new CorporationListError("Failed to load corporations", 500);
   }
 
   const { data: memberships, error: memberError } = await supabase
-    .from('corporation_members')
-    .select('corp_id, left_at')
-    .is('left_at', null);
+    .from("corporation_members")
+    .select("corp_id, left_at")
+    .is("left_at", null);
   if (memberError) {
-    console.error('corporation_list.memberships', memberError);
-    throw new CorporationListError('Failed to load corporation memberships', 500);
+    console.error("corporation_list.memberships", memberError);
+    throw new CorporationListError(
+      "Failed to load corporation memberships",
+      500,
+    );
   }
 
   const counts = new Map<string, number>();
@@ -97,7 +108,10 @@ async function loadCorporationSummaries(
   }
 
   const summaries = (corps ?? [])
-    .filter((corp): corp is { corp_id: string; name: string; founded: string } => typeof corp?.corp_id === 'string')
+    .filter(
+      (corp): corp is { corp_id: string; name: string; founded: string } =>
+        typeof corp?.corp_id === "string",
+    )
     .map((corp) => ({
       corp_id: corp.corp_id,
       name: corp.name,
@@ -110,8 +124,8 @@ async function loadCorporationSummaries(
     if (diff !== 0) {
       return diff;
     }
-    const left = typeof a.name === 'string' ? a.name : '';
-    const right = typeof b.name === 'string' ? b.name : '';
+    const left = typeof a.name === "string" ? a.name : "";
+    const right = typeof b.name === "string" ? b.name : "";
     return left.localeCompare(right);
   });
 

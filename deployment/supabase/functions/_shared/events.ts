@@ -1,16 +1,20 @@
-import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { computeSectorVisibilityRecipients, dedupeRecipientSnapshots, type EventRecipientSnapshot } from './visibility.ts';
+import {
+  computeSectorVisibilityRecipients,
+  dedupeRecipientSnapshots,
+  type EventRecipientSnapshot,
+} from "./visibility.ts";
 
 type EventScope =
-  | 'direct'
-  | 'sector'
-  | 'corp'
-  | 'broadcast'
-  | 'gm_broadcast'
-  | 'self'
-  | 'system'
-  | 'admin';
+  | "direct"
+  | "sector"
+  | "corp"
+  | "broadcast"
+  | "gm_broadcast"
+  | "self"
+  | "system"
+  | "admin";
 
 export interface EventSource {
   type: string;
@@ -23,7 +27,7 @@ export interface RecordEventWithRecipientsOptions {
   supabase: SupabaseClient;
   eventType: string;
   scope: EventScope;
-  direction?: 'rpc_in' | 'event_out';
+  direction?: "rpc_in" | "event_out";
   payload: Record<string, unknown>;
   requestId?: string | null;
   meta?: Record<string, unknown> | null;
@@ -38,12 +42,14 @@ export interface RecordEventWithRecipientsOptions {
   broadcast?: boolean;
 }
 
-export async function recordEventWithRecipients(options: RecordEventWithRecipientsOptions): Promise<number | null> {
+export async function recordEventWithRecipients(
+  options: RecordEventWithRecipientsOptions,
+): Promise<number | null> {
   const {
     supabase,
     eventType,
     scope,
-    direction = 'event_out',
+    direction = "event_out",
     payload,
     requestId,
     meta,
@@ -63,10 +69,14 @@ export async function recordEventWithRecipients(options: RecordEventWithRecipien
     return null;
   }
 
-  const recipientIds = normalizedRecipients.map((recipient) => recipient.characterId);
-  const recipientReasons = normalizedRecipients.map((recipient) => recipient.reason);
+  const recipientIds = normalizedRecipients.map(
+    (recipient) => recipient.characterId,
+  );
+  const recipientReasons = normalizedRecipients.map(
+    (recipient) => recipient.reason,
+  );
 
-  const { data, error } = await supabase.rpc('record_event_with_recipients', {
+  const { data, error } = await supabase.rpc("record_event_with_recipients", {
     p_event_type: eventType,
     p_direction: direction,
     p_scope: scope,
@@ -86,26 +96,34 @@ export async function recordEventWithRecipients(options: RecordEventWithRecipien
   });
 
   if (error) {
-    console.error('events.recordEventWithRecipients.rpc', { eventType, scope, error });
+    console.error("events.recordEventWithRecipients.rpc", {
+      eventType,
+      scope,
+      error,
+    });
     throw new Error(`failed to record event ${eventType}: ${error.message}`);
   }
 
   // Parse the event_id from the RPC result
   let eventId: number | null = null;
-  if (typeof data === 'number') {
+  if (typeof data === "number") {
     eventId = data;
-  } else if (typeof data === 'string') {
+  } else if (typeof data === "string") {
     // PostgreSQL bigint may come back as string
     const parsed = parseInt(data, 10);
     if (!Number.isNaN(parsed)) {
       eventId = parsed;
     }
-  } else if (data && typeof data === 'object' && 'record_event_with_recipients' in data) {
+  } else if (
+    data &&
+    typeof data === "object" &&
+    "record_event_with_recipients" in data
+  ) {
     // Direct SQL call returns { record_event_with_recipients: <value> }
     const val = (data as Record<string, unknown>).record_event_with_recipients;
-    if (typeof val === 'number') {
+    if (typeof val === "number") {
       eventId = val;
-    } else if (typeof val === 'string') {
+    } else if (typeof val === "string") {
       const parsed = parseInt(val, 10);
       if (!Number.isNaN(parsed)) {
         eventId = parsed;
@@ -114,7 +132,7 @@ export async function recordEventWithRecipients(options: RecordEventWithRecipien
   }
 
   if (eventId === null) {
-    console.error('events.recordEventWithRecipients.unexpected_response', {
+    console.error("events.recordEventWithRecipients.unexpected_response", {
       eventType,
       scope,
       dataType: typeof data,
@@ -126,7 +144,11 @@ export async function recordEventWithRecipients(options: RecordEventWithRecipien
   return eventId;
 }
 
-export function buildEventSource(method: string, requestId: string, sourceType = 'rpc'): EventSource {
+export function buildEventSource(
+  method: string,
+  requestId: string,
+  sourceType = "rpc",
+): EventSource {
   return {
     type: sourceType,
     method,
@@ -153,7 +175,9 @@ interface CharacterEventOptions {
   scope?: EventScope;
 }
 
-export async function emitCharacterEvent(options: CharacterEventOptions): Promise<void> {
+export async function emitCharacterEvent(
+  options: CharacterEventOptions,
+): Promise<void> {
   const {
     supabase,
     characterId,
@@ -173,18 +197,21 @@ export async function emitCharacterEvent(options: CharacterEventOptions): Promis
   } = options;
 
   const recipients = dedupeRecipientSnapshots([
-    { characterId, reason: recipientReason ?? 'direct' },
+    { characterId, reason: recipientReason ?? "direct" },
     ...additionalRecipients,
   ]);
   if (!recipients.length) {
-    console.warn('emitCharacterEvent.no_recipients', { eventType, characterId });
+    console.warn("emitCharacterEvent.no_recipients", {
+      eventType,
+      characterId,
+    });
     return;
   }
 
   const eventId = await recordEventWithRecipients({
     supabase,
     eventType,
-    scope: scope ?? 'direct',
+    scope: scope ?? "direct",
     payload,
     requestId,
     meta,
@@ -199,7 +226,7 @@ export async function emitCharacterEvent(options: CharacterEventOptions): Promis
   });
 
   if (eventId === null) {
-    console.error('emitCharacterEvent.event_not_recorded', {
+    console.error("emitCharacterEvent.event_not_recorded", {
       eventType,
       characterId,
       recipientCount: recipients.length,
@@ -221,7 +248,9 @@ interface SectorEventOptions {
   scope?: EventScope;
 }
 
-export async function emitSectorEvent(options: SectorEventOptions): Promise<number | null> {
+export async function emitSectorEvent(
+  options: SectorEventOptions,
+): Promise<number | null> {
   const {
     supabase,
     sectorId,
@@ -233,7 +262,7 @@ export async function emitSectorEvent(options: SectorEventOptions): Promise<numb
     taskId,
     recipients = [],
     actorCharacterId,
-    scope = 'sector',
+    scope = "sector",
   } = options;
 
   const normalizedRecipients = dedupeRecipientSnapshots(recipients);
@@ -260,15 +289,27 @@ interface SectorEnvelopeOptions extends SectorEventOptions {
   excludeCharacterIds?: string[];
 }
 
-export async function emitSectorEnvelope(options: SectorEnvelopeOptions): Promise<void> {
+export async function emitSectorEnvelope(
+  options: SectorEnvelopeOptions,
+): Promise<void> {
   const { supabase, sectorId, excludeCharacterIds = [] } = options;
-  const recipients = await computeSectorVisibilityRecipients(supabase, sectorId, excludeCharacterIds);
+  const recipients = await computeSectorVisibilityRecipients(
+    supabase,
+    sectorId,
+    excludeCharacterIds,
+  );
   await emitSectorEvent({ ...options, recipients });
 }
 
 export async function emitErrorEvent(
   supabase: SupabaseClient,
-  params: { characterId: string; method: string; requestId: string; detail: string; status?: number },
+  params: {
+    characterId: string;
+    method: string;
+    requestId: string;
+    detail: string;
+    status?: number;
+  },
 ): Promise<void> {
   const payload = {
     source: buildEventSource(params.method, params.requestId),
@@ -279,9 +320,9 @@ export async function emitErrorEvent(
   await emitCharacterEvent({
     supabase,
     characterId: params.characterId,
-    eventType: 'error',
+    eventType: "error",
     payload,
     requestId: params.requestId,
-    recipientReason: 'error',
+    recipientReason: "error",
   });
 }

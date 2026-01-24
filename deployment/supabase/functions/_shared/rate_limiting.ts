@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { RATE_LIMITS } from "./constants.ts";
 
@@ -12,7 +12,7 @@ export class RateLimitError extends Error {
 export async function enforceRateLimit(
   supabase: SupabaseClient,
   characterId: string | null,
-  endpoint: string
+  endpoint: string,
 ): Promise<void> {
   if (!characterId) {
     // Anonymous/system actions skip rate limits by design.
@@ -44,7 +44,7 @@ export async function enforceRateLimit(
 export async function enforcePublicRateLimit(
   supabase: SupabaseClient,
   req: Request,
-  endpoint: string
+  endpoint: string,
 ): Promise<void> {
   // Extract IP from headers (Cloudflare/Supabase Edge provides these)
   const ip =
@@ -69,7 +69,7 @@ export async function enforcePublicRateLimit(
       p_endpoint: endpoint,
       p_max_requests: rule.max,
       p_window_seconds: rule.window,
-    }
+    },
   );
 
   if (error) {

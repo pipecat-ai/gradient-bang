@@ -6,16 +6,27 @@
  * For personal ships, also emits status.update to refresh UI state.
  */
 
-import { serve } from 'https://deno.land/std@0.197.0/http/server.ts';
-import { validate as validateUuid } from 'https://deno.land/std@0.197.0/uuid/mod.ts';
+import { validate as validateUuid } from "https://deno.land/std@0.197.0/uuid/mod.ts";
 
-import { validateApiToken, unauthorizedResponse, errorResponse, successResponse } from '../_shared/auth.ts';
-import { createServiceRoleClient } from '../_shared/client.ts';
-import { ActorAuthorizationError, ensureActorAuthorization } from '../_shared/actors.ts';
-import { emitCharacterEvent, emitErrorEvent, buildEventSource } from '../_shared/events.ts';
-import { emitCorporationEvent, loadCorporationById } from '../_shared/corporations.ts';
-import { canonicalizeCharacterId } from '../_shared/ids.ts';
-import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
+import {
+  validateApiToken,
+  unauthorizedResponse,
+  errorResponse,
+  successResponse,
+} from "../_shared/auth.ts";
+import { createServiceRoleClient } from "../_shared/client.ts";
+import {
+  ActorAuthorizationError,
+  ensureActorAuthorization,
+} from "../_shared/actors.ts";
+import {
+  emitCharacterEvent,
+  emitErrorEvent,
+  buildEventSource,
+} from "../_shared/events.ts";
+import { emitCorporationEvent } from "../_shared/corporations.ts";
+import { canonicalizeCharacterId } from "../_shared/ids.ts";
+import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import {
   parseJsonRequest,
   requireString,
@@ -23,22 +34,26 @@ import {
   optionalBoolean,
   resolveRequestId,
   respondWithError,
-} from '../_shared/request.ts';
-import { buildStatusPayload, loadCharacter, loadShip } from '../_shared/status.ts';
+} from "../_shared/request.ts";
+import {
+  buildStatusPayload,
+  loadCharacter,
+  loadShip,
+} from "../_shared/status.ts";
 
 class ShipRenameError extends Error {
   status: number;
 
   constructor(message: string, status = 400) {
     super(message);
-    this.name = 'ShipRenameError';
+    this.name = "ShipRenameError";
     this.status = status;
   }
 }
 
 type JsonRecord = Record<string, unknown>;
 
-serve(async (req: Request): Promise<Response> => {
+Deno.serve(async (req: Request): Promise<Response> => {
   if (!validateApiToken(req)) {
     return unauthorizedResponse();
   }
@@ -52,42 +67,44 @@ serve(async (req: Request): Promise<Response> => {
     if (response) {
       return response;
     }
-    console.error('ship_rename.parse', err);
-    return errorResponse('invalid JSON payload', 400);
+    console.error("ship_rename.parse", err);
+    return errorResponse("invalid JSON payload", 400);
   }
 
   if (payload.healthcheck === true) {
-    return successResponse({ status: 'ok' });
+    return successResponse({ status: "ok" });
   }
 
   const requestId = resolveRequestId(payload);
 
   try {
-    const rawCharacterId = requireString(payload, 'character_id');
+    const rawCharacterId = requireString(payload, "character_id");
     const characterId = await canonicalizeCharacterId(rawCharacterId);
-    const actorLabel = optionalString(payload, 'actor_character_id');
-    const actorCharacterId = actorLabel ? await canonicalizeCharacterId(actorLabel) : null;
-    const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
-    const shipId = optionalString(payload, 'ship_id');
-    const shipName = requireString(payload, 'ship_name');
-    const taskId = optionalString(payload, 'task_id');
+    const actorLabel = optionalString(payload, "actor_character_id");
+    const actorCharacterId = actorLabel
+      ? await canonicalizeCharacterId(actorLabel)
+      : null;
+    const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
+    const shipId = optionalString(payload, "ship_id");
+    const shipName = requireString(payload, "ship_name");
+    const taskId = optionalString(payload, "task_id");
 
     const rateLimitId = actorCharacterId ?? characterId;
     try {
-      await enforceRateLimit(supabase, rateLimitId, 'ship_rename');
+      await enforceRateLimit(supabase, rateLimitId, "ship_rename");
     } catch (err) {
       if (err instanceof RateLimitError) {
         await emitErrorEvent(supabase, {
           characterId,
-          method: 'ship_rename',
+          method: "ship_rename",
           requestId,
-          detail: 'Too many ship_rename requests',
+          detail: "Too many ship_rename requests",
           status: 429,
         });
-        return errorResponse('Too many ship_rename requests', 429);
+        return errorResponse("Too many ship_rename requests", 429);
       }
-      console.error('ship_rename.rate_limit', err);
-      return errorResponse('rate limit error', 500);
+      console.error("ship_rename.rate_limit", err);
+      return errorResponse("rate limit error", 500);
     }
 
     const renamed = await handleRename({
@@ -114,13 +131,13 @@ serve(async (req: Request): Promise<Response> => {
           const characterId = await canonicalizeCharacterId(rawCharacterId);
           await emitErrorEvent(supabase, {
             characterId,
-            method: 'ship_rename',
+            method: "ship_rename",
             requestId,
             detail: err.message,
             status: err.status,
           });
         } catch (emitErr) {
-          console.error('ship_rename.emit_error', emitErr);
+          console.error("ship_rename.emit_error", emitErr);
         }
       }
       return errorResponse(err.message, err.status);
@@ -132,20 +149,20 @@ serve(async (req: Request): Promise<Response> => {
           const characterId = await canonicalizeCharacterId(rawCharacterId);
           await emitErrorEvent(supabase, {
             characterId,
-            method: 'ship_rename',
+            method: "ship_rename",
             requestId,
             detail: err.message,
             status: err.status,
           });
         } catch (emitErr) {
-          console.error('ship_rename.emit_error', emitErr);
+          console.error("ship_rename.emit_error", emitErr);
         }
       }
       return errorResponse(err.message, err.status);
     }
 
-    console.error('ship_rename.unhandled', err);
-    return errorResponse('internal server error', 500);
+    console.error("ship_rename.unhandled", err);
+    return errorResponse("internal server error", 500);
   }
 });
 
@@ -174,21 +191,25 @@ async function handleRename(params: {
   const { shipId: parsedShipId, shipIdPrefix } = parseShipIdInput(shipId);
   let resolvedShipId = parsedShipId;
   if (!resolvedShipId && shipIdPrefix) {
-    resolvedShipId = await resolveShipIdByPrefixForCharacter(supabase, shipIdPrefix, character);
+    resolvedShipId = await resolveShipIdByPrefixForCharacter(
+      supabase,
+      shipIdPrefix,
+      character,
+    );
     if (!resolvedShipId) {
-      throw new ShipRenameError('Ship not found', 404);
+      throw new ShipRenameError("Ship not found", 404);
     }
   }
   if (!resolvedShipId) {
     resolvedShipId = character.current_ship_id ?? null;
   }
   if (!resolvedShipId) {
-    throw new ShipRenameError('Character has no ship', 400);
+    throw new ShipRenameError("Character has no ship", 400);
   }
 
   const ship = await loadShip(supabase, resolvedShipId);
-  if (ship.owner_type === 'unowned') {
-    throw new ShipRenameError('Cannot rename unowned ships', 403);
+  if (ship.owner_type === "unowned") {
+    throw new ShipRenameError("Cannot rename unowned ships", 403);
   }
 
   const effectiveActorId = actorCharacterId ?? characterId;
@@ -202,7 +223,7 @@ async function handleRename(params: {
 
   const trimmedName = shipName.trim();
   if (!trimmedName) {
-    throw new ShipRenameError('ship_name cannot be empty', 400);
+    throw new ShipRenameError("ship_name cannot be empty", 400);
   }
 
   const oldName = ship.ship_name ?? null;
@@ -212,30 +233,22 @@ async function handleRename(params: {
     await ensureShipNameUnique(supabase, ship.ship_id, trimmedName);
 
     const { error: shipUpdateError } = await supabase
-      .from('ship_instances')
+      .from("ship_instances")
       .update({ ship_name: trimmedName })
-      .eq('ship_id', ship.ship_id);
+      .eq("ship_id", ship.ship_id);
 
     if (shipUpdateError) {
-      console.error('ship_rename.ship_update', shipUpdateError);
-      throw new ShipRenameError('Failed to rename ship', 500);
+      console.error("ship_rename.ship_update", shipUpdateError);
+      throw new ShipRenameError("Failed to rename ship", 500);
     }
   }
 
   const timestamp = new Date().toISOString();
-  const source = buildEventSource('ship_rename', requestId);
-  const actorName = actorCharacterId && actorCharacterId !== characterId
-    ? await loadActorName(supabase, actorCharacterId)
-    : null;
-  let ownerCorporationName: string | null = null;
-  if (ship.owner_type === 'corporation' && ship.owner_corporation_id) {
-    try {
-      const corp = await loadCorporationById(supabase, ship.owner_corporation_id);
-      ownerCorporationName = corp?.name ?? null;
-    } catch (err) {
-      console.error('ship_rename.corporation.load', err);
-    }
-  }
+  const source = buildEventSource("ship_rename", requestId);
+  const actorName =
+    actorCharacterId && actorCharacterId !== characterId
+      ? await loadActorName(supabase, actorCharacterId)
+      : null;
   const eventPayload: Record<string, unknown> = {
     source,
     ship_id: ship.ship_id,
@@ -251,10 +264,10 @@ async function handleRename(params: {
     changed,
   };
 
-  if (ship.owner_type === 'corporation' && ship.owner_corporation_id) {
+  if (ship.owner_type === "corporation" && ship.owner_corporation_id) {
     eventPayload.corp_id = ship.owner_corporation_id;
     await emitCorporationEvent(supabase, ship.owner_corporation_id, {
-      eventType: 'ship.renamed',
+      eventType: "ship.renamed",
       payload: eventPayload,
       requestId,
       actorCharacterId: effectiveActorId,
@@ -264,7 +277,7 @@ async function handleRename(params: {
     await emitCharacterEvent({
       supabase,
       characterId,
-      eventType: 'ship.renamed',
+      eventType: "ship.renamed",
       payload: eventPayload,
       requestId,
       taskId,
@@ -276,7 +289,7 @@ async function handleRename(params: {
       await emitCharacterEvent({
         supabase,
         characterId,
-        eventType: 'status.update',
+        eventType: "status.update",
         payload: statusPayload,
         sectorId: ship.current_sector ?? null,
         requestId,
@@ -293,19 +306,24 @@ async function loadCharacterRow(
   characterId: string,
 ) {
   const { data, error } = await supabase
-    .from('characters')
-    .select('character_id, name, current_ship_id, corporation_id')
-    .eq('character_id', characterId)
+    .from("characters")
+    .select("character_id, name, current_ship_id, corporation_id")
+    .eq("character_id", characterId)
     .maybeSingle();
 
   if (error) {
-    console.error('ship_rename.character_load', error);
-    throw new ShipRenameError('Failed to load character', 500);
+    console.error("ship_rename.character_load", error);
+    throw new ShipRenameError("Failed to load character", 500);
   }
   if (!data) {
-    throw new ShipRenameError('Character not found', 404);
+    throw new ShipRenameError("Character not found", 404);
   }
-  return data as { character_id: string; name: string; current_ship_id: string | null; corporation_id: string | null };
+  return data as {
+    character_id: string;
+    name: string;
+    current_ship_id: string | null;
+    corporation_id: string | null;
+  };
 }
 
 async function loadActorName(
@@ -313,16 +331,16 @@ async function loadActorName(
   actorCharacterId: string,
 ): Promise<string | null> {
   const { data, error } = await supabase
-    .from('characters')
-    .select('name')
-    .eq('character_id', actorCharacterId)
+    .from("characters")
+    .select("name")
+    .eq("character_id", actorCharacterId)
     .maybeSingle();
 
   if (error) {
-    console.error('ship_rename.actor_load', error);
+    console.error("ship_rename.actor_load", error);
     return null;
   }
-  if (!data || typeof data.name !== 'string' || !data.name.trim()) {
+  if (!data || typeof data.name !== "string" || !data.name.trim()) {
     return null;
   }
   return data.name;
@@ -334,25 +352,26 @@ async function ensureShipNameUnique(
   shipName: string,
 ): Promise<void> {
   const { data, error } = await supabase
-    .from('ship_instances')
-    .select('ship_id')
-    .eq('ship_name', shipName)
-    .neq('ship_id', shipId)
+    .from("ship_instances")
+    .select("ship_id")
+    .eq("ship_name", shipName)
+    .neq("ship_id", shipId)
     .maybeSingle();
 
   if (error) {
-    console.error('ship_rename.name_check', error);
-    throw new ShipRenameError('Failed to validate ship name', 500);
+    console.error("ship_rename.name_check", error);
+    throw new ShipRenameError("Failed to validate ship name", 500);
   }
 
   if (data) {
-    throw new ShipRenameError('Ship name already exists', 409);
+    throw new ShipRenameError("Ship name already exists", 409);
   }
 }
 
-function parseShipIdInput(
-  value: string | null,
-): { shipId: string | null; shipIdPrefix: string | null } {
+function parseShipIdInput(value: string | null): {
+  shipId: string | null;
+  shipIdPrefix: string | null;
+} {
   if (!value) {
     return { shipId: null, shipIdPrefix: null };
   }
@@ -363,7 +382,7 @@ function parseShipIdInput(
   if (/^[0-9a-f]{6,8}$/i.test(trimmed)) {
     return { shipId: null, shipIdPrefix: trimmed.toLowerCase() };
   }
-  throw new ShipRenameError('ship_id must be a UUID or 6-8 hex prefix', 400);
+  throw new ShipRenameError("ship_id must be a UUID or 6-8 hex prefix", 400);
 }
 
 async function resolveShipIdByPrefixForCharacter(
@@ -379,25 +398,31 @@ async function resolveShipIdByPrefixForCharacter(
 
   if (character.corporation_id) {
     const { data, error } = await supabase
-      .from('corporation_ships')
-      .select('ship_id')
-      .eq('corp_id', character.corporation_id);
+      .from("corporation_ships")
+      .select("ship_id")
+      .eq("corp_id", character.corporation_id);
 
     if (error) {
-      console.error('ship_rename.ship_prefix_lookup', error);
-      throw new ShipRenameError('Failed to lookup ship', 500);
+      console.error("ship_rename.ship_prefix_lookup", error);
+      throw new ShipRenameError("Failed to lookup ship", 500);
     }
 
     for (const row of data ?? []) {
       const shipId = row?.ship_id;
-      if (typeof shipId === 'string' && shipId.toLowerCase().startsWith(prefix)) {
+      if (
+        typeof shipId === "string" &&
+        shipId.toLowerCase().startsWith(prefix)
+      ) {
         matches.add(shipId);
       }
     }
   }
 
   if (matches.size > 1) {
-    throw new ShipRenameError('Ship id prefix is ambiguous; use full ship_id', 409);
+    throw new ShipRenameError(
+      "Ship id prefix is ambiguous; use full ship_id",
+      409,
+    );
   }
   if (matches.size === 1) {
     return matches.values().next().value ?? null;

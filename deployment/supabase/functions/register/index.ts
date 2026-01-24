@@ -42,7 +42,7 @@ function corsResponse(body: unknown, status = 200): Response {
   });
 }
 
-serve(async (req: Request): Promise<Response> => {
+Deno.serve(async (req: Request): Promise<Response> => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
@@ -61,13 +61,13 @@ serve(async (req: Request): Promise<Response> => {
           success: false,
           error: "Too many registration attempts. Please try again later.",
         },
-        429
+        429,
       );
     }
     console.error("register.rate_limit", err);
     return corsResponse(
       { success: false, error: "Rate limit check failed" },
-      500
+      500,
     );
   }
 
@@ -92,7 +92,7 @@ serve(async (req: Request): Promise<Response> => {
     if (!email.includes("@") || email.length < 3) {
       return corsResponse(
         { success: false, error: "Invalid email address" },
-        400
+        400,
       );
     }
 
@@ -100,7 +100,7 @@ serve(async (req: Request): Promise<Response> => {
     if (password.length < 6) {
       return corsResponse(
         { success: false, error: "Password must be at least 6 characters" },
-        400
+        400,
       );
     }
 
@@ -121,7 +121,7 @@ serve(async (req: Request): Promise<Response> => {
     if (!data.user) {
       return corsResponse(
         { success: false, error: "Failed to create user account" },
-        500
+        500,
       );
     }
 
@@ -138,7 +138,7 @@ serve(async (req: Request): Promise<Response> => {
           ? "Registration successful! Please check your email to confirm your account."
           : "Registration successful! You can now create a character.",
       },
-      201
+      201,
     );
   } catch (err) {
     console.error("register.unhandled", err);
@@ -147,7 +147,7 @@ serve(async (req: Request): Promise<Response> => {
         success: false,
         error: err instanceof Error ? err.message : "Internal server error",
       },
-      500
+      500,
     );
   }
 });

@@ -1,16 +1,16 @@
-import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { resolvePlayerType } from './status.ts';
+import { resolvePlayerType } from "./status.ts";
 
 function formatShipDisplayName(shipType: string): string {
   if (!shipType) {
-    return 'Ship';
+    return "Ship";
   }
   return shipType
-    .split('_')
+    .split("_")
     .filter((part) => part.length > 0)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
+    .join(" ");
 }
 
 export interface WarpEdge {
@@ -40,7 +40,7 @@ export interface LocalMapSector {
   lanes: WarpEdge[];
   adjacent_sectors?: number[];
   last_visited?: string;
-  source?: 'player' | 'corp' | 'both';
+  source?: "player" | "corp" | "both";
 }
 
 export interface LocalMapRegionPayload {
@@ -56,7 +56,7 @@ export interface MapKnowledgeEntry {
   last_visited?: string;
   position?: [number, number];
   port?: Record<string, unknown> | null;
-  source?: 'player' | 'corp' | 'both';
+  source?: "player" | "corp" | "both";
 }
 
 export interface MapKnowledge {
@@ -92,7 +92,7 @@ export interface ShortestPathResult {
 export class PathNotFoundError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'PathNotFoundError';
+    this.name = "PathNotFoundError";
   }
 }
 
@@ -107,50 +107,55 @@ export function parseWarpEdges(raw: unknown): WarpEdge[] {
   }
   return raw
     .map((entry) => {
-      if (!entry || typeof entry !== 'object') {
+      if (!entry || typeof entry !== "object") {
         return null;
       }
-      const toValue = (entry as Record<string, unknown>)['to'];
-      const to = typeof toValue === 'number' ? toValue : Number(toValue);
+      const toValue = (entry as Record<string, unknown>)["to"];
+      const to = typeof toValue === "number" ? toValue : Number(toValue);
       if (!Number.isFinite(to)) {
         return null;
       }
       return {
         to,
-        two_way: Boolean((entry as Record<string, unknown>)['two_way'] ?? true),
-        hyperlane: Boolean((entry as Record<string, unknown>)['hyperlane'] ?? false),
+        two_way: Boolean((entry as Record<string, unknown>)["two_way"] ?? true),
+        hyperlane: Boolean(
+          (entry as Record<string, unknown>)["hyperlane"] ?? false,
+        ),
       } satisfies WarpEdge;
     })
     .filter((edge): edge is WarpEdge => Boolean(edge));
 }
 
 export function normalizeMapKnowledge(raw: unknown): MapKnowledge {
-  if (!raw || typeof raw !== 'object') {
+  if (!raw || typeof raw !== "object") {
     return { ...DEFAULT_KNOWLEDGE };
   }
   const obj = raw as Record<string, unknown>;
-  const totalValue = obj['total_sectors_visited'];
-  const total = typeof totalValue === 'number' && Number.isFinite(totalValue)
-    ? totalValue
-    : Number(obj['total']) || 0;
+  const totalValue = obj["total_sectors_visited"];
+  const total =
+    typeof totalValue === "number" && Number.isFinite(totalValue)
+      ? totalValue
+      : Number(obj["total"]) || 0;
 
-  const sectorsRaw = obj['sectors_visited'];
+  const sectorsRaw = obj["sectors_visited"];
   const sectors: Record<string, MapKnowledgeEntry> = {};
-  if (sectorsRaw && typeof sectorsRaw === 'object') {
-    for (const [key, value] of Object.entries(sectorsRaw as Record<string, unknown>)) {
-      if (!value || typeof value !== 'object') {
+  if (sectorsRaw && typeof sectorsRaw === "object") {
+    for (const [key, value] of Object.entries(
+      sectorsRaw as Record<string, unknown>,
+    )) {
+      if (!value || typeof value !== "object") {
         continue;
       }
       const entry = value as Record<string, unknown>;
-      const adjacentRaw = entry['adjacent_sectors'];
+      const adjacentRaw = entry["adjacent_sectors"];
       let adjacent: number[] | undefined;
       if (Array.isArray(adjacentRaw)) {
         adjacent = adjacentRaw
           .map((val) => {
-            if (typeof val === 'number') {
+            if (typeof val === "number") {
               return val;
             }
-            if (typeof val === 'string' && val.trim() !== '') {
+            if (typeof val === "string" && val.trim() !== "") {
               const parsed = Number(val);
               return Number.isFinite(parsed) ? parsed : null;
             }
@@ -158,19 +163,20 @@ export function normalizeMapKnowledge(raw: unknown): MapKnowledge {
           })
           .filter((item): item is number => Number.isFinite(item as number));
       }
-      const lastVisitedValue = entry['last_visited'];
-      const positionRaw = entry['position'];
+      const lastVisitedValue = entry["last_visited"];
+      const positionRaw = entry["position"];
       let position: [number, number] | undefined;
       if (
         Array.isArray(positionRaw) &&
         positionRaw.length === 2 &&
-        positionRaw.every((component) => typeof component === 'number')
+        positionRaw.every((component) => typeof component === "number")
       ) {
         position = [positionRaw[0] as number, positionRaw[1] as number];
       }
       sectors[key] = {
         adjacent_sectors: adjacent,
-        last_visited: typeof lastVisitedValue === 'string' ? lastVisitedValue : undefined,
+        last_visited:
+          typeof lastVisitedValue === "string" ? lastVisitedValue : undefined,
         position,
       };
     }
@@ -197,8 +203,10 @@ export function mergeMapKnowledge(
   };
 
   // First, add all personal entries with source='player'
-  for (const [sectorId, personalEntry] of Object.entries(personal.sectors_visited)) {
-    merged.sectors_visited[sectorId] = { ...personalEntry, source: 'player' };
+  for (const [sectorId, personalEntry] of Object.entries(
+    personal.sectors_visited,
+  )) {
+    merged.sectors_visited[sectorId] = { ...personalEntry, source: "player" };
   }
 
   // Then merge corp entries
@@ -207,16 +215,16 @@ export function mergeMapKnowledge(
 
     if (!personalEntry) {
       // Sector only in corp knowledge - add it with source='corp'
-      merged.sectors_visited[sectorId] = { ...corpEntry, source: 'corp' };
+      merged.sectors_visited[sectorId] = { ...corpEntry, source: "corp" };
     } else {
       // Both have it - mark as 'both', use newer data for other fields
       const corpTime = new Date(corpEntry.last_visited ?? 0).getTime();
       const personalTime = new Date(personalEntry.last_visited ?? 0).getTime();
 
       if (corpTime > personalTime) {
-        merged.sectors_visited[sectorId] = { ...corpEntry, source: 'both' };
+        merged.sectors_visited[sectorId] = { ...corpEntry, source: "both" };
       } else {
-        merged.sectors_visited[sectorId] = { ...personalEntry, source: 'both' };
+        merged.sectors_visited[sectorId] = { ...personalEntry, source: "both" };
       }
     }
   }
@@ -228,15 +236,22 @@ export function mergeMapKnowledge(
 export async function fetchSectorRow(
   supabase: SupabaseClient,
   sectorId: number,
-): Promise<{ sector_id: number; position_x: number; position_y: number; warps: unknown } | null> {
+): Promise<{
+  sector_id: number;
+  position_x: number;
+  position_y: number;
+  warps: unknown;
+} | null> {
   const { data, error } = await supabase
-    .from('universe_structure')
-    .select('sector_id, position_x, position_y, warps')
-    .eq('sector_id', sectorId)
+    .from("universe_structure")
+    .select("sector_id, position_x, position_y, warps")
+    .eq("sector_id", sectorId)
     .maybeSingle();
 
   if (error) {
-    throw new Error(`failed to load universe structure for sector ${sectorId}: ${error.message}`);
+    throw new Error(
+      `failed to load universe structure for sector ${sectorId}: ${error.message}`,
+    );
   }
 
   return data ?? null;
@@ -250,9 +265,9 @@ export async function buildSectorSnapshot(
   const [structureRow, sectorContents] = await Promise.all([
     fetchSectorRow(supabase, sectorId),
     supabase
-      .from('sector_contents')
-      .select('sector_id, port_id, salvage')
-      .eq('sector_id', sectorId)
+      .from("sector_contents")
+      .select("sector_id, port_id, salvage")
+      .eq("sector_id", sectorId)
       .maybeSingle(),
   ]);
 
@@ -261,7 +276,9 @@ export async function buildSectorSnapshot(
   }
 
   if (sectorContents.error) {
-    throw new Error(`failed to load sector contents: ${sectorContents.error.message}`);
+    throw new Error(
+      `failed to load sector contents: ${sectorContents.error.message}`,
+    );
   }
 
   const adjacentEdges = parseWarpEdges(structureRow.warps);
@@ -271,14 +288,16 @@ export async function buildSectorSnapshot(
   const contentsData = sectorContents.data ?? undefined;
   if (contentsData && contentsData.port_id) {
     const { data: portRow, error: portError } = await supabase
-      .from('ports')
+      .from("ports")
       .select(
-        'port_id, port_code, port_class, max_qf, max_ro, max_ns, stock_qf, stock_ro, stock_ns, last_updated',
+        "port_id, port_code, port_class, max_qf, max_ro, max_ns, stock_qf, stock_ro, stock_ns, last_updated",
       )
-      .eq('port_id', contentsData.port_id)
+      .eq("port_id", contentsData.port_id)
       .maybeSingle();
     if (portError) {
-      throw new Error(`failed to load port ${contentsData.port_id}: ${portError.message}`);
+      throw new Error(
+        `failed to load port ${contentsData.port_id}: ${portError.message}`,
+      );
     }
     if (portRow) {
       port = {
@@ -301,28 +320,36 @@ export async function buildSectorSnapshot(
   }
 
   const shipsQuery = supabase
-    .from('ship_instances')
-    .select('ship_id, ship_type, ship_name, owner_id, owner_character_id, owner_type, former_owner_name, became_unowned, current_fighters, current_shields, cargo_qf, cargo_ro, cargo_ns')
-    .eq('current_sector', sectorId)
-    .eq('in_hyperspace', false);
+    .from("ship_instances")
+    .select(
+      "ship_id, ship_type, ship_name, owner_id, owner_character_id, owner_type, former_owner_name, became_unowned, current_fighters, current_shields, cargo_qf, cargo_ro, cargo_ns",
+    )
+    .eq("current_sector", sectorId)
+    .eq("in_hyperspace", false);
   const garrisonsQuery = supabase
-    .from('garrisons')
-    .select('owner_id, fighters, mode, toll_amount, toll_balance')
-    .eq('sector_id', sectorId);
+    .from("garrisons")
+    .select("owner_id, fighters, mode, toll_amount, toll_balance")
+    .eq("sector_id", sectorId);
 
-  const [{ data: ships, error: shipsError }, { data: garrisons, error: garrisonsError }] = await Promise.all([
-    shipsQuery,
-    garrisonsQuery,
-  ]);
+  const [
+    { data: ships, error: shipsError },
+    { data: garrisons, error: garrisonsError },
+  ] = await Promise.all([shipsQuery, garrisonsQuery]);
 
   if (shipsError) {
-    throw new Error(`failed to load ships in sector ${sectorId}: ${shipsError.message}`);
+    throw new Error(
+      `failed to load ships in sector ${sectorId}: ${shipsError.message}`,
+    );
   }
   if (garrisonsError) {
-    throw new Error(`failed to load garrisons in sector ${sectorId}: ${garrisonsError.message}`);
+    throw new Error(
+      `failed to load garrisons in sector ${sectorId}: ${garrisonsError.message}`,
+    );
   }
 
-  const shipIds = (ships ?? []).map((ship) => ship.ship_id).filter((id): id is string => typeof id === 'string');
+  const shipIds = (ships ?? [])
+    .map((ship) => ship.ship_id)
+    .filter((id): id is string => typeof id === "string");
   let occupantRows: Array<{
     character_id: string;
     name: string;
@@ -334,34 +361,42 @@ export async function buildSectorSnapshot(
   }> = [];
   if (shipIds.length > 0) {
     const { data, error } = await supabase
-      .from('characters')
-      .select('character_id, name, first_visit, player_metadata, current_ship_id, corporation_id, corporation_joined_at')
-      .in('current_ship_id', shipIds);
+      .from("characters")
+      .select(
+        "character_id, name, first_visit, player_metadata, current_ship_id, corporation_id, corporation_joined_at",
+      )
+      .in("current_ship_id", shipIds);
     if (error) {
-      throw new Error(`failed to load occupants for sector ${sectorId}: ${error.message}`);
+      throw new Error(
+        `failed to load occupants for sector ${sectorId}: ${error.message}`,
+      );
     }
     occupantRows = data ?? [];
   }
 
-  const occupantMap = new Map(occupantRows.map((row) => [row.current_ship_id, row]));
+  const occupantMap = new Map(
+    occupantRows.map((row) => [row.current_ship_id, row]),
+  );
 
   // Load corporation info for occupants and garrison owners
   const garrisonOwnerIds = (garrisons ?? [])
     .map((g) => g.owner_id)
-    .filter((id): id is string => typeof id === 'string');
+    .filter((id): id is string => typeof id === "string");
 
-  const allCharacterIds = Array.from(new Set([
-    ...occupantRows.map((row) => row.character_id),
-    ...garrisonOwnerIds,
-  ]));
+  const allCharacterIds = Array.from(
+    new Set([
+      ...occupantRows.map((row) => row.character_id),
+      ...garrisonOwnerIds,
+    ]),
+  );
 
   let characterCorpMap = new Map<string, string | null>();
   let characterNameMap = new Map<string, string>();
   if (allCharacterIds.length > 0) {
     const { data: charData, error: charError } = await supabase
-      .from('characters')
-      .select('character_id, corporation_id, name')
-      .in('character_id', allCharacterIds);
+      .from("characters")
+      .select("character_id, corporation_id, name")
+      .in("character_id", allCharacterIds);
     if (!charError && charData) {
       for (const char of charData) {
         characterCorpMap.set(char.character_id, char.corporation_id);
@@ -370,23 +405,28 @@ export async function buildSectorSnapshot(
     }
   }
 
-  const corpIds = Array.from(new Set(
-    occupantRows
-      .map((row) => row.corporation_id)
-      .filter((id): id is string => typeof id === 'string' && id.length > 0)
-  ));
-  const corporationMap = new Map<string, { corp_id: string; name: string; member_count: number }>();
+  const corpIds = Array.from(
+    new Set(
+      occupantRows
+        .map((row) => row.corporation_id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    ),
+  );
+  const corporationMap = new Map<
+    string,
+    { corp_id: string; name: string; member_count: number }
+  >();
   if (corpIds.length > 0) {
     const { data: corpData, error: corpError } = await supabase
-      .from('corporations')
-      .select('corp_id, name')
-      .in('corp_id', corpIds);
+      .from("corporations")
+      .select("corp_id, name")
+      .in("corp_id", corpIds);
     if (!corpError && corpData) {
       for (const corp of corpData) {
         const { count } = await supabase
-          .from('corporation_members')
-          .select('character_id', { count: 'exact', head: true })
-          .eq('corp_id', corp.corp_id);
+          .from("corporation_members")
+          .select("character_id", { count: "exact", head: true })
+          .eq("corp_id", corp.corp_id);
         corporationMap.set(corp.corp_id, {
           corp_id: corp.corp_id,
           name: corp.name,
@@ -398,15 +438,22 @@ export async function buildSectorSnapshot(
 
   const ownerCharacterIds = (ships ?? [])
     .map((ship) => ship.owner_character_id)
-    .filter((ownerId): ownerId is string => typeof ownerId === 'string');
-  let ownerRows: Array<{ character_id: string; name: string; first_visit: string | null; player_metadata: Record<string, unknown> | null }> = [];
+    .filter((ownerId): ownerId is string => typeof ownerId === "string");
+  let ownerRows: Array<{
+    character_id: string;
+    name: string;
+    first_visit: string | null;
+    player_metadata: Record<string, unknown> | null;
+  }> = [];
   if (ownerCharacterIds.length > 0) {
     const { data, error } = await supabase
-      .from('characters')
-      .select('character_id, name, first_visit, player_metadata')
-      .in('character_id', ownerCharacterIds);
+      .from("characters")
+      .select("character_id, name, first_visit, player_metadata")
+      .in("character_id", ownerCharacterIds);
     if (error) {
-      throw new Error(`failed to load ship owners for sector ${sectorId}: ${error.message}`);
+      throw new Error(
+        `failed to load ship owners for sector ${sectorId}: ${error.message}`,
+      );
     }
     ownerRows = data ?? [];
   }
@@ -420,8 +467,10 @@ export async function buildSectorSnapshot(
 
     if (!occupant) {
       // No occupant - this is an unowned ship
-      const shipName = typeof ship.ship_name === 'string' ? ship.ship_name.trim() : '';
-      const shipDisplayName = shipName.length > 0 ? shipName : formatShipDisplayName(ship.ship_type);
+      const shipName =
+        typeof ship.ship_name === "string" ? ship.ship_name.trim() : "";
+      const shipDisplayName =
+        shipName.length > 0 ? shipName : formatShipDisplayName(ship.ship_type);
       unownedShips.push({
         ship_id: ship.ship_id,
         ship_type: ship.ship_type,
@@ -443,17 +492,25 @@ export async function buildSectorSnapshot(
 
     // Has occupant - add to players list
     if (occupant.character_id === currentCharacterId) {
-      continue;  // Skip current character
+      continue; // Skip current character
     }
 
     const playerType = resolvePlayerType(occupant.player_metadata);
-    const characterMetadata = (occupant.player_metadata ?? null) as Record<string, unknown> | null;
-    const legacyDisplayName = typeof characterMetadata?.legacy_display_name === 'string'
-      ? characterMetadata.legacy_display_name.trim()
-      : '';
-    const displayName = legacyDisplayName?.length ? legacyDisplayName : (occupant.name ?? occupant.character_id);
-    const shipName = typeof ship.ship_name === 'string' ? ship.ship_name.trim() : '';
-    const shipDisplayName = shipName.length > 0 ? shipName : formatShipDisplayName(ship.ship_type);
+    const characterMetadata = (occupant.player_metadata ?? null) as Record<
+      string,
+      unknown
+    > | null;
+    const legacyDisplayName =
+      typeof characterMetadata?.legacy_display_name === "string"
+        ? characterMetadata.legacy_display_name.trim()
+        : "";
+    const displayName = legacyDisplayName?.length
+      ? legacyDisplayName
+      : (occupant.name ?? occupant.character_id);
+    const shipName =
+      typeof ship.ship_name === "string" ? ship.ship_name.trim() : "";
+    const shipDisplayName =
+      shipName.length > 0 ? shipName : formatShipDisplayName(ship.ship_type);
 
     // Add corporation info if character is in a corporation
     let corporationInfo: Record<string, unknown> | null = null;
@@ -469,8 +526,8 @@ export async function buildSectorSnapshot(
 
     players.push({
       created_at: occupant.first_visit ?? null,
-      id: occupant.character_id,  // UUID (correct convention)
-      name: displayName,           // Human-readable name
+      id: occupant.character_id, // UUID (correct convention)
+      name: displayName, // Human-readable name
       player_type: playerType,
       corporation: corporationInfo,
       ship: {
@@ -484,21 +541,29 @@ export async function buildSectorSnapshot(
   // Build garrison object with is_friendly field
   let garrisonObject: Record<string, unknown> | null = null;
   if (garrisons && garrisons.length > 0) {
-    const garrison = garrisons[0];  // Use first garrison (one per sector)
+    const garrison = garrisons[0]; // Use first garrison (one per sector)
     const garrisonOwnerId = garrison.owner_id;
-    const currentCharacterCorpId = currentCharacterId ? characterCorpMap.get(currentCharacterId) : null;
-    const garrisonOwnerCorpId = garrisonOwnerId ? characterCorpMap.get(garrisonOwnerId) : null;
+    const currentCharacterCorpId = currentCharacterId
+      ? characterCorpMap.get(currentCharacterId)
+      : null;
+    const garrisonOwnerCorpId = garrisonOwnerId
+      ? characterCorpMap.get(garrisonOwnerId)
+      : null;
 
     // Garrison is friendly if:
     // 1. Current character owns it
     // 2. OR they're in the same corporation (and corporation is not null)
     const isFriendly = Boolean(
-      (currentCharacterId === garrisonOwnerId) ||
-      (currentCharacterCorpId && garrisonOwnerCorpId && currentCharacterCorpId === garrisonOwnerCorpId)
+      currentCharacterId === garrisonOwnerId ||
+      (currentCharacterCorpId &&
+        garrisonOwnerCorpId &&
+        currentCharacterCorpId === garrisonOwnerCorpId),
     );
 
     // Get owner name from the map we already loaded
-    const ownerName = garrisonOwnerId ? characterNameMap.get(garrisonOwnerId) ?? 'unknown' : 'unknown';
+    const ownerName = garrisonOwnerId
+      ? (characterNameMap.get(garrisonOwnerId) ?? "unknown")
+      : "unknown";
 
     garrisonObject = {
       owner_id: garrison.owner_id,
@@ -518,7 +583,10 @@ export async function buildSectorSnapshot(
     port,
     players,
     garrison: garrisonObject,
-    salvage: (contentsData && Array.isArray(contentsData.salvage)) ? contentsData.salvage : [],
+    salvage:
+      contentsData && Array.isArray(contentsData.salvage)
+        ? contentsData.salvage
+        : [],
     unowned_ships: unownedShips,
     scene_config: null,
   };
@@ -533,13 +601,16 @@ async function fetchUniverseRows(
   }
   const uniqueIds = Array.from(new Set(sectorIds));
   const { data, error } = await supabase
-    .from('universe_structure')
-    .select('sector_id, position_x, position_y, warps')
-    .in('sector_id', uniqueIds);
+    .from("universe_structure")
+    .select("sector_id, position_x, position_y, warps")
+    .in("sector_id", uniqueIds);
   if (error) {
     throw new Error(`failed to load universe rows: ${error.message}`);
   }
-  const map = new Map<number, { position: [number, number]; warps: WarpEdge[] }>();
+  const map = new Map<
+    number,
+    { position: [number, number]; warps: WarpEdge[] }
+  >();
   for (const row of data ?? []) {
     map.set(row.sector_id, {
       position: [row.position_x ?? 0, row.position_y ?? 0],
@@ -557,9 +628,9 @@ async function loadPortCodes(
     return {};
   }
   const { data, error } = await supabase
-    .from('ports')
-    .select('sector_id, port_code')
-    .in('sector_id', Array.from(new Set(sectorIds)));
+    .from("ports")
+    .select("sector_id, port_code")
+    .in("sector_id", Array.from(new Set(sectorIds)));
   if (error) {
     throw new Error(`failed to load port codes: ${error.message}`);
   }
@@ -584,11 +655,17 @@ export async function findShortestPath(
     if (!row) {
       throw new Error(`sector ${sectorId} does not exist`);
     }
-    adjacencyCache.set(sectorId, parseWarpEdges(row.warps ?? []).map((edge) => edge.to));
+    adjacencyCache.set(
+      sectorId,
+      parseWarpEdges(row.warps ?? []).map((edge) => edge.to),
+    );
   };
 
   const adjacencyCache = new Map<number, number[]>();
-  await Promise.all([ensureSectorExists(fromSector), ensureSectorExists(toSector)]);
+  await Promise.all([
+    ensureSectorExists(fromSector),
+    ensureSectorExists(toSector),
+  ]);
 
   const getNeighbors = async (sectorId: number): Promise<number[]> => {
     if (adjacencyCache.has(sectorId)) {
@@ -636,7 +713,9 @@ export async function findShortestPath(
     }
   }
 
-  throw new PathNotFoundError(`No path found from sector ${fromSector} to sector ${toSector}`);
+  throw new PathNotFoundError(
+    `No path found from sector ${fromSector} to sector ${toSector}`,
+  );
 }
 
 export async function buildLocalMapRegion(
@@ -656,9 +735,9 @@ export async function buildLocalMapRegion(
   let knowledge = params.mapKnowledge;
   if (!knowledge) {
     const { data, error } = await supabase
-      .from('characters')
-      .select('map_knowledge')
-      .eq('character_id', characterId)
+      .from("characters")
+      .select("map_knowledge")
+      .eq("character_id", characterId)
       .maybeSingle();
     if (error) {
       throw new Error(`failed to load map knowledge: ${error.message}`);
@@ -675,7 +754,9 @@ export async function buildLocalMapRegion(
   }
 
   const distanceMap = new Map<number, number>([[centerSector, 0]]);
-  const queue: Array<{ sector: number; hops: number }> = [{ sector: centerSector, hops: 0 }];
+  const queue: Array<{ sector: number; hops: number }> = [
+    { sector: centerSector, hops: 0 },
+  ];
   const explored = new Set<number>([centerSector]);
   const unvisitedSeen = new Map<number, Set<number>>();
 
@@ -726,7 +807,10 @@ export async function buildLocalMapRegion(
   const sectorIds = Array.from(distanceMap.keys());
   const [universeRows, portCodes] = await Promise.all([
     fetchUniverseRows(supabase, sectorIds),
-    loadPortCodes(supabase, sectorIds.filter((id) => visitedSet.has(id))),
+    loadPortCodes(
+      supabase,
+      sectorIds.filter((id) => visitedSet.has(id)),
+    ),
   ]);
 
   const resultSectors: LocalMapSector[] = [];
@@ -743,7 +827,7 @@ export async function buildLocalMapRegion(
         visited: true,
         hops_from_center: hops,
         position,
-        port: portCodes[sectorId] ?? '',
+        port: portCodes[sectorId] ?? "",
         lanes: warps,
         adjacent_sectors: adjacencyCache.get(sectorId) ?? [],
         last_visited: knowledgeEntry?.last_visited,
@@ -756,7 +840,11 @@ export async function buildLocalMapRegion(
         const sourceRow = universeRows.get(source);
         const match = sourceRow?.warps.find((warp) => warp.to === sectorId);
         if (match) {
-          derivedLanes.push({ to: source, two_way: match.two_way, hyperlane: match.hyperlane });
+          derivedLanes.push({
+            to: source,
+            two_way: match.two_way,
+            hyperlane: match.hyperlane,
+          });
         } else {
           derivedLanes.push({ to: source });
         }
@@ -766,7 +854,7 @@ export async function buildLocalMapRegion(
         visited: false,
         hops_from_center: hops,
         position,
-        port: '',
+        port: "",
         lanes: derivedLanes,
       });
     }
@@ -798,7 +886,8 @@ export function upsertVisitedSector(
     position,
     last_visited: timestamp,
   };
-  const sameAdjacency = existing?.adjacent_sectors?.length === adjacent.length &&
+  const sameAdjacency =
+    existing?.adjacent_sectors?.length === adjacent.length &&
     existing.adjacent_sectors?.every((value, idx) => value === adjacent[idx]);
   const sameTimestamp = existing?.last_visited === timestamp;
 
@@ -808,7 +897,10 @@ export function upsertVisitedSector(
 
   knowledge.sectors_visited[key] = nextEntry;
   const total = Object.keys(knowledge.sectors_visited).length;
-  knowledge.total_sectors_visited = Math.max(knowledge.total_sectors_visited, total);
+  knowledge.total_sectors_visited = Math.max(
+    knowledge.total_sectors_visited,
+    total,
+  );
   return { updated: true, knowledge };
 }
 
@@ -832,7 +924,7 @@ function setPlayerSource(knowledge: MapKnowledge): MapKnowledge {
     last_update: knowledge.last_update,
   };
   for (const [sectorId, entry] of Object.entries(knowledge.sectors_visited)) {
-    result.sectors_visited[sectorId] = { ...entry, source: 'player' };
+    result.sectors_visited[sectorId] = { ...entry, source: "player" };
   }
   return result;
 }
@@ -843,9 +935,9 @@ export async function loadMapKnowledge(
 ): Promise<MapKnowledge> {
   // Load character's personal knowledge and corporation_id
   const { data: charData, error: charError } = await supabase
-    .from('characters')
-    .select('map_knowledge, corporation_id')
-    .eq('character_id', characterId)
+    .from("characters")
+    .select("map_knowledge, corporation_id")
+    .eq("character_id", characterId)
     .maybeSingle();
   if (charError) {
     throw new Error(`failed to load map knowledge: ${charError.message}`);
@@ -858,9 +950,9 @@ export async function loadMapKnowledge(
   let corp: MapKnowledge | null = null;
   if (corporationId) {
     const { data: corpData, error: corpError } = await supabase
-      .from('corporation_map_knowledge')
-      .select('map_knowledge')
-      .eq('corp_id', corporationId)
+      .from("corporation_map_knowledge")
+      .select("map_knowledge")
+      .eq("corp_id", corporationId)
       .maybeSingle();
     if (corpError) {
       console.warn(`failed to load corp map knowledge: ${corpError.message}`);
@@ -884,30 +976,39 @@ export async function loadMapKnowledgeParallel(
 ): Promise<MapKnowledge> {
   // Run both queries in parallel when we already know corporationId
   const charPromise = supabase
-    .from('characters')
-    .select('map_knowledge')
-    .eq('character_id', characterId)
+    .from("characters")
+    .select("map_knowledge")
+    .eq("character_id", characterId)
     .maybeSingle();
 
   const corpPromise = corporationId
     ? supabase
-        .from('corporation_map_knowledge')
-        .select('map_knowledge')
-        .eq('corp_id', corporationId)
+        .from("corporation_map_knowledge")
+        .select("map_knowledge")
+        .eq("corp_id", corporationId)
         .maybeSingle()
     : Promise.resolve({ data: null, error: null });
 
-  const [charResult, corpResult] = await Promise.all([charPromise, corpPromise]);
+  const [charResult, corpResult] = await Promise.all([
+    charPromise,
+    corpPromise,
+  ]);
 
   if (charResult.error) {
-    throw new Error(`failed to load map knowledge: ${charResult.error.message}`);
+    throw new Error(
+      `failed to load map knowledge: ${charResult.error.message}`,
+    );
   }
 
-  const personal = normalizeMapKnowledge(charResult.data?.map_knowledge ?? null);
+  const personal = normalizeMapKnowledge(
+    charResult.data?.map_knowledge ?? null,
+  );
 
   let corp: MapKnowledge | null = null;
   if (corpResult.error) {
-    console.warn(`failed to load corp map knowledge: ${corpResult.error.message}`);
+    console.warn(
+      `failed to load corp map knowledge: ${corpResult.error.message}`,
+    );
   } else if (corpResult.data?.map_knowledge) {
     corp = normalizeMapKnowledge(corpResult.data.map_knowledge);
   }
@@ -935,9 +1036,9 @@ export async function markSectorVisited(
   if (!knowledge) {
     // Load personal knowledge directly, not merged
     const { data, error } = await supabase
-      .from('characters')
-      .select('map_knowledge')
-      .eq('character_id', characterId)
+      .from("characters")
+      .select("map_knowledge")
+      .eq("character_id", characterId)
       .maybeSingle();
     if (error) {
       throw new Error(`failed to load map knowledge: ${error.message}`);
@@ -964,9 +1065,9 @@ export async function markSectorVisited(
   nextKnowledge.last_update = timestamp;
 
   const { error } = await supabase
-    .from('characters')
+    .from("characters")
     .update({ map_knowledge: nextKnowledge })
-    .eq('character_id', characterId);
+    .eq("character_id", characterId);
   if (error) {
     throw new Error(`failed to update map knowledge: ${error.message}`);
   }
@@ -1029,7 +1130,10 @@ export async function buildPathRegionPayload(
     const neighbors = await resolveAdjacency(current.sector);
     for (const neighbor of neighbors) {
       const nextDistance = current.hops + 1;
-      if (!distanceMap.has(neighbor) || nextDistance < (distanceMap.get(neighbor) ?? Infinity)) {
+      if (
+        !distanceMap.has(neighbor) ||
+        nextDistance < (distanceMap.get(neighbor) ?? Infinity)
+      ) {
         distanceMap.set(neighbor, nextDistance);
       }
       if (visitedSet.has(neighbor)) {
@@ -1055,10 +1159,16 @@ export async function buildPathRegionPayload(
       .filter((id) => visitedSet.has(id))
       .map(async (sectorId) => {
         try {
-          const snapshot = await buildSectorSnapshot(supabase, sectorId, characterId);
+          const snapshot = await buildSectorSnapshot(
+            supabase,
+            sectorId,
+            characterId,
+          );
           return [sectorId, snapshot] as const;
         } catch (error) {
-          throw new Error(`failed to load sector snapshot for ${sectorId}: ${error instanceof Error ? error.message : String(error)}`);
+          throw new Error(
+            `failed to load sector snapshot for ${sectorId}: ${error instanceof Error ? error.message : String(error)}`,
+          );
         }
       }),
   );
@@ -1084,8 +1194,14 @@ export async function buildPathRegionPayload(
       if (knowledgeEntry.last_visited) {
         sectorPayload.last_visited = knowledgeEntry.last_visited;
       }
-      if (!onPath && knowledgeEntry.adjacent_sectors && knowledgeEntry.adjacent_sectors.length > 0) {
-        const adjacentPathNodes = knowledgeEntry.adjacent_sectors.filter((adj) => pathSet.has(Number(adj)));
+      if (
+        !onPath &&
+        knowledgeEntry.adjacent_sectors &&
+        knowledgeEntry.adjacent_sectors.length > 0
+      ) {
+        const adjacentPathNodes = knowledgeEntry.adjacent_sectors.filter(
+          (adj) => pathSet.has(Number(adj)),
+        );
         if (adjacentPathNodes.length > 0) {
           sectorPayload.adjacent_to_path_nodes = adjacentPathNodes;
         }

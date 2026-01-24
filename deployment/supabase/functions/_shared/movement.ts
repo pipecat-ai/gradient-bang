@@ -1,19 +1,19 @@
-import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { EventSource } from './events.ts';
+import type { EventSource } from "./events.ts";
 import {
   buildCharacterMovedPayload,
   emitCharacterMovedEvents,
   emitGarrisonCharacterMovedEvents,
   listSectorObservers,
   type ObserverMetadata,
-} from './observers.ts';
+} from "./observers.ts";
 
 export interface MovementObserverOptions {
   supabase: SupabaseClient;
   sectorId: number;
   metadata: ObserverMetadata;
-  movement: 'depart' | 'arrive';
+  movement: "depart" | "arrive";
   source?: EventSource;
   requestId?: string;
   excludeCharacterIds?: string[];
@@ -27,7 +27,9 @@ export interface MovementObserverResult {
   garrisonRecipients: number;
 }
 
-export async function emitMovementObservers(options: MovementObserverOptions): Promise<MovementObserverResult> {
+export async function emitMovementObservers(
+  options: MovementObserverOptions,
+): Promise<MovementObserverResult> {
   const {
     supabase,
     sectorId,
@@ -50,7 +52,11 @@ export async function emitMovementObservers(options: MovementObserverOptions): P
     }
   }
 
-  const observers = await listSectorObservers(supabase, sectorId, Array.from(exclude));
+  const observers = await listSectorObservers(
+    supabase,
+    sectorId,
+    Array.from(exclude),
+  );
   const payload = buildCharacterMovedPayload(metadata, movement, source, {
     moveType,
     extraFields: extraPayload,
@@ -77,7 +83,7 @@ export async function emitMovementObservers(options: MovementObserverOptions): P
     : 0;
 
   if (observers.length || garrisonRecipients > 0) {
-    console.log('movement.observers.emitted', {
+    console.log("movement.observers.emitted", {
       sector_id: sectorId,
       movement,
       character_id: metadata.characterId,

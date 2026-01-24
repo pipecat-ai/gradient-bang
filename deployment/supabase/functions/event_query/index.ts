@@ -1,27 +1,32 @@
-import { serve } from 'https://deno.land/std@0.197.0/http/server.ts';
-import { timingSafeEqual } from 'https://deno.land/std@0.197.0/crypto/timing_safe_equal.ts';
-import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
+import { timingSafeEqual } from "https://deno.land/std@0.197.0/crypto/timing_safe_equal.ts";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { validateApiToken, unauthorizedResponse, errorResponse, successResponse } from '../_shared/auth.ts';
-import { createServiceRoleClient } from '../_shared/client.ts';
-import { emitCharacterEvent, buildEventSource } from '../_shared/events.ts';
+import {
+  validateApiToken,
+  unauthorizedResponse,
+  errorResponse,
+  successResponse,
+} from "../_shared/auth.ts";
+import { createServiceRoleClient } from "../_shared/client.ts";
+import { emitCharacterEvent, buildEventSource } from "../_shared/events.ts";
 import {
   parseJsonRequest,
   optionalString,
   optionalNumber,
   resolveRequestId,
   respondWithError,
-} from '../_shared/request.ts';
+} from "../_shared/request.ts";
 
 const MAX_QUERY_RESULTS = 100;
 const DEFAULT_LIMIT = 100;
 
-const ADMIN_PASSWORD = Deno.env.get('EDGE_ADMIN_PASSWORD')
-  ?? Deno.env.get('ADMIN_PASSWORD')
-  ?? '';
-const ADMIN_PASSWORD_HASH = Deno.env.get('EDGE_ADMIN_PASSWORD_HASH')
-  ?? Deno.env.get('ADMIN_PASSWORD_HASH')
-  ?? '';
+const ADMIN_PASSWORD =
+  Deno.env.get("EDGE_ADMIN_PASSWORD") ?? Deno.env.get("ADMIN_PASSWORD") ?? "";
+const ADMIN_PASSWORD_HASH =
+  Deno.env.get("EDGE_ADMIN_PASSWORD_HASH") ??
+  Deno.env.get("ADMIN_PASSWORD_HASH") ??
+  "";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -40,14 +45,16 @@ interface EventRow {
   corp_id: string | null;
   task_id: string | null;
   actor_character_id: string | null;
-  event_character_recipients?: Array<{ character_id: string; reason: string }> | { character_id: string; reason: string };
+  event_character_recipients?:
+    | Array<{ character_id: string; reason: string }>
+    | { character_id: string; reason: string };
 }
 
 interface EventQueryResult {
   events: JsonRecord[];
   has_more: boolean;
   next_cursor: number | null;
-  scope: 'personal' | 'corporation';
+  scope: "personal" | "corporation";
 }
 
 class EventQueryError extends Error {
@@ -55,12 +62,12 @@ class EventQueryError extends Error {
 
   constructor(message: string, status = 400) {
     super(message);
-    this.name = 'EventQueryError';
+    this.name = "EventQueryError";
     this.status = status;
   }
 }
 
-serve(async (req: Request): Promise<Response> => {
+Deno.serve(async (req: Request): Promise<Response> => {
   if (!validateApiToken(req)) {
     return unauthorizedResponse();
   }
@@ -74,12 +81,15 @@ serve(async (req: Request): Promise<Response> => {
     if (response) {
       return response;
     }
-    console.error('event_query.parse', err);
-    return errorResponse('invalid JSON payload', 400);
+    console.error("event_query.parse", err);
+    return errorResponse("invalid JSON payload", 400);
   }
 
   if (payload.healthcheck === true) {
-    return successResponse({ status: 'ok', token_present: Boolean(Deno.env.get('EDGE_API_TOKEN')) });
+    return successResponse({
+      status: "ok",
+      token_present: Boolean(Deno.env.get("EDGE_API_TOKEN")),
+    });
   }
 
   const requestId = resolveRequestId(payload);
@@ -91,11 +101,11 @@ serve(async (req: Request): Promise<Response> => {
     // This follows the same pattern as my_status and other async tools
     // Use character_id as the recipient - this is the entity (ship or character)
     // executing the query. The game client polls for this entity's events.
-    const actorCharacterId = optionalString(payload, 'actor_character_id');
-    const characterId = optionalString(payload, 'character_id');
+    const actorCharacterId = optionalString(payload, "actor_character_id");
+    const characterId = optionalString(payload, "character_id");
     const targetCharacterId = characterId ?? actorCharacterId;
 
-    console.log('[Info] event_query.emit_check', {
+    console.log("[Info] event_query.emit_check", {
       actorCharacterId,
       characterId,
       targetCharacterId,
@@ -103,20 +113,27 @@ serve(async (req: Request): Promise<Response> => {
     });
 
     if (targetCharacterId) {
-      const source = buildEventSource('event_query', requestId);
-      const taskId = optionalString(payload, 'task_id');
+      const source = buildEventSource("event_query", requestId);
+      const taskId = optionalString(payload, "task_id");
       try {
         await emitCharacterEvent({
           supabase,
           characterId: targetCharacterId,
-          eventType: 'event.query',
+          eventType: "event.query",
           payload: { source, ...result },
           requestId,
           taskId,
         });
-        console.log('[Info] event_query.emit_success', { targetCharacterId, requestId });
+        console.log("[Info] event_query.emit_success", {
+          targetCharacterId,
+          requestId,
+        });
       } catch (emitErr) {
-        console.error('[Error] event_query.emit_failed', { targetCharacterId, requestId, error: String(emitErr) });
+        console.error("[Error] event_query.emit_failed", {
+          targetCharacterId,
+          requestId,
+          error: String(emitErr),
+        });
       }
     }
 
@@ -130,8 +147,8 @@ serve(async (req: Request): Promise<Response> => {
     if (err instanceof EventQueryError) {
       return errorResponse(err.message, err.status);
     }
-    console.error('event_query.unhandled', err);
-    return errorResponse('internal server error', 500);
+    console.error("event_query.unhandled", err);
+    return errorResponse("internal server error", 500);
   }
 });
 
@@ -139,33 +156,44 @@ async function executeEventQuery(
   supabase: SupabaseClient,
   payload: JsonRecord,
 ): Promise<EventQueryResult & { count: number }> {
-  const start = parseTimestamp(payload['start'], 'start');
-  const end = parseTimestamp(payload['end'], 'end');
+  const start = parseTimestamp(payload["start"], "start");
+  const end = parseTimestamp(payload["end"], "end");
   if (start.getTime() > end.getTime()) {
-    throw new EventQueryError('start must be before end');
+    throw new EventQueryError("start must be before end");
   }
 
-  const adminPasswordProvided = Object.prototype.hasOwnProperty.call(payload, 'admin_password');
-  const adminPasswordCandidate = adminPasswordProvided ? payload['admin_password'] : null;
-  const isAdmin = adminPasswordProvided && await validateAdminPassword(adminPasswordCandidate);
+  const adminPasswordProvided = Object.prototype.hasOwnProperty.call(
+    payload,
+    "admin_password",
+  );
+  const adminPasswordCandidate = adminPasswordProvided
+    ? payload["admin_password"]
+    : null;
+  const isAdmin =
+    adminPasswordProvided &&
+    (await validateAdminPassword(adminPasswordCandidate));
 
-  const characterId = optionalString(payload, 'character_id');
-  const actorCharacterId = optionalString(payload, 'actor_character_id');
+  const characterId = optionalString(payload, "character_id");
+  const actorCharacterId = optionalString(payload, "actor_character_id");
   if (!isAdmin && !characterId && !actorCharacterId) {
-    throw new EventQueryError('character_id or actor_character_id required for non-admin queries', 403);
+    throw new EventQueryError(
+      "character_id or actor_character_id required for non-admin queries",
+      403,
+    );
   }
 
   // Filter fields use filter_ prefix to distinguish from metadata fields
-  const sectorValue = optionalNumber(payload, 'filter_sector');
-  const sectorFilter = sectorValue === null ? null : enforceInteger(sectorValue, 'filter_sector');
+  const sectorValue = optionalNumber(payload, "filter_sector");
+  const sectorFilter =
+    sectorValue === null ? null : enforceInteger(sectorValue, "filter_sector");
 
-  const stringMatch = optionalString(payload, 'filter_string_match');
+  const stringMatch = optionalString(payload, "filter_string_match");
   if (stringMatch !== null && !stringMatch.length) {
-    throw new EventQueryError('filter_string_match cannot be empty');
+    throw new EventQueryError("filter_string_match cannot be empty");
   }
 
-  const filterTaskId = optionalString(payload, 'filter_task_id');
-  const filterEventType = optionalString(payload, 'filter_event_type');
+  const filterTaskId = optionalString(payload, "filter_task_id");
+  const filterEventType = optionalString(payload, "filter_event_type");
 
   // When filter_task_id is provided, use expanded scope to find tasks
   // the user is authorized to see (actor, corp member, or recipient)
@@ -173,28 +201,33 @@ async function executeEventQuery(
   const useExpandedTaskScope = filterTaskId !== null;
 
   // Cursor for pagination - event ID to paginate from
-  const cursorRaw = optionalNumber(payload, 'cursor');
-  const cursor = cursorRaw === null ? null : enforceInteger(cursorRaw, 'cursor');
+  const cursorRaw = optionalNumber(payload, "cursor");
+  const cursor =
+    cursorRaw === null ? null : enforceInteger(cursorRaw, "cursor");
 
-  const maxRowsRaw = optionalNumber(payload, 'max_rows');
-  const maxRows = clampQueryLimit(maxRowsRaw === null ? DEFAULT_LIMIT : enforceInteger(maxRowsRaw, 'max_rows'));
+  const maxRowsRaw = optionalNumber(payload, "max_rows");
+  const maxRows = clampQueryLimit(
+    maxRowsRaw === null
+      ? DEFAULT_LIMIT
+      : enforceInteger(maxRowsRaw, "max_rows"),
+  );
 
-  const sortDirectionRaw = optionalString(payload, 'sort_direction');
+  const sortDirectionRaw = optionalString(payload, "sort_direction");
   const sortDirection = normalizeSortDirection(sortDirectionRaw);
 
-  const eventScopeRaw = optionalString(payload, 'event_scope');
+  const eventScopeRaw = optionalString(payload, "event_scope");
   let normalizedScope = normalizeScope(eventScopeRaw);
 
   const actorCandidate = actorCharacterId ?? characterId ?? null;
   let actorCorpId: string | null = null;
 
-  let corporationId = optionalString(payload, 'corporation_id');
-  if (normalizedScope === 'corporation' && !corporationId && actorCandidate) {
+  let corporationId = optionalString(payload, "corporation_id");
+  if (normalizedScope === "corporation" && !corporationId && actorCandidate) {
     actorCorpId = await fetchCharacterCorporationId(supabase, actorCandidate);
     if (actorCorpId) {
       corporationId = actorCorpId;
     } else {
-      normalizedScope = 'personal';
+      normalizedScope = "personal";
     }
   }
 
@@ -203,11 +236,16 @@ async function executeEventQuery(
       actorCorpId = await fetchCharacterCorporationId(supabase, actorCandidate);
     }
     if (!actorCorpId || actorCorpId !== corporationId) {
-      throw new EventQueryError("Actor is not authorized to view this corporation's events", 403);
+      throw new EventQueryError(
+        "Actor is not authorized to view this corporation's events",
+        403,
+      );
     }
   }
 
-  const effectiveScope: 'personal' | 'corporation' = corporationId ? 'corporation' : 'personal';
+  const effectiveScope: "personal" | "corporation" = corporationId
+    ? "corporation"
+    : "personal";
 
   // Admin mode character filtering logic:
   // - If admin provides BOTH character_id + actor_character_id: use character_id (explicit filter)
@@ -218,7 +256,7 @@ async function executeEventQuery(
   if (isAdmin) {
     // Admin mode: Only use character_id if actor_character_id is also present (explicit filter)
     // If only character_id is present (no actor_character_id), it was likely auto-injected
-    resolvedCharacterId = (characterId && actorCharacterId) ? characterId : null;
+    resolvedCharacterId = characterId && actorCharacterId ? characterId : null;
   } else {
     // Non-admin mode: Use character_id or fall back to actor_character_id
     resolvedCharacterId = characterId ?? actorCharacterId ?? null;
@@ -229,9 +267,18 @@ async function executeEventQuery(
   // Only load member IDs for non-admin mode
   // Admin mode with corporation_id will filter by corp_id directly
   if (corporationId && !isAdmin) {
-    corporationMemberIds = await loadCorporationMemberIds(supabase, corporationId);
+    corporationMemberIds = await loadCorporationMemberIds(
+      supabase,
+      corporationId,
+    );
     if (!corporationMemberIds.length) {
-      return { events: [], count: 0, has_more: false, next_cursor: null, scope: effectiveScope };
+      return {
+        events: [],
+        count: 0,
+        has_more: false,
+        next_cursor: null,
+        scope: effectiveScope,
+      };
     }
   }
 
@@ -284,13 +331,17 @@ async function fetchEvents(options: {
   filterEventType: string | null;
   cursor: number | null;
   limit: number;
-  sortDirection: 'forward' | 'reverse';
+  sortDirection: "forward" | "reverse";
   queryCharacterId: string | null;
   corporationMemberIds: string[] | null;
   corporationId?: string | null;
   expandedTaskScope?: boolean;
   actorCharacterId?: string | null;
-}): Promise<{ events: JsonRecord[]; hasMore: boolean; nextCursor: number | null }> {
+}): Promise<{
+  events: JsonRecord[];
+  hasMore: boolean;
+  nextCursor: number | null;
+}> {
   const {
     supabase,
     start,
@@ -309,8 +360,10 @@ async function fetchEvents(options: {
     actorCharacterId = null,
   } = options;
 
-  const ascending = sortDirection === 'forward';
-  const dbLimit = stringMatch ? MAX_QUERY_RESULTS + 1 : Math.min(limit + 1, MAX_QUERY_RESULTS + 1);
+  const ascending = sortDirection === "forward";
+  const dbLimit = stringMatch
+    ? MAX_QUERY_RESULTS + 1
+    : Math.min(limit + 1, MAX_QUERY_RESULTS + 1);
 
   let query;
   const isAdminMode = !queryCharacterId && !corporationMemberIds;
@@ -323,17 +376,20 @@ async function fetchEvents(options: {
   if (useDirectQuery) {
     // Admin or expanded task scope mode: Query events directly without recipient filtering
     query = supabase
-      .from('events')
-      .select('id,timestamp,direction,event_type,character_id,sender_id,sector_id,ship_id,request_id,payload,meta,corp_id,task_id,actor_character_id')
-      .gte('timestamp', start.toISOString())
-      .lte('timestamp', end.toISOString())
-      .order('id', { ascending })
+      .from("events")
+      .select(
+        "id,timestamp,direction,event_type,character_id,sender_id,sector_id,ship_id,request_id,payload,meta,corp_id,task_id,actor_character_id",
+      )
+      .gte("timestamp", start.toISOString())
+      .lte("timestamp", end.toISOString())
+      .order("id", { ascending })
       .limit(dbLimit);
   } else {
     // Character/Corporation mode: JOIN to event_character_recipients for visibility
     query = supabase
-      .from('events')
-      .select(`
+      .from("events")
+      .select(
+        `
         id,
         timestamp,
         direction,
@@ -349,23 +405,27 @@ async function fetchEvents(options: {
         task_id,
         actor_character_id,
         event_character_recipients!inner(character_id, reason)
-      `)
-      .gte('timestamp', start.toISOString())
-      .lte('timestamp', end.toISOString())
-      .order('id', { ascending })
+      `,
+      )
+      .gte("timestamp", start.toISOString())
+      .lte("timestamp", end.toISOString())
+      .order("id", { ascending })
       .limit(dbLimit);
 
     // Filter by recipient character_id
     // For corporation queries, we cast a wider net and filter in post-processing
     if (queryCharacterId) {
-      query = query.eq('event_character_recipients.character_id', queryCharacterId);
+      query = query.eq(
+        "event_character_recipients.character_id",
+        queryCharacterId,
+      );
     }
     // For corporation queries (corporationMemberIds is set), we don't filter recipients here
     // Instead, we'll filter in post-processing to support OR logic (member OR corp_id)
   }
 
   if (sector !== null) {
-    query = query.eq('sector_id', sector);
+    query = query.eq("sector_id", sector);
   }
 
   // Filter by task_id if provided
@@ -376,16 +436,16 @@ async function fetchEvents(options: {
     if (filterTaskId.length <= 12) {
       // Short ID: prefix match using generated column
       // Uses idx_events_task_id_prefix index for efficient lookups
-      query = query.ilike('task_id_prefix', `${filterTaskId}%`);
+      query = query.ilike("task_id_prefix", `${filterTaskId}%`);
     } else {
       // Full UUID: exact match
-      query = query.eq('task_id', filterTaskId);
+      query = query.eq("task_id", filterTaskId);
     }
   }
 
   // Filter by event_type if provided
   if (filterEventType !== null) {
-    query = query.eq('event_type', filterEventType);
+    query = query.eq("event_type", filterEventType);
   }
 
   // Cursor-based pagination: filter by event ID
@@ -393,21 +453,21 @@ async function fetchEvents(options: {
   // For reverse sort (descending): get events with id < cursor
   if (cursor !== null) {
     if (ascending) {
-      query = query.gt('id', cursor);
+      query = query.gt("id", cursor);
     } else {
-      query = query.lt('id', cursor);
+      query = query.lt("id", cursor);
     }
   }
 
   // Admin mode with corporation_id filter: only return events explicitly tagged
   if (corporationId && isAdminMode) {
-    query = query.eq('corp_id', corporationId);
+    query = query.eq("corp_id", corporationId);
   }
 
   const { data, error } = await query;
   if (error) {
-    console.error('event_query.query', error);
-    throw new EventQueryError('failed to query events', 500);
+    console.error("event_query.query", error);
+    throw new EventQueryError("failed to query events", 500);
   }
 
   let rows: EventRow[] = Array.isArray(data) ? (data as EventRow[]) : [];
@@ -426,7 +486,9 @@ async function fetchEvents(options: {
         const recipients = Array.isArray(row.event_character_recipients)
           ? row.event_character_recipients
           : [row.event_character_recipients];
-        return recipients.some((r) => corporationMemberIds.includes(r.character_id));
+        return recipients.some((r) =>
+          corporationMemberIds.includes(r.character_id),
+        );
       }
       return false;
     });
@@ -436,7 +498,10 @@ async function fetchEvents(options: {
   // the user is authorized to see: actor started it, corp member, or direct recipient
   if (expandedTaskScope && !isAdminMode && actorCharacterId) {
     // Load actor's corporation ID for authorization check
-    const authorizedCorpId = await fetchCharacterCorporationId(supabase, actorCharacterId);
+    const authorizedCorpId = await fetchCharacterCorporationId(
+      supabase,
+      actorCharacterId,
+    );
 
     // Load event recipients for filtering
     const eventIds = rows.map((r) => r.id);
@@ -464,13 +529,15 @@ async function fetchEvents(options: {
       const recipients = Array.isArray(row.event_character_recipients)
         ? row.event_character_recipients
         : [row.event_character_recipients];
-      ids.push(...recipients.map(r => r.character_id));
+      ids.push(...recipients.map((r) => r.character_id));
     }
     return ids;
   });
 
   const senderLookup = await loadCharacterNames(supabase, allCharacterIds);
-  const filteredRows = stringMatch ? filterRowsByString(rows, stringMatch) : rows;
+  const filteredRows = stringMatch
+    ? filterRowsByString(rows, stringMatch)
+    : rows;
   const hasMore = filteredRows.length > limit;
   const sliced = hasMore ? filteredRows.slice(0, limit) : filteredRows;
   const events = sliced.map((row) => buildEventRecord(row, senderLookup));
@@ -486,12 +553,16 @@ async function fetchEvents(options: {
   return { events, hasMore, nextCursor };
 }
 
-function buildEventRecord(row: EventRow, nameLookup: Map<string, string>): JsonRecord {
-  const payload = row.payload && typeof row.payload === 'object' ? row.payload : {};
-  const meta = row.meta && typeof row.meta === 'object' ? row.meta : null;
-  const corporationId = typeof row.corp_id === 'string' ? row.corp_id : null;
-  const taskId = typeof row.task_id === 'string' ? row.task_id : null;
-  const senderId = typeof row.sender_id === 'string' ? row.sender_id : null;
+function buildEventRecord(
+  row: EventRow,
+  nameLookup: Map<string, string>,
+): JsonRecord {
+  const payload =
+    row.payload && typeof row.payload === "object" ? row.payload : {};
+  const meta = row.meta && typeof row.meta === "object" ? row.meta : null;
+  const corporationId = typeof row.corp_id === "string" ? row.corp_id : null;
+  const taskId = typeof row.task_id === "string" ? row.task_id : null;
+  const senderId = typeof row.sender_id === "string" ? row.sender_id : null;
 
   // Extract receiver ID from joined event_character_recipients if available
   let receiverId: string | null = null;
@@ -502,7 +573,7 @@ function buildEventRecord(row: EventRow, nameLookup: Map<string, string>): JsonR
     receiverId = recipients.length > 0 ? recipients[0].character_id : null;
   } else {
     // Fallback to events.character_id for admin mode queries
-    receiverId = typeof row.character_id === 'string' ? row.character_id : null;
+    receiverId = typeof row.character_id === "string" ? row.character_id : null;
   }
 
   return {
@@ -511,8 +582,8 @@ function buildEventRecord(row: EventRow, nameLookup: Map<string, string>): JsonR
     direction: row.direction,
     event: row.event_type,
     payload,
-    sender: senderId ? nameLookup.get(senderId) ?? senderId : null,
-    receiver: receiverId ? nameLookup.get(receiverId) ?? receiverId : null,
+    sender: senderId ? (nameLookup.get(senderId) ?? senderId) : null,
+    receiver: receiverId ? (nameLookup.get(receiverId) ?? receiverId) : null,
     sector: row.sector_id,
     corporation_id: corporationId,
     task_id: taskId,
@@ -526,8 +597,10 @@ async function loadCharacterNames(
 ): Promise<Map<string, string>> {
   const unique = Array.from(
     new Set(
-      candidates
-        .filter((value): value is string => typeof value === 'string' && value.length > 0),
+      candidates.filter(
+        (value): value is string =>
+          typeof value === "string" && value.length > 0,
+      ),
     ),
   );
   if (!unique.length) {
@@ -535,18 +608,19 @@ async function loadCharacterNames(
   }
 
   const { data, error } = await supabase
-    .from('characters')
-    .select('character_id,name')
-    .in('character_id', unique);
+    .from("characters")
+    .select("character_id,name")
+    .in("character_id", unique);
   if (error) {
-    console.error('event_query.loadCharacterNames', error);
+    console.error("event_query.loadCharacterNames", error);
     return new Map();
   }
 
   const map = new Map<string, string>();
   for (const entry of data ?? []) {
-    const characterId = typeof entry.character_id === 'string' ? entry.character_id : null;
-    const name = typeof entry.name === 'string' ? entry.name : null;
+    const characterId =
+      typeof entry.character_id === "string" ? entry.character_id : null;
+    const name = typeof entry.name === "string" ? entry.name : null;
     if (characterId && name) {
       map.set(characterId, name);
     }
@@ -555,7 +629,7 @@ async function loadCharacterNames(
 }
 
 function parseTimestamp(value: unknown, label: string): Date {
-  if (typeof value !== 'string' || !value.trim()) {
+  if (typeof value !== "string" || !value.trim()) {
     throw new EventQueryError(`Missing ${label}`);
   }
   const raw = value.trim();
@@ -586,7 +660,7 @@ function enforceInteger(value: number, label: string): number {
 
 function clampQueryLimit(value: number): number {
   if (value <= 0) {
-    throw new EventQueryError('max_rows must be positive');
+    throw new EventQueryError("max_rows must be positive");
   }
   if (value > MAX_QUERY_RESULTS) {
     throw new EventQueryError(`max_rows cannot exceed ${MAX_QUERY_RESULTS}`);
@@ -594,23 +668,23 @@ function clampQueryLimit(value: number): number {
   return value;
 }
 
-function normalizeSortDirection(value: string | null): 'forward' | 'reverse' {
+function normalizeSortDirection(value: string | null): "forward" | "reverse" {
   if (!value) {
-    return 'forward';
+    return "forward";
   }
   const normalized = value.toLowerCase();
-  if (normalized === 'forward' || normalized === 'reverse') {
+  if (normalized === "forward" || normalized === "reverse") {
     return normalized;
   }
   throw new EventQueryError("sort_direction must be 'forward' or 'reverse'");
 }
 
-function normalizeScope(value: string | null): 'personal' | 'corporation' {
+function normalizeScope(value: string | null): "personal" | "corporation" {
   if (!value) {
-    return 'personal';
+    return "personal";
   }
   const normalized = value.toLowerCase();
-  if (normalized === 'personal' || normalized === 'corporation') {
+  if (normalized === "personal" || normalized === "corporation") {
     return normalized;
   }
   throw new EventQueryError("event_scope must be 'personal' or 'corporation'");
@@ -620,7 +694,7 @@ async function validateAdminPassword(candidate: unknown): Promise<boolean> {
   if (!ADMIN_PASSWORD && !ADMIN_PASSWORD_HASH) {
     return true;
   }
-  if (typeof candidate !== 'string') {
+  if (typeof candidate !== "string") {
     return false;
   }
   if (ADMIN_PASSWORD) {
@@ -650,11 +724,11 @@ function safeEqual(left: string, right: string): boolean {
 async function sha256Hex(value: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(value);
-  const digest = await crypto.subtle.digest('SHA-256', data);
+  const digest = await crypto.subtle.digest("SHA-256", data);
   const bytes = new Uint8Array(digest);
   return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 async function fetchCharacterCorporationId(
@@ -662,14 +736,14 @@ async function fetchCharacterCorporationId(
   characterId: string,
 ): Promise<string | null> {
   const { data, error } = await supabase
-    .from('characters')
-    .select('corporation_id')
-    .eq('character_id', characterId)
+    .from("characters")
+    .select("corporation_id")
+    .eq("character_id", characterId)
     .maybeSingle();
 
   if (error) {
-    console.error('event_query.actor_corp', error);
-    throw new EventQueryError('failed to load actor context', 500);
+    console.error("event_query.actor_corp", error);
+    throw new EventQueryError("failed to load actor context", 500);
   }
 
   return data?.corporation_id ?? null;
@@ -680,20 +754,22 @@ async function loadCorporationMemberIds(
   corporationId: string,
 ): Promise<string[]> {
   const { data, error } = await supabase
-    .from('characters')
-    .select('character_id')
-    .eq('corporation_id', corporationId);
+    .from("characters")
+    .select("character_id")
+    .eq("corporation_id", corporationId);
 
   if (error) {
-    console.error('event_query.corp_members', error);
-    throw new EventQueryError('failed to load corporation members', 500);
+    console.error("event_query.corp_members", error);
+    throw new EventQueryError("failed to load corporation members", 500);
   }
 
   if (!Array.isArray(data)) {
     return [];
   }
 
-  return (data as Array<{ character_id: string }>).map((row) => row.character_id);
+  return (data as Array<{ character_id: string }>).map(
+    (row) => row.character_id,
+  );
 }
 
 async function loadEventRecipients(
@@ -703,12 +779,12 @@ async function loadEventRecipients(
   if (!eventIds.length) return new Map();
 
   const { data, error } = await supabase
-    .from('event_character_recipients')
-    .select('event_id, character_id')
-    .in('event_id', eventIds);
+    .from("event_character_recipients")
+    .select("event_id, character_id")
+    .in("event_id", eventIds);
 
   if (error) {
-    console.error('event_query.load_recipients', error);
+    console.error("event_query.load_recipients", error);
     return new Map();
   }
 

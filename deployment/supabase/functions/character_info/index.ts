@@ -24,7 +24,7 @@ import { canonicalizeCharacterId } from "../_shared/ids.ts";
  *
  * Returns: character_id, name, created_at
  */
-serve(async (req: Request): Promise<Response> => {
+Deno.serve(async (req: Request): Promise<Response> => {
   if (!validateApiToken(req)) {
     return unauthorizedResponse();
   }

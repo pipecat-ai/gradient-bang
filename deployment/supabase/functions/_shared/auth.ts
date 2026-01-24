@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "https://deno.land/std@0.197.0/crypto/timing_safe_equal.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "@supabase/supabase-js";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -38,18 +38,18 @@ export function unauthorizedResponse(): Response {
 export function successResponse<T>(data: T, status = 200): Response {
   return jsonResponse(
     { success: true, ...((data as Record<string, unknown>) ?? {}) },
-    status
+    status,
   );
 }
 
 export function errorResponse(
   message: string,
   status = 400,
-  extra?: Record<string, unknown>
+  extra?: Record<string, unknown>,
 ): Response {
   return jsonResponse(
     { success: false, error: message, ...(extra ?? {}) },
-    status
+    status,
   );
 }
 
@@ -89,7 +89,7 @@ async function sha256Hex(value: string): Promise<string> {
 }
 
 export async function validateAdminSecret(
-  candidate: unknown
+  candidate: unknown,
 ): Promise<boolean> {
   if (!isAdminSecretConfigured()) {
     return false;
@@ -121,7 +121,7 @@ export function createClientWithAuth(req: Request) {
       global: {
         headers: authHeader ? { Authorization: authHeader } : {},
       },
-    }
+    },
   );
 }
 
@@ -166,7 +166,7 @@ export function requireEmailVerified(user: {
 }) {
   if (!user.email_confirmed_at) {
     throw new Error(
-      "Email not verified. Please check your email for confirmation link."
+      "Email not verified. Please check your email for confirmation link.",
     );
   }
 }
@@ -178,6 +178,6 @@ export function requireEmailVerified(user: {
 export function createPublicClient() {
   return createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
-    Deno.env.get("SUPABASE_ANON_KEY") ?? ""
+    Deno.env.get("SUPABASE_ANON_KEY") ?? "",
   );
 }

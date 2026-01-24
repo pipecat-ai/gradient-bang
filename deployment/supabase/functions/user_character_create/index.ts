@@ -67,7 +67,7 @@ class CharacterCreateError extends Error {
   }
 }
 
-serve(async (req: Request): Promise<Response> => {
+Deno.serve(async (req: Request): Promise<Response> => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
@@ -86,7 +86,7 @@ serve(async (req: Request): Promise<Response> => {
         success: false,
         error: err instanceof Error ? err.message : "Authentication failed",
       },
-      401
+      401,
     );
   }
 
@@ -100,7 +100,7 @@ serve(async (req: Request): Promise<Response> => {
         success: false,
         error: err instanceof Error ? err.message : "Email not verified",
       },
-      403
+      403,
     );
   }
 
@@ -112,7 +112,7 @@ serve(async (req: Request): Promise<Response> => {
       console.warn("character_create.rate_limit", err.message);
       return corsResponse(
         { success: false, error: "Too many requests. Please try again later." },
-        429
+        429,
       );
     }
     console.error("character_create.rate_limit", err);
@@ -138,7 +138,7 @@ serve(async (req: Request): Promise<Response> => {
     if (!/^[a-zA-Z0-9_]{3,20}$/.test(name)) {
       throw new CharacterCreateError(
         "Character name must be 3-20 characters, alphanumeric and underscores only",
-        400
+        400,
       );
     }
 
@@ -156,7 +156,7 @@ serve(async (req: Request): Promise<Response> => {
     if (count !== null && count >= MAX_CHARACTERS_PER_USER) {
       throw new CharacterCreateError(
         `You have reached the maximum number of characters (${MAX_CHARACTERS_PER_USER})`,
-        400
+        400,
       );
     }
 
@@ -175,7 +175,7 @@ serve(async (req: Request): Promise<Response> => {
     if (existingCharacter.data) {
       throw new CharacterCreateError(
         `Character name "${name}" is already taken`,
-        409
+        409,
       );
     }
 
@@ -190,7 +190,7 @@ serve(async (req: Request): Promise<Response> => {
       console.error("character_create.ship_definition", shipDefError);
       throw new CharacterCreateError(
         `Invalid ship type: ${DEFAULT_SHIP_TYPE}`,
-        500
+        500,
       );
     }
 
@@ -301,7 +301,7 @@ serve(async (req: Request): Promise<Response> => {
           credits: DEFAULT_CREDITS,
         },
       },
-      201
+      201,
     );
   } catch (err) {
     if (err instanceof CharacterCreateError) {
@@ -313,7 +313,7 @@ serve(async (req: Request): Promise<Response> => {
     console.error("character_create.unhandled", err);
     return corsResponse(
       { success: false, error: "Internal server error" },
-      500
+      500,
     );
   }
 });

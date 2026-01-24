@@ -1,4 +1,4 @@
-import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export interface EventRecipientSnapshot {
   characterId: string;
@@ -25,15 +25,21 @@ export interface GarrisonContext {
   membersByCorp: Map<string, string[]>;
 }
 
-export function dedupeRecipientSnapshots(recipients: EventRecipientSnapshot[]): EventRecipientSnapshot[] {
+export function dedupeRecipientSnapshots(
+  recipients: EventRecipientSnapshot[],
+): EventRecipientSnapshot[] {
   if (!recipients.length) {
     return [];
   }
   const seen = new Set<string>();
   const deduped: EventRecipientSnapshot[] = [];
   for (const recipient of recipients) {
-    const characterId = typeof recipient.characterId === 'string' ? recipient.characterId.trim() : '';
-    const reason = typeof recipient.reason === 'string' ? recipient.reason.trim() : '';
+    const characterId =
+      typeof recipient.characterId === "string"
+        ? recipient.characterId.trim()
+        : "";
+    const reason =
+      typeof recipient.reason === "string" ? recipient.reason.trim() : "";
     if (!characterId || !reason) {
       continue;
     }
@@ -51,7 +57,9 @@ export async function computeSectorVisibilityRecipients(
   sectorId: number,
   exclude: string[] = [],
 ): Promise<EventRecipientSnapshot[]> {
-  const excludeSet = new Set<string>(exclude.filter((value) => typeof value === 'string' && value.length > 0));
+  const excludeSet = new Set<string>(
+    exclude.filter((value) => typeof value === "string" && value.length > 0),
+  );
   const snapshots: EventRecipientSnapshot[] = [];
 
   const shipObservers = await loadSectorShipObservers(supabase, sectorId);
@@ -59,14 +67,15 @@ export async function computeSectorVisibilityRecipients(
     if (excludeSet.has(observerId)) {
       continue;
     }
-    snapshots.push({ characterId: observerId, reason: 'sector_snapshot' });
+    snapshots.push({ characterId: observerId, reason: "sector_snapshot" });
   }
 
   const garrisonContext = await loadGarrisonContext(supabase, sectorId);
   for (const garrison of garrisonContext.garrisons) {
-    const ownerId = typeof garrison.owner_id === 'string' ? garrison.owner_id : null;
+    const ownerId =
+      typeof garrison.owner_id === "string" ? garrison.owner_id : null;
     if (ownerId && !excludeSet.has(ownerId)) {
-      snapshots.push({ characterId: ownerId, reason: 'garrison_owner' });
+      snapshots.push({ characterId: ownerId, reason: "garrison_owner" });
     }
 
     if (!ownerId) {
@@ -76,25 +85,29 @@ export async function computeSectorVisibilityRecipients(
     if (!owner || !owner.corporation_id) {
       continue;
     }
-    const corpMembers = garrisonContext.membersByCorp.get(owner.corporation_id) ?? [];
+    const corpMembers =
+      garrisonContext.membersByCorp.get(owner.corporation_id) ?? [];
     for (const memberId of corpMembers) {
       if (!memberId || memberId === ownerId || excludeSet.has(memberId)) {
         continue;
       }
-      snapshots.push({ characterId: memberId, reason: 'garrison_corp_member' });
+      snapshots.push({ characterId: memberId, reason: "garrison_corp_member" });
     }
   }
 
   return dedupeRecipientSnapshots(snapshots);
 }
 
-export async function loadGarrisonContext(supabase: SupabaseClient, sectorId: number): Promise<GarrisonContext> {
+export async function loadGarrisonContext(
+  supabase: SupabaseClient,
+  sectorId: number,
+): Promise<GarrisonContext> {
   const { data: garrisons, error } = await supabase
-    .from('garrisons')
-    .select('owner_id, fighters, mode, toll_amount, deployed_at')
-    .eq('sector_id', sectorId);
+    .from("garrisons")
+    .select("owner_id, fighters, mode, toll_amount, deployed_at")
+    .eq("sector_id", sectorId);
   if (error) {
-    console.error('visibility.garrisons.load', { sectorId, error });
+    console.error("visibility.garrisons.load", { sectorId, error });
     return {
       garrisons: [],
       ownerMap: new Map(),
@@ -102,12 +115,17 @@ export async function loadGarrisonContext(supabase: SupabaseClient, sectorId: nu
     };
   }
 
-  const garrisonRows: GarrisonRow[] = Array.isArray(garrisons) ? (garrisons as GarrisonRow[]) : [];
+  const garrisonRows: GarrisonRow[] = Array.isArray(garrisons)
+    ? (garrisons as GarrisonRow[])
+    : [];
   const ownerIds = Array.from(
     new Set(
       garrisonRows
         .map((row) => row.owner_id)
-        .filter((value): value is string => typeof value === 'string' && value.length > 0),
+        .filter(
+          (value): value is string =>
+            typeof value === "string" && value.length > 0,
+        ),
     ),
   );
 
@@ -115,11 +133,11 @@ export async function loadGarrisonContext(supabase: SupabaseClient, sectorId: nu
   const corpIds = new Set<string>();
   if (ownerIds.length) {
     const { data: ownerRows, error: ownerError } = await supabase
-      .from('characters')
-      .select('character_id, name, corporation_id')
-      .in('character_id', ownerIds);
+      .from("characters")
+      .select("character_id, name, corporation_id")
+      .in("character_id", ownerIds);
     if (ownerError) {
-      console.error('visibility.garrisons.owners', ownerError);
+      console.error("visibility.garrisons.owners", ownerError);
     } else if (Array.isArray(ownerRows)) {
       for (const row of ownerRows as VisibilityCharacterRow[]) {
         ownerMap.set(row.character_id, row);
@@ -134,14 +152,17 @@ export async function loadGarrisonContext(supabase: SupabaseClient, sectorId: nu
   if (corpIds.size) {
     const corpIdList = Array.from(corpIds);
     const { data: corpMembers, error: memberError } = await supabase
-      .from('characters')
-      .select('character_id, corporation_id')
-      .in('corporation_id', corpIdList);
+      .from("characters")
+      .select("character_id, corporation_id")
+      .in("corporation_id", corpIdList);
     if (memberError) {
-      console.error('visibility.garrisons.corpMembers', memberError);
+      console.error("visibility.garrisons.corpMembers", memberError);
     } else if (Array.isArray(corpMembers)) {
-      for (const row of corpMembers as Array<{ character_id: string; corporation_id: string | null }>) {
-        if (!row.corporation_id || typeof row.character_id !== 'string') {
+      for (const row of corpMembers as Array<{
+        character_id: string;
+        corporation_id: string | null;
+      }>) {
+        if (!row.corporation_id || typeof row.character_id !== "string") {
           continue;
         }
         const list = membersByCorp.get(row.corporation_id) ?? [];
@@ -158,20 +179,25 @@ export async function loadGarrisonContext(supabase: SupabaseClient, sectorId: nu
   };
 }
 
-async function loadSectorShipObservers(supabase: SupabaseClient, sectorId: number): Promise<string[]> {
+async function loadSectorShipObservers(
+  supabase: SupabaseClient,
+  sectorId: number,
+): Promise<string[]> {
   const { data, error } = await supabase
-    .from('ship_instances')
-    .select('owner_character_id')
-    .eq('current_sector', sectorId)
-    .eq('in_hyperspace', false);
+    .from("ship_instances")
+    .select("owner_character_id")
+    .eq("current_sector", sectorId)
+    .eq("in_hyperspace", false);
   if (error) {
-    console.error('visibility.sector.ships', { sectorId, error });
+    console.error("visibility.sector.ships", { sectorId, error });
     return [];
   }
   const rows = Array.isArray(data) ? data : [];
   const ids = rows
     .map((row) => row?.owner_character_id)
-    .filter((value): value is string => typeof value === 'string' && value.length > 0);
+    .filter(
+      (value): value is string => typeof value === "string" && value.length > 0,
+    );
   return Array.from(new Set(ids));
 }
 
@@ -192,13 +218,16 @@ export async function computeCorpMemberRecipients(
   const uniqueCorpIds = Array.from(new Set(corpIds));
 
   const { data, error } = await supabase
-    .from('corporation_members')
-    .select('character_id, corp_id')
-    .in('corp_id', uniqueCorpIds)
-    .is('left_at', null);
+    .from("corporation_members")
+    .select("character_id, corp_id")
+    .in("corp_id", uniqueCorpIds)
+    .is("left_at", null);
 
   if (error) {
-    console.error('visibility.corp_members.load', { corpIds: uniqueCorpIds, error });
+    console.error("visibility.corp_members.load", {
+      corpIds: uniqueCorpIds,
+      error,
+    });
     return [];
   }
 
@@ -207,7 +236,7 @@ export async function computeCorpMemberRecipients(
     if (!memberId || excludeSet.has(memberId)) {
       continue;
     }
-    recipients.push({ characterId: memberId, reason: 'corp_member' });
+    recipients.push({ characterId: memberId, reason: "corp_member" });
   }
 
   return dedupeRecipientSnapshots(recipients);
@@ -237,18 +266,26 @@ export async function computeEventRecipients(options: {
   // Add direct recipients (e.g., combat participants)
   for (const id of directRecipients) {
     if (id) {
-      allRecipients.push({ characterId: id, reason: 'direct' });
+      allRecipients.push({ characterId: id, reason: "direct" });
     }
   }
 
   // Add sector observers (if sectorId provided)
   if (sectorId !== undefined) {
-    const sectorRecipients = await computeSectorVisibilityRecipients(supabase, sectorId, excludeCharacterIds);
+    const sectorRecipients = await computeSectorVisibilityRecipients(
+      supabase,
+      sectorId,
+      excludeCharacterIds,
+    );
     allRecipients.push(...sectorRecipients);
   }
 
   // Add corp members
-  const corpRecipients = await computeCorpMemberRecipients(supabase, corpIds, excludeCharacterIds);
+  const corpRecipients = await computeCorpMemberRecipients(
+    supabase,
+    corpIds,
+    excludeCharacterIds,
+  );
   allRecipients.push(...corpRecipients);
 
   return dedupeRecipientSnapshots(allRecipients);
