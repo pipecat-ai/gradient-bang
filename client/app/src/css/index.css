@@ -28,7 +28,7 @@
   --accent-background: oklch(26.9% 0 0);
   --destructive: oklch(63.7% 0.237 25.331);
   --destructive-foreground: oklch(93.6% 0.032 17.717);
-  --destructive-background: oklch(44.4% 0.177 26.899);
+  --destructive-background: oklch(27.1% 0.105 12.094);
   --warning: oklch(82.8% 0.189 84.429);
   --warning-foreground: oklch(92.4% 0.12 95.746);
   --warning-background: oklch(27.9% 0.077 45.635);
@@ -124,7 +124,7 @@
 
   /** UI **/
   --spacing-ui-xs: calc(var(--spacing) * 2);
-  --spacing-ui-sm: calc(var(--spacing) * 4);
+  --spacing-ui-sm: calc(var(--spacing) * 3);
   --spacing-ui-md: calc(var(--spacing) * 6);
   --spacing-ui-lg: calc(var(--spacing) * 10);
   --spacing-ui-xl: calc(var(--spacing) * 12);
@@ -710,8 +710,6 @@ button {
   opacity: 1;
   transition: opacity 0.3s ease-in;
 }
-
-@import "./starfield.css";
 
 .DialogOverlay {
   position: fixed;

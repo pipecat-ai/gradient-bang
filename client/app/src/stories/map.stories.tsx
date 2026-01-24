@@ -14,7 +14,7 @@ import SectorMap, { type MapConfig } from "@/components/SectorMap"
 import useGameStore from "@/stores/game"
 
 import type { GetMapRegionAction } from "@/types/actions"
-import { MEDIUM_MAP_DATA_MOCK, SMALL_MAP_DATA_MOCK } from "@/mocks/map.mock"
+import { LARGE_MAP_DATA_MOCK, MEDIUM_MAP_DATA_MOCK, SMALL_MAP_DATA_MOCK } from "@/mocks/map.mock"
 
 export const BigMapStory: Story = () => {
   const dispatchAction = useGameStore.use.dispatchAction?.()
@@ -28,8 +28,6 @@ export const BigMapStory: Story = () => {
   const getShipSectors = useGameStore.use.getShipSectors()
 
   const shipSectors = ships?.data ? getShipSectors(false) : []
-
-  console.log(shipSectors)
 
   const [{ current_sector, center_sector, show_legend }, set] = useControls(() => ({
     Map: folder(
@@ -54,6 +52,9 @@ export const BigMapStory: Story = () => {
         }),
         ["Load Medium Mock"]: button(() => {
           setRegionalMapData(MEDIUM_MAP_DATA_MOCK)
+        }),
+        ["Load Large Mock"]: button(() => {
+          setRegionalMapData(LARGE_MAP_DATA_MOCK)
         }),
         center_sector: {
           value: sector?.id ?? 0,

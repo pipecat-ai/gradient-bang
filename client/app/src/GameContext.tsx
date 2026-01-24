@@ -693,12 +693,14 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             case "task.finish": {
               console.debug("[GAME EVENT] Task finish", e.payload)
               const data = e.payload as TaskFinishMessage
+
+              // Remove task from active task map
               if (data.task_id) {
                 gameStore.removeActiveTask(data.task_id)
               }
-              if (data.task_status === "cancelled") {
-                gameStore.setTaskWasCancelled(true)
-              }
+
+              // Add task summary to store
+              gameStore.addTaskSummary(data as unknown as TaskSummary)
               break
             }
 
@@ -729,16 +731,17 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             }
 
             case "task_output": {
-              console.debug("[GAME EVENT] Task output", e.payload)
+              console.debug("[GAME EVENT] Task output", e, e.payload)
               const data = e.payload as TaskOutputMessage
-              gameStore.setTaskInProgress(true)
-              gameStore.addTask(data.text, data.task_message_type)
-
-              // @TODO Properly handle task failure.
-              // Right now, we treat them as cancellations
-              if (data.task_message_type === "FAILED") {
-                gameStore.setTaskWasCancelled(true)
+              if (!e.task_id) {
+                console.warn("[GAME EVENT] Task output missing task_id", e.payload)
+                return
               }
+              gameStore.addTaskOutput({
+                task_id: e.task_id,
+                text: data.text,
+                task_message_type: data.task_message_type,
+              })
               break
             }
 
@@ -746,7 +749,6 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               console.debug("[GAME EVENT] Task complete", e.payload)
               const data = e.payload as TaskCompleteMessage
 
-              gameStore.setTaskInProgress(false)
               gameStore.addActivityLogEntry({
                 type: "task.complete",
                 message: `${data.was_cancelled ? "Task cancelled" : "Task completed"}`,

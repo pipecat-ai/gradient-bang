@@ -5,6 +5,7 @@ export interface ServerMessage {
   payload: ServerMessagePayload
   summary?: string
   tool_name?: string
+  task_id?: string
 }
 
 export interface ServerMessagePayload {

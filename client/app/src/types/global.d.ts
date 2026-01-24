@@ -248,6 +248,29 @@ declare global {
     timestamp: string
   }
 
+  interface ActiveTask {
+    task_id: string
+    task_description?: string
+    started_at: string
+    actor_character_id?: string
+    actor_character_name?: string
+    task_scope?: "player_ship" | "corp_ship"
+    ship_id?: string
+    ship_name?: string | null
+    ship_type?: string | null
+  }
+
+  interface TaskSummary extends ActiveTask {
+    task_status: "completed" | "cancelled" | "failed"
+    task_summary: string
+  }
+
+  interface TaskOutput {
+    task_id: string
+    text: string
+    task_message_type: TaskType
+  }
+
   interface LogEntry {
     type: string
     message: string

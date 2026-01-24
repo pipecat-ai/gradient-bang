@@ -25,7 +25,7 @@ const badgeVariants = cva(
       },
       size: {
         sm: "text-xs px-1.5 py-1 gap-1.5",
-        default: "text-sm px-3 py-3",
+        default: "text-sm px-3 py-2",
         lg: "text-base px-6 py-3",
       },
     },
@@ -43,7 +43,7 @@ const badgeVariants = cva(
       {
         border: "elbow",
         size: "default",
-        class: "elbow-size-10",
+        class: "elbow-size-6",
       },
       {
         border: "elbow",
@@ -58,7 +58,7 @@ const badgeVariants = cva(
       {
         border: "bracket",
         size: "default",
-        class: "bracket-size-10",
+        class: "bracket-size-6",
       },
       {
         border: "bracket",
@@ -73,7 +73,7 @@ const badgeVariants = cva(
       {
         border: "bracket",
         variant: "default",
-        class: "bracket-muted-foreground/50",
+        class: "bracket-muted-foreground",
       },
       {
         variant: ["count", "countIncrement", "countDecrement"],
