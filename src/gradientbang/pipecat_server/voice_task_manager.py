@@ -286,6 +286,8 @@ class VoiceTaskManager:
         logger.info(f"Joining game as character: {self.character_id}")
         result = await self.game_client.join(self.character_id)
         await self.game_client.subscribe_my_messages()
+        # Send ships list so client has it on connection
+        await self.game_client.list_user_ships(character_id=self.character_id)
         if isinstance(result, Mapping):
             self._update_display_name(result)
         logger.info(f"Join successful as {self.display_name}: {result}")
