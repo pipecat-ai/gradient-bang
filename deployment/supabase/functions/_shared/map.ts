@@ -474,6 +474,7 @@ export async function buildSectorSnapshot(
       player_type: playerType,
       corporation: corporationInfo,
       ship: {
+        ship_id: ship.ship_id,
         ship_type: ship.ship_type,
         ship_name: shipDisplayName,
       },

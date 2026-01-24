@@ -278,7 +278,7 @@ export interface TaskHistoryMessage extends ServerMessagePayload {
 export interface ShipSummary {
   ship_id: string
   ship_type: string
-  name: string
+  ship_name: string
   sector: number | null
   owner_type: "personal" | "corporation"
   cargo: {

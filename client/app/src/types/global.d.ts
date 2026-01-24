@@ -38,6 +38,7 @@ declare global {
   // --- SHIP
 
   interface Ship {
+    ship_id?: string
     ship_name: string
     ship_type: string
     fighters?: number

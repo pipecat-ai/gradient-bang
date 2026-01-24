@@ -76,6 +76,7 @@ export function buildCharacterMovedPayload(
       name: metadata.characterName,
     },
     ship: {
+      ship_id: metadata.shipId,
       ship_name: metadata.shipName,
       ship_type: metadata.shipType,
     },

@@ -234,6 +234,7 @@ export function buildPublicPlayerSnapshotFromStatus(statusPayload: Record<string
   const canonicalId = typeof player['id'] === 'string' ? (player['id'] as string) : null;
   const playerId = displayName ?? canonicalId;
 
+  const shipId = typeof ship['ship_id'] === 'string' ? (ship['ship_id'] as string) : null;
   const shipType = typeof ship['ship_type'] === 'string' ? (ship['ship_type'] as string) : null;
   const shipName =
     (typeof ship['ship_name'] === 'string' ? (ship['ship_name'] as string) : null) ??
@@ -247,6 +248,7 @@ export function buildPublicPlayerSnapshotFromStatus(statusPayload: Record<string
     player_type: player['player_type'] ?? 'human',
     corporation: Object.prototype.hasOwnProperty.call(player, 'corporation') ? player['corporation'] : null,
     ship: {
+      ship_id: shipId,
       ship_type: shipType,
       ship_name: shipName,
     },

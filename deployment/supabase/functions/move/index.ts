@@ -267,8 +267,6 @@ async function handleMove({ supabase, pgClient, characterId, destination, reques
     shipId: ship.ship_id,
     shipName: ship.ship_name?.trim() || shipDefinition.display_name,
     shipType: ship.ship_type,
-    ownerType: ship.owner_type,
-    ownerCorporationId: ship.owner_corporation_id,
   };
   if (!adjacent.includes(destination)) {
     await emitErrorEvent(supabase, {
