@@ -1763,7 +1763,6 @@ function buildCharacterMovedPayload(
     move_type: moveType,
     movement,
     name: metadata.characterName,
-    ship_type: metadata.shipType,
   };
   if (source) payload.source = source;
   if (extraFields && Object.keys(extraFields).length) {
@@ -1858,7 +1857,7 @@ export async function pgEmitMovementObservers(
   );
   const payload = buildCharacterMovedPayload(metadata, movement, source, {
     moveType,
-    extraFields: extraPayload,
+    extraFields: { sector: sectorId, ...(extraPayload ?? {}) },
   });
 
   // Get corp member recipients if corpIds provided (for arrival events)

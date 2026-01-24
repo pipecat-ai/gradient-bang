@@ -59,7 +59,7 @@ export async function emitMovementObservers(
   );
   const payload = buildCharacterMovedPayload(metadata, movement, source, {
     moveType,
-    extraFields: extraPayload,
+    extraFields: { sector: sectorId, ...(extraPayload ?? {}) },
   });
 
   if (observers.length) {

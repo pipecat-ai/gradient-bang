@@ -86,7 +86,6 @@ export function buildCharacterMovedPayload(
     move_type: moveType,
     movement,
     name: metadata.characterName,
-    ship_type: metadata.shipType,
   };
   if (source) {
     payload.source = source;
