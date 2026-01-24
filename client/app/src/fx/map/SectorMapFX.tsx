@@ -1,8 +1,10 @@
-import { PORT_ICON } from "./MapIcons"
+import { PORT_ICON, SHIP_ICON } from "./MapIcons"
 
 // Create Path2D once at module level for performance
 const portPath = new Path2D(PORT_ICON)
+const shipPath = new Path2D(SHIP_ICON)
 const PORT_ICON_VIEWBOX = 256
+const SHIP_ICON_VIEWBOX = 256
 
 export interface SectorMapConfigBase {
   center_sector_id: number
@@ -271,6 +273,7 @@ export interface LabelStyles {
   sectorId: LabelStyle
   portCode: LabelStyle
   hyperlane: LabelStyle
+  shipCount: LabelStyle
 }
 
 export const DEFAULT_LABEL_STYLES: LabelStyles = {
@@ -300,6 +303,15 @@ export const DEFAULT_LABEL_STYLES: LabelStyles = {
     hoveredFontSize: 10,
     fontWeight: 800,
     mutedOpacity: 1,
+  },
+  shipCount: {
+    textColor: "#ffffff",
+    backgroundColor: "rgba(74,144,226,0.9)",
+    padding: 2,
+    fontSize: 10,
+    hoveredFontSize: 12,
+    fontWeight: 800,
+    mutedOpacity: 0.3,
   },
 }
 
@@ -388,6 +400,7 @@ export interface SectorMapProps {
   config: SectorMapConfigBase
   maxDistance?: number
   coursePlot?: CoursePlot | null
+  ships?: Map<number, number>
 }
 
 export interface CameraState {
@@ -1524,13 +1537,106 @@ function renderPortLabels(
   ctx.restore()
 }
 
+/** Render ship count labels at top-left of hexes */
+function renderShipLabels(
+  ctx: CanvasRenderingContext2D,
+  data: MapData,
+  scale: number,
+  hexSize: number,
+  width: number,
+  height: number,
+  cameraState: CameraState,
+  config: SectorMapConfigBase,
+  ships: Map<number, number> | undefined,
+  coursePlotSectors: Set<number> | null = null,
+  hoveredSectorId: number | null = null
+) {
+  if (!ships || ships.size === 0) return
+
+  const labelStyle = config.labelStyles.shipCount
+  const iconSize = 12
+
+  ctx.save()
+  ctx.textAlign = "left"
+  ctx.textBaseline = "alphabetic"
+
+  const labelOffset = config.sector_label_offset ?? 2
+  const padding = labelStyle.padding
+
+  data.forEach((node) => {
+    const shipCount = ships.get(node.id)
+    if (!shipCount) return
+
+    // Skip labels for current sector (player's location)
+    if (config.current_sector_id !== undefined && node.id === config.current_sector_id) return
+
+    // Use larger font size when hovered
+    const isHovered = node.id === hoveredSectorId
+    const effectiveFontSize = isHovered ? labelStyle.hoveredFontSize : labelStyle.fontSize
+    ctx.font = `${labelStyle.fontWeight} ${effectiveFontSize}px ${getCanvasFontFamily(ctx)}`
+
+    // Position at top-left of hex (angle 2*PI/3 = 120 degrees)
+    const worldPos = hexToWorld(node.position[0], node.position[1], scale)
+    const angle = (2 * Math.PI) / 3
+    const edgeWorldX = worldPos.x + hexSize * Math.cos(angle)
+    const edgeWorldY = worldPos.y + hexSize * Math.sin(angle)
+
+    const screenPos = worldToScreen(edgeWorldX, edgeWorldY, width, height, cameraState)
+
+    // Apply muted opacity for sectors not in course plot
+    const labelOpacity =
+      coursePlotSectors && !coursePlotSectors.has(node.id) ? labelStyle.mutedOpacity : 1
+
+    // Calculate text metrics
+    const text = shipCount.toString()
+    const textMetrics = ctx.measureText(text)
+    const textWidth = textMetrics.width
+    const ascent =
+      textMetrics.fontBoundingBoxAscent ?? textMetrics.actualBoundingBoxAscent ?? labelStyle.fontSize
+    const descent = textMetrics.fontBoundingBoxDescent ?? textMetrics.actualBoundingBoxDescent ?? 0
+    const textHeight = ascent + descent
+
+    // Total width: icon + gap + text
+    const iconGap = 2
+    const totalWidth = iconSize + iconGap + textWidth
+
+    // Position label to the left of the edge point
+    const labelX = screenPos.x - totalWidth - labelOffset
+    const labelY = screenPos.y
+
+    // Draw background
+    ctx.fillStyle = applyAlpha(labelStyle.backgroundColor, labelOpacity)
+    ctx.fillRect(
+      labelX - padding,
+      labelY - ascent - padding,
+      totalWidth + padding * 2,
+      textHeight + padding * 2
+    )
+
+    // Draw ship icon
+    ctx.save()
+    ctx.translate(labelX, labelY - ascent + (textHeight - iconSize) / 2)
+    const iconScale = iconSize / SHIP_ICON_VIEWBOX
+    ctx.scale(iconScale, iconScale)
+    ctx.fillStyle = applyAlpha(labelStyle.textColor, labelOpacity)
+    ctx.fill(shipPath)
+    ctx.restore()
+
+    // Draw count text
+    ctx.fillStyle = applyAlpha(labelStyle.textColor, labelOpacity)
+    ctx.fillText(text, labelX + iconSize + iconGap, labelY)
+  })
+
+  ctx.restore()
+}
+
 /** Core rendering with explicit camera state */
 function renderWithCameraState(
   canvas: HTMLCanvasElement,
   props: SectorMapProps,
   cameraState: CameraState
 ) {
-  const { width, height, config, coursePlot } = props
+  const { width, height, config, coursePlot, ships } = props
   const ctx = canvas.getContext("2d")
   if (!ctx) return
 
@@ -1673,6 +1779,19 @@ function renderWithCameraState(
     coursePlotSectors,
     null
   )
+  renderShipLabels(
+    ctx,
+    cameraState.filteredData,
+    scale,
+    hexSize,
+    width,
+    height,
+    cameraState,
+    config,
+    ships,
+    coursePlotSectors,
+    null
+  )
 
   if (hyperlaneLabels.length > 0) {
     const labelStyle = config.labelStyles.hyperlane
@@ -1776,7 +1895,7 @@ function renderWithCameraStateAndInteraction(
   animatingSectorId: number | null,
   hoverScale: number
 ) {
-  const { width, height, config, coursePlot } = props
+  const { width, height, config, coursePlot, ships } = props
   const ctx = canvas.getContext("2d")
   if (!ctx) return
 
@@ -1922,6 +2041,19 @@ function renderWithCameraStateAndInteraction(
     height,
     cameraState,
     config,
+    coursePlotSectors,
+    hoveredSectorId
+  )
+  renderShipLabels(
+    ctx,
+    cameraState.filteredData,
+    scale,
+    hexSize,
+    width,
+    height,
+    cameraState,
+    config,
+    ships,
     coursePlotSectors,
     hoveredSectorId
   )

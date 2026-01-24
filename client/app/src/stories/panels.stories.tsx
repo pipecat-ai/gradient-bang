@@ -12,6 +12,7 @@ import { SHIP_MOCK } from "@/mocks/ship.mock"
 export const PlayerShipStory: Story = () => {
   const { dispatchAction } = useGameContext()
   const setShips = useGameStore.use.setShips()
+  const getShipSectors = useGameStore.use.getShipSectors()
 
   useControls(() => ({
     Ships: folder(
@@ -21,6 +22,9 @@ export const PlayerShipStory: Story = () => {
             type: "get-my-ships",
             async: true,
           })
+        }),
+        ["Log Ship Sectors"]: button(() => {
+          console.log(getShipSectors(false))
         }),
         ["TEST: Add Mock Ship"]: button(() => {
           const s = useGameStore.getState().ships ?? []

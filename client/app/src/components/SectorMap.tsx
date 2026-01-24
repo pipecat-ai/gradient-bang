@@ -64,6 +64,7 @@ interface MapProps {
     showLegend?: boolean
     debug?: boolean
     coursePlot?: CoursePlot | null
+    ships?: number[]
     onNodeClick?: (node: MapSectorNode) => void
 }
 
@@ -115,10 +116,22 @@ const MapComponent = ({
     maxDistance = 2,
     showLegend = true,
     coursePlot,
+    ships,
     onNodeClick,
 }: MapProps) => {
     // Normalize map_data to always be an array (memoized to avoid dependency changes)
     const normalizedMapData = useMemo(() => map_data ?? [], [map_data])
+
+    // Stabilize ships data - convert flat array to Map<sectorId, count>
+    const shipsKey = ships?.join(",") ?? ""
+    const shipsMap = useMemo(() => {
+        if (!ships || ships.length === 0) return undefined
+        const map = new Map<number, number>()
+        for (const sectorId of ships) {
+            map.set(sectorId, (map.get(sectorId) ?? 0) + 1)
+        }
+        return map
+    }, [shipsKey])
 
     // Default center_sector_id to current_sector_id if not provided
     const center_sector_id = center_sector_id_prop ?? current_sector_id ?? 0
@@ -145,6 +158,7 @@ const MapComponent = ({
         "center_sector_id"
     > | null>(null)
     const lastCoursePlotRef = useRef<CoursePlot | null | undefined>(coursePlot)
+    const lastShipsKeyRef = useRef<string>(shipsKey)
 
     const [measuredSize, setMeasuredSize] = useState<{
         width: number
@@ -253,6 +267,7 @@ const MapComponent = ({
                 config: { ...baseConfig, center_sector_id, current_sector_id },
                 maxDistance,
                 coursePlot,
+                ships: shipsMap,
             })
             controllerRef.current = controller
             prevCenterSectorIdRef.current = center_sector_id
@@ -261,6 +276,7 @@ const MapComponent = ({
             lastMaxDistanceRef.current = maxDistance
             lastConfigRef.current = baseConfig
             lastCoursePlotRef.current = coursePlot
+            lastShipsKeyRef.current = shipsKey
             return
         }
 
@@ -274,6 +290,7 @@ const MapComponent = ({
             lastCoursePlotRef.current,
             coursePlot
         )
+        const shipsChanged = lastShipsKeyRef.current !== shipsKey
 
         // Early exit if nothing has actually changed
         if (
@@ -282,7 +299,8 @@ const MapComponent = ({
             !currentSectorChanged &&
             !maxDistanceChanged &&
             !configChanged &&
-            !coursePlotChanged
+            !coursePlotChanged &&
+            !shipsChanged
         ) {
             return
         }
@@ -294,6 +312,7 @@ const MapComponent = ({
             maxDistanceChanged,
             configChanged,
             coursePlotChanged,
+            shipsChanged,
         })
 
         // Update config when config, center_sector_id, or current_sector_id changes
@@ -304,6 +323,7 @@ const MapComponent = ({
             ...(needsConfigUpdate && { config: { ...baseConfig, center_sector_id, current_sector_id } }),
             data: normalizedMapData,
             coursePlot,
+            ships: shipsMap,
         })
 
         if (
@@ -315,7 +335,7 @@ const MapComponent = ({
             console.debug("[GAME SECTOR MAP] Moving to sector", center_sector_id)
             controller.moveToSector(center_sector_id, normalizedMapData)
             prevCenterSectorIdRef.current = center_sector_id
-        } else if (needsConfigUpdate) {
+        } else if (needsConfigUpdate || shipsChanged) {
             console.debug("[GAME SECTOR MAP] Rendering SectorMap")
             controller.render()
         }
@@ -325,8 +345,9 @@ const MapComponent = ({
         lastMaxDistanceRef.current = maxDistance
         lastConfigRef.current = baseConfig
         lastCoursePlotRef.current = coursePlot
+        lastShipsKeyRef.current = shipsKey
 
-    }, [center_sector_id, current_sector_id, normalizedMapData, maxDistance, baseConfig, coursePlot])
+    }, [center_sector_id, current_sector_id, normalizedMapData, maxDistance, baseConfig, coursePlot, shipsKey, shipsMap])
 
     // Update click callback when it changes
     useEffect(() => {
@@ -531,6 +552,13 @@ const areMapPropsEqual = (
     // via mapTopologyChanged() and courseplotsEqual() with early-exit optimization
     if (prevProps.map_data !== nextProps.map_data) return false
     if (prevProps.coursePlot !== nextProps.coursePlot) return false
+
+    // Ships - use join for fast string comparison
+    if (prevProps.ships !== nextProps.ships) {
+        if ((prevProps.ships?.join(",") ?? "") !== (nextProps.ships?.join(",") ?? "")) {
+            return false
+        }
+    }
 
     // Callback - reference equality (updates handled by separate useEffect)
     if (prevProps.onNodeClick !== nextProps.onNodeClick) return false

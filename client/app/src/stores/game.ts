@@ -86,6 +86,7 @@ export interface GameSlice extends GameState {
   setShip: (ship: Partial<ShipSelf>) => void
   setShips: (ships: ShipSelf[]) => void
   updateShip: (ship: Partial<ShipSelf> & { ship_id: string }) => void
+  getShipSectors: (includeSelf: boolean) => number[]
   setSector: (sector: Sector) => void
   setCorporation: (corporation: Corporation) => void
   updateSector: (sector: Partial<Sector>) => void
@@ -239,6 +240,13 @@ const createGameSlice: StateCreator<
       })
     ),
 
+  getShipSectors: (includeSelf: boolean) => {
+    const shipSectors = get().ships.data?.map((s: ShipSelf) => s.sector ?? 0) ?? []
+    if (includeSelf) {
+      shipSectors.push(get().sector?.id ?? 0)
+    }
+    return shipSectors
+  },
   // TODO: implement this properly
   // @ts-expect-error - we don't care about the type here, just want to trigger the alert
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
