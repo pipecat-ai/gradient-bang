@@ -54,7 +54,7 @@ export interface GameState {
   character_id?: string
   access_token?: string
   ship: ShipSelf
-  ships: ActiveProperty<ShipSummary[]>
+  ships: ActiveProperty<ShipSelf[]>
   sector?: Sector
   local_map_data?: MapData
   regional_map_data?: MapData
@@ -84,7 +84,7 @@ export interface GameSlice extends GameState {
   addMessage: (message: ChatMessage) => void
   setPlayer: (player: Partial<PlayerSelf>) => void
   setShip: (ship: Partial<ShipSelf>) => void
-  setShips: (ships: ShipSummary[]) => void
+  setShips: (ships: ShipSelf[]) => void
   setSector: (sector: Sector) => void
   setCorporation: (corporation: Corporation) => void
   updateSector: (sector: Partial<Sector>) => void
@@ -215,7 +215,7 @@ const createGameSlice: StateCreator<
       })
     ),
 
-  setShips: (ships: ShipSummary[]) =>
+  setShips: (ships: ShipSelf[]) =>
     set(
       produce((state) => {
         state.ships = {

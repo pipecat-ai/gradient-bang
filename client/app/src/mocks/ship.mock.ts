@@ -13,7 +13,4 @@ export const SHIP_MOCK = {
   fighters: 100,
   max_fighters: 100,
   sector: 0,
-
-  name: "Test Ship",
-  id: "123",
 }

@@ -27,12 +27,11 @@ export const PlayerShipStory: Story = () => {
             ...(s.data ?? []),
             {
               ...SHIP_MOCK,
-              id: faker.string.uuid(),
               ship_id: faker.string.uuid(),
-              name: faker.vehicle.vehicle(),
+              ship_name: faker.vehicle.vehicle(),
               ship_type: faker.vehicle.type(),
               sector: faker.number.int(5000),
-            } as ShipSummary,
+            } as ShipSelf,
           ])
         }),
         ["TEST: Reset Ships"]: button(() => {

@@ -4,21 +4,22 @@ declare global {
   interface PlayerBase {
     id: string
     name: string
-    last_active?: string
     created_at?: string
   }
 
   interface PlayerSelf extends PlayerBase {
-    universe_size: number
     sectors_visited: number
     total_sectors_known: number
     credits_in_bank: number
     corp_sectors_visited?: number
+    universe_size?: number
+    last_active?: string
   }
 
   interface Player extends PlayerBase {
     player_type: "npc" | "human" | "corporation_ship"
     ship: Ship
+    corporation?: Corporation
   }
 
   // --- CORPORATION
@@ -38,7 +39,7 @@ declare global {
   // --- SHIP
 
   interface Ship {
-    ship_id?: string
+    ship_id: string
     ship_name: string
     ship_type: string
     fighters?: number
@@ -47,6 +48,7 @@ declare global {
     max_fighters?: number
     owner_type: "personal" | "corporation" | "unowned"
     current_task_id?: string | null
+    sector?: number
   }
 
   interface ShipSelf extends Ship {

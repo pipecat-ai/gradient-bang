@@ -271,32 +271,8 @@ export interface TaskHistoryMessage extends ServerMessagePayload {
   total_count: number
 }
 
-// --- Ships List Messages
-
-export interface ShipSummary {
-  ship_id: string
-  ship_type: string
-  ship_name: string
-  sector: number | null
-  owner_type: "personal" | "corporation"
-  cargo: {
-    quantum_foam: number
-    retro_organics: number
-    neuro_symbolics: number
-  }
-  cargo_capacity: number
-  warp_power: number
-  warp_power_capacity: number
-  shields: number
-  max_shields: number
-  fighters: number
-  max_fighters: number
-  credits: number
-  current_task_id?: string | null
-}
-
 export interface ShipsListMessage extends ServerMessagePayload {
-  ships: ShipSummary[]
+  ships: ShipSelf[]
 }
 
 // --- Event Query Messages (for task events)

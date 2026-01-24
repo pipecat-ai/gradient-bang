@@ -9,9 +9,6 @@ import { PopoverHelper } from "../PopoverHelper"
 import { Badge } from "../primitives/Badge"
 import { DotDivider } from "../primitives/DotDivider"
 
-const SHIP_HYDRATION_INTERVAL = 3000
-const SHIP_HYDRATION_STALE_TIME = 10000
-
 const ShipBlankSlate = ({
   fetching,
   empty,
@@ -41,12 +38,12 @@ const ShipBlankSlate = ({
   )
 }
 
-const ShipCard = ({ ship }: { ship: ShipSummary }) => {
+const ShipCard = ({ ship }: { ship: ShipSelf }) => {
   return (
     <div className="uppercase shrink-0 py-3 pb-3.5">
       <div className="flex flex-col gap-2">
         <div className="flex flex-row gap-2 items-center">
-          <div className="text-sm uppercase text-white font-semibold">{ship.name}</div>
+          <div className="text-sm uppercase text-white font-semibold">{ship.ship_name}</div>
           <div className="text-xs text-subtle-foreground">{ship.ship_type.replace("_", " ")}</div>
         </div>
         <div className="text-sm text-subtle-foreground flex flex-row gap-2 items-center">
@@ -73,7 +70,7 @@ const PlayerShipPanelContent = ({
   ships,
   isFetching,
 }: {
-  ships: ShipSummary[] | undefined
+  ships: ShipSelf[] | undefined
   isFetching: boolean
 }) => {
   return (
@@ -145,10 +142,9 @@ export const PlayerShipPanel = () => {
 
   const { isFetching } = useDispatchInterval("get-my-ships", {
     data: shipsState.data,
-    interval: SHIP_HYDRATION_INTERVAL,
-    staleTime: SHIP_HYDRATION_STALE_TIME,
-    lastUpdated: shipsState.last_updated,
-    debug: false,
+    // interval: SHIP_HYDRATION_INTERVAL,
+    // staleTime: SHIP_HYDRATION_STALE_TIME,
+    // lastUpdated: shipsState.last_updated
   })
 
   const ships = shipsState.data
