@@ -1,19 +1,31 @@
-import { serve } from 'https://deno.land/std@0.197.0/http/server.ts';
+import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 
-import { validateApiToken, unauthorizedResponse, errorResponse, successResponse } from '../_shared/auth.ts';
-import { createServiceRoleClient } from '../_shared/client.ts';
-import { emitCharacterEvent, emitErrorEvent, buildEventSource } from '../_shared/events.ts';
-import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
-import { FIGHTER_PRICE } from '../_shared/constants.ts';
+import {
+  validateApiToken,
+  unauthorizedResponse,
+  errorResponse,
+  successResponse,
+} from "../_shared/auth.ts";
+import { createServiceRoleClient } from "../_shared/client.ts";
+import {
+  emitCharacterEvent,
+  emitErrorEvent,
+  buildEventSource,
+} from "../_shared/events.ts";
+import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
+import { FIGHTER_PRICE } from "../_shared/constants.ts";
 import {
   buildStatusPayload,
   buildPublicPlayerSnapshotFromStatus,
   loadCharacter,
   loadShip,
   loadShipDefinition,
-} from '../_shared/status.ts';
-import { ensureActorAuthorization, ActorAuthorizationError } from '../_shared/actors.ts';
-import { canonicalizeCharacterId } from '../_shared/ids.ts';
+} from "../_shared/status.ts";
+import {
+  ensureActorAuthorization,
+  ActorAuthorizationError,
+} from "../_shared/actors.ts";
+import { canonicalizeCharacterId } from "../_shared/ids.ts";
 import {
   optionalBoolean,
   optionalNumber,
@@ -22,19 +34,19 @@ import {
   requireString,
   resolveRequestId,
   respondWithError,
-} from '../_shared/request.ts';
+} from "../_shared/request.ts";
 
 class PurchaseFightersError extends Error {
   status: number;
 
   constructor(message: string, status = 400) {
     super(message);
-    this.name = 'PurchaseFightersError';
+    this.name = "PurchaseFightersError";
     this.status = status;
   }
 }
 
-serve(async (req: Request): Promise<Response> => {
+Deno.serve(async (req: Request): Promise<Response> => {
   if (!validateApiToken(req)) {
     return unauthorizedResponse();
   }
@@ -48,37 +60,42 @@ serve(async (req: Request): Promise<Response> => {
     if (response) {
       return response;
     }
-    console.error('purchase_fighters.parse', err);
-    return errorResponse('invalid JSON payload', 400);
+    console.error("purchase_fighters.parse", err);
+    return errorResponse("invalid JSON payload", 400);
   }
 
   if (payload.healthcheck === true) {
-    return successResponse({ status: 'ok', token_present: Boolean(Deno.env.get('EDGE_API_TOKEN')) });
+    return successResponse({
+      status: "ok",
+      token_present: Boolean(Deno.env.get("EDGE_API_TOKEN")),
+    });
   }
 
   const requestId = resolveRequestId(payload);
-  const rawCharacterId = requireString(payload, 'character_id');
+  const rawCharacterId = requireString(payload, "character_id");
   const characterId = await canonicalizeCharacterId(rawCharacterId);
-  const actorCharacterLabel = optionalString(payload, 'actor_character_id');
-  const actorCharacterId = actorCharacterLabel ? await canonicalizeCharacterId(actorCharacterLabel) : null;
-  const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
-  const taskId = optionalString(payload, 'task_id');
+  const actorCharacterLabel = optionalString(payload, "actor_character_id");
+  const actorCharacterId = actorCharacterLabel
+    ? await canonicalizeCharacterId(actorCharacterLabel)
+    : null;
+  const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
+  const taskId = optionalString(payload, "task_id");
 
   try {
-    await enforceRateLimit(supabase, characterId, 'purchase_fighters');
+    await enforceRateLimit(supabase, characterId, "purchase_fighters");
   } catch (err) {
     if (err instanceof RateLimitError) {
       await emitErrorEvent(supabase, {
         characterId,
-        method: 'purchase_fighters',
+        method: "purchase_fighters",
         requestId,
-        detail: 'Too many purchase_fighters requests',
+        detail: "Too many purchase_fighters requests",
         status: 429,
       });
-      return errorResponse('Too many purchase_fighters requests', 429);
+      return errorResponse("Too many purchase_fighters requests", 429);
     }
-    console.error('purchase_fighters.rate_limit', err);
-    return errorResponse('rate limit error', 500);
+    console.error("purchase_fighters.rate_limit", err);
+    return errorResponse("rate limit error", 500);
   }
 
   try {
@@ -96,7 +113,7 @@ serve(async (req: Request): Promise<Response> => {
     if (err instanceof ActorAuthorizationError) {
       await emitErrorEvent(supabase, {
         characterId,
-        method: 'purchase_fighters',
+        method: "purchase_fighters",
         requestId,
         detail: err.message,
         status: err.status,
@@ -106,22 +123,22 @@ serve(async (req: Request): Promise<Response> => {
     if (err instanceof PurchaseFightersError) {
       await emitErrorEvent(supabase, {
         characterId,
-        method: 'purchase_fighters',
+        method: "purchase_fighters",
         requestId,
         detail: err.message,
         status: err.status,
       });
       return errorResponse(err.message, err.status);
     }
-    console.error('purchase_fighters.unhandled', err);
+    console.error("purchase_fighters.unhandled", err);
     await emitErrorEvent(supabase, {
       characterId,
-      method: 'purchase_fighters',
+      method: "purchase_fighters",
       requestId,
-      detail: 'internal server error',
+      detail: "internal server error",
       status: 500,
     });
-    return errorResponse('internal server error', 500);
+    return errorResponse("internal server error", 500);
   }
 });
 
@@ -135,20 +152,24 @@ async function handlePurchase(
   adminOverride: boolean,
   taskId: string | null,
 ): Promise<Response> {
-  const unitsRequestedRaw = optionalNumber(payload, 'units');
+  const unitsRequestedRaw = optionalNumber(payload, "units");
   if (unitsRequestedRaw === null || !Number.isFinite(unitsRequestedRaw)) {
-    throw new PurchaseFightersError('units is required');
+    throw new PurchaseFightersError("units is required");
   }
   const unitsRequested = Math.floor(unitsRequestedRaw);
   if (!Number.isInteger(unitsRequested) || unitsRequested <= 0) {
-    throw new PurchaseFightersError('units must be a positive integer');
+    throw new PurchaseFightersError("units must be a positive integer");
   }
 
   const character = await loadCharacter(supabase, characterId);
   const ship = await loadShip(supabase, character.current_ship_id);
   const characterLabel =
-    (typeof character.name === 'string' && character.name.trim() ? character.name : null) ??
-    (characterLabelFallback && characterLabelFallback.trim() ? characterLabelFallback : null) ??
+    (typeof character.name === "string" && character.name.trim()
+      ? character.name
+      : null) ??
+    (characterLabelFallback && characterLabelFallback.trim()
+      ? characterLabelFallback
+      : null) ??
     character.character_id;
 
   await ensureActorAuthorization({
@@ -159,11 +180,14 @@ async function handlePurchase(
     targetCharacterId: characterId,
   });
   if (ship.in_hyperspace) {
-    throw new PurchaseFightersError('Cannot purchase fighters while in hyperspace', 409);
+    throw new PurchaseFightersError(
+      "Cannot purchase fighters while in hyperspace",
+      409,
+    );
   }
   if ((ship.current_sector ?? -1) !== 0) {
     throw new PurchaseFightersError(
-      `Fighter armory is only available in sector 0. You are in sector ${ship.current_sector ?? 'unknown'}`,
+      `Fighter armory is only available in sector 0. You are in sector ${ship.current_sector ?? "unknown"}`,
       400,
     );
   }
@@ -173,7 +197,7 @@ async function handlePurchase(
   const currentFighters = ship.current_fighters ?? maxFighters;
   const availableCapacity = maxFighters - currentFighters;
   if (availableCapacity <= 0) {
-    throw new PurchaseFightersError('Fighter capacity is already at maximum');
+    throw new PurchaseFightersError("Fighter capacity is already at maximum");
   }
 
   const unitsToBuy = Math.min(unitsRequested, availableCapacity);
@@ -188,60 +212,67 @@ async function handlePurchase(
   const newCredits = creditsBefore - totalCost;
   const newFighters = currentFighters + unitsToBuy;
   const shipUpdate = await supabase
-    .from('ship_instances')
+    .from("ship_instances")
     .update({
       credits: newCredits,
       current_fighters: newFighters,
     })
-    .eq('ship_id', ship.ship_id)
+    .eq("ship_id", ship.ship_id)
     .select();
 
   if (shipUpdate.error) {
-    console.error('purchase_fighters.ship_update', shipUpdate.error);
-    throw new PurchaseFightersError('Failed to update ship state', 500);
+    console.error("purchase_fighters.ship_update", shipUpdate.error);
+    throw new PurchaseFightersError("Failed to update ship state", 500);
   }
   if (!shipUpdate.data || shipUpdate.data.length === 0) {
-    throw new PurchaseFightersError('No ship updated - ship not found', 404);
+    throw new PurchaseFightersError("No ship updated - ship not found", 404);
   }
 
   const timestamp = new Date().toISOString();
   const { error: activityError } = await supabase
-    .from('characters')
+    .from("characters")
     .update({ last_active: timestamp })
-    .eq('character_id', characterId);
+    .eq("character_id", characterId);
   if (activityError) {
-    console.error('purchase_fighters.activity', activityError);
+    console.error("purchase_fighters.activity", activityError);
   }
 
   const statusPayload = await buildStatusPayload(supabase, characterId);
   const publicPlayer = buildPublicPlayerSnapshotFromStatus(statusPayload);
   const basePlayer = (statusPayload.player ?? {}) as Record<string, unknown>;
   const playerPayload: Record<string, unknown> = { ...basePlayer };
-  if (typeof publicPlayer.id === 'string' && publicPlayer.id.trim()) {
-    playerPayload['id'] = publicPlayer.id;
+  if (typeof publicPlayer.id === "string" && publicPlayer.id.trim()) {
+    playerPayload["id"] = publicPlayer.id;
   }
-  if (typeof publicPlayer.name === 'string' && publicPlayer.name.trim()) {
-    playerPayload['name'] = publicPlayer.name;
-  } else if (!playerPayload['name'] && typeof publicPlayer.id === 'string') {
-    playerPayload['name'] = publicPlayer.id;
+  if (typeof publicPlayer.name === "string" && publicPlayer.name.trim()) {
+    playerPayload["name"] = publicPlayer.name;
+  } else if (!playerPayload["name"] && typeof publicPlayer.id === "string") {
+    playerPayload["name"] = publicPlayer.id;
   }
-  if (!playerPayload['player_type'] && typeof publicPlayer.player_type === 'string') {
-    playerPayload['player_type'] = publicPlayer.player_type;
+  if (
+    !playerPayload["player_type"] &&
+    typeof publicPlayer.player_type === "string"
+  ) {
+    playerPayload["player_type"] = publicPlayer.player_type;
   }
-  if (!playerPayload['corporation'] && Object.prototype.hasOwnProperty.call(publicPlayer, 'corporation')) {
-    playerPayload['corporation'] = publicPlayer.corporation ?? null;
+  if (
+    !playerPayload["corporation"] &&
+    Object.prototype.hasOwnProperty.call(publicPlayer, "corporation")
+  ) {
+    playerPayload["corporation"] = publicPlayer.corporation ?? null;
   }
   const displayCharacterId =
-    (typeof playerPayload['id'] === 'string' && (playerPayload['id'] as string).trim()
-      ? (playerPayload['id'] as string)
-      : characterLabel);
+    typeof playerPayload["id"] === "string" &&
+    (playerPayload["id"] as string).trim()
+      ? (playerPayload["id"] as string)
+      : characterLabel;
   const sectorId = ship.current_sector ?? 0;
-  const source = buildEventSource('purchase_fighters', requestId);
+  const source = buildEventSource("purchase_fighters", requestId);
 
   await emitCharacterEvent({
     supabase,
     characterId,
-    eventType: 'fighter.purchase',
+    eventType: "fighter.purchase",
     payload: {
       source,
       character_id: displayCharacterId,
@@ -269,7 +300,7 @@ async function handlePurchase(
   await emitCharacterEvent({
     supabase,
     characterId,
-    eventType: 'status.update',
+    eventType: "status.update",
     payload: statusPayload,
     sectorId,
     shipId: ship.ship_id,
@@ -279,5 +310,8 @@ async function handlePurchase(
     taskId,
   });
 
-  return successResponse({ request_id: requestId, units_purchased: unitsToBuy });
+  return successResponse({
+    request_id: requestId,
+    units_purchased: unitsToBuy,
+  });
 }

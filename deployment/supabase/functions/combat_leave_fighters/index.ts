@@ -1,14 +1,19 @@
-import { serve } from 'https://deno.land/std@0.197.0/http/server.ts';
+import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 
-import { validateApiToken, unauthorizedResponse, errorResponse, successResponse } from '../_shared/auth.ts';
-import { createServiceRoleClient } from '../_shared/client.ts';
-import { createPgClient, connectWithCleanup } from '../_shared/pg.ts';
+import {
+  validateApiToken,
+  unauthorizedResponse,
+  errorResponse,
+  successResponse,
+} from "../_shared/auth.ts";
+import { createServiceRoleClient } from "../_shared/client.ts";
+import { createPgClient, connectWithCleanup } from "../_shared/pg.ts";
 import {
   emitCharacterEvent,
   emitErrorEvent,
   buildEventSource,
   recordEventWithRecipients,
-} from '../_shared/events.ts';
+} from "../_shared/events.ts";
 import {
   pgLoadCharacter,
   pgLoadShip,
@@ -16,7 +21,7 @@ import {
   pgEnsureActorAuthorization,
   RateLimitError,
   ActorAuthorizationError,
-} from '../_shared/pg_queries.ts';
+} from "../_shared/pg_queries.ts";
 import {
   parseJsonRequest,
   requireString,
@@ -25,16 +30,27 @@ import {
   optionalBoolean,
   resolveRequestId,
   respondWithError,
-} from '../_shared/request.ts';
-import { loadCharacterCombatants, loadCharacterNames, loadGarrisonCombatants } from '../_shared/combat_participants.ts';
-import { nowIso, type CombatEncounterState } from '../_shared/combat_types.ts';
-import { getEffectiveCorporationId } from '../_shared/corporations.ts';
-import { loadCombatForSector, persistCombatState } from '../_shared/combat_state.ts';
-import { buildRoundWaitingPayload, getCorpIdsFromParticipants, collectParticipantIds } from '../_shared/combat_events.ts';
-import { computeNextCombatDeadline } from '../_shared/combat_resolution.ts';
-import { computeEventRecipients } from '../_shared/visibility.ts';
+} from "../_shared/request.ts";
+import {
+  loadCharacterCombatants,
+  loadCharacterNames,
+  loadGarrisonCombatants,
+} from "../_shared/combat_participants.ts";
+import { nowIso, type CombatEncounterState } from "../_shared/combat_types.ts";
+import { getEffectiveCorporationId } from "../_shared/corporations.ts";
+import {
+  loadCombatForSector,
+  persistCombatState,
+} from "../_shared/combat_state.ts";
+import {
+  buildRoundWaitingPayload,
+  getCorpIdsFromParticipants,
+  collectParticipantIds,
+} from "../_shared/combat_events.ts";
+import { computeNextCombatDeadline } from "../_shared/combat_resolution.ts";
+import { computeEventRecipients } from "../_shared/visibility.ts";
 
-serve(async (req: Request): Promise<Response> => {
+Deno.serve(async (req: Request): Promise<Response> => {
   if (!validateApiToken(req)) {
     return unauthorizedResponse();
   }
@@ -48,29 +64,32 @@ serve(async (req: Request): Promise<Response> => {
     if (response) {
       return response;
     }
-    console.error('combat_leave_fighters.parse', err);
-    return errorResponse('invalid JSON payload', 400);
+    console.error("combat_leave_fighters.parse", err);
+    return errorResponse("invalid JSON payload", 400);
   }
 
   if (payload.healthcheck === true) {
-    return successResponse({ status: 'ok', token_present: Boolean(Deno.env.get('EDGE_API_TOKEN')) });
+    return successResponse({
+      status: "ok",
+      token_present: Boolean(Deno.env.get("EDGE_API_TOKEN")),
+    });
   }
 
   const requestId = resolveRequestId(payload);
-  const characterId = requireString(payload, 'character_id');
-  const sector = optionalNumber(payload, 'sector');
-  const quantity = optionalNumber(payload, 'quantity');
-  const mode = (optionalString(payload, 'mode') ?? 'offensive').toLowerCase();
-  const tollAmount = optionalNumber(payload, 'toll_amount') ?? 0;
-  const actorCharacterId = optionalString(payload, 'actor_character_id');
-  const adminOverride = optionalBoolean(payload, 'admin_override') ?? false;
-  const taskId = optionalString(payload, 'task_id');
+  const characterId = requireString(payload, "character_id");
+  const sector = optionalNumber(payload, "sector");
+  const quantity = optionalNumber(payload, "quantity");
+  const mode = (optionalString(payload, "mode") ?? "offensive").toLowerCase();
+  const tollAmount = optionalNumber(payload, "toll_amount") ?? 0;
+  const actorCharacterId = optionalString(payload, "actor_character_id");
+  const adminOverride = optionalBoolean(payload, "admin_override") ?? false;
+  const taskId = optionalString(payload, "task_id");
 
   if (sector === null || sector === undefined) {
-    return errorResponse('sector is required', 400);
+    return errorResponse("sector is required", 400);
   }
   if (quantity === null || quantity === undefined) {
-    return errorResponse('quantity is required', 400);
+    return errorResponse("quantity is required", 400);
   }
 
   // Create PG client for direct database access
@@ -81,20 +100,20 @@ serve(async (req: Request): Promise<Response> => {
 
     // Rate limiting via PG
     try {
-      await pgEnforceRateLimit(pg, characterId, 'combat_leave_fighters');
+      await pgEnforceRateLimit(pg, characterId, "combat_leave_fighters");
     } catch (err) {
       if (err instanceof RateLimitError) {
         await emitErrorEvent(supabase, {
           characterId,
-          method: 'combat_leave_fighters',
+          method: "combat_leave_fighters",
           requestId,
-          detail: 'Too many requests',
+          detail: "Too many requests",
           status: 429,
         });
-        return errorResponse('Too many requests', 429);
+        return errorResponse("Too many requests", 429);
       }
-      console.error('combat_leave_fighters.rate_limit', err);
-      return errorResponse('rate limit error', 500);
+      console.error("combat_leave_fighters.rate_limit", err);
+      return errorResponse("rate limit error", 500);
     }
 
     return await handleCombatLeaveFighters({
@@ -114,23 +133,26 @@ serve(async (req: Request): Promise<Response> => {
     if (err instanceof ActorAuthorizationError) {
       await emitErrorEvent(supabase, {
         characterId,
-        method: 'combat_leave_fighters',
+        method: "combat_leave_fighters",
         requestId,
         detail: err.message,
         status: err.status,
       });
       return errorResponse(err.message, err.status);
     }
-    console.error('combat_leave_fighters.error', err);
-    const status = err instanceof Error && 'status' in err ? Number((err as Error & { status?: number }).status) : 500;
+    console.error("combat_leave_fighters.error", err);
+    const status =
+      err instanceof Error && "status" in err
+        ? Number((err as Error & { status?: number }).status)
+        : 500;
     await emitErrorEvent(supabase, {
       characterId,
-      method: 'combat_leave_fighters',
+      method: "combat_leave_fighters",
       requestId,
-      detail: err instanceof Error ? err.message : 'leave fighters failed',
+      detail: err instanceof Error ? err.message : "leave fighters failed",
       status,
     });
-    return errorResponse('leave fighters error', status);
+    return errorResponse("leave fighters error", status);
   } finally {
     try {
       await pg.end();
@@ -169,21 +191,25 @@ async function handleCombatLeaveFighters(params: {
 
   // Validate quantity
   if (quantity <= 0) {
-    const err = new Error('Quantity must be positive') as Error & { status?: number };
+    const err = new Error("Quantity must be positive") as Error & {
+      status?: number;
+    };
     err.status = 400;
     throw err;
   }
 
   // Validate mode
-  if (!['offensive', 'defensive', 'toll'].includes(mode)) {
-    const err = new Error('Invalid garrison mode') as Error & { status?: number };
+  if (!["offensive", "defensive", "toll"].includes(mode)) {
+    const err = new Error("Invalid garrison mode") as Error & {
+      status?: number;
+    };
     err.status = 400;
     throw err;
   }
 
   // Normalize toll amount
   let effectiveTollAmount = tollAmount;
-  if (mode !== 'toll') {
+  if (mode !== "toll") {
     effectiveTollAmount = 0;
   }
 
@@ -201,8 +227,12 @@ async function handleCombatLeaveFighters(params: {
 
   // Verify character is in the correct sector
   if (ship.current_sector !== sector) {
-    console.log(`combat_leave_fighters.sector_mismatch char=${characterId} ship_sector=${ship.current_sector} requested=${sector}`);
-    const err = new Error(`Character in sector ${ship.current_sector}, not requested sector ${sector}`) as Error & { status?: number };
+    console.log(
+      `combat_leave_fighters.sector_mismatch char=${characterId} ship_sector=${ship.current_sector} requested=${sector}`,
+    );
+    const err = new Error(
+      `Character in sector ${ship.current_sector}, not requested sector ${sector}`,
+    ) as Error & { status?: number };
     err.status = 409;
     throw err;
   }
@@ -210,32 +240,42 @@ async function handleCombatLeaveFighters(params: {
   // Check ship has enough fighters
   const currentFighters = ship.current_fighters ?? 0;
   if (quantity > currentFighters) {
-    console.log(`combat_leave_fighters.insufficient_fighters ship=${ship.ship_id} has=${currentFighters} requested=${quantity}`);
-    const err = new Error(`Insufficient fighters: ship has ${currentFighters}, requested ${quantity}`) as Error & { status?: number };
+    console.log(
+      `combat_leave_fighters.insufficient_fighters ship=${ship.ship_id} has=${currentFighters} requested=${quantity}`,
+    );
+    const err = new Error(
+      `Insufficient fighters: ship has ${currentFighters}, requested ${quantity}`,
+    ) as Error & { status?: number };
     err.status = 400;
     throw err;
   }
 
   // Check for other players' garrisons in this sector
   const { data: existingGarrisons, error: garrisonFetchError } = await supabase
-    .from('garrisons')
-    .select('owner_id, fighters, mode, toll_amount, toll_balance, deployed_at')
-    .eq('sector_id', sector);
+    .from("garrisons")
+    .select("owner_id, fighters, mode, toll_amount, toll_balance, deployed_at")
+    .eq("sector_id", sector);
 
   if (garrisonFetchError) {
-    console.error('combat_leave_fighters.garrison_fetch', garrisonFetchError);
-    const err = new Error('Failed to check existing garrisons') as Error & { status?: number };
+    console.error("combat_leave_fighters.garrison_fetch", garrisonFetchError);
+    const err = new Error("Failed to check existing garrisons") as Error & {
+      status?: number;
+    };
     err.status = 500;
     throw err;
   }
 
   // Find existing garrison from character
-  const ownGarrison = existingGarrisons?.find((g) => g.owner_id === characterId);
-  const otherGarrison = existingGarrisons?.find((g) => g.owner_id !== characterId);
+  const ownGarrison = existingGarrisons?.find(
+    (g) => g.owner_id === characterId,
+  );
+  const otherGarrison = existingGarrisons?.find(
+    (g) => g.owner_id !== characterId,
+  );
 
   if (otherGarrison) {
     const err = new Error(
-      'Sector already contains another player\'s garrison; clear it before deploying your fighters.',
+      "Sector already contains another player's garrison; clear it before deploying your fighters.",
     ) as Error & { status?: number };
     err.status = 409;
     throw err;
@@ -249,20 +289,25 @@ async function handleCombatLeaveFighters(params: {
   // Update ship fighters
   const newShipFighters = currentFighters - quantity;
   const { error: shipUpdateError } = await supabase
-    .from('ship_instances')
-    .update({ current_fighters: newShipFighters, updated_at: new Date().toISOString() })
-    .eq('ship_id', ship.ship_id);
+    .from("ship_instances")
+    .update({
+      current_fighters: newShipFighters,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("ship_id", ship.ship_id);
 
   if (shipUpdateError) {
-    console.error('combat_leave_fighters.ship_update', shipUpdateError);
-    const err = new Error('Failed to update ship fighters') as Error & { status?: number };
+    console.error("combat_leave_fighters.ship_update", shipUpdateError);
+    const err = new Error("Failed to update ship fighters") as Error & {
+      status?: number;
+    };
     err.status = 500;
     throw err;
   }
 
   // Upsert garrison
   const { data: updatedGarrison, error: garrisonUpsertError } = await supabase
-    .from('garrisons')
+    .from("garrisons")
     .upsert(
       {
         sector_id: sector,
@@ -273,36 +318,38 @@ async function handleCombatLeaveFighters(params: {
         toll_balance: existingTollBalance,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: 'sector_id,owner_id' },
+      { onConflict: "sector_id,owner_id" },
     )
     .select()
     .single();
 
   if (garrisonUpsertError || !updatedGarrison) {
-    console.error('combat_leave_fighters.garrison_upsert', garrisonUpsertError);
-    const err = new Error('Failed to deploy garrison') as Error & { status?: number };
+    console.error("combat_leave_fighters.garrison_upsert", garrisonUpsertError);
+    const err = new Error("Failed to deploy garrison") as Error & {
+      status?: number;
+    };
     err.status = 500;
     throw err;
   }
 
   // Build garrison payload for events
   const garrisonPayload = {
-    owner_name: character.name,  // Human-readable name, not UUID
+    owner_name: character.name, // Human-readable name, not UUID
     fighters: updatedGarrison.fighters,
     fighter_loss: null,
     mode: updatedGarrison.mode,
     toll_amount: updatedGarrison.toll_amount,
     deployed_at: updatedGarrison.deployed_at,
-    is_friendly: true,  // Garrison is always friendly to its owner
+    is_friendly: true, // Garrison is always friendly to its owner
   };
 
   // Emit garrison.deployed event to character
   await emitCharacterEvent({
     supabase,
     characterId,
-    eventType: 'garrison.deployed',
+    eventType: "garrison.deployed",
     payload: {
-      source: buildEventSource('combat.leave_fighters', requestId),
+      source: buildEventSource("combat.leave_fighters", requestId),
       sector: { id: sector },
       garrison: garrisonPayload,
       fighters_remaining: newShipFighters,
@@ -318,7 +365,7 @@ async function handleCombatLeaveFighters(params: {
   // TODO: Emit sector.update to all sector occupants (omitted for initial deployment)
 
   // If mode is 'offensive', auto-initiate combat with sector occupants
-  if (mode === 'offensive') {
+  if (mode === "offensive") {
     await autoInitiateCombatIfOffensive({
       supabase,
       characterId,
@@ -333,7 +380,8 @@ async function handleCombatLeaveFighters(params: {
 }
 
 function deterministicSeed(combatId: string): number {
-  const normalized = combatId.replace(/[^0-9a-f]/gi, '').slice(0, 12) || combatId;
+  const normalized =
+    combatId.replace(/[^0-9a-f]/gi, "").slice(0, 12) || combatId;
   const parsed = Number.parseInt(normalized, 16);
   if (Number.isFinite(parsed)) {
     return parsed >>> 0;
@@ -342,7 +390,7 @@ function deterministicSeed(combatId: string): number {
 }
 
 function generateCombatId(): string {
-  return crypto.randomUUID().replace(/-/g, '');
+  return crypto.randomUUID().replace(/-/g, "");
 }
 
 async function autoInitiateCombatIfOffensive(params: {
@@ -353,13 +401,18 @@ async function autoInitiateCombatIfOffensive(params: {
   requestId: string;
   garrisonFighters: number;
 }): Promise<void> {
-  const { supabase, characterId, shipId, sector, requestId, garrisonFighters } = params;
+  const { supabase, characterId, shipId, sector, requestId, garrisonFighters } =
+    params;
 
   // Load all character combatants in the sector
   const participantStates = await loadCharacterCombatants(supabase, sector);
 
   // Get garrison owner's effective corporation (membership OR ship ownership for corp-owned ships)
-  const ownerCorpId = await getEffectiveCorporationId(supabase, characterId, shipId);
+  const ownerCorpId = await getEffectiveCorporationId(
+    supabase,
+    characterId,
+    shipId,
+  );
 
   // Find targetable opponents (exclude self, corp members, escape pods, no-fighter ships)
   const opponents = participantStates.filter((participant) => {
@@ -368,7 +421,8 @@ async function autoInitiateCombatIfOffensive(params: {
     if ((participant.fighters ?? 0) <= 0) return false;
 
     // Check if same corporation
-    if (ownerCorpId && participant.metadata?.corporation_id === ownerCorpId) return false;
+    if (ownerCorpId && participant.metadata?.corporation_id === ownerCorpId)
+      return false;
 
     return true;
   });
@@ -388,7 +442,9 @@ async function autoInitiateCombatIfOffensive(params: {
   // Load character names for garrison display
   const ownerNames = await loadCharacterNames(
     supabase,
-    participantStates.map((state) => state.owner_character_id ?? state.combatant_id),
+    participantStates.map(
+      (state) => state.owner_character_id ?? state.combatant_id,
+    ),
   );
 
   // Load all garrisons (including the one just deployed)
@@ -422,7 +478,7 @@ async function autoInitiateCombatIfOffensive(params: {
       initiator: characterId,
       created_at: nowIso(),
       garrison_sources: garrisons.map((g) => g.source),
-      reason: 'garrison_deploy_auto',
+      reason: "garrison_deploy_auto",
     },
     awaiting_resolution: false,
     ended: false,
@@ -445,7 +501,7 @@ async function emitRoundWaitingEvents(
   senderId: string | null,
 ): Promise<void> {
   const payload = buildRoundWaitingPayload(encounter);
-  const source = buildEventSource('combat.round_waiting', requestId);
+  const source = buildEventSource("combat.round_waiting", requestId);
   payload.source = source;
 
   // Get direct participant IDs and corp IDs for visibility
@@ -467,8 +523,8 @@ async function emitRoundWaitingEvents(
   // Single emission to all unique recipients
   await recordEventWithRecipients({
     supabase,
-    eventType: 'combat.round_waiting',
-    scope: 'sector',
+    eventType: "combat.round_waiting",
+    scope: "sector",
     payload,
     requestId,
     sectorId: encounter.sector_id,

@@ -1,13 +1,17 @@
-import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-export type Commodity = 'quantum_foam' | 'retro_organics' | 'neuro_symbolics';
-export type CommodityKey = 'QF' | 'RO' | 'NS';
+export type Commodity = "quantum_foam" | "retro_organics" | "neuro_symbolics";
+export type CommodityKey = "QF" | "RO" | "NS";
 
-const COMMODITY_ORDER: Commodity[] = ['quantum_foam', 'retro_organics', 'neuro_symbolics'];
+const COMMODITY_ORDER: Commodity[] = [
+  "quantum_foam",
+  "retro_organics",
+  "neuro_symbolics",
+];
 const COMMODITY_KEY_MAP: Record<Commodity, CommodityKey> = {
-  quantum_foam: 'QF',
-  retro_organics: 'RO',
-  neuro_symbolics: 'NS',
+  quantum_foam: "QF",
+  retro_organics: "RO",
+  neuro_symbolics: "NS",
 };
 
 const BASE_PRICES: Record<Commodity, number> = {
@@ -17,9 +21,9 @@ const BASE_PRICES: Record<Commodity, number> = {
 };
 
 const SELL_MIN = 0.75;
-const SELL_MAX = 1.10;
-const BUY_MIN = 0.90;
-const BUY_MAX = 1.30;
+const SELL_MAX = 1.1;
+const BUY_MIN = 0.9;
+const BUY_MAX = 1.3;
 
 export interface PortRow {
   port_id: number;
@@ -45,17 +49,20 @@ export interface PortData {
   sells: Commodity[];
 }
 
-export type TradeType = 'buy' | 'sell';
+export type TradeType = "buy" | "sell";
 
 export function isCommodity(candidate: unknown): candidate is Commodity {
-  return typeof candidate === 'string' && (COMMODITY_ORDER as string[]).includes(candidate);
+  return (
+    typeof candidate === "string" &&
+    (COMMODITY_ORDER as string[]).includes(candidate)
+  );
 }
 
 export function normalizeCommodity(candidate: unknown): Commodity | null {
   if (isCommodity(candidate)) {
     return candidate;
   }
-  if (typeof candidate === 'string') {
+  if (typeof candidate === "string") {
     const lowered = candidate.toLowerCase();
     return isCommodity(lowered) ? (lowered as Commodity) : null;
   }
@@ -67,7 +74,7 @@ export function commodityKey(value: Commodity): CommodityKey {
 }
 
 export function commodityFromIndex(index: number): Commodity {
-  return COMMODITY_ORDER[index] ?? 'quantum_foam';
+  return COMMODITY_ORDER[index] ?? "quantum_foam";
 }
 
 export async function loadPortBySector(
@@ -75,14 +82,16 @@ export async function loadPortBySector(
   sectorId: number,
 ): Promise<PortRow | null> {
   const { data, error } = await supabase
-    .from('ports')
+    .from("ports")
     .select(
-      'port_id, sector_id, port_code, port_class, max_qf, max_ro, max_ns, stock_qf, stock_ro, stock_ns, version, last_updated',
+      "port_id, sector_id, port_code, port_class, max_qf, max_ro, max_ns, stock_qf, stock_ro, stock_ns, version, last_updated",
     )
-    .eq('sector_id', sectorId)
+    .eq("sector_id", sectorId)
     .maybeSingle();
   if (error) {
-    throw new Error(`failed to load port for sector ${sectorId}: ${error.message}`);
+    throw new Error(
+      `failed to load port for sector ${sectorId}: ${error.message}`,
+    );
   }
   return data as PortRow | null;
 }
@@ -92,8 +101,8 @@ export function buildPortData(row: PortRow): PortData {
   const sells: Commodity[] = [];
   for (let i = 0; i < COMMODITY_ORDER.length; i += 1) {
     const commodity = commodityFromIndex(i);
-    const code = row.port_code?.charAt(i) ?? 'S';
-    if (code === 'B') {
+    const code = row.port_code?.charAt(i) ?? "S";
+    if (code === "B") {
       buys.push(commodity);
     } else {
       sells.push(commodity);
@@ -117,33 +126,50 @@ export function buildPortData(row: PortRow): PortData {
   };
 }
 
-export function portSupportsTrade(portData: PortData, commodity: Commodity, tradeType: TradeType): boolean {
-  if (tradeType === 'buy') {
+export function portSupportsTrade(
+  portData: PortData,
+  commodity: Commodity,
+  tradeType: TradeType,
+): boolean {
+  if (tradeType === "buy") {
     return portData.sells.includes(commodity);
   }
   return portData.buys.includes(commodity);
 }
 
-export function calculatePriceSellToPlayer(commodity: Commodity, stock: number, maxCapacity: number): number {
+export function calculatePriceSellToPlayer(
+  commodity: Commodity,
+  stock: number,
+  maxCapacity: number,
+): number {
   if (maxCapacity <= 0) {
-    throw new Error('invalid max capacity for sell price calculation');
+    throw new Error("invalid max capacity for sell price calculation");
   }
   const fullness = stock / maxCapacity;
   const scarcity = 1 - fullness;
-  const multiplier = SELL_MIN + (SELL_MAX - SELL_MIN) * Math.sqrt(Math.max(0, Math.min(1, scarcity)));
+  const multiplier =
+    SELL_MIN +
+    (SELL_MAX - SELL_MIN) * Math.sqrt(Math.max(0, Math.min(1, scarcity)));
   return Math.round(BASE_PRICES[commodity] * multiplier);
 }
 
-export function calculatePriceBuyFromPlayer(commodity: Commodity, stock: number, maxCapacity: number): number {
+export function calculatePriceBuyFromPlayer(
+  commodity: Commodity,
+  stock: number,
+  maxCapacity: number,
+): number {
   if (maxCapacity <= 0) {
-    throw new Error('invalid max capacity for buy price calculation');
+    throw new Error("invalid max capacity for buy price calculation");
   }
   const need = 1 - stock / maxCapacity;
-  const multiplier = BUY_MIN + (BUY_MAX - BUY_MIN) * Math.sqrt(Math.max(0, Math.min(1, need)));
+  const multiplier =
+    BUY_MIN + (BUY_MAX - BUY_MIN) * Math.sqrt(Math.max(0, Math.min(1, need)));
   return Math.round(BASE_PRICES[commodity] * multiplier);
 }
 
-export function getPortPrices(portData: PortData): Record<Commodity, number | null> {
+export function getPortPrices(
+  portData: PortData,
+): Record<Commodity, number | null> {
   const prices: Record<Commodity, number | null> = {
     quantum_foam: null,
     retro_organics: null,
@@ -154,9 +180,17 @@ export function getPortPrices(portData: PortData): Record<Commodity, number | nu
     const stock = portData.stock[key];
     const maxCapacity = portData.max_capacity[key];
     if (portData.sells.includes(commodity)) {
-      prices[commodity] = calculatePriceSellToPlayer(commodity, stock, maxCapacity);
+      prices[commodity] = calculatePriceSellToPlayer(
+        commodity,
+        stock,
+        maxCapacity,
+      );
     } else if (portData.buys.includes(commodity) && stock < maxCapacity) {
-      prices[commodity] = calculatePriceBuyFromPlayer(commodity, stock, maxCapacity);
+      prices[commodity] = calculatePriceBuyFromPlayer(
+        commodity,
+        stock,
+        maxCapacity,
+      );
     } else {
       prices[commodity] = null;
     }
@@ -177,7 +211,7 @@ export class TradingValidationError extends Error {
 
   constructor(message: string, status = 400) {
     super(message);
-    this.name = 'TradingValidationError';
+    this.name = "TradingValidationError";
     this.status = status;
   }
 }
@@ -192,18 +226,24 @@ export function validateBuyTransaction(
   pricePerUnit: number,
 ): void {
   if (!Number.isInteger(quantity) || quantity <= 0) {
-    throw new TradingValidationError('Quantity must be a positive integer');
+    throw new TradingValidationError("Quantity must be a positive integer");
   }
   if (portStock < quantity) {
-    throw new TradingValidationError(`Port only has ${portStock} units of ${commodity}`);
+    throw new TradingValidationError(
+      `Port only has ${portStock} units of ${commodity}`,
+    );
   }
   const freeSpace = cargoCapacity - cargoUsed;
   if (freeSpace < quantity) {
-    throw new TradingValidationError(`Not enough cargo space. Available: ${freeSpace}`);
+    throw new TradingValidationError(
+      `Not enough cargo space. Available: ${freeSpace}`,
+    );
   }
   const totalPrice = pricePerUnit * quantity;
   if (playerCredits < totalPrice) {
-    throw new TradingValidationError(`Insufficient credits. Need ${totalPrice}, have ${playerCredits}`);
+    throw new TradingValidationError(
+      `Insufficient credits. Need ${totalPrice}, have ${playerCredits}`,
+    );
   }
 }
 
@@ -215,13 +255,17 @@ export function validateSellTransaction(
   portMaxCapacity: number,
 ): void {
   if (!Number.isInteger(quantity) || quantity <= 0) {
-    throw new TradingValidationError('Quantity must be a positive integer');
+    throw new TradingValidationError("Quantity must be a positive integer");
   }
   if ((cargo[commodity] ?? 0) < quantity) {
-    throw new TradingValidationError(`Not enough ${commodity} to sell. Have ${cargo[commodity] ?? 0}`);
+    throw new TradingValidationError(
+      `Not enough ${commodity} to sell. Have ${cargo[commodity] ?? 0}`,
+    );
   }
   const availableCapacity = portMaxCapacity - portStock;
   if (availableCapacity < quantity) {
-    throw new TradingValidationError(`Port can only buy ${availableCapacity} units of ${commodity}`);
+    throw new TradingValidationError(
+      `Port can only buy ${availableCapacity} units of ${commodity}`,
+    );
   }
 }

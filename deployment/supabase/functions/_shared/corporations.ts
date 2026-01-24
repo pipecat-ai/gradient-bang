@@ -1,8 +1,8 @@
-import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { recordEventWithRecipients } from './events.ts';
-import { fetchActiveTaskIdsByShip } from './tasks.ts';
-import type { ShipDefinitionRow } from './status.ts';
+import { recordEventWithRecipients } from "./events.ts";
+import { fetchActiveTaskIdsByShip } from "./tasks.ts";
+import type { ShipDefinitionRow } from "./status.ts";
 
 export interface CorporationRecord {
   corp_id: string;
@@ -48,7 +48,9 @@ const INVITE_BYTES = 4;
 export function generateInviteCode(): string {
   const buffer = new Uint8Array(INVITE_BYTES);
   crypto.getRandomValues(buffer);
-  return Array.from(buffer, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return Array.from(buffer, (byte) => byte.toString(16).padStart(2, "0")).join(
+    "",
+  );
 }
 
 export async function loadCorporationById(
@@ -56,17 +58,19 @@ export async function loadCorporationById(
   corpId: string,
 ): Promise<CorporationRecord> {
   const { data, error } = await supabase
-    .from('corporations')
-    .select('corp_id, name, founder_id, founded, invite_code, invite_code_generated, invite_code_generated_by')
-    .eq('corp_id', corpId)
+    .from("corporations")
+    .select(
+      "corp_id, name, founder_id, founded, invite_code, invite_code_generated, invite_code_generated_by",
+    )
+    .eq("corp_id", corpId)
     .maybeSingle();
 
   if (error) {
-    console.error('corporations.load', error);
-    throw new Error('Failed to load corporation data');
+    console.error("corporations.load", error);
+    throw new Error("Failed to load corporation data");
   }
   if (!data) {
-    throw new Error('Corporation not found');
+    throw new Error("Corporation not found");
   }
   return data as CorporationRecord;
 }
@@ -77,15 +81,15 @@ export async function isActiveCorporationMember(
   characterId: string,
 ): Promise<boolean> {
   const { data, error } = await supabase
-    .from('corporation_members')
-    .select('character_id')
-    .eq('corp_id', corpId)
-    .eq('character_id', characterId)
-    .is('left_at', null)
+    .from("corporation_members")
+    .select("character_id")
+    .eq("corp_id", corpId)
+    .eq("character_id", characterId)
+    .is("left_at", null)
     .maybeSingle();
   if (error) {
-    console.error('corporations.membership.check', error);
-    throw new Error('Failed to verify corporation membership');
+    console.error("corporations.membership.check", error);
+    throw new Error("Failed to verify corporation membership");
   }
   return Boolean(data);
 }
@@ -96,20 +100,18 @@ export async function upsertCorporationMembership(
   characterId: string,
   joinedAt: string,
 ): Promise<void> {
-  const { error } = await supabase
-    .from('corporation_members')
-    .upsert(
-      {
-        corp_id: corpId,
-        character_id: characterId,
-        joined_at: joinedAt,
-        left_at: null,
-      },
-      { onConflict: 'corp_id,character_id' },
-    );
+  const { error } = await supabase.from("corporation_members").upsert(
+    {
+      corp_id: corpId,
+      character_id: characterId,
+      joined_at: joinedAt,
+      left_at: null,
+    },
+    { onConflict: "corp_id,character_id" },
+  );
   if (error) {
-    console.error('corporations.membership.upsert', error);
-    throw new Error('Failed to update membership');
+    console.error("corporations.membership.upsert", error);
+    throw new Error("Failed to update membership");
   }
 }
 
@@ -120,13 +122,13 @@ export async function markCorporationMembershipLeft(
   leftAt: string,
 ): Promise<void> {
   const { error } = await supabase
-    .from('corporation_members')
+    .from("corporation_members")
     .update({ left_at: leftAt })
-    .eq('corp_id', corpId)
-    .eq('character_id', characterId);
+    .eq("corp_id", corpId)
+    .eq("character_id", characterId);
   if (error) {
-    console.error('corporations.membership.leave', error);
-    throw new Error('Failed to update membership state');
+    console.error("corporations.membership.leave", error);
+    throw new Error("Failed to update membership state");
   }
 }
 
@@ -141,17 +143,20 @@ export async function fetchCorporationMembers(
 
   const memberIds = membershipRows.map((row) => row.character_id);
   const { data: characterRows, error } = await supabase
-    .from('characters')
-    .select('character_id, name')
-    .in('character_id', memberIds);
+    .from("characters")
+    .select("character_id, name")
+    .in("character_id", memberIds);
   if (error) {
-    console.error('corporations.members.characters', error);
-    throw new Error('Failed to load member profiles');
+    console.error("corporations.members.characters", error);
+    throw new Error("Failed to load member profiles");
   }
   const nameMap = new Map<string, string>();
   for (const row of characterRows ?? []) {
-    if (row && typeof row.character_id === 'string') {
-      const candidate = typeof row.name === 'string' && row.name.trim().length > 0 ? row.name : row.character_id;
+    if (row && typeof row.character_id === "string") {
+      const candidate =
+        typeof row.name === "string" && row.name.trim().length > 0
+          ? row.name
+          : row.character_id;
       nameMap.set(row.character_id, candidate);
     }
   }
@@ -176,29 +181,31 @@ export async function fetchCorporationShipSummaries(
   corpId: string,
 ): Promise<CorporationShipSummary[]> {
   const { data: shipLinks, error: linkError } = await supabase
-    .from('corporation_ships')
-    .select('ship_id')
-    .eq('corp_id', corpId);
+    .from("corporation_ships")
+    .select("ship_id")
+    .eq("corp_id", corpId);
   if (linkError) {
-    console.error('corporations.ships.list', linkError);
-    throw new Error('Failed to load corporation ships');
+    console.error("corporations.ships.list", linkError);
+    throw new Error("Failed to load corporation ships");
   }
   const shipIds = (shipLinks ?? [])
     .map((row) => row?.ship_id)
-    .filter((value): value is string => typeof value === 'string' && value.length > 0);
+    .filter(
+      (value): value is string => typeof value === "string" && value.length > 0,
+    );
   if (!shipIds.length) {
     return [];
   }
 
   const { data: shipRows, error: shipError } = await supabase
-    .from('ship_instances')
+    .from("ship_instances")
     .select(
-      'ship_id, ship_type, ship_name, current_sector, owner_type, credits, cargo_qf, cargo_ro, cargo_ns, current_warp_power, current_shields, current_fighters',
+      "ship_id, ship_type, ship_name, current_sector, owner_type, credits, cargo_qf, cargo_ro, cargo_ns, current_warp_power, current_shields, current_fighters",
     )
-    .in('ship_id', shipIds);
+    .in("ship_id", shipIds);
   if (shipError) {
-    console.error('corporations.ships.instances', shipError);
-    throw new Error('Failed to load ship instances');
+    console.error("corporations.ships.instances", shipError);
+    throw new Error("Failed to load ship instances");
   }
 
   const definitionMap = await loadShipDefinitions(supabase, shipRows ?? []);
@@ -207,11 +214,11 @@ export async function fetchCorporationShipSummaries(
   const summaries: CorporationShipSummary[] = [];
 
   for (const row of shipRows ?? []) {
-    if (!row || typeof row.ship_id !== 'string') {
+    if (!row || typeof row.ship_id !== "string") {
       continue;
     }
     const shipId = row.ship_id;
-    const definition = definitionMap.get(row.ship_type ?? '') ?? null;
+    const definition = definitionMap.get(row.ship_type ?? "") ?? null;
     const cargo = {
       quantum_foam: Number(row.cargo_qf ?? 0),
       retro_organics: Number(row.cargo_ro ?? 0),
@@ -220,17 +227,21 @@ export async function fetchCorporationShipSummaries(
     const cargoCapacity = definition?.cargo_holds ?? 0;
     summaries.push({
       ship_id: shipId,
-      ship_type: row.ship_type ?? 'unknown',
-      name: typeof row.ship_name === 'string' && row.ship_name.trim().length > 0
-        ? row.ship_name
-        : definition?.display_name ?? row.ship_type ?? shipId,
-      sector: typeof row.current_sector === 'number' ? row.current_sector : null,
-      owner_type: row.owner_type ?? 'unowned',
+      ship_type: row.ship_type ?? "unknown",
+      name:
+        typeof row.ship_name === "string" && row.ship_name.trim().length > 0
+          ? row.ship_name
+          : (definition?.display_name ?? row.ship_type ?? shipId),
+      sector:
+        typeof row.current_sector === "number" ? row.current_sector : null,
+      owner_type: row.owner_type ?? "unowned",
       control_ready: controlReady.has(shipId),
       credits: Number(row.credits ?? 0),
       cargo,
       cargo_capacity: cargoCapacity,
-      warp_power: Number(row.current_warp_power ?? definition?.warp_power_capacity ?? 0),
+      warp_power: Number(
+        row.current_warp_power ?? definition?.warp_power_capacity ?? 0,
+      ),
       warp_power_capacity: definition?.warp_power_capacity ?? 0,
       shields: Number(row.current_shields ?? definition?.shields ?? 0),
       max_shields: definition?.shields ?? 0,
@@ -274,19 +285,31 @@ export function buildCorporationMemberPayload(
 export async function emitCorporationEvent(
   supabase: SupabaseClient,
   corpId: string,
-  options: { eventType: string; payload: Record<string, unknown>; requestId: string; memberIds?: string[]; actorCharacterId?: string | null; taskId?: string | null },
+  options: {
+    eventType: string;
+    payload: Record<string, unknown>;
+    requestId: string;
+    memberIds?: string[];
+    actorCharacterId?: string | null;
+    taskId?: string | null;
+  },
 ): Promise<void> {
   let recipients = options.memberIds;
   if (!recipients) {
     try {
       recipients = await listCorporationMemberIds(supabase, corpId);
     } catch (err) {
-      console.error('corporations.event.members', err);
+      console.error("corporations.event.members", err);
       return;
     }
   }
   const uniqueRecipients = Array.from(
-    new Set((recipients ?? []).filter((value): value is string => typeof value === 'string' && value.length > 0)),
+    new Set(
+      (recipients ?? []).filter(
+        (value): value is string =>
+          typeof value === "string" && value.length > 0,
+      ),
+    ),
   );
   if (!uniqueRecipients.length) {
     return;
@@ -295,15 +318,17 @@ export async function emitCorporationEvent(
   const eventId = await recordEventWithRecipients({
     supabase,
     eventType: options.eventType,
-    scope: 'corp',
+    scope: "corp",
     payload: options.payload,
     requestId: options.requestId,
     corpId,
     actorCharacterId: options.actorCharacterId ?? null,
     taskId: options.taskId ?? null,
-    recipients: uniqueRecipients.map((characterId) => ({ characterId, reason: 'corp_snapshot' })),
+    recipients: uniqueRecipients.map((characterId) => ({
+      characterId,
+      reason: "corp_snapshot",
+    })),
   });
-
 }
 
 async function fetchActiveMembershipRows(
@@ -311,21 +336,21 @@ async function fetchActiveMembershipRows(
   corpId: string,
 ): Promise<Array<{ character_id: string; joined_at: string | null }>> {
   const { data, error } = await supabase
-    .from('corporation_members')
-    .select('character_id, joined_at, left_at')
-    .eq('corp_id', corpId)
-    .is('left_at', null)
-    .order('joined_at', { ascending: true });
+    .from("corporation_members")
+    .select("character_id, joined_at, left_at")
+    .eq("corp_id", corpId)
+    .is("left_at", null)
+    .order("joined_at", { ascending: true });
   if (error) {
-    console.error('corporations.members.active', error);
-    throw new Error('Failed to load corporation members');
+    console.error("corporations.members.active", error);
+    throw new Error("Failed to load corporation members");
   }
   const rows: Array<{ character_id: string; joined_at: string | null }> = [];
   for (const entry of data ?? []) {
-    if (entry && typeof entry.character_id === 'string') {
+    if (entry && typeof entry.character_id === "string") {
       rows.push({
         character_id: entry.character_id,
-        joined_at: typeof entry.joined_at === 'string' ? entry.joined_at : null,
+        joined_at: typeof entry.joined_at === "string" ? entry.joined_at : null,
       });
     }
   }
@@ -339,7 +364,9 @@ async function loadShipDefinitions(
   const shipTypes = Array.from(
     new Set(
       shipRows
-        .map((row) => (typeof row.ship_type === 'string' ? row.ship_type : null))
+        .map((row) =>
+          typeof row.ship_type === "string" ? row.ship_type : null,
+        )
         .filter((value): value is string => Boolean(value)),
     ),
   );
@@ -348,15 +375,17 @@ async function loadShipDefinitions(
     return definitionMap;
   }
   const { data, error } = await supabase
-    .from('ship_definitions')
-    .select('ship_type, display_name, cargo_holds, warp_power_capacity, shields, fighters')
-    .in('ship_type', shipTypes);
+    .from("ship_definitions")
+    .select(
+      "ship_type, display_name, cargo_holds, warp_power_capacity, shields, fighters",
+    )
+    .in("ship_type", shipTypes);
   if (error) {
-    console.error('corporations.ships.definitions', error);
-    throw new Error('Failed to load ship definitions');
+    console.error("corporations.ships.definitions", error);
+    throw new Error("Failed to load ship definitions");
   }
   for (const row of data ?? []) {
-    if (row && typeof row.ship_type === 'string') {
+    if (row && typeof row.ship_type === "string") {
       definitionMap.set(row.ship_type, row as ShipDefinitionRow);
     }
   }
@@ -371,16 +400,16 @@ async function loadControlReadySet(
     return new Set();
   }
   const { data, error } = await supabase
-    .from('characters')
-    .select('character_id')
-    .in('character_id', shipIds);
+    .from("characters")
+    .select("character_id")
+    .in("character_id", shipIds);
   if (error) {
-    console.error('corporations.ships.control_ready', error);
-    throw new Error('Failed to inspect ship control state');
+    console.error("corporations.ships.control_ready", error);
+    throw new Error("Failed to inspect ship control state");
   }
   const ready = new Set<string>();
   for (const row of data ?? []) {
-    if (row && typeof row.character_id === 'string') {
+    if (row && typeof row.character_id === "string") {
       ready.add(row.character_id);
     }
   }
@@ -399,10 +428,10 @@ export async function getEffectiveCorporationId(
 ): Promise<string | null> {
   // First check corporation_members (for player characters)
   const { data: memberData } = await supabase
-    .from('corporation_members')
-    .select('corp_id')
-    .eq('character_id', characterId)
-    .is('left_at', null)
+    .from("corporation_members")
+    .select("corp_id")
+    .eq("character_id", characterId)
+    .is("left_at", null)
     .maybeSingle();
 
   if (memberData?.corp_id) {
@@ -412,9 +441,9 @@ export async function getEffectiveCorporationId(
   // If not a member and shipId provided, check ship ownership
   if (shipId) {
     const { data: shipData } = await supabase
-      .from('ship_instances')
-      .select('owner_corporation_id')
-      .eq('ship_id', shipId)
+      .from("ship_instances")
+      .select("owner_corporation_id")
+      .eq("ship_id", shipId)
       .maybeSingle();
 
     if (shipData?.owner_corporation_id) {

@@ -6,7 +6,6 @@
  * No EDGE_API_TOKEN required - this is a public endpoint.
  */
 
-import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 import {
   createPublicClient,
   errorResponse,
@@ -42,7 +41,7 @@ function corsResponse(body: unknown, status = 200): Response {
   });
 }
 
-serve(async (req: Request): Promise<Response> => {
+Deno.serve(async (req: Request): Promise<Response> => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
@@ -61,13 +60,13 @@ serve(async (req: Request): Promise<Response> => {
           success: false,
           error: "Too many login attempts. Please try again later.",
         },
-        429
+        429,
       );
     }
     console.error("login.rate_limit", err);
     return corsResponse(
       { success: false, error: "Rate limit check failed" },
-      500
+      500,
     );
   }
 
@@ -101,14 +100,14 @@ serve(async (req: Request): Promise<Response> => {
       console.error("login.signin", error);
       return corsResponse(
         { success: false, error: "Invalid email or password" },
-        401
+        401,
       );
     }
 
     if (!data.user || !data.session) {
       return corsResponse(
         { success: false, error: "Authentication failed" },
-        401
+        401,
       );
     }
 
@@ -128,7 +127,7 @@ serve(async (req: Request): Promise<Response> => {
           last_active,
           is_npc
         )
-      `
+      `,
       )
       .eq("user_id", data.user.id)
       .order("created_at", { ascending: false });
@@ -163,7 +162,7 @@ serve(async (req: Request): Promise<Response> => {
         },
         characters: characterList,
       },
-      200
+      200,
     );
   } catch (err) {
     console.error("login.unhandled", err);
@@ -172,7 +171,7 @@ serve(async (req: Request): Promise<Response> => {
         success: false,
         error: err instanceof Error ? err.message : "Internal server error",
       },
-      500
+      500,
     );
   }
 });

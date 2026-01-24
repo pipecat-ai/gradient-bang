@@ -1,12 +1,12 @@
-import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
   emitCharacterEvent,
   EventSource,
   recordEventWithRecipients,
-} from './events.ts';
-import type { VisibilityCharacterRow } from './visibility.ts';
-import { dedupeRecipientSnapshots, loadGarrisonContext } from './visibility.ts';
+} from "./events.ts";
+import type { VisibilityCharacterRow } from "./visibility.ts";
+import { dedupeRecipientSnapshots, loadGarrisonContext } from "./visibility.ts";
 
 type CharacterRow = VisibilityCharacterRow;
 
@@ -36,13 +36,13 @@ export async function listSectorObservers(
 ): Promise<string[]> {
   const excludeSet = new Set(exclude);
   const { data, error } = await supabase
-    .from('ship_instances')
-    .select('owner_character_id, owner_id, owner_type')
-    .eq('current_sector', sectorId)
-    .eq('in_hyperspace', false)
-    .or('owner_character_id.not.is.null,owner_type.eq.character');
+    .from("ship_instances")
+    .select("owner_character_id, owner_id, owner_type")
+    .eq("current_sector", sectorId)
+    .eq("in_hyperspace", false)
+    .or("owner_character_id.not.is.null,owner_type.eq.character");
   if (error) {
-    console.error('observers.list.error', { sectorId, error });
+    console.error("observers.list.error", { sectorId, error });
     return [];
   }
   if (!data || data.length === 0) {
@@ -50,7 +50,9 @@ export async function listSectorObservers(
   }
   const observers: string[] = [];
   for (const row of data as SectorObserverRow[]) {
-    const charId = row.owner_character_id ?? (row.owner_type === 'character' ? row.owner_id : null);
+    const charId =
+      row.owner_character_id ??
+      (row.owner_type === "character" ? row.owner_id : null);
     if (!charId || excludeSet.has(charId)) {
       continue;
     }
@@ -63,12 +65,12 @@ export async function listSectorObservers(
 
 export function buildCharacterMovedPayload(
   metadata: ObserverMetadata,
-  movement: 'depart' | 'arrive',
+  movement: "depart" | "arrive",
   source?: EventSource,
   options?: BuildCharacterMovedPayloadOptions,
 ): Record<string, unknown> {
   const timestamp = new Date().toISOString();
-  const moveType = options?.moveType ?? 'normal';
+  const moveType = options?.moveType ?? "normal";
   const extraFields = options?.extraFields;
   const payload: Record<string, unknown> = {
     player: {
@@ -111,7 +113,10 @@ export async function emitCharacterMovedEvents({
   actorCharacterId: string;
 }): Promise<void> {
   const recipients = dedupeRecipientSnapshots(
-    observers.map((observerId) => ({ characterId: observerId, reason: 'sector_snapshot' })),
+    observers.map((observerId) => ({
+      characterId: observerId,
+      reason: "sector_snapshot",
+    })),
   );
   if (!recipients.length) {
     return;
@@ -119,8 +124,8 @@ export async function emitCharacterMovedEvents({
 
   await recordEventWithRecipients({
     supabase,
-    eventType: 'character.moved',
-    scope: 'sector',
+    eventType: "character.moved",
+    scope: "sector",
     payload,
     requestId,
     sectorId,
@@ -140,7 +145,10 @@ export async function emitGarrisonCharacterMovedEvents({
   payload: Record<string, unknown>;
   requestId?: string;
 }): Promise<number> {
-  const { garrisons, ownerMap, membersByCorp } = await loadGarrisonContext(supabase, sectorId);
+  const { garrisons, ownerMap, membersByCorp } = await loadGarrisonContext(
+    supabase,
+    sectorId,
+  );
   if (!garrisons.length) {
     return 0;
   }
@@ -176,7 +184,10 @@ export async function emitGarrisonCharacterMovedEvents({
     const recipientSnapshots = dedupeRecipientSnapshots(
       recipients.map((characterId) => ({
         characterId,
-        reason: characterId === owner.character_id ? 'garrison_owner' : 'garrison_corp_member',
+        reason:
+          characterId === owner.character_id
+            ? "garrison_owner"
+            : "garrison_corp_member",
       })),
     );
     if (!recipientSnapshots.length) {
@@ -185,8 +196,8 @@ export async function emitGarrisonCharacterMovedEvents({
 
     await recordEventWithRecipients({
       supabase,
-      eventType: 'garrison.character_moved',
-      scope: 'sector',
+      eventType: "garrison.character_moved",
+      scope: "sector",
       payload: eventPayload,
       requestId,
       sectorId,

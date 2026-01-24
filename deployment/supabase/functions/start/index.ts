@@ -47,7 +47,7 @@ function corsResponse(body: unknown, status = 200): Response {
   });
 }
 
-serve(async (req: Request): Promise<Response> => {
+Deno.serve(async (req: Request): Promise<Response> => {
   // Check for required environment variable
   const botStartUrl =
     Deno.env.get("BOT_START_URL") || "http://host.docker.internal:7860/start";
@@ -73,7 +73,7 @@ serve(async (req: Request): Promise<Response> => {
     // Invalid path
     return corsResponse(
       { success: false, error: "Invalid endpoint path" },
-      404
+      404,
     );
   }
 
@@ -81,7 +81,7 @@ serve(async (req: Request): Promise<Response> => {
   if (action === "create_session" && req.method !== "POST") {
     return corsResponse(
       { success: false, error: "Creating a session requires POST method" },
-      405
+      405,
     );
   }
 
@@ -100,7 +100,7 @@ serve(async (req: Request): Promise<Response> => {
         success: false,
         error: err instanceof Error ? err.message : "Authentication failed",
       },
-      401
+      401,
     );
   }
 
@@ -112,7 +112,7 @@ serve(async (req: Request): Promise<Response> => {
       console.warn("start.rate_limit", err.message);
       return corsResponse(
         { success: false, error: "Too many requests. Please try again later." },
-        429
+        429,
       );
     }
     console.error("start.rate_limit", err);
@@ -129,7 +129,7 @@ serve(async (req: Request): Promise<Response> => {
         console.error("start.parse_request", err);
         return corsResponse(
           { success: false, error: "Invalid request body" },
-          400
+          400,
         );
       }
     }
@@ -154,7 +154,7 @@ serve(async (req: Request): Promise<Response> => {
             error:
               "character_id is required in body.character_id to create session",
           },
-          400
+          400,
         );
       }
 
@@ -170,7 +170,7 @@ serve(async (req: Request): Promise<Response> => {
         console.error("start.character_lookup", characterError);
         return corsResponse(
           { success: false, error: "Failed to verify character ownership" },
-          500
+          500,
         );
       }
 
@@ -180,7 +180,7 @@ serve(async (req: Request): Promise<Response> => {
             success: false,
             error: "Character not found or does not belong to user",
           },
-          404
+          404,
         );
       }
     } else if (action === "proxy_session") {
@@ -195,7 +195,7 @@ serve(async (req: Request): Promise<Response> => {
       } else {
         return corsResponse(
           { success: false, error: "Invalid start path" },
-          400
+          400,
         );
       }
       // No character validation needed for proxying sessions
@@ -228,18 +228,18 @@ serve(async (req: Request): Promise<Response> => {
       if (!botResponse.ok) {
         console.error(
           "start.bot_request_failed",
-          `Bot returned status ${botResponse.status} for action: ${action}`
+          `Bot returned status ${botResponse.status} for action: ${action}`,
         );
         return corsResponse(
           { success: false, error: "Bot request failed" },
-          502
+          502,
         );
       }
     } catch (err) {
       console.error("start.bot_request_error", err);
       return corsResponse(
         { success: false, error: "Failed to communicate with bot service" },
-        502
+        502,
       );
     }
 
@@ -255,14 +255,14 @@ serve(async (req: Request): Promise<Response> => {
       console.error("start.bot_response_parse_error", err);
       return corsResponse(
         { success: false, error: "Invalid response from bot service" },
-        502
+        502,
       );
     }
   } catch (err) {
     console.error("start.unhandled", err);
     return corsResponse(
       { success: false, error: "Internal server error" },
-      500
+      500,
     );
   }
 });

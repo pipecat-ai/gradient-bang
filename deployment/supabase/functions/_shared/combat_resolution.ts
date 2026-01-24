@@ -1,21 +1,38 @@
-import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { emitCharacterEvent, emitSectorEnvelope, buildEventSource, recordEventWithRecipients } from './events.ts';
-import { buildGarrisonActions } from './combat_garrison.ts';
-import { resolveRound } from './combat_engine.ts';
-import { finalizeCombat, executeCorpShipDeletions } from './combat_finalization.ts';
-import { buildRoundResolvedPayload, buildRoundWaitingPayload, getCorpIdsFromParticipants, collectParticipantIds } from './combat_events.ts';
-import { buildSectorSnapshot } from './map.ts';
-import { computeEventRecipients } from './visibility.ts';
+import {
+  emitCharacterEvent,
+  emitSectorEnvelope,
+  buildEventSource,
+  recordEventWithRecipients,
+} from "./events.ts";
+import { buildGarrisonActions } from "./combat_garrison.ts";
+import { resolveRound } from "./combat_engine.ts";
+import {
+  finalizeCombat,
+  executeCorpShipDeletions,
+} from "./combat_finalization.ts";
+import {
+  buildRoundResolvedPayload,
+  buildRoundWaitingPayload,
+  getCorpIdsFromParticipants,
+  collectParticipantIds,
+} from "./combat_events.ts";
+import { buildSectorSnapshot } from "./map.ts";
+import { computeEventRecipients } from "./visibility.ts";
 import {
   CombatEncounterState,
   RoundActionState,
   CombatantState,
-} from './combat_types.ts';
-import { persistCombatState } from './combat_state.ts';
+} from "./combat_types.ts";
+import { persistCombatState } from "./combat_state.ts";
 
-const ROUND_TIMEOUT_SECONDS = Number(Deno.env.get('COMBAT_ROUND_TIMEOUT') ?? '15');
-const SHIELD_REGEN_PER_ROUND = Number(Deno.env.get('SHIELD_REGEN_PER_ROUND') ?? '10');
+const ROUND_TIMEOUT_SECONDS = Number(
+  Deno.env.get("COMBAT_ROUND_TIMEOUT") ?? "15",
+);
+const SHIELD_REGEN_PER_ROUND = Number(
+  Deno.env.get("SHIELD_REGEN_PER_ROUND") ?? "10",
+);
 
 export function computeNextCombatDeadline(): string {
   return new Date(Date.now() + ROUND_TIMEOUT_SECONDS * 1000).toISOString();
@@ -28,7 +45,7 @@ export async function resolveEncounterRound(options: {
   source?: string;
 }): Promise<void> {
   const { supabase, encounter, requestId } = options;
-  const sourceName = options.source ?? 'combat.resolution';
+  const sourceName = options.source ?? "combat.resolution";
 
   const corpMap = buildCorporationMap(encounter);
   const timeoutActions = buildTimeoutActions(encounter);
@@ -41,7 +58,7 @@ export async function resolveEncounterRound(options: {
 
   const outcome = resolveRound(encounter, combinedActions);
 
-  console.log('combat_resolution.outcome', {
+  console.log("combat_resolution.outcome", {
     combat_id: encounter.combat_id,
     round: encounter.round,
     end_state: outcome.end_state,
@@ -51,7 +68,7 @@ export async function resolveEncounterRound(options: {
 
   // Check for toll satisfaction after resolution
   if (checkTollStanddown(encounter, outcome, combinedActions)) {
-    outcome.end_state = 'toll_satisfied';
+    outcome.end_state = "toll_satisfied";
   }
 
   encounter.logs.push({
@@ -65,12 +82,18 @@ export async function resolveEncounterRound(options: {
     timestamp: new Date().toISOString(),
   });
 
-  const resolvedPayload = buildRoundResolvedPayload(encounter, outcome, combinedActions);
-  resolvedPayload.source = buildEventSource('combat.round_resolved', requestId);
+  const resolvedPayload = buildRoundResolvedPayload(
+    encounter,
+    outcome,
+    combinedActions,
+  );
+  resolvedPayload.source = buildEventSource("combat.round_resolved", requestId);
 
   for (const [pid, participant] of Object.entries(encounter.participants)) {
-    participant.fighters = outcome.fighters_remaining?.[pid] ?? participant.fighters;
-    participant.shields = outcome.shields_remaining?.[pid] ?? participant.shields;
+    participant.fighters =
+      outcome.fighters_remaining?.[pid] ?? participant.fighters;
+    participant.shields =
+      outcome.shields_remaining?.[pid] ?? participant.shields;
   }
 
   encounter.pending_actions = {};
@@ -82,25 +105,37 @@ export async function resolveEncounterRound(options: {
     supabase,
     recipients,
     encounter,
-    eventType: 'combat.round_resolved',
+    eventType: "combat.round_resolved",
     payload: resolvedPayload,
     requestId,
   });
 
   if (outcome.end_state) {
-    console.log('combat_resolution.ending', { combat_id: encounter.combat_id, end_state: outcome.end_state });
+    console.log("combat_resolution.ending", {
+      combat_id: encounter.combat_id,
+      end_state: outcome.end_state,
+    });
     encounter.ended = true;
     encounter.end_state = outcome.end_state;
     encounter.deadline = null;
 
-    const { salvageEntries, deferredDeletions } = await finalizeCombat(supabase, encounter, outcome, requestId);
+    const { salvageEntries, deferredDeletions } = await finalizeCombat(
+      supabase,
+      encounter,
+      outcome,
+      requestId,
+    );
 
-    console.log('combat_resolution.broadcasting_ended', { combat_id: encounter.combat_id, recipients: recipients.length });
+    console.log("combat_resolution.broadcasting_ended", {
+      combat_id: encounter.combat_id,
+      recipients: recipients.length,
+    });
 
     // Send personalized combat.ended event to each participant with their own ship data
     // NO CORP VISIBILITY for combat.ended - personalized payload would corrupt client state
     // (matches legacy pattern from game-server/combat/callbacks.py:394-412)
-    const { buildCombatEndedPayloadForViewer } = await import('./combat_events.ts');
+    const { buildCombatEndedPayloadForViewer } =
+      await import("./combat_events.ts");
     for (const recipient of recipients) {
       const personalizedPayload = await buildCombatEndedPayloadForViewer(
         supabase,
@@ -110,12 +145,12 @@ export async function resolveEncounterRound(options: {
         encounter.logs ?? [],
         recipient,
       );
-      personalizedPayload.source = buildEventSource('combat.ended', requestId);
+      personalizedPayload.source = buildEventSource("combat.ended", requestId);
 
       await emitCharacterEvent({
         supabase,
         characterId: recipient,
-        eventType: 'combat.ended',
+        eventType: "combat.ended",
         payload: personalizedPayload,
         sectorId: encounter.sector_id,
         requestId,
@@ -128,20 +163,26 @@ export async function resolveEncounterRound(options: {
     }
 
     // Emit sector.update to all sector occupants after combat ends
-    const sectorSnapshot = await buildSectorSnapshot(supabase, encounter.sector_id);
+    const sectorSnapshot = await buildSectorSnapshot(
+      supabase,
+      encounter.sector_id,
+    );
     await emitSectorEnvelope({
       supabase,
       sectorId: encounter.sector_id,
-      eventType: 'sector.update',
+      eventType: "sector.update",
       payload: {
-        source: buildEventSource('combat.ended', requestId),
+        source: buildEventSource("combat.ended", requestId),
         ...sectorSnapshot,
       },
       requestId,
       actorCharacterId: null,
     });
   } else {
-    console.log('combat_resolution.continuing', { combat_id: encounter.combat_id, next_round: outcome.round_number + 1 });
+    console.log("combat_resolution.continuing", {
+      combat_id: encounter.combat_id,
+      next_round: outcome.round_number + 1,
+    });
     encounter.round = outcome.round_number + 1;
     encounter.deadline = computeNextCombatDeadline();
 
@@ -150,18 +191,21 @@ export async function resolveEncounterRound(options: {
       if ((participant.fighters ?? 0) > 0 && !participant.is_escape_pod) {
         const currentShields = participant.shields ?? 0;
         const maxShields = participant.max_shields ?? 0;
-        participant.shields = Math.min(currentShields + SHIELD_REGEN_PER_ROUND, maxShields);
+        participant.shields = Math.min(
+          currentShields + SHIELD_REGEN_PER_ROUND,
+          maxShields,
+        );
       }
     }
 
     const waitingPayload = buildRoundWaitingPayload(encounter);
-    waitingPayload.source = buildEventSource('combat.round_waiting', requestId);
+    waitingPayload.source = buildEventSource("combat.round_waiting", requestId);
 
     await broadcastCombatEvent({
       supabase,
       recipients,
       encounter,
-      eventType: 'combat.round_waiting',
+      eventType: "combat.round_waiting",
       payload: waitingPayload,
       requestId,
     });
@@ -170,31 +214,46 @@ export async function resolveEncounterRound(options: {
   await persistCombatState(supabase, encounter);
 }
 
-function buildCorporationMap(encounter: CombatEncounterState): Map<string, string | null> {
+function buildCorporationMap(
+  encounter: CombatEncounterState,
+): Map<string, string | null> {
   const map = new Map<string, string | null>();
   for (const participant of Object.values(encounter.participants)) {
-    if (participant.combatant_type === 'character') {
-      const metadata = participant.metadata as Record<string, unknown> | undefined;
-      const corpId = typeof metadata?.corporation_id === 'string' ? metadata.corporation_id : null;
+    if (participant.combatant_type === "character") {
+      const metadata = participant.metadata as
+        | Record<string, unknown>
+        | undefined;
+      const corpId =
+        typeof metadata?.corporation_id === "string"
+          ? metadata.corporation_id
+          : null;
       const key = participant.owner_character_id ?? participant.combatant_id;
       map.set(key, corpId);
     }
     // Also add garrison owner's corp ID so garrisons don't target corpmates
-    if (participant.combatant_type === 'garrison' && participant.owner_character_id) {
-      const metadata = participant.metadata as Record<string, unknown> | undefined;
-      const ownerCorpId = typeof metadata?.owner_corporation_id === 'string'
-        ? metadata.owner_corporation_id
-        : null;
+    if (
+      participant.combatant_type === "garrison" &&
+      participant.owner_character_id
+    ) {
+      const metadata = participant.metadata as
+        | Record<string, unknown>
+        | undefined;
+      const ownerCorpId =
+        typeof metadata?.owner_corporation_id === "string"
+          ? metadata.owner_corporation_id
+          : null;
       map.set(participant.owner_character_id, ownerCorpId);
     }
   }
   return map;
 }
 
-function buildTimeoutActions(encounter: CombatEncounterState): Record<string, RoundActionState> {
+function buildTimeoutActions(
+  encounter: CombatEncounterState,
+): Record<string, RoundActionState> {
   const actions: Record<string, RoundActionState> = {};
   for (const [pid, participant] of Object.entries(encounter.participants)) {
-    if (participant.combatant_type === 'garrison') {
+    if (participant.combatant_type === "garrison") {
       continue;
     }
     if (encounter.pending_actions[pid]) {
@@ -204,7 +263,7 @@ function buildTimeoutActions(encounter: CombatEncounterState): Record<string, Ro
       continue;
     }
     actions[pid] = {
-      action: 'brace',
+      action: "brace",
       commit: 0,
       timed_out: true,
       target_id: null,
@@ -227,7 +286,8 @@ async function broadcastCombatEvent(params: {
   payload: Record<string, unknown>;
   requestId: string;
 }): Promise<void> {
-  const { supabase, recipients, encounter, eventType, payload, requestId } = params;
+  const { supabase, recipients, encounter, eventType, payload, requestId } =
+    params;
 
   // Extract corp IDs from all participants (including garrisons)
   const corpIds = getCorpIdsFromParticipants(encounter.participants);
@@ -248,7 +308,7 @@ async function broadcastCombatEvent(params: {
   await recordEventWithRecipients({
     supabase,
     eventType,
-    scope: 'sector',
+    scope: "sector",
     payload,
     requestId,
     sectorId: encounter.sector_id,
@@ -267,7 +327,9 @@ function checkTollStanddown(
   if (!context) {
     return false;
   }
-  const tollRegistry = context.toll_registry as Record<string, unknown> | undefined;
+  const tollRegistry = context.toll_registry as
+    | Record<string, unknown>
+    | undefined;
   if (!tollRegistry) {
     return false;
   }
@@ -286,7 +348,11 @@ function checkTollStanddown(
 
     // Check if garrison braced or paid
     const garrisonAction = actions[garrisonId];
-    if (garrisonAction && garrisonAction.action !== 'brace' && garrisonAction.action !== 'pay') {
+    if (
+      garrisonAction &&
+      garrisonAction.action !== "brace" &&
+      garrisonAction.action !== "pay"
+    ) {
       continue;
     }
 
@@ -296,7 +362,10 @@ function checkTollStanddown(
       if (pid === garrisonId) {
         continue;
       }
-      if (participantAction.action !== 'brace' && participantAction.action !== 'pay') {
+      if (
+        participantAction.action !== "brace" &&
+        participantAction.action !== "pay"
+      ) {
         othersBraced = false;
         break;
       }

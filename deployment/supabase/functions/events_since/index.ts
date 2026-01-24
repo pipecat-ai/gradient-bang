@@ -1,8 +1,13 @@
-import { serve } from 'https://deno.land/std@0.197.0/http/server.ts';
-import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { validateApiToken, unauthorizedResponse, errorResponse, successResponse } from '../_shared/auth.ts';
-import { createServiceRoleClient } from '../_shared/client.ts';
+import {
+  validateApiToken,
+  unauthorizedResponse,
+  errorResponse,
+  successResponse,
+} from "../_shared/auth.ts";
+import { createServiceRoleClient } from "../_shared/client.ts";
 import {
   parseJsonRequest,
   optionalNumber,
@@ -10,8 +15,8 @@ import {
   resolveRequestId,
   respondWithError,
   requireString,
-} from '../_shared/request.ts';
-import { canonicalizeCharacterId } from '../_shared/ids.ts';
+} from "../_shared/request.ts";
+import { canonicalizeCharacterId } from "../_shared/ids.ts";
 
 const MAX_LIMIT = 250;
 const DEFAULT_LIMIT = 100;
@@ -41,7 +46,7 @@ interface EventRow {
   event_broadcast_recipients?: Array<{ event_id: number }>; // joined rows for broadcast events
 }
 
-serve(async (req: Request): Promise<Response> => {
+Deno.serve(async (req: Request): Promise<Response> => {
   const tStart = performance.now();
   if (!validateApiToken(req)) {
     return unauthorizedResponse();
@@ -55,12 +60,15 @@ serve(async (req: Request): Promise<Response> => {
     if (response) {
       return response;
     }
-    console.error('events_since.parse', err);
-    return errorResponse('invalid JSON payload', 400);
+    console.error("events_since.parse", err);
+    return errorResponse("invalid JSON payload", 400);
   }
 
   if (payload.healthcheck === true) {
-    return successResponse({ status: 'ok', token_present: Boolean(Deno.env.get('EDGE_API_TOKEN')) });
+    return successResponse({
+      status: "ok",
+      token_present: Boolean(Deno.env.get("EDGE_API_TOKEN")),
+    });
   }
 
   const requestId = resolveRequestId(payload);
@@ -69,7 +77,7 @@ serve(async (req: Request): Promise<Response> => {
   try {
     const result = await handleEventsSinceRequest(supabase, payload);
     const tEnd = performance.now();
-    console.log('events_since.timing', {
+    console.log("events_since.timing", {
       request_id: requestId,
       character_id: payload?.character_id,
       since_event_id: payload?.since_event_id,
@@ -86,7 +94,7 @@ serve(async (req: Request): Promise<Response> => {
     }
     // Log the full error plus a hint of inputs for diagnostics
     try {
-      console.error('events_since.unhandled', {
+      console.error("events_since.unhandled", {
         error: err?.message ?? String(err),
         stack: err?.stack,
         character_id: payload?.character_id,
@@ -94,27 +102,31 @@ serve(async (req: Request): Promise<Response> => {
         limit: payload?.limit,
       });
     } catch (_logErr) {
-      console.error('events_since.unhandled', err);
+      console.error("events_since.unhandled", err);
     }
-    return errorResponse('internal server error', 500);
+    return errorResponse("internal server error", 500);
   }
 });
 
 async function handleEventsSinceRequest(
   supabase: SupabaseClient,
   payload: JsonRecord,
-): Promise<{ events: JsonRecord[]; last_event_id: number | null; has_more: boolean }> {
-  const characterInput = requireString(payload, 'character_id');
+): Promise<{
+  events: JsonRecord[];
+  last_event_id: number | null;
+  has_more: boolean;
+}> {
+  const characterInput = requireString(payload, "character_id");
   const canonicalCharacterId = await canonicalizeCharacterId(characterInput);
 
-  const limitRaw = optionalNumber(payload, 'limit');
+  const limitRaw = optionalNumber(payload, "limit");
   const limit = clampLimit(limitRaw === null ? DEFAULT_LIMIT : limitRaw);
   const fetchLimit = Math.min(limit + 1, MAX_LIMIT + 1);
 
-  const sinceEventIdRaw = optionalNumber(payload, 'since_event_id');
+  const sinceEventIdRaw = optionalNumber(payload, "since_event_id");
   const sinceEventId = normalizeSinceEventId(sinceEventIdRaw);
 
-  const initialOnly = optionalBoolean(payload, 'initial_only') ?? false;
+  const initialOnly = optionalBoolean(payload, "initial_only") ?? false;
   if (initialOnly || sinceEventId === null) {
     const lastId = await fetchLatestEventId(supabase);
     return { events: [], last_event_id: lastId, has_more: false };
@@ -130,7 +142,9 @@ async function handleEventsSinceRequest(
   const hasMore = rows.length > limit;
   const trimmed = hasMore ? rows.slice(0, limit) : rows;
   const events = trimmed.map((row) => normalizeEventRow(row));
-  const lastEventId = events.length ? (events[events.length - 1].id as number) : sinceEventId;
+  const lastEventId = events.length
+    ? (events[events.length - 1].id as number)
+    : sinceEventId;
 
   return { events, last_event_id: lastEventId, has_more: hasMore };
 }
@@ -153,20 +167,22 @@ function normalizeSinceEventId(value: number | null): number | null {
   return normalized;
 }
 
-async function fetchLatestEventId(supabase: SupabaseClient): Promise<number | null> {
+async function fetchLatestEventId(
+  supabase: SupabaseClient,
+): Promise<number | null> {
   const { data, error } = await supabase
-    .from('events')
-    .select('id')
-    .order('id', { ascending: false })
+    .from("events")
+    .select("id")
+    .order("id", { ascending: false })
     .limit(1)
     .maybeSingle();
 
   if (error) {
-    console.error('events_since.fetch_latest_id', error);
-    throw new Error('failed to determine latest event id');
+    console.error("events_since.fetch_latest_id", error);
+    throw new Error("failed to determine latest event id");
   }
 
-  if (data && typeof data.id === 'number') {
+  if (data && typeof data.id === "number") {
     return data.id;
   }
   return null;
@@ -185,7 +201,7 @@ async function fetchEventsForCharacter(options: {
   const cappedLimit = Math.min(limit, 50);
 
   const { data: charEvents, error: charError } = await supabase
-    .from('events')
+    .from("events")
     .select(
       `
         id,
@@ -207,25 +223,27 @@ async function fetchEventsForCharacter(options: {
         event_character_recipients!inner(character_id, reason)
       `,
     )
-    .eq('event_character_recipients.character_id', characterId)
-    .gt('id', sinceEventId)
-    .order('id', { ascending: true })
+    .eq("event_character_recipients.character_id", characterId)
+    .gt("id", sinceEventId)
+    .order("id", { ascending: true })
     .limit(cappedLimit)
     .returns<EventRow[]>();
 
   if (charError) {
-    console.error('events_since.fetch_character_events', {
+    console.error("events_since.fetch_character_events", {
       message: charError.message,
       details: charError.details,
       hint: charError.hint,
       code: charError.code,
     });
-    throw new Error(`failed to load character events: ${charError.message || 'unknown error'}`);
+    throw new Error(
+      `failed to load character events: ${charError.message || "unknown error"}`,
+    );
   }
 
   // Fetch broadcast events (via event_broadcast_recipients)
   const { data: broadcastEvents, error: broadcastError } = await supabase
-    .from('events')
+    .from("events")
     .select(
       `
         id,
@@ -247,32 +265,37 @@ async function fetchEventsForCharacter(options: {
         event_broadcast_recipients!inner(event_id)
       `,
     )
-    .gt('id', sinceEventId)
-    .order('id', { ascending: true })
+    .gt("id", sinceEventId)
+    .order("id", { ascending: true })
     .limit(cappedLimit)
     .returns<EventRow[]>();
 
   if (broadcastError) {
-    console.error('events_since.fetch_broadcast_events', {
+    console.error("events_since.fetch_broadcast_events", {
       message: broadcastError.message,
       details: broadcastError.details,
       hint: broadcastError.hint,
       code: broadcastError.code,
     });
-    throw new Error(`failed to load broadcast events: ${broadcastError.message || 'unknown error'}`);
+    throw new Error(
+      `failed to load broadcast events: ${broadcastError.message || "unknown error"}`,
+    );
   }
 
   // Merge and deduplicate by event id, keeping the version with character_recipients if present
   const eventMap = new Map<number, EventRow>();
 
-  for (const event of (charEvents ?? [])) {
+  for (const event of charEvents ?? []) {
     eventMap.set(event.id, event as EventRow);
   }
 
-  for (const event of (broadcastEvents ?? [])) {
+  for (const event of broadcastEvents ?? []) {
     if (!eventMap.has(event.id)) {
       // Add event_character_recipients as empty array for consistency
-      eventMap.set(event.id, { ...event, event_character_recipients: [] } as EventRow);
+      eventMap.set(event.id, {
+        ...event,
+        event_character_recipients: [],
+      } as EventRow);
     }
   }
 
@@ -288,13 +311,21 @@ function normalizeEventRow(row: EventRow): JsonRecord {
   const recipients = Array.isArray(row.event_character_recipients)
     ? row.event_character_recipients
     : row.event_character_recipients
-      ? [row.event_character_recipients as unknown as { character_id: string; reason: string }]
+      ? [
+          row.event_character_recipients as unknown as {
+            character_id: string;
+            reason: string;
+          },
+        ]
       : [];
-  const recipientReason = recipients.length ? recipients[0]?.reason ?? null : null;
+  const recipientReason = recipients.length
+    ? (recipients[0]?.reason ?? null)
+    : null;
   const basePayload = row.payload ?? {};
-  const payload = typeof row.task_id === 'string' && row.task_id.length > 0
-    ? { ...basePayload, __task_id: row.task_id }
-    : basePayload;
+  const payload =
+    typeof row.task_id === "string" && row.task_id.length > 0
+      ? { ...basePayload, __task_id: row.task_id }
+      : basePayload;
 
   return {
     id: row.id,
@@ -316,7 +347,9 @@ function normalizeEventRow(row: EventRow): JsonRecord {
     recipient_reason: recipientReason,
     event_context: {
       event_id: row.id,
-      character_id: recipients.length ? recipients[0]?.character_id ?? null : null,
+      character_id: recipients.length
+        ? (recipients[0]?.character_id ?? null)
+        : null,
       reason: recipientReason,
     },
   };

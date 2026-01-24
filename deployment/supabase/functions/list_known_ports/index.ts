@@ -59,7 +59,7 @@ const BUY_MAX = 1.3; // Port buys from player at 130% when high demand
 function calculatePriceSellToPlayer(
   commodity: string,
   stock: number,
-  maxCapacity: number
+  maxCapacity: number,
 ): number {
   if (maxCapacity <= 0) return 0;
   const fullness = stock / maxCapacity;
@@ -76,7 +76,7 @@ function calculatePriceSellToPlayer(
 function calculatePriceBuyFromPlayer(
   commodity: string,
   stock: number,
-  maxCapacity: number
+  maxCapacity: number,
 ): number {
   if (maxCapacity <= 0) return 0;
   const fullness = stock / maxCapacity;
@@ -117,7 +117,7 @@ function getPortPrices(
   stockNs: number,
   maxQf: number,
   maxRo: number,
-  maxNs: number
+  maxNs: number,
 ): Record<string, number | null> {
   const { buys, sells } = decodePortCode(portCode);
   const stocks = {
@@ -157,7 +157,7 @@ function getPortPrices(
   return prices;
 }
 
-serve(async (req: Request): Promise<Response> => {
+Deno.serve(async (req: Request): Promise<Response> => {
   if (!validateApiToken(req)) {
     return unauthorizedResponse();
   }
@@ -217,7 +217,7 @@ serve(async (req: Request): Promise<Response> => {
       requestId,
       actorCharacterId,
       adminOverride,
-      taskId
+      taskId,
     );
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
@@ -269,7 +269,7 @@ async function handleListKnownPorts(
   requestId: string,
   actorCharacterId: string | null,
   adminOverride: boolean,
-  taskId: string | null
+  taskId: string | null,
 ): Promise<Response> {
   const source = buildEventSource("list_known_ports", requestId);
 
@@ -313,7 +313,7 @@ async function handleListKnownPorts(
   if (!knowledge.sectors_visited[String(fromSector)]) {
     throw new ListKnownPortsError(
       `Starting sector ${fromSector} must be a visited sector`,
-      400
+      400,
     );
   }
 
@@ -324,14 +324,14 @@ async function handleListKnownPorts(
   if (!Number.isFinite(maxHopsValue)) {
     throw new ListKnownPortsError(
       `max_hops must be an integer between 0 and ${MAX_HOPS_LIMIT}`,
-      400
+      400,
     );
   }
   const maxHops = Math.trunc(maxHopsValue);
   if (!Number.isInteger(maxHops) || maxHops < 0 || maxHops > MAX_HOPS_LIMIT) {
     throw new ListKnownPortsError(
       `max_hops must be an integer between 0 and ${MAX_HOPS_LIMIT}`,
-      400
+      400,
     );
   }
 
@@ -354,7 +354,7 @@ async function handleListKnownPorts(
   ) {
     throw new ListKnownPortsError(
       "commodity and trade_type must be provided together",
-      400
+      400,
     );
   }
   if (
@@ -370,7 +370,7 @@ async function handleListKnownPorts(
   }
 
   const visitedIds = Object.keys(knowledge.sectors_visited).map((key) =>
-    Number(key)
+    Number(key),
   );
   const portRows = await fetchPortRows(supabase, visitedIds);
   const portMap = new Map(portRows.map((row) => [row.sector_id, row]));
@@ -394,7 +394,7 @@ async function handleListKnownPorts(
         portRow,
         portTypeFilter,
         commodityFilter,
-        tradeTypeFilter
+        tradeTypeFilter,
       )
     ) {
       const knowledgeEntry = knowledge.sectors_visited[String(current.sector)];
@@ -409,8 +409,8 @@ async function handleListKnownPorts(
           portRow,
           knowledgeEntry,
           inSector,
-          rpcTimestamp
-        )
+          rpcTimestamp,
+        ),
       );
     }
 
@@ -421,7 +421,7 @@ async function handleListKnownPorts(
     const adjacency = await resolveAdjacency(
       knowledge,
       supabase,
-      current.sector
+      current.sector,
     );
     for (const neighbor of adjacency) {
       if (
@@ -489,7 +489,7 @@ type PortResult = {
 
 async function fetchPortRows(
   supabase: ReturnType<typeof createServiceRoleClient>,
-  sectorIds: number[]
+  sectorIds: number[],
 ): Promise<PortRow[]> {
   if (sectorIds.length === 0) {
     return [];
@@ -497,7 +497,7 @@ async function fetchPortRows(
   const { data, error } = await supabase
     .from("ports")
     .select(
-      "sector_id, port_code, port_class, max_qf, max_ro, max_ns, stock_qf, stock_ro, stock_ns, last_updated"
+      "sector_id, port_code, port_class, max_qf, max_ro, max_ns, stock_qf, stock_ro, stock_ns, last_updated",
     )
     .in("sector_id", Array.from(new Set(sectorIds)));
   if (error) {
@@ -510,7 +510,7 @@ async function fetchPortRows(
 async function resolveAdjacency(
   knowledge: MapKnowledge,
   supabase: ReturnType<typeof createServiceRoleClient>,
-  sectorId: number
+  sectorId: number,
 ): Promise<number[]> {
   const entry = knowledge.sectors_visited[String(sectorId)];
   if (entry?.adjacent_sectors && entry.adjacent_sectors.length > 0) {
@@ -523,7 +523,7 @@ function portMatchesFilters(
   portRow: PortRow,
   portTypeFilter: string | null,
   commodity: string | null,
-  tradeType: string | null
+  tradeType: string | null,
 ): boolean {
   const code = portRow.port_code?.toUpperCase() ?? "";
   if (portTypeFilter && code !== portTypeFilter) {
@@ -551,7 +551,7 @@ function buildPortResult(
     | { position?: [number, number]; last_visited?: string }
     | undefined,
   inSector: boolean,
-  rpcTimestamp: string
+  rpcTimestamp: string,
 ): PortResult {
   const position = knowledgeEntry?.position ?? [0, 0];
 
@@ -563,7 +563,7 @@ function buildPortResult(
     portRow.stock_ns,
     portRow.max_qf,
     portRow.max_ro,
-    portRow.max_ns
+    portRow.max_ns,
   );
 
   const portPayload = {

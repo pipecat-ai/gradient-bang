@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 function getEnv(key: string): string {
   const value = Deno.env.get(key);
@@ -9,8 +9,9 @@ function getEnv(key: string): string {
 }
 
 export function createServiceRoleClient(): SupabaseClient {
-  const supabaseUrl = getEnv('SUPABASE_URL');
-  const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY') ?? getEnv('SERVICE_ROLE_KEY');
+  const supabaseUrl = getEnv("SUPABASE_URL");
+  const serviceKey =
+    getEnv("SUPABASE_SERVICE_ROLE_KEY") ?? getEnv("SERVICE_ROLE_KEY");
 
   return createClient(supabaseUrl, serviceKey, {
     auth: {

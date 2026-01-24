@@ -25,7 +25,7 @@ class LeaderboardError extends Error {
   }
 }
 
-serve(async (req: Request): Promise<Response> => {
+Deno.serve(async (req: Request): Promise<Response> => {
   // Only allow GET requests
   if (req.method !== "GET") {
     return errorResponse("Method not allowed", 405);
@@ -71,12 +71,12 @@ serve(async (req: Request): Promise<Response> => {
         "refresh_materialized_view",
         {
           view_name: "leaderboard_wealth",
-        }
+        },
       );
       if (refreshWealthError) {
         console.error(
           "leaderboard_resources.refresh.wealth",
-          refreshWealthError
+          refreshWealthError,
         );
       }
 
@@ -84,12 +84,12 @@ serve(async (req: Request): Promise<Response> => {
         "refresh_materialized_view",
         {
           view_name: "leaderboard_territory",
-        }
+        },
       );
       if (refreshTerritoryError) {
         console.error(
           "leaderboard_resources.refresh.territory",
-          refreshTerritoryError
+          refreshTerritoryError,
         );
       }
 
@@ -97,12 +97,12 @@ serve(async (req: Request): Promise<Response> => {
         "refresh_materialized_view",
         {
           view_name: "leaderboard_trading",
-        }
+        },
       );
       if (refreshTradingError) {
         console.error(
           "leaderboard_resources.refresh.trading",
-          refreshTradingError
+          refreshTradingError,
         );
       }
 
@@ -110,12 +110,12 @@ serve(async (req: Request): Promise<Response> => {
         "refresh_materialized_view",
         {
           view_name: "leaderboard_exploration",
-        }
+        },
       );
       if (refreshExplorationError) {
         console.error(
           "leaderboard_resources.refresh.exploration",
-          refreshExplorationError
+          refreshExplorationError,
         );
       }
 
@@ -125,14 +125,14 @@ serve(async (req: Request): Promise<Response> => {
           supabase
             .from("leaderboard_wealth")
             .select(
-              "name, bank_credits, ship_credits, cargo_value, ships_owned, ship_value, total_wealth"
+              "name, bank_credits, ship_credits, cargo_value, ships_owned, ship_value, total_wealth",
             )
             .order("total_wealth", { ascending: false })
             .limit(100),
           supabase
             .from("leaderboard_territory")
             .select(
-              "name, sectors_controlled, total_fighters_deployed, total_toll_collected"
+              "name, sectors_controlled, total_fighters_deployed, total_toll_collected",
             )
             .order("sectors_controlled", { ascending: false })
             .limit(100),
@@ -156,18 +156,18 @@ serve(async (req: Request): Promise<Response> => {
       if (territoryResult.error) {
         console.error(
           "leaderboard_resources.query.territory",
-          territoryResult.error
+          territoryResult.error,
         );
         throw new LeaderboardError(
           "Failed to query territory leaderboard",
-          500
+          500,
         );
       }
 
       if (tradingResult.error) {
         console.error(
           "leaderboard_resources.query.trading",
-          tradingResult.error
+          tradingResult.error,
         );
         throw new LeaderboardError("Failed to query trading leaderboard", 500);
       }
@@ -175,11 +175,11 @@ serve(async (req: Request): Promise<Response> => {
       if (explorationResult.error) {
         console.error(
           "leaderboard_resources.query.exploration",
-          explorationResult.error
+          explorationResult.error,
         );
         throw new LeaderboardError(
           "Failed to query exploration leaderboard",
-          500
+          500,
         );
       }
 

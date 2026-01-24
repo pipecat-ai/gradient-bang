@@ -1,6 +1,8 @@
-import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-const SALVAGE_TTL_SECONDS = Number(Deno.env.get('SALVAGE_TTL_SECONDS') ?? '900');
+const SALVAGE_TTL_SECONDS = Number(
+  Deno.env.get("SALVAGE_TTL_SECONDS") ?? "900",
+);
 
 export interface SalvageEntry extends Record<string, unknown> {
   salvage_id: string;
@@ -49,37 +51,39 @@ export async function appendSalvageEntry(
   entry: SalvageEntry,
 ): Promise<void> {
   const { data, error } = await supabase
-    .from('sector_contents')
-    .select('salvage')
-    .eq('sector_id', sectorId)
+    .from("sector_contents")
+    .select("salvage")
+    .eq("sector_id", sectorId)
     .maybeSingle();
   if (error) {
-    console.error('salvage.append.fetch', error);
-    throw new Error('Failed to load sector salvage state');
+    console.error("salvage.append.fetch", error);
+    throw new Error("Failed to load sector salvage state");
   }
   if (!data) {
-    throw new Error('Sector state unavailable');
+    throw new Error("Sector state unavailable");
   }
   const nowMs = Date.now();
-  const existing = Array.isArray(data.salvage) ? data.salvage.filter((raw) => {
-    if (!raw || typeof raw !== 'object') {
-      return false;
-    }
-    const expiresAt = (raw as Record<string, unknown>).expires_at;
-    if (typeof expiresAt !== 'string') {
-      return true;
-    }
-    const expireStamp = Date.parse(expiresAt);
-    return Number.isNaN(expireStamp) ? true : expireStamp > nowMs;
-  }) : [];
+  const existing = Array.isArray(data.salvage)
+    ? data.salvage.filter((raw) => {
+        if (!raw || typeof raw !== "object") {
+          return false;
+        }
+        const expiresAt = (raw as Record<string, unknown>).expires_at;
+        if (typeof expiresAt !== "string") {
+          return true;
+        }
+        const expireStamp = Date.parse(expiresAt);
+        return Number.isNaN(expireStamp) ? true : expireStamp > nowMs;
+      })
+    : [];
   existing.push(entry);
 
   const { error: updateError } = await supabase
-    .from('sector_contents')
+    .from("sector_contents")
     .update({ salvage: existing, updated_at: new Date().toISOString() })
-    .eq('sector_id', sectorId);
+    .eq("sector_id", sectorId);
   if (updateError) {
-    console.error('salvage.append.update', updateError);
-    throw new Error('Failed to update sector salvage');
+    console.error("salvage.append.update", updateError);
+    throw new Error("Failed to update sector salvage");
   }
 }

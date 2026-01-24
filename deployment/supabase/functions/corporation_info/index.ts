@@ -1,34 +1,39 @@
-import { serve } from 'https://deno.land/std@0.197.0/http/server.ts';
+import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
 
-import { validateApiToken, unauthorizedResponse, successResponse, errorResponse } from '../_shared/auth.ts';
-import { createServiceRoleClient } from '../_shared/client.ts';
-import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
+import {
+  validateApiToken,
+  unauthorizedResponse,
+  successResponse,
+  errorResponse,
+} from "../_shared/auth.ts";
+import { createServiceRoleClient } from "../_shared/client.ts";
+import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import {
   parseJsonRequest,
   requireString,
   resolveRequestId,
   respondWithError,
-} from '../_shared/request.ts';
-import { loadCharacter } from '../_shared/status.ts';
+} from "../_shared/request.ts";
+import { loadCharacter } from "../_shared/status.ts";
 import {
   buildCorporationMemberPayload,
   buildCorporationPublicPayload,
   fetchCorporationMembers,
   fetchCorporationShipSummaries,
   loadCorporationById,
-} from '../_shared/corporations.ts';
+} from "../_shared/corporations.ts";
 
 class CorporationInfoError extends Error {
   status: number;
 
   constructor(message: string, status = 400) {
     super(message);
-    this.name = 'CorporationInfoError';
+    this.name = "CorporationInfoError";
     this.status = status;
   }
 }
 
-serve(async (req: Request): Promise<Response> => {
+Deno.serve(async (req: Request): Promise<Response> => {
   if (!validateApiToken(req)) {
     return unauthorizedResponse();
   }
@@ -41,27 +46,30 @@ serve(async (req: Request): Promise<Response> => {
     if (response) {
       return response;
     }
-    console.error('corporation_info.parse', err);
-    return errorResponse('invalid JSON payload', 400);
+    console.error("corporation_info.parse", err);
+    return errorResponse("invalid JSON payload", 400);
   }
 
   if (payload.healthcheck === true) {
-    return successResponse({ status: 'ok', token_present: Boolean(Deno.env.get('EDGE_API_TOKEN')) });
+    return successResponse({
+      status: "ok",
+      token_present: Boolean(Deno.env.get("EDGE_API_TOKEN")),
+    });
   }
 
   const supabase = createServiceRoleClient();
   const requestId = resolveRequestId(payload);
-  const characterId = requireString(payload, 'character_id');
-  const corpId = requireString(payload, 'corp_id');
+  const characterId = requireString(payload, "character_id");
+  const corpId = requireString(payload, "corp_id");
 
   try {
-    await enforceRateLimit(supabase, characterId, 'corporation_info');
+    await enforceRateLimit(supabase, characterId, "corporation_info");
   } catch (err) {
     if (err instanceof RateLimitError) {
-      return errorResponse('Too many corporation requests', 429);
+      return errorResponse("Too many corporation requests", 429);
     }
-    console.error('corporation_info.rate_limit', err);
-    return errorResponse('rate limit error', 500);
+    console.error("corporation_info.rate_limit", err);
+    return errorResponse("rate limit error", 500);
   }
 
   try {
@@ -71,8 +79,8 @@ serve(async (req: Request): Promise<Response> => {
     if (err instanceof CorporationInfoError) {
       return errorResponse(err.message, err.status);
     }
-    console.error('corporation_info.unhandled', err);
-    return errorResponse('internal server error', 500);
+    console.error("corporation_info.unhandled", err);
+    return errorResponse("internal server error", 500);
   }
 });
 
@@ -103,11 +111,14 @@ async function loadCharacterSafe(
   try {
     return await loadCharacter(supabase, characterId);
   } catch (err) {
-    if (err instanceof Error && err.message.toLowerCase().includes('not found')) {
-      throw new CorporationInfoError('Character not found', 404);
+    if (
+      err instanceof Error &&
+      err.message.toLowerCase().includes("not found")
+    ) {
+      throw new CorporationInfoError("Character not found", 404);
     }
-    console.error('corporation_info.character', err);
-    throw new CorporationInfoError('Failed to load character data', 500);
+    console.error("corporation_info.character", err);
+    throw new CorporationInfoError("Failed to load character data", 500);
   }
 }
 
@@ -118,10 +129,13 @@ async function loadCorporationSafe(
   try {
     return await loadCorporationById(supabase, corpId);
   } catch (err) {
-    if (err instanceof Error && err.message.toLowerCase().includes('not found')) {
-      throw new CorporationInfoError('Corporation not found', 404);
+    if (
+      err instanceof Error &&
+      err.message.toLowerCase().includes("not found")
+    ) {
+      throw new CorporationInfoError("Corporation not found", 404);
     }
-    console.error('corporation_info.corporation', err);
-    throw new CorporationInfoError('Failed to load corporation data', 500);
+    console.error("corporation_info.corporation", err);
+    throw new CorporationInfoError("Failed to load corporation data", 500);
   }
 }

@@ -1,6 +1,6 @@
-import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { CombatantState } from './combat_types.ts';
+import { CombatantState } from "./combat_types.ts";
 
 interface ShipRecord {
   ship_id: string;
@@ -36,7 +36,7 @@ interface GarrisonRow {
   sector_id: number;
   owner_id: string;
   fighters: number;
-  mode: 'offensive' | 'defensive' | 'toll';
+  mode: "offensive" | "defensive" | "toll";
   toll_amount: number;
   toll_balance: number;
   deployed_at: string;
@@ -46,7 +46,7 @@ export interface CharacterCombatant extends CombatantState {
   metadata: {
     ship_id: string;
     corporation_id: string | null;
-    player_type: 'human' | 'corporation_ship';
+    player_type: "human" | "corporation_ship";
   };
 }
 
@@ -64,12 +64,12 @@ export async function loadCharacterNames(
   }
   const unique = Array.from(new Set(characterIds));
   const { data, error } = await supabase
-    .from<CharacterRecord>('characters')
-    .select('character_id, name')
-    .in('character_id', unique);
+    .from<CharacterRecord>("characters")
+    .select("character_id, name")
+    .in("character_id", unique);
   if (error) {
-    console.error('combat_participants.load_names', error);
-    throw new Error('Failed to load character names');
+    console.error("combat_participants.load_names", error);
+    throw new Error("Failed to load character names");
   }
   const result = new Map<string, string>();
   for (const row of data ?? []) {
@@ -86,12 +86,14 @@ export async function loadGarrisonCombatants(
   ownerNames: Map<string, string>,
 ): Promise<GarrisonCombatantResult[]> {
   const { data, error } = await supabase
-    .from<GarrisonRow>('garrisons')
-    .select('sector_id, owner_id, fighters, mode, toll_amount, toll_balance, deployed_at')
-    .eq('sector_id', sectorId);
+    .from<GarrisonRow>("garrisons")
+    .select(
+      "sector_id, owner_id, fighters, mode, toll_amount, toll_balance, deployed_at",
+    )
+    .eq("sector_id", sectorId);
   if (error) {
-    console.error('combat_participants.load_garrisons', error);
-    throw new Error('Failed to load garrisons');
+    console.error("combat_participants.load_garrisons", error);
+    throw new Error("Failed to load garrisons");
   }
   const rows = (data ?? []).filter((row) => row.fighters > 0);
   if (!rows.length) {
@@ -99,12 +101,12 @@ export async function loadGarrisonCombatants(
   }
 
   // Query corporation memberships for garrison owners
-  const ownerIds = rows.map(r => r.owner_id);
+  const ownerIds = rows.map((r) => r.owner_id);
   const { data: corpMemberships } = await supabase
-    .from('corporation_members')
-    .select('character_id, corp_id')
-    .in('character_id', ownerIds)
-    .is('left_at', null);
+    .from("corporation_members")
+    .select("character_id, corp_id")
+    .in("character_id", ownerIds)
+    .is("left_at", null);
 
   const ownerCorpMap = new Map<string, string>();
   for (const row of corpMemberships ?? []) {
@@ -118,7 +120,7 @@ export async function loadGarrisonCombatants(
     const ownerName = ownerNames.get(row.owner_id) ?? row.owner_id;
     const state: CombatantState = {
       combatant_id: combatantId,
-      combatant_type: 'garrison',
+      combatant_type: "garrison",
       name: `${ownerName} Garrison`,
       fighters: row.fighters,
       shields: 0,
@@ -134,7 +136,7 @@ export async function loadGarrisonCombatants(
         toll_balance: row.toll_balance,
         deployed_at: row.deployed_at,
         sector_id: row.sector_id,
-        owner_name: ownerName,  // Store human-readable owner name in metadata
+        owner_name: ownerName, // Store human-readable owner name in metadata
         owner_corporation_id: ownerCorpMap.get(row.owner_id) ?? null,
       },
     };
@@ -147,18 +149,18 @@ export async function loadCharacterCombatants(
   sectorId: number,
 ): Promise<CharacterCombatant[]> {
   const { data: ships, error: shipError } = await supabase
-    .from<ShipRecord>('ship_instances')
+    .from<ShipRecord>("ship_instances")
     .select(
-      'ship_id, ship_type, ship_name, current_sector, current_fighters, current_shields, in_hyperspace, owner_character_id, owner_type, owner_corporation_id, is_escape_pod',
+      "ship_id, ship_type, ship_name, current_sector, current_fighters, current_shields, in_hyperspace, owner_character_id, owner_type, owner_corporation_id, is_escape_pod",
     )
-    .eq('current_sector', sectorId)
-    .eq('in_hyperspace', false);
+    .eq("current_sector", sectorId)
+    .eq("in_hyperspace", false);
   if (shipError) {
-    console.error('combat_participants.load_ships', shipError);
-    throw new Error('Failed to load sector ships');
+    console.error("combat_participants.load_ships", shipError);
+    throw new Error("Failed to load sector ships");
   }
   const filteredShips = (ships ?? []).filter(
-    (row) => row.owner_type === 'character' || row.owner_type === 'corporation',
+    (row) => row.owner_type === "character" || row.owner_type === "corporation",
   );
   if (!filteredShips.length) {
     return [];
@@ -167,30 +169,34 @@ export async function loadCharacterCombatants(
   const ownerIds = Array.from(
     new Set(
       filteredShips
-        .map((row) => (row.owner_type === 'character' ? row.owner_character_id : row.ship_id))
+        .map((row) =>
+          row.owner_type === "character" ? row.owner_character_id : row.ship_id,
+        )
         .filter((value): value is string => Boolean(value)),
     ),
   );
   const { data: characters, error: characterError } = await supabase
-    .from<CharacterRecord>('characters')
-    .select('character_id, name, corporation_id, current_ship_id, first_visit')
-    .in('character_id', ownerIds);
+    .from<CharacterRecord>("characters")
+    .select("character_id, name, corporation_id, current_ship_id, first_visit")
+    .in("character_id", ownerIds);
   if (characterError) {
-    console.error('combat_participants.load_characters', characterError);
-    throw new Error('Failed to load character metadata');
+    console.error("combat_participants.load_characters", characterError);
+    throw new Error("Failed to load character metadata");
   }
   const characterMap = new Map(
     (characters ?? []).map((row) => [row.character_id, row]),
   );
 
-  const shipTypes = Array.from(new Set(filteredShips.map((row) => row.ship_type)));
+  const shipTypes = Array.from(
+    new Set(filteredShips.map((row) => row.ship_type)),
+  );
   const { data: definitions, error: defError } = await supabase
-    .from<ShipDefinitionRecord>('ship_definitions')
-    .select('ship_type, display_name, turns_per_warp, fighters, shields')
-    .in('ship_type', shipTypes);
+    .from<ShipDefinitionRecord>("ship_definitions")
+    .select("ship_type, display_name, turns_per_warp, fighters, shields")
+    .in("ship_type", shipTypes);
   if (defError) {
-    console.error('combat_participants.load_definitions', defError);
-    throw new Error('Failed to load ship definitions');
+    console.error("combat_participants.load_definitions", defError);
+    throw new Error("Failed to load ship definitions");
   }
   const definitionMap = new Map(
     (definitions ?? []).map((row) => [row.ship_type, row]),
@@ -198,7 +204,8 @@ export async function loadCharacterCombatants(
 
   const combatants: CharacterCombatant[] = [];
   for (const ship of filteredShips) {
-    const characterKey = ship.owner_type === 'character' ? ship.owner_character_id! : ship.ship_id;
+    const characterKey =
+      ship.owner_type === "character" ? ship.owner_character_id! : ship.ship_id;
     if (!characterKey) {
       continue;
     }
@@ -212,22 +219,27 @@ export async function loadCharacterCombatants(
     }
     const fighters = Math.max(
       0,
-      Number.isFinite(ship.current_fighters) ? ship.current_fighters : definition.fighters,
+      Number.isFinite(ship.current_fighters)
+        ? ship.current_fighters
+        : definition.fighters,
     );
     const shields = Math.max(
       0,
-      Number.isFinite(ship.current_shields) ? ship.current_shields : definition.shields,
+      Number.isFinite(ship.current_shields)
+        ? ship.current_shields
+        : definition.shields,
     );
     const combatant: CharacterCombatant = {
       combatant_id: character.character_id,
-      combatant_type: 'character',
+      combatant_type: "character",
       name: character.name ?? character.character_id,
       fighters,
       shields,
       turns_per_warp: definition.turns_per_warp ?? 1,
       max_fighters: definition.fighters ?? fighters,
       max_shields: definition.shields ?? shields,
-      is_escape_pod: Boolean(ship.is_escape_pod) || ship.ship_type === 'escape_pod',
+      is_escape_pod:
+        Boolean(ship.is_escape_pod) || ship.ship_type === "escape_pod",
       owner_character_id: character.character_id,
       ship_type: ship.ship_type,
       metadata: {
@@ -235,10 +247,12 @@ export async function loadCharacterCombatants(
         ship_name: ship.ship_name ?? definition.display_name,
         ship_display_name: definition.display_name,
         // Use ship's owner_corporation_id for corp-owned ships, else character's corp_id
-        corporation_id: ship.owner_type === 'corporation'
-          ? ship.owner_corporation_id
-          : character.corporation_id,
-        player_type: ship.owner_type === 'corporation' ? 'corporation_ship' : 'human',
+        corporation_id:
+          ship.owner_type === "corporation"
+            ? ship.owner_corporation_id
+            : character.corporation_id,
+        player_type:
+          ship.owner_type === "corporation" ? "corporation_ship" : "human",
         first_visit: character.first_visit,
       },
     };

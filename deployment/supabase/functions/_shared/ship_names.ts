@@ -1,4 +1,4 @@
-import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type ShipNameLookupMatch = {
   ship_id: string;
@@ -7,13 +7,21 @@ export type ShipNameLookupMatch = {
 };
 
 export type ShipNameLookupResult =
-  | { status: 'match'; ship: ShipNameLookupMatch }
-  | { status: 'ambiguous'; base_name: string; candidates: string[]; total_matches: number }
-  | { status: 'none' };
+  | { status: "match"; ship: ShipNameLookupMatch }
+  | {
+      status: "ambiguous";
+      base_name: string;
+      candidates: string[];
+      total_matches: number;
+    }
+  | { status: "none" };
 
-export type ShipNameLookupErrorStage = 'exact' | 'suffix';
+export type ShipNameLookupErrorStage = "exact" | "suffix";
 
-export type ShipNameLookupError = Error & { stage: ShipNameLookupErrorStage; cause?: unknown };
+export type ShipNameLookupError = Error & {
+  stage: ShipNameLookupErrorStage;
+  cause?: unknown;
+};
 
 export async function resolveShipByNameWithSuffixFallback(
   supabase: SupabaseClient,
@@ -22,17 +30,17 @@ export async function resolveShipByNameWithSuffixFallback(
   const candidates = shipNameCandidates(shipName);
   for (const candidate of candidates) {
     const { data, error } = await supabase
-      .from('ship_instances')
-      .select('ship_id, ship_name, ship_type')
-      .eq('ship_name', candidate)
+      .from("ship_instances")
+      .select("ship_id, ship_name, ship_type")
+      .eq("ship_name", candidate)
       .maybeSingle();
 
     if (error) {
-      throw buildLookupError('exact', error);
+      throw buildLookupError("exact", error);
     }
-    if (data && typeof data.ship_id === 'string') {
+    if (data && typeof data.ship_id === "string") {
       return {
-        status: 'match',
+        status: "match",
         ship: {
           ship_id: data.ship_id,
           ship_name: data.ship_name ?? null,
@@ -44,21 +52,22 @@ export async function resolveShipByNameWithSuffixFallback(
 
   const baseNameRaw = normalizeShipName(shipName.trim()).trim();
   if (!baseNameRaw) {
-    return { status: 'none' };
+    return { status: "none" };
   }
 
   const { data: suffixMatches, error: suffixError } = await supabase
-    .from('ship_instances')
-    .select('ship_id, ship_name, ship_type')
-    .ilike('ship_name', `${escapeLikePattern(baseNameRaw)} [%]`);
+    .from("ship_instances")
+    .select("ship_id, ship_name, ship_type")
+    .ilike("ship_name", `${escapeLikePattern(baseNameRaw)} [%]`);
 
   if (suffixError) {
-    throw buildLookupError('suffix', suffixError);
+    throw buildLookupError("suffix", suffixError);
   }
 
   const suffixRegex = buildShipNameSuffixRegex(baseNameRaw);
   const matches = (suffixMatches ?? []).filter(
-    (row) => typeof row.ship_name === 'string' && suffixRegex.test(row.ship_name),
+    (row) =>
+      typeof row.ship_name === "string" && suffixRegex.test(row.ship_name),
   );
 
   if (matches.length > 1) {
@@ -66,11 +75,14 @@ export async function resolveShipByNameWithSuffixFallback(
       new Set(
         matches
           .map((row) => row.ship_name)
-          .filter((name): name is string => typeof name === 'string' && name.trim().length > 0),
+          .filter(
+            (name): name is string =>
+              typeof name === "string" && name.trim().length > 0,
+          ),
       ),
     );
     return {
-      status: 'ambiguous',
+      status: "ambiguous",
       base_name: baseNameRaw,
       candidates: candidateNames,
       total_matches: matches.length,
@@ -79,11 +91,11 @@ export async function resolveShipByNameWithSuffixFallback(
 
   if (matches.length === 1) {
     const match = matches[0];
-    if (typeof match.ship_id !== 'string') {
-      return { status: 'none' };
+    if (typeof match.ship_id !== "string") {
+      return { status: "none" };
     }
     return {
-      status: 'match',
+      status: "match",
       ship: {
         ship_id: match.ship_id,
         ship_name: match.ship_name ?? null,
@@ -92,11 +104,14 @@ export async function resolveShipByNameWithSuffixFallback(
     };
   }
 
-  return { status: 'none' };
+  return { status: "none" };
 }
 
-function buildLookupError(stage: ShipNameLookupErrorStage, cause: unknown): ShipNameLookupError {
-  const err = new Error('ship_name_lookup_failed') as ShipNameLookupError;
+function buildLookupError(
+  stage: ShipNameLookupErrorStage,
+  cause: unknown,
+): ShipNameLookupError {
+  const err = new Error("ship_name_lookup_failed") as ShipNameLookupError;
   err.stage = stage;
   (err as { cause?: unknown }).cause = cause;
   return err;
@@ -120,13 +135,16 @@ function normalizeShipName(value: string): string {
 }
 
 function escapeLikePattern(value: string): string {
-  return value.replace(/[\\%_]/g, '\\$&');
+  return value.replace(/[\\%_]/g, "\\$&");
 }
 
 function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function buildShipNameSuffixRegex(baseName: string): RegExp {
-  return new RegExp(`^${escapeRegExp(baseName)}\\s\\[[0-9a-f]{6,8}(?:-[0-9]+)?\\]$`, 'i');
+  return new RegExp(
+    `^${escapeRegExp(baseName)}\\s\\[[0-9a-f]{6,8}(?:-[0-9]+)?\\]$`,
+    "i",
+  );
 }

@@ -38,7 +38,7 @@ function corsResponse(body: unknown, status = 200): Response {
   });
 }
 
-serve(async (req: Request): Promise<Response> => {
+Deno.serve(async (req: Request): Promise<Response> => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
@@ -57,7 +57,7 @@ serve(async (req: Request): Promise<Response> => {
         success: false,
         error: err instanceof Error ? err.message : "Authentication failed",
       },
-      401
+      401,
     );
   }
 
@@ -69,7 +69,7 @@ serve(async (req: Request): Promise<Response> => {
       console.warn("character_list.rate_limit", err.message);
       return corsResponse(
         { success: false, error: "Too many requests. Please try again later." },
-        429
+        429,
       );
     }
     console.error("character_list.rate_limit", err);
@@ -104,7 +104,7 @@ serve(async (req: Request): Promise<Response> => {
             cargo_ns
           )
         )
-      `
+      `,
       )
       .eq("user_id", user.id)
       .order("created_at", { ascending: false });
@@ -113,7 +113,7 @@ serve(async (req: Request): Promise<Response> => {
       console.error("character_list.query", charactersError);
       return corsResponse(
         { success: false, error: "Failed to load characters" },
-        500
+        500,
       );
     }
 
@@ -158,13 +158,13 @@ serve(async (req: Request): Promise<Response> => {
         characters: formattedCharacters,
         count: formattedCharacters.length,
       },
-      200
+      200,
     );
   } catch (err) {
     console.error("character_list.unhandled", err);
     return corsResponse(
       { success: false, error: "Internal server error" },
-      500
+      500,
     );
   }
 });

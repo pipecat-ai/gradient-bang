@@ -6,17 +6,21 @@
  * Requires admin password for authorization.
  */
 
-import { serve } from 'https://deno.land/std@0.197.0/http/server.ts';
-import { validateAdminSecret, errorResponse, successResponse } from '../_shared/auth.ts';
-import { createServiceRoleClient } from '../_shared/client.ts';
-import { logAdminAction } from '../_shared/admin_audit.ts';
+import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
+import {
+  validateAdminSecret,
+  errorResponse,
+  successResponse,
+} from "../_shared/auth.ts";
+import { createServiceRoleClient } from "../_shared/client.ts";
+import { logAdminAction } from "../_shared/admin_audit.ts";
 import {
   parseJsonRequest,
   requireString,
   optionalString,
   optionalNumber,
   respondWithError,
-} from '../_shared/request.ts';
+} from "../_shared/request.ts";
 
 interface CharacterModifyPayload {
   name?: string;
@@ -55,12 +59,12 @@ class CharacterModifyError extends Error {
 
   constructor(message: string, status = 500) {
     super(message);
-    this.name = 'CharacterModifyError';
+    this.name = "CharacterModifyError";
     this.status = status;
   }
 }
 
-serve(async (req: Request): Promise<Response> => {
+Deno.serve(async (req: Request): Promise<Response> => {
   const supabase = createServiceRoleClient();
   let payload;
 
@@ -71,87 +75,93 @@ serve(async (req: Request): Promise<Response> => {
     if (response) {
       return response;
     }
-    console.error('character_modify.parse', err);
-    return errorResponse('invalid JSON payload', 400);
+    console.error("character_modify.parse", err);
+    return errorResponse("invalid JSON payload", 400);
   }
 
   // Validate admin password
-  const adminPassword = optionalString(payload, 'admin_password');
+  const adminPassword = optionalString(payload, "admin_password");
   const isValid = await validateAdminSecret(adminPassword);
   if (!isValid) {
     await logAdminAction(supabase, {
-      action: 'character_modify',
+      action: "character_modify",
       payload,
-      result: 'error',
-      error: 'Invalid admin password',
+      result: "error",
+      error: "Invalid admin password",
     });
-    return errorResponse('Invalid admin password', 403);
+    return errorResponse("Invalid admin password", 403);
   }
 
   try {
-    const characterId = requireString(payload, 'character_id');
+    const characterId = requireString(payload, "character_id");
     const modifyData = payload as CharacterModifyPayload;
 
     // Verify character exists and get current ship
     const { data: character, error: checkError } = await supabase
-      .from('characters')
-      .select('character_id, name, current_ship_id')
-      .eq('character_id', characterId)
+      .from("characters")
+      .select("character_id, name, current_ship_id")
+      .eq("character_id", characterId)
       .maybeSingle();
 
     if (checkError) {
-      console.error('character_modify.check', checkError);
-      throw new CharacterModifyError('Failed to check character existence', 500);
+      console.error("character_modify.check", checkError);
+      throw new CharacterModifyError(
+        "Failed to check character existence",
+        500,
+      );
     }
 
     if (!character) {
-      throw new CharacterModifyError('Character not found', 404);
+      throw new CharacterModifyError("Character not found", 404);
     }
 
     if (!character.current_ship_id) {
-      throw new CharacterModifyError('Character has no ship', 500);
+      throw new CharacterModifyError("Character has no ship", 500);
     }
 
     // Handle name change if provided
     if (modifyData.name && modifyData.name !== character.name) {
       // Check name uniqueness
       const { data: existingName, error: nameCheckError } = await supabase
-        .from('characters')
-        .select('character_id')
-        .eq('name', modifyData.name)
+        .from("characters")
+        .select("character_id")
+        .eq("name", modifyData.name)
         .maybeSingle();
 
       if (nameCheckError) {
-        console.error('character_modify.name_check', nameCheckError);
-        throw new CharacterModifyError('Failed to check name uniqueness', 500);
+        console.error("character_modify.name_check", nameCheckError);
+        throw new CharacterModifyError("Failed to check name uniqueness", 500);
       }
 
       if (existingName) {
-        throw new CharacterModifyError(`Character name "${modifyData.name}" already exists`, 409);
+        throw new CharacterModifyError(
+          `Character name "${modifyData.name}" already exists`,
+          409,
+        );
       }
 
       // Update name
       const { error: nameUpdateError } = await supabase
-        .from('characters')
+        .from("characters")
         .update({ name: modifyData.name })
-        .eq('character_id', characterId);
+        .eq("character_id", characterId);
 
       if (nameUpdateError) {
-        console.error('character_modify.name_update', nameUpdateError);
-        throw new CharacterModifyError('Failed to update character name', 500);
+        console.error("character_modify.name_update", nameUpdateError);
+        throw new CharacterModifyError("Failed to update character name", 500);
       }
     }
 
     // Load current ship state
     const { data: currentShip, error: shipLoadError } = await supabase
-      .from('ship_instances')
-      .select('*')
-      .eq('ship_id', character.current_ship_id)
+      .from("ship_instances")
+      .select("*")
+      .eq("ship_id", character.current_ship_id)
       .single();
 
     if (shipLoadError || !currentShip) {
-      console.error('character_modify.ship_load', shipLoadError);
-      throw new CharacterModifyError('Failed to load current ship', 500);
+      console.error("character_modify.ship_load", shipLoadError);
+      throw new CharacterModifyError("Failed to load current ship", 500);
     }
 
     const shipRow = currentShip as ShipRow;
@@ -159,26 +169,32 @@ serve(async (req: Request): Promise<Response> => {
     let shipTypeChanged = false;
 
     // Handle ship type change if provided
-    if (modifyData.ship?.ship_type && modifyData.ship.ship_type !== shipRow.ship_type) {
+    if (
+      modifyData.ship?.ship_type &&
+      modifyData.ship.ship_type !== shipRow.ship_type
+    ) {
       const newShipType = modifyData.ship.ship_type;
 
       // Validate new ship type exists
       const { data: shipDef, error: shipDefError } = await supabase
-        .from('ship_definitions')
-        .select('ship_type')
-        .eq('ship_type', newShipType)
+        .from("ship_definitions")
+        .select("ship_type")
+        .eq("ship_type", newShipType)
         .maybeSingle();
 
       if (shipDefError || !shipDef) {
-        throw new CharacterModifyError(`Invalid ship type: ${newShipType}`, 400);
+        throw new CharacterModifyError(
+          `Invalid ship type: ${newShipType}`,
+          400,
+        );
       }
 
       // Create new ship with new type, copying current state
       const { data: newShip, error: newShipError } = await supabase
-        .from('ship_instances')
+        .from("ship_instances")
         .insert({
           owner_id: characterId,
-          owner_type: 'character',
+          owner_type: "character",
           owner_character_id: characterId,
           ship_type: newShipType,
           ship_name: shipRow.ship_name,
@@ -191,37 +207,40 @@ serve(async (req: Request): Promise<Response> => {
           current_shields: shipRow.current_shields,
           current_fighters: shipRow.current_fighters,
         })
-        .select('ship_id')
+        .select("ship_id")
         .single();
 
       if (newShipError || !newShip) {
-        console.error('character_modify.new_ship', newShipError);
-        throw new CharacterModifyError('Failed to create new ship', 500);
+        console.error("character_modify.new_ship", newShipError);
+        throw new CharacterModifyError("Failed to create new ship", 500);
       }
 
       newShipId = newShip.ship_id;
 
       // Update character to reference new ship
       const { error: updateCharError } = await supabase
-        .from('characters')
+        .from("characters")
         .update({ current_ship_id: newShipId })
-        .eq('character_id', characterId);
+        .eq("character_id", characterId);
 
       if (updateCharError) {
-        console.error('character_modify.char_update', updateCharError);
+        console.error("character_modify.char_update", updateCharError);
         // Clean up new ship on failure
-        await supabase.from('ship_instances').delete().eq('ship_id', newShipId);
-        throw new CharacterModifyError('Failed to update character ship reference', 500);
+        await supabase.from("ship_instances").delete().eq("ship_id", newShipId);
+        throw new CharacterModifyError(
+          "Failed to update character ship reference",
+          500,
+        );
       }
 
       // Hard delete old ship (approved decision from plan)
       const { error: deleteOldError } = await supabase
-        .from('ship_instances')
+        .from("ship_instances")
         .delete()
-        .eq('ship_id', shipRow.ship_id);
+        .eq("ship_id", shipRow.ship_id);
 
       if (deleteOldError) {
-        console.error('character_modify.delete_old_ship', deleteOldError);
+        console.error("character_modify.delete_old_ship", deleteOldError);
         // Don't fail the whole operation if old ship deletion fails
         // The new ship is already active
       }
@@ -262,43 +281,46 @@ serve(async (req: Request): Promise<Response> => {
 
     if (Object.keys(shipUpdates).length > 0) {
       const { error: updateError } = await supabase
-        .from('ship_instances')
+        .from("ship_instances")
         .update(shipUpdates)
-        .eq('ship_id', newShipId);
+        .eq("ship_id", newShipId);
 
       if (updateError) {
-        console.error('character_modify.ship_update', updateError);
-        throw new CharacterModifyError('Failed to update ship resources', 500);
+        console.error("character_modify.ship_update", updateError);
+        throw new CharacterModifyError("Failed to update ship resources", 500);
       }
     }
 
     // Fetch updated data for response
     const { data: updatedChar, error: fetchCharError } = await supabase
-      .from('characters')
-      .select('character_id, name, current_ship_id')
-      .eq('character_id', characterId)
+      .from("characters")
+      .select("character_id, name, current_ship_id")
+      .eq("character_id", characterId)
       .single();
 
     const { data: updatedShip, error: fetchShipError } = await supabase
-      .from('ship_instances')
-      .select('*')
-      .eq('ship_id', newShipId)
+      .from("ship_instances")
+      .select("*")
+      .eq("ship_id", newShipId)
       .single();
 
     if (fetchCharError || fetchShipError || !updatedChar || !updatedShip) {
-      console.error('character_modify.fetch_updated', { fetchCharError, fetchShipError });
-      throw new CharacterModifyError('Failed to fetch updated data', 500);
+      console.error("character_modify.fetch_updated", {
+        fetchCharError,
+        fetchShipError,
+      });
+      throw new CharacterModifyError("Failed to fetch updated data", 500);
     }
 
     const updatedShipRow = updatedShip as ShipRow;
 
     // Log successful modification
     await logAdminAction(supabase, {
-      action: 'character_modify',
-      admin_user: 'admin',
+      action: "character_modify",
+      admin_user: "admin",
       target_id: characterId,
       payload,
-      result: 'success',
+      result: "success",
     });
 
     // Return success response
@@ -327,20 +349,20 @@ serve(async (req: Request): Promise<Response> => {
   } catch (err) {
     if (err instanceof CharacterModifyError) {
       await logAdminAction(supabase, {
-        action: 'character_modify',
+        action: "character_modify",
         payload,
-        result: 'error',
+        result: "error",
         error: err.message,
       });
       return errorResponse(err.message, err.status);
     }
-    console.error('character_modify.unhandled', err);
+    console.error("character_modify.unhandled", err);
     await logAdminAction(supabase, {
-      action: 'character_modify',
+      action: "character_modify",
       payload,
-      result: 'error',
+      result: "error",
       error: err instanceof Error ? err.message : String(err),
     });
-    return errorResponse('internal server error', 500);
+    return errorResponse("internal server error", 500);
   }
 });

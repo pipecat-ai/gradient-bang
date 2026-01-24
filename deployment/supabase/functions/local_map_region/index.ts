@@ -32,7 +32,7 @@ import {
 const DEFAULT_MAX_HOPS = 3;
 const DEFAULT_MAX_SECTORS = 100;
 
-serve(async (req: Request): Promise<Response> => {
+Deno.serve(async (req: Request): Promise<Response> => {
   if (!validateApiToken(req)) {
     return unauthorizedResponse();
   }
@@ -88,7 +88,7 @@ serve(async (req: Request): Promise<Response> => {
       requestId,
       actorCharacterId,
       adminOverride,
-      taskId
+      taskId,
     );
   } catch (err) {
     if (err instanceof ActorAuthorizationError) {
@@ -140,7 +140,7 @@ async function handleLocalMapRegion(
   requestId: string,
   actorCharacterId: string | null,
   adminOverride: boolean,
-  taskId: string | null
+  taskId: string | null,
 ): Promise<Response> {
   const source = buildEventSource("local_map_region", requestId);
   const character = await loadCharacter(supabase, characterId);
@@ -165,7 +165,7 @@ async function handleLocalMapRegion(
   if (!knowledge.sectors_visited[String(centerSector)]) {
     throw new LocalMapRegionError(
       `Center sector ${centerSector} must be a visited sector`,
-      400
+      400,
     );
   }
 
@@ -176,7 +176,7 @@ async function handleLocalMapRegion(
   if (!Number.isInteger(maxHops) || maxHops < 0 || maxHops > 100) {
     throw new LocalMapRegionError(
       "max_hops must be an integer between 0 and 100",
-      400
+      400,
     );
   }
 
@@ -187,7 +187,7 @@ async function handleLocalMapRegion(
   if (!Number.isInteger(maxSectors) || maxSectors <= 0) {
     throw new LocalMapRegionError(
       "max_sectors must be a positive integer",
-      400
+      400,
     );
   }
 

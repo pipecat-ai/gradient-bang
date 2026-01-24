@@ -1,6 +1,11 @@
-import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { buildSectorSnapshot, MapKnowledge, normalizeMapKnowledge, loadMapKnowledge } from './map.ts';
+import {
+  buildSectorSnapshot,
+  MapKnowledge,
+  normalizeMapKnowledge,
+  loadMapKnowledge,
+} from "./map.ts";
 
 export interface CharacterRow {
   character_id: string;
@@ -18,7 +23,7 @@ export interface CharacterRow {
 export interface ShipRow {
   ship_id: string;
   owner_id: string | null;
-  owner_type: 'character' | 'corporation' | 'unowned';
+  owner_type: "character" | "corporation" | "unowned";
   owner_character_id: string | null;
   owner_corporation_id: string | null;
   acquired: string | null;
@@ -50,7 +55,10 @@ export interface ShipDefinitionRow {
 
 let cachedUniverseSize: number | null = null;
 const CORPORATION_CACHE_TTL_MS = 60_000;
-const corporationCache = new Map<string, { summary: CorporationSummary; expiresAt: number }>();
+const corporationCache = new Map<
+  string,
+  { summary: CorporationSummary; expiresAt: number }
+>();
 
 interface CorporationSummary {
   corp_id: string;
@@ -63,9 +71,9 @@ async function loadUniverseSize(supabase: SupabaseClient): Promise<number> {
     return cachedUniverseSize;
   }
   const { data, error } = await supabase
-    .from('universe_config')
-    .select('sector_count')
-    .eq('id', 1)
+    .from("universe_config")
+    .select("sector_count")
+    .eq("id", 1)
     .maybeSingle();
   if (error) {
     throw new Error(`failed to load universe_config: ${error.message}`);
@@ -87,12 +95,12 @@ async function loadCorporationSummary(
   }
 
   const { data: corpRow, error: corpError } = await supabase
-    .from('corporations')
-    .select('corp_id, name')
-    .eq('corp_id', corpId)
+    .from("corporations")
+    .select("corp_id, name")
+    .eq("corp_id", corpId)
     .maybeSingle();
   if (corpError) {
-    console.error('status.corporation.load', corpError);
+    console.error("status.corporation.load", corpError);
     return null;
   }
   if (!corpRow) {
@@ -100,11 +108,11 @@ async function loadCorporationSummary(
   }
 
   const { count, error: memberError } = await supabase
-    .from('corporation_members')
-    .select('character_id', { count: 'exact', head: true })
-    .eq('corp_id', corpId);
+    .from("corporation_members")
+    .select("character_id", { count: "exact", head: true })
+    .eq("corp_id", corpId);
   if (memberError) {
-    console.error('status.corporation.members', memberError);
+    console.error("status.corporation.members", memberError);
   }
 
   const summary: CorporationSummary = {
@@ -112,7 +120,10 @@ async function loadCorporationSummary(
     name: corpRow.name,
     member_count: count ?? 0,
   };
-  corporationCache.set(corpId, { summary, expiresAt: Date.now() + CORPORATION_CACHE_TTL_MS });
+  corporationCache.set(corpId, {
+    summary,
+    expiresAt: Date.now() + CORPORATION_CACHE_TTL_MS,
+  });
   return summary;
 }
 
@@ -121,15 +132,17 @@ export async function loadCharacter(
   characterId: string,
 ): Promise<CharacterRow> {
   const { data, error } = await supabase
-    .from('characters')
+    .from("characters")
     .select(
       `character_id, name, current_ship_id, credits_in_megabank, map_knowledge, player_metadata, first_visit, last_active,
        corporation_id, corporation_joined_at`,
     )
-    .eq('character_id', characterId)
+    .eq("character_id", characterId)
     .maybeSingle();
   if (error) {
-    throw new Error(`failed to load character ${characterId}: ${error.message}`);
+    throw new Error(
+      `failed to load character ${characterId}: ${error.message}`,
+    );
   }
   if (!data) {
     throw new Error(`character ${characterId} not found`);
@@ -145,12 +158,12 @@ export async function loadShip(
   shipId: string,
 ): Promise<ShipRow> {
   const { data, error } = await supabase
-    .from('ship_instances')
+    .from("ship_instances")
     .select(
       `ship_id, owner_id, owner_type, owner_character_id, owner_corporation_id, acquired, became_unowned, former_owner_name,
        ship_type, ship_name, current_sector, in_hyperspace, credits, cargo_qf, cargo_ro, cargo_ns, current_warp_power, current_shields, current_fighters`,
     )
-    .eq('ship_id', shipId)
+    .eq("ship_id", shipId)
     .maybeSingle();
   if (error) {
     throw new Error(`failed to load ship ${shipId}: ${error.message}`);
@@ -166,12 +179,16 @@ export async function loadShipDefinition(
   shipType: string,
 ): Promise<ShipDefinitionRow> {
   const { data, error } = await supabase
-    .from('ship_definitions')
-    .select('ship_type, display_name, cargo_holds, warp_power_capacity, turns_per_warp, shields, fighters, purchase_price')
-    .eq('ship_type', shipType)
+    .from("ship_definitions")
+    .select(
+      "ship_type, display_name, cargo_holds, warp_power_capacity, turns_per_warp, shields, fighters, purchase_price",
+    )
+    .eq("ship_type", shipType)
     .maybeSingle();
   if (error) {
-    throw new Error(`failed to load ship definition ${shipType}: ${error.message}`);
+    throw new Error(
+      `failed to load ship definition ${shipType}: ${error.message}`,
+    );
   }
   if (!data) {
     throw new Error(`ship definition ${shipType} missing`);
@@ -179,14 +196,16 @@ export async function loadShipDefinition(
   return data as ShipDefinitionRow;
 }
 
-export function resolvePlayerType(metadata: Record<string, unknown> | null | undefined): string {
-  if (metadata && typeof metadata === 'object') {
-    const candidate = metadata['player_type'];
-    if (typeof candidate === 'string' && candidate.trim() !== '') {
+export function resolvePlayerType(
+  metadata: Record<string, unknown> | null | undefined,
+): string {
+  if (metadata && typeof metadata === "object") {
+    const candidate = metadata["player_type"];
+    if (typeof candidate === "string" && candidate.trim() !== "") {
       return candidate;
     }
   }
-  return 'human';
+  return "human";
 }
 
 export function buildPlayerSnapshot(
@@ -201,10 +220,10 @@ export function buildPlayerSnapshot(
   let hasCorpKnowledge = false;
 
   for (const entry of Object.values(knowledge.sectors_visited)) {
-    if (entry.source === 'player' || entry.source === 'both') {
+    if (entry.source === "player" || entry.source === "both") {
       sectorsVisited++;
     }
-    if (entry.source === 'corp' || entry.source === 'both') {
+    if (entry.source === "corp" || entry.source === "both") {
       corpSectorsVisited++;
       hasCorpKnowledge = true;
     }
@@ -226,27 +245,39 @@ export function buildPlayerSnapshot(
   };
 }
 
-export function buildPublicPlayerSnapshotFromStatus(statusPayload: Record<string, unknown>): Record<string, unknown> {
-  const player = (statusPayload['player'] ?? {}) as Record<string, unknown>;
-  const ship = (statusPayload['ship'] ?? {}) as Record<string, unknown>;
+export function buildPublicPlayerSnapshotFromStatus(
+  statusPayload: Record<string, unknown>,
+): Record<string, unknown> {
+  const player = (statusPayload["player"] ?? {}) as Record<string, unknown>;
+  const ship = (statusPayload["ship"] ?? {}) as Record<string, unknown>;
 
-  const displayName = typeof player['name'] === 'string' ? (player['name'] as string) : null;
-  const canonicalId = typeof player['id'] === 'string' ? (player['id'] as string) : null;
+  const displayName =
+    typeof player["name"] === "string" ? (player["name"] as string) : null;
+  const canonicalId =
+    typeof player["id"] === "string" ? (player["id"] as string) : null;
   const playerId = displayName ?? canonicalId;
 
-  const shipId = typeof ship['ship_id'] === 'string' ? (ship['ship_id'] as string) : null;
-  const shipType = typeof ship['ship_type'] === 'string' ? (ship['ship_type'] as string) : null;
+  const shipType =
+    typeof ship["ship_type"] === "string"
+      ? (ship["ship_type"] as string)
+      : null;
   const shipName =
-    (typeof ship['ship_name'] === 'string' ? (ship['ship_name'] as string) : null) ??
-    (typeof ship['display_name'] === 'string' ? (ship['display_name'] as string) : null) ??
+    (typeof ship["ship_name"] === "string"
+      ? (ship["ship_name"] as string)
+      : null) ??
+    (typeof ship["display_name"] === "string"
+      ? (ship["display_name"] as string)
+      : null) ??
     shipType;
 
   return {
-    created_at: player['created_at'] ?? null,
+    created_at: player["created_at"] ?? null,
     id: playerId,
     name: displayName ?? canonicalId,
-    player_type: player['player_type'] ?? 'human',
-    corporation: Object.prototype.hasOwnProperty.call(player, 'corporation') ? player['corporation'] : null,
+    player_type: player["player_type"] ?? "human",
+    corporation: Object.prototype.hasOwnProperty.call(player, "corporation")
+      ? player["corporation"]
+      : null,
     ship: {
       ship_id: shipId,
       ship_type: shipType,
@@ -264,7 +295,8 @@ function buildShipSnapshot(
     retro_organics: ship.cargo_ro ?? 0,
     neuro_symbolics: ship.cargo_ns ?? 0,
   };
-  const cargoUsed = cargo.quantum_foam + cargo.retro_organics + cargo.neuro_symbolics;
+  const cargoUsed =
+    cargo.quantum_foam + cargo.retro_organics + cargo.neuro_symbolics;
   const cargoCapacity = definition.cargo_holds;
   return {
     ship_id: ship.ship_id,
@@ -295,13 +327,25 @@ export async function buildStatusPayload(
   const knowledge = await loadMapKnowledge(supabase, characterId);
   const universeSize = await loadUniverseSize(supabase);
   const playerType = resolvePlayerType(character.player_metadata);
-  const player = buildPlayerSnapshot(character, playerType, knowledge, universeSize);
+  const player = buildPlayerSnapshot(
+    character,
+    playerType,
+    knowledge,
+    universeSize,
+  );
   const shipSnapshot = buildShipSnapshot(ship, definition);
-  const sectorSnapshot = await buildSectorSnapshot(supabase, ship.current_sector ?? 0, characterId);
+  const sectorSnapshot = await buildSectorSnapshot(
+    supabase,
+    ship.current_sector ?? 0,
+    characterId,
+  );
 
   let corporationPayload: Record<string, unknown> | null = null;
   if (character.corporation_id) {
-    const summary = await loadCorporationSummary(supabase, character.corporation_id);
+    const summary = await loadCorporationSummary(
+      supabase,
+      character.corporation_id,
+    );
     if (summary) {
       corporationPayload = {
         ...summary,
