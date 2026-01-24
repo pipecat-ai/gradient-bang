@@ -3,7 +3,6 @@ import { useCallback, useEffect } from "react"
 import { button, folder, useControls } from "leva"
 import { Story } from "@ladle/react"
 
-import { ChatPanel } from "@/components/ChatPanel"
 import { CoursePlotPanel } from "@/components/CoursePlotPanel"
 import { MapZoomControls } from "@/components/MapZoomControls"
 import { MovementHistoryPanel } from "@/components/MovementHistoryPanel"

@@ -38,6 +38,7 @@ export interface NodeStyle {
   fill: string
   border: string
   borderWidth: number
+  borderStyle: "solid" | "dashed" | "dotted"
   outline: string
   outlineWidth: number
 }
@@ -45,6 +46,7 @@ export interface NodeStyle {
 export interface NodeStyles {
   current: NodeStyle
   visited: NodeStyle
+  visited_corp: NodeStyle
   unvisited: NodeStyle
   muted: NodeStyle
   coursePlotStart: NodeStyle
@@ -61,6 +63,7 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     fill: "rgba(74,144,226,0.4)",
     border: "rgba(74,144,226,1)",
     borderWidth: 2,
+    borderStyle: "solid",
     outline: "rgba(74,144,226,0.6)",
     outlineWidth: 4,
   },
@@ -68,6 +71,15 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     fill: "rgba(0,255,0,0.25)",
     border: "rgba(0,255,0,1)",
     borderWidth: 2,
+    borderStyle: "solid",
+    outline: "none",
+    outlineWidth: 0,
+  },
+  visited_corp: {
+    fill: "rgba(0,255,0,0.10)",
+    border: "rgba(0,255,0,1)",
+    borderWidth: 2,
+    borderStyle: "dotted",
     outline: "none",
     outlineWidth: 0,
   },
@@ -75,6 +87,7 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     fill: "rgba(0,0,0,0.35)",
     border: "rgba(180,180,180,1)",
     borderWidth: 2,
+    borderStyle: "solid",
     outline: "none",
     outlineWidth: 0,
   },
@@ -82,6 +95,7 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     fill: "rgba(40,40,40,0.5)",
     border: "rgba(40,40,40,0.5)",
     borderWidth: 1,
+    borderStyle: "solid",
     outline: "none",
     outlineWidth: 0,
   },
@@ -89,6 +103,7 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     fill: "rgba(0,220,200,0.35)",
     border: "rgba(0,255,230,0.9)",
     borderWidth: 3,
+    borderStyle: "solid",
     outline: "rgba(0,255,230,0.6)",
     outlineWidth: 4,
   },
@@ -96,6 +111,7 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     fill: "rgba(255,200,0,0.35)",
     border: "rgba(255,220,0,0.9)",
     borderWidth: 3,
+    borderStyle: "solid",
     outline: "rgba(255,200,0,0.6)",
     outlineWidth: 4,
   },
@@ -103,6 +119,7 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     fill: "rgba(255,255,255,0.25)",
     border: "rgba(255,255,255,1)",
     borderWidth: 2,
+    borderStyle: "solid",
     outline: "none",
     outlineWidth: 0,
   },
@@ -110,6 +127,7 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     fill: "rgba(100,100,100,0.3)",
     border: "rgba(120,180,170,0.6)",
     borderWidth: 2,
+    borderStyle: "solid",
     outline: "none",
     outlineWidth: 0,
   },
@@ -117,6 +135,7 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     fill: "rgba(0,255,0,0.25)",
     border: "rgba(255,120,120,0.9)",
     borderWidth: 2,
+    borderStyle: "solid",
     outline: "none",
     outlineWidth: 0,
   },
@@ -1037,7 +1056,12 @@ function renderSector(
   } else if (isCrossRegion) {
     baseStyle = config.nodeStyles.crossRegion
   } else if (isVisited) {
-    baseStyle = config.nodeStyles.visited
+    // Use visited_corp style if source is "corp", otherwise visited
+    if (node.source === "corp") {
+      baseStyle = config.nodeStyles.visited_corp
+    } else {
+      baseStyle = config.nodeStyles.visited
+    }
   } else {
     baseStyle = config.nodeStyles.unvisited
   }
@@ -1066,7 +1090,20 @@ function renderSector(
   ctx.strokeStyle = applyAlpha(nodeStyle.border, finalOpacity)
   ctx.lineWidth = nodeStyle.borderWidth
 
+  // Apply border style (solid, dashed, dotted)
+  if (nodeStyle.borderStyle === "dotted") {
+    ctx.setLineDash([2, 2])
+    ctx.lineCap = "butt"
+  } else if (nodeStyle.borderStyle === "dashed") {
+    ctx.setLineDash([6, 4])
+    ctx.lineCap = "butt"
+  } else {
+    ctx.setLineDash([])
+  }
+
   drawHex(ctx, world.x, world.y, effectiveHexSize, true)
+  ctx.setLineDash([])
+  ctx.lineCap = "butt"
 
   if (config.show_ports && node.port) {
     const isMegaPort = node.is_mega || node.id === 0
