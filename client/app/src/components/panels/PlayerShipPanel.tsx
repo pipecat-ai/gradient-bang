@@ -40,6 +40,10 @@ const ShipBlankSlate = ({
 }
 
 const ShipCard = ({ ship }: { ship: ShipSelf }) => {
+  const activeTask = useGameStore((state) =>
+    Object.values(state.activeTasks).find((task) => task.ship_id === ship.ship_id)
+  )
+  console.log(activeTask)
   return (
     <div className="uppercase shrink-0 py-3 pb-3.5">
       <div className="flex flex-col gap-2">
@@ -54,12 +58,26 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
             <span className="min-w-6 text-right">{ship.sector}</span>
           </Badge>
           <DotDivider />
-          <Badge variant="secondary" border="elbow" size="sm" className="font-semibold">
-            <span className="px-3 text-subtle">Inactive</span>
+          <Badge
+            variant={activeTask ? "success" : "secondary"}
+            border="bracket"
+            size="sm"
+            className="font-semibold w-24"
+          >
+            {activeTask ?
+              <>
+                <CircleNotchIcon weight="duotone" size={16} className="animate-spin" /> Active
+              </>
+            : <span className="text-muted-foreground">Inactive</span>}
           </Badge>
-          <div className="flex flex-row gap-1 items-center">
+          <div
+            className={cn(
+              "flex flex-row gap-1 items-center text-xs",
+              activeTask ? "gap-1.5 text-white" : "text-accent-foreground"
+            )}
+          >
             <UserIcon weight="duotone" className="size-4" />
-            <span className="text-xs text-accent-foreground">---</span>
+            {activeTask ? activeTask.actor_character_name : "---"}
           </div>
         </div>
       </div>
@@ -89,7 +107,7 @@ const PlayerShipPanelContent = ({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="px-panel-gap"
+            className="px-2"
           >
             <ShipBlankSlate fetching={isFetching} empty={ships === undefined} />
           </motion.div>
@@ -99,6 +117,7 @@ const PlayerShipPanelContent = ({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            className="px-2"
           >
             <ShipBlankSlate>
               <span className="flex flex-row gap-2 items-center justify-center">

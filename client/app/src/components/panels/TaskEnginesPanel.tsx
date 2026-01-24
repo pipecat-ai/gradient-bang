@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 
 import { cva } from "class-variance-authority"
 import { motion } from "motion/react"
-import { CircleNotchIcon, LockKeyIcon, StopCircleIcon } from "@phosphor-icons/react"
+import { CircleNotchIcon, LockSimpleIcon, StopCircleIcon } from "@phosphor-icons/react"
 
 import { Button } from "@/components/primitives/Button"
 import { Card, CardContent } from "@/components/primitives/Card"
@@ -30,7 +30,7 @@ const stateLabels: Record<TaskEngineState, string> = {
 }
 
 const cx = cva(
-  "relative elbow elbow-offset-1 elbow-size-10 elbow-2 transition-opacity duration-1000 select-none",
+  "relative elbow elbow-offset-1 elbow-size-10 elbow-2 transition-opacity duration-1000 select-none h-full",
   {
     variants: {
       state: {
@@ -60,28 +60,46 @@ const TaskEngineHeader = ({ prefix, label }: { prefix?: string; label: string })
   )
 }
 
+const TaskEngineBlankSlate = () => {
+  return (
+    <Card
+      className="border-border/0 relative elbow elbow-offset-1 elbow-size-10 elbow-2 elbow-subtle-foreground select-none h-full bg-background/50 opacity-40"
+      size="sm"
+    >
+      <CardContent className="flex flex-col gap-2 h-full relative"></CardContent>
+    </Card>
+  )
+}
+
 const LockedTaskEngineSlot = () => {
   return (
-    <div className="col-span-1 opacity-30">
+    <motion.div
+      initial={{ opacity: 0.4 }}
+      animate={{ opacity: 0.4 }}
+      whileHover={{ opacity: 1 }}
+      transition={{ opacity: { duration: 0.3 } }}
+      className="col-span-1 h-full"
+    >
       <Card
-        className="relative elbow elbow-offset-1 elbow-size-10 elbow-2 elbow-subtle-foreground select-none"
+        className="relative elbow elbow-offset-1 elbow-size-10 elbow-2 elbow-subtle-foreground select-none h-full bg-background/50"
         size="sm"
       >
-        <CardContent className="flex flex-col gap-2">
-          <TaskEngineHeader label="Locked" />
-          <div className="h-[200px] flex items-center justify-center">
-            <div className="flex flex-col items-center gap-2 text-muted-foreground">
-              <LockKeyIcon weight="duotone" size={32} />
-              <span className="text-xs uppercase tracking-wider">Purchase a corp ship to unlock</span>
+        <span
+          className="absolute inset-3 cross-lines-terminal-foreground/20 z-1 pointer-events-none animate-in zoom-in-0 duration-300 ease-in-out"
+          aria-hidden="true"
+        />
+        <CardContent className="flex flex-col gap-2 h-full relative">
+          <div className="flex-1 flex items-center justify-center">
+            <div className="flex flex-row items-center gap-1.5 text-subtle-foreground bg-black py-0.5 px-1">
+              <LockSimpleIcon weight="bold" size={14} />
+              <span className="text-xs uppercase text-muted-foreground font-bold">
+                additional corp ship required
+              </span>
             </div>
-          </div>
-          <div className="h-2 dashed-bg-horizontal dashed-bg-accent ml-panel-gap"></div>
-          <div className="relative">
-            <TaskStatusBadge state="idle" label="Locked" />
           </div>
         </CardContent>
       </Card>
-    </div>
+    </motion.div>
   )
 }
 
@@ -128,7 +146,7 @@ export const TaskEngine = ({ taskId, isLocal }: { taskId?: string | null; isLoca
           duration: 1,
         },
       }}
-      className="col-span-1"
+      className="col-span-1 h-full"
     >
       <Card className={cx({ state })} size="sm">
         <CardContent className="flex flex-col gap-2">
@@ -141,11 +159,13 @@ export const TaskEngine = ({ taskId, isLocal }: { taskId?: string | null; isLoca
               : "Awaiting Task"
             }
           />
+        </CardContent>
 
-          <div className="h-[200px] overflow-y-auto">
-            <TaskOutputStream taskId={taskId} />
-          </div>
+        <div className="h-full flex flex-col justify-end overflow-y-auto">
+          <TaskOutputStream taskId={taskId} />
+        </div>
 
+        <CardContent className="flex flex-col gap-2">
           <div className="h-2 dashed-bg-horizontal dashed-bg-accent ml-panel-gap"></div>
 
           <div className="relative">
@@ -182,7 +202,7 @@ export const TaskEnginesPanel = () => {
   const localTaskId = useGameStore.use.localTaskId?.()
   const setLocalTaskId = useGameStore.use.setLocalTaskId?.()
 
-  const { isFetching } = useDispatchInterval("get-my-ships", {
+  useDispatchInterval("get-my-ships", {
     data: ships.data,
   })
 
@@ -211,31 +231,32 @@ export const TaskEnginesPanel = () => {
     }
   }, [activeLocalTask, setLocalTaskId])
 
-  // Assign corp tasks to slots when they appear
-  useEffect(() => {
-    if (!assignTaskToCorpSlot) return
-
-    // Assign each corp task to a slot (round-robin logic handled in slice)
-    for (const task of corpShipTasks) {
-      assignTaskToCorpSlot(task.task_id)
-    }
-  }, [corpShipTasks, assignTaskToCorpSlot])
-
-  if (isFetching) {
-    return <div>Loading...</div>
-  }
-
   const MAX_CORP_SLOTS = 3
   const displayedCorpSlots = Math.min(corpShipCount, MAX_CORP_SLOTS)
   const showLockedPlaceholder = corpShipCount < MAX_CORP_SLOTS
 
+  // Assign corp tasks to slots when they appear
+  useEffect(() => {
+    if (!assignTaskToCorpSlot) return
+
+    // Assign each corp task to a slot, limited by unlocked slots
+    for (const task of corpShipTasks) {
+      assignTaskToCorpSlot(task.task_id, displayedCorpSlots)
+    }
+  }, [corpShipTasks, assignTaskToCorpSlot, displayedCorpSlots])
+
   return (
-    <div className="grid grid-cols-2 gap-4">
+    <div className="grid grid-cols-2 auto-rows-[340px] gap-2">
       <TaskEngine taskId={localTaskId} isLocal />
-      {Array.from({ length: displayedCorpSlots }, (_, index) => (
-        <TaskEngine key={index} taskId={corpSlotAssignments?.[index]} />
-      ))}
-      {showLockedPlaceholder && <LockedTaskEngineSlot />}
+      {!ships.data ?
+        <TaskEngineBlankSlate />
+      : <>
+          {Array.from({ length: displayedCorpSlots }, (_, index) => (
+            <TaskEngine key={index} taskId={corpSlotAssignments?.[index]} />
+          ))}
+          {showLockedPlaceholder && <LockedTaskEngineSlot />}
+        </>
+      }
     </div>
   )
 }

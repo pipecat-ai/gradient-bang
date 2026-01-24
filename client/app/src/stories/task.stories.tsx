@@ -2,6 +2,7 @@ import { button, buttonGroup, folder, useControls } from "leva"
 import { faker } from "@faker-js/faker"
 import type { Story } from "@ladle/react"
 
+import { PlayerShipPanel } from "@/components/panels/PlayerShipPanel"
 import { TaskEnginesPanel } from "@/components/panels/TaskEnginesPanel"
 import useGameStore from "@/stores/game"
 
@@ -60,7 +61,18 @@ export const TaskEnginesStory: Story = () => {
         setLocalTaskId(taskId)
       }),
       ["Add Corp Task"]: button(() => {
+        const ships = useGameStore.getState().ships?.data ?? []
+        const corpShips = ships.filter((s) => s.owner_type === "corporation")
+
+        if (corpShips.length === 0) {
+          console.warn("No corp ships available. Add a corp ship first.")
+          return
+        }
+
+        // Pick a random corp ship
+        const ship = faker.helpers.arrayElement(corpShips)
         const taskId = faker.string.uuid()
+
         addActiveTask({
           ...TASK_MOCK,
           task_scope: "corp_ship",
@@ -69,8 +81,9 @@ export const TaskEnginesStory: Story = () => {
           task_description: faker.lorem.sentence(),
           actor_character_id: faker.string.uuid(),
           actor_character_name: faker.person.fullName(),
-          ship_name: faker.vehicle.vehicle(),
-          ship_type: faker.helpers.arrayElement(["cargo_ship", "battle_cruiser", "scout"]),
+          ship_id: ship.ship_id,
+          ship_name: ship.ship_name,
+          ship_type: ship.ship_type,
         })
         assignTaskToCorpSlot(taskId)
       }),
@@ -144,7 +157,12 @@ export const TaskEnginesStory: Story = () => {
     [localTaskId, corpSlotAssignments]
   )
 
-  return <TaskEnginesPanel />
+  return (
+    <>
+      <TaskEnginesPanel />
+      <PlayerShipPanel />
+    </>
+  )
 }
 
 TaskEnginesStory.meta = {

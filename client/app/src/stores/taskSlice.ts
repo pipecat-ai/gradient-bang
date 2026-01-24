@@ -16,7 +16,7 @@ export interface TaskSlice {
   getTaskSummaryByTaskId: (taskId: string) => TaskSummary | undefined
   getTaskByTaskId: (taskId: string) => ActiveTask | undefined
   setTaskWasCancelled: (taskWasCancelled: boolean) => void
-  assignTaskToCorpSlot: (taskId: string) => number | null
+  assignTaskToCorpSlot: (taskId: string, maxSlots?: number) => number | null
   clearCorpSlot: (slotIndex: number) => void
   setLocalTaskId: (taskId: string) => void
 }
@@ -85,18 +85,21 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
       })
     ),
 
-  assignTaskToCorpSlot: (taskId: string) => {
+  assignTaskToCorpSlot: (taskId: string, maxSlots?: number) => {
     const { corpSlotAssignments, activeTasks, taskSummaries } = get()
 
-    // Check if task is already assigned to a slot
+    // Limit slots to maxSlots if provided (based on unlocked corp ships)
+    const slotLimit = maxSlots ?? corpSlotAssignments.length
+
+    // Check if task is already assigned to a slot (within the limit)
     const existingSlot = corpSlotAssignments.indexOf(taskId)
-    if (existingSlot !== -1) {
+    if (existingSlot !== -1 && existingSlot < slotLimit) {
       return existingSlot
     }
 
     // Find a free slot (null, or task_id not in activeTasks AND not in taskSummaries)
     let freeSlotIndex = -1
-    for (let i = 0; i < corpSlotAssignments.length; i++) {
+    for (let i = 0; i < slotLimit; i++) {
       const slotTaskId = corpSlotAssignments[i]
       if (slotTaskId === null) {
         freeSlotIndex = i
@@ -123,7 +126,7 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
     let oldestSlotIndex = -1
     let oldestStartedAt: string | null = null
 
-    for (let i = 0; i < corpSlotAssignments.length; i++) {
+    for (let i = 0; i < slotLimit; i++) {
       const slotTaskId = corpSlotAssignments[i]
       if (slotTaskId === null) continue
 
@@ -149,7 +152,10 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
       return oldestSlotIndex
     }
 
-    // All slots have active tasks - cannot assign
+    // All unlocked slots have active tasks - cannot assign
+    console.warn(
+      `[TaskSlice] Cannot assign task ${taskId}: all ${slotLimit} unlocked slot(s) are occupied`
+    )
     return null
   },
 

@@ -15,7 +15,8 @@ const badgeVariants = cva(
         countIncrement: "bg-success-background text-success-foreground",
         countDecrement: "bg-warning-background text-warning-foreground",
         highlight: "border-transparent bg-fuel/20 text-fuel bracket-fuel bracket-offset-0",
-        success: "border-success bg-success/20 text-success-foreground",
+        success:
+          "border-transparent bg-success-background text-success-foreground bracket-offset-1 bracket-success",
         warning: "border-warning bg-warning-background text-warning-foreground",
       },
       border: {
@@ -53,7 +54,7 @@ const badgeVariants = cva(
       {
         border: "bracket",
         size: "sm",
-        class: "bracket-size-6",
+        class: "bracket-size-4",
       },
       {
         border: "bracket",
