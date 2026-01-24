@@ -94,6 +94,7 @@ class VoiceTaskManager:
         """
         self.character_id = character_id
         self.display_name: str = character_id
+        self._current_sector_id: Optional[int] = None
         # Create a game client; use SUPABASE_URL if available, otherwise use provided base_url or default
         resolved_base_url = os.getenv("SUPABASE_URL") or base_url or os.getenv("GAME_SERVER_URL", "http://localhost:8000")
         self.game_client = AsyncGameClient(
@@ -328,9 +329,83 @@ class VoiceTaskManager:
         # Fall back to standard summary
         return event.get("summary")
 
+    @staticmethod
+    def _extract_sector_id(payload: Mapping[str, Any]) -> Optional[int]:
+        sector = payload.get("sector")
+        if isinstance(sector, Mapping):
+            candidate = sector.get("id") or sector.get("sector_id")
+        else:
+            candidate = payload.get("sector_id")
+            if candidate is None:
+                candidate = sector
+        if isinstance(candidate, int):
+            return candidate
+        if isinstance(candidate, str) and candidate.strip().isdigit():
+            try:
+                return int(candidate.strip())
+            except ValueError:
+                return None
+        return None
+
     async def _relay_event(self, event: Dict[str, Any]) -> None:
         event_name = event.get("event_name")
         payload = event.get("payload")
+        event_request_id = event.get("request_id")
+
+        player_id: Optional[str] = None
+        if isinstance(payload, Mapping):
+            player = payload.get("player")
+            if isinstance(player, Mapping):
+                candidate = player.get("id")
+                if isinstance(candidate, str) and candidate.strip():
+                    player_id = candidate
+
+        is_other_player_event = bool(
+            player_id and player_id != self.character_id
+        )
+
+        # Emit map.update for newly discovered sectors (client UI only, no logging)
+        if event_name == "movement.complete" and isinstance(payload, Mapping):
+            first_visit = bool(payload.get("first_visit", False))
+            known_to_corp = bool(payload.get("known_to_corp", False))
+
+            # Send map.update only if this is a truly new discovery (not known to merged knowledge)
+            if first_visit and not known_to_corp:
+                sector_data = payload.get("sector")
+                if isinstance(sector_data, Mapping):
+                    sector_id = sector_data.get("id") or sector_data.get("sector_id")
+                    await self.rtvi_processor.push_frame(
+                        RTVIServerMessageFrame(
+                            {
+                                "frame_type": "event",
+                                "event": "map.update",
+                                "payload": {
+                                    "sector_id": sector_id,
+                                    "newly_discovered": True,
+                                    "sector": sector_data,
+                                },
+                            }
+                        )
+                    )
+                else:
+                    logger.debug("Skipping map.update; missing sector payload")
+
+        # Filter out corp-visible movement events we don't want to forward
+        drop_event = False
+        if event_name == "movement.start" and is_other_player_event:
+            drop_event = True
+        elif event_name == "movement.complete" and is_other_player_event:
+            drop_event = True
+        elif event_name == "character.moved" and is_other_player_event:
+            movement = payload.get("movement") if isinstance(payload, Mapping) else None
+            if movement == "depart":
+                sector_id = self._extract_sector_id(payload)
+                if self._current_sector_id is not None and sector_id is not None:
+                    if sector_id != self._current_sector_id:
+                        drop_event = True
+
+        if drop_event:
+            return
 
         await self.rtvi_processor.push_frame(
             RTVIServerMessageFrame(
@@ -341,6 +416,16 @@ class VoiceTaskManager:
                 }
             )
         )
+
+        # Track current sector for local visibility decisions
+        if (
+            not is_other_player_event
+            and isinstance(payload, Mapping)
+            and event_name in {"status.snapshot", "status.update", "movement.complete"}
+        ):
+            sector_id = self._extract_sector_id(payload)
+            if sector_id is not None:
+                self._current_sector_id = sector_id
 
         # Use voice-specific condensed summary for verbose events
         if event_name:
@@ -393,7 +478,6 @@ class VoiceTaskManager:
         }
 
         # Check if event came from voice agent's tool call
-        event_request_id = event.get("request_id")
         is_voice_agent_event = event_request_id in self._voice_agent_request_ids
 
         # Debug logging for request ID tracking
