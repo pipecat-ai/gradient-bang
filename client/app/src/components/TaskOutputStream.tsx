@@ -20,11 +20,12 @@ const TaskTypeBadge = ({ type }: { type: Task["type"] }) => {
         : type === "STEP" ?
           "bg-subtle-background text-muted-foreground border border-subtle-foreground"
         : type === "COMPLETE" ? "border border-success bg-success-background text-success"
+        : type === "CANCELLED" ? "bg-warning text-warning-background"
         : type === "FINISHED" ? "bg-success-background text-success-foreground"
         : "bg-foreground text-background"
       )}
     >
-      {type === "FAILED" ? "CANCELLED" : type}
+      {type}
     </div>
   )
 }

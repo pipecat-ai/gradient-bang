@@ -1,7 +1,6 @@
 import { AnimatePresence, motion } from "motion/react"
 import { CircleNotchIcon, UserIcon } from "@phosphor-icons/react"
 
-import { useDispatchInterval } from "@/hooks/useDispatchInterval"
 import { CurrentSectorIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
@@ -12,11 +11,9 @@ import { DotDivider } from "../primitives/DotDivider"
 
 const ShipBlankSlate = ({
   fetching,
-  empty,
   children,
 }: {
   fetching?: boolean
-  empty?: boolean
   children?: React.ReactNode
 }) => {
   return (
@@ -27,10 +24,8 @@ const ShipBlankSlate = ({
           {fetching ?
             <span className="animate-pulse flex flex-row gap-2 items-center justify-center">
               <CircleNotchIcon weight="bold" className="shrink-0 size-3 animate-spin" />
-              Fetching ships...
+              Awaiting ship data
             </span>
-          : empty ?
-            <span className="flex flex-row gap-2 items-center justify-center">Not connected</span>
           : children}
         </div>
         <div className="flex-1 dotted-bg-sm text-accent h-3"></div>
@@ -43,7 +38,6 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
   const activeTask = useGameStore((state) =>
     Object.values(state.activeTasks).find((task) => task.ship_id === ship.ship_id)
   )
-  console.log(activeTask)
   return (
     <div className="uppercase shrink-0 py-3 pb-3.5">
       <div className="flex flex-col gap-2">
@@ -87,11 +81,9 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
 
 const PlayerShipPanelContent = ({
   ships,
-  isFetching,
   className,
 }: {
   ships: ShipSelf[] | undefined
-  isFetching: boolean
   className?: string
 }) => {
   return (
@@ -101,7 +93,7 @@ const PlayerShipPanelContent = ({
       className={cn("bg-card border", className)}
     >
       <AnimatePresence mode="wait">
-        {!ships || isFetching ?
+        {!ships ?
           <motion.div
             key="loading"
             initial={{ opacity: 0 }}
@@ -109,7 +101,7 @@ const PlayerShipPanelContent = ({
             exit={{ opacity: 0 }}
             className="px-2"
           >
-            <ShipBlankSlate fetching={isFetching} empty={ships === undefined} />
+            <ShipBlankSlate fetching={ships === undefined} />
           </motion.div>
         : ships.filter((ship) => ship.owner_type === "corporation").length === 0 ?
           <motion.div
@@ -166,14 +158,7 @@ const PlayerShipPanelContent = ({
 export const PlayerShipPanel = ({ className }: { className?: string }) => {
   const shipsState = useGameStore((state) => state.ships)
 
-  const { isFetching } = useDispatchInterval("get-my-ships", {
-    data: shipsState.data,
-    // interval: SHIP_HYDRATION_INTERVAL,
-    // staleTime: SHIP_HYDRATION_STALE_TIME,
-    // lastUpdated: shipsState.last_updated
-  })
-
   const ships = shipsState.data
 
-  return <PlayerShipPanelContent ships={ships} isFetching={isFetching} className={className} />
+  return <PlayerShipPanelContent ships={ships} className={className} />
 }

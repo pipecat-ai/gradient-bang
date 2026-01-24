@@ -240,6 +240,7 @@ declare global {
     | "FAILED"
     | "COMPLETE"
     | "FINISHED"
+    | "CANCELLED"
 
   interface Task {
     id: string

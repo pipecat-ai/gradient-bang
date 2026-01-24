@@ -32,6 +32,20 @@ export const PlayerShipStory: Story = () => {
             ...(s.data ?? []),
             {
               ...SHIP_MOCK,
+              owner_type: "personal",
+              ship_id: faker.string.uuid(),
+              ship_name: faker.vehicle.vehicle(),
+              ship_type: faker.vehicle.type(),
+              sector: faker.number.int(5000),
+            } as ShipSelf,
+          ])
+        }),
+        ["TEST: Add Mock Corp Ship"]: button(() => {
+          const s = useGameStore.getState().ships ?? []
+          setShips([
+            ...(s.data ?? []),
+            {
+              ...SHIP_MOCK,
               ship_id: faker.string.uuid(),
               ship_name: faker.vehicle.vehicle(),
               ship_type: faker.vehicle.type(),

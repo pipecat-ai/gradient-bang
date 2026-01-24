@@ -7,7 +7,6 @@ import { CircleNotchIcon, LockSimpleIcon, StopCircleIcon } from "@phosphor-icons
 import { Button } from "@/components/primitives/Button"
 import { Card, CardContent } from "@/components/primitives/Card"
 import { TaskStatusBadge } from "@/components/TaskStatusBadge"
-import { useDispatchInterval } from "@/hooks/useDispatchInterval"
 import useGameStore from "@/stores/game"
 
 import { TaskOutputStream } from "../TaskOutputStream"
@@ -201,10 +200,6 @@ export const TaskEnginesPanel = () => {
   const assignTaskToCorpSlot = useGameStore.use.assignTaskToCorpSlot?.()
   const localTaskId = useGameStore.use.localTaskId?.()
   const setLocalTaskId = useGameStore.use.setLocalTaskId?.()
-
-  useDispatchInterval("get-my-ships", {
-    data: ships.data,
-  })
 
   // Count corporation ships to determine number of corp slots
   const corpShipCount = useMemo(() => {
