@@ -4,6 +4,7 @@ import { CircleNotchIcon, UserIcon } from "@phosphor-icons/react"
 import { useDispatchInterval } from "@/hooks/useDispatchInterval"
 import { CurrentSectorIcon } from "@/icons"
 import useGameStore from "@/stores/game"
+import { cn } from "@/utils/tailwind"
 
 import { PopoverHelper } from "../PopoverHelper"
 import { Badge } from "../primitives/Badge"
@@ -69,12 +70,18 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
 const PlayerShipPanelContent = ({
   ships,
   isFetching,
+  className,
 }: {
   ships: ShipSelf[] | undefined
   isFetching: boolean
+  className?: string
 }) => {
   return (
-    <motion.div layout transition={{ duration: 0.3, ease: "easeInOut" }} className="bg-card border">
+    <motion.div
+      layout
+      transition={{ duration: 0.3, ease: "easeInOut" }}
+      className={cn("bg-card border", className)}
+    >
       <AnimatePresence mode="wait">
         {!ships || isFetching ?
           <motion.div
@@ -137,7 +144,7 @@ const PlayerShipPanelContent = ({
   )
 }
 
-export const PlayerShipPanel = () => {
+export const PlayerShipPanel = ({ className }: { className?: string }) => {
   const shipsState = useGameStore((state) => state.ships)
 
   const { isFetching } = useDispatchInterval("get-my-ships", {
@@ -149,5 +156,5 @@ export const PlayerShipPanel = () => {
 
   const ships = shipsState.data
 
-  return <PlayerShipPanelContent ships={ships} isFetching={isFetching} />
+  return <PlayerShipPanelContent ships={ships} isFetching={isFetching} className={className} />
 }

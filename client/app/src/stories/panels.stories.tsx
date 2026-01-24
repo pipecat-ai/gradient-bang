@@ -2,6 +2,7 @@ import { button, folder, useControls } from "leva"
 import { faker } from "@faker-js/faker"
 import type { Story } from "@ladle/react"
 
+import { MiniMapPanel } from "@/components/panels/MiniMapPanel"
 import { PlayerShipPanel } from "@/components/panels/PlayerShipPanel"
 import { useGameContext } from "@/hooks/useGameContext"
 import useGameStore from "@/stores/game"
@@ -44,14 +45,28 @@ export const PlayerShipStory: Story = () => {
 
   return (
     <>
-      <div className="min-h-64">
-        <PlayerShipPanel />
-      </div>
+      <PlayerShipPanel />
     </>
   )
 }
 
 PlayerShipStory.meta = {
+  useDevTools: true,
+  enableMic: false,
+}
+
+export const PlayerShipsAndMiniMapStory: Story = () => {
+  return (
+    <div className="flex flex-row gap-3">
+      <PlayerShipPanel className="flex-1 self-start" />
+      <div className="w-[440px] h-[440px]">
+        <MiniMapPanel />
+      </div>
+    </div>
+  )
+}
+
+PlayerShipsAndMiniMapStory.meta = {
   useDevTools: true,
   enableMic: false,
 }
