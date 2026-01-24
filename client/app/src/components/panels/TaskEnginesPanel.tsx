@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 
 import { cva } from "class-variance-authority"
 import { motion } from "motion/react"
-import { CircleNotchIcon, StopCircleIcon } from "@phosphor-icons/react"
+import { CircleNotchIcon, LockKeyIcon, StopCircleIcon } from "@phosphor-icons/react"
 
 import { Button } from "@/components/primitives/Button"
 import { Card, CardContent } from "@/components/primitives/Card"
@@ -56,6 +56,31 @@ const TaskEngineHeader = ({ prefix, label }: { prefix?: string; label: string })
         {prefix && <span className="text-accent-foreground">{prefix}</span>} {label}
       </div>
       <div className="flex-1 dotted-bg-sm text-accent h-3"></div>
+    </div>
+  )
+}
+
+const LockedTaskEngineSlot = () => {
+  return (
+    <div className="col-span-1 opacity-30">
+      <Card
+        className="relative elbow elbow-offset-1 elbow-size-10 elbow-2 elbow-subtle-foreground select-none"
+        size="sm"
+      >
+        <CardContent className="flex flex-col gap-2">
+          <TaskEngineHeader label="Locked" />
+          <div className="h-[200px] flex items-center justify-center">
+            <div className="flex flex-col items-center gap-2 text-muted-foreground">
+              <LockKeyIcon weight="duotone" size={32} />
+              <span className="text-xs uppercase tracking-wider">Purchase a corp ship to unlock</span>
+            </div>
+          </div>
+          <div className="h-2 dashed-bg-horizontal dashed-bg-accent ml-panel-gap"></div>
+          <div className="relative">
+            <TaskStatusBadge state="idle" label="Locked" />
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }
@@ -161,6 +186,11 @@ export const TaskEnginesPanel = () => {
     data: ships.data,
   })
 
+  // Count corporation ships to determine number of corp slots
+  const corpShipCount = useMemo(() => {
+    return ships.data?.filter((ship) => ship.owner_type === "corporation").length ?? 0
+  }, [ships.data])
+
   // Get active local player task
   const activeLocalTask = useMemo(() => {
     const playerTasks = Object.values(activeTasks ?? {}).filter(
@@ -195,12 +225,17 @@ export const TaskEnginesPanel = () => {
     return <div>Loading...</div>
   }
 
+  const MAX_CORP_SLOTS = 3
+  const displayedCorpSlots = Math.min(corpShipCount, MAX_CORP_SLOTS)
+  const showLockedPlaceholder = corpShipCount < MAX_CORP_SLOTS
+
   return (
     <div className="grid grid-cols-2 gap-4">
       <TaskEngine taskId={localTaskId} isLocal />
-      <TaskEngine taskId={corpSlotAssignments?.[0]} />
-      <TaskEngine taskId={corpSlotAssignments?.[1]} />
-      <TaskEngine taskId={corpSlotAssignments?.[2]} />
+      {Array.from({ length: displayedCorpSlots }, (_, index) => (
+        <TaskEngine key={index} taskId={corpSlotAssignments?.[index]} />
+      ))}
+      {showLockedPlaceholder && <LockedTaskEngineSlot />}
     </div>
   )
 }

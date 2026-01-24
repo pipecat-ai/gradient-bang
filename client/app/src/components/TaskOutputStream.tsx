@@ -16,9 +16,11 @@ const TaskTypeBadge = ({ type }: { type: Task["type"] }) => {
         "uppercase font-extrabold text-center py-1 leading-none",
         type === "FAILED" ? "bg-warning text-warning-background"
         : type === "ACTION" ? "bg-warning-background text-warning-foreground"
-        : type === "EVENT" ? "bg-fuel text-fuel-background"
-        : type === "STEP" ? "bg-primary/30 text-primary border border-primary"
-        : type === "COMPLETE" ? "bg-success-background text-success-foreground"
+        : type === "EVENT" ? "bg-terminal-background text-terminal"
+        : type === "STEP" ?
+          "bg-subtle-background text-muted-foreground border border-subtle-foreground"
+        : type === "COMPLETE" ? "border border-success bg-success-background text-success"
+        : type === "FINISHED" ? "bg-success-background text-success-foreground"
         : "bg-foreground text-background"
       )}
     >
@@ -51,7 +53,7 @@ const formatTaskSummary = (summary: string) => {
     const rest = cleaned.slice(match[0].length)
     return (
       <>
-        <span className="text-cyan-400 font-semibold">{prefix}</span> {rest}
+        <span className="text-terminal font-semibold">{prefix}</span> {rest}
       </>
     )
   }
@@ -63,13 +65,13 @@ const TaskRow = ({ task, className }: { task: TaskOutput; className?: string }) 
   return (
     <div
       className={cn(
-        "flex flex-row gap-4 w-full border-b border-white/20 last:border-b-0 py-2 last:pb-0 text-[10px] select-none",
+        "flex flex-row gap-4 w-full border-b border-muted last:border-b-0 py-2 last:pb-0 text-[10px] select-none",
         className
       )}
     >
       <div className="flex flex-row gap-3">
         <div className="w-16">
-          <TaskTypeBadge type={task.task_message_type} />
+          <TaskTypeBadge type={task.task_message_type.toUpperCase() as TaskType} />
         </div>
         <div className="normal-case flex-1">
           {formatTaskSummary(task.task_message_type === "FAILED" ? "Task cancelled" : task.text)}
@@ -96,16 +98,16 @@ export const TaskOutputStreamComponent = ({ tasks }: { tasks: TaskOutput[] }) =>
 
   return (
     <Card
-      className="flex w-full bg-transparent border-none h-full min-h-0 overflow-hidden select-none pointer-events-none"
+      className="flex w-full bg-transparent border-none h-full min-h-0 overflow-hidden select-none pointer-events-none mt-auto"
       size="none"
     >
-      <CardContent className="relative flex flex-col gap-2 h-fulljustify-end mask-[linear-gradient(to_bottom,transparent_0%,black_30%,black_100%)] h-full">
+      <CardContent className="relative flex flex-col gap-2 h-full justify-end mask-[linear-gradient(to_bottom,transparent_0%,black_30%,black_100%)]">
         <ScrollArea
           className="w-full h-full overflow-hidden pointer-events-auto"
           fullHeight={true}
           classNames={{ scrollbar: "*:first:bg-white/30" }}
         >
-          <div>
+          <div className="h-full flex flex-col justify-end hover:opacity-100 select-none">
             {visibleTasks.map((task, index) => {
               if (task.task_message_type === "COMPLETE") {
                 return <TaskCompleteRow key={`${task.task_id}-${index}`} />
@@ -123,17 +125,32 @@ export const TaskOutputStreamComponent = ({ tasks }: { tasks: TaskOutput[] }) =>
 const EMPTY_OUTPUTS: TaskOutput[] = []
 
 export const TaskOutputStream = ({ taskId }: { taskId?: string | null }) => {
+  // Track the last taskId and cached outputs - reset cache when taskId changes
+  const [cachedTaskId, setCachedTaskId] = useState<string | null>(null)
+  const [cachedOutputs, setCachedOutputs] = useState<TaskOutput[]>([])
+
   const tasks = useGameStore((state) =>
     taskId ? (state.taskOutputs[taskId] ?? EMPTY_OUTPUTS) : EMPTY_OUTPUTS
   )
 
-  console.log("PEW", taskId)
+  // When taskId changes to a new value, reset the cache for the new task (during render)
+  if (taskId && taskId !== cachedTaskId) {
+    setCachedTaskId(taskId)
+    setCachedOutputs([])
+  }
 
-  if (!taskId) {
+  // Update cache whenever we have real outputs - this preserves them after task finishes
+  if (tasks.length > 0 && tasks !== cachedOutputs) {
+    setCachedOutputs(tasks)
+  }
+
+  // Use live outputs if available, otherwise fall back to cached outputs
+  const displayTasks = tasks.length > 0 ? tasks : cachedOutputs
+
+  // Only render if we have something to show (either live or cached)
+  if (!taskId && cachedOutputs.length === 0) {
     return null
   }
 
-  console.log("PEW", tasks)
-
-  return <TaskOutputStreamComponent tasks={tasks} />
+  return <TaskOutputStreamComponent tasks={displayTasks} />
 }

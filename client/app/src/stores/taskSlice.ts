@@ -9,6 +9,7 @@ export interface TaskSlice {
   taskOutputs: Record<string, TaskOutput[]>
   addTaskOutput: (taskOutput: TaskOutput) => void
   getTaskOutputsByTaskId: (taskId: string) => TaskOutput[]
+  removeTaskOutputsByTaskId: (taskId: string) => void
   addActiveTask: (task: ActiveTask) => void
   removeActiveTask: (taskId: string) => void
   addTaskSummary: (taskSummary: TaskSummary) => void
@@ -39,6 +40,12 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
 
   getTaskOutputsByTaskId: (taskId: string) => get().taskOutputs[taskId] ?? [],
   getTaskOutputs: () => get().taskOutputs,
+  removeTaskOutputsByTaskId: (taskId: string) =>
+    set(
+      produce((state) => {
+        delete state.taskOutputs[taskId]
+      })
+    ),
 
   addActiveTask: (task: ActiveTask) =>
     set(

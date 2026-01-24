@@ -31,7 +31,6 @@ const addOutput = (taskId: string | null) => {
     task_id: taskId,
     text: faker.lorem.sentence(),
     task_message_type: faker.helpers.arrayElement(["STEP", "ACTION", "EVENT", "MESSAGE"]),
-    timestamp: new Date().toISOString(),
   })
 }
 

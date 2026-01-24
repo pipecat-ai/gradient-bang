@@ -674,9 +674,14 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             case "task.start": {
               console.debug("[GAME EVENT] Task start", e.payload)
               const data = e.payload as TaskStartMessage
+
               if (data.task_id) {
+                // @TODO: this is to align task messages to task_output messages
+                // task.start and task.finish use full uuids, but task_output uses truncated ids
+                const truncated_task_id = data.task_id.slice(0, 6)
+
                 gameStore.addActiveTask({
-                  task_id: data.task_id,
+                  task_id: truncated_task_id,
                   task_description: data.task_description,
                   started_at: data.source?.timestamp || new Date().toISOString(),
                   actor_character_id: data.actor_character_id,
@@ -696,7 +701,14 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
               // Remove task from active task map
               if (data.task_id) {
-                gameStore.removeActiveTask(data.task_id)
+                // @TODO: this is to align task messages to task_output messages
+                // task.start and task.finish use full uuids, but task_output uses truncated ids
+                const truncated_task_id = data.task_id.slice(0, 6)
+                gameStore.removeActiveTask(truncated_task_id)
+
+                // @TODO: we do not remove the task output here, as sometimes
+                // task_output messages are sent after task.finish
+                //gameStore.removeTaskOutputsByTaskId(truncated_task_id)
               }
 
               // Add task summary to store
@@ -719,14 +731,6 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
             case "ui-action": {
               console.debug("[GAME EVENT] UI action", e.payload)
-
-              /*const starfield = gameStore.starfieldInstance;
-              if (starfield) {
-                starfield.selectGameObject("port");
-              }
-
-              gameStore.setActiveScreen("trading");*/
-
               break
             }
 
