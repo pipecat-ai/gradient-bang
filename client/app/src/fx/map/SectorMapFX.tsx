@@ -1047,7 +1047,8 @@ function renderSector(
   if (isCentered) {
     nodeStyle = { ...baseStyle, ...config.nodeStyles.centered }
   }
-  if (isHovered) {
+  // Only apply hover outline style when clickable (not just hoverable)
+  if (isHovered && config.clickable) {
     nodeStyle = { ...baseStyle, ...config.nodeStyles.hovered }
   }
 
