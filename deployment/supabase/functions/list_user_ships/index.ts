@@ -198,7 +198,7 @@ async function fetchUserShips(
     ships.push({
       ship_id: shipId,
       ship_type: row.ship_type ?? "unknown",
-      name:
+      ship_name:
         typeof row.ship_name === "string" && row.ship_name.trim().length > 0
           ? row.ship_name
           : (definition?.display_name ?? row.ship_type ?? shipId),
@@ -220,11 +220,11 @@ async function fetchUserShips(
     });
   }
 
-  // Sort: personal ship first, then corp ships by name
+  // Sort: personal ship first, then corp ships by ship_name
   ships.sort((a, b) => {
     if (a.owner_type === "personal" && b.owner_type !== "personal") return -1;
     if (a.owner_type !== "personal" && b.owner_type === "personal") return 1;
-    return a.name.localeCompare(b.name);
+    return a.ship_name.localeCompare(b.ship_name);
   });
 
   return { ships };
