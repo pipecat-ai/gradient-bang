@@ -132,6 +132,12 @@ class VoiceTaskManager:
             "combat.action_accepted",
             "ship.destroyed",
             "ship.renamed",
+            "corporation.created",
+            "corporation.ship_purchased",
+            "corporation.member_joined",
+            "corporation.member_left",
+            "corporation.member_kicked",
+            "corporation.disbanded",
             "chat.message",
             "error",
             # Client history query events (relayed via event system)

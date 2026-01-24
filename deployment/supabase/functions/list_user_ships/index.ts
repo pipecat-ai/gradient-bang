@@ -25,7 +25,7 @@ type JsonRecord = Record<string, unknown>;
 interface ShipSummary {
   ship_id: string;
   ship_type: string;
-  name: string;
+  ship_name: string;
   sector: number | null;
   owner_type: 'personal' | 'corporation';
   cargo: {
@@ -191,7 +191,7 @@ async function fetchUserShips(
     ships.push({
       ship_id: shipId,
       ship_type: row.ship_type ?? 'unknown',
-      name: typeof row.ship_name === 'string' && row.ship_name.trim().length > 0
+      ship_name: typeof row.ship_name === 'string' && row.ship_name.trim().length > 0
         ? row.ship_name
         : definition?.display_name ?? row.ship_type ?? shipId,
       sector: typeof row.current_sector === 'number' ? row.current_sector : null,
@@ -213,7 +213,7 @@ async function fetchUserShips(
   ships.sort((a, b) => {
     if (a.owner_type === 'personal' && b.owner_type !== 'personal') return -1;
     if (a.owner_type !== 'personal' && b.owner_type === 'personal') return 1;
-    return a.name.localeCompare(b.name);
+    return a.ship_name.localeCompare(b.ship_name);
   });
 
   return { ships };

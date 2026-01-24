@@ -13,7 +13,7 @@ import { validateApiToken, unauthorizedResponse, errorResponse, successResponse 
 import { createServiceRoleClient } from '../_shared/client.ts';
 import { ActorAuthorizationError, ensureActorAuthorization } from '../_shared/actors.ts';
 import { emitCharacterEvent, emitErrorEvent, buildEventSource } from '../_shared/events.ts';
-import { emitCorporationEvent } from '../_shared/corporations.ts';
+import { emitCorporationEvent, loadCorporationById } from '../_shared/corporations.ts';
 import { canonicalizeCharacterId } from '../_shared/ids.ts';
 import { enforceRateLimit, RateLimitError } from '../_shared/rate_limiting.ts';
 import {
@@ -227,6 +227,15 @@ async function handleRename(params: {
   const actorName = actorCharacterId && actorCharacterId !== characterId
     ? await loadActorName(supabase, actorCharacterId)
     : null;
+  let ownerCorporationName: string | null = null;
+  if (ship.owner_type === 'corporation' && ship.owner_corporation_id) {
+    try {
+      const corp = await loadCorporationById(supabase, ship.owner_corporation_id);
+      ownerCorporationName = corp?.name ?? null;
+    } catch (err) {
+      console.error('ship_rename.corporation.load', err);
+    }
+  }
   const eventPayload: Record<string, unknown> = {
     source,
     ship_id: ship.ship_id,
@@ -235,7 +244,7 @@ async function handleRename(params: {
     previous_ship_name: oldName,
     owner_type: ship.owner_type,
     owner_character_id: ship.owner_character_id ?? null,
-    owner_corporation_id: ship.owner_corporation_id ?? null,
+    owner_corporation_name: ownerCorporationName,
     actor_id: effectiveActorId,
     actor_name: actorName ?? character.name,
     timestamp,

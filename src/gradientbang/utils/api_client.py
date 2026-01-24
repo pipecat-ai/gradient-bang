@@ -37,6 +37,7 @@ from gradientbang.utils.summary_formatters import (
     transfer_summary,
     ship_renamed_summary,
     ships_list_summary,
+    corporation_ship_purchased_summary,
 )
 
 
@@ -241,6 +242,7 @@ class AsyncGameClient:
             "ships.list": ships_list_summary,
             "character.moved": character_moved_wrapper,
             "ship.renamed": ship_renamed_summary,
+            "corporation.ship_purchased": corporation_ship_purchased_summary,
             "combat.round_waiting": combat_round_waiting_summary,
             "combat.action_accepted": combat_action_accepted_summary,
             "combat.round_resolved": combat_round_resolved_summary,

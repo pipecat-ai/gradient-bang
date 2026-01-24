@@ -870,6 +870,7 @@ export async function pgBuildSectorSnapshot(
       player_type: playerType,
       corporation: corporationInfo,
       ship: {
+        ship_id: ship.ship_id,
         ship_type: ship.ship_type,
         ship_name: shipDisplayName,
       },
@@ -1624,8 +1625,6 @@ export interface ObserverMetadata {
   shipId: string;
   shipName: string;
   shipType: string;
-  ownerType: 'character' | 'corporation' | 'unowned';
-  ownerCorporationId: string | null;
 }
 
 interface EventSource {
@@ -1759,9 +1758,7 @@ function buildCharacterMovedPayload(
   const extraFields = options?.extraFields;
   const payload: Record<string, unknown> = {
     player: { id: metadata.characterId, name: metadata.characterName },
-    ship: { ship_name: metadata.shipName, ship_type: metadata.shipType },
-    owner_type: metadata.ownerType,
-    owner_corporation_id: metadata.ownerCorporationId,
+    ship: { ship_id: metadata.shipId, ship_name: metadata.shipName, ship_type: metadata.shipType },
     timestamp,
     move_type: moveType,
     movement,

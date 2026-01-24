@@ -217,8 +217,6 @@ serve(async (req: Request): Promise<Response> => {
       shipId: ship.ship_id,
       shipName: ship.ship_name ?? shipDefinition.display_name,
       shipType: ship.ship_type,
-      ownerType: ship.owner_type,
-      ownerCorporationId: ship.owner_corporation_id,
     };
 
     // Movement observers using PG
