@@ -176,6 +176,8 @@ class VoiceTaskManager:
         self.cancelled_via_tool = False
         # Track request IDs from voice agent tool calls for inference triggering
         self._voice_agent_request_ids: set[str] = set()
+        # Track task IDs that have finished but whose task.finish event hasn't arrived yet
+        self._finished_task_ids: set[str] = set()
 
         # Build generic tool dispatch map for common game tools
         # Start/stop/ui_show_panel are handled inline in execute_tool_call
@@ -451,6 +453,14 @@ class VoiceTaskManager:
         if drop_event:
             return
 
+        # Keep display name in sync from our own status events
+        if (
+            not is_other_player_event
+            and isinstance(payload, Mapping)
+            and event_name in {"status.snapshot", "status.update"}
+        ):
+            self._update_display_name(payload)
+
         await self.rtvi_processor.push_frame(
             RTVIServerMessageFrame(
                 {
@@ -489,6 +499,12 @@ class VoiceTaskManager:
         if payload_task_id:
             task_id = self._get_task_id_for_full(payload_task_id)
             is_our_task = task_id is not None
+            # Also check finished tasks (task cleaned up before event arrived)
+            if not is_our_task and payload_task_id in self._finished_task_ids:
+                is_our_task = True
+                # Clean up once we've seen the event
+                if event_name == "task.finish":
+                    self._finished_task_ids.discard(payload_task_id)
 
         if not task_id:
             task_id = self._get_task_id_for_character(self.character_id)
@@ -834,6 +850,10 @@ class VoiceTaskManager:
             await self._task_output_handler(f"Task error: {str(e)}", "error", task_id, task_type)
 
         finally:
+            # Track full_task_id so we recognize task.finish event after cleanup
+            if full_task_id:
+                self._finished_task_ids.add(full_task_id)
+
             # Clean up task tracking
             if task_id in self._active_tasks:
                 del self._active_tasks[task_id]
