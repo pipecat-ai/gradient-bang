@@ -5,6 +5,7 @@ import { CurrentSectorIcon } from "@/icons"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
+import { PlayerFightersBadge, PlayerShieldsBadge, PlayerShipFuelBadge } from "../PlayerShipBadges"
 import { PopoverHelper } from "../PopoverHelper"
 import { Badge } from "../primitives/Badge"
 import { DotDivider } from "../primitives/DotDivider"
@@ -17,7 +18,7 @@ const ShipBlankSlate = ({
   children?: React.ReactNode
 }) => {
   return (
-    <div className="bg-[linear-gradient(to_right,transparent_0%,var(--subtle-background)_20%,var(--subtle-background)_80%,transparent_100%)] text-subtle text-xs uppercase font-medium leading-none py-2">
+    <div className="bg-[linear-gradient(to_right,transparent_0%,var(--subtle-background)_20%,var(--subtle-background)_80%,transparent_100%)] text-subtle text-xs uppercase font-medium leading-none py-2 select-none">
       <div className="flex flex-row gap-3 items-center justify-center">
         <div className="flex-1 dotted-bg-sm text-accent h-3"></div>
         <div className="flex flex-row gap-2 items-center justify-center">
@@ -39,13 +40,13 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
     Object.values(state.activeTasks).find((task) => task.ship_id === ship.ship_id)
   )
   return (
-    <div className="uppercase shrink-0 py-3 pb-3.5">
-      <div className="flex flex-col gap-2">
+    <div className="uppercase shrink-0 py-2 pb-3.5 flex flex-row gap-2 items-center justify-between">
+      <div className="flex flex-col gap-2 flex-1 min-w-0">
         <div className="flex flex-row gap-2 items-center">
           <div className="text-sm uppercase text-white font-semibold">{ship.ship_name}</div>
-          <div className="text-xs text-subtle-foreground">{ship.ship_type.replace("_", " ")}</div>
+          <div className="text-xxs text-subtle-foreground">{ship.ship_type.replace("_", " ")}</div>
         </div>
-        <div className="text-sm text-subtle-foreground flex flex-row gap-2 items-center">
+        <div className="text-sm text-subtle-foreground flex flex-row gap-2 items-center min-w-0">
           <Badge variant="secondary" border="elbow" size="sm" className="font-semibold">
             <CurrentSectorIcon weight="duotone" className="size-4" />
             <span className="text-subtle-foreground">Sector</span>
@@ -66,20 +67,21 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
           </Badge>
           <div
             className={cn(
-              "flex flex-row gap-1 items-center text-xs",
+              "flex flex-row gap-1 items-center text-xs truncate flex-1 min-w-0 overflow-hidden w-full",
               activeTask ? "gap-1.5 text-white" : "text-accent-foreground"
             )}
           >
             <UserIcon weight="duotone" className="size-4" />
-            {activeTask ? activeTask.actor_character_name : "---"}
+            <span className="truncate">{activeTask ? activeTask.actor_character_name : "---"}</span>
           </div>
         </div>
       </div>
+      <div></div>
     </div>
   )
 }
 
-const PlayerShipPanelContent = ({
+const PlayerShipsPanelContent = ({
   ships,
   className,
 }: {
@@ -90,7 +92,7 @@ const PlayerShipPanelContent = ({
     <motion.div
       layout
       transition={{ duration: 0.3, ease: "easeInOut" }}
-      className={cn("bg-card border", className)}
+      className={cn("bg-card border border-r-0", className)}
     >
       <AnimatePresence mode="wait">
         {!ships ?
@@ -124,7 +126,7 @@ const PlayerShipPanelContent = ({
             exit={{ opacity: 0 }}
           >
             <div className="flex flex-row gap-panel-gap px-0 py-panel-gap shrink-0">
-              <div className="w-3 dashed-bg-vertical dashed-bg-accent ml-panel-gap"></div>
+              <div className="w-2 dashed-bg-vertical-tight dashed-bg-muted ml-panel-gap"></div>
               <div className="bg-subtle-background border border-r-0 pl-3 flex-1 overflow-hidden">
                 <AnimatePresence initial={false}>
                   {ships
@@ -155,10 +157,37 @@ const PlayerShipPanelContent = ({
   )
 }
 
+const PlayerShip = () => {
+  const ship = useGameStore((state) => state.ship)
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-row gap-ui-sm items-center">
+        <div className="uppercase text-white font-semibold">{ship?.ship_name ?? "---"}</div>
+        <div className="text-xxs uppercase text-subtle-foreground">
+          {ship?.ship_type?.replace("_", " ") ?? "---"}
+        </div>
+        <div className="flex-1 h-3 dashed-bg-horizontal dashed-bg-accent"></div>
+      </div>
+      <div className="flex flex-row gap-1.5 items-center select-none">
+        <PlayerShipFuelBadge className="flex-1" />
+        <PlayerShieldsBadge className="flex-1" />
+        <PlayerFightersBadge className="flex-1" />
+      </div>
+    </div>
+  )
+}
+
 export const PlayerShipPanel = ({ className }: { className?: string }) => {
   const shipsState = useGameStore((state) => state.ships)
 
   const ships = shipsState.data
 
-  return <PlayerShipPanelContent ships={ships} className={className} />
+  return (
+    <div className="bg-subtle-background">
+      <div className="border-l p-ui-sm pr-0">
+        <PlayerShip />
+      </div>
+      <PlayerShipsPanelContent ships={ships} className={className} />
+    </div>
+  )
 }

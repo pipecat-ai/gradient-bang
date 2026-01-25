@@ -87,10 +87,10 @@ export const TaskOutputStreamComponent = ({ tasks }: { tasks: TaskOutput[] }) =>
 
   return (
     <Card
-      className="flex w-full bg-transparent border-none h-full min-h-0 overflow-hidden select-none pointer-events-none mt-auto"
+      className="absolute inset-0 flex w-full bg-transparent border-none h-full min-h-0 select-none pointer-events-none mt-auto"
       size="none"
     >
-      <CardContent className="relative flex flex-col gap-2 h-full justify-end mask-[linear-gradient(to_bottom,transparent_0%,black_30%,black_100%)]">
+      <CardContent className="relative flex flex-col gap-2 h-full justify-end mask-[linear-gradient(to_bottom,transparent_0%,black_40%,black_100%)]">
         <ScrollArea
           className="w-full h-full overflow-hidden pointer-events-auto"
           fullHeight={true}

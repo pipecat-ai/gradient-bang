@@ -3,10 +3,7 @@ import { Fragment, useMemo } from "react"
 import { button, useControls } from "leva"
 import { faker } from "@faker-js/faker"
 import { PlugsIcon } from "@phosphor-icons/react"
-import {
-  CardContent,
-  usePipecatConnectionState,
-} from "@pipecat-ai/voice-ui-kit"
+import { CardContent, usePipecatConnectionState } from "@pipecat-ai/voice-ui-kit"
 
 import { useChat } from "@/hooks/useChat"
 import useGameStore from "@/stores/game"
@@ -26,22 +23,20 @@ const ChatMessageRow = ({ message }: { message: ConversationMessage }) => {
     [message.createdAt]
   )
   return (
-    <div className="flex flex-col gap-0 text-[11px]">
+    <div className="flex flex-col gap-0 text-xxs">
       <div
-        className={`${message.role === "assistant"
-            ? "text-agent"
-            : message.role === "user"
-              ? "text-client"
-              : "text-warning"
-          } font-extrabold text-[11px] uppercase`}
+        className={`${
+          message.role === "assistant" ? "text-terminal"
+          : message.role === "user" ? "text-fuel"
+          : "text-warning"
+        } font-extrabold text-xxs uppercase`}
       >
         <span className="opacity-50">[{timeString}]</span> {message.role}:
       </div>
       <div className="flex-1 normal-case tracking-normal conversation-message">
-        {!message.parts?.length || message.parts.every((p) => !p.text) ? (
+        {!message.parts?.length || message.parts.every((p) => !p.text) ?
           <span className="opacity-50 animate-pulse">...</span>
-        ) : (
-          (message.parts ?? []).map((part, idx) => {
+        : (message.parts ?? []).map((part, idx) => {
             const nextPart = message.parts?.[idx + 1] ?? null
             const isText = typeof part.text === "string"
             const nextIsText = nextPart && typeof nextPart.text === "string"
@@ -52,7 +47,7 @@ const ChatMessageRow = ({ message }: { message: ConversationMessage }) => {
               </Fragment>
             )
           })
-        )}
+        }
       </div>
     </div>
   )
@@ -87,8 +82,7 @@ export const ChatPanel = () => {
 
   const clxConnected =
     "flex-1 h-full bg-card/60 border border-border dotted-mask-42 dotted-mask-black relative"
-  const clxDisconnected =
-    "flex-1 h-full opacity-40 stripe-frame-white/30 border border-border"
+  const clxDisconnected = "flex-1 h-full opacity-40 stripe-frame-white/30 border border-border"
 
   const panelActive = isConnected || (messages?.length ?? 0) > 0
 

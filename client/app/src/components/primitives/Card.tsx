@@ -1,28 +1,28 @@
-import * as React from "react";
+import * as React from "react"
 
-import { cva, type VariantProps } from "class-variance-authority";
+import { cva, type VariantProps } from "class-variance-authority"
 
-import { cn } from "@/utils/tailwind";
+import { cn } from "@/utils/tailwind"
 
-import { ScrollArea } from "./ScrollArea";
+import { ScrollArea } from "./ScrollArea"
 
 const cardVariants = cva("text-card-foreground flex flex-col", {
   variants: {
     variant: {
       default: "bg-card text-card-foreground border",
-      secondary:
-        "bg-secondary/80 motion-safe:backdrop-blur-sm text-secondary-foreground",
+      secondary: "bg-secondary/80 motion-safe:backdrop-blur-sm text-secondary-foreground",
       stripes: "bg-card shrink-0 stripe-frame",
       scanlines: "border text-white bg-scanlines",
     },
     size: {
       none: "",
+      xs: "gap-ui-xs py-ui-xs [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-ui-xs",
       sm: "gap-ui-sm py-ui-sm [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-ui-sm",
-      default:
-        "gap-ui-md py-ui-md [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-ui-md",
+      default: "gap-ui-md py-ui-md [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-ui-md",
       lg: "gap-ui-lg py-ui-lg [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-ui-lg",
       xl: "gap-ui-xl py-ui-xl [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-ui-xl",
-      panel: "gap-panel-gap py-panel-gap [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-panel-gap",
+      panel:
+        "gap-panel-gap py-panel-gap [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-panel-gap",
     },
     elbow: {
       true: "elbow elbow-offset-6",
@@ -51,7 +51,7 @@ const cardVariants = cva("text-card-foreground flex flex-col", {
     },
     {
       scrollable: true,
-      size: ["none", "default", "lg", "xl"],
+      size: ["none", "default", "sm", "lg", "xl"],
       class: "py-0",
     },
     {
@@ -76,7 +76,7 @@ const cardVariants = cva("text-card-foreground flex flex-col", {
     size: "default",
     scrollable: false,
   },
-});
+})
 
 function Card({
   className,
@@ -89,23 +89,18 @@ function Card({
   return (
     <div
       data-slot="card"
-      className={cn(
-        cardVariants({ variant, elbow, size, scrollable }),
-        className
-      )}
+      className={cn(cardVariants({ variant, elbow, size, scrollable }), className)}
       {...props}
     />
-  );
+  )
 }
 
 function CardScrollable({ ...props }: React.ComponentProps<typeof Card>) {
   return (
     <Card {...props} scrollable={true}>
-      <ScrollArea className="w-full h-full max-h-max">
-        {props.children}
-      </ScrollArea>
+      <ScrollArea className="w-full h-full max-h-max">{props.children}</ScrollArea>
     </Card>
-  );
+  )
 }
 
 function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
@@ -118,7 +113,7 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
       )}
       {...props}
     />
-  );
+  )
 }
 
 function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
@@ -128,7 +123,7 @@ function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
       className={cn("leading-none font-semibold", className)}
       {...props}
     />
-  );
+  )
 }
 
 function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
@@ -138,36 +133,25 @@ function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
       className={cn("text-muted-foreground text-sm", className)}
       {...props}
     />
-  );
+  )
 }
 
 function CardAction({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-action"
-      className={cn(
-        "col-start-2 row-span-2 row-start-1 self-start justify-self-end",
-        className
-      )}
+      className={cn("col-start-2 row-span-2 row-start-1 self-start justify-self-end", className)}
       {...props}
     />
-  );
+  )
 }
 
 function CardContent({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div data-slot="card-content" className={cn("", className)} {...props} />
-  );
+  return <div data-slot="card-content" className={cn("", className)} {...props} />
 }
 
 function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="card-footer"
-      className={cn("flex items-center", className)}
-      {...props}
-    />
-  );
+  return <div data-slot="card-footer" className={cn("flex items-center", className)} {...props} />
 }
 
 export {
@@ -179,4 +163,4 @@ export {
   CardHeader,
   CardScrollable,
   CardTitle,
-};
+}
