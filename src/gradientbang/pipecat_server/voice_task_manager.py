@@ -113,6 +113,7 @@ class VoiceTaskManager:
             "map.knowledge",
             "map.region",
             "map.local",
+            "map.update",
             "ports.list",
             "character.moved",
             "trade.executed",
@@ -366,31 +367,7 @@ class VoiceTaskManager:
             player_id and player_id != self.character_id
         )
 
-        # Emit map.update for newly discovered sectors (client UI only, no logging)
-        if event_name == "movement.complete" and isinstance(payload, Mapping):
-            first_visit = bool(payload.get("first_visit", False))
-            known_to_corp = bool(payload.get("known_to_corp", False))
-
-            # Send map.update only if this is a truly new discovery (not known to merged knowledge)
-            if first_visit and not known_to_corp:
-                sector_data = payload.get("sector")
-                if isinstance(sector_data, Mapping):
-                    sector_id = sector_data.get("id") or sector_data.get("sector_id")
-                    await self.rtvi_processor.push_frame(
-                        RTVIServerMessageFrame(
-                            {
-                                "frame_type": "event",
-                                "event": "map.update",
-                                "payload": {
-                                    "sector_id": sector_id,
-                                    "newly_discovered": True,
-                                    "sector": sector_data,
-                                },
-                            }
-                        )
-                    )
-                else:
-                    logger.debug("Skipping map.update; missing sector payload")
+        # map.update is emitted server-side in Supabase move handler.
 
         # Filter out corp-visible movement events we don't want to forward
         drop_event = False
