@@ -269,6 +269,8 @@ export function buildPublicPlayerSnapshotFromStatus(
       ? (ship["display_name"] as string)
       : null) ??
     shipType;
+  const shipId =
+    typeof ship["ship_id"] === "string" ? (ship["ship_id"] as string) : null;
 
   return {
     created_at: player["created_at"] ?? null,
