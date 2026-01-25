@@ -7,9 +7,11 @@ const MINIMAP_CONFIG: MapConfig = {}
 export const MiniMapPanel = () => {
   const sector = useGameStore((state) => state.sector)
   const localMapData = useGameStore((state) => state.local_map_data)
-  const getShipSectors = useGameStore.use.getShipSectors()
+  const ships = useGameStore.use.ships?.()
 
-  const shipSectors = getShipSectors(false)
+  const shipSectors = ships?.data
+    ?.filter((s: ShipSelf) => s.owner_type !== "personal")
+    .map((s: ShipSelf) => s.sector ?? 0)
 
   return (
     <div className="bg-card border">

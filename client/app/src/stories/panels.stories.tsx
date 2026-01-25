@@ -77,7 +77,7 @@ export const PlayerShipsAndMiniMapStory: Story = () => {
   return (
     <div className="flex flex-row gap-3">
       <PlayerShipPanel className="flex-1 self-start" />
-      <div className="w-[540px] h-[540px]">
+      <div className="w-[440px] h-[440px]">
         <MiniMapPanel />
       </div>
     </div>

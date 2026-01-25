@@ -95,6 +95,7 @@ export interface GameSlice extends GameState {
   setSectorBuffer: (sector: Sector) => void
   setLocalMapData: (localMapData: MapData) => void
   setRegionalMapData: (regionalMapData: MapData) => void
+  updateMapSector: (sectorUpdate: Partial<MapSectorNode> & { id: number }) => void
   setCoursePlot: (coursePlot: CoursePlot) => void
   clearCoursePlot: () => void
   setStarfieldReady: (starfieldReady: boolean) => void
@@ -317,6 +318,31 @@ const createGameSlice: StateCreator<
     set(
       produce((state) => {
         state.regional_map_data = regionalMapData
+      })
+    ),
+
+  updateMapSector: (sectorUpdate: Partial<MapSectorNode> & { id: number }) =>
+    set(
+      produce((state) => {
+        // Update in local map data
+        if (state.local_map_data) {
+          const localIndex = state.local_map_data.findIndex(
+            (s: MapSectorNode) => s.id === sectorUpdate.id
+          )
+          if (localIndex !== -1) {
+            Object.assign(state.local_map_data[localIndex], sectorUpdate)
+          }
+        }
+
+        // Update in regional map data
+        if (state.regional_map_data) {
+          const regionalIndex = state.regional_map_data.findIndex(
+            (s: MapSectorNode) => s.id === sectorUpdate.id
+          )
+          if (regionalIndex !== -1) {
+            Object.assign(state.regional_map_data[regionalIndex], sectorUpdate)
+          }
+        }
       })
     ),
 

@@ -107,6 +107,11 @@ export interface MapLocalMessage extends ServerMessagePayload {
   total_visited: number
 }
 
+export interface MapUpdateMessage extends ServerMessagePayload {
+  sector: Sector
+  newly_discovered: boolean
+}
+
 export interface CoursePlotMessage extends ServerMessagePayload {
   from_sector: number
   to_sector: number

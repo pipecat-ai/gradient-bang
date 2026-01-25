@@ -28,6 +28,7 @@ import {
   type EventQueryMessage,
   type IncomingChatMessage,
   type MapLocalMessage,
+  type MapUpdateMessage,
   type MovementCompleteMessage,
   type MovementStartMessage,
   type PortUpdateMessage,
@@ -456,6 +457,14 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               break
             }
 
+            case "map.update": {
+              console.debug("[GAME EVENT] Map update", e.payload)
+              const data = e.payload as MapUpdateMessage
+
+              console.warn("[GAME EVENT] Map update", data)
+              break
+            }
+
             // ----- TRADING & COMMERCE
 
             case "trade.executed": {
@@ -640,36 +649,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               break
             }
 
-            // ----- MISC
-
-            case "chat.message": {
-              console.debug("[GAME EVENT] Chat message", e.payload)
-              const data = e.payload as IncomingChatMessage
-
-              gameStore.addMessage(data as ChatMessage)
-              gameStore.setNotifications({ newChatMessage: true })
-
-              const timestampClient = Date.now()
-
-              if (
-                data.type === "direct" &&
-                data.from_name &&
-                data.from_name !== gameStore.player?.name
-              ) {
-                gameStore.addActivityLogEntry({
-                  type: "chat.direct",
-                  message: `New direct message from [${data.from_name}]`,
-                  timestamp_client: timestampClient,
-                  meta: {
-                    from_name: data.from_name,
-                    signature_prefix: "chat.direct:",
-                    //@TODO: change this to from_id when available
-                    signature_keys: [data.from_name],
-                  },
-                })
-              }
-              break
-            }
+            // ----- TASKS
 
             case "task.start": {
               console.debug("[GAME EVENT] Task start", e.payload)
@@ -712,24 +692,6 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               break
             }
 
-            case "error": {
-              console.debug("[GAME EVENT] Error", e.payload)
-              const data = e.payload as ErrorMessage
-
-              // @TODO: keep tabs on errors in separate store
-
-              gameStore.addActivityLogEntry({
-                type: "error",
-                message: `Ship Protocol Failure: ${data.endpoint ?? "Unknown"} - ${data.error}`,
-              })
-              break
-            }
-
-            case "ui-action": {
-              console.debug("[GAME EVENT] UI action", e.payload)
-              break
-            }
-
             case "task_output": {
               console.debug("[GAME EVENT] Task output", e, e.payload)
               const data = e.payload as TaskOutputMessage
@@ -758,6 +720,55 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               if (data.was_cancelled) {
                 gameStore.setTaskWasCancelled(true)
               }
+              break
+            }
+
+            // ----- MISC
+
+            case "chat.message": {
+              console.debug("[GAME EVENT] Chat message", e.payload)
+              const data = e.payload as IncomingChatMessage
+
+              gameStore.addMessage(data as ChatMessage)
+              gameStore.setNotifications({ newChatMessage: true })
+
+              const timestampClient = Date.now()
+
+              if (
+                data.type === "direct" &&
+                data.from_name &&
+                data.from_name !== gameStore.player?.name
+              ) {
+                gameStore.addActivityLogEntry({
+                  type: "chat.direct",
+                  message: `New direct message from [${data.from_name}]`,
+                  timestamp_client: timestampClient,
+                  meta: {
+                    from_name: data.from_name,
+                    signature_prefix: "chat.direct:",
+                    //@TODO: change this to from_id when available
+                    signature_keys: [data.from_name],
+                  },
+                })
+              }
+              break
+            }
+
+            case "error": {
+              console.debug("[GAME EVENT] Error", e.payload)
+              const data = e.payload as ErrorMessage
+
+              // @TODO: keep tabs on errors in separate store
+
+              gameStore.addActivityLogEntry({
+                type: "error",
+                message: `Ship Protocol Failure: ${data.endpoint ?? "Unknown"} - ${data.error}`,
+              })
+              break
+            }
+
+            case "ui-action": {
+              console.debug("[GAME EVENT] UI action", e.payload)
               break
             }
 
