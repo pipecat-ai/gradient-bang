@@ -1695,6 +1695,7 @@ class AsyncGameClient:
         amount: int,
         target_player_name: str,
         ship_id: Optional[str] = None,
+        ship_name: Optional[str] = None,
         character_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Deposit credits from a player's or corporation's ship into a bank account."""
@@ -1721,8 +1722,12 @@ class AsyncGameClient:
 
         if ship_id is not None:
             payload["ship_id"] = ship_id
+        if ship_name is not None:
+            if not isinstance(ship_name, str) or not ship_name.strip():
+                raise ValueError("ship_name must be a non-empty string")
+            payload["ship_name"] = ship_name
 
-        if ship_id is not None and "actor_character_id" not in payload:
+        if (ship_id is not None or ship_name is not None) and "actor_character_id" not in payload:
             payload["actor_character_id"] = (
                 self._actor_character_id or self._character_id
             )

@@ -455,11 +455,11 @@ class StopTask(GameClientTool):
     def schema(cls):
         return FunctionSchema(
             name="stop_task",
-            description="Cancel a running task. If task_id is provided, cancels that specific task. Otherwise cancels your primary ship's task.",
+            description="Cancel a running task. If task_id is provided, cancels that specific task (full UUID or short prefix). Otherwise cancels your primary ship's task.",
             properties={
                 "task_id": {
                     "type": "string",
-                    "description": "Optional task ID to cancel a specific task (e.g., '0001'). If not provided, cancels your primary ship's task.",
+                    "description": "Optional task ID to cancel a specific task (full UUID or short prefix, e.g., '8ea25c'). If not provided, cancels your primary ship's task.",
                 },
             },
             required=[],
@@ -1125,13 +1125,22 @@ class EventQuery(GameClientTool):
 
 
 class BankDeposit(GameClientTool):
-    def __call__(self, amount, target_player_name, ship_id=None, character_id=None):
+    def __call__(
+        self,
+        amount,
+        target_player_name,
+        ship_id=None,
+        ship_name=None,
+        character_id=None,
+    ):
         payload = {
             "amount": amount,
             "target_player_name": target_player_name,
         }
         if ship_id is not None:
             payload["ship_id"] = ship_id
+        if ship_name is not None:
+            payload["ship_name"] = ship_name
         if character_id is not None:
             payload["character_id"] = character_id
         elif ship_id is None:
@@ -1156,7 +1165,11 @@ class BankDeposit(GameClientTool):
                 },
                 "ship_id": {
                     "type": "string",
-                    "description": "ID of the ship funding the deposit (omit to use your active ship)",
+                    "description": "ID (or 6-8 hex prefix) of the ship funding the deposit (omit to use your active ship)",
+                },
+                "ship_name": {
+                    "type": "string",
+                    "description": "Name of the ship funding the deposit (omit to use your active ship)",
                 },
                 "character_id": {
                     "type": "string",

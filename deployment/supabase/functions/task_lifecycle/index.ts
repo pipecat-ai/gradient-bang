@@ -14,8 +14,10 @@ import {
   optionalString,
   resolveRequestId,
   respondWithError,
+  RequestValidationError,
 } from "../_shared/request.ts";
 import { computeCorpMemberRecipients } from "../_shared/visibility.ts";
+import { validate as validateUuid } from "https://deno.land/std@0.197.0/uuid/mod.ts";
 
 /**
  * Task lifecycle event emitter.
@@ -109,6 +111,22 @@ Deno.serve(async (req: Request): Promise<Response> => {
     let taskScope: "player_ship" | "corp_ship" =
       taskScopeRaw === "corp_ship" ? "corp_ship" : "player_ship";
     let shipOwnerCorpId: string | null = null;
+
+    if (shipId) {
+      const parsed = parseShipIdInput(shipId);
+      shipId = parsed.shipId;
+      if (parsed.shipIdPrefix) {
+        const resolved = await resolveShipIdByPrefixForActor(
+          supabase,
+          parsed.shipIdPrefix,
+          actorCharacterIdRaw ?? characterId,
+        );
+        if (!resolved) {
+          throw new RequestValidationError("Ship not found", 404);
+        }
+        shipId = resolved;
+      }
+    }
 
     // If characterId is a ship_id (corp ship control), this returns a row
     const needsShipLookup =
@@ -248,3 +266,100 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return errorResponse(detail, 500);
   }
 });
+
+function parseShipIdInput(value: string): {
+  shipId: string | null;
+  shipIdPrefix: string | null;
+} {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new RequestValidationError("ship_id cannot be empty", 400);
+  }
+  if (validateUuid(trimmed)) {
+    return { shipId: trimmed, shipIdPrefix: null };
+  }
+  if (/^[0-9a-f]{6,8}$/i.test(trimmed)) {
+    return { shipId: null, shipIdPrefix: trimmed.toLowerCase() };
+  }
+  throw new RequestValidationError(
+    "ship_id must be a UUID or 6-8 hex prefix",
+    400,
+  );
+}
+
+async function resolveShipIdByPrefixForActor(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  prefix: string,
+  actorCharacterId: string | null,
+): Promise<string | null> {
+  if (!actorCharacterId) {
+    return null;
+  }
+
+  const cleaned = prefix.toLowerCase();
+  const { data: personalShips, error: personalError } = await supabase
+    .from("ship_instances")
+    .select("ship_id")
+    .eq("owner_type", "character")
+    .or(
+      `owner_character_id.eq.${actorCharacterId},owner_id.eq.${actorCharacterId}`,
+    );
+
+  if (personalError) {
+    console.error("task_lifecycle.lookup_ship_prefix_personal", personalError);
+    throw new RequestValidationError("Failed to lookup ship by prefix", 500);
+  }
+
+  const shipIds: string[] = (personalShips ?? [])
+    .map((row) => row.ship_id)
+    .filter((shipId): shipId is string => typeof shipId === "string");
+
+  const { data: corpRows, error: corpError } = await supabase
+    .from("corporation_members")
+    .select("corp_id")
+    .eq("character_id", actorCharacterId)
+    .is("left_at", null);
+
+  if (corpError) {
+    console.error("task_lifecycle.lookup_ship_prefix_corps", corpError);
+    throw new RequestValidationError(
+      "Failed to lookup actor corporation memberships",
+      500,
+    );
+  }
+
+  const corpIds = (corpRows ?? [])
+    .map((row) => row.corp_id)
+    .filter((corpId): corpId is string => typeof corpId === "string");
+
+  if (corpIds.length > 0) {
+    const { data: corpShips, error: corpShipError } = await supabase
+      .from("ship_instances")
+      .select("ship_id")
+      .eq("owner_type", "corporation")
+      .in("owner_corporation_id", corpIds);
+
+    if (corpShipError) {
+      console.error("task_lifecycle.lookup_ship_prefix_corp", corpShipError);
+      throw new RequestValidationError("Failed to lookup ship by prefix", 500);
+    }
+
+    const corpShipIds = (corpShips ?? [])
+      .map((row) => row.ship_id)
+      .filter((shipId): shipId is string => typeof shipId === "string");
+    shipIds.push(...corpShipIds);
+  }
+
+  const matches = shipIds.filter((shipId) =>
+    shipId.toLowerCase().startsWith(cleaned),
+  );
+
+  if (matches.length > 1) {
+    throw new RequestValidationError(
+      "Ship id prefix is ambiguous; use full ship_id",
+      409,
+    );
+  }
+
+  return matches.length === 1 ? matches[0] : null;
+}

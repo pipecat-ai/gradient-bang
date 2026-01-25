@@ -433,6 +433,7 @@ class AsyncGameClient(LegacyAsyncGameClient):
         amount: int,
         target_player_name: str,
         ship_id: Optional[str] = None,
+        ship_name: Optional[str] = None,
         character_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         if not isinstance(target_player_name, str) or not target_player_name.strip():
@@ -444,6 +445,12 @@ class AsyncGameClient(LegacyAsyncGameClient):
         }
         if ship_id:
             payload["ship_id"] = ship_id
+        if ship_name:
+            if not isinstance(ship_name, str) or not ship_name.strip():
+                raise ValueError("ship_name must be a non-empty string")
+            payload["ship_name"] = ship_name
+        if (ship_id or ship_name) and "actor_character_id" not in payload:
+            payload["actor_character_id"] = self._character_id
         if character_id:
             payload["character_id"] = character_id
         return await self._request("bank_transfer", payload)

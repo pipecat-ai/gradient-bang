@@ -302,7 +302,7 @@ class TestBankValidation:
             assert "insufficient" in str(exc_info.value).lower() or "not enough" in str(exc_info.value).lower()
 
     async def test_deposit_outside_sector_0(self, server_url, check_server_available):
-        """Deposits should succeed even when the ship is not in sector 0."""
+        """Test depositing credits outside sector 0 fails."""
         char_id = "test_bank_deposit_wrong_sector"
 
         # Create character in sector 5 (not sector 0)
@@ -314,21 +314,17 @@ class TestBankValidation:
             credits_in_bank=0
         )
         async with client:
-            status_before = await get_status(client, char_id)
-            ship_before = status_before["ship"]
-            bank_before = status_before["player"]["credits_in_bank"]
-            result = await client.deposit_to_bank(
-                amount=100,
-                ship_id=ship_before.get("ship_id"),
-                target_player_name=char_id,
-                character_id=char_id,
-            )
+            # Try to deposit from wrong sector
+            with pytest.raises(RPCError) as exc_info:
+                await client.deposit_to_bank(
+                    amount=100,
+                    target_player_name=char_id,
+                    character_id=char_id,
+                )
 
-            assert result.get("success") is True
-
-            status_after = await get_status(client, char_id)
-            assert status_after["ship"]["credits"] == ship_before["credits"] - 100
-            assert status_after["player"]["credits_in_bank"] == bank_before + 100
+            # Should return 400 client error
+            assert exc_info.value.status == 400
+            assert "sector 0" in str(exc_info.value).lower() or "megaport" in str(exc_info.value).lower()
 
     async def test_withdraw_outside_sector_0(self, server_url, check_server_available):
         """Test withdrawing credits outside sector 0 fails."""
@@ -590,3 +586,94 @@ class TestCorporationBanking:
             finally:
                 await corp_ship_client.close()
                 member.remove_event_handler(bank_token)
+
+    async def test_deposit_to_non_corp_member_blocked(self, server_url, check_server_available):
+        """Depositing to a character outside your corporation should fail."""
+        await reset_corporation_test_state(server_url)
+
+        corp_member_id = "test_bank_corp_member_only"
+        outsider_id = "test_bank_outsider"
+
+        async with managed_client(
+            server_url,
+            corp_member_id,
+            credits=10_000,
+            bank=0,
+            sector=0,
+        ) as corp_member, managed_client(
+            server_url,
+            outsider_id,
+            credits=1_000,
+            bank=0,
+            sector=0,
+        ) as outsider:
+            # Create a corporation for corp_member but outsider stays independent
+            await corp_member._request(
+                "corporation.create",
+                {"character_id": corp_member_id, "name": "Exclusive Corp"},
+            )
+
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+
+            # corp_member tries to deposit to outsider (who is not in their corp)
+            with pytest.raises(RPCError) as exc_info:
+                await corp_member.deposit_to_bank(
+                    amount=1000,
+                    target_player_name=outsider_id,
+                    character_id=corp_member_id,
+                )
+
+            assert exc_info.value.status == 403
+            assert "corporation" in str(exc_info.value).lower()
+
+    async def test_corporation_ship_withdraw_blocked(self, server_url, check_server_available):
+        """Corporation-owned ships cannot withdraw from bank accounts."""
+        await reset_corporation_test_state(server_url)
+
+        founder_id = "test_bank_corp_withdraw_founder"
+
+        async with managed_client(
+            server_url,
+            founder_id,
+            credits=10_000,
+            bank=50_000,
+            sector=0,
+        ) as founder:
+            corp = await founder._request(
+                "corporation.create",
+                {"character_id": founder_id, "name": "No Withdraw Corp"},
+            )
+
+            # Purchase a corp ship
+            purchase = await founder._request(
+                "ship.purchase",
+                {
+                    "character_id": founder_id,
+                    "ship_type": "kestrel_courier",
+                    "purchase_type": "corporation",
+                },
+            )
+            corp_ship_id = purchase["ship_id"]
+
+            await asyncio.sleep(EVENT_DELIVERY_WAIT)
+
+            # Create dedicated client for corp ship with founder as actor
+            corp_ship_client = AsyncGameClient(
+                base_url=server_url,
+                character_id=corp_ship_id,
+                actor_character_id=founder_id,
+                entity_type="corporation_ship",
+            )
+
+            try:
+                # Corp ship tries to withdraw - should fail
+                with pytest.raises(RPCError) as exc_info:
+                    await corp_ship_client.withdraw_from_bank(
+                        amount=1000,
+                        character_id=founder_id,
+                    )
+
+                assert exc_info.value.status == 403
+                assert "corporation" in str(exc_info.value).lower() and "withdraw" in str(exc_info.value).lower()
+            finally:
+                await corp_ship_client.close()
