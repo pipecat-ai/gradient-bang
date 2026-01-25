@@ -1,8 +1,10 @@
 {
   "deno.enable": true,
-  "deno.enablePaths": ["./deployment/supabase/functions"],
+  "deno.enablePaths": [
+    "./deployment/supabase/functions"
+  ],
   "[typescriptreact]": {
-    "editor.defaultFormatter": "vscode.typescript-language-features"
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[typescript]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"

@@ -7,13 +7,16 @@ import type { GameAction } from "@/types/actions";
  */
 interface GameContextProps {
   sendUserTextInput: (text: string) => void;
-  dispatchAction: (action: GameAction) => void;
+  dispatchAction: (action: GameAction) => Promise<void> | undefined;
   initialize: () => void;
 }
 
 export const GameContext = createContext<GameContextProps>({
   sendUserTextInput: () => {},
-  dispatchAction: () => {},
+  dispatchAction: (action: GameAction) => {
+    void action
+    return undefined
+  },
   initialize: () => {},
 });
 

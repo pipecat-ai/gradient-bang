@@ -4,31 +4,32 @@ declare global {
   interface PlayerBase {
     id: string
     name: string
-    last_active?: string
     created_at?: string
   }
 
   interface PlayerSelf extends PlayerBase {
-    universe_size: number
     sectors_visited: number
     total_sectors_known: number
     credits_in_bank: number
     corp_sectors_visited?: number
+    universe_size?: number
+    last_active?: string
   }
 
   interface Player extends PlayerBase {
     player_type: "npc" | "human" | "corporation_ship"
     ship: Ship
+    corporation?: Corporation
   }
 
-   // --- CORPORATION
+  // --- CORPORATION
 
-   interface Corporation {
+  interface Corporation {
     corp_id: string
     name: string
     member_count: number
     joined_at: string
-   }
+  }
 
   // --- RESOURCE
 
@@ -38,17 +39,19 @@ declare global {
   // --- SHIP
 
   interface Ship {
-    ship_id?: string
+    ship_id: string
     ship_name: string
     ship_type: string
     fighters?: number
     shields?: number
     max_shields?: number
     max_fighters?: number
+    owner_type: "personal" | "corporation" | "unowned"
+    current_task_id?: string | null
+    sector?: number
   }
 
   interface ShipSelf extends Ship {
-    ship_id: string
     cargo: Record<Resource, number>
     cargo_capacity: number
     empty_holds: number
@@ -71,12 +74,7 @@ declare global {
 
   // --- REGION AND SECTOR
   interface Region {
-    id:
-      | "core_worlds"
-      | "trade_federation"
-      | "frontier"
-      | "pirate_space"
-      | "neutral_zone"
+    id: "core_worlds" | "trade_federation" | "frontier" | "pirate_space" | "neutral_zone"
     name: string
     safe: boolean
   }
@@ -155,13 +153,13 @@ declare global {
     id: number
     port?: string
     lanes: MapLane[]
-    source?: 'player' | 'corp' | 'both'
+    source?: "player" | "corp" | "both"
     visited?: boolean
     position: [number, number]
     last_visited?: string
     adjacent_sectors?: number[]
     hops_from_center?: number
-    
+
     region?: string //@TODO: Unused
     is_mega?: boolean //@TODO: Unused
   }
@@ -193,12 +191,7 @@ declare global {
 
   type UIState = "idle" | "moving" | "combat" | "paused"
   type UIScreen = "self" | "messaging" | "trading" | "map" | "tasks" | "combat"
-  type UIModal =
-    | "settings"
-    | "leaderboard"
-    | "signup"
-    | "character_select"
-    | undefined
+  type UIModal = "settings" | "leaderboard" | "signup" | "character_select" | undefined
 
   // --- COMBAT
 
@@ -247,12 +240,36 @@ declare global {
     | "FAILED"
     | "COMPLETE"
     | "FINISHED"
+    | "CANCELLED"
 
   interface Task {
     id: string
     summary: string
     type: TaskType
     timestamp: string
+  }
+
+  interface ActiveTask {
+    task_id: string
+    task_description?: string
+    started_at: string
+    actor_character_id?: string
+    actor_character_name?: string
+    task_scope?: "player_ship" | "corp_ship"
+    ship_id?: string
+    ship_name?: string | null
+    ship_type?: string | null
+  }
+
+  interface TaskSummary extends ActiveTask {
+    task_status: "completed" | "cancelled" | "failed"
+    task_summary: string
+  }
+
+  interface TaskOutput {
+    task_id: string
+    text: string
+    task_message_type: TaskType
   }
 
   interface LogEntry {

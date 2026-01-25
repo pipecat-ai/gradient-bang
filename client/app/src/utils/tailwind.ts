@@ -1,5 +1,5 @@
-import { type ClassValue, clsx } from "clsx";
-import { extendTailwindMerge } from "tailwind-merge";
+import { type ClassValue, clsx } from "clsx"
+import { extendTailwindMerge } from "tailwind-merge"
 
 const customTwMerge = extendTailwindMerge({
   extend: {
@@ -11,14 +11,7 @@ const customTwMerge = extendTailwindMerge({
       ],
       "stripe-frame": [
         {
-          "stripe-frame": [
-            "ui-xs",
-            "ui-sm",
-            "ui-md",
-            "ui-lg",
-            "ui-xl",
-            "ui-2xl",
-          ],
+          "stripe-frame": ["ui-xs", "ui-sm", "ui-md", "ui-lg", "ui-xl", "ui-2xl"],
         },
       ],
       "elbow-offset": [
@@ -26,13 +19,23 @@ const customTwMerge = extendTailwindMerge({
           "elbow-offset": [(value: string) => !isNaN(Number(value))],
         },
       ],
+      "bracket-offset": [
+        {
+          "bracket-offset": [(value: string) => !isNaN(Number(value))],
+        },
+      ],
+      "bracket-size": [
+        {
+          "bracket-size": [(value: string) => !isNaN(Number(value))],
+        },
+      ],
     },
     theme: {
       spacing: ["ui-xs", "ui-md", "ui-sm", "ui-lg", "ui-xl", "ui-2xl"],
     },
   },
-} as Parameters<typeof extendTailwindMerge>[0]);
+} as Parameters<typeof extendTailwindMerge>[0])
 
 export function cn(...inputs: ClassValue[]) {
-  return customTwMerge(clsx(inputs));
+  return customTwMerge(clsx(inputs))
 }

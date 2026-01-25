@@ -1,123 +1,54 @@
-import { useEffect, useMemo } from "react"
+import { cva } from "class-variance-authority"
 
 import { Badge } from "@/components/primitives/Badge"
-import { Button } from "@/components/primitives/Button"
 import { TracingBorder } from "@/fx/TracingBorder"
-import { useGameContext } from "@/hooks/useGameContext"
-import useGameStore from "@/stores/game"
-import { cn } from "@/utils/tailwind"
 
-const taskIdleCX = "bg-muted/50"
-const taskInProgressCX =
-  "bracket-success -bracket-offset-3 bg-success-background stripe-bar stripe-bar-success/20 stripe-bar-8 stripe-bar-animate-1"
-const taskCancelledCX = "bg-warning-background bracket-warning"
+import type { TaskEngineState } from "./panels/TaskEnginesPanel"
 
-export const TaskStatusBadge = () => {
-  const taskInProgress = useGameStore.use.taskInProgress?.()
-  const taskWasCancelled = useGameStore.use.taskWasCancelled?.()
-  const setTaskWasCancelled = useGameStore.use.setTaskWasCancelled?.()
-  const activeTasks = useGameStore.use.activeTasks?.()
-  const { dispatchAction } = useGameContext()
+const stateStyles = cva("w-full duration-1000 text-xs -bracket-offset-1 bracket bracket-size-6", {
+  variants: {
+    state: {
+      idle: "bg-muted/50 bracket-subtle text-subtle",
+      active:
+        "bracket-success bg-success-background text-success border-success stripe-bar stripe-bar-success/20 stripe-bar-8 stripe-bar-animate-1",
+      completed: "bg-success-background/50 bracket-success border-success/50 text-success",
+      cancelling:
+        "bracket-destructive bg-destructive-background text-destructive border-destructive stripe-bar stripe-bar-destructive/20 stripe-bar-8 stripe-bar-animate-1",
 
-  const activeTaskList = useMemo(
-    () => Object.values(activeTasks ?? {}),
-    [activeTasks]
-  )
-  const hasActiveTasks = activeTaskList.length > 0
+      cancelled: "border-warning/50 text-warning bg-warning-background/50 bracket-warning/100",
+      failed:
+        "text-destructive bg-destructive-background/50 text-destructive border-destructive/50 bracket-destructive",
+    },
+  },
+  defaultVariants: {
+    state: "idle",
+  },
+})
 
-  useEffect(() => {
-    if (taskWasCancelled && !taskInProgress) {
-      const timeoutId = setTimeout(() => {
-        setTaskWasCancelled(false)
-      }, 5000)
+const labelStyles = cva("font-extrabold uppercase", {
+  variants: {
+    state: {
+      active: "text-success-foreground animate-pulse",
+      idle: "text-foreground",
+      completed: "text-success-foreground",
+      cancelling: "text-destructive-foreground animate-pulse ",
+      cancelled: "text-warning-foreground",
+      failed: "text-destructive-foreground",
+    },
+  },
+  defaultVariants: {
+    state: "idle",
+  },
+})
 
-      return () => clearTimeout(timeoutId)
-    }
-  }, [taskWasCancelled, taskInProgress, setTaskWasCancelled])
-
-  const badgeLabel = useMemo(() => {
-    if (!hasActiveTasks && !taskInProgress && !taskWasCancelled) return "idle"
-    if (hasActiveTasks || taskInProgress) return "working"
-    if (taskWasCancelled) return "cancelled"
-
-    return "idle"
-  }, [hasActiveTasks, taskInProgress, taskWasCancelled])
-
+export const TaskStatusBadge = ({ state, label }: { state: TaskEngineState; label: string }) => {
   return (
-    <TracingBorder active={taskInProgress || hasActiveTasks}>
+    <TracingBorder active={state === "active"}>
       <div className="flex flex-col gap-2">
-        <Badge
-          className={cn(
-            "w-full duration-1000 text-xs tracking-widest",
-            taskInProgress || hasActiveTasks
-              ? taskInProgressCX
-              : taskWasCancelled
-                ? taskCancelledCX
-                : taskIdleCX
-          )}
-          variant={
-            taskInProgress || hasActiveTasks
-              ? "success"
-              : taskWasCancelled
-                ? "warning"
-                : "default"
-          }
-          border="bracket"
-        >
-          <span className="opacity-50">Task Agent:</span>
-          <span
-            className={cn(
-              "font-extrabold uppercase",
-              taskInProgress || hasActiveTasks
-                ? "text-success-foreground animate-pulse"
-                : taskWasCancelled
-                  ? "text-warning-foreground animate-pulse"
-                  : "text-foreground"
-            )}
-          >
-            {badgeLabel}
-            {hasActiveTasks ? ` (${activeTaskList.length})` : ""}
-          </span>
+        <Badge className={stateStyles({ state })}>
+          <span>Engine status:</span>
+          <span className={labelStyles({ state })}>{label}</span>
         </Badge>
-
-        {hasActiveTasks && (
-          <div className="flex flex-col gap-2 text-xs">
-            {activeTaskList.map((task) => (
-              <div
-                key={task.task_id}
-                className="flex items-center justify-between gap-2"
-              >
-                <span className="truncate opacity-80">
-                  {task.task_description ||
-                    [
-                      task.ship_name ||
-                        task.ship_type ||
-                        (task.ship_id ? `Ship ${task.ship_id.slice(0, 6)}` : null),
-                      task.actor_character_name ||
-                        (task.actor_character_id
-                          ? `Actor ${task.actor_character_id.slice(0, 6)}`
-                          : null),
-                    ]
-                      .filter(Boolean)
-                      .join(" • ") ||
-                    `Task ${task.task_id.slice(0, 6)}`}
-                </span>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() =>
-                    dispatchAction({
-                      type: "cancel-task",
-                      payload: { task_id: task.task_id },
-                    })
-                  }
-                >
-                  Cancel
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </TracingBorder>
   )
