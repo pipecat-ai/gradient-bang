@@ -46,6 +46,8 @@ const StoryWrapper = ({
   useControls(() => ({
     General: folder(
       {
+        ["Connect"]: button(() => client.startBotAndConnect({ endpoint })),
+        ["Disconnect"]: button(() => client.disconnect()),
         ["Get My Status"]: button(() => dispatchAction({ type: "get-my-status" })),
         ["Get Known Port List"]: button(() => dispatchAction({ type: "get-known-ports" })),
       },
@@ -84,7 +86,7 @@ const StoryWrapper = ({
         </>
       )}
 
-      {storyMeta?.useDevTools && <BasicDevTools />}
+      {storyMeta?.useDevTools && storyMeta?.useChatControls && <BasicDevTools />}
 
       <Leva oneLineLabels hidden={!storyMeta?.useDevTools} />
 

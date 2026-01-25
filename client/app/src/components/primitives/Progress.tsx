@@ -1,11 +1,11 @@
-"use client";
+"use client"
 
-import * as React from "react";
+import * as React from "react"
 
-import { cva, type VariantProps } from "class-variance-authority";
-import * as ProgressPrimitive from "@radix-ui/react-progress";
+import { cva, type VariantProps } from "class-variance-authority"
+import * as ProgressPrimitive from "@radix-ui/react-progress"
 
-import { cn } from "@/utils/tailwind";
+import { cn } from "@/utils/tailwind"
 
 const progressVariants = cva("relative min-w-10 h-2 w-full overflow-hidden", {
   variants: {
@@ -16,12 +16,13 @@ const progressVariants = cva("relative min-w-10 h-2 w-full overflow-hidden", {
       warning: "bg-warning/20",
       success: "bg-success/20",
       fuel: "bg-fuel/20",
+      terminal: "bg-terminal/20",
     },
   },
   defaultVariants: {
     color: "primary",
   },
-});
+})
 
 const indicatorColorVariants = {
   primary: "bg-primary",
@@ -30,29 +31,30 @@ const indicatorColorVariants = {
   warning: "bg-warning",
   success: "bg-success",
   fuel: "bg-fuel",
-} as const;
+  terminal: "bg-terminal",
+} as const
 
 const clampValue = (val?: number | null) => {
   if (val == null || typeof val !== "number" || Number.isNaN(val)) {
-    return 0;
+    return 0
   }
 
-  return Math.min(100, Math.max(0, val));
-};
+  return Math.min(100, Math.max(0, val))
+}
 
-const SEGMENT_TRANSITION_FALLBACK_MS = 1200;
+const SEGMENT_TRANSITION_FALLBACK_MS = 1200
 
 type SegmentState = {
-  start: number;
-  end: number;
-  id: number;
-};
+  start: number
+  end: number
+  id: number
+}
 
 type ProgressClassNames = {
-  indicator?: string;
-  increment?: string;
-  decrement?: string;
-};
+  indicator?: string
+  increment?: string
+  decrement?: string
+}
 
 function Progress({
   className,
@@ -64,165 +66,147 @@ function Progress({
   ...props
 }: React.ComponentProps<typeof ProgressPrimitive.Root> &
   VariantProps<typeof progressVariants> & {
-    segmented?: boolean;
-    segmentHoldMs?: number;
-    classNames?: ProgressClassNames;
+    segmented?: boolean
+    segmentHoldMs?: number
+    classNames?: ProgressClassNames
   }) {
   const {
     indicator: classNameIndicator,
     increment: classNameIncrement,
     decrement: classNameDecrement,
-  } = classNames ?? {};
-  const normalizedValue = clampValue(value);
-  const [displayValue, setDisplayValue] =
-    React.useState<number>(normalizedValue);
-  const [segmentState, setSegmentState] = React.useState<SegmentState | null>(
-    null
-  );
-  const pendingTimeoutRef = React.useRef<number | null>(null);
-  const transitionFallbackRef = React.useRef<number | null>(null);
-  const pendingRemovalIdRef = React.useRef<number | null>(null);
-  const segmentIdRef = React.useRef(0);
-  const indicatorRef = React.useRef<HTMLDivElement | null>(null);
+  } = classNames ?? {}
+  const normalizedValue = clampValue(value)
+  const [displayValue, setDisplayValue] = React.useState<number>(normalizedValue)
+  const [segmentState, setSegmentState] = React.useState<SegmentState | null>(null)
+  const pendingTimeoutRef = React.useRef<number | null>(null)
+  const transitionFallbackRef = React.useRef<number | null>(null)
+  const pendingRemovalIdRef = React.useRef<number | null>(null)
+  const segmentIdRef = React.useRef(0)
+  const indicatorRef = React.useRef<HTMLDivElement | null>(null)
 
   const indicatorColorClass =
-    indicatorColorVariants[color ?? "primary"] ??
-    indicatorColorVariants.primary;
+    indicatorColorVariants[color ?? "primary"] ?? indicatorColorVariants.primary
 
   const clearSegmentById = React.useCallback((segmentId: number) => {
-    setSegmentState((segment) =>
-      segment && segment.id === segmentId ? null : segment
-    );
-  }, []);
+    setSegmentState((segment) => (segment && segment.id === segmentId ? null : segment))
+  }, [])
 
   React.useEffect(() => {
     return () => {
       if (pendingTimeoutRef.current !== null) {
-        window.clearTimeout(pendingTimeoutRef.current);
+        window.clearTimeout(pendingTimeoutRef.current)
       }
       if (transitionFallbackRef.current !== null) {
-        window.clearTimeout(transitionFallbackRef.current);
+        window.clearTimeout(transitionFallbackRef.current)
       }
-      pendingRemovalIdRef.current = null;
-    };
-  }, []);
+      pendingRemovalIdRef.current = null
+    }
+  }, [])
 
   React.useEffect(() => {
-    const indicatorElement = indicatorRef.current;
+    const indicatorElement = indicatorRef.current
     if (!indicatorElement) {
-      return undefined;
+      return undefined
     }
 
     const handleTransitionEnd = (event: TransitionEvent) => {
       if (event.propertyName !== "transform") {
-        return;
+        return
       }
 
-      const pendingId = pendingRemovalIdRef.current;
+      const pendingId = pendingRemovalIdRef.current
       if (pendingId == null) {
-        return;
+        return
       }
 
-      pendingRemovalIdRef.current = null;
+      pendingRemovalIdRef.current = null
 
       if (transitionFallbackRef.current !== null) {
-        window.clearTimeout(transitionFallbackRef.current);
-        transitionFallbackRef.current = null;
+        window.clearTimeout(transitionFallbackRef.current)
+        transitionFallbackRef.current = null
       }
 
-      clearSegmentById(pendingId);
-    };
+      clearSegmentById(pendingId)
+    }
 
-    indicatorElement.addEventListener("transitionend", handleTransitionEnd);
+    indicatorElement.addEventListener("transitionend", handleTransitionEnd)
 
     return () => {
-      indicatorElement.removeEventListener(
-        "transitionend",
-        handleTransitionEnd
-      );
-    };
-  }, [clearSegmentById]);
+      indicatorElement.removeEventListener("transitionend", handleTransitionEnd)
+    }
+  }, [clearSegmentById])
 
   React.useEffect(() => {
     if (!segmented) {
       if (pendingTimeoutRef.current !== null) {
-        window.clearTimeout(pendingTimeoutRef.current);
-        pendingTimeoutRef.current = null;
+        window.clearTimeout(pendingTimeoutRef.current)
+        pendingTimeoutRef.current = null
       }
       if (transitionFallbackRef.current !== null) {
-        window.clearTimeout(transitionFallbackRef.current);
-        transitionFallbackRef.current = null;
+        window.clearTimeout(transitionFallbackRef.current)
+        transitionFallbackRef.current = null
       }
-      pendingRemovalIdRef.current = null;
+      pendingRemovalIdRef.current = null
 
-      setSegmentState(null);
-      setDisplayValue(normalizedValue);
-      return;
+      setSegmentState(null)
+      setDisplayValue(normalizedValue)
+      return
     }
 
     if (normalizedValue === displayValue) {
-      return;
+      return
     }
 
     if (pendingTimeoutRef.current !== null) {
-      window.clearTimeout(pendingTimeoutRef.current);
-      pendingTimeoutRef.current = null;
+      window.clearTimeout(pendingTimeoutRef.current)
+      pendingTimeoutRef.current = null
     }
     if (transitionFallbackRef.current !== null) {
-      window.clearTimeout(transitionFallbackRef.current);
-      transitionFallbackRef.current = null;
+      window.clearTimeout(transitionFallbackRef.current)
+      transitionFallbackRef.current = null
     }
-    pendingRemovalIdRef.current = null;
+    pendingRemovalIdRef.current = null
 
-    segmentIdRef.current += 1;
-    const currentSegmentId = segmentIdRef.current;
+    segmentIdRef.current += 1
+    const currentSegmentId = segmentIdRef.current
 
     setSegmentState({
       start: displayValue,
       end: normalizedValue,
       id: currentSegmentId,
-    });
+    })
 
     pendingTimeoutRef.current = window.setTimeout(() => {
-      setDisplayValue(normalizedValue);
-      pendingRemovalIdRef.current = currentSegmentId;
-      pendingTimeoutRef.current = null;
+      setDisplayValue(normalizedValue)
+      pendingRemovalIdRef.current = currentSegmentId
+      pendingTimeoutRef.current = null
 
       transitionFallbackRef.current = window.setTimeout(() => {
         if (pendingRemovalIdRef.current !== currentSegmentId) {
-          return;
+          return
         }
 
-        pendingRemovalIdRef.current = null;
-        clearSegmentById(currentSegmentId);
-        transitionFallbackRef.current = null;
-      }, SEGMENT_TRANSITION_FALLBACK_MS);
-    }, segmentHoldMs);
-  }, [
-    segmented,
-    normalizedValue,
-    segmentHoldMs,
-    displayValue,
-    clearSegmentById,
-  ]);
+        pendingRemovalIdRef.current = null
+        clearSegmentById(currentSegmentId)
+        transitionFallbackRef.current = null
+      }, SEGMENT_TRANSITION_FALLBACK_MS)
+    }, segmentHoldMs)
+  }, [segmented, normalizedValue, segmentHoldMs, displayValue, clearSegmentById])
 
-  const indicatorValue = segmented ? displayValue : normalizedValue;
+  const indicatorValue = segmented ? displayValue : normalizedValue
   const pendingSegment =
-    segmented && segmentState && segmentState.start !== segmentState.end
-      ? {
-          start: Math.min(segmentState.start, segmentState.end),
-          width: Math.ceil(Math.abs(segmentState.end - segmentState.start)),
-          direction:
-            segmentState.end > segmentState.start ? "increment" : "decrement",
-        }
-      : null;
+    segmented && segmentState && segmentState.start !== segmentState.end ?
+      {
+        start: Math.min(segmentState.start, segmentState.end),
+        width: Math.ceil(Math.abs(segmentState.end - segmentState.start)),
+        direction: segmentState.end > segmentState.start ? "increment" : "decrement",
+      }
+    : null
 
   const segmentDirectionClassName =
-    pendingSegment?.direction === "increment"
-      ? classNameIncrement
-      : pendingSegment?.direction === "decrement"
-      ? classNameDecrement
-      : undefined;
+    pendingSegment?.direction === "increment" ? classNameIncrement
+    : pendingSegment?.direction === "decrement" ? classNameDecrement
+    : undefined
 
   return (
     <ProgressPrimitive.Root
@@ -240,7 +224,7 @@ function Progress({
           classNameIndicator
         )}
       />
-      {pendingSegment ? (
+      {pendingSegment ?
         <span
           aria-hidden="true"
           className={cn(
@@ -253,9 +237,9 @@ function Progress({
             width: `${pendingSegment.width}%`,
           }}
         />
-      ) : null}
+      : null}
     </ProgressPrimitive.Root>
-  );
+  )
 }
 
-export { Progress };
+export { Progress }

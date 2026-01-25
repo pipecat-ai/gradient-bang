@@ -41,7 +41,7 @@ const dividerVariants = cva("relative items-center", {
     orientation: "horizontal",
     thickness: "thin",
     variant: "solid",
-    color: "secondary",
+    color: "primary",
     size: "none",
   },
   compoundVariants: [
@@ -155,7 +155,8 @@ const dividerDecorationVariants = cva("flex", {
 })
 
 export interface DividerProps
-  extends Omit<React.HTMLAttributes<HTMLDivElement>, "color">,
+  extends
+    Omit<React.HTMLAttributes<HTMLDivElement>, "color">,
     VariantProps<typeof dividerVariants>,
     VariantProps<typeof dividerChildrenVariants> {
   childrenClassName?: string
@@ -165,7 +166,7 @@ export interface DividerProps
 
 export function Divider({
   children,
-  color = "secondary",
+  color = "primary",
   decoration = "none",
   thickness = "thin",
   orientation = "horizontal",
@@ -175,61 +176,56 @@ export function Divider({
   childrenClassName,
   ...props
 }: DividerProps) {
-  const innerContent = children ? (
-    <div
-      className={cn(
-        orientation === "horizontal" &&
-          "flex flex-row items-center justify-center gap-4 w-full",
-        orientation === "vertical" &&
-          "flex flex-col items-center justify-center gap-4 h-full",
-        className
-      )}
-    >
-      <span
+  const innerContent =
+    children ?
+      <div
         className={cn(
-          dividerVariants({
-            color,
-            thickness,
-            variant,
-            size,
-            orientation,
-          })
+          orientation === "horizontal" && "flex flex-row items-center justify-center gap-4 w-full",
+          orientation === "vertical" && "flex flex-col items-center justify-center gap-4 h-full",
+          className
         )}
-        {...props}
-      />
-      <span
-        className={cn(dividerChildrenVariants({ color }), childrenClassName)}
       >
-        {children}
-      </span>
-      <span
+        <span
+          className={cn(
+            dividerVariants({
+              color,
+              thickness,
+              variant,
+              size,
+              orientation,
+            })
+          )}
+          {...props}
+        />
+        <span className={cn(dividerChildrenVariants({ color }), childrenClassName)}>
+          {children}
+        </span>
+        <span
+          className={cn(
+            dividerVariants({
+              color,
+              thickness,
+              variant,
+              size,
+              orientation,
+            })
+          )}
+          {...props}
+        />
+      </div>
+    : <div
         className={cn(
           dividerVariants({
             color,
             thickness,
+            orientation,
             variant,
             size,
-            orientation,
-          })
+          }),
+          className
         )}
         {...props}
       />
-    </div>
-  ) : (
-    <div
-      className={cn(
-        dividerVariants({
-          color,
-          thickness,
-          orientation,
-          variant,
-          size,
-        }),
-        className
-      )}
-      {...props}
-    />
-  )
 
   if (decoration === "none") {
     return innerContent
@@ -248,7 +244,10 @@ export function Divider({
         <PlusIcon
           strokeLinecap="square"
           strokeWidth={
-            thickness === "thin" ? 2 : thickness === "medium" ? 3.5 : 4.5
+            thickness === "thin" ? 2
+            : thickness === "medium" ?
+              3.5
+            : 4.5
           }
         />
       </span>
@@ -257,7 +256,10 @@ export function Divider({
         <PlusIcon
           strokeLinecap="square"
           strokeWidth={
-            thickness === "thin" ? 2 : thickness === "medium" ? 3.5 : 4.5
+            thickness === "thin" ? 2
+            : thickness === "medium" ?
+              3.5
+            : 4.5
           }
         />
       </span>

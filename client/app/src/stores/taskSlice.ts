@@ -99,6 +99,7 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
 
     // Find a free slot (null, or task_id not in activeTasks AND not in taskSummaries)
     let freeSlotIndex = -1
+    let previousTaskId: string | null = null
     for (let i = 0; i < slotLimit; i++) {
       const slotTaskId = corpSlotAssignments[i]
       if (slotTaskId === null) {
@@ -108,6 +109,7 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
       // Check if the assigned task is neither active nor has a summary (orphaned)
       if (!(slotTaskId in activeTasks) && !(slotTaskId in taskSummaries)) {
         freeSlotIndex = i
+        previousTaskId = slotTaskId
         break
       }
     }
@@ -115,6 +117,10 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
     if (freeSlotIndex !== -1) {
       set(
         produce((state) => {
+          // Clean up outputs from the previous task before reusing slot
+          if (previousTaskId) {
+            delete state.taskOutputs[previousTaskId]
+          }
           state.corpSlotAssignments[freeSlotIndex] = taskId
         })
       )
@@ -144,8 +150,14 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
     }
 
     if (oldestSlotIndex !== -1) {
+      const previousTaskId = corpSlotAssignments[oldestSlotIndex]
       set(
         produce((state) => {
+          // Clean up outputs and summary from the previous task before reusing slot
+          if (previousTaskId) {
+            delete state.taskOutputs[previousTaskId]
+            delete state.taskSummaries[previousTaskId]
+          }
           state.corpSlotAssignments[oldestSlotIndex] = taskId
         })
       )

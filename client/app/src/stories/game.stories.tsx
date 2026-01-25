@@ -1,5 +1,6 @@
 import { useMemo } from "react"
 
+import { button, folder, useControls } from "leva"
 import type { Story } from "@ladle/react"
 
 import { CoursePlotPanel } from "@/components/CoursePlotPanel"
@@ -8,6 +9,7 @@ import { MovementHistoryPanel } from "@/components/MovementHistoryPanel"
 import { Divider } from "@/components/primitives/Divider"
 import { SectorMap } from "@/components/SectorMap"
 import { SettingsPanel } from "@/components/SettingsPanel"
+import { Game } from "@/components/views/Game"
 import { WarpBadge } from "@/components/WarpBadge"
 import { useNotificationSound } from "@/hooks/useNotificationSound"
 import useGameStore from "@/stores/game"
@@ -160,6 +162,37 @@ export const Settings: Story = () => {
 Settings.meta = {
   disconnectedStory: true,
   connectOnMount: false,
+  enableMic: false,
+  disableAudioOutput: true,
+}
+
+export const GameViewStory: Story = () => {
+  const setGameState = useGameStore.use.setGameState()
+
+  useControls(() => ({
+    Game: folder(
+      {
+        ["Ready State"]: button(() => {
+          setGameState("ready")
+        }),
+      },
+      {
+        collapsed: true,
+        order: -1,
+      }
+    ),
+  }))
+  return (
+    <div className="relative h-full w-full overflow-hidden">
+      <Game />
+    </div>
+  )
+}
+
+GameViewStory.meta = {
+  useDevTools: true,
+  useChatControls: false,
+  disconnectedStory: true,
   enableMic: false,
   disableAudioOutput: true,
 }

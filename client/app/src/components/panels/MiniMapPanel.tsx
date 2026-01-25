@@ -1,10 +1,11 @@
 import useGameStore from "@/stores/game"
+import { cn } from "@/utils/tailwind"
 
 import SectorMap, { type MapConfig } from "../SectorMap"
 
 const MINIMAP_CONFIG: MapConfig = {}
 
-export const MiniMapPanel = () => {
+export const MiniMapPanel = ({ className }: { className?: string }) => {
   const sector = useGameStore((state) => state.sector)
   const localMapData = useGameStore((state) => state.local_map_data)
   const ships = useGameStore.use.ships?.()
@@ -14,7 +15,7 @@ export const MiniMapPanel = () => {
     .map((s: ShipSelf) => s.sector ?? 0)
 
   return (
-    <div className="bg-card border">
+    <div className={cn("bg-card border", className)}>
       <SectorMap
         current_sector_id={sector?.id ?? 0}
         config={MINIMAP_CONFIG}

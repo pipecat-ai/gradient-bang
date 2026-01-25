@@ -20,6 +20,7 @@
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
   --muted-foreground: oklch(87% 0 0);
+  --muted-background: oklch(43.9% 0 0);
   --subtle: oklch(55.6% 0 0);
   --subtle-background: oklch(20.5% 0 0);
   --subtle-foreground: oklch(70.8% 0 0);
@@ -47,6 +48,9 @@
   --fuel-background: oklch(30.2% 0.056 229.695);
   --fuel-foreground: oklch(95.6% 0.045 203.388);
 
+  /** UI **/
+  --seperator: 3px;
+
   --grid-opacity: 0.25;
   --screen-bg-feather: 20px;
   --hud-center: 330px;
@@ -63,8 +67,8 @@
   --scrollbar-offset: 3px;
 
   --z-starfield: 1;
-  --z-visor: 2;
-  --z-hud: 3;
+  --z-ui: 2;
+  --z-visor: 3;
   --z-toasts: 4;
   --z-screens: 20;
 }
@@ -76,6 +80,7 @@
   --font-sans:
     "TX-02", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
     Arial, sans-serif;
+  --text-xxs: 11px;
 
   /** Colors **/
   --color-background: var(--background);
@@ -90,6 +95,7 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-muted-background: var(--muted-background);
   --color-subtle: var(--subtle);
   --color-subtle-foreground: var(--subtle-foreground);
   --color-subtle-background: var(--subtle-background);
@@ -119,10 +125,13 @@
   --color-fuel-foreground: var(--fuel-foreground);
   --color-fuel-background: var(--fuel-background);
 
-  --color-agent: var(--color-teal-300);
-  --color-client: var(--color-sky-300);
-
   /** UI **/
+  --z-starfield: var(--z-starfield);
+  --z-visor: var(--z-visor);
+  --z-ui: var(--z-ui);
+  --z-toasts: var(--z-toasts);
+  --z-screens: var(--z-screens);
+
   --spacing-ui-xs: calc(var(--spacing) * 2);
   --spacing-ui-sm: calc(var(--spacing) * 3);
   --spacing-ui-md: calc(var(--spacing) * 6);
@@ -130,10 +139,9 @@
   --spacing-ui-xl: calc(var(--spacing) * 12);
   --spacing-scrollbar: calc(var(--spacing) * 3);
   --spacing-panel: calc(var(--spacing) * 2);
+  --spacing-panel-gap: 3px;
   --spacing-screen-border-y: calc(var(--spacing) * 10);
   --spacing-screen-border-x: calc(var(--spacing) * 4);
-
-  --spacing-panel-gap: 3px;
 
   --height-ui-hud: 460px;
   --width-ui-hud-center: 500px;
@@ -770,6 +778,7 @@ button {
 }
 
 #visor {
+  pointer-events: none;
   position: absolute;
   inset: 0;
   overflow: hidden;

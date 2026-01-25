@@ -2,7 +2,12 @@ import { useEffect, useMemo, useState } from "react"
 
 import { cva } from "class-variance-authority"
 import { motion } from "motion/react"
-import { CircleNotchIcon, LockSimpleIcon, ProhibitIcon } from "@phosphor-icons/react"
+import {
+  CaretRightIcon,
+  CircleNotchIcon,
+  LockSimpleIcon,
+  ProhibitIcon,
+} from "@phosphor-icons/react"
 
 import { Button } from "@/components/primitives/Button"
 import { Card, CardContent } from "@/components/primitives/Card"
@@ -49,12 +54,14 @@ const cx = cva(
 
 const TaskEngineHeader = ({ prefix, label }: { prefix?: string; label: string }) => {
   return (
-    <div className="flex flex-row gap-3 items-center justify-center text-[13px] font-bold uppercase">
-      <div className="flex-1 dotted-bg-sm text-accent h-3"></div>
-      <div className="flex flex-row gap-2 items-center justify-center">
-        {prefix && <span className="text-accent-foreground">{prefix}</span>} {label}
+    <div className="flex flex-row gap-3 items-center justify-center text-xs font-semibold uppercase leading-none">
+      <div className="flex-1 dotted-bg-xs text-accent h-2.5"></div>
+      <div className="flex flex-row gap-2 items-center justify-center truncate">
+        <span className="truncate">
+          {prefix && <span className="text-accent-foreground">{prefix}</span>} {label}
+        </span>
       </div>
-      <div className="flex-1 dotted-bg-sm text-accent h-3"></div>
+      <div className="flex-1 dotted-bg-xs text-accent h-2.5"></div>
     </div>
   )
 }
@@ -77,7 +84,7 @@ const LockedTaskEngineSlot = () => {
       animate={{ opacity: 0.4 }}
       whileHover={{ opacity: 1 }}
       transition={{ opacity: { duration: 0.3 } }}
-      className="col-span-1 h-full"
+      className="col-span-1 h-full group"
     >
       <Card
         className="relative elbow elbow-offset-1 elbow-size-10 elbow-2 elbow-subtle-foreground select-none h-full bg-background/50"
@@ -88,7 +95,7 @@ const LockedTaskEngineSlot = () => {
           aria-hidden="true"
         />
         <CardContent className="flex flex-col gap-2 h-full relative">
-          <div className="flex-1 flex items-center justify-center">
+          <div className="opacity-0 group-hover:opacity-100 flex-1 flex items-center justify-center transition-opacity delay-100 duration-1000">
             <div className="flex flex-row items-center gap-1.5 text-subtle-foreground bg-black py-0.5 px-1">
               <LockSimpleIcon weight="bold" size={14} />
               <span className="text-xs uppercase text-muted-foreground font-bold">
@@ -110,6 +117,7 @@ export const TaskEngine = ({ taskId, isLocal }: { taskId?: string | null; isLoca
 
   // Look up active task and summary by ID
   const task = taskId ? getTaskByTaskId?.(taskId) : undefined
+  console.log(task)
   const summary = taskId ? getTaskSummaryByTaskId?.(taskId) : undefined
 
   const { state, displayTask } = useMemo(() => {
@@ -147,7 +155,7 @@ export const TaskEngine = ({ taskId, isLocal }: { taskId?: string | null; isLoca
       }}
       className="col-span-1 h-full"
     >
-      <Card className={cx({ state })} size="sm">
+      <Card className={cx({ state })} size="xs">
         <CardContent className="flex flex-col gap-2">
           <TaskEngineHeader
             prefix={isLocal || !displayTask ? undefined : "engine:"}
@@ -160,7 +168,17 @@ export const TaskEngine = ({ taskId, isLocal }: { taskId?: string | null; isLoca
           />
         </CardContent>
 
-        <div className="h-full flex flex-col justify-end overflow-y-auto">
+        <div className="relative h-full">
+          {task?.task_description && (
+            <div className="mx-ui-xs z-20 relative text-xxs flex flex-row gap-1 items-center text-subtle-foreground">
+              <div className="aspect-square bg-muted p-1 flex items-center justify-center border box-border">
+                <CaretRightIcon weight="bold" size={12} className="text-foreground" />
+              </div>
+              <div className="truncate px-ui-xs bg-subtle/20 flex-1 self-stretch flex items-center">
+                <span className="truncate">{task?.task_description}</span>
+              </div>
+            </div>
+          )}
           <TaskOutputStream taskId={taskId} />
         </div>
 
@@ -241,7 +259,7 @@ export const TaskEnginesPanel = () => {
   }, [corpShipTasks, assignTaskToCorpSlot, displayedCorpSlots])
 
   return (
-    <div className="grid grid-cols-2 auto-rows-[340px] gap-2">
+    <div className="grid grid-cols-2 auto-rows-[1fr] gap-ui-xs h-full">
       <TaskEngine taskId={localTaskId} isLocal />
       {!ships.data ?
         <TaskEngineBlankSlate />

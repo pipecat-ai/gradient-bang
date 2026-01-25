@@ -98,7 +98,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
     gameStore.setGameState("initializing")
 
     // 1. Construct and await heavier game instances
-    if (gameStore.settings.renderStarfield) {
+    /*if (gameStore.settings.renderStarfield) {
       console.debug("[GAME CONTEXT] Waiting on Starfield ready...")
       await new Promise<void>((resolve) => {
         if (useGameStore.getState().starfieldReady) {
@@ -115,7 +115,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
           }
         )
       })
-    }
+    }*/
 
     await wait(1000)
 
@@ -149,8 +149,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
     console.debug("[GAME CONTEXT] Initialized, setting ready state")
 
     // 4. Set ready state and dispatch start event to bot
-    // gameStore.setGameStateMessage(GameInitStateMessage.READY)
-    // gameStore.setGameState("ready")
+    gameStore.setGameStateMessage(GameInitStateMessage.READY)
+    gameStore.setGameState("ready")
 
     // A little bit of air, so the bot starts talking after the visor opens
     // await wait(1000)
