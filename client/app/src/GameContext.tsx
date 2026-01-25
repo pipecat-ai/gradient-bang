@@ -27,7 +27,6 @@ import {
   type EventQueryMessage,
   type IncomingChatMessage,
   type MapLocalMessage,
-  type MapUpdateMessage,
   type MovementCompleteMessage,
   type MovementStartMessage,
   type PortUpdateMessage,
@@ -458,10 +457,12 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
             case "map.update": {
               console.debug("[GAME EVENT] Map update", e.payload)
-              const data = e.payload as MapUpdateMessage
+              const data = e.payload as MapLocalMessage
 
-              console.warn("[GAME EVENT] Map update", data)
-              gameStore.updateMapSector(data.sector as MapSectorNode)
+              for (const sector of data.sectors) {
+                console.debug("[GAME EVENT] Updating map sector", sector.id)
+                gameStore.updateMapSector(sector as MapSectorNode)
+              }
               break
             }
 

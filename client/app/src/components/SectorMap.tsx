@@ -309,12 +309,14 @@ const MapComponent = ({
       ships: shipsMap,
     })
 
-    if (centerSectorChanged || topologyChanged || maxDistanceChanged || coursePlotChanged) {
+    if (centerSectorChanged || maxDistanceChanged || coursePlotChanged) {
+      // Camera needs to move - use animated transition
       console.debug("[GAME SECTOR MAP] Moving to sector", center_sector_id)
       controller.moveToSector(center_sector_id, normalizedMapData)
       prevCenterSectorIdRef.current = center_sector_id
-    } else if (needsConfigUpdate || shipsChanged) {
-      console.debug("[GAME SECTOR MAP] Rendering SectorMap")
+    } else if (topologyChanged || needsConfigUpdate || shipsChanged) {
+      // Data changed but camera stays put - just re-render
+      console.debug("[GAME SECTOR MAP] Rendering SectorMap (topology/config/ships changed)")
       controller.render()
     }
 

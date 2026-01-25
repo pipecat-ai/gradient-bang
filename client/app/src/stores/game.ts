@@ -243,9 +243,11 @@ const createGameSlice: StateCreator<
 
   getShipSectors: (includeSelf: boolean) => {
     const shipsData = get().ships.data ?? []
-    return includeSelf
-      ? shipsData.map((s: ShipSelf) => s.sector ?? 0)
-      : shipsData.filter((s: ShipSelf) => s.owner_type !== "personal").map((s: ShipSelf) => s.sector ?? 0)
+    return includeSelf ?
+        shipsData.map((s: ShipSelf) => s.sector ?? 0)
+      : shipsData
+          .filter((s: ShipSelf) => s.owner_type !== "personal")
+          .map((s: ShipSelf) => s.sector ?? 0)
   },
   // TODO: implement this properly
   // @ts-expect-error - we don't care about the type here, just want to trigger the alert
@@ -324,14 +326,29 @@ const createGameSlice: StateCreator<
   updateMapSector: (sectorUpdate: Partial<MapSectorNode> & { id: number }) =>
     set(
       produce((state) => {
+        console.debug("[GAME MAP] updateMapSector called with:", sectorUpdate)
+
         // Update in local map data
         if (state.local_map_data) {
           const localIndex = state.local_map_data.findIndex(
             (s: MapSectorNode) => s.id === sectorUpdate.id
           )
           if (localIndex !== -1) {
+            const before = { ...state.local_map_data[localIndex] }
             Object.assign(state.local_map_data[localIndex], sectorUpdate)
+            console.debug(
+              `[GAME MAP] Local map: FOUND sector ${sectorUpdate.id} at index ${localIndex}`,
+              { before, after: state.local_map_data[localIndex] }
+            )
+          } else {
+            // Sector not found - add it as a new entry
+            state.local_map_data.push(sectorUpdate as MapSectorNode)
+            console.debug(
+              `[GAME MAP] Local map: NOT FOUND sector ${sectorUpdate.id}, added as new entry`
+            )
           }
+        } else {
+          console.debug("[GAME MAP] Local map: no local_map_data present")
         }
 
         // Update in regional map data
@@ -340,8 +357,21 @@ const createGameSlice: StateCreator<
             (s: MapSectorNode) => s.id === sectorUpdate.id
           )
           if (regionalIndex !== -1) {
+            const before = { ...state.regional_map_data[regionalIndex] }
             Object.assign(state.regional_map_data[regionalIndex], sectorUpdate)
+            console.debug(
+              `[GAME MAP] Regional map: FOUND sector ${sectorUpdate.id} at index ${regionalIndex}`,
+              { before, after: state.regional_map_data[regionalIndex] }
+            )
+          } else {
+            // Sector not found - add it as a new entry
+            state.regional_map_data.push(sectorUpdate as MapSectorNode)
+            console.debug(
+              `[GAME MAP] Regional map: NOT FOUND sector ${sectorUpdate.id}, added as new entry`
+            )
           }
+        } else {
+          console.debug("[GAME MAP] Regional map: no regional_map_data present")
         }
       })
     ),
