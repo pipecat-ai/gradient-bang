@@ -13,7 +13,6 @@ import {
   transferSummaryString,
 } from "@/utils/game"
 
-import type { StartAction } from "./types/actions"
 import { RESOURCE_SHORT_NAMES } from "./types/constants"
 
 import {
@@ -146,20 +145,20 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
     // 3. Wait for initial data and initialize anything that needs it
     // @TODO: pass initial config to starfield here
-    gameStore.setGameStateMessage(GameInitStateMessage.STARTING)
+    gameStore.setGameStateMessage(GameInitStateMessage.READY)
 
     console.debug("[GAME CONTEXT] Initialized, setting ready state")
 
     // 4. Set ready state and dispatch start event to bot
-    gameStore.setGameStateMessage(GameInitStateMessage.READY)
-    gameStore.setGameState("ready")
+    // gameStore.setGameStateMessage(GameInitStateMessage.READY)
+    // gameStore.setGameState("ready")
 
     // A little bit of air, so the bot starts talking after the visor opens
-    await wait(1000)
+    // await wait(1000)
 
     // 5. Dispatch start event to bot to kick off the conversation
-    dispatchAction({ type: "start" } as StartAction)
-  }, [onConnect, gameStore, client, dispatchAction])
+    // dispatchAction({ type: "start" } as StartAction)
+  }, [onConnect, gameStore, client])
 
   /**
    * Handle server message
@@ -462,6 +461,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               const data = e.payload as MapUpdateMessage
 
               console.warn("[GAME EVENT] Map update", data)
+              gameStore.updateMapSector(data.sector as MapSectorNode)
               break
             }
 

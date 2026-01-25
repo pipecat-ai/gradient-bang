@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 
 import { cva } from "class-variance-authority"
 import { motion } from "motion/react"
-import { CircleNotchIcon, LockSimpleIcon, StopCircleIcon } from "@phosphor-icons/react"
+import { CircleNotchIcon, LockSimpleIcon, ProhibitIcon } from "@phosphor-icons/react"
 
 import { Button } from "@/components/primitives/Button"
 import { Card, CardContent } from "@/components/primitives/Card"
@@ -174,7 +174,7 @@ export const TaskEngine = ({ taskId, isLocal }: { taskId?: string | null; isLoca
                 size="icon-sm"
                 variant="ghost"
                 disabled={isCancelling}
-                className="absolute top-1 right-1 size-6.5 bg-success-foreground/10 text-success-foreground"
+                className="absolute top-1 right-1 size-6.5 bg-success-background/50 text-success-foreground hover:bg-success-background"
                 onClick={() => {
                   if (!taskId) return
                   setIsCancelling(true)
@@ -183,7 +183,7 @@ export const TaskEngine = ({ taskId, isLocal }: { taskId?: string | null; isLoca
               >
                 {isCancelling ?
                   <CircleNotchIcon weight="duotone" className="animate-spin" size={16} />
-                : <StopCircleIcon weight="duotone" size={16} />}
+                : <ProhibitIcon weight="duotone" size={16} />}
               </Button>
             )}
           </div>

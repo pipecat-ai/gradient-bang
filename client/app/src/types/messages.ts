@@ -107,8 +107,7 @@ export interface MapLocalMessage extends ServerMessagePayload {
   total_visited: number
 }
 
-export interface MapUpdateMessage extends ServerMessagePayload {
-  sector: Sector
+export interface MapUpdateMessage extends MapLocalMessage {
   newly_discovered: boolean
 }
 

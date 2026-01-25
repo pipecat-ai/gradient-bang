@@ -30,8 +30,17 @@ const addOutput = (taskId: string | null) => {
   const state = useGameStore.getState()
   state.addTaskOutput({
     task_id: taskId,
-    text: faker.lorem.sentence(),
-    task_message_type: faker.helpers.arrayElement(["STEP", "ACTION", "EVENT", "MESSAGE"]),
+    text: "task.name: " + faker.lorem.sentence(),
+    task_message_type: faker.helpers.arrayElement([
+      "STEP",
+      "ACTION",
+      "EVENT",
+      "MESSAGE",
+      "COMPLETE",
+      "FINISHED",
+      "CANCELLED",
+      "FAILED",
+    ]),
   })
 }
 

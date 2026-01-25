@@ -39,10 +39,10 @@
   --input: oklch(0.708 0 0);
   --ring: oklch(0.439 0 0);
   --popover: var(--card);
+
   --terminal: #dcfd38;
   --terminal-foreground: #f5ffc6;
   --terminal-background: #4c5424;
-
   --fuel: oklch(86.5% 0.127 207.078);
   --fuel-background: oklch(30.2% 0.056 229.695);
   --fuel-foreground: oklch(95.6% 0.045 203.388);
