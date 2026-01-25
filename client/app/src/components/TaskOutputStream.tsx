@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 
 import { ScrollArea } from "@/components/primitives/ScrollArea"
-import { Separator } from "@/components/primitives/Separator"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
@@ -13,31 +12,20 @@ const TaskTypeBadge = ({ type }: { type: Task["type"] }) => {
   return (
     <div
       className={cn(
-        "uppercase font-extrabold text-center py-1 leading-none",
-        type === "FAILED" ? "bg-warning text-warning-background"
-        : type === "ACTION" ? "bg-warning-background text-warning-foreground"
+        "py-0.5 uppercase font-black text-center leading-none text-[10px]",
+        type === "FAILED" ?
+          "border border-destructive bg-destructive-background text-destructive-foreground"
+        : type === "ACTION" ? "bg-fuel-background text-fuel-foreground"
         : type === "EVENT" ? "bg-terminal-background text-terminal"
         : type === "STEP" ?
           "bg-subtle-background text-muted-foreground border border-subtle-foreground"
         : type === "COMPLETE" ? "border border-success bg-success-background text-success"
-        : type === "CANCELLED" ? "bg-warning text-warning-background"
+        : type === "CANCELLED" ? "border border-warning bg-warning-background text-warning"
         : type === "FINISHED" ? "bg-success-background text-success-foreground"
         : "bg-foreground text-background"
       )}
     >
       {type}
-    </div>
-  )
-}
-
-const TaskCompleteRow = () => {
-  return (
-    <div className="flex flex-row gap-3 w-full select-none items-center justify-center py-3 last:pb-0">
-      <Separator variant="dotted" className="flex-1 h-[5px]" />
-      <div className="shrink-0 uppercase font-bold tracking-widest text-foreground text-xs">
-        Task complete
-      </div>
-      <Separator variant="dotted" className="flex-1 h-[5px]" />
     </div>
   )
 }
@@ -110,9 +98,6 @@ export const TaskOutputStreamComponent = ({ tasks }: { tasks: TaskOutput[] }) =>
         >
           <div className="h-full flex flex-col justify-end hover:opacity-100 select-none">
             {visibleTasks.map((task, index) => {
-              if (task.task_message_type === "COMPLETE") {
-                return <TaskCompleteRow key={`${task.task_id}-${index}`} />
-              }
               return <TaskRow key={`${task.task_id}-${index}`} task={task} />
             })}
           </div>

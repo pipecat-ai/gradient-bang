@@ -10,7 +10,7 @@ const stateStyles = cva("w-full duration-1000 text-xs -bracket-offset-1 bracket 
     state: {
       idle: "bg-muted/50 bracket-subtle text-subtle",
       active:
-        "bracket-success bg-success-background text-success border-success stripe-bar stripe-bar-success/20 stripe-bar-8 stripe-bar-animate-1",
+        "bracket-success/0 bg-success-background text-success border-success stripe-bar stripe-bar-success/20 stripe-bar-8 stripe-bar-animate-1",
       completed: "bg-success-background/50 bracket-success border-success/50 text-success",
       cancelling:
         "bracket-destructive bg-destructive-background text-destructive border-destructive stripe-bar stripe-bar-destructive/20 stripe-bar-8 stripe-bar-animate-1",

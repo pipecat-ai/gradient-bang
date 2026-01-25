@@ -25,9 +25,10 @@ export const BigMapStory: Story = () => {
   const coursePlot = useGameStore.use.course_plot?.()
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
   const setRegionalMapData = useGameStore.use.setRegionalMapData?.()
-  const getShipSectors = useGameStore.use.getShipSectors()
 
-  const shipSectors = ships?.data ? getShipSectors(false) : []
+  const shipSectors = ships?.data
+    ?.filter((s: ShipSelf) => s.owner_type !== "personal")
+    .map((s: ShipSelf) => s.sector ?? 0)
 
   const [{ current_sector, center_sector, show_legend }, set] = useControls(() => ({
     Map: folder(

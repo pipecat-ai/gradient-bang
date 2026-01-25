@@ -1450,12 +1450,7 @@ function renderSectorLabels(
     ctx.scale(hoverScale, hoverScale)
 
     ctx.fillStyle = applyAlpha(labelStyle.backgroundColor, labelOpacity)
-    ctx.fillRect(
-      -padding,
-      -ascent - padding,
-      textWidth + padding * 2,
-      textHeight + padding * 2
-    )
+    ctx.fillRect(-padding, -ascent - padding, textWidth + padding * 2, textHeight + padding * 2)
 
     ctx.fillStyle = applyAlpha(labelStyle.textColor, labelOpacity)
     ctx.fillText(text, 0, 0)
@@ -1532,12 +1527,7 @@ function renderPortLabels(
     ctx.scale(hoverScale, hoverScale)
 
     ctx.fillStyle = applyAlpha(labelStyle.backgroundColor, labelOpacity)
-    ctx.fillRect(
-      -padding,
-      -ascent - padding,
-      textWidth + padding * 2,
-      textHeight + padding * 2
-    )
+    ctx.fillRect(-padding, -ascent - padding, textWidth + padding * 2, textHeight + padding * 2)
 
     ctx.fillStyle = applyAlpha(labelStyle.textColor, labelOpacity)
     ctx.fillText(text, 0, 0)
@@ -1599,7 +1589,9 @@ function renderShipLabels(
     const textMetrics = ctx.measureText(text)
     const textWidth = textMetrics.width
     const ascent =
-      textMetrics.fontBoundingBoxAscent ?? textMetrics.actualBoundingBoxAscent ?? labelStyle.fontSize
+      textMetrics.fontBoundingBoxAscent ??
+      textMetrics.actualBoundingBoxAscent ??
+      labelStyle.fontSize
     const descent = textMetrics.fontBoundingBoxDescent ?? textMetrics.actualBoundingBoxDescent ?? 0
     const textHeight = ascent + descent
 

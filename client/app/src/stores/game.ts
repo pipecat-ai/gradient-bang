@@ -95,6 +95,7 @@ export interface GameSlice extends GameState {
   setSectorBuffer: (sector: Sector) => void
   setLocalMapData: (localMapData: MapData) => void
   setRegionalMapData: (regionalMapData: MapData) => void
+  updateMapSectors: (sectorUpdates: (Partial<MapSectorNode> & { id: number })[]) => void
   setCoursePlot: (coursePlot: CoursePlot) => void
   clearCoursePlot: () => void
   setStarfieldReady: (starfieldReady: boolean) => void
@@ -146,11 +147,9 @@ const createGameSlice: StateCreator<
       return
     }
     const payload = "payload" in action ? action.payload : {}
-    console.debug(`[GAME CLIENT] Dispatching action: "${action.type}"`, payload)
 
     let pendingPromise: Promise<void> | undefined
     if (action.async) {
-      console.debug("[GAME CONTEXT] Action is async, creating promise")
       pendingPromise = get().createFetchPromise(action.type)
     }
 
@@ -242,9 +241,11 @@ const createGameSlice: StateCreator<
 
   getShipSectors: (includeSelf: boolean) => {
     const shipsData = get().ships.data ?? []
-    return includeSelf
-      ? shipsData.map((s: ShipSelf) => s.sector ?? 0)
-      : shipsData.filter((s: ShipSelf) => s.owner_type !== "personal").map((s: ShipSelf) => s.sector ?? 0)
+    return includeSelf ?
+        shipsData.map((s: ShipSelf) => s.sector ?? 0)
+      : shipsData
+          .filter((s: ShipSelf) => s.owner_type !== "personal")
+          .map((s: ShipSelf) => s.sector ?? 0)
   },
   // TODO: implement this properly
   // @ts-expect-error - we don't care about the type here, just want to trigger the alert
@@ -317,6 +318,38 @@ const createGameSlice: StateCreator<
     set(
       produce((state) => {
         state.regional_map_data = regionalMapData
+      })
+    ),
+
+  updateMapSectors: (sectorUpdates: (Partial<MapSectorNode> & { id: number })[]) =>
+    set(
+      produce((state) => {
+        // Helper to process updates for a given map
+        const processMapUpdates = (mapData: MapSectorNode[] | undefined): void => {
+          if (!mapData) return
+
+          // Build index of existing sectors
+          const existingIndex = new Map<number, number>()
+          mapData.forEach((s: MapSectorNode, idx: number) => existingIndex.set(s.id, idx))
+
+          // Check if any of the update sectors exist in this map
+          const hasMatch = sectorUpdates.some((s) => existingIndex.has(s.id))
+          if (!hasMatch) return
+
+          for (const sectorUpdate of sectorUpdates) {
+            const existingIdx = existingIndex.get(sectorUpdate.id)
+            if (existingIdx !== undefined) {
+              // Update existing sector
+              Object.assign(mapData[existingIdx], sectorUpdate)
+            } else {
+              // Add new sector
+              mapData.push(sectorUpdate as MapSectorNode)
+            }
+          }
+        }
+
+        processMapUpdates(state.local_map_data)
+        processMapUpdates(state.regional_map_data)
       })
     ),
 

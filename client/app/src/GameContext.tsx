@@ -13,7 +13,6 @@ import {
   transferSummaryString,
 } from "@/utils/game"
 
-import type { StartAction } from "./types/actions"
 import { RESOURCE_SHORT_NAMES } from "./types/constants"
 
 import {
@@ -145,20 +144,20 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
     // 3. Wait for initial data and initialize anything that needs it
     // @TODO: pass initial config to starfield here
-    gameStore.setGameStateMessage(GameInitStateMessage.STARTING)
+    gameStore.setGameStateMessage(GameInitStateMessage.READY)
 
     console.debug("[GAME CONTEXT] Initialized, setting ready state")
 
     // 4. Set ready state and dispatch start event to bot
-    gameStore.setGameStateMessage(GameInitStateMessage.READY)
-    gameStore.setGameState("ready")
+    // gameStore.setGameStateMessage(GameInitStateMessage.READY)
+    // gameStore.setGameState("ready")
 
     // A little bit of air, so the bot starts talking after the visor opens
-    await wait(1000)
+    // await wait(1000)
 
     // 5. Dispatch start event to bot to kick off the conversation
-    dispatchAction({ type: "start" } as StartAction)
-  }, [onConnect, gameStore, client, dispatchAction])
+    // dispatchAction({ type: "start" } as StartAction)
+  }, [onConnect, gameStore, client])
 
   /**
    * Handle server message
@@ -456,6 +455,13 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               break
             }
 
+            case "map.update": {
+              console.debug("[GAME EVENT] Map update", e.payload)
+              const data = e.payload as MapLocalMessage
+              gameStore.updateMapSectors(data.sectors as MapSectorNode[])
+              break
+            }
+
             // ----- TRADING & COMMERCE
 
             case "trade.executed": {
@@ -640,36 +646,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               break
             }
 
-            // ----- MISC
-
-            case "chat.message": {
-              console.debug("[GAME EVENT] Chat message", e.payload)
-              const data = e.payload as IncomingChatMessage
-
-              gameStore.addMessage(data as ChatMessage)
-              gameStore.setNotifications({ newChatMessage: true })
-
-              const timestampClient = Date.now()
-
-              if (
-                data.type === "direct" &&
-                data.from_name &&
-                data.from_name !== gameStore.player?.name
-              ) {
-                gameStore.addActivityLogEntry({
-                  type: "chat.direct",
-                  message: `New direct message from [${data.from_name}]`,
-                  timestamp_client: timestampClient,
-                  meta: {
-                    from_name: data.from_name,
-                    signature_prefix: "chat.direct:",
-                    //@TODO: change this to from_id when available
-                    signature_keys: [data.from_name],
-                  },
-                })
-              }
-              break
-            }
+            // ----- TASKS
 
             case "task.start": {
               console.debug("[GAME EVENT] Task start", e.payload)
@@ -712,24 +689,6 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               break
             }
 
-            case "error": {
-              console.debug("[GAME EVENT] Error", e.payload)
-              const data = e.payload as ErrorMessage
-
-              // @TODO: keep tabs on errors in separate store
-
-              gameStore.addActivityLogEntry({
-                type: "error",
-                message: `Ship Protocol Failure: ${data.endpoint ?? "Unknown"} - ${data.error}`,
-              })
-              break
-            }
-
-            case "ui-action": {
-              console.debug("[GAME EVENT] UI action", e.payload)
-              break
-            }
-
             case "task_output": {
               console.debug("[GAME EVENT] Task output", e, e.payload)
               const data = e.payload as TaskOutputMessage
@@ -758,6 +717,55 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               if (data.was_cancelled) {
                 gameStore.setTaskWasCancelled(true)
               }
+              break
+            }
+
+            // ----- MISC
+
+            case "chat.message": {
+              console.debug("[GAME EVENT] Chat message", e.payload)
+              const data = e.payload as IncomingChatMessage
+
+              gameStore.addMessage(data as ChatMessage)
+              gameStore.setNotifications({ newChatMessage: true })
+
+              const timestampClient = Date.now()
+
+              if (
+                data.type === "direct" &&
+                data.from_name &&
+                data.from_name !== gameStore.player?.name
+              ) {
+                gameStore.addActivityLogEntry({
+                  type: "chat.direct",
+                  message: `New direct message from [${data.from_name}]`,
+                  timestamp_client: timestampClient,
+                  meta: {
+                    from_name: data.from_name,
+                    signature_prefix: "chat.direct:",
+                    //@TODO: change this to from_id when available
+                    signature_keys: [data.from_name],
+                  },
+                })
+              }
+              break
+            }
+
+            case "error": {
+              console.debug("[GAME EVENT] Error", e.payload)
+              const data = e.payload as ErrorMessage
+
+              // @TODO: keep tabs on errors in separate store
+
+              gameStore.addActivityLogEntry({
+                type: "error",
+                message: `Ship Protocol Failure: ${data.endpoint ?? "Unknown"} - ${data.error}`,
+              })
+              break
+            }
+
+            case "ui-action": {
+              console.debug("[GAME EVENT] UI action", e.payload)
               break
             }
 

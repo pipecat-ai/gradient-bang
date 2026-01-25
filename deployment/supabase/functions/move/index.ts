@@ -670,40 +670,38 @@ async function completeMovement({
     (mapRegion as Record<string, unknown>)["source"] = source;
 
     if (firstPersonalVisit && !knownToCorp) {
-      const mapUpdateSector = mapRegion.sectors.find(
-        (sector) => sector.id === destination,
-      );
-      if (mapUpdateSector) {
-        const mapUpdateRecipients = corpId
-          ? await pgComputeCorpMemberRecipients(pg, [corpId], [characterId])
-          : [];
-        const mapUpdatePayload: Record<string, unknown> = {
-          center_sector: destination,
-          sectors: [mapUpdateSector],
-          total_sectors: 1,
-          total_visited: 1,
-          total_unvisited: 0,
-          source,
-        };
-        await pgEmitCharacterEvent({
-          pg,
-          characterId,
-          eventType: "map.update",
-          payload: mapUpdatePayload,
-          sectorId: destination,
-          requestId,
-          taskId,
-          corpId: character.corporation_id,
-          additionalRecipients: mapUpdateRecipients,
-        });
-        mark("emit_map_update");
-      } else {
-        console.warn("move.map_update_missing_center", {
-          character_id: characterId,
-          destination,
-          sector_count: mapRegion.sectors.length,
-        });
-      }
+      const mapUpdateRegion = await pgBuildLocalMapRegion(pg, {
+        characterId,
+        centerSector: destination,
+        mapKnowledge: mergedKnowledge,
+        maxHops: 1,
+        maxSectors: MAX_LOCAL_MAP_NODES,
+      });
+      mark("build_map_update_region");
+
+      const mapUpdateRecipients = corpId
+        ? await pgComputeCorpMemberRecipients(pg, [corpId], [characterId])
+        : [];
+      const mapUpdatePayload: Record<string, unknown> = {
+        center_sector: mapUpdateRegion.center_sector,
+        sectors: mapUpdateRegion.sectors,
+        total_sectors: mapUpdateRegion.total_sectors,
+        total_visited: mapUpdateRegion.total_visited,
+        total_unvisited: mapUpdateRegion.total_unvisited,
+        source,
+      };
+      await pgEmitCharacterEvent({
+        pg,
+        characterId,
+        eventType: "map.update",
+        payload: mapUpdatePayload,
+        sectorId: destination,
+        requestId,
+        taskId,
+        corpId: character.corporation_id,
+        additionalRecipients: mapUpdateRecipients,
+      });
+      mark("emit_map_update");
     }
 
     await pgEmitCharacterEvent({
