@@ -669,6 +669,43 @@ async function completeMovement({
     mark("build_local_map");
     (mapRegion as Record<string, unknown>)["source"] = source;
 
+    if (firstPersonalVisit && !knownToCorp) {
+      const mapUpdateSector = mapRegion.sectors.find(
+        (sector) => sector.id === destination,
+      );
+      if (mapUpdateSector) {
+        const mapUpdateRecipients = corpId
+          ? await pgComputeCorpMemberRecipients(pg, [corpId], [characterId])
+          : [];
+        const mapUpdatePayload: Record<string, unknown> = {
+          center_sector: destination,
+          sectors: [mapUpdateSector],
+          total_sectors: 1,
+          total_visited: 1,
+          total_unvisited: 0,
+          source,
+        };
+        await pgEmitCharacterEvent({
+          pg,
+          characterId,
+          eventType: "map.update",
+          payload: mapUpdatePayload,
+          sectorId: destination,
+          requestId,
+          taskId,
+          corpId: character.corporation_id,
+          additionalRecipients: mapUpdateRecipients,
+        });
+        mark("emit_map_update");
+      } else {
+        console.warn("move.map_update_missing_center", {
+          character_id: characterId,
+          destination,
+          sector_count: mapRegion.sectors.length,
+        });
+      }
+    }
+
     await pgEmitCharacterEvent({
       pg,
       characterId,
