@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.197.0/http/server.ts";
+import { validate as validateUuid } from "https://deno.land/std@0.197.0/uuid/mod.ts";
 
 import {
   validateApiToken,
@@ -190,8 +191,12 @@ async function handlePersonalPurchase(
   }
   await ensureNotInCombat(supabase, currentShip);
 
-  const tradeInShipId = optionalString(payload, "trade_in_ship_id");
-  if (tradeInShipId && tradeInShipId !== currentShip.ship_id) {
+  const tradeInShipIdRaw = optionalString(payload, "trade_in_ship_id");
+  const tradeInShipId = normalizeTradeInShipId(
+    tradeInShipIdRaw,
+    currentShip.ship_id,
+  );
+  if (tradeInShipIdRaw && tradeInShipId !== currentShip.ship_id) {
     throw new ShipPurchaseError("Trade-in ship must match your current ship");
   }
 
@@ -583,6 +588,28 @@ async function generateUniqueShipName(
     candidate = `${baseName} [${randomSuffix(3)}]`;
   }
   throw new ShipPurchaseError("Failed to generate unique ship name", 500);
+}
+
+function normalizeTradeInShipId(
+  value: string | null,
+  currentShipId: string,
+): string | null {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (validateUuid(trimmed)) {
+    return trimmed;
+  }
+  if (/^[0-9a-f]{6,8}$/i.test(trimmed)) {
+    return currentShipId.toLowerCase().startsWith(trimmed.toLowerCase())
+      ? currentShipId
+      : null;
+  }
+  throw new ShipPurchaseError(
+    "trade_in_ship_id must be a UUID or 6-8 hex prefix",
+    400,
+  );
 }
 
 async function isShipNameAvailable(

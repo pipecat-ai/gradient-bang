@@ -162,38 +162,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     # Create RTVI processor with config
     rtvi = RTVIProcessor(config=RTVIConfig(config=[]))
 
-    def task_complete_callback(was_cancelled: bool, via_stop_tool: bool = False):
-        """Notify client and request a brief summary from the LLM."""
-
-        async def _complete():
-            await rtvi.push_frame(
-                RTVIServerMessageFrame(
-                    {
-                        "frame_type": "event",
-                        "event": "task_complete",
-                        "payload": {
-                            "was_cancelled": was_cancelled,
-                            "via_stop_tool": via_stop_tool,
-                        },
-                    }
-                )
-            )
-
-            # Ask the LLM to summarize completion
-            prompt = (
-                "The task was cancelled. Please acknowledge the cancellation and summarize what was done before stopping."
-                if was_cancelled
-                else "Task completed. Please summarize what was accomplished."
-            )
-            await rtvi.push_frame(
-                LLMMessagesAppendFrame(
-                    messages=[{"role": "user", "content": prompt}],
-                    run_llm=True,
-                )
-            )
-
-        asyncio.create_task(_complete())
-
     # Get server URL from environment or use default
     # Check SUPABASE_URL first (for cloud mode), then GAME_SERVER_URL, then default
     server_url = os.getenv("SUPABASE_URL") or os.getenv("GAME_SERVER_URL", "http://localhost:8000")
@@ -211,7 +179,6 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     task_manager = VoiceTaskManager(
         character_id=character_id,
         rtvi_processor=rtvi,
-        task_complete_callback=task_complete_callback,
         base_url=server_url,
     )
 

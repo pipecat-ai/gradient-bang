@@ -26,7 +26,7 @@ import { fetchActiveTaskIdsByShip } from "../_shared/tasks.ts";
 
 type JsonRecord = Record<string, unknown>;
 
-interface ShipSummary {
+export interface ShipSummary {
   ship_id: string;
   ship_type: string;
   ship_name: string;

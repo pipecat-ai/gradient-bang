@@ -43,6 +43,9 @@ from gradientbang.utils.tools_schema import (
     UI_SHOW_PANEL_SCHEMA,
     _summarize_corporation_info,
     _shorten_embedded_ids,
+    _short_id,
+    _friendly_ship_type,
+    _format_ship_holds,
 )
 
 MAX_CORP_SHIP_TASKS = 3  # Maximum concurrent corp ship tasks per player
@@ -327,8 +330,69 @@ class VoiceTaskManager:
 
             return summary
 
+        if event_name == "ships.list":
+            # Summarize fleet information for voice context (one line per ship)
+            ships = payload.get("ships", [])
+            if not ships:
+                return "No ships available."
+
+            personal_ships = [s for s in ships if s.get("owner_type") == "personal"]
+            corp_ships = [s for s in ships if s.get("owner_type") == "corporation"]
+
+            lines = [f"Fleet: {len(ships)} ship{'s' if len(ships) != 1 else ''}"]
+
+            # Personal ship first
+            if personal_ships:
+                lines.append("Your ship:")
+                for ship in personal_ships:
+                    lines.append(self._format_ship_line(ship, include_id=False))
+
+            # Corp ships
+            if corp_ships:
+                lines.append(f"Corporation ships ({len(corp_ships)}):")
+                for ship in corp_ships:
+                    lines.append(self._format_ship_line(ship, include_id=True))
+
+            return "\n".join(lines)
+
         # Fall back to standard summary
         return event.get("summary")
+
+    def _format_ship_line(self, ship: Dict[str, Any], include_id: bool = True) -> str:
+        """Format a single ship as a summary line."""
+        ship_name = ship.get("ship_name") or "Unnamed"
+        ship_name = _shorten_embedded_ids(str(ship_name))
+        ship_type = _friendly_ship_type(ship.get("ship_type"))
+        sector = ship.get("sector")
+        sector_display = sector if isinstance(sector, int) else "unknown"
+
+        # Build line parts
+        if include_id:
+            ship_id_prefix = _short_id(ship.get("ship_id"))
+            id_suffix = f" [{ship_id_prefix}]" if ship_id_prefix else ""
+        else:
+            id_suffix = ""
+
+        details = [f"{ship_name}{id_suffix} ({ship_type}) in sector {sector_display}"]
+
+        # Add cargo info
+        details.append(_format_ship_holds(ship))
+
+        # Add warp info
+        warp = ship.get("warp_power")
+        warp_max = ship.get("warp_power_capacity")
+        if isinstance(warp, (int, float)) and isinstance(warp_max, (int, float)):
+            details.append(f"warp {int(warp)}/{int(warp_max)}")
+
+        # Add task status
+        current_task_id = ship.get("current_task_id")
+        if isinstance(current_task_id, str) and current_task_id:
+            task_display = _short_id(current_task_id) or current_task_id
+            details.append(f"task {task_display}")
+        else:
+            details.append("task none")
+
+        return "- " + "; ".join(details)
 
     async def _relay_event(self, event: Dict[str, Any]) -> None:
         event_name = event.get("event_name")
@@ -358,8 +422,10 @@ class VoiceTaskManager:
             if isinstance(candidate, str) and candidate.strip():
                 payload_task_id = candidate.strip()
 
+        is_our_task = False
         if payload_task_id:
             task_id = self._get_task_id_for_full(payload_task_id)
+            is_our_task = task_id is not None
 
         if not task_id:
             task_id = self._get_task_id_for_character(self.character_id)
@@ -405,9 +471,12 @@ class VoiceTaskManager:
 
         # Trigger inference if:
         # 1. Event is in always_trigger_events (external events needing response), OR
-        # 2. Event is in inference_triggering_events AND from voice agent's tool call
-        should_run_llm = (event_name in always_trigger_events) or (
-            (event_name in inference_triggering_events) and is_voice_agent_event
+        # 2. Event is in inference_triggering_events AND from voice agent's tool call, OR
+        # 3. Event is task.finish AND task was started by us (in _active_tasks)
+        should_run_llm = (
+            (event_name in always_trigger_events)
+            or ((event_name in inference_triggering_events) and is_voice_agent_event)
+            or (event_name == "task.finish" and is_our_task)
         )
         logger.debug(f"  should_run_llm: {should_run_llm}")
 
@@ -717,10 +786,6 @@ class VoiceTaskManager:
             # Update legacy flags for backwards compatibility
             if target_character_id == self.character_id:
                 self.task_running = False
-                # Trigger task complete callback to process buffered output in chat
-                # Pass whether this was cancelled via the stop_task tool
-                if self.task_complete_callback:
-                    self.task_complete_callback(was_cancelled, self.cancelled_via_tool)
                 # Reset the flag for next time
                 self.cancelled_via_tool = False
 
@@ -913,6 +978,36 @@ class VoiceTaskManager:
 
         return None
 
+    def _resolve_task_id_prefix(self, value: str) -> Optional[str]:
+        if not isinstance(value, str):
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+
+        if cleaned in self._active_tasks:
+            return cleaned
+
+        matches = []
+        for short_id, task_info in self._active_tasks.items():
+            full_id = task_info.get("full_task_id")
+            if full_id == cleaned:
+                return short_id
+            if short_id.startswith(cleaned) or (
+                isinstance(full_id, str) and full_id.startswith(cleaned)
+            ):
+                matches.append(short_id)
+
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise ValueError(
+                f"Ambiguous task_id prefix '{cleaned}' matches {len(matches)} tasks. "
+                "Use a longer prefix."
+            )
+
+        return None
+
     @traced
     async def _handle_start_task(self, params: FunctionCallParams):
         task_game_client = None
@@ -1087,6 +1182,20 @@ class VoiceTaskManager:
             task_id = params.arguments.get("task_id")
 
             if task_id:
+                if isinstance(task_id, str):
+                    task_id = task_id.strip()
+                try:
+                    resolved_task_id = self._resolve_task_id_prefix(str(task_id))
+                except ValueError as exc:
+                    return {"success": False, "error": str(exc)}
+
+                if not resolved_task_id:
+                    return {
+                        "success": False,
+                        "error": f"Task {task_id} not found",
+                    }
+                task_id = resolved_task_id
+
                 # Cancel specific task by ID
                 task_info = self._active_tasks.get(task_id)
                 if not task_info:

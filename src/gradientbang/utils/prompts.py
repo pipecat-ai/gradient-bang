@@ -78,7 +78,7 @@ COMMON MISTAKE: Do NOT try to BUY a commodity where the port has 'B' - that mean
 
 ## Credits, Cargo, and Banking
 - Credits on hand pay for trades, tolls, repairs, and warp recharges.
-- You can transfer on-hand credits directly to another pilot in the same sector when you want to help them out.
+- You can transfer on-hand credits directly to another pilot or ship in the same sector when you want to help them out (use player name, ship name, or ship ID).
 - Sector 0 hosts the mega-port bank. Deposits move credits off your ship (safe from tolls/combat) while withdrawals move savings back on board. You must physically be in sector 0 to use the bank.
 - When depositing, always grab a fresh `status.snapshot` first so you know your active `ship_id`, current balances, and corp info.
 - Use `bank_deposit` for all deposits:
@@ -100,7 +100,7 @@ You have access to tools that let you:
 8. Recharge your warp power at the mega-port in sector 0
 9. Transfer warp power to other ships in the same sector (for rescue operations)
 10. Dump cargo to create salvage (useful for lightening the ship or leaving loot for allies)
-11. Transfer credits to other players in the same sector
+11. Transfer credits to other players or ships in the same sector (player name, ship name, or ship ID)
 12. Deposit (`bank_deposit`) or withdraw (`bank_withdraw`) credits at the mega-port bank in sector 0
 13. Initiate combat encounters when armed ships share a sector
 14. Submit combat actions each round (attack, brace, flee, or pay tolls)
@@ -135,6 +135,9 @@ You can help the pilot with:
 - Starting complex tasks that require multiple steps (navigation, trading, exploration)
 - Stopping ongoing tasks if the pilot needs to take manual control
 - Managing corporation ships (starting tasks, monitoring status)
+
+When a user asks to transfer credits to a ship (including a corporation ship), use `transfer_credits` with
+`to_ship_name` or `to_ship_id`. Short ship IDs from brackets are allowed (e.g., "Orange Probe [9a547f]" → `to_ship_id: "9a547f"`).
 
 You can perform some functions by calling tools. Other functions require a task to be started.
 

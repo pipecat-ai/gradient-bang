@@ -21,6 +21,10 @@ import {
   ActorAuthorizationError,
 } from "../_shared/actors.ts";
 import { canonicalizeCharacterId } from "../_shared/ids.ts";
+import {
+  resolveShipByNameWithSuffixFallback,
+  type ShipNameLookupError,
+} from "../_shared/ship_names.ts";
 import { loadCombatForSector } from "../_shared/combat_state.ts";
 import {
   parseJsonRequest,
@@ -33,6 +37,7 @@ import {
   RequestValidationError,
 } from "../_shared/request.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { validate as validateUuid } from "https://deno.land/std@0.197.0/uuid/mod.ts";
 
 const BANK_SECTOR = 0;
 
@@ -191,6 +196,7 @@ async function handleDeposit(
   });
 
   const shipIdFromPayload = optionalString(payload, "ship_id");
+  const shipNameFromPayload = optionalString(payload, "ship_name");
   const targetPlayerName = requireString(payload, "target_player_name");
   const amount = requirePositiveInt(payload, "amount");
   const sourceCharacterLabel = optionalString(payload, "character_id");
@@ -198,8 +204,17 @@ async function handleDeposit(
     ? await canonicalizeCharacterId(sourceCharacterLabel)
     : null;
 
+  let shipIdPrefix: string | null = null;
+  let resolvedShipIdFromPayload: string | null = null;
+  if (shipIdFromPayload) {
+    ({ shipId: resolvedShipIdFromPayload, shipIdPrefix } =
+      parseShipIdInput(shipIdFromPayload));
+  }
+
   console.log("[bank_transfer.deposit] Parsed params", {
-    shipIdFromPayload,
+    shipIdFromPayload: resolvedShipIdFromPayload ?? shipIdFromPayload,
+    shipIdPrefix,
+    shipNameFromPayload,
     targetPlayerName,
     amount,
     sourceCharacterId,
@@ -207,9 +222,30 @@ async function handleDeposit(
 
   // Derive ship_id from character if not provided
   let shipId: string;
-  if (shipIdFromPayload) {
-    shipId = shipIdFromPayload;
+  if (resolvedShipIdFromPayload) {
+    shipId = resolvedShipIdFromPayload;
     console.log("[bank_transfer.deposit] Using provided ship_id", { shipId });
+  } else if (shipIdPrefix) {
+    const resolved = await resolveShipIdByPrefixInSector(
+      supabase,
+      shipIdPrefix,
+      BANK_SECTOR,
+      actorCharacterId ?? sourceCharacterId,
+    );
+    if (!resolved) {
+      throw new BankTransferError("Ship not found", 404);
+    }
+    shipId = resolved;
+    console.log("[bank_transfer.deposit] Resolved ship_id from prefix", {
+      shipIdPrefix,
+      shipId,
+    });
+  } else if (shipNameFromPayload) {
+    shipId = await resolveShipIdByName(supabase, shipNameFromPayload);
+    console.log("[bank_transfer.deposit] Resolved ship_id from name", {
+      shipName: shipNameFromPayload,
+      shipId,
+    });
   } else if (sourceCharacterId) {
     console.log("[bank_transfer.deposit] Deriving ship_id from character", {
       sourceCharacterId,
@@ -273,8 +309,13 @@ async function handleDeposit(
     throw err;
   }
 
-  // Note: Deposits can happen from any sector (legacy parity)
-  // Only withdrawals require sector 0
+  // Deposits require the ship to be at the Megaport (sector 0)
+  if (ship.current_sector !== BANK_SECTOR || ship.in_hyperspace) {
+    throw new BankTransferError(
+      "Deposits require the ship to be at the Megaport (sector 0)",
+      400,
+    );
+  }
 
   const ownerId = ship.owner_character_id ?? ship.owner_id;
   console.log("[bank_transfer.deposit] Resolved owner", { ownerId });
@@ -295,11 +336,26 @@ async function handleDeposit(
     targetName: target.name,
   });
 
+  // Verify depositor and target are in the same corporation
+  const depositorCharacterId =
+    actorCharacterId ?? ship.owner_character_id ?? ship.owner_id;
+  const depositorCorpId =
+    ship.owner_type === "corporation"
+      ? ship.owner_corporation_id
+      : await getCharacterCorpId(supabase, depositorCharacterId);
+
+  if (!depositorCorpId || depositorCorpId !== target.corporation_id) {
+    throw new BankTransferError(
+      "Can only deposit to bank accounts of players in your corporation",
+      403,
+    );
+  }
+
   // For rate limiting: use actor character ID for corp ships, owner ID for personal ships
   const rateLimitCharacterId =
     ship.owner_type === "corporation" && actorCharacterId
       ? actorCharacterId
-      : (ship.owner_character_id ?? targetCharacterId);
+      : (ship.owner_character_id ?? ship.owner_id ?? targetCharacterId);
 
   try {
     await enforceRateLimit(supabase, rateLimitCharacterId, "bank_transfer");
@@ -572,6 +628,14 @@ async function handleWithdraw(
     throw new BankTransferError("Ship not found", 404);
   }
 
+  // Corporation ships cannot withdraw from bank accounts
+  if (ship.owner_type === "corporation") {
+    throw new BankTransferError(
+      "Corporation ships cannot withdraw from bank accounts",
+      403,
+    );
+  }
+
   await ensureActorAuthorization({
     supabase,
     ship,
@@ -692,6 +756,19 @@ function requirePositiveInt(
     throw new BankTransferError(`${key} must be a positive integer`, 400);
   }
   return Math.floor(value);
+}
+
+async function getCharacterCorpId(
+  supabase: SupabaseClient,
+  characterId: string | null,
+): Promise<string | null> {
+  if (!characterId) return null;
+  const { data } = await supabase
+    .from("characters")
+    .select("corporation_id")
+    .eq("character_id", characterId)
+    .maybeSingle();
+  return data?.corporation_id ?? null;
 }
 
 async function findCharacterByName(
@@ -817,6 +894,159 @@ function resolveLegacyShipId(
     return `${characterLabel}-ship`;
   }
   return fallback;
+}
+
+async function resolveShipIdByPrefixInSector(
+  supabase: SupabaseClient,
+  prefix: string,
+  sectorId: number | null,
+  actorCharacterId: string | null,
+): Promise<string | null> {
+  if (sectorId === null) {
+    return null;
+  }
+  let shipIds: string[] = [];
+  if (actorCharacterId) {
+    const { data: personalShips, error: personalError } = await supabase
+      .from("ship_instances")
+      .select("ship_id")
+      .eq("current_sector", sectorId)
+      .eq("owner_type", "character")
+      .or(
+        `owner_character_id.eq.${actorCharacterId},owner_id.eq.${actorCharacterId}`,
+      );
+
+    if (personalError) {
+      console.error("bank_transfer.lookup_ship_prefix_personal", personalError);
+      throw new BankTransferError("Failed to lookup ship by prefix", 500);
+    }
+
+    shipIds = (personalShips ?? [])
+      .map((row) => row.ship_id)
+      .filter((shipId): shipId is string => typeof shipId === "string");
+
+    const corpIds = await loadActiveCorporationIds(
+      supabase,
+      actorCharacterId,
+    );
+    if (corpIds.length > 0) {
+      const { data: corpShips, error: corpError } = await supabase
+        .from("ship_instances")
+        .select("ship_id")
+        .eq("current_sector", sectorId)
+        .eq("owner_type", "corporation")
+        .in("owner_corporation_id", corpIds);
+
+      if (corpError) {
+        console.error("bank_transfer.lookup_ship_prefix_corp", corpError);
+        throw new BankTransferError("Failed to lookup ship by prefix", 500);
+      }
+
+      const corpShipIds = (corpShips ?? [])
+        .map((row) => row.ship_id)
+        .filter((shipId): shipId is string => typeof shipId === "string");
+      shipIds.push(...corpShipIds);
+    }
+  } else {
+    const { data, error } = await supabase
+      .from("ship_instances")
+      .select("ship_id")
+      .eq("current_sector", sectorId);
+
+    if (error) {
+      console.error("bank_transfer.lookup_ship_prefix", error);
+      throw new BankTransferError("Failed to lookup ship by prefix", 500);
+    }
+
+    shipIds = (data ?? [])
+      .map((row) => row.ship_id)
+      .filter((shipId): shipId is string => typeof shipId === "string");
+  }
+
+  const matches = shipIds.filter((shipId) =>
+    shipId.toLowerCase().startsWith(prefix),
+  );
+
+  if (matches.length > 1) {
+    throw new BankTransferError(
+      "Ship id prefix is ambiguous; use ship name or full ship_id",
+      409,
+    );
+  }
+
+  return matches.length === 1 ? matches[0] : null;
+}
+
+async function loadActiveCorporationIds(
+  supabase: SupabaseClient,
+  characterId: string,
+): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("corporation_members")
+    .select("corp_id")
+    .eq("character_id", characterId)
+    .is("left_at", null);
+
+  if (error) {
+    console.error("bank_transfer.lookup_actor_corps", error);
+    throw new BankTransferError("Failed to lookup actor corporation memberships", 500);
+  }
+
+  return (data ?? [])
+    .map((row) => row.corp_id)
+    .filter((corpId): corpId is string => typeof corpId === "string");
+}
+
+async function resolveShipIdByName(
+  supabase: SupabaseClient,
+  shipName: string,
+): Promise<string> {
+  let lookup;
+  try {
+    lookup = await resolveShipByNameWithSuffixFallback(supabase, shipName);
+  } catch (err) {
+    const stage = (err as ShipNameLookupError | null)?.stage;
+    const cause =
+      err instanceof Error && "cause" in err
+        ? (err as Error & { cause?: unknown }).cause
+        : err;
+    if (stage === "suffix") {
+      console.error("bank_transfer.lookup_ship_name_suffix", cause);
+    } else {
+      console.error("bank_transfer.lookup_ship_name", cause);
+    }
+    throw new BankTransferError("Failed to lookup ship by name", 500);
+  }
+
+  if (lookup.status === "none") {
+    throw new BankTransferError("Ship not found", 404);
+  }
+
+  if (lookup.status === "ambiguous") {
+    throw new BankTransferError(
+      "Ship name is ambiguous; use full ship name",
+      409,
+    );
+  }
+
+  return lookup.ship.ship_id;
+}
+
+function parseShipIdInput(value: string | null): {
+  shipId: string | null;
+  shipIdPrefix: string | null;
+} {
+  if (!value) {
+    return { shipId: null, shipIdPrefix: null };
+  }
+  const trimmed = value.trim();
+  if (validateUuid(trimmed)) {
+    return { shipId: trimmed, shipIdPrefix: null };
+  }
+  if (/^[0-9a-f]{6,8}$/i.test(trimmed)) {
+    return { shipId: null, shipIdPrefix: trimmed.toLowerCase() };
+  }
+  throw new BankTransferError("ship_id must be a UUID or 6-8 hex prefix", 400);
 }
 
 function looksLikeUuid(value: string): boolean {
