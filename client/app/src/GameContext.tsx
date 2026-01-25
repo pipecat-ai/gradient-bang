@@ -13,7 +13,7 @@ import {
   transferSummaryString,
 } from "@/utils/game"
 
-import type { GameAction, StartAction } from "./types/actions"
+import type { StartAction } from "./types/actions"
 import { RESOURCE_SHORT_NAMES } from "./types/constants"
 
 import {
@@ -56,6 +56,7 @@ interface GameProviderProps {
 export function GameProvider({ children, onConnect }: GameProviderProps) {
   const gameStore = useGameStore()
   const client = usePipecatClient()
+  const dispatchAction = useGameStore((state) => state.dispatchAction)
 
   /**
    * Send user text input to server
@@ -67,9 +68,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
         return
       }
       if (client.state !== "ready") {
-        console.error(
-          `[GAME CONTEXT] Client not ready. Current state: ${client.state}`
-        )
+        console.error(`[GAME CONTEXT] Client not ready. Current state: ${client.state}`)
         return
       }
       console.debug(`[GAME CONTEXT] Sending user text input: "${text}"`)
@@ -83,31 +82,6 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
     // @ts-expect-error - Dev-only console helper
     globalThis.sendUserTextInput = sendUserTextInput
   }
-
-  /**
-   * Dispatch game action to server
-   */
-  const dispatchAction = useCallback(
-    (action: GameAction) => {
-      if (!client) {
-        console.error("[GAME CONTEXT] Client not available")
-        return
-      }
-      if (client.state !== "ready") {
-        console.error(
-          `[GAME CONTEXT] Client not ready. Current state: ${client.state}`
-        )
-        return
-      }
-      const payload = "payload" in action ? action.payload : {}
-      console.debug(
-        `[GAME CONTEXT] Dispatching action: "${action.type}"`,
-        payload
-      )
-      client.sendClientMessage(action.type, payload)
-    },
-    [client]
-  )
 
   // Dev-only: Expose to console using globalThis
   if (import.meta.env.DEV) {
@@ -152,9 +126,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
     const characterId = gameStore.character_id
     const accessToken = gameStore.access_token
     if (!gameStore.settings.bypassTitle && (!characterId || !accessToken)) {
-      throw new Error(
-        "Attempting to connect to bot without a character ID or access token"
-      )
+      throw new Error("Attempting to connect to bot without a character ID or access token")
     }
     const botStartParams = gameStore.getBotStartParams(characterId, accessToken)
 
@@ -230,10 +202,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               const data = e.payload as CharacterMovedMessage
 
               if (data.movement === "arrive") {
-                console.debug(
-                  "[GAME EVENT] Adding player to sector",
-                  e.payload
-                )
+                console.debug("[GAME EVENT] Adding player to sector", e.payload)
                 gameStore.addSectorPlayer(data.player)
                 gameStore.addActivityLogEntry({
                   type: "character.moved",
@@ -243,10 +212,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
                   },
                 })
               } else if (data.movement === "depart") {
-                console.debug(
-                  "[GAME EVENT] Removing player from sector",
-                  e.payload
-                )
+                console.debug("[GAME EVENT] Removing player from sector", e.payload)
                 gameStore.removeSectorPlayer(data.player)
                 gameStore.addActivityLogEntry({
                   type: "character.moved",
@@ -256,11 +222,15 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
                   },
                 })
               } else {
-                console.warn(
-                  "[GAME EVENT] Unknown movement type",
-                  data.movement
-                )
+                console.warn("[GAME EVENT] Unknown movement type", data.movement)
               }
+
+              // Check if this ship belongs to the player or corporation
+              // Update the ship's sector to the new sector
+              gameStore.updateShip({
+                ship_id: data.ship.ship_id,
+                sector: data.sector,
+              })
 
               break
             }
@@ -323,9 +293,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
                 from: gameStore.sector?.id ?? 0,
                 to: gameStore.sectorBuffer?.id ?? 0,
                 port: !!gameStore.sectorBuffer?.port,
-                last_visited: data.first_visit
-                  ? undefined
-                  : new Date().toISOString(),
+                last_visited: data.first_visit ? undefined : new Date().toISOString(),
               })
 
               // Update activity log
@@ -359,18 +327,12 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               // Remove any course plot data if we've reached our intended destination or deviated
               // @TODO: make this logic robust (plots should become stale after a certain time)
               if (gameStore.course_plot?.to_sector === newSectorId) {
-                console.debug(
-                  "[GAME EVENT] Reached intended destination, clearing course plot"
-                )
+                console.debug("[GAME EVENT] Reached intended destination, clearing course plot")
                 gameStore.clearCoursePlot()
               }
               // Remove active course plot if we've gone to a sector outside of the plot
-              if (
-                hasDeviatedFromCoursePlot(gameStore.course_plot, newSectorId)
-              ) {
-                console.debug(
-                  "[GAME EVENT] Went to a sector outside of the plot, clearing"
-                )
+              if (hasDeviatedFromCoursePlot(gameStore.course_plot, newSectorId)) {
+                console.debug("[GAME EVENT] Went to a sector outside of the plot, clearing")
                 gameStore.clearCoursePlot()
               }
               break
@@ -437,8 +399,9 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
               gameStore.addActivityLogEntry({
                 type: "salvage.created",
-                message: `Salvage created in [sector ${data.sector.id
-                  }] ${salvageCreatedSummaryString(data.salvage_details)}`,
+                message: `Salvage created in [sector ${
+                  data.sector.id
+                }] ${salvageCreatedSummaryString(data.salvage_details)}`,
               })
 
               gameStore.addToast({
@@ -456,8 +419,9 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
               gameStore.addActivityLogEntry({
                 type: "salvage.collected",
-                message: `Salvage collected in [sector ${data.sector.id
-                  }] ${salvageCollectedSummaryString(data.salvage_details)}`,
+                message: `Salvage collected in [sector ${
+                  data.sector.id
+                }] ${salvageCollectedSummaryString(data.salvage_details)}`,
               })
 
               gameStore.addToast({
@@ -481,18 +445,14 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             case "map.region": {
               console.debug("[GAME EVENT] Regional map data", e.payload)
 
-              gameStore.setRegionalMapData(
-                (e.payload as MapLocalMessage).sectors
-              )
+              gameStore.setRegionalMapData((e.payload as MapLocalMessage).sectors)
               break
             }
 
             case "map.local": {
               console.debug("[GAME EVENT] Local map data", e.payload)
 
-              gameStore.setLocalMapData(
-                (e.payload as MapLocalMessage).sectors
-              )
+              gameStore.setLocalMapData((e.payload as MapLocalMessage).sectors)
               break
             }
 
@@ -504,9 +464,11 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
               gameStore.addActivityLogEntry({
                 type: "trade.executed",
-                message: `Trade executed: ${data.trade.trade_type === "buy" ? "Bought" : "Sold"
-                  } ${data.trade.units} [${RESOURCE_SHORT_NAMES[data.trade.commodity]
-                  }] for [CR ${data.trade.total_price}]`,
+                message: `Trade executed: ${
+                  data.trade.trade_type === "buy" ? "Bought" : "Sold"
+                } ${data.trade.units} [${
+                  RESOURCE_SHORT_NAMES[data.trade.commodity]
+                }] for [CR ${data.trade.total_price}]`,
               })
 
               gameStore.addToast({
@@ -565,20 +527,12 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
             case "warp.transfer":
             case "credits.transfer": {
-              const eventType = e.event as
-                | "warp.transfer"
-                | "credits.transfer"
-              const transferType =
-                eventType === "warp.transfer" ? "Warp" : "Credits"
+              const eventType = e.event as "warp.transfer" | "credits.transfer"
+              const transferType = eventType === "warp.transfer" ? "Warp" : "Credits"
 
-              console.debug(
-                `[GAME EVENT] ${transferType} transfer`,
-                e.payload
-              )
+              console.debug(`[GAME EVENT] ${transferType} transfer`, e.payload)
 
-              const data = e.payload as
-                | WarpTransferMessage
-                | CreditsTransferMessage
+              const data = e.payload as WarpTransferMessage | CreditsTransferMessage
 
               // Note: we do not need to update the player or ship state
               // as status.update is dispatched immediately after
@@ -608,10 +562,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             // ----- COMBAT
 
             case "combat.round_waiting": {
-              console.debug(
-                "[GAME EVENT] Combat round waiting",
-                e.payload
-              )
+              console.debug("[GAME EVENT] Combat round waiting", e.payload)
               const data = e.payload as CombatRoundWaitingMessage
 
               // Immediately set the UI state to be "combat" for user feedback
@@ -631,10 +582,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             }
 
             case "combat.round_resolved": {
-              console.debug(
-                "[GAME EVENT] Combat round resolved",
-                e.payload
-              )
+              console.debug("[GAME EVENT] Combat round resolved", e.payload)
               const data = e.payload as CombatRoundResolvedMessage
               gameStore.addCombatRound(data as CombatRound)
               gameStore.addActivityLogEntry({
@@ -645,10 +593,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             }
 
             case "combat.action_response": {
-              console.debug(
-                "[GAME EVENT] Combat action response",
-                e.payload
-              )
+              console.debug("[GAME EVENT] Combat action response", e.payload)
               const data = e.payload as CombatActionResponseMessage
 
               // @TODO: update store to log action round action
@@ -683,9 +628,9 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               const data = e.payload as ShipDestroyedMessage
 
               const shipDescription =
-                data.player_type === "corporation_ship"
-                  ? `Corporation ship [${data.ship_name ?? data.ship_type}]`
-                  : `[${data.player_name}]'s ship`
+                data.player_type === "corporation_ship" ?
+                  `Corporation ship [${data.ship_name ?? data.ship_type}]`
+                : `[${data.player_name}]'s ship`
 
               gameStore.addActivityLogEntry({
                 type: "ship.destroyed",
@@ -727,83 +672,16 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             }
 
             case "task.start": {
-              console.debug("[GAME EVENT] Task start", gameEvent.payload)
-              const data = gameEvent.payload as TaskStartMessage
-              if (data.task_id) {
-                gameStore.addActiveTask({
-                  task_id: data.task_id,
-                  task_description: data.task_description,
-                  started_at: data.source?.timestamp || new Date().toISOString(),
-                  actor_character_id: data.actor_character_id,
-                  actor_character_name: data.actor_character_name,
-                  task_scope: data.task_scope,
-                  ship_id: data.ship_id,
-                  ship_name: data.ship_name,
-                  ship_type: data.ship_type,
-                })
-              }
-              break
-            }
-
-            case "task.finish": {
-              console.debug("[GAME EVENT] Task finish", gameEvent.payload)
-              const data = gameEvent.payload as TaskFinishMessage
-              if (data.task_id) {
-                gameStore.removeActiveTask(data.task_id)
-              }
-              if (data.task_status === "cancelled") {
-                gameStore.setTaskWasCancelled(true)
-              }
-              break
-            }
-
-            case "error": {
-              console.debug("[GAME EVENT] Error", e.payload)
-              const data = e.payload as ErrorMessage
-
-              // @TODO: keep tabs on errors in separate store
-
-              gameStore.addActivityLogEntry({
-                type: "error",
-                message: `Ship Protocol Failure: ${data.endpoint ?? "Unknown"
-                  } - ${data.error}`,
-              })
-              break
-            }
-
-            case "ui-action": {
-              console.debug("[GAME EVENT] UI action", e.payload)
-
-              /*const starfield = gameStore.starfieldInstance;
-              if (starfield) {
-                starfield.selectGameObject("port");
-              }
-
-              gameStore.setActiveScreen("trading");*/
-
-              break
-            }
-
-            case "task_output": {
-              console.debug("[GAME EVENT] Task output", e.payload)
-              const data = e.payload as TaskOutputMessage
-              gameStore.setTaskInProgress(true)
-              gameStore.addTask(data.text, data.task_message_type)
-
-              // @TODO Properly handle task failure.
-              // Right now, we treat them as cancellations
-              if (data.task_message_type === "FAILED") {
-                gameStore.setTaskWasCancelled(true)
-              }
-              break
-            }
-
-            case "task.start": {
               console.debug("[GAME EVENT] Task start", e.payload)
               const data = e.payload as TaskStartMessage
+
               if (data.task_id) {
+                // @TODO: this is to align task messages to task_output messages
+                // task.start and task.finish use full uuids, but task_output uses truncated ids
+                const truncated_task_id = data.task_id.slice(0, 6)
+
                 gameStore.addActiveTask({
-                  task_id: data.task_id,
+                  task_id: truncated_task_id,
                   task_description: data.task_description,
                   started_at: data.source?.timestamp || new Date().toISOString(),
                   actor_character_id: data.actor_character_id,
@@ -820,12 +698,50 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             case "task.finish": {
               console.debug("[GAME EVENT] Task finish", e.payload)
               const data = e.payload as TaskFinishMessage
+
+              // Remove task from active task map
               if (data.task_id) {
-                gameStore.removeActiveTask(data.task_id)
+                // @TODO: this is to align task messages to task_output messages
+                // task.start and task.finish use full uuids, but task_output uses truncated ids
+                const truncated_task_id = data.task_id.slice(0, 6)
+                gameStore.removeActiveTask(truncated_task_id)
               }
-              if (data.task_status === "cancelled") {
-                gameStore.setTaskWasCancelled(true)
+
+              // Add task summary to store
+              gameStore.addTaskSummary(data as unknown as TaskSummary)
+              break
+            }
+
+            case "error": {
+              console.debug("[GAME EVENT] Error", e.payload)
+              const data = e.payload as ErrorMessage
+
+              // @TODO: keep tabs on errors in separate store
+
+              gameStore.addActivityLogEntry({
+                type: "error",
+                message: `Ship Protocol Failure: ${data.endpoint ?? "Unknown"} - ${data.error}`,
+              })
+              break
+            }
+
+            case "ui-action": {
+              console.debug("[GAME EVENT] UI action", e.payload)
+              break
+            }
+
+            case "task_output": {
+              console.debug("[GAME EVENT] Task output", e, e.payload)
+              const data = e.payload as TaskOutputMessage
+              if (!e.task_id) {
+                console.warn("[GAME EVENT] Task output missing task_id", e.payload)
+                return
               }
+              gameStore.addTaskOutput({
+                task_id: e.task_id,
+                text: data.text,
+                task_message_type: data.task_message_type,
+              })
               break
             }
 
@@ -833,11 +749,9 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
               console.debug("[GAME EVENT] Task complete", e.payload)
               const data = e.payload as TaskCompleteMessage
 
-              gameStore.setTaskInProgress(false)
               gameStore.addActivityLogEntry({
                 type: "task.complete",
-                message: `${data.was_cancelled ? "Task cancelled" : "Task completed"
-                  }`,
+                message: `${data.was_cancelled ? "Task cancelled" : "Task completed"}`,
               })
 
               //@TODO Properly handle task failures
@@ -859,7 +773,8 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             case "ships.list": {
               console.debug("[GAME EVENT] Ships list", e.payload)
               const data = e.payload as ShipsListMessage
-              gameStore.setUserShips(data.ships)
+              gameStore.setShips(data.ships)
+              gameStore.resolveFetchPromise("get-my-ships")
               break
             }
 
@@ -872,11 +787,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
             // ----- UNHANDLED :(
             default:
-              console.warn(
-                "[GAME EVENT] Unhandled server action:",
-                e.event,
-                e.payload
-              )
+              console.warn("[GAME EVENT] Unhandled server action:", e.event, e.payload)
           }
 
           // ----- SUMMARY
@@ -895,9 +806,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
   )
 
   return (
-    <GameContext.Provider
-      value={{ sendUserTextInput, dispatchAction, initialize }}
-    >
+    <GameContext.Provider value={{ sendUserTextInput, dispatchAction, initialize }}>
       {children}
     </GameContext.Provider>
   )

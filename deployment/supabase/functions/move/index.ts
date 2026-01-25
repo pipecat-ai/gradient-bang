@@ -53,6 +53,7 @@ import {
   pgMarkSectorVisited,
   pgBuildLocalMapRegion,
   pgEmitCharacterEvent,
+  pgComputeCorpMemberRecipients,
   pgEmitMovementObservers,
   pgCheckGarrisonAutoEngage,
   RateLimitError,
@@ -636,6 +637,14 @@ async function completeMovement({
       known_to_corp: knownToCorp,
     } as Record<string, unknown>;
 
+    const corpId =
+      ship.owner_type === "corporation"
+        ? ship.owner_corporation_id
+        : character.corporation_id;
+    const additionalRecipients = corpId
+      ? await pgComputeCorpMemberRecipients(pg, [corpId], [characterId])
+      : [];
+
     await pgEmitCharacterEvent({
       pg,
       characterId,
@@ -645,7 +654,8 @@ async function completeMovement({
       sectorId: destination,
       requestId,
       taskId,
-      corpId: character.corporation_id,
+      corpId,
+      additionalRecipients,
     });
     mark("emit_movement_complete");
 

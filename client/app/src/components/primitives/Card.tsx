@@ -22,6 +22,7 @@ const cardVariants = cva("text-card-foreground flex flex-col", {
         "gap-ui-md py-ui-md [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-ui-md",
       lg: "gap-ui-lg py-ui-lg [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-ui-lg",
       xl: "gap-ui-xl py-ui-xl [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-ui-xl",
+      panel: "gap-panel-gap py-panel-gap [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-panel-gap",
     },
     elbow: {
       true: "elbow elbow-offset-6",

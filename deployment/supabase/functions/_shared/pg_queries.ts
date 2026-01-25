@@ -1795,7 +1795,7 @@ export interface MovementObserverResult {
 /**
  * Compute corp member recipients for event visibility.
  */
-async function pgComputeCorpMemberRecipients(
+export async function pgComputeCorpMemberRecipients(
   pg: Client,
   corpIds: string[],
   excludeCharacterIds: string[] = []

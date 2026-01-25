@@ -1,49 +1,52 @@
 import { produce } from "immer"
-import { nanoid } from "nanoid"
 import type { StateCreator } from "zustand"
 
 export interface TaskSlice {
-  taskInProgress: boolean
-  taskWasCancelled: boolean
-  tasks: Task[]
   activeTasks: Record<string, ActiveTask>
-  addTask: (summary: string, type: Task["type"]) => void
-  getTasks: () => Task[]
+  taskSummaries: Record<string, TaskSummary>
+  corpSlotAssignments: (string | null)[]
+  localTaskId: string | null
+  taskOutputs: Record<string, TaskOutput[]>
+  addTaskOutput: (taskOutput: TaskOutput) => void
+  getTaskOutputsByTaskId: (taskId: string) => TaskOutput[]
+  removeTaskOutputsByTaskId: (taskId: string) => void
   addActiveTask: (task: ActiveTask) => void
   removeActiveTask: (taskId: string) => void
-  setTaskInProgress: (taskInProgress: boolean) => void
+  addTaskSummary: (taskSummary: TaskSummary) => void
+  getTaskSummaryByTaskId: (taskId: string) => TaskSummary | undefined
+  getTaskByTaskId: (taskId: string) => ActiveTask | undefined
   setTaskWasCancelled: (taskWasCancelled: boolean) => void
-}
-
-export interface ActiveTask {
-  task_id: string
-  task_description?: string
-  started_at: string
-  actor_character_id?: string
-  actor_character_name?: string
-  task_scope?: "player_ship" | "corp_ship"
-  ship_id?: string
-  ship_name?: string | null
-  ship_type?: string | null
+  assignTaskToCorpSlot: (taskId: string, maxSlots?: number) => number | null
+  clearCorpSlot: (slotIndex: number) => void
+  setLocalTaskId: (taskId: string) => void
 }
 
 export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
-  taskInProgress: false,
-  taskWasCancelled: false,
-  tasks: [],
   activeTasks: {},
-  addTask: (summary: string, type: Task["type"]) =>
+  taskSummaries: {},
+  taskOutputs: {},
+  corpSlotAssignments: [null, null, null],
+  localTaskId: null,
+
+  addTaskOutput: (taskOutput: TaskOutput) =>
     set(
       produce((state) => {
-        state.tasks.push({
-          summary,
-          id: nanoid(),
-          type: type.toUpperCase() as TaskType,
-          timestamp: new Date().toISOString(),
-        })
+        if (!state.taskOutputs[taskOutput.task_id]) {
+          state.taskOutputs[taskOutput.task_id] = []
+        }
+        state.taskOutputs[taskOutput.task_id].push(taskOutput)
       })
     ),
-  getTasks: () => get().tasks,
+
+  getTaskOutputsByTaskId: (taskId: string) => get().taskOutputs[taskId] ?? [],
+  getTaskOutputs: () => get().taskOutputs,
+  removeTaskOutputsByTaskId: (taskId: string) =>
+    set(
+      produce((state) => {
+        delete state.taskOutputs[taskId]
+      })
+    ),
+
   addActiveTask: (task: ActiveTask) =>
     set(
       produce((state) => {
@@ -51,6 +54,7 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
         state.taskInProgress = true
       })
     ),
+
   removeActiveTask: (taskId: string) =>
     set(
       produce((state) => {
@@ -62,9 +66,112 @@ export const createTaskSlice: StateCreator<TaskSlice> = (set, get) => ({
         }
       })
     ),
-  setTaskInProgress: (taskInProgress: boolean) =>
-    taskInProgress
-      ? set({ taskInProgress, taskWasCancelled: false })
-      : set({ taskInProgress }),
-  setTaskWasCancelled: (taskWasCancelled: boolean) => set({ taskWasCancelled }),
+
+  addTaskSummary: (taskSummary: TaskSummary) =>
+    set(
+      produce((state) => {
+        state.taskSummaries[taskSummary.task_id] = taskSummary
+      })
+    ),
+
+  getTaskSummaryByTaskId: (taskId: string) => get().taskSummaries[taskId] ?? undefined,
+
+  getTaskByTaskId: (taskId: string) => get().activeTasks[taskId] ?? undefined,
+
+  setTaskWasCancelled: (taskWasCancelled: boolean) =>
+    set(
+      produce((state) => {
+        state.taskWasCancelled = taskWasCancelled
+      })
+    ),
+
+  assignTaskToCorpSlot: (taskId: string, maxSlots?: number) => {
+    const { corpSlotAssignments, activeTasks, taskSummaries } = get()
+
+    // Limit slots to maxSlots if provided (based on unlocked corp ships)
+    const slotLimit = maxSlots ?? corpSlotAssignments.length
+
+    // Check if task is already assigned to a slot (within the limit)
+    const existingSlot = corpSlotAssignments.indexOf(taskId)
+    if (existingSlot !== -1 && existingSlot < slotLimit) {
+      return existingSlot
+    }
+
+    // Find a free slot (null, or task_id not in activeTasks AND not in taskSummaries)
+    let freeSlotIndex = -1
+    for (let i = 0; i < slotLimit; i++) {
+      const slotTaskId = corpSlotAssignments[i]
+      if (slotTaskId === null) {
+        freeSlotIndex = i
+        break
+      }
+      // Check if the assigned task is neither active nor has a summary (orphaned)
+      if (!(slotTaskId in activeTasks) && !(slotTaskId in taskSummaries)) {
+        freeSlotIndex = i
+        break
+      }
+    }
+
+    if (freeSlotIndex !== -1) {
+      set(
+        produce((state) => {
+          state.corpSlotAssignments[freeSlotIndex] = taskId
+        })
+      )
+      return freeSlotIndex
+    }
+
+    // No free slot - find the oldest completion to overwrite
+    // (slot with summary but no active task, sorted by started_at)
+    let oldestSlotIndex = -1
+    let oldestStartedAt: string | null = null
+
+    for (let i = 0; i < slotLimit; i++) {
+      const slotTaskId = corpSlotAssignments[i]
+      if (slotTaskId === null) continue
+
+      // Skip if task is still active
+      if (slotTaskId in activeTasks) continue
+
+      // Check if it has a summary (completion state)
+      const summary = taskSummaries[slotTaskId]
+      if (summary) {
+        if (oldestStartedAt === null || summary.started_at < oldestStartedAt) {
+          oldestStartedAt = summary.started_at
+          oldestSlotIndex = i
+        }
+      }
+    }
+
+    if (oldestSlotIndex !== -1) {
+      set(
+        produce((state) => {
+          state.corpSlotAssignments[oldestSlotIndex] = taskId
+        })
+      )
+      return oldestSlotIndex
+    }
+
+    // All unlocked slots have active tasks - cannot assign
+    console.warn(
+      `[TaskSlice] Cannot assign task ${taskId}: all ${slotLimit} unlocked slot(s) are occupied`
+    )
+    return null
+  },
+
+  clearCorpSlot: (slotIndex: number) =>
+    set(
+      produce((state) => {
+        if (slotIndex >= 0 && slotIndex < state.corpSlotAssignments.length) {
+          state.corpSlotAssignments[slotIndex] = null
+        }
+      })
+    ),
+
+  setLocalTaskId: (taskId: string) =>
+    set(
+      produce((state) => {
+        state.localTaskId = taskId
+      })
+    ),
 })
