@@ -458,11 +458,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
             case "map.update": {
               console.debug("[GAME EVENT] Map update", e.payload)
               const data = e.payload as MapLocalMessage
-
-              for (const sector of data.sectors) {
-                console.debug("[GAME EVENT] Updating map sector", sector.id)
-                gameStore.updateMapSector(sector as MapSectorNode)
-              }
+              gameStore.updateMapSectors(data.sectors as MapSectorNode[])
               break
             }
 

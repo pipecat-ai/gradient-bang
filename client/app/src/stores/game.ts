@@ -95,7 +95,7 @@ export interface GameSlice extends GameState {
   setSectorBuffer: (sector: Sector) => void
   setLocalMapData: (localMapData: MapData) => void
   setRegionalMapData: (regionalMapData: MapData) => void
-  updateMapSector: (sectorUpdate: Partial<MapSectorNode> & { id: number }) => void
+  updateMapSectors: (sectorUpdates: (Partial<MapSectorNode> & { id: number })[]) => void
   setCoursePlot: (coursePlot: CoursePlot) => void
   clearCoursePlot: () => void
   setStarfieldReady: (starfieldReady: boolean) => void
@@ -147,11 +147,9 @@ const createGameSlice: StateCreator<
       return
     }
     const payload = "payload" in action ? action.payload : {}
-    console.debug(`[GAME CLIENT] Dispatching action: "${action.type}"`, payload)
 
     let pendingPromise: Promise<void> | undefined
     if (action.async) {
-      console.debug("[GAME CONTEXT] Action is async, creating promise")
       pendingPromise = get().createFetchPromise(action.type)
     }
 
@@ -323,56 +321,35 @@ const createGameSlice: StateCreator<
       })
     ),
 
-  updateMapSector: (sectorUpdate: Partial<MapSectorNode> & { id: number }) =>
+  updateMapSectors: (sectorUpdates: (Partial<MapSectorNode> & { id: number })[]) =>
     set(
       produce((state) => {
-        console.debug("[GAME MAP] updateMapSector called with:", sectorUpdate)
+        // Helper to process updates for a given map
+        const processMapUpdates = (mapData: MapSectorNode[] | undefined): void => {
+          if (!mapData) return
 
-        // Update in local map data
-        if (state.local_map_data) {
-          const localIndex = state.local_map_data.findIndex(
-            (s: MapSectorNode) => s.id === sectorUpdate.id
-          )
-          if (localIndex !== -1) {
-            const before = { ...state.local_map_data[localIndex] }
-            Object.assign(state.local_map_data[localIndex], sectorUpdate)
-            console.debug(
-              `[GAME MAP] Local map: FOUND sector ${sectorUpdate.id} at index ${localIndex}`,
-              { before, after: state.local_map_data[localIndex] }
-            )
-          } else {
-            // Sector not found - add it as a new entry
-            state.local_map_data.push(sectorUpdate as MapSectorNode)
-            console.debug(
-              `[GAME MAP] Local map: NOT FOUND sector ${sectorUpdate.id}, added as new entry`
-            )
+          // Build index of existing sectors
+          const existingIndex = new Map<number, number>()
+          mapData.forEach((s: MapSectorNode, idx: number) => existingIndex.set(s.id, idx))
+
+          // Check if any of the update sectors exist in this map
+          const hasMatch = sectorUpdates.some((s) => existingIndex.has(s.id))
+          if (!hasMatch) return
+
+          for (const sectorUpdate of sectorUpdates) {
+            const existingIdx = existingIndex.get(sectorUpdate.id)
+            if (existingIdx !== undefined) {
+              // Update existing sector
+              Object.assign(mapData[existingIdx], sectorUpdate)
+            } else {
+              // Add new sector
+              mapData.push(sectorUpdate as MapSectorNode)
+            }
           }
-        } else {
-          console.debug("[GAME MAP] Local map: no local_map_data present")
         }
 
-        // Update in regional map data
-        if (state.regional_map_data) {
-          const regionalIndex = state.regional_map_data.findIndex(
-            (s: MapSectorNode) => s.id === sectorUpdate.id
-          )
-          if (regionalIndex !== -1) {
-            const before = { ...state.regional_map_data[regionalIndex] }
-            Object.assign(state.regional_map_data[regionalIndex], sectorUpdate)
-            console.debug(
-              `[GAME MAP] Regional map: FOUND sector ${sectorUpdate.id} at index ${regionalIndex}`,
-              { before, after: state.regional_map_data[regionalIndex] }
-            )
-          } else {
-            // Sector not found - add it as a new entry
-            state.regional_map_data.push(sectorUpdate as MapSectorNode)
-            console.debug(
-              `[GAME MAP] Regional map: NOT FOUND sector ${sectorUpdate.id}, added as new entry`
-            )
-          }
-        } else {
-          console.debug("[GAME MAP] Regional map: no regional_map_data present")
-        }
+        processMapUpdates(state.local_map_data)
+        processMapUpdates(state.regional_map_data)
       })
     ),
 
