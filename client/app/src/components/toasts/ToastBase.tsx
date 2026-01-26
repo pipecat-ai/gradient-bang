@@ -1,18 +1,17 @@
-import { useEffect } from "react";
+import { useEffect } from "react"
 
-import { cva } from "class-variance-authority";
-import { motion } from "motion/react";
+import { cva } from "class-variance-authority"
+import { motion } from "motion/react"
 
-import usePlaySound from "@/hooks/usePlaySound";
-import { cn } from "@/utils/tailwind";
-
-import { Separator } from "../primitives/Separator";
+import { Separator } from "@/components/primitives/Separator"
+import usePlaySound from "@/hooks/usePlaySound"
+import { cn } from "@/utils/tailwind"
 
 interface ToastBaseProps {
-  children: React.ReactNode;
-  onAnimateIn?: () => void;
-  onAnimationComplete?: () => void;
-  onClick?: () => void;
+  children: React.ReactNode
+  onAnimateIn?: () => void
+  onAnimationComplete?: () => void
+  onClick?: () => void
 }
 
 export const ToastBase = ({
@@ -21,17 +20,17 @@ export const ToastBase = ({
   onAnimationComplete,
   onClick,
 }: ToastBaseProps) => {
-  const { playSound } = usePlaySound();
+  const { playSound } = usePlaySound()
 
   useEffect(() => {
     if (onAnimateIn) {
-      onAnimateIn();
+      onAnimateIn()
     }
-  }, [onAnimateIn]);
+  }, [onAnimateIn])
 
   useEffect(() => {
-    playSound("chime2");
-  }, [playSound]);
+    playSound("chime2")
+  }, [playSound])
 
   return (
     <motion.div
@@ -41,7 +40,7 @@ export const ToastBase = ({
       transition={{ duration: 0.3, ease: "easeOut" }}
       onAnimationComplete={(definition) => {
         if (definition === "exit" && onAnimationComplete) {
-          onAnimationComplete();
+          onAnimationComplete()
         }
       }}
       onClick={onClick}
@@ -49,76 +48,73 @@ export const ToastBase = ({
     >
       {children}
     </motion.div>
-  );
-};
+  )
+}
 
 export const ToastTitle = ({
   children,
   className,
 }: {
-  children: React.ReactNode;
-  className?: string;
+  children: React.ReactNode
+  className?: string
 }) => {
   return (
     <div
       className={cn(
-        "flex flex-row gap-3 items-center justify-center w-full text-center",
+        "flex flex-row gap-2 items-center justify-center w-full text-center",
         className
       )}
     >
-      <Separator className="w-auto flex-1" />
+      <Separator className="w-auto flex-1 bg-accent" />
       <span className="heading-4 tracking-widest leading-none">{children}</span>
-      <Separator className="w-auto flex-1" />
+      <Separator className="w-auto flex-1 bg-accent" />
     </div>
-  );
-};
+  )
+}
 
 export const ToastValue = ({
   children,
   className,
 }: {
-  children: React.ReactNode;
-  className?: string;
+  children: React.ReactNode
+  className?: string
 }) => {
   return (
     <div
       className={cn(
-        "flex flex-row gap-3 items-center bracket bracket-1 bracket-border bracket-offset-0 bracket-vertical py-1 px-6 bg-accent/20 w-1/3 justify-center text-sm font-medium",
+        "flex flex-row gap-3 items-center bracket bracket-1 bracket-border bracket-offset-0 bracket-vertical py-2 px-6 bg-accent/20 w-1/3 justify-center text-sm font-medium",
         className
       )}
     >
       {children}
     </div>
-  );
-};
+  )
+}
 
-const tileVariants = cva(
-  "flex flex-col border items-center justify-center flex-1",
-  {
-    variants: {
-      color: {
-        success: "border-success",
-        warning: "border-warning",
-        destructive: "border-destructive",
-        default: "border-border",
-      },
-      active: {
-        true: "",
-        false: "opacity-50 cross-lines-accent border-border",
-      },
+const tileVariants = cva("flex flex-col border items-center justify-center flex-1", {
+  variants: {
+    color: {
+      success: "border-success",
+      warning: "border-warning",
+      destructive: "border-destructive",
+      default: "border-border",
     },
-    compoundVariants: [
-      {
-        active: false,
-        className: "border-border",
-      },
-    ],
-    defaultVariants: {
-      color: "success",
-      active: true,
+    active: {
+      true: "",
+      false: "opacity-50 cross-lines-accent border-border",
     },
-  }
-);
+  },
+  compoundVariants: [
+    {
+      active: false,
+      className: "border-border",
+    },
+  ],
+  defaultVariants: {
+    color: "success",
+    active: true,
+  },
+})
 
 const tileUnitsVariants = cva("", {
   variants: {
@@ -137,7 +133,7 @@ const tileUnitsVariants = cva("", {
     color: "success",
     empty: false,
   },
-});
+})
 
 export const ToastResourceTile = ({
   color = "success",
@@ -147,12 +143,12 @@ export const ToastResourceTile = ({
   units,
   prefix = "",
 }: {
-  color?: "success" | "warning" | "destructive" | "default";
-  children: React.ReactNode;
-  active: boolean;
-  commodity: string;
-  units?: number;
-  prefix?: string;
+  color?: "success" | "warning" | "destructive" | "default"
+  children: React.ReactNode
+  active: boolean
+  commodity: string
+  units?: number
+  prefix?: string
 }) => {
   return (
     <div className={cn(tileVariants({ color, active }))}>
@@ -172,5 +168,5 @@ export const ToastResourceTile = ({
         </span>
       </div>
     </div>
-  );
-};
+  )
+}

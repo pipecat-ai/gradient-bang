@@ -1,13 +1,25 @@
 import { SlidersHorizontalIcon, SpeakerHighIcon, UserIcon } from "@phosphor-icons/react"
 
 import useGameStore from "@/stores/game"
+import { formatCurrency } from "@/utils/formatting"
 
 import { Badge } from "./primitives/Badge"
 import { Button } from "./primitives/Button"
+import { DotDivider } from "./primitives/DotDivider"
+
+export const TopBarTextItem = ({ label, value }: { label: string; value: string }) => {
+  return (
+    <div className="flex flex-row gap-1.5 text-xs uppercase">
+      <span className="text-subtle-foreground">{label}</span>{" "}
+      <span className="text-white font-semibold">{value}</span>
+    </div>
+  )
+}
 
 export const TopBar = () => {
   const setActiveModal = useGameStore.use.setActiveModal()
   const player = useGameStore.use.player()
+  const corporation = useGameStore.use.corporation?.()
 
   return (
     <header className="bg-subtle-background border-b p-1.5 flex flex-row items-center">
@@ -19,7 +31,18 @@ export const TopBar = () => {
           : <span className="text-subtle-foreground">---</span>}
         </Badge>
       </div>
-      <div className="flex-1"></div>
+      <div className="flex-1 flex flex-row gap-3 text-sm items-center justify-center">
+        <TopBarTextItem
+          label="Credits in Bank"
+          value={formatCurrency(player?.credits_in_bank ?? 0)}
+        />
+        {corporation && (
+          <>
+            <DotDivider />
+            <TopBarTextItem label="Corporation" value={corporation.name} />
+          </>
+        )}
+      </div>
       <div className="flex flex-row gap-1.5">
         <Button variant="outline" size="icon-sm">
           <SpeakerHighIcon weight="bold" size={16} />

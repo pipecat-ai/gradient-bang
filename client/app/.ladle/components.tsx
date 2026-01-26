@@ -32,6 +32,8 @@ const StoryWrapper = ({
   const { isConnected, isConnecting } = usePipecatConnectionState()
   const setGameState = useGameStore.use.setGameState()
   const dispatchAction = useGameStore.use.dispatchAction()
+  const addToast = useGameStore.use.addToast()
+
   useEffect(() => {
     if (storyMeta?.enableMic && client) {
       client.initDevices()
@@ -57,6 +59,22 @@ const StoryWrapper = ({
         ["Get Known Port List"]: button(() => dispatchAction({ type: "get-known-ports" })),
       },
       { collapsed: true, order: 0 }
+    ),
+    Toasts: folder(
+      {
+        ["Add Bank Withdrawal Toast"]: button(() =>
+          addToast({ type: "bank.transaction", meta: { direction: "withdraw", amount: 1000 } })
+        ),
+        ["Add Bank Deposit Toast"]: button(() =>
+          addToast({ type: "bank.transaction", meta: { direction: "deposit", amount: 1000 } })
+        ),
+        ["Add Fuel Purchased Toast"]: button(() => addToast({ type: "warp.purchase" })),
+        ["Add Salvage Collected Toast"]: button(() => addToast({ type: "salvage.collected" })),
+        ["Add Salvage Created Toast"]: button(() => addToast({ type: "salvage.created" })),
+        ["Add Trade Executed Toast"]: button(() => addToast({ type: "trade.executed" })),
+        ["Add Transfer Toast"]: button(() => addToast({ type: "transfer" })),
+      },
+      { collapsed: true, order: 1 }
     ),
   }))
 

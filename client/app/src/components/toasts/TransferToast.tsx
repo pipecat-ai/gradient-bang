@@ -3,20 +3,21 @@ import {
   ArrowRightIcon,
   CoinVerticalIcon,
   GasCanIcon,
-} from "@phosphor-icons/react";
+  UserIcon,
+} from "@phosphor-icons/react"
 
-import { cn } from "@/utils/tailwind";
+import { cn } from "@/utils/tailwind"
 
-import { Card, CardContent } from "../primitives/Card";
-import { ToastBase, ToastTitle, ToastValue } from "./ToastBase";
+import { Card, CardContent } from "../primitives/Card"
+import { ToastBase, ToastTitle, ToastValue } from "./ToastBase"
 
-import type { Toast } from "@/types/toasts";
+import type { Toast } from "@/types/toasts"
 
 interface TransferToastProps {
-  toast: Toast & { type: "transfer" };
-  onAnimateIn?: () => void;
-  onAnimationComplete?: () => void;
-  onDismiss?: () => void;
+  toast: Toast & { type: "transfer" }
+  onAnimateIn?: () => void
+  onAnimationComplete?: () => void
+  onDismiss?: () => void
 }
 export const TransferToast = ({
   toast,
@@ -24,10 +25,8 @@ export const TransferToast = ({
   onAnimationComplete,
   onDismiss,
 }: TransferToastProps) => {
-  const { meta } = toast;
-  const transfer_commodity = meta?.transfer_details?.credits
-    ? "Credits"
-    : "Warp Fuel Power";
+  const { meta } = toast
+  const transfer_commodity = meta?.transfer_details?.credits ? "Credits" : "Warp Fuel Power"
 
   return (
     <ToastBase
@@ -39,41 +38,34 @@ export const TransferToast = ({
         variant="stripes"
         size="sm"
         className={`stripe-frame-2 stripe-frame-size-2 border-none bg-transparent w-full h-full ${
-          meta?.direction === "received"
-            ? "stripe-frame-success/30"
-            : "stripe-frame-warning/30"
+          meta?.direction === "received" ? "stripe-frame-success/30" : "stripe-frame-warning/30"
         }`}
       >
         <CardContent className="flex flex-col h-full justify-between items-center">
           <ToastTitle>
-            {meta?.direction === "received" ? (
+            {meta?.direction === "received" ?
               <span className="text-success">Received</span>
-            ) : (
-              <span className="text-warning">Sent</span>
-            )}{" "}
+            : <span className="text-warning">Sent</span>}{" "}
             {transfer_commodity}
           </ToastTitle>
 
           <div className="flex flex-row gap-3 w-full justify-center items-center">
             <div
               className={cn(
-                "flex flex-col gap-3 w-full justify-center items-center bg-black h-full uppercase text-xs font-bold tracking-widest",
+                "truncate flex flex-row gap-2 w-full justify-center items-center h-full uppercase text-xs font-bold tracking-widest",
                 meta?.direction === "received" ? "order-0" : "order-2"
               )}
             >
-              {meta?.direction === "received" ? meta?.from.name : meta?.to.name}
+              <UserIcon weight="duotone" className="size-6" />
+              <span className="truncate">
+                {meta?.direction === "received" ?
+                  (meta?.from.name ?? "Unknown")
+                : (meta?.to.name ?? "Unknown")}
+              </span>
             </div>
-            {meta?.direction === "received" ? (
-              <ArrowLeftIcon
-                size={24}
-                className="shrink-0 text-white order-1"
-              />
-            ) : (
-              <ArrowRightIcon
-                size={24}
-                className="shrink-0 text-white order-1"
-              />
-            )}
+            {meta?.direction === "received" ?
+              <ArrowLeftIcon size={24} className="shrink-0 text-subtle order-1" />
+            : <ArrowRightIcon size={24} className="shrink-0 text-subtle order-1" />}
             <div
               className={cn(
                 "flex flex-row gap-3 w-full justify-center items-center",
@@ -81,15 +73,11 @@ export const TransferToast = ({
               )}
             >
               <ToastValue className="py-2 flex-1 animate-pulse">
-                {transfer_commodity === "Credits" ? (
+                {transfer_commodity === "Credits" ?
                   <CoinVerticalIcon weight="duotone" className="size-6" />
-                ) : (
-                  <GasCanIcon weight="duotone" className="size-6" />
-                )}
+                : <GasCanIcon weight="duotone" className="size-6" />}
                 <span>
-                  {meta?.transfer_details?.credits ??
-                    meta?.transfer_details?.warp_power ??
-                    0}
+                  {meta?.transfer_details?.credits ?? meta?.transfer_details?.warp_power ?? 0}
                 </span>
               </ToastValue>
             </div>
@@ -97,5 +85,5 @@ export const TransferToast = ({
         </CardContent>
       </Card>
     </ToastBase>
-  );
-};
+  )
+}

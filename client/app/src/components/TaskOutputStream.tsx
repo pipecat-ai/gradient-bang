@@ -102,14 +102,14 @@ export const TaskOutputStreamComponent = ({
       className="absolute inset-0 flex w-full bg-transparent border-none h-full min-h-0 select-none pointer-events-none mt-auto"
       size="none"
     >
-      <CardContent className="relative flex flex-col gap-2 h-full justify-end mask-[linear-gradient(to_bottom,transparent_0%,black_30%,black_100%)]">
+      <CardContent className="relative flex flex-col gap-2 h-full justify-end mask-[linear-gradient(to_bottom,transparent_0px,black_80px)]">
         <ScrollArea
           className="w-full h-full overflow-hidden pointer-events-auto"
           fullHeight={true}
           classNames={{ scrollbar: "*:first:bg-white/30" }}
           onScroll={handleScroll}
         >
-          <div className="h-full flex flex-col justify-end hover:opacity-100 select-none pt-18">
+          <div className="h-full flex flex-col justify-end hover:opacity-100 select-none pt-10">
             {visibleTasks.map((task, index) => {
               return <TaskRow key={`${task.task_id}-${index}`} task={task} />
             })}
