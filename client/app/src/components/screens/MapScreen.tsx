@@ -108,7 +108,7 @@ export const MapScreen = () => {
         }
       </div>
 
-      <aside className="flex flex-col gap-6 min-w-100">
+      <aside className="flex flex-col gap-6 min-w-md">
         <CardContent className="flex flex-col gap-3">
           <Badge border="bracket" className="w-full -bracket-offset-3">
             Current Sector:

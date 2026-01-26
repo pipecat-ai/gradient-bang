@@ -5,7 +5,7 @@ import { createLogEntrySignature } from "@/utils/game"
 
 import type { EventQueryEntry, TaskHistoryEntry } from "@/types/messages"
 
-const MAX_MOVEMENT_HISTORY = 50
+const MAX_MOVEMENT_HISTORY = 200
 
 export interface HistorySlice {
   activity_log: LogEntry[]
