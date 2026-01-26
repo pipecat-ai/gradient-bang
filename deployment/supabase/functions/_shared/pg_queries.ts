@@ -1346,56 +1346,118 @@ export async function pgBuildLocalMapRegion(
   }
 
   const distanceMap = new Map<number, number>([[centerSector, 0]]);
-  const queue: Array<{ sector: number; hops: number }> = [
-    { sector: centerSector, hops: 0 },
-  ];
   const explored = new Set<number>([centerSector]);
   const unvisitedSeen = new Map<number, Set<number>>();
   const adjacencyCache = new Map<number, number[]>();
+  const universeAdjacencyCache = new Map<number, number[]>();
+  const universeRowCache = new Map<
+    number,
+    { position: [number, number]; region: string | null; warps: WarpEdge[] }
+  >();
 
-  const getAdjacency = async (sectorId: number): Promise<number[]> => {
-    if (adjacencyCache.has(sectorId)) {
-      return adjacencyCache.get(sectorId)!;
+  const hydrateUniverseRows = async (sectorIds: number[]): Promise<void> => {
+    const missing = sectorIds.filter((id) => !universeRowCache.has(id));
+    if (missing.length === 0) {
+      return;
     }
-    const knowledgeEntry = knowledge!.sectors_visited[String(sectorId)];
-    let neighbors: number[] | undefined;
-    if (knowledgeEntry?.adjacent_sectors) {
-      neighbors = knowledgeEntry.adjacent_sectors;
+    const rows = await pgFetchUniverseRows(pg, missing);
+    for (const [id, row] of rows) {
+      universeRowCache.set(id, row);
     }
-    if (!neighbors) {
-      const row = await pgFetchSectorRow(pg, sectorId);
-      neighbors = parseWarpEdges(row?.warps ?? []).map((edge) => edge.to);
-    }
-    adjacencyCache.set(sectorId, neighbors ?? []);
-    return neighbors ?? [];
   };
 
-  while (queue.length > 0 && distanceMap.size < maxSectors) {
-    const current = queue.shift()!;
-    if (current.hops >= maxHops) {
-      continue;
+  const ensureAdjacency = async (sectorIds: number[]): Promise<void> => {
+    const toFetch: number[] = [];
+    for (const sectorId of sectorIds) {
+      if (adjacencyCache.has(sectorId)) {
+        continue;
+      }
+      const knowledgeEntry = knowledge!.sectors_visited[String(sectorId)];
+      if (knowledgeEntry?.adjacent_sectors) {
+        adjacencyCache.set(sectorId, knowledgeEntry.adjacent_sectors);
+        continue;
+      }
+      toFetch.push(sectorId);
     }
-    const neighbors = await getAdjacency(current.sector);
-    for (const neighbor of neighbors) {
-      if (!distanceMap.has(neighbor)) {
-        distanceMap.set(neighbor, current.hops + 1);
+    if (toFetch.length === 0) {
+      return;
+    }
+    await hydrateUniverseRows(toFetch);
+    for (const sectorId of toFetch) {
+      const row = universeRowCache.get(sectorId);
+      const neighbors = row?.warps.map((edge) => edge.to) ?? [];
+      adjacencyCache.set(sectorId, neighbors);
+      universeAdjacencyCache.set(sectorId, neighbors);
+    }
+  };
+
+  const ensureUniverseAdjacency = async (sectorIds: number[]): Promise<void> => {
+    const toFetch: number[] = [];
+    for (const sectorId of sectorIds) {
+      if (universeAdjacencyCache.has(sectorId)) {
+        continue;
       }
-      // Traverse through all sectors (not just visited) to find reachable visited sectors
-      if (!explored.has(neighbor)) {
-        explored.add(neighbor);
-        queue.push({ sector: neighbor, hops: current.hops + 1 });
+      const row = universeRowCache.get(sectorId);
+      if (row) {
+        universeAdjacencyCache.set(
+          sectorId,
+          row.warps.map((edge) => edge.to)
+        );
+      } else {
+        toFetch.push(sectorId);
       }
-      // Track unvisited neighbors for fog-of-war rendering
-      if (!visitedSet.has(neighbor)) {
-        if (!unvisitedSeen.has(neighbor)) {
-          unvisitedSeen.set(neighbor, new Set());
+    }
+    if (toFetch.length === 0) {
+      return;
+    }
+    await hydrateUniverseRows(toFetch);
+    for (const sectorId of toFetch) {
+      const row = universeRowCache.get(sectorId);
+      const neighbors = row?.warps.map((edge) => edge.to) ?? [];
+      universeAdjacencyCache.set(sectorId, neighbors);
+    }
+  };
+
+  let frontier: number[] = [centerSector];
+  let hops = 0;
+  let capacityReached = false;
+  while (
+    frontier.length > 0 &&
+    hops < maxHops &&
+    distanceMap.size < maxSectors &&
+    !capacityReached
+  ) {
+    await ensureAdjacency(frontier);
+    const next: number[] = [];
+    for (const sectorId of frontier) {
+      const neighbors = adjacencyCache.get(sectorId) ?? [];
+      for (const neighbor of neighbors) {
+        if (!distanceMap.has(neighbor)) {
+          distanceMap.set(neighbor, hops + 1);
         }
-        unvisitedSeen.get(neighbor)!.add(current.sector);
+        // Traverse through all sectors (not just visited) to find reachable visited sectors
+        if (!explored.has(neighbor)) {
+          explored.add(neighbor);
+          next.push(neighbor);
+        }
+        // Track unvisited neighbors for fog-of-war rendering
+        if (!visitedSet.has(neighbor)) {
+          if (!unvisitedSeen.has(neighbor)) {
+            unvisitedSeen.set(neighbor, new Set());
+          }
+          unvisitedSeen.get(neighbor)!.add(sectorId);
+        }
+        if (distanceMap.size >= maxSectors) {
+          capacityReached = true;
+          break;
+        }
       }
-      if (distanceMap.size >= maxSectors) {
+      if (capacityReached) {
         break;
       }
     }
+    frontier = next;
+    hops += 1;
   }
 
   // Calculate bounding box from BFS results to find disconnected visited sectors
@@ -1425,28 +1487,45 @@ export async function pgBuildLocalMapRegion(
     }
   }
 
-  // Calculate hop distances for disconnected sectors using pgFindShortestPath
+  // Calculate hop distances for disconnected sectors with a single BFS
   const disconnectedDistances = new Map<number, number>();
-  for (const sectorId of disconnectedSectors) {
-    const result = await pgFindShortestPath(pg, {
-      fromSector: centerSector,
-      toSector: sectorId,
-    });
-    if (result) {
-      disconnectedDistances.set(sectorId, result.distance);
-    } else {
-      // Unreachable (shouldn't happen in connected universe, but handle gracefully)
-      disconnectedDistances.set(sectorId, -1);
+  if (disconnectedSectors.length > 0) {
+    const targetSet = new Set(disconnectedSectors);
+    const seen = new Set<number>([centerSector]);
+    let bfsFrontier: number[] = [centerSector];
+    let bfsHops = 0;
+    while (bfsFrontier.length > 0 && disconnectedDistances.size < targetSet.size) {
+      await ensureUniverseAdjacency(bfsFrontier);
+      const next: number[] = [];
+      for (const sectorId of bfsFrontier) {
+        const neighbors = universeAdjacencyCache.get(sectorId) ?? [];
+        for (const neighbor of neighbors) {
+          if (seen.has(neighbor)) {
+            continue;
+          }
+          seen.add(neighbor);
+          if (targetSet.has(neighbor)) {
+            disconnectedDistances.set(neighbor, bfsHops + 1);
+          }
+          next.push(neighbor);
+        }
+      }
+      bfsFrontier = next;
+      bfsHops += 1;
+    }
+    for (const sectorId of targetSet) {
+      if (!disconnectedDistances.has(sectorId)) {
+        // Unreachable (shouldn't happen in connected universe, but handle gracefully)
+        disconnectedDistances.set(sectorId, -1);
+      }
     }
   }
 
   // Combine all sector IDs
   const sectorIds = Array.from(distanceMap.keys()).concat(disconnectedSectors);
   const visitedSectorIds = sectorIds.filter((id) => visitedSet.has(id));
-  const [universeRows, portCodes] = await Promise.all([
-    pgFetchUniverseRows(pg, sectorIds),
-    pgLoadPortCodes(pg, visitedSectorIds),
-  ]);
+  await hydrateUniverseRows(sectorIds);
+  const portCodes = await pgLoadPortCodes(pg, visitedSectorIds);
 
   const resultSectors: LocalMapSector[] = [];
   const disconnectedSet = new Set(disconnectedSectors);
@@ -1455,7 +1534,7 @@ export async function pgBuildLocalMapRegion(
     const hops = isDisconnected
       ? (disconnectedDistances.get(sectorId) ?? -1)
       : (distanceMap.get(sectorId) ?? 0);
-    const universeRow = universeRows.get(sectorId);
+    const universeRow = universeRowCache.get(sectorId);
     const position = universeRow?.position ?? [0, 0];
     const warps = universeRow?.warps ?? [];
 
@@ -1477,7 +1556,7 @@ export async function pgBuildLocalMapRegion(
       const seenFrom = Array.from(unvisitedSeen.get(sectorId) ?? []);
       const derivedLanes: WarpEdge[] = [];
       for (const source of seenFrom) {
-        const sourceRow = universeRows.get(source);
+        const sourceRow = universeRowCache.get(source);
         const match = sourceRow?.warps.find((warp) => warp.to === sectorId);
         if (match) {
           derivedLanes.push({
