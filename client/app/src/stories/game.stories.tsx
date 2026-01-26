@@ -1,10 +1,11 @@
-import { useMemo } from "react"
+import { useEffect, useMemo } from "react"
 
 import { button, folder, useControls } from "leva"
+import { faker } from "@faker-js/faker"
 import type { Story } from "@ladle/react"
 
+import { CharacterSelect } from "@/components/CharacterSelect"
 import { CoursePlotPanel } from "@/components/CoursePlotPanel"
-import { ActivityStream } from "@/components/hud/ActivityStream"
 import { MovementHistoryPanel } from "@/components/MovementHistoryPanel"
 import { Divider } from "@/components/primitives/Divider"
 import { SectorMap } from "@/components/SectorMap"
@@ -123,11 +124,6 @@ export const Init: Story = () => {
         </div>
 
         <div className="story-card bg-card">
-          <h3 className="story-heading">Activity Log:</h3>
-          <ActivityStream />
-        </div>
-
-        <div className="story-card bg-card">
           <h3 className="story-heading">Chat messages:</h3>
           {directMessages.map((message) => (
             <div key={message.id}>{JSON.stringify(message)}</div>
@@ -195,4 +191,66 @@ GameViewStory.meta = {
   disconnectedStory: true,
   enableMic: false,
   disableAudioOutput: true,
+}
+
+export const CharacterSelectStory: Story = () => {
+  const setCharacters = useGameStore.use.setCharacters()
+
+  useEffect(() => {
+    // Add 3 initial mock characters
+    setCharacters([
+      {
+        character_id: faker.string.uuid(),
+        name: faker.person.fullName(),
+        created_at: new Date().toISOString(),
+        last_active: new Date().toISOString(),
+        is_npc: false,
+      },
+      {
+        character_id: faker.string.uuid(),
+        name: faker.person.fullName(),
+        created_at: new Date().toISOString(),
+        last_active: new Date().toISOString(),
+        is_npc: false,
+      },
+      {
+        character_id: faker.string.uuid(),
+        name: faker.person.fullName(),
+        created_at: new Date().toISOString(),
+        last_active: new Date().toISOString(),
+        is_npc: false,
+      },
+    ])
+  }, [setCharacters])
+
+  useControls(() => ({
+    ["Add Mock Character"]: button(() => {
+      const currentCharacters = useGameStore.getState().characters
+      setCharacters([
+        ...currentCharacters,
+        {
+          character_id: faker.string.uuid(),
+          name: faker.person.fullName(),
+          created_at: new Date().toISOString(),
+          last_active: new Date().toISOString(),
+          is_npc: false,
+        },
+      ])
+    }),
+  }))
+
+  return (
+    <CharacterSelect
+      onCharacterSelect={(characterId) => {
+        console.log("Selected character:", characterId)
+      }}
+    />
+  )
+}
+
+CharacterSelectStory.meta = {
+  disconnectedStory: true,
+  enableMic: false,
+  disableAudioOutput: true,
+  useDevTools: true,
 }

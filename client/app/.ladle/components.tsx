@@ -1,6 +1,6 @@
 import React, { memo, useEffect, useMemo } from "react"
 
-import { button, folder, Leva, useControls } from "leva"
+import { button, buttonGroup, folder, Leva, useControls } from "leva"
 import type { GlobalProvider, Meta } from "@ladle/react"
 import { PipecatClient } from "@pipecat-ai/client-js"
 import { PipecatClientProvider } from "@pipecat-ai/client-react"
@@ -44,14 +44,19 @@ const StoryWrapper = ({
   }, [isConnected, setGameState])
 
   useControls(() => ({
-    General: folder(
+    ["Connect"]: buttonGroup({
+      label: "Connection",
+      opts: {
+        ["Connect"]: () => client.startBotAndConnect({ endpoint }),
+        ["Disconnect"]: () => client.disconnect(),
+      },
+    }),
+    Messages: folder(
       {
-        ["Connect"]: button(() => client.startBotAndConnect({ endpoint })),
-        ["Disconnect"]: button(() => client.disconnect()),
         ["Get My Status"]: button(() => dispatchAction({ type: "get-my-status" })),
         ["Get Known Port List"]: button(() => dispatchAction({ type: "get-known-ports" })),
       },
-      { collapsed: true, order: -1 }
+      { collapsed: true, order: 0 }
     ),
   }))
 
@@ -88,7 +93,7 @@ const StoryWrapper = ({
 
       {storyMeta?.useDevTools && storyMeta?.useChatControls && <BasicDevTools />}
 
-      <Leva oneLineLabels hidden={!storyMeta?.useDevTools} />
+      <Leva hidden={!storyMeta?.useDevTools} />
 
       {children}
     </>

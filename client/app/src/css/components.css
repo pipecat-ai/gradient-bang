@@ -1,4 +1,24 @@
 @layer components {
+  .bg-dither-mask-md {
+    position: relative;
+
+    &::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      user-select: none;
+      pointer-events: none;
+      background-color: currentColor;
+      -webkit-mask-image: url("../assets/images/dither-mask-md.png");
+      mask-image: url("../assets/images/dither-mask-md.png");
+      -webkit-mask-size: 4px 128px;
+      mask-size: 4px 128px;
+      -webkit-mask-repeat: repeat-x;
+      mask-repeat: repeat-x;
+    }
+  }
+
   .focus-outline {
     outline: none;
     &:focus-visible {
@@ -15,10 +35,17 @@
     outline-offset: 3px;
 
     &:focus-visible,
-    &:hover {
+    &:hover:not(:focus-visible) {
       outline-style: solid;
     }
   }
+
+  /* Container that disables hover on all children when any child has focus-visible */
+  .focus-disables-hover:has(:focus-visible) .interactive-card:not(:focus-visible) {
+    /* Reset hover styles when another card is focused */
+    pointer-events: none;
+  }
+
 
   .mono-upper {
     font-family: var(--font-mono);
@@ -64,7 +91,8 @@
       border-radius: var(--border-radius);
       background: var(--color-screen-background);
 
-      -webkit-mask-image: linear-gradient(
+      -webkit-mask-image:
+        linear-gradient(
           180deg,
           transparent 0,
           #000 var(--feather-size),
@@ -80,7 +108,8 @@
         );
       -webkit-mask-composite: source-in;
 
-      mask-image: linear-gradient(
+      mask-image:
+        linear-gradient(
           180deg,
           transparent 0,
           #000 var(--feather-size),
@@ -96,5 +125,10 @@
         );
       mask-composite: intersect;
     }
+  }
+
+  .dialog-dots {
+    background-image: radial-gradient(circle, currentColor 1px, transparent 1px);
+    background-size: 24px 24px;
   }
 }
