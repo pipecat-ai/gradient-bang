@@ -733,39 +733,60 @@ export async function findShortestPath(
     return { path: [fromSector], distance: 0 };
   }
 
-  const ensureSectorExists = async (sectorId: number): Promise<void> => {
-    const row = await fetchSectorRow(supabase, sectorId);
-    if (!row) {
-      throw new Error(`sector ${sectorId} does not exist`);
-    }
-    adjacencyCache.set(
-      sectorId,
-      parseWarpEdges(row.warps ?? []).map((edge) => edge.to),
-    );
-  };
-
   const adjacencyCache = new Map<number, number[]>();
-  await Promise.all([
-    ensureSectorExists(fromSector),
-    ensureSectorExists(toSector),
-  ]);
+  const universeRowCache = new Map<
+    number,
+    { position: [number, number]; region: string | null; warps: WarpEdge[] }
+  >();
 
-  const getNeighbors = async (sectorId: number): Promise<number[]> => {
-    if (adjacencyCache.has(sectorId)) {
-      return adjacencyCache.get(sectorId)!;
+  const hydrateUniverseRows = async (sectorIds: number[]): Promise<void> => {
+    const missing = sectorIds.filter((id) => !universeRowCache.has(id));
+    if (missing.length === 0) {
+      return;
     }
-    const row = await fetchSectorRow(supabase, sectorId);
-    if (!row) {
-      throw new Error(`sector ${sectorId} does not exist`);
+    const rows = await fetchUniverseRows(supabase, missing);
+    for (const [id, row] of rows) {
+      universeRowCache.set(id, row);
     }
-    const neighbors = parseWarpEdges(row.warps ?? []).map((edge) => edge.to);
-    adjacencyCache.set(sectorId, neighbors);
-    return neighbors;
+    for (const id of missing) {
+      if (!universeRowCache.has(id)) {
+        throw new Error(`sector ${id} does not exist`);
+      }
+    }
   };
+
+  const ensureAdjacency = async (sectorIds: number[]): Promise<void> => {
+    const toFetch: number[] = [];
+    for (const sectorId of sectorIds) {
+      if (adjacencyCache.has(sectorId)) {
+        continue;
+      }
+      const row = universeRowCache.get(sectorId);
+      if (row) {
+        adjacencyCache.set(
+          sectorId,
+          row.warps.map((edge) => edge.to),
+        );
+      } else {
+        toFetch.push(sectorId);
+      }
+    }
+    if (toFetch.length === 0) {
+      return;
+    }
+    await hydrateUniverseRows(toFetch);
+    for (const sectorId of toFetch) {
+      const row = universeRowCache.get(sectorId);
+      const neighbors = row?.warps.map((edge) => edge.to) ?? [];
+      adjacencyCache.set(sectorId, neighbors);
+    }
+  };
+
+  await hydrateUniverseRows([fromSector, toSector]);
 
   const visited = new Set<number>([fromSector]);
   const parents = new Map<number, number | null>([[fromSector, null]]);
-  const queue: number[] = [fromSector];
+  let frontier: number[] = [fromSector];
 
   const buildPath = (target: number): number[] => {
     const path: number[] = [];
@@ -777,23 +798,27 @@ export async function findShortestPath(
     return path;
   };
 
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    const neighbors = await getNeighbors(current);
-    for (const neighbor of neighbors) {
-      if (!visited.has(neighbor)) {
-        visited.add(neighbor);
-        parents.set(neighbor, current);
-        if (neighbor === toSector) {
-          const path = buildPath(neighbor);
-          return {
-            path,
-            distance: path.length - 1,
-          };
+  while (frontier.length > 0) {
+    await ensureAdjacency(frontier);
+    const next: number[] = [];
+    for (const current of frontier) {
+      const neighbors = adjacencyCache.get(current) ?? [];
+      for (const neighbor of neighbors) {
+        if (!visited.has(neighbor)) {
+          visited.add(neighbor);
+          parents.set(neighbor, current);
+          if (neighbor === toSector) {
+            const path = buildPath(neighbor);
+            return {
+              path,
+              distance: path.length - 1,
+            };
+          }
+          next.push(neighbor);
         }
-        queue.push(neighbor);
       }
     }
+    frontier = next;
   }
 
   throw new PathNotFoundError(
@@ -926,10 +951,12 @@ export async function buildLocalMapRegion(
         if (!distanceMap.has(neighbor)) {
           distanceMap.set(neighbor, hops + 1);
         }
-        // Traverse through all sectors (not just visited) to find reachable visited sectors
+        // Only traverse through visited sectors; unvisited are added for fog-of-war only.
         if (!explored.has(neighbor)) {
           explored.add(neighbor);
-          next.push(neighbor);
+          if (visitedSet.has(neighbor)) {
+            next.push(neighbor);
+          }
         }
         // Track unvisited neighbors for fog-of-war rendering
         if (!visitedSet.has(neighbor)) {
@@ -1014,8 +1041,33 @@ export async function buildLocalMapRegion(
     }
   }
 
+  const disconnectedUnvisitedNeighbors = new Set<number>();
+  if (disconnectedSectors.length > 0) {
+    await hydrateUniverseRows(disconnectedSectors);
+    for (const sectorId of disconnectedSectors) {
+      const row = universeRowCache.get(sectorId);
+      const neighbors = row?.warps.map((edge) => edge.to) ?? [];
+      for (const neighbor of neighbors) {
+        if (visitedSet.has(neighbor)) {
+          continue;
+        }
+        let seenFrom = unvisitedSeen.get(neighbor);
+        if (!seenFrom) {
+          seenFrom = new Set();
+          unvisitedSeen.set(neighbor, seenFrom);
+        }
+        seenFrom.add(sectorId);
+        if (!distanceMap.has(neighbor)) {
+          disconnectedUnvisitedNeighbors.add(neighbor);
+        }
+      }
+    }
+  }
+
   // Combine all sector IDs
-  const sectorIds = Array.from(distanceMap.keys()).concat(disconnectedSectors);
+  const sectorIds = Array.from(distanceMap.keys())
+    .concat(disconnectedSectors)
+    .concat(Array.from(disconnectedUnvisitedNeighbors));
   const visitedSectorIds = sectorIds.filter((id) => visitedSet.has(id));
   await hydrateUniverseRows(sectorIds);
   const portCodes = await loadPortCodes(supabase, visitedSectorIds);
@@ -1026,7 +1078,9 @@ export async function buildLocalMapRegion(
     const isDisconnected = disconnectedSet.has(sectorId);
     const hops = isDisconnected
       ? (disconnectedDistances.get(sectorId) ?? -1)
-      : (distanceMap.get(sectorId) ?? 0);
+      : disconnectedUnvisitedNeighbors.has(sectorId)
+        ? -1
+        : (distanceMap.get(sectorId) ?? 0);
     const universeRow = universeRowCache.get(sectorId);
     const position = universeRow?.position ?? [0, 0];
     const warps = universeRow?.warps ?? [];

@@ -539,7 +539,10 @@ def list_known_ports_summary(result: Dict[str, Any]) -> str:
     total_found = result.get("total_ports_found", 0)
 
     if not ports:
-        return f"No ports found from sector {from_sector}."
+        mega_filter = result.get("mega")
+        if mega_filter is True:
+            return "No mega-port found within range."
+        return "No ports found matching the search filters."
 
     lines = [
         f"Found {total_found} port{'s' if total_found != 1 else ''} from sector {from_sector}:"

@@ -14,8 +14,7 @@ import {
 } from "../_shared/events.ts";
 import { isMegaPortSector, loadUniverseMeta } from "../_shared/fedspace.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
-import { getAdjacentSectors, loadMapKnowledge } from "../_shared/map.ts";
-import type { MapKnowledge } from "../_shared/map.ts";
+import { loadMapKnowledge, parseWarpEdges } from "../_shared/map.ts";
 import { loadCharacter, loadShip } from "../_shared/status.ts";
 import {
   ensureActorAuthorization,
@@ -378,16 +377,46 @@ async function handleListKnownPorts(
   const portRows = await fetchPortRows(supabase, visitedIds);
   const portMap = new Map(portRows.map((row) => [row.sector_id, row]));
 
-  const queue: Array<{ sector: number; hops: number }> = [
-    { sector: fromSector, hops: 0 },
-  ];
+  const adjacencyCache = new Map<number, number[]>();
   const visitedBfs = new Set<number>([fromSector]);
+
+  const ensureAdjacency = async (sectorIds: number[]): Promise<void> => {
+    const toFetch: number[] = [];
+    for (const sectorId of sectorIds) {
+      if (adjacencyCache.has(sectorId)) {
+        continue;
+      }
+      const entry = knowledge.sectors_visited[String(sectorId)];
+      if (entry?.adjacent_sectors && entry.adjacent_sectors.length > 0) {
+        adjacencyCache.set(sectorId, entry.adjacent_sectors);
+        continue;
+      }
+      toFetch.push(sectorId);
+    }
+    if (toFetch.length === 0) {
+      return;
+    }
+    const adjacencyMap = await fetchAdjacencyBatch(supabase, toFetch);
+    for (const sectorId of toFetch) {
+      const neighbors = adjacencyMap.get(sectorId);
+      if (!neighbors) {
+        throw new Error(`sector ${sectorId} does not exist`);
+      }
+      adjacencyCache.set(sectorId, neighbors);
+    }
+  };
   let sectorsSearched = 0;
   const results: Array<PortResult> = [];
   const rpcTimestamp = source.timestamp;
 
-  while (queue.length > 0) {
-    const current = queue.shift()!;
+  let frontier: number[] = [fromSector];
+  let hops = 0;
+
+  while (frontier.length > 0) {
+    await ensureAdjacency(frontier);
+    const next: number[] = [];
+    for (const sectorId of frontier) {
+      const current = { sector: sectorId, hops };
     sectorsSearched += 1;
 
     const portRow = portMap.get(current.sector);
@@ -422,21 +451,23 @@ async function handleListKnownPorts(
       }
     }
 
-    if (current.hops >= maxHops) {
-      continue;
-    }
+      if (hops >= maxHops) {
+        continue;
+      }
 
-    const adjacency = await resolveAdjacency(
-      knowledge,
-      supabase,
-      current.sector,
-    );
-    for (const neighbor of adjacency) {
-      if (!visitedBfs.has(neighbor)) {
-        visitedBfs.add(neighbor);
-        queue.push({ sector: neighbor, hops: current.hops + 1 });
+      const adjacency = adjacencyCache.get(current.sector) ?? [];
+      for (const neighbor of adjacency) {
+        if (!visitedBfs.has(neighbor)) {
+          visitedBfs.add(neighbor);
+          next.push(neighbor);
+        }
       }
     }
+    if (hops >= maxHops) {
+      break;
+    }
+    frontier = next;
+    hops += 1;
   }
 
   results.sort((a, b) => {
@@ -451,6 +482,11 @@ async function handleListKnownPorts(
     ports: results,
     total_ports_found: results.length,
     searched_sectors: sectorsSearched,
+    max_hops: maxHops,
+    port_type: portTypeFilter,
+    commodity: commodityFilter,
+    trade_type: tradeTypeFilter,
+    mega: megaFilter,
     source,
   };
 
@@ -586,16 +622,29 @@ async function fetchPortRows(
   return results;
 }
 
-async function resolveAdjacency(
-  knowledge: MapKnowledge,
+async function fetchAdjacencyBatch(
   supabase: ReturnType<typeof createServiceRoleClient>,
-  sectorId: number,
-): Promise<number[]> {
-  const entry = knowledge.sectors_visited[String(sectorId)];
-  if (entry?.adjacent_sectors && entry.adjacent_sectors.length > 0) {
-    return entry.adjacent_sectors;
+  sectorIds: number[],
+): Promise<Map<number, number[]>> {
+  if (sectorIds.length === 0) {
+    return new Map();
   }
-  return await getAdjacentSectors(supabase, sectorId);
+  const uniqueIds = Array.from(new Set(sectorIds));
+  const { data, error } = await supabase
+    .from("universe_structure")
+    .select("sector_id, warps")
+    .in("sector_id", uniqueIds);
+  if (error) {
+    throw new Error(`failed to load universe rows: ${error.message}`);
+  }
+  const adjacencyMap = new Map<number, number[]>();
+  for (const row of data ?? []) {
+    adjacencyMap.set(
+      row.sector_id,
+      parseWarpEdges(row.warps ?? []).map((edge) => edge.to),
+    );
+  }
+  return adjacencyMap;
 }
 
 function portMatchesFilters(
