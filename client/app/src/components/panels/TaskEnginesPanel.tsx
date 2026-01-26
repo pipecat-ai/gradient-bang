@@ -117,7 +117,6 @@ export const TaskEngine = ({ taskId, isLocal }: { taskId?: string | null; isLoca
 
   // Look up active task and summary by ID
   const task = taskId ? getTaskByTaskId?.(taskId) : undefined
-  console.log(task)
   const summary = taskId ? getTaskSummaryByTaskId?.(taskId) : undefined
 
   const { state, displayTask } = useMemo(() => {
