@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback } from "react"
 
-import { type APIRequest, RTVIEvent } from "@pipecat-ai/client-js"
+import { RTVIEvent } from "@pipecat-ai/client-js"
 import { usePipecatClient, useRTVIClientEvent } from "@pipecat-ai/client-react"
 
 import { GameContext } from "@/hooks/useGameContext"
@@ -49,10 +49,9 @@ import {
 
 interface GameProviderProps {
   children: ReactNode
-  onConnect?: (request: APIRequest) => void
 }
 
-export function GameProvider({ children, onConnect }: GameProviderProps) {
+export function GameProvider({ children }: GameProviderProps) {
   const gameStore = useGameStore()
   const client = usePipecatClient()
   const dispatchAction = useGameStore((state) => state.dispatchAction)
@@ -132,7 +131,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
     console.debug("[GAME CONTEXT] Connecting with params", botStartParams)
 
     try {
-      await onConnect?.(botStartParams)
+      await client?.startBotAndConnect(botStartParams)
       if (!client?.connected) {
         throw new Error("Failed to connect to game server")
       }
@@ -157,7 +156,7 @@ export function GameProvider({ children, onConnect }: GameProviderProps) {
 
     // 5. Dispatch start event to bot to kick off the conversation
     // dispatchAction({ type: "start" } as StartAction)
-  }, [onConnect, gameStore, client])
+  }, [gameStore, client])
 
   /**
    * Handle server message

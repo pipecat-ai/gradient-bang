@@ -2,15 +2,15 @@ import { Group, Panel, Separator } from "react-resizable-panels"
 
 import { Settings } from "@/components/dialogs/Settings"
 import { ConversationPanel } from "@/components/panels/ConversationPanel"
+import { MiniMapPanel } from "@/components/panels/MiniMapPanel"
 import { PlayerShipPanel } from "@/components/panels/PlayerShipPanel"
 import { TaskEnginesPanel } from "@/components/panels/TaskEnginesPanel"
 import { Divider } from "@/components/primitives/Divider"
+import { ScreenContainer } from "@/components/screens/ScreenContainer"
 import { ShipVisor } from "@/components/ShipVisor"
 import { Starfield } from "@/components/Starfield"
 import { TopBar } from "@/components/TopBar"
 import { useNotificationSound } from "@/hooks/useNotificationSound"
-
-import { MiniMapPanel } from "../panels/MiniMapPanel"
 
 export const Game = () => {
   useNotificationSound()
@@ -26,7 +26,7 @@ export const Game = () => {
             </div>
             <footer className="p-ui-xs pt-0 h-[380px] flex flex-row gap-ui-sm">
               <ConversationPanel className="min-w-1/2 flex-1" />
-              <MiniMapPanel />
+              <MiniMapPanel className="min-w-[380px]" />
             </footer>
           </main>
         </Panel>
@@ -43,6 +43,9 @@ export const Game = () => {
           </aside>
         </Panel>
       </Group>
+
+      {/* Sub-screens (trading, ship, messaging, etc..) */}
+      <ScreenContainer />
 
       {/* Other Renderables */}
       <Starfield />

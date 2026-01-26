@@ -12,7 +12,7 @@ declare global {
     total_sectors_known: number
     credits_in_bank: number
     corp_sectors_visited?: number
-    universe_size?: number
+    universe_size: number
     last_active?: string
   }
 
