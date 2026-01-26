@@ -9,36 +9,27 @@
 # ]
 # ///
 """
-Generate a spatially-aware, low-crossing universe with regional structure and
-guaranteed navigability.
+Generate a spatially-aware universe with uniform density and a fedspace core.
 
 Core techniques and features:
 - Hexagonal grid base with snapped integer coordinates for stable layouts
-- Regions via Voronoi-like clustering; sector counts allocated by regional density
-- Sparse sector placement within regions for visual separation
-- Per-region Delaunay triangulation pruned by distance to reduce crossings
+- Uniform random sector placement (no regional density weighting)
+- Global Delaunay triangulation pruned by distance to reduce crossings
   - Probabilistic one-way / two-way edges based on proximity
-- Cross-region border connections between nearby sectors along region boundaries
 - Global two-way backbone using an MST over a global Delaunay graph to ensure
-  strong connectivity (no unreachable regions)
-- Accessibility pass that upgrades a subset of short one-way edges to two-way to
-  reduce trap-like areas without over-connecting
+  strong connectivity (no unreachable sectors)
+- Accessibility pass that upgrades a subset of short one-way edges to two-way
+  to reduce trap-like areas without over-connecting
 - Degree capping that preserves backbone edges and favors shorter connections
-- Hyperlanes added last as strictly additional cross-region links:
-  - Long-distance, two-way; endpoints must already have a same-region neighbor
-    (so a hyperlane is never the only way out of a sector)
-  - Preference for safe-to-safe region links to avoid forcing players through
-    dangerous territory from safe zones
-- Ports placed with regional bias and graph-awareness (crossroads favored);
-  mega port located in a safe high-degree sector; complementary trade pairs are
-  tuned within a small hop radius
+- Federation Space (fedspace) picked by graph center + shortest-path distance
+- Ports placed with graph-awareness (crossroads favored); 4 mega-ports placed
+  in fedspace and sector 0 is never a port
 
 Outputs:
-  - world-data/universe_structure.json
-  - world-data/sector_contents.json
+  - world-data/universe.json
 
 Usage:
-  python generate_spatial_universe.py <sector_count> [seed]
+  python universe_bang.py <sector_count> [seed]
 """
 import sys, json, random, math, argparse
 import numpy as np
@@ -53,21 +44,21 @@ from gradientbang.utils.config import get_world_data_path
 # ===================== Tunables / Defaults =====================
 
 # --- Regions configuration ---
+FEDSPACE_SECTOR_COUNT = 200
+FEDSPACE_REGION_NAME = "Federation Space"
+NEUTRAL_REGION_NAME = "Neutral"
+FEDSPACE_REGION_ID = 1
+NEUTRAL_REGION_ID = 0
+
 REGIONS = [
-    {"name": "Core Worlds", "density": 0.7, "port_bias": 1.3, "safe": True},
-    {"name": "Trade Federation", "density": 0.6, "port_bias": 1.5, "safe": True},
-    {"name": "Frontier", "density": 0.35, "port_bias": 0.9, "safe": False},
-    {"name": "Pirate Space", "density": 0.4, "port_bias": 0.6, "safe": False},
-    {"name": "Neutral Zone", "density": 0.25, "port_bias": 1.0, "safe": True},
+    {"name": NEUTRAL_REGION_NAME},
+    {"name": FEDSPACE_REGION_NAME},
 ]
 
 # --- Hex grid parameters ---
 
 # --- Connection parameters ---
 MAX_DELAUNAY_EDGE_LENGTH = 3.5  # In hex units
-BORDER_CONNECTION_DISTANCE = 2.0  # In hex units
-HYPERLANE_MIN_DISTANCE = 10.0  # In hex units
-HYPERLANE_RATIO = 0.01  # 1% of sectors get hyperlanes
 
 # --- Port density (from original) ---
 BASE_PORT_DENSITY = 0.40
@@ -76,8 +67,7 @@ PORT_PERCENTAGE = BASE_PORT_DENSITY * INITIAL_PORT_BUILD_RATE
 
 # --- Mega port configuration ---
 MEGA_PORT_STOCK_MULTIPLIER = 10  # 10x normal capacity
-MEGA_PORT_COUNT = 1  # One mega port per universe
-MEGA_PORT_DYNAMIC_PLACEMENT = False  # If False, mega port is always at sector 0
+MEGA_PORT_COUNT = 4  # Four mega-ports per universe
 
 # --- Warps / topology ---
 MIN_WARPS_PER_SECTOR = 1
@@ -152,285 +142,86 @@ def hex_distance(p1: Tuple[float, float], p2: Tuple[float, float]) -> float:
     """Calculate distance in hex units."""
     return euclidean_distance(p1, p2)
 
-# ===================== Region Assignment =====================
-
-def assign_hexes_to_regions(
-    hex_positions: List[Tuple[float, float]], 
-    num_regions: int
-) -> Dict[int, int]:
-    """Assign each hex position to a region using Voronoi-like clustering."""
-    # Select region centers spread out across the grid
-    indices = list(range(len(hex_positions)))
-    random.shuffle(indices)
-    
-    # Space out region centers
-    region_centers = []
-    used_indices = set()
-    
-    for _ in range(num_regions):
-        best_idx = None
-        best_min_dist = 0
-        
-        for idx in indices:
-            if idx in used_indices:
-                continue
-            
-            if not region_centers:
-                best_idx = idx
-                break
-            
-            # Find minimum distance to existing centers
-            min_dist = min(euclidean_distance(hex_positions[idx], hex_positions[c]) 
-                          for c in region_centers)
-            if min_dist > best_min_dist:
-                best_min_dist = min_dist
-                best_idx = idx
-        
-        if best_idx is not None:
-            region_centers.append(best_idx)
-            used_indices.add(best_idx)
-    
-    # Assign each hex to nearest region center
-    hex_to_region = {}
-    for i, pos in enumerate(hex_positions):
-        distances = [(euclidean_distance(pos, hex_positions[c]), r) 
-                    for r, c in enumerate(region_centers)]
-        distances.sort()
-        hex_to_region[i] = distances[0][1]
-    
-    return hex_to_region
-
 # ===================== Sector Placement =====================
 
-def place_sectors_in_regions(
+def place_sectors_uniform(
     hex_positions: List[Tuple[float, float]],
-    hex_to_region: Dict[int, int],
     sector_count: int,
-    regions_info: List[Dict]
-) -> Tuple[Dict[int, Tuple[float, float]], Dict[int, int]]:
-    """Place sectors sparsely within their regions, snapped to hex grid."""
-    sector_positions = {}
-    sector_regions = {}
-    
-    # Calculate sectors per region based on density
-    total_density = sum(r["density"] for r in regions_info)
-    sectors_per_region = []
-    for i, region in enumerate(regions_info):
-        count = int(sector_count * region["density"] / total_density)
-        sectors_per_region.append(count)
-    
-    # Adjust for rounding errors
-    while sum(sectors_per_region) < sector_count:
-        sectors_per_region[random.randint(0, len(sectors_per_region)-1)] += 1
-    while sum(sectors_per_region) > sector_count:
-        idx = random.randint(0, len(sectors_per_region)-1)
-        if sectors_per_region[idx] > 1:
-            sectors_per_region[idx] -= 1
-    
-    # Place sectors
-    sector_id = 0
-    for region_id, region_sector_count in enumerate(sectors_per_region):
-        # Get hexes for this region
-        region_hexes = [i for i, r in hex_to_region.items() if r == region_id]
-        
-        if not region_hexes:
-            continue
-        
-        # Sample positions for sectors (this creates the sparse placement)
-        num_to_place = min(region_sector_count, len(region_hexes))
-        selected_hexes = random.sample(region_hexes, num_to_place)
-        
-        for hex_idx in selected_hexes:
-            # Snap exactly to hex position - no jitter!
-            sector_positions[sector_id] = hex_positions[hex_idx]
-            sector_regions[sector_id] = region_id
-            sector_id += 1
-    
-    return sector_positions, sector_regions
+) -> Dict[int, Tuple[float, float]]:
+    """Place sectors uniformly across the hex grid, snapped to hex positions."""
+    if sector_count > len(hex_positions):
+        raise ValueError(
+            f"sector_count ({sector_count}) exceeds available hex positions ({len(hex_positions)})."
+        )
+
+    selected_hexes = random.sample(hex_positions, sector_count)
+    return {sector_id: selected_hexes[sector_id] for sector_id in range(sector_count)}
 
 # ===================== Connection Generation =====================
 
-def generate_regional_connections(
+def generate_connections(
     positions: Dict[int, Tuple[float, float]],
-    regions: Dict[int, int],
-    regions_info: List[Dict]
-) -> Tuple[Dict[int, Set[int]], List[Tuple[int, int]]]:
+) -> Dict[int, Set[int]]:
     """Generate connections with spatial awareness and minimal crossings."""
     warps = {s: set() for s in positions.keys()}
-    
-    # 1. Build Delaunay within each region
-    for region_id in range(len(regions_info)):
-        region_sectors = [s for s, r in regions.items() if r == region_id]
-        
-        if len(region_sectors) < 3:
-            # Too few sectors for triangulation, connect linearly
-            for i in range(len(region_sectors) - 1):
-                s1, s2 = region_sectors[i], region_sectors[i + 1]
+    sectors = list(positions.keys())
+
+    if len(sectors) < 3:
+        for i in range(len(sectors) - 1):
+            s1, s2 = sectors[i], sectors[i + 1]
+            warps[s1].add(s2)
+            warps[s2].add(s1)
+        return warps
+
+    # Global Delaunay triangulation
+    pts = np.array([positions[s] for s in sectors])
+    tri = Delaunay(pts)
+
+    edges = set()
+    for simplex in tri.simplices:
+        for i in range(3):
+            a_idx, b_idx = simplex[i], simplex[(i + 1) % 3]
+            a, b = sectors[a_idx], sectors[b_idx]
+            if a > b:
+                a, b = b, a
+            edges.add((a, b))
+
+    for s1, s2 in edges:
+        dist = hex_distance(positions[s1], positions[s2])
+        if dist > MAX_DELAUNAY_EDGE_LENGTH:
+            continue
+
+        if dist <= 1.5:
+            if random.random() < TWO_WAY_PROBABILITY_ADJACENT:
                 warps[s1].add(s2)
                 warps[s2].add(s1)
-            continue
-        
-        # Get positions for triangulation
-        region_positions = np.array([positions[s] for s in region_sectors])
-        tri = Delaunay(region_positions)
-        
-        # Extract edges from triangulation
-        edges = set()
-        for simplex in tri.simplices:
-            for i in range(3):
-                a_idx, b_idx = simplex[i], simplex[(i+1)%3]
-                a, b = region_sectors[a_idx], region_sectors[b_idx]
-                if a > b:
-                    a, b = b, a
-                edges.add((a, b))
-        
-        # Add edges based on distance
-        for s1, s2 in edges:
-            dist = hex_distance(positions[s1], positions[s2])
-            
-            # Skip very long edges
-            if dist > MAX_DELAUNAY_EDGE_LENGTH:
-                continue
-            
-            # Determine connection type
-            if dist <= 1.5:  # Adjacent hexes
-                if random.random() < TWO_WAY_PROBABILITY_ADJACENT:
+            else:
+                if random.random() < 0.5:
                     warps[s1].add(s2)
-                    warps[s2].add(s1)
                 else:
-                    if random.random() < 0.5:
-                        warps[s1].add(s2)
-                    else:
-                        warps[s2].add(s1)
-            else:  # More distant
-                if random.random() < TWO_WAY_PROBABILITY_DISTANT:
+                    warps[s2].add(s1)
+        else:
+            if random.random() < TWO_WAY_PROBABILITY_DISTANT:
+                warps[s1].add(s2)
+                warps[s2].add(s1)
+            else:
+                if random.random() < 0.5:
                     warps[s1].add(s2)
-                    warps[s2].add(s1)
                 else:
-                    if random.random() < 0.5:
-                        warps[s1].add(s2)
-                    else:
-                        warps[s2].add(s1)
-    
-    # 2. Add border connections
-    add_border_connections(warps, positions, regions)
-    
-    # 3. Add global two-way backbone to guarantee strong connectivity
+                    warps[s2].add(s1)
+
     backbone_edges = build_backbone_edges(positions)
     for s1, s2 in backbone_edges:
         warps[s1].add(s2)
         warps[s2].add(s1)
-    
-    # 4. Ensure accessibility (dead-ends and limited reachability clean-up)
+
     ensure_connectivity(warps, positions)
-    
-    # 5. Cap degrees while preserving backbone edges and any mutual two-way pairs
+
     protected_pairs = set(backbone_edges)
     protected_pairs.update(collect_two_way_pairs(warps))
     cap_degrees(warps, positions, protected_undirected_edges=protected_pairs)
-    
-    # 6. Add hyperlanes (special long-distance warps) AFTER connectivity/capping
-    hyperlanes = add_hyperlanes(warps, positions, regions)
-    
-    return warps, hyperlanes
 
-def add_border_connections(
-    warps: Dict[int, Set[int]],
-    positions: Dict[int, Tuple[float, float]],
-    regions: Dict[int, int]
-) -> None:
-    """Add connections between regions at borders."""
-    border_pairs = []
-    sectors = list(positions.keys())
-    
-    for i, s1 in enumerate(sectors):
-        for s2 in sectors[i+1:]:
-            if regions[s1] != regions[s2]:
-                dist = hex_distance(positions[s1], positions[s2])
-                if dist <= BORDER_CONNECTION_DISTANCE:
-                    border_pairs.append((dist, s1, s2))
-    
-    # Sort by distance and add connections
-    border_pairs.sort()
-    num_borders = min(len(border_pairs), len(sectors) // 20)
-    
-    for _, s1, s2 in border_pairs[:num_borders]:
-        # Border crossings
-        if random.random() < 0.3:
-            warps[s1].add(s2)
-            warps[s2].add(s1)
-        else:
-            if random.random() < 0.7:
-                warps[s1].add(s2)
-            else:
-                warps[s2].add(s1)
-
-def add_hyperlanes(
-    warps: Dict[int, Set[int]],
-    positions: Dict[int, Tuple[float, float]],
-    regions: Dict[int, int]
-) -> List[Tuple[int, int]]:
-    """Add long-distance hyperlanes after the graph is already connected.
-    Rules:
-      - Only connect sectors in different regions and far apart (min distance)
-      - Never be the only way out of a sector: endpoints must already have a
-        same-region neighbor before adding the hyperlane
-      - Prefer safe-to-safe region links when possible
-    """
-    hyperlanes: List[Tuple[int, int]] = []
-    sectors = list(positions.keys())
-    num_hyperlanes = max(1, int(len(sectors) * HYPERLANE_RATIO))
-    
-    # Build helper for region safety
-    def is_safe(sector_id: int) -> bool:
-        region_id = regions[sector_id]
-        return REGIONS[region_id].get("safe", False)
-    
-    def has_same_region_neighbor(sector_id: int) -> bool:
-        region_id = regions[sector_id]
-        for neighbor in warps.get(sector_id, set()):
-            if regions[neighbor] == region_id:
-                return True
-        return False
-    
-    attempts = 0
-    # Allow higher attempt budget because of constraints
-    max_attempts = num_hyperlanes * 50
-    while len(hyperlanes) < num_hyperlanes and attempts < max_attempts:
-        attempts += 1
-        s1 = random.choice(sectors)
-        # Endpoint must already have an intra-region neighbor so the hyperlane is not the only exit
-        if not has_same_region_neighbor(s1):
-            continue
-        
-        # Base cross-region, far-enough, not already connected, and also has intra-region neighbor
-        base_candidates = [
-            s for s in sectors
-            if regions[s] != regions[s1]
-            and hex_distance(positions[s1], positions[s]) >= HYPERLANE_MIN_DISTANCE
-            and s not in warps[s1]
-            and has_same_region_neighbor(s)
-        ]
-        if not base_candidates:
-            continue
-        
-        # Prefer safe-to-safe when possible
-        if is_safe(s1):
-            preferred = [s for s in base_candidates if is_safe(s)]
-            if preferred:
-                s2 = random.choice(preferred)
-            else:
-                s2 = random.choice(base_candidates)
-        else:
-            s2 = random.choice(base_candidates)
-        
-        # Add two-way hyperlane
-        warps[s1].add(s2)
-        warps[s2].add(s1)
-        a, b = (s1, s2) if s1 < s2 else (s2, s1)
-        hyperlanes.append((a, b))
-    
-    return hyperlanes
+    return warps
 
 def build_backbone_edges(
     positions: Dict[int, Tuple[float, float]]
@@ -632,6 +423,158 @@ def cap_degrees(
             kept_set.add(t)
         warps[s] = set(kept)
 
+# ===================== Fedspace Selection =====================
+
+def build_adjacency_from_warps(
+    warps: Dict[int, Set[int]],
+    undirected: bool = True,
+) -> Dict[int, List[int]]:
+    """Build adjacency lists from warp graph."""
+    adjacency: Dict[int, Set[int]] = {s: set() for s in warps.keys()}
+    for s, targets in warps.items():
+        for t in targets:
+            adjacency.setdefault(s, set()).add(t)
+            if undirected:
+                adjacency.setdefault(t, set()).add(s)
+    return {s: sorted(neighbors) for s, neighbors in adjacency.items()}
+
+
+def bfs_distances(adjacency: Dict[int, List[int]], start: int) -> Dict[int, int]:
+    distances: Dict[int, int] = {start: 0}
+    queue: deque[int] = deque([start])
+    while queue:
+        current = queue.popleft()
+        current_distance = distances[current]
+        for neighbor in adjacency.get(current, []):
+            if neighbor in distances:
+                continue
+            distances[neighbor] = current_distance + 1
+            queue.append(neighbor)
+    return distances
+
+
+def choose_graph_center(
+    adjacency: Dict[int, List[int]],
+    nodes: List[int],
+    required_reach: int,
+) -> Tuple[int, Dict[int, int]]:
+    best_node: Optional[int] = None
+    best_key: Optional[Tuple[int, int, int]] = None
+    best_distances: Dict[int, int] = {}
+
+    for node in nodes:
+        distances = bfs_distances(adjacency, node)
+        reach = len(distances)
+        if reach < required_reach:
+            continue
+        eccentricity = max(distances.values()) if distances else 0
+        key = (eccentricity, -reach, node)
+        if best_key is None or key < best_key:
+            best_key = key
+            best_node = node
+            best_distances = distances
+
+    if best_node is None:
+        raise RuntimeError(
+            f"No sector can reach {required_reach} nodes; cannot place fedspace."
+        )
+
+    return best_node, best_distances
+
+
+def select_fedspace(
+    center: int,
+    distances: Dict[int, int],
+    count: int,
+) -> List[int]:
+    ordered = sorted(distances.items(), key=lambda item: (item[1], item[0]))
+    fedspace = [sector_id for sector_id, _distance in ordered[:count]]
+    if len(fedspace) < count:
+        raise RuntimeError(
+            f"Only {len(fedspace)} sectors reachable from {center}, expected {count}."
+        )
+    return fedspace
+
+
+def compute_distance_map(
+    adjacency: Dict[int, List[int]],
+    nodes: List[int],
+) -> Dict[int, Dict[int, int]]:
+    node_set = set(nodes)
+    distances: Dict[int, Dict[int, int]] = {}
+    for node in nodes:
+        full = bfs_distances(adjacency, node)
+        distances[node] = {target: dist for target, dist in full.items() if target in node_set}
+    return distances
+
+
+def select_mega_ports(
+    fedspace: List[int],
+    port_class_by_sector: Dict[int, int],
+    adjacency: Dict[int, List[int]],
+    center_distances: Dict[int, int],
+    mega_count: int,
+    excluded_sectors: Optional[Set[int]] = None,
+) -> List[int]:
+    excluded = excluded_sectors or set()
+    fedspace_candidates = [s for s in fedspace if s not in excluded]
+    if len(fedspace_candidates) < mega_count:
+        raise RuntimeError(
+            f"Only {len(fedspace_candidates)} eligible fedspace sectors for mega-ports; need {mega_count}."
+        )
+
+    portless = [s for s in fedspace_candidates if s not in port_class_by_sector]
+    if len(portless) < mega_count:
+        logger.warning(
+            "Only {} portless fedspace sectors; selecting mega-ports from all fedspace sectors.",
+            len(portless),
+        )
+        candidates = fedspace_candidates
+    else:
+        candidates = portless
+
+    distance_map = compute_distance_map(adjacency, candidates)
+
+    first_candidates: List[Tuple[int, int]] = []
+    for candidate in candidates:
+        dist = center_distances.get(candidate)
+        if dist is None:
+            continue
+        first_candidates.append((dist, candidate))
+
+    if not first_candidates:
+        raise RuntimeError("No mega-port candidates are reachable from the center sector.")
+
+    first_candidates.sort(key=lambda item: (-item[0], item[1]))
+    selected = [first_candidates[0][1]]
+
+    while len(selected) < mega_count:
+        best_candidate: Optional[int] = None
+        best_score = -1
+        for candidate in candidates:
+            if candidate in selected:
+                continue
+            distances_to_selected: List[int] = []
+            for chosen in selected:
+                dist = distance_map.get(candidate, {}).get(chosen)
+                if dist is None:
+                    dist = distance_map.get(chosen, {}).get(candidate)
+                if dist is None:
+                    distances_to_selected = []
+                    break
+                distances_to_selected.append(dist)
+            if not distances_to_selected:
+                continue
+            score = min(distances_to_selected)
+            if score > best_score or (score == best_score and (best_candidate is None or candidate < best_candidate)):
+                best_candidate = candidate
+                best_score = score
+        if best_candidate is None:
+            raise RuntimeError("Unable to select enough mega-port sectors with mutual reachability.")
+        selected.append(best_candidate)
+
+    return selected
+
 # ===================== Port Generation =====================
 
 def complement_code(code: str) -> str:
@@ -712,80 +655,44 @@ def build_port_object(
 
 def place_ports(
     sector_positions: Dict[int, Tuple[float, float]],
-    sector_regions: Dict[int, int],
-    regions_info: List[Dict],
-    warps: Dict[int, Set[int]]
-) -> Tuple[Dict[int, int], int]:
-    """Place ports with regional bias and ensure mega port in safe zone."""
+    warps: Dict[int, Set[int]],
+) -> Dict[int, int]:
+    """Place ports with mild graph-aware bias (crossroads favored)."""
     target_port_count = round(PORT_PERCENTAGE * len(sector_positions))
-    
-    # Calculate port probability for each sector
+
     port_probabilities = {}
-    for s, region_id in sector_regions.items():
-        base_prob = regions_info[region_id]["port_bias"]
-        
-        # Boost probability for crossroads (high degree)
+    for s in sector_positions:
+        base_prob = 1.0
         degree = len(warps[s])
         if degree >= 5:
             base_prob *= 1.5
         elif degree == 1:
             base_prob *= 0.7
-        
         port_probabilities[s] = base_prob
-    
-    # Normalize probabilities
+
     total_prob = sum(port_probabilities.values())
     for s in port_probabilities:
         port_probabilities[s] /= total_prob
-    
-    # Select sectors for ports
+
     sectors = list(sector_positions.keys())
     weights = [port_probabilities[s] for s in sectors]
-    
-    # Use numpy for weighted selection if available, else fall back
+
     try:
         selected = np.random.choice(
-            sectors, 
+            sectors,
             size=min(target_port_count, len(sectors)),
             replace=False,
-            p=weights
+            p=weights,
         )
-        # Convert numpy int64 to Python int
         port_sectors = set(int(s) for s in selected)
-    except:
-        # Fallback: sort by probability and take top
+    except Exception:
         sorted_sectors = sorted(sectors, key=lambda s: port_probabilities[s], reverse=True)
         port_sectors = set(sorted_sectors[:target_port_count])
-    
-    # Assign initial random classes
+
     port_class_by_sector = {s: random.randint(1, 8) for s in port_sectors}
-
-    # Choose mega port location based on configuration
-    if MEGA_PORT_DYNAMIC_PLACEMENT:
-        # Choose mega port location (in safe zone with high degree)
-        safe_regions = [i for i, r in enumerate(regions_info) if r.get("safe", False)]
-        safe_ports = [s for s in port_sectors if sector_regions[s] in safe_regions]
-
-        if safe_ports:
-            # Prefer high-degree safe port
-            mega_port_sector = int(max(safe_ports, key=lambda s: len(warps[s])))
-        else:
-            # Fallback: any high-degree port
-            mega_port_sector = int(max(port_sectors, key=lambda s: len(warps[s])))
-    else:
-        # Fixed placement at sector 0; ensure sector 0 is a port
-        mega_port_sector = 0
-        if mega_port_sector not in port_sectors:
-            port_sectors.add(mega_port_sector)
-            port_class_by_sector[mega_port_sector] = 7  # Ensure presence and class
-
-    # Make it class 7 (SSS - sells all)
-    port_class_by_sector[mega_port_sector] = 7
-    
-    # Tune complementary pairs
     tune_complementary_pairs(port_class_by_sector, warps, sector_positions)
-    
-    return port_class_by_sector, mega_port_sector
+
+    return port_class_by_sector
 
 def tune_complementary_pairs(
     port_class_by_sector: Dict[int, int],
@@ -864,13 +771,26 @@ def main():
     if args.sector_count <= 0:
         logger.error("sector_count must be a positive integer.")
         sys.exit(1)
+    if FEDSPACE_SECTOR_COUNT > args.sector_count:
+        logger.error(
+            "FEDSPACE_SECTOR_COUNT ({}) exceeds sector_count ({}).",
+            FEDSPACE_SECTOR_COUNT,
+            args.sector_count,
+        )
+        sys.exit(1)
+    if MEGA_PORT_COUNT > FEDSPACE_SECTOR_COUNT:
+        logger.error(
+            "MEGA_PORT_COUNT ({}) exceeds FEDSPACE_SECTOR_COUNT ({}).",
+            MEGA_PORT_COUNT,
+            FEDSPACE_SECTOR_COUNT,
+        )
+        sys.exit(1)
     
     # Check if world data already exists
     output_dir = get_world_data_path(ensure_exists=False)
-    universe_structure_path = output_dir / "universe_structure.json"
-    sector_contents_path = output_dir / "sector_contents.json"
-    
-    if universe_structure_path.exists() and sector_contents_path.exists():
+    universe_path = output_dir / "universe.json"
+
+    if universe_path.exists():
         if not args.force:
             logger.info(f"World data already exists at {output_dir}")
             logger.info("Use --force to regenerate and overwrite existing data")
@@ -892,33 +812,52 @@ def main():
     # Generate hex grid (oversized)
     grid_size = int(math.sqrt(args.sector_count * 4))
     hex_positions = generate_hex_grid(grid_size, grid_size)
-    
-    # Assign hexes to regions
-    hex_to_region = assign_hexes_to_regions(hex_positions, len(REGIONS))
-    
-    # Place sectors
-    sector_positions, sector_regions = place_sectors_in_regions(
-        hex_positions, hex_to_region, args.sector_count, REGIONS
-    )
-    
-    logger.info(f"Placed {len(sector_positions)} sectors across {len(REGIONS)} regions")
-    
+    hex_positions = list(dict.fromkeys(hex_positions))
+
+    # Place sectors uniformly
+    sector_positions = place_sectors_uniform(hex_positions, args.sector_count)
+    logger.info(f"Placed {len(sector_positions)} sectors")
+
     # Generate connections
-    warps, hyperlanes = generate_regional_connections(
-        sector_positions, sector_regions, REGIONS
+    warps = generate_connections(sector_positions)
+
+    # Choose fedspace sectors by graph center
+    adjacency = build_adjacency_from_warps(warps, undirected=True)
+    nodes = sorted(adjacency.keys())
+    center_sector, center_distances = choose_graph_center(
+        adjacency, nodes, FEDSPACE_SECTOR_COUNT
     )
-    
-    # Convert hyperlanes to set for easy lookup
-    hyperlane_set = set()
-    for s1, s2 in hyperlanes:
-        hyperlane_set.add((min(s1, s2), max(s1, s2)))
-    
+    fedspace = select_fedspace(center_sector, center_distances, FEDSPACE_SECTOR_COUNT)
+    fedspace_set = set(fedspace)
+
+    sector_regions = {s: NEUTRAL_REGION_ID for s in sector_positions}
+    for sector_id in fedspace:
+        sector_regions[sector_id] = FEDSPACE_REGION_ID
+
     # Place ports
-    port_class_by_sector, mega_port_sector = place_ports(
-        sector_positions, sector_regions, REGIONS, warps
+    port_class_by_sector = place_ports(sector_positions, warps)
+    if 0 in port_class_by_sector:
+        del port_class_by_sector[0]
+
+    mega_port_sectors = select_mega_ports(
+        fedspace=fedspace,
+        port_class_by_sector=port_class_by_sector,
+        adjacency=adjacency,
+        center_distances=center_distances,
+        mega_count=MEGA_PORT_COUNT,
+        excluded_sectors={0},
     )
-    
-    logger.info(f"Placed {len(port_class_by_sector)} ports including mega port at sector {mega_port_sector}")
+    for sector_id in mega_port_sectors:
+        port_class_by_sector[sector_id] = 7
+
+    mega_port_sector = mega_port_sectors[0] if mega_port_sectors else None
+    mega_port_set = set(mega_port_sectors)
+
+    logger.info(
+        "Fedspace center sector: {} ({} sectors).", center_sector, len(fedspace)
+    )
+    logger.info("Mega-port sectors: {}", mega_port_sectors)
+    logger.info("Ports placed: {} (sector 0 excluded)", len(port_class_by_sector))
     
     # Calculate statistics
     total_arcs = sum(len(v) for v in warps.values())
@@ -929,70 +868,27 @@ def main():
     )
     two_way_fraction = two_way_arcs / total_arcs if total_arcs else 0.0
     
-    # Build universe_structure.json
-    universe_structure = {
-        "meta": {
-            "sector_count": args.sector_count,
-            "id_base": 0,
-            "directed": True,
-            "seed": seed,
-            "spatial": True,
-            "regions": [
-                {
-                    "id": i,
-                    "name": r["name"],
-                    "safe": r.get("safe", False)
-                }
-                for i, r in enumerate(REGIONS)
-            ],
-            "actual_two_way_arc_fraction": round(two_way_fraction, 3),
-        },
-        "sectors": []
-    }
-    
-    for s in range(args.sector_count):
-        if s in sector_positions:
-            warp_list = []
-            for t in sorted(warps.get(s, set())):
-                warp_data = {
-                    "to": t,
-                    "two_way": s in warps.get(t, set())
-                }
-                
-                # Flag cross-region warps
-                target_sector = next((sec for sec in universe_structure["sectors"] 
-                                     if sec["id"] == t), None)
-                if target_sector and "region" in target_sector:
-                    if target_sector["region"] != sector_regions[s]:
-                        warp_data["crosses_region"] = True
-                        warp_data["to_region"] = target_sector["region"]
-                
-                # Flag if this is a hyperlane (long-distance warp)
-                pair = (min(s, t), max(s, t))
-                if pair in hyperlane_set:
-                    warp_data["is_hyperlane"] = True
-                    warp_data["distance"] = round(hex_distance(sector_positions[s], sector_positions[t]), 1)
-                
-                warp_list.append(warp_data)
-            
-            universe_structure["sectors"].append({
-                "id": s,
-                "position": {
-                    "x": int(sector_positions[s][0]),
-                    "y": int(sector_positions[s][1])
-                },
-                "region": sector_regions[s],
-                "warps": warp_list
-            })
-    
-    # Build sector_contents.json
-    contents_meta = {
+    universe_meta = {
         "sector_count": args.sector_count,
+        "id_base": 0,
+        "directed": True,
         "seed": seed,
+        "spatial": True,
+        "regions": [
+            {
+                "id": i,
+                "name": r["name"],
+            }
+            for i, r in enumerate(REGIONS)
+        ],
+        "actual_two_way_arc_fraction": round(two_way_fraction, 3),
         "base_port_density": BASE_PORT_DENSITY,
         "initial_port_build_rate": INITIAL_PORT_BUILD_RATE,
         "port_percentage_effective": round(PORT_PERCENTAGE, 3),
+        "mega_port_sectors": mega_port_sectors,
         "mega_port_sector": mega_port_sector,
+        "fedspace_sectors": sorted(fedspace),
+        "fedspace_region_name": FEDSPACE_REGION_NAME,
         "pricing_bands": {
             "sell_min": SELL_MIN,
             "sell_max": SELL_MAX,
@@ -1012,46 +908,57 @@ def main():
         },
         "commodities": COM_LONG,
     }
-    
-    sector_contents_list = []
-    
+
+    sectors_payload = []
     for s in range(args.sector_count):
         if s not in sector_positions:
             continue
-        
+
+        warp_list = []
+        for t in sorted(warps.get(s, set())):
+            warp_list.append({
+                "to": t,
+                "two_way": s in warps.get(t, set()),
+            })
+
         port = None
         if s in port_class_by_sector:
             port = build_port_object(
                 port_class_by_sector[s],
-                is_mega=(s == mega_port_sector)
+                is_mega=(s in mega_port_set),
             )
-        
-        sector_contents_list.append({
+
+        sectors_payload.append({
             "id": s,
+            "position": {
+                "x": int(sector_positions[s][0]),
+                "y": int(sector_positions[s][1]),
+            },
+            "region": sector_regions[s],
+            "warps": warp_list,
             "port": port,
             "planets": [],  # No planets for now
             "scene_config": generate_scene_variant(s),
         })
-    
-    universe_contents = {
-        "meta": contents_meta,
-        "sectors": sector_contents_list
+
+    universe = {
+        "meta": universe_meta,
+        "sectors": sectors_payload,
     }
     
     # Write files to world-data directory (create if doesn't exist)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    with open(universe_structure_path, "w") as f:
-        json.dump(universe_structure, f, indent=2)
-    
-    with open(sector_contents_path, "w") as f:
-        json.dump(universe_contents, f, indent=2)
+    with open(universe_path, "w") as f:
+        json.dump(universe, f, indent=2)
     
     logger.info(f"Generated universe with {args.sector_count} sectors")
     logger.info(f"Two-way arcs: {two_way_fraction:.1%}")
     logger.info(f"Regions: {', '.join(r['name'] for r in REGIONS)}")
-    logger.info(f"Mega port in {REGIONS[sector_regions[mega_port_sector]]['name']} at sector {mega_port_sector}")
-    logger.info(f"Files created: {universe_structure_path}, {sector_contents_path}")
+    logger.info(f"Fedspace sectors: {len(fedspace)} (center sector {center_sector})")
+    logger.info(f"Mega-port sectors: {mega_port_sectors}")
+    logger.info("Sector 0 port removed: yes")
+    logger.info(f"File created: {universe_path}")
 
 if __name__ == "__main__":
     main()

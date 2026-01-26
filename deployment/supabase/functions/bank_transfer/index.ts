@@ -17,6 +17,11 @@ import {
   loadShip,
 } from "../_shared/status.ts";
 import {
+  loadUniverseMeta,
+  getMegaPortSectors,
+  isMegaPortSector,
+} from "../_shared/fedspace.ts";
+import {
   ensureActorAuthorization,
   ActorAuthorizationError,
 } from "../_shared/actors.ts";
@@ -38,8 +43,6 @@ import {
 } from "../_shared/request.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { validate as validateUuid } from "https://deno.land/std@0.197.0/uuid/mod.ts";
-
-const BANK_SECTOR = 0;
 
 class BankTransferError extends Error {
   status: number;
@@ -220,18 +223,37 @@ async function handleDeposit(
     sourceCharacterId,
   });
 
+  const universeMeta = await loadUniverseMeta(supabase);
+  const megaPortSectors = getMegaPortSectors(universeMeta);
+  const prefixSector = shipIdPrefix
+    ? await resolveCharacterSector(
+        supabase,
+        actorCharacterId ?? sourceCharacterId,
+      )
+    : null;
+
   // Derive ship_id from character if not provided
   let shipId: string;
   if (resolvedShipIdFromPayload) {
     shipId = resolvedShipIdFromPayload;
     console.log("[bank_transfer.deposit] Using provided ship_id", { shipId });
   } else if (shipIdPrefix) {
-    const resolved = await resolveShipIdByPrefixInSector(
-      supabase,
-      shipIdPrefix,
-      BANK_SECTOR,
-      actorCharacterId ?? sourceCharacterId,
-    );
+    let resolved: string | null = null;
+    if (prefixSector !== null) {
+      resolved = await resolveShipIdByPrefixInSector(
+        supabase,
+        shipIdPrefix,
+        prefixSector,
+        actorCharacterId ?? sourceCharacterId,
+      );
+    } else if (megaPortSectors.length > 0) {
+      resolved = await resolveShipIdByPrefixInSectors(
+        supabase,
+        shipIdPrefix,
+        megaPortSectors,
+        actorCharacterId ?? sourceCharacterId,
+      );
+    }
     if (!resolved) {
       throw new BankTransferError("Ship not found", 404);
     }
@@ -239,6 +261,7 @@ async function handleDeposit(
     console.log("[bank_transfer.deposit] Resolved ship_id from prefix", {
       shipIdPrefix,
       shipId,
+      prefixSector,
     });
   } else if (shipNameFromPayload) {
     shipId = await resolveShipIdByName(supabase, shipNameFromPayload);
@@ -309,10 +332,15 @@ async function handleDeposit(
     throw err;
   }
 
-  // Deposits require the ship to be at the Megaport (sector 0)
-  if (ship.current_sector !== BANK_SECTOR || ship.in_hyperspace) {
+  // Deposits require the ship to be at a mega-port
+  if (
+    ship.in_hyperspace ||
+    ship.current_sector === null ||
+    ship.current_sector === undefined ||
+    !isMegaPortSector(universeMeta, ship.current_sector)
+  ) {
     throw new BankTransferError(
-      "Deposits require the ship to be at the Megaport (sector 0)",
+      "Deposits require the ship to be at a mega-port",
       400,
     );
   }
@@ -516,17 +544,19 @@ async function handleDeposit(
         source,
         amount,
         shipId, // Use the depositing ship's ID, not the target's ship ID
+        shipName: ship.ship_name,
         shipCreditsBefore,
         shipCreditsAfter: shipCreditsBefore - amount,
         bankBefore,
         bankAfter: bankBefore + amount,
         timestamp,
+        sectorId: ship.current_sector ?? null,
         targetCharacterId: targetDisplayId,
         sourceCharacterId: sourceDisplayId,
       }),
       {
         requestId,
-        sectorId: BANK_SECTOR,
+        sectorId: ship.current_sector,
         shipId,
         actorCharacterId,
         corpId: target.corporation_id,
@@ -547,7 +577,7 @@ async function handleDeposit(
     eventType: "status.update",
     payload: targetStatus,
     requestId,
-    sectorId: BANK_SECTOR,
+    sectorId: ship.current_sector,
     shipId,
     actorCharacterId,
     corpId: target.corporation_id,
@@ -571,7 +601,7 @@ async function handleDeposit(
       eventType: "status.update",
       payload: ownerStatus,
       requestId,
-      sectorId: BANK_SECTOR,
+      sectorId: ship.current_sector,
       shipId,
       actorCharacterId,
       corpId: sourceChar.corporation_id,
@@ -627,6 +657,7 @@ async function handleWithdraw(
   } catch (err) {
     throw new BankTransferError("Ship not found", 404);
   }
+  const universeMeta = await loadUniverseMeta(supabase);
 
   // Corporation ships cannot withdraw from bank accounts
   if (ship.owner_type === "corporation") {
@@ -643,9 +674,14 @@ async function handleWithdraw(
     adminOverride,
     targetCharacterId: characterId,
   });
-  if (ship.current_sector !== BANK_SECTOR || ship.in_hyperspace) {
+  if (
+    ship.in_hyperspace ||
+    ship.current_sector === null ||
+    ship.current_sector === undefined ||
+    !isMegaPortSector(universeMeta, ship.current_sector)
+  ) {
     throw new BankTransferError(
-      "Withdrawals require the pilot to be at the Megaport (sector 0)",
+      "Withdrawals require the pilot to be at a mega-port",
       400,
     );
   }
@@ -688,6 +724,7 @@ async function handleWithdraw(
       bankBefore: bankBalance,
       bankAfter: bankBalance - amount,
       timestamp,
+      sectorId: ship.current_sector ?? null,
       characterId: resolveDisplayIdFromStatus(
         statusPayload,
         characterLabel,
@@ -696,7 +733,7 @@ async function handleWithdraw(
     }),
     {
       requestId,
-      sectorId: BANK_SECTOR,
+      sectorId: ship.current_sector,
       shipId: ship.ship_id,
       actorCharacterId,
       corpId: character.corporation_id,
@@ -710,7 +747,7 @@ async function handleWithdraw(
     eventType: "status.update",
     payload: statusPayload,
     requestId,
-    sectorId: BANK_SECTOR,
+    sectorId: ship.current_sector,
     shipId: ship.ship_id,
     actorCharacterId,
     corpId: character.corporation_id,
@@ -822,19 +859,22 @@ function buildDepositPayload(params: {
   source: Record<string, unknown>;
   amount: number;
   shipId: string;
+  shipName?: string | null;
   shipCreditsBefore: number;
   shipCreditsAfter: number;
   bankBefore: number;
   bankAfter: number;
   timestamp: string;
+  sectorId?: number | null;
   targetCharacterId: string;
   sourceCharacterId: string | null;
 }): Record<string, unknown> {
-  return {
+  const payload: Record<string, unknown> = {
     source: params.source,
     target_character_id: params.targetCharacterId,
     source_character_id: params.sourceCharacterId,
     ship_id: params.shipId,
+    ship_name: params.shipName ?? null,
     direction: "deposit",
     amount: params.amount,
     timestamp: params.timestamp,
@@ -843,6 +883,10 @@ function buildDepositPayload(params: {
     credits_in_bank_before: params.bankBefore,
     credits_in_bank_after: params.bankAfter,
   };
+  if (typeof params.sectorId === "number") {
+    payload["sector"] = { id: params.sectorId };
+  }
+  return payload;
 }
 
 function buildWithdrawPayload(params: {
@@ -853,12 +897,12 @@ function buildWithdrawPayload(params: {
   bankBefore: number;
   bankAfter: number;
   timestamp: string;
+  sectorId?: number | null;
   characterId: string;
 }): Record<string, unknown> {
-  return {
+  const payload: Record<string, unknown> = {
     source: params.source,
     character_id: params.characterId,
-    sector: { id: BANK_SECTOR },
     direction: "withdraw",
     amount: params.amount,
     timestamp: params.timestamp,
@@ -867,6 +911,10 @@ function buildWithdrawPayload(params: {
     credits_in_bank_before: params.bankBefore,
     credits_in_bank_after: params.bankAfter,
   };
+  if (typeof params.sectorId === "number") {
+    payload["sector"] = { id: params.sectorId };
+  }
+  return payload;
 }
 
 function resolveLegacyShipId(
@@ -975,6 +1023,113 @@ async function resolveShipIdByPrefixInSector(
   }
 
   return matches.length === 1 ? matches[0] : null;
+}
+
+async function resolveShipIdByPrefixInSectors(
+  supabase: SupabaseClient,
+  prefix: string,
+  sectorIds: number[],
+  actorCharacterId: string | null,
+): Promise<string | null> {
+  if (sectorIds.length === 0) {
+    return null;
+  }
+  let shipIds: string[] = [];
+  if (actorCharacterId) {
+    const { data: personalShips, error: personalError } = await supabase
+      .from("ship_instances")
+      .select("ship_id")
+      .in("current_sector", sectorIds)
+      .eq("owner_type", "character")
+      .or(
+        `owner_character_id.eq.${actorCharacterId},owner_id.eq.${actorCharacterId}`,
+      );
+
+    if (personalError) {
+      console.error(
+        "bank_transfer.lookup_ship_prefix_personal_multi",
+        personalError,
+      );
+      throw new BankTransferError("Failed to lookup ship by prefix", 500);
+    }
+
+    shipIds = (personalShips ?? [])
+      .map((row) => row.ship_id)
+      .filter((shipId): shipId is string => typeof shipId === "string");
+
+    const corpIds = await loadActiveCorporationIds(
+      supabase,
+      actorCharacterId,
+    );
+    if (corpIds.length > 0) {
+      const { data: corpShips, error: corpError } = await supabase
+        .from("ship_instances")
+        .select("ship_id")
+        .in("current_sector", sectorIds)
+        .eq("owner_type", "corporation")
+        .in("owner_corporation_id", corpIds);
+
+      if (corpError) {
+        console.error("bank_transfer.lookup_ship_prefix_corp_multi", corpError);
+        throw new BankTransferError("Failed to lookup ship by prefix", 500);
+      }
+
+      const corpShipIds = (corpShips ?? [])
+        .map((row) => row.ship_id)
+        .filter((shipId): shipId is string => typeof shipId === "string");
+      shipIds.push(...corpShipIds);
+    }
+  } else {
+    const { data, error } = await supabase
+      .from("ship_instances")
+      .select("ship_id")
+      .in("current_sector", sectorIds);
+
+    if (error) {
+      console.error("bank_transfer.lookup_ship_prefix_multi", error);
+      throw new BankTransferError("Failed to lookup ship by prefix", 500);
+    }
+
+    shipIds = (data ?? [])
+      .map((row) => row.ship_id)
+      .filter((shipId): shipId is string => typeof shipId === "string");
+  }
+
+  const matches = shipIds.filter((shipId) =>
+    shipId.toLowerCase().startsWith(prefix),
+  );
+
+  if (matches.length > 1) {
+    throw new BankTransferError(
+      "Ship id prefix is ambiguous; use ship name or full ship_id",
+      409,
+    );
+  }
+
+  return matches.length === 1 ? matches[0] : null;
+}
+
+async function resolveCharacterSector(
+  supabase: SupabaseClient,
+  characterId: string | null,
+): Promise<number | null> {
+  if (!characterId) {
+    return null;
+  }
+  try {
+    const character = await loadCharacter(supabase, characterId);
+    if (!character.current_ship_id) {
+      return null;
+    }
+    const ship = await loadShip(supabase, character.current_ship_id);
+    if (ship.current_sector === null || ship.current_sector === undefined) {
+      return null;
+    }
+    return ship.current_sector;
+  } catch (err) {
+    console.error("bank_transfer.resolve_character_sector", err);
+    return null;
+  }
 }
 
 async function loadActiveCorporationIds(

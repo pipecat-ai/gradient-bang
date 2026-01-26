@@ -1,15 +1,15 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run python
 """
 Universe Data Loader for Supabase
 
-Loads universe-bang generated JSON files into Supabase tables:
+Loads universe-bang generated universe.json into Supabase tables:
 - universe_config (metadata)
 - universe_structure (sectors, positions, warps)
 - ports (port inventories)
 - sector_contents (sector state)
 
 Usage:
-    # Load existing JSON files
+    # Load existing JSON file (or directory containing universe.json)
     uv run scripts/load_universe_to_supabase.py --from-json world-data/
 
     # Force reload (dangerous!)
@@ -54,36 +54,22 @@ class UniverseLoader:
         print(f"✅ Loaded {filepath.name}")
         return data
 
-    def validate_files(self, structure: Dict, contents: Dict) -> None:
-        """Validate JSON structure and consistency."""
+    def validate_files(self, universe: Dict) -> None:
+        """Validate universe JSON structure and consistency."""
         print("\n🔍 Validating JSON files...")
 
         # Check required keys
-        if "meta" not in structure or "sectors" not in structure:
-            raise ValueError("universe_structure.json missing required keys: meta, sectors")
-        if "meta" not in contents or "sectors" not in contents:
-            raise ValueError("sector_contents.json missing required keys: meta, sectors")
+        if "meta" not in universe or "sectors" not in universe:
+            raise ValueError("universe.json missing required keys: meta, sectors")
 
-        # Check sector counts match
-        structure_count = structure["meta"]["sector_count"]
-        contents_count = contents["meta"]["sector_count"]
-        if structure_count != contents_count:
+        sector_count = universe["meta"]["sector_count"]
+        actual_count = len(universe["sectors"])
+        if actual_count != sector_count:
             raise ValueError(
-                f"Sector count mismatch: structure={structure_count}, contents={contents_count}"
+                f"Sector count mismatch: meta={sector_count}, actual={actual_count}"
             )
 
-        structure_sectors = len(structure["sectors"])
-        contents_sectors = len(contents["sectors"])
-        if structure_sectors != structure_count:
-            raise ValueError(
-                f"Structure sector count mismatch: meta={structure_count}, actual={structure_sectors}"
-            )
-        if contents_sectors != contents_count:
-            raise ValueError(
-                f"Contents sector count mismatch: meta={contents_count}, actual={contents_sectors}"
-            )
-
-        print(f"✅ Validated {structure_count} sectors")
+        print(f"✅ Validated {sector_count} sectors")
 
     def _fetch_all(self, table: str, columns: str):
         """Fetch all rows from a table, paging to avoid API max_rows limits."""
@@ -105,10 +91,10 @@ class UniverseLoader:
 
     def convert_port_stock(self, port_data: Dict, commodity_index: int) -> tuple[int, int]:
         """
-        Convert port stock from legacy format to Supabase format.
+        Convert port stock from universe JSON format to Supabase format.
 
         Args:
-            port_data: Port data from sector_contents.json
+            port_data: Port data from universe.json
             commodity_index: 0=QF, 1=RO, 2=NS
 
         Returns:
@@ -180,13 +166,24 @@ class UniverseLoader:
             except Exception as e:
                 print(f"   ⚠️  Could not clear circular FKs: {e}")
 
-            # Delete corporations (references characters via founder_id)
+            # Delete event logs first (they reference ships/characters/sectors).
             try:
-                self.supabase.table("corporations").delete().neq("corp_id", "00000000-0000-0000-0000-000000000000").execute()
+                self.supabase.table("events").delete().gte("id", 0).execute()
             except Exception as e:
-                print(f"   ⚠️  Could not delete corporations: {e}")
+                print(f"   ⚠️  Could not delete events: {e}")
 
-            # Delete ships (no longer referenced by characters)
+            try:
+                self.supabase.table("port_transactions").delete().gte("id", 0).execute()
+            except Exception as e:
+                print(f"   ⚠️  Could not delete port_transactions: {e}")
+
+            # Delete universe-dependent tables
+            try:
+                self.supabase.table("garrisons").delete().gte("sector_id", 0).execute()
+            except Exception as e:
+                print(f"   ⚠️  Could not delete garrisons: {e}")
+
+            # Delete ships (no longer referenced by events/port_transactions)
             try:
                 self.supabase.table("ship_instances").delete().gte("current_sector", 0).execute()
             except Exception as e:
@@ -198,21 +195,11 @@ class UniverseLoader:
             except Exception as e:
                 print(f"   ⚠️  Could not delete characters: {e}")
 
-            # Delete universe-dependent tables
+            # Delete corporations (references characters via founder_id)
             try:
-                self.supabase.table("garrisons").delete().gte("sector_id", 0).execute()
+                self.supabase.table("corporations").delete().neq("corp_id", "00000000-0000-0000-0000-000000000000").execute()
             except Exception as e:
-                print(f"   ⚠️  Could not delete garrisons: {e}")
-
-            try:
-                self.supabase.table("events").delete().gte("sector_id", 0).execute()
-            except Exception as e:
-                print(f"   ⚠️  Could not delete events: {e}")
-
-            try:
-                self.supabase.table("port_transactions").delete().gte("sector_id", 0).execute()
-            except Exception as e:
-                print(f"   ⚠️  Could not delete port_transactions: {e}")
+                print(f"   ⚠️  Could not delete corporations: {e}")
 
             # Delete universe tables
             try:
@@ -237,15 +224,15 @@ class UniverseLoader:
 
         print("✅ Truncated all game tables")
 
-    def load_universe_config(self, structure: Dict, contents: Dict) -> None:
+    def load_universe_config(self, universe: Dict) -> None:
         """Load universe config (metadata)."""
         print("\n📝 Loading universe_config...")
 
-        meta = structure["meta"]
+        meta = universe["meta"]
 
         # Build initial port states for reset_ports function
         initial_port_states = {}
-        for sector in contents["sectors"]:
+        for sector in universe["sectors"]:
             if sector.get("port"):
                 sector_id = sector["id"]
                 port_data = sector["port"]
@@ -279,13 +266,13 @@ class UniverseLoader:
         self.supabase.table("universe_config").insert(config).execute()
         print(f"✅ Loaded universe_config (seed={meta.get('seed')})")
 
-    def load_universe_structure(self, structure: Dict) -> None:
+    def load_universe_structure(self, universe: Dict) -> None:
         """Load universe structure (sectors and warps)."""
         print("\n🌌 Loading universe_structure...")
 
         # Build region ID → name mapping from meta
         region_map = {}
-        for region_def in structure["meta"].get("regions", []):
+        for region_def in universe["meta"].get("regions", []):
             region_map[region_def["id"]] = region_def["name"]
 
         if region_map:
@@ -293,7 +280,7 @@ class UniverseLoader:
         else:
             print("   ⚠️  No region definitions in meta, using fallback names")
 
-        sectors = structure["sectors"]
+        sectors = universe["sectors"]
         batch = []
         fallback_regions_used = set()
 
@@ -340,11 +327,11 @@ class UniverseLoader:
         if fallback_regions_used:
             print(f"   ⚠️  Used fallback names for regions: {sorted(fallback_regions_used)}")
 
-    def load_ports(self, contents: Dict) -> None:
+    def load_ports(self, universe: Dict) -> None:
         """Load port inventories."""
         print("\n🏪 Loading ports...")
 
-        sectors_with_ports = [s for s in contents["sectors"] if s.get("port")]
+        sectors_with_ports = [s for s in universe["sectors"] if s.get("port")]
         batch = []
 
         for i, sector in enumerate(sectors_with_ports):
@@ -389,7 +376,7 @@ class UniverseLoader:
 
         print(f"\n✅ Loaded {self.stats['ports_loaded']} ports")
 
-    def load_sector_contents(self, contents: Dict) -> None:
+    def load_sector_contents(self, universe: Dict) -> None:
         """Load sector contents (references to ports, combat, salvage)."""
         print("\n📦 Loading sector_contents...")
 
@@ -398,10 +385,10 @@ class UniverseLoader:
             # In dry-run mode, use None for all port IDs
             port_map = {}
         else:
-            ports_result = self.supabase.table("ports").select("port_id, sector_id").execute()
-            port_map = {p["sector_id"]: p["port_id"] for p in ports_result.data}
+            ports = self._fetch_all("ports", "port_id, sector_id")
+            port_map = {p["sector_id"]: p["port_id"] for p in ports}
 
-        sectors = contents["sectors"]
+        sectors = universe["sectors"]
         batch = []
 
         for i, sector in enumerate(sectors):
@@ -436,7 +423,7 @@ class UniverseLoader:
 
         print(f"\n✅ Loaded {self.stats['sector_contents_loaded']} sector_contents")
 
-    def verify_integrity(self, structure: Dict) -> None:
+    def verify_integrity(self, universe: Dict) -> None:
         """Verify data integrity after load."""
         print("\n🔍 Verifying data integrity...")
 
@@ -464,7 +451,7 @@ class UniverseLoader:
 
         contents_count = len(self._fetch_all("sector_contents", "sector_id"))
 
-        expected_sectors = structure["meta"]["sector_count"]
+        expected_sectors = universe["meta"]["sector_count"]
 
         print(f"   universe_config: {config_count} (expected 1)")
         print(f"   universe_structure: {structure_count} (expected {expected_sectors})")
@@ -482,31 +469,29 @@ class UniverseLoader:
 
         print("✅ Integrity check passed")
 
-    def load(self, data_dir: Path) -> None:
+    def load(self, data_path: Path) -> None:
         """Main load process."""
-        # Load JSON files
-        structure_path = data_dir / "universe_structure.json"
-        contents_path = data_dir / "sector_contents.json"
+        if data_path.is_dir():
+            universe_path = data_path / "universe.json"
+        else:
+            universe_path = data_path
 
-        if not structure_path.exists():
-            raise FileNotFoundError(f"Missing file: {structure_path}")
-        if not contents_path.exists():
-            raise FileNotFoundError(f"Missing file: {contents_path}")
+        if not universe_path.exists():
+            raise FileNotFoundError(f"Missing file: {universe_path}")
 
-        structure = self.load_json(structure_path)
-        contents = self.load_json(contents_path)
+        universe = self.load_json(universe_path)
 
         # Validate
-        self.validate_files(structure, contents)
+        self.validate_files(universe)
 
         # Load data
-        self.load_universe_config(structure, contents)
-        self.load_universe_structure(structure)
-        self.load_ports(contents)
-        self.load_sector_contents(contents)
+        self.load_universe_config(universe)
+        self.load_universe_structure(universe)
+        self.load_ports(universe)
+        self.load_sector_contents(universe)
 
         # Verify
-        self.verify_integrity(structure)
+        self.verify_integrity(universe)
 
         # Print summary
         print("\n" + "=" * 60)
@@ -522,10 +507,10 @@ def main():
     parser = argparse.ArgumentParser(description="Load universe data into Supabase")
     parser.add_argument(
         "--from-json",
-        dest="data_dir",
+        dest="data_path",
         type=Path,
         required=True,
-        help="Directory containing universe_structure.json and sector_contents.json",
+        help="Path to universe.json or directory containing it",
     )
     parser.add_argument(
         "--force",
@@ -552,7 +537,7 @@ def main():
     print("=" * 60)
     print("🌌 Universe Data Loader for Supabase")
     print("=" * 60)
-    print(f"Data directory: {args.data_dir}")
+    print(f"Data path:      {args.data_path}")
     print(f"Supabase URL:   {supabase_url}")
     print(f"Dry run:        {args.dry_run}")
     print(f"Force reload:   {args.force}")
@@ -572,7 +557,7 @@ def main():
                 loader.truncate_universe()
 
         # Load universe
-        loader.load(args.data_dir)
+        loader.load(args.data_path)
 
         print("\n✅ Success!")
         sys.exit(0)

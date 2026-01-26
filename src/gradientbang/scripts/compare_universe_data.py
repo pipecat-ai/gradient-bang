@@ -1,8 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run python
 """
-Compare Universe Data: JSON Files vs Supabase Tables
+Compare Universe Data: JSON vs Supabase Tables
 
-Compares 25 strategically selected sectors between the legacy JSON files
+Compares 25 strategically selected sectors between universe.json
 and the Supabase database to verify data integrity.
 """
 
@@ -27,35 +27,37 @@ RESET = "\033[0m"
 
 
 class UniverseComparator:
-    def __init__(self, json_dir: Path, supabase_url: str, supabase_key: str):
-        self.json_dir = json_dir
+    def __init__(self, json_path: Path, supabase_url: str, supabase_key: str):
+        self.json_path = json_path
         self.supabase: Client = create_client(supabase_url, supabase_key)
         self.mismatches = []
         self.matches = 0
 
-    def load_json_files(self) -> Tuple[Dict, Dict]:
-        """Load universe structure and sector contents JSON files."""
-        structure_path = self.json_dir / "universe_structure.json"
-        contents_path = self.json_dir / "sector_contents.json"
+    def load_universe(self) -> Dict:
+        """Load universe JSON."""
+        universe_path = self.json_path
+        if universe_path.is_dir():
+            universe_path = universe_path / "universe.json"
 
-        with open(structure_path) as f:
-            structure = json.load(f)
+        with open(universe_path) as f:
+            return json.load(f)
 
-        with open(contents_path) as f:
-            contents = json.load(f)
-
-        return structure, contents
-
-    def select_sectors(self, structure: Dict, contents: Dict) -> List[int]:
+    def select_sectors(self, universe: Dict) -> List[int]:
         """Select 25 strategic sectors for comparison."""
-        all_sector_ids = [s["id"] for s in structure["sectors"]]
-        sectors_with_ports = [s["id"] for s in contents["sectors"] if s.get("port")]
-        sectors_without_ports = [s["id"] for s in contents["sectors"] if not s.get("port")]
+        all_sector_ids = [s["id"] for s in universe["sectors"]]
+        sectors_with_ports = [s["id"] for s in universe["sectors"] if s.get("port")]
+        sectors_without_ports = [s["id"] for s in universe["sectors"] if not s.get("port")]
 
         selected = []
 
-        # Always include sector 0 (mega port)
-        selected.append(0)
+        # Always include mega-port sectors when available
+        meta = universe.get("meta", {})
+        mega_ports = meta.get("mega_port_sectors")
+        if not mega_ports:
+            mega_ports = [meta.get("mega_port_sector")] if meta.get("mega_port_sector") is not None else []
+        for sector_id in mega_ports:
+            if sector_id in all_sector_ids:
+                selected.append(sector_id)
 
         # Add first 4 sectors
         selected.extend([1, 2, 3, 4])
@@ -71,22 +73,19 @@ class UniverseComparator:
         # Ensure we have exactly 25
         return sorted(selected[:25])
 
-    def get_sector_from_json(self, sector_id: int, structure: Dict, contents: Dict) -> Dict:
-        """Extract sector data from JSON files."""
-        # Find in structure
-        sector_structure = next((s for s in structure["sectors"] if s["id"] == sector_id), None)
-        sector_contents = next((s for s in contents["sectors"] if s["id"] == sector_id), None)
-
-        if not sector_structure or not sector_contents:
+    def get_sector_from_json(self, sector_id: int, universe: Dict) -> Dict:
+        """Extract sector data from JSON."""
+        sector = next((s for s in universe["sectors"] if s["id"] == sector_id), None)
+        if not sector:
             return None
 
         return {
             "sector_id": sector_id,
-            "position_x": sector_structure["position"]["x"],
-            "position_y": sector_structure["position"]["y"],
-            "region": sector_structure.get("region", 0),
-            "warps": sector_structure.get("warps", []),
-            "port": sector_contents.get("port"),
+            "position_x": sector["position"]["x"],
+            "position_y": sector["position"]["y"],
+            "region": sector.get("region", 0),
+            "warps": sector.get("warps", []),
+            "port": sector.get("port"),
         }
 
     def get_sector_from_supabase(self, sector_id: int) -> Dict:
@@ -98,15 +97,32 @@ class UniverseComparator:
         contents = self.supabase.table("sector_contents").select("*").eq("sector_id", sector_id).single().execute()
 
         # Get port if exists
-        port_result = self.supabase.table("ports").select("*").eq("sector_id", sector_id).execute()
-        port = port_result.data[0] if port_result.data else None
+        port = None
+        port_id = contents.data.get("port_id") if contents.data else None
+        if port_id is not None:
+            try:
+                port_result = (
+                    self.supabase.table("ports")
+                    .select("*")
+                    .eq("port_id", port_id)
+                    .single()
+                    .execute()
+                )
+                port = port_result.data
+            except Exception:
+                port_result = self.supabase.table("ports").select("*").eq("port_id", port_id).execute()
+                port = port_result.data[0] if port_result.data else None
 
         return {
             "sector_id": sector_id,
             "position_x": structure.data["position_x"],
             "position_y": structure.data["position_y"],
             "region": structure.data["region"],
-            "warps": json.loads(structure.data["warps"]),
+            "warps": (
+                json.loads(structure.data["warps"])
+                if isinstance(structure.data.get("warps"), str)
+                else (structure.data.get("warps") or [])
+            ),
             "port": port,
         }
 
@@ -130,7 +146,13 @@ class UniverseComparator:
 
         return (stock, max_stock)
 
-    def compare_sectors(self, sector_id: int, json_data: Dict, supabase_data: Dict) -> bool:
+    def compare_sectors(
+        self,
+        sector_id: int,
+        json_data: Dict,
+        supabase_data: Dict,
+        region_map: Dict[int, str],
+    ) -> bool:
         """Compare a single sector and report differences."""
         print(f"\n{BLUE}=== Sector {sector_id} ==={RESET}")
         has_mismatch = False
@@ -147,8 +169,6 @@ class UniverseComparator:
             has_mismatch = True
 
         # Compare region (convert int to name)
-        structure_json = self.load_json_files()[0]
-        region_map = {r["id"]: r["name"] for r in structure_json["meta"].get("regions", [])}
         expected_region = region_map.get(json_data["region"], f"Region {json_data['region']}")
 
         if expected_region != supabase_data["region"]:
@@ -221,20 +241,22 @@ class UniverseComparator:
         print(f"{YELLOW}Universe Data Comparison: JSON Files vs Supabase Tables{RESET}")
         print(f"{YELLOW}{'='*80}{RESET}\n")
 
-        # Load JSON files
-        print("Loading JSON files...")
-        structure, contents = self.load_json_files()
-        print(f"✓ Loaded {len(structure['sectors'])} sectors from JSON files")
+        # Load JSON
+        print("Loading universe.json...")
+        universe = self.load_universe()
+        print(f"✓ Loaded {len(universe['sectors'])} sectors from JSON")
 
         # Select sectors
         print("\nSelecting 25 strategic sectors...")
-        selected_sectors = self.select_sectors(structure, contents)
+        selected_sectors = self.select_sectors(universe)
         print(f"✓ Selected sectors: {selected_sectors}")
+
+        region_map = {r["id"]: r["name"] for r in universe.get("meta", {}).get("regions", [])}
 
         # Compare each sector
         print(f"\n{YELLOW}Starting comparison...{RESET}")
         for sector_id in selected_sectors:
-            json_data = self.get_sector_from_json(sector_id, structure, contents)
+            json_data = self.get_sector_from_json(sector_id, universe)
             supabase_data = self.get_sector_from_supabase(sector_id)
 
             if json_data is None:
@@ -242,7 +264,7 @@ class UniverseComparator:
                 self.mismatches.append(f"Sector {sector_id}: not_in_json")
                 continue
 
-            self.compare_sectors(sector_id, json_data, supabase_data)
+            self.compare_sectors(sector_id, json_data, supabase_data, region_map)
 
         # Print summary
         print(f"\n{YELLOW}{'='*80}{RESET}")
@@ -263,7 +285,7 @@ class UniverseComparator:
 
 
 def main():
-    json_dir = Path("world-data")
+    json_path = Path("world-data")
     supabase_url = os.getenv("SUPABASE_URL")
     supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
@@ -274,7 +296,7 @@ def main():
     # Set random seed for reproducible sector selection
     random.seed(1234)
 
-    comparator = UniverseComparator(json_dir, supabase_url, supabase_key)
+    comparator = UniverseComparator(json_path, supabase_url, supabase_key)
     success = comparator.run_comparison()
 
     return 0 if success else 1

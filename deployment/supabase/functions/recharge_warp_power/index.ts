@@ -33,6 +33,10 @@ import {
   resolveRequestId,
   respondWithError,
 } from "../_shared/request.ts";
+import {
+  loadUniverseMeta,
+  isMegaPortSector,
+} from "../_shared/fedspace.ts";
 
 class RechargeWarpPowerError extends Error {
   status: number;
@@ -44,7 +48,6 @@ class RechargeWarpPowerError extends Error {
   }
 }
 
-const WARP_DEPOT_SECTOR = 0;
 const PRICE_PER_UNIT = 2;
 
 Deno.serve(async (req: Request): Promise<Response> => {
@@ -165,6 +168,7 @@ async function handleRecharge(
   const ship = await loadShip(supabase, character.current_ship_id);
   const characterLabel =
     character.name ?? characterLabelFallback ?? character.character_id;
+  const universeMeta = await loadUniverseMeta(supabase);
 
   await ensureActorAuthorization({
     supabase,
@@ -179,9 +183,13 @@ async function handleRecharge(
       400,
     );
   }
-  if (ship.current_sector !== WARP_DEPOT_SECTOR) {
+  if (
+    ship.current_sector === null ||
+    ship.current_sector === undefined ||
+    !isMegaPortSector(universeMeta, ship.current_sector)
+  ) {
     throw new RechargeWarpPowerError(
-      `Warp power depot is only available in sector ${WARP_DEPOT_SECTOR}. You are in sector ${ship.current_sector ?? "unknown"}`,
+      `Warp power depot is only available at a mega-port. You are in sector ${ship.current_sector ?? "unknown"}`,
       400,
     );
   }
@@ -231,7 +239,9 @@ async function handleRecharge(
   const warpPayload = {
     source,
     character_id: characterLabel,
-    sector: { id: WARP_DEPOT_SECTOR },
+    ship_id: ship.ship_id,
+    ship_name: ship.ship_name ?? null,
+    sector: { id: ship.current_sector },
     units: unitsToBuy,
     price_per_unit: PRICE_PER_UNIT,
     total_cost: totalCost,

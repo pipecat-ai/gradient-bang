@@ -150,10 +150,12 @@ def _format_port_prices_compact(port: Dict[str, Any]) -> str:
         return ""
 
     code = port.get("code", "???")
+    mega = port.get("mega") is True
     prices = port.get("prices", {})
 
+    prefix = "MEGA " if mega else ""
     if not code or not prices:
-        return code
+        return f"{prefix}{code}".strip()
 
     # Map commodities to their abbreviations and port code positions
     commodities = [
@@ -176,7 +178,7 @@ def _format_port_prices_compact(port: Dict[str, Any]) -> str:
         else:
             sells.append(f"{abbrev}@{price}")
 
-    parts = [code]
+    parts = [f"{prefix}{code}".strip()]
     if buys:
         parts.append(f"buys {','.join(buys)}")
     if sells:
@@ -316,6 +318,9 @@ def _status_summary(result: Dict[str, Any], first_line: str) -> str:
     # Adjacent sectors
     adjacent = sector.get("adjacent_sectors", [])
     lines.append(f"Adjacent sectors: {adjacent}")
+    region = sector.get("region")
+    if isinstance(region, str) and region:
+        lines.append(f"Region: {region}")
 
     # Exploration stats (personal, corp, and total)
     visited = player.get("sectors_visited") if isinstance(player, dict) else None
@@ -573,6 +578,7 @@ def movement_start_summary(event: Dict[str, Any]) -> str:
 
     sector = event.get("sector", {}) if isinstance(event, dict) else {}
     destination = sector.get("id", "unknown")
+    region = sector.get("region")
     eta = event.get("hyperspace_time") if isinstance(event, dict) else None
 
     if isinstance(eta, (int, float)):
@@ -582,7 +588,10 @@ def movement_start_summary(event: Dict[str, Any]) -> str:
     else:
         eta_str = "unknown"
 
-    return f"Entering hyperspace to sector {destination} (ETA: {eta_str})."
+    region_part = ""
+    if isinstance(region, str) and region:
+        region_part = f" Region: {region}."
+    return f"Entering hyperspace to sector {destination} (ETA: {eta_str}).{region_part}"
 
 
 def map_local_summary(result: Dict[str, Any], current_sector: Optional[int]) -> str:
@@ -597,7 +606,20 @@ def map_local_summary(result: Dict[str, Any], current_sector: Optional[int]) -> 
         f"Local map around sector {center}: {visited}/{total} visited, {unvisited} unvisited."
     ]
 
+    center_region = None
     sectors = result.get("sectors", [])
+    if isinstance(center, (int, float)):
+        for sector in sectors:
+            if not isinstance(sector, dict):
+                continue
+            if sector.get("id") != center:
+                continue
+            if sector.get("visited") and sector.get("region"):
+                center_region = sector.get("region")
+                break
+    if isinstance(center_region, str) and center_region:
+        lines.append(f"Region: {center_region}.")
+
     unvisited_sectors: List[Tuple[Optional[int], Optional[int]]] = []
     for sector in sectors:
         if not isinstance(sector, dict):
@@ -630,6 +652,52 @@ def map_local_summary(result: Dict[str, Any], current_sector: Optional[int]) -> 
     else:
         sector_display = "unknown"
     lines.append(f"We are currently in sector {sector_display}.")
+
+    return "\n".join(lines)
+
+
+def path_region_summary(result: Dict[str, Any]) -> str:
+    """Summarize path.region events and tool responses."""
+
+    path = result.get("path", [])
+    distance = result.get("distance", "unknown")
+    total = result.get("total_sectors")
+    known = result.get("known_sectors")
+    unknown = result.get("unknown_sectors")
+
+    lines: List[str] = []
+    if isinstance(path, list) and path:
+        lines.append(f"Path: {path}. Distance: {distance}.")
+    else:
+        lines.append(f"Path computed. Distance: {distance}.")
+
+    sectors = result.get("sectors", [])
+
+    def _find_region(sector_id: Optional[int]) -> Optional[str]:
+        if not isinstance(sector_id, int):
+            return None
+        for sector in sectors:
+            if not isinstance(sector, dict):
+                continue
+            if sector.get("sector_id") != sector_id:
+                continue
+            region = sector.get("region")
+            if isinstance(region, str) and region:
+                return region
+        return None
+
+    start_region = _find_region(path[0] if isinstance(path, list) and path else None)
+    end_region = _find_region(path[-1] if isinstance(path, list) and path else None)
+    if start_region or end_region:
+        region_parts = []
+        if start_region:
+            region_parts.append(f"start {start_region}")
+        if end_region:
+            region_parts.append(f"end {end_region}")
+        lines.append("Region: " + ", ".join(region_parts) + ".")
+
+    if isinstance(total, int) and isinstance(known, int) and isinstance(unknown, int):
+        lines.append(f"Sectors: {known}/{total} known, {unknown} unknown.")
 
     return "\n".join(lines)
 
@@ -829,7 +897,9 @@ def sector_update_summary(event: Dict[str, Any]) -> str:
     sector_id = event.get("id", "unknown")
     adjacent = event.get("adjacent_sectors", [])
     port = event.get("port", {}) if isinstance(event, dict) else {}
-    port_code = port.get("code") if isinstance(port, dict) else None
+    port_display = "none"
+    if isinstance(port, dict) and port.get("code"):
+        port_display = _format_port_prices_compact(port)
 
     players = event.get("players")
     player_names: List[str] = []
@@ -860,10 +930,16 @@ def sector_update_summary(event: Dict[str, Any]) -> str:
     unowned = event.get("unowned_ships")
     unowned_part = str(len(unowned)) if isinstance(unowned, list) else "0"
 
+    region = event.get("region")
+    region_part = None
+    if isinstance(region, str) and region:
+        region_part = f"region {region}"
+
     parts = [
         f"Sector {sector_id}",
+        *([region_part] if region_part else []),
         f"adjacent {list(adjacent)}",
-        f"port {port_code or 'none'}",
+        f"port {port_display}",
         f"players {players_part}",
         f"garrisons {garrison_part}",
         f"salvage {salvage_part}",
@@ -944,6 +1020,8 @@ def port_update_summary(event: Dict[str, Any]) -> str:
         port = {}
 
     code = port.get("code", "???")
+    if port.get("mega") is True:
+        code = f"MEGA {code}"
 
     pieces: List[str] = []
     prices = port.get("prices", {}) if isinstance(port, dict) else {}
@@ -1351,3 +1429,71 @@ def event_query_summary(
         lines.append("More events available (use offset/limit to paginate).")
 
     return "\n".join(lines)
+
+
+def task_cancel_summary(event: Dict[str, Any]) -> str:
+    """Summarize task.cancel events."""
+    task_id = event.get("task_id", "")
+    short_task_id = _short_id(task_id) if task_id else "unknown"
+    return f"Task {short_task_id} cancelled"
+
+
+def warp_purchase_summary(event: Dict[str, Any]) -> str:
+    """Summarize warp.purchase events."""
+    units = event.get("units", 0)
+    total_cost = event.get("total_cost", 0)
+    new_warp = event.get("new_warp_power", 0)
+    capacity = event.get("warp_power_capacity", 0)
+    ship_name = event.get("ship_name")
+    ship_id = event.get("ship_id")
+    short_ship_id = _short_id(ship_id) if ship_id else None
+
+    ship_label = ""
+    if ship_name:
+        ship_label = f"{_shorten_embedded_ids(ship_name)}"
+        if short_ship_id:
+            ship_label += f" [{short_ship_id}]"
+    elif short_ship_id:
+        ship_label = f"[{short_ship_id}]"
+
+    if ship_label:
+        return f"{ship_label}: Purchased {units} warp power for {total_cost} credits. Now {new_warp}/{capacity}."
+    return f"Purchased {units} warp power for {total_cost} credits. Now {new_warp}/{capacity}."
+
+
+def bank_transaction_summary(event: Dict[str, Any]) -> str:
+    """Summarize bank.transaction events."""
+    direction = event.get("direction", "transaction")
+    amount = event.get("amount", 0)
+    bank_after = event.get("credits_in_bank_after")
+    ship_after = event.get("ship_credits_after")
+    ship_name = event.get("ship_name")
+    ship_id = event.get("ship_id")
+    short_ship_id = _short_id(ship_id) if ship_id else None
+
+    # Build ship label
+    ship_label = ""
+    if ship_name:
+        ship_label = f"{_shorten_embedded_ids(ship_name)}"
+        if short_ship_id:
+            ship_label += f" [{short_ship_id}]"
+    elif short_ship_id:
+        ship_label = f"[{short_ship_id}]"
+
+    if direction == "deposit":
+        result = f"Deposited {amount} credits to bank"
+    elif direction == "withdraw":
+        result = f"Withdrew {amount} credits from bank"
+    else:
+        result = f"Bank transaction: {amount} credits"
+
+    if ship_label:
+        result += f" from {ship_label}"
+    result += "."
+
+    if isinstance(bank_after, (int, float)):
+        result += f" Bank balance: {int(bank_after)}."
+    if isinstance(ship_after, (int, float)):
+        result += f" Ship credits: {int(ship_after)}."
+
+    return result
