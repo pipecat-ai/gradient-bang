@@ -37,6 +37,7 @@ import {
   loadCombatForSector,
   persistCombatState,
 } from "../_shared/combat_state.ts";
+import { loadUniverseMeta, isFedspaceSector } from "../_shared/fedspace.ts";
 import {
   buildRoundWaitingPayload,
   getCorpIdsFromParticipants,
@@ -187,6 +188,14 @@ async function handleCombatInitiate(params: {
     throw new Error("Character ship missing sector");
   }
   const sectorId = ship.current_sector;
+  const universeMeta = await loadUniverseMeta(supabase);
+  if (await isFedspaceSector(supabase, sectorId, universeMeta)) {
+    const err = new Error("Combat is disabled in Federation Space") as Error & {
+      status?: number;
+    };
+    err.status = 400;
+    throw err;
+  }
 
   // Check initiator has fighters
   const initiatorFighters = ship.current_fighters ?? 0;

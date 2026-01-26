@@ -49,6 +49,7 @@ import {
 } from "../_shared/combat_events.ts";
 import { computeNextCombatDeadline } from "../_shared/combat_resolution.ts";
 import { computeEventRecipients } from "../_shared/visibility.ts";
+import { loadUniverseMeta, isFedspaceSector } from "../_shared/fedspace.ts";
 
 Deno.serve(async (req: Request): Promise<Response> => {
   if (!validateApiToken(req)) {
@@ -234,6 +235,15 @@ async function handleCombatLeaveFighters(params: {
       `Character in sector ${ship.current_sector}, not requested sector ${sector}`,
     ) as Error & { status?: number };
     err.status = 409;
+    throw err;
+  }
+
+  const universeMeta = await loadUniverseMeta(supabase);
+  if (await isFedspaceSector(supabase, sector, universeMeta)) {
+    const err = new Error(
+      "Garrisons cannot be deployed in Federation Space",
+    ) as Error & { status?: number };
+    err.status = 400;
     throw err;
   }
 

@@ -25,10 +25,14 @@ import {
   respondWithError,
   RequestValidationError,
 } from "../_shared/request.ts";
+import {
+  loadUniverseMeta,
+  pickRandomFedspaceSector,
+} from "../_shared/fedspace.ts";
 
 const DEFAULT_START_SECTOR = 0;
 const DEFAULT_SHIP_TYPE = "kestrel_courier";
-const DEFAULT_CREDITS = 5000;
+const DEFAULT_CREDITS = 12000;
 const MAX_CHARACTERS_PER_USER = 5;
 
 // CORS headers for public access from web clients
@@ -216,6 +220,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const characterId = character.character_id;
 
+    const universeMeta = await loadUniverseMeta(supabase);
+    const startSector = pickRandomFedspaceSector(
+      universeMeta,
+      DEFAULT_START_SECTOR,
+    );
+
     // Create ship for character
     const { data: ship, error: shipError } = await supabase
       .from("ship_instances")
@@ -226,7 +236,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         owner_corporation_id: null,
         ship_type: DEFAULT_SHIP_TYPE,
         ship_name: null,
-        current_sector: DEFAULT_START_SECTOR,
+        current_sector: startSector,
         credits: DEFAULT_CREDITS,
         cargo_qf: 0,
         cargo_ro: 0,
@@ -297,7 +307,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         ship: {
           ship_id: ship.ship_id,
           ship_type: DEFAULT_SHIP_TYPE,
-          current_sector: DEFAULT_START_SECTOR,
+          current_sector: startSector,
           credits: DEFAULT_CREDITS,
         },
       },

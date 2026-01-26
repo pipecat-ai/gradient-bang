@@ -11,6 +11,7 @@ import os
 import websockets
 
 from gradientbang.utils.summary_formatters import (
+    bank_transaction_summary,
     chat_message_summary,
     combat_action_accepted_summary,
     combat_ended_summary,
@@ -24,6 +25,7 @@ from gradientbang.utils.summary_formatters import (
     map_local_summary,
     movement_start_summary,
     move_summary,
+    path_region_summary,
     plot_course_summary,
     port_update_summary,
     salvage_collected_summary,
@@ -31,6 +33,7 @@ from gradientbang.utils.summary_formatters import (
     garrison_combat_alert_summary,
     sector_update_summary,
     status_update_summary,
+    task_cancel_summary,
     task_finish_summary,
     task_start_summary,
     trade_executed_summary,
@@ -38,6 +41,7 @@ from gradientbang.utils.summary_formatters import (
     ship_renamed_summary,
     ships_list_summary,
     corporation_ship_purchased_summary,
+    warp_purchase_summary,
 )
 
 
@@ -234,9 +238,12 @@ class AsyncGameClient:
             "ports.list": list_known_ports_summary,
             "map.local": map_local_wrapper,
             "map.region": map_local_wrapper,
+            "path.region": path_region_summary,
             "trade.executed": trade_executed_summary,
             "credits.transfer": transfer_summary,
             "warp.transfer": transfer_summary,
+            "warp.purchase": warp_purchase_summary,
+            "bank.transaction": bank_transaction_summary,
             "chat.message": chat_message_summary,
             "port.update": port_update_summary,
             "ships.list": ships_list_summary,
@@ -253,6 +260,7 @@ class AsyncGameClient:
             "garrison.character_moved": garrison_character_moved_wrapper,
             "sector.update": sector_update_summary,
             "task.start": task_start_summary,
+            "task.cancel": task_cancel_summary,
             "task.finish": task_finish_summary,
             "event.query": event_query_wrapper,
         }
@@ -1419,16 +1427,18 @@ class AsyncGameClient:
         port_type: Optional[str] = None,
         commodity: Optional[str] = None,
         trade_type: Optional[str] = None,
+        mega: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """Find all known ports within travel range for trading/planning.
 
         Args:
             character_id: Character to query (must match bound ID)
             from_sector: Optional starting sector; defaults to current sector
-            max_hops: Maximum distance (default 5, max 10)
+            max_hops: Maximum distance (default 5, max 100)
             port_type: Optional filter by port code (e.g., "BBB")
             commodity: Optional filter ports that trade this commodity
             trade_type: Optional "buy" or "sell" (requires commodity)
+            mega: Optional filter by mega-port status (True=mega-ports only, False=regular only)
 
         Returns:
             Minimal RPC acknowledgment (port data arrives via ``ports.list``)
@@ -1453,6 +1463,8 @@ class AsyncGameClient:
             payload["commodity"] = commodity
         if trade_type is not None:
             payload["trade_type"] = trade_type
+        if mega is not None:
+            payload["mega"] = mega
 
         ack = await self._request("list_known_ports", payload)
         return ack
@@ -1539,7 +1551,7 @@ class AsyncGameClient:
         units: int,
         character_id: str,
     ) -> Dict[str, Any]:
-        """Purchase fighters at the sector 0 armory (50 credits each)."""
+        """Purchase fighters at a mega-port armory in Federation Space (50 credits each)."""
 
         if character_id != self._character_id:
             raise ValueError(
@@ -1556,7 +1568,7 @@ class AsyncGameClient:
     async def recharge_warp_power(
         self, units: int, character_id: str
     ) -> Dict[str, Any]:
-        """Recharge warp power at the special depot in sector 0.
+        """Recharge warp power at a mega-port depot in Federation Space.
 
         Args:
             units: Number of warp power units to recharge

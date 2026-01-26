@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { resolvePlayerType } from "./status.ts";
+import { isMegaPortSector, loadUniverseMeta } from "./fedspace.ts";
+import { buildPortData, getPortPrices, getPortStock } from "./trading.ts";
 
 function formatShipDisplayName(shipType: string): string {
   if (!shipType) {
@@ -21,6 +23,7 @@ export interface WarpEdge {
 
 export interface SectorSnapshot {
   id: number;
+  region?: string | null;
   adjacent_sectors: number[];
   position: [number, number];
   port: Record<string, unknown> | null;
@@ -36,6 +39,7 @@ export interface LocalMapSector {
   visited: boolean;
   hops_from_center: number;
   position: [number, number];
+  region?: string | null;
   port: string;
   lanes: WarpEdge[];
   adjacent_sectors?: number[];
@@ -71,6 +75,7 @@ export interface PathRegionSector {
   on_path: boolean;
   visited: boolean;
   hops_from_path: number;
+  region?: string | null;
   last_visited?: string;
   seen_from?: number[];
   adjacent_to_path_nodes?: number[];
@@ -240,11 +245,12 @@ export async function fetchSectorRow(
   sector_id: number;
   position_x: number;
   position_y: number;
+  region?: string | null;
   warps: unknown;
 } | null> {
   const { data, error } = await supabase
     .from("universe_structure")
-    .select("sector_id, position_x, position_y, warps")
+    .select("sector_id, position_x, position_y, region, warps")
     .eq("sector_id", sectorId)
     .maybeSingle();
 
@@ -287,6 +293,8 @@ export async function buildSectorSnapshot(
   let port: Record<string, unknown> | null = null;
   const contentsData = sectorContents.data ?? undefined;
   if (contentsData && contentsData.port_id) {
+    const universeMeta = await loadUniverseMeta(supabase);
+    const isMega = isMegaPortSector(universeMeta, sectorId);
     const { data: portRow, error: portError } = await supabase
       .from("ports")
       .select(
@@ -300,20 +308,27 @@ export async function buildSectorSnapshot(
       );
     }
     if (portRow) {
+      const portData = buildPortData({
+        port_id: portRow.port_id,
+        sector_id: sectorId,
+        port_code: portRow.port_code,
+        port_class: portRow.port_class,
+        max_qf: portRow.max_qf,
+        max_ro: portRow.max_ro,
+        max_ns: portRow.max_ns,
+        stock_qf: portRow.stock_qf,
+        stock_ro: portRow.stock_ro,
+        stock_ns: portRow.stock_ns,
+        version: 0,
+        last_updated: portRow.last_updated ?? null,
+      });
       port = {
         id: portRow.port_id,
         code: portRow.port_code,
         port_class: portRow.port_class,
-        stock: {
-          quantum_foam: portRow.stock_qf,
-          retro_organics: portRow.stock_ro,
-          neuro_symbolics: portRow.stock_ns,
-        },
-        capacity: {
-          quantum_foam: portRow.max_qf,
-          retro_organics: portRow.max_ro,
-          neuro_symbolics: portRow.max_ns,
-        },
+        mega: isMega,
+        prices: getPortPrices(portData),
+        stock: getPortStock(portData),
         observed_at: portRow.last_updated,
       };
     }
@@ -578,6 +593,7 @@ export async function buildSectorSnapshot(
 
   return {
     id: sectorId,
+    region: structureRow.region ?? null,
     adjacent_sectors: adjacent,
     position: [structureRow.position_x ?? 0, structureRow.position_y ?? 0],
     port,
@@ -595,25 +611,28 @@ export async function buildSectorSnapshot(
 async function fetchUniverseRows(
   supabase: SupabaseClient,
   sectorIds: number[],
-): Promise<Map<number, { position: [number, number]; warps: WarpEdge[] }>> {
+): Promise<
+  Map<number, { position: [number, number]; region: string | null; warps: WarpEdge[] }>
+> {
   if (sectorIds.length === 0) {
     return new Map();
   }
   const uniqueIds = Array.from(new Set(sectorIds));
   const { data, error } = await supabase
     .from("universe_structure")
-    .select("sector_id, position_x, position_y, warps")
+    .select("sector_id, position_x, position_y, region, warps")
     .in("sector_id", uniqueIds);
   if (error) {
     throw new Error(`failed to load universe rows: ${error.message}`);
   }
   const map = new Map<
     number,
-    { position: [number, number]; warps: WarpEdge[] }
+    { position: [number, number]; region: string | null; warps: WarpEdge[] }
   >();
   for (const row of data ?? []) {
     map.set(row.sector_id, {
       position: [row.position_x ?? 0, row.position_y ?? 0],
+      region: row.region ?? null,
       warps: parseWarpEdges(row.warps),
     });
   }
@@ -627,16 +646,80 @@ async function loadPortCodes(
   if (sectorIds.length === 0) {
     return {};
   }
-  const { data, error } = await supabase
-    .from("ports")
-    .select("sector_id, port_code")
-    .in("sector_id", Array.from(new Set(sectorIds)));
-  if (error) {
-    throw new Error(`failed to load port codes: ${error.message}`);
+  const uniqueIds = Array.from(new Set(sectorIds));
+  const { data: contents, error: contentsError } = await supabase
+    .from("sector_contents")
+    .select("sector_id, port_id")
+    .in("sector_id", uniqueIds);
+  if (contentsError) {
+    throw new Error(`failed to load sector contents: ${contentsError.message}`);
   }
+
+  const portIds = Array.from(
+    new Set(
+      (contents ?? [])
+        .map((row) => {
+          const value = row.port_id;
+          if (typeof value === "number") {
+            return value;
+          }
+          if (typeof value === "string") {
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : null;
+          }
+          return null;
+        })
+        .filter((portId): portId is number => typeof portId === "number"),
+    ),
+  );
+  if (portIds.length === 0) {
+    return {};
+  }
+
+  const { data: ports, error: portsError } = await supabase
+    .from("ports")
+    .select("port_id, port_code")
+    .in("port_id", portIds);
+  if (portsError) {
+    throw new Error(`failed to load port codes: ${portsError.message}`);
+  }
+
+  const portCodeById = new Map<number, string>();
+  for (const row of ports ?? []) {
+    const portIdValue = row.port_id;
+    const portId =
+      typeof portIdValue === "number"
+        ? portIdValue
+        : typeof portIdValue === "string"
+          ? Number(portIdValue)
+          : null;
+    if (portId === null || !Number.isFinite(portId)) {
+      continue;
+    }
+    if (typeof row.port_code === "string") {
+      portCodeById.set(portId, row.port_code);
+    }
+  }
+
   const result: Record<number, string> = {};
-  for (const row of data ?? []) {
-    result[row.sector_id] = row.port_code;
+  for (const row of contents ?? []) {
+    if (typeof row.sector_id !== "number") {
+      continue;
+    }
+    const portIdValue = row.port_id;
+    const portId =
+      typeof portIdValue === "number"
+        ? portIdValue
+        : typeof portIdValue === "string"
+          ? Number(portIdValue)
+          : null;
+    if (portId === null || !Number.isFinite(portId)) {
+      continue;
+    }
+    const code = portCodeById.get(portId);
+    if (code) {
+      result[row.sector_id] = code;
+    }
   }
   return result;
 }
@@ -789,10 +872,13 @@ export async function buildLocalMapRegion(
       if (!distanceMap.has(neighbor)) {
         distanceMap.set(neighbor, current.hops + 1);
       }
-      if (!explored.has(neighbor) && visitedSet.has(neighbor)) {
+      // Traverse through all sectors (not just visited) to find reachable visited sectors
+      if (!explored.has(neighbor)) {
         explored.add(neighbor);
         queue.push({ sector: neighbor, hops: current.hops + 1 });
-      } else if (!visitedSet.has(neighbor)) {
+      }
+      // Track unvisited neighbors for fog-of-war rendering
+      if (!visitedSet.has(neighbor)) {
         if (!unvisitedSeen.has(neighbor)) {
           unvisitedSeen.set(neighbor, new Set());
         }
@@ -804,18 +890,65 @@ export async function buildLocalMapRegion(
     }
   }
 
-  const sectorIds = Array.from(distanceMap.keys());
+  // Calculate bounding box from BFS results to find disconnected visited sectors
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  const bfsVisitedSectorIds: number[] = [];
+  for (const [sectorId] of distanceMap) {
+    if (visitedSet.has(sectorId)) {
+      bfsVisitedSectorIds.push(sectorId);
+      const entry = knowledge.sectors_visited[String(sectorId)];
+      if (entry?.position) {
+        minX = Math.min(minX, entry.position[0]);
+        maxX = Math.max(maxX, entry.position[0]);
+        minY = Math.min(minY, entry.position[1]);
+        maxY = Math.max(maxY, entry.position[1]);
+      }
+    }
+  }
+
+  // Find visited sectors within the bounding box that weren't found by BFS
+  const disconnectedSectors: number[] = [];
+  if (minX !== Infinity) {
+    for (const [sectorIdStr, entry] of Object.entries(knowledge.sectors_visited)) {
+      const sectorId = Number(sectorIdStr);
+      if (distanceMap.has(sectorId)) continue; // Already found by BFS
+      const pos = entry.position;
+      if (pos && pos[0] >= minX && pos[0] <= maxX && pos[1] >= minY && pos[1] <= maxY) {
+        disconnectedSectors.push(sectorId);
+      }
+    }
+  }
+
+  // Calculate hop distances for disconnected sectors using findShortestPath
+  const disconnectedDistances = new Map<number, number>();
+  for (const sectorId of disconnectedSectors) {
+    try {
+      const result = await findShortestPath(supabase, {
+        fromSector: centerSector,
+        toSector: sectorId,
+      });
+      disconnectedDistances.set(sectorId, result.distance);
+    } catch {
+      // Unreachable (shouldn't happen in connected universe, but handle gracefully)
+      disconnectedDistances.set(sectorId, -1);
+    }
+  }
+
+  // Combine all sector IDs
+  const sectorIds = Array.from(distanceMap.keys()).concat(disconnectedSectors);
+  const visitedSectorIds = sectorIds.filter((id) => visitedSet.has(id));
   const [universeRows, portCodes] = await Promise.all([
     fetchUniverseRows(supabase, sectorIds),
-    loadPortCodes(
-      supabase,
-      sectorIds.filter((id) => visitedSet.has(id)),
-    ),
+    loadPortCodes(supabase, visitedSectorIds),
   ]);
 
   const resultSectors: LocalMapSector[] = [];
+  const disconnectedSet = new Set(disconnectedSectors);
   for (const sectorId of sectorIds.sort((a, b) => a - b)) {
-    const hops = distanceMap.get(sectorId) ?? 0;
+    const isDisconnected = disconnectedSet.has(sectorId);
+    const hops = isDisconnected
+      ? (disconnectedDistances.get(sectorId) ?? -1)
+      : (distanceMap.get(sectorId) ?? 0);
     const universeRow = universeRows.get(sectorId);
     const position = universeRow?.position ?? [0, 0];
     const warps = universeRow?.warps ?? [];
@@ -827,6 +960,7 @@ export async function buildLocalMapRegion(
         visited: true,
         hops_from_center: hops,
         position,
+        region: universeRow?.region ?? null,
         port: portCodes[sectorId] ?? "",
         lanes: warps,
         adjacent_sectors: adjacencyCache.get(sectorId) ?? [],

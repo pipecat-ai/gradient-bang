@@ -1156,7 +1156,8 @@ class VoiceTaskManager:
                     entity_type="corporation_ship",
                     transport="websocket",
                 )
-                await task_game_client.join(target_character_id)
+                # Corp ships don't need to "join" - they already exist in the game.
+                # Skip the join call and proceed directly to my_status below.
             else:
                 task_game_client = self.game_client
                 await task_game_client.pause_event_delivery()

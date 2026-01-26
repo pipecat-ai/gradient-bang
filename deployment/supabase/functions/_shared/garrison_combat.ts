@@ -27,6 +27,7 @@ import {
 import { computeNextCombatDeadline } from "./combat_resolution.ts";
 import { buildEventSource, recordEventWithRecipients } from "./events.ts";
 import { computeEventRecipients } from "./visibility.ts";
+import { loadUniverseMeta, isFedspaceSector } from "./fedspace.ts";
 
 const MIN_PARTICIPANTS = 2;
 
@@ -56,6 +57,10 @@ export async function checkGarrisonAutoEngage(params: {
   requestId: string;
 }): Promise<boolean> {
   const { supabase, characterId, sectorId, requestId } = params;
+  const universeMeta = await loadUniverseMeta(supabase);
+  if (await isFedspaceSector(supabase, sectorId, universeMeta)) {
+    return false;
+  }
 
   // Check if character is already in combat
   const character = await loadCharacter(supabase, characterId);

@@ -255,14 +255,51 @@ async function handleMove({
   }
 
   if (ship.in_hyperspace) {
-    await emitErrorEvent(supabase, {
-      characterId,
-      method: "move",
-      requestId,
-      detail: "Character is already in hyperspace",
-      status: 409,
-    });
-    return errorResponse("character already in hyperspace", 409);
+    // Check if hyperspace ETA has passed - if so, recover by completing the stuck move
+    const now = Date.now();
+    const eta = ship.hyperspace_eta ? new Date(ship.hyperspace_eta).getTime() : null;
+    const stuckThresholdMs = 20_000; // 20 seconds past ETA = stuck
+
+    if (eta && now > eta + stuckThresholdMs && ship.hyperspace_destination !== null) {
+      console.warn("move.hyperspace_recovery", {
+        character_id: characterId,
+        ship_id: ship.ship_id,
+        stuck_destination: ship.hyperspace_destination,
+        eta: ship.hyperspace_eta,
+        seconds_overdue: Math.round((now - eta) / 1000),
+      });
+      // Complete the stuck hyperspace jump before proceeding
+      try {
+        await pgFinishHyperspace(pgClient, {
+          shipId: ship.ship_id,
+          destination: ship.hyperspace_destination,
+        });
+        // Update local ship state to reflect completed jump
+        ship.in_hyperspace = false;
+        ship.current_sector = ship.hyperspace_destination;
+        ship.hyperspace_destination = null;
+        ship.hyperspace_eta = null;
+      } catch (recoveryErr) {
+        console.error("move.hyperspace_recovery_failed", recoveryErr);
+        await emitErrorEvent(supabase, {
+          characterId,
+          method: "move",
+          requestId,
+          detail: "Failed to recover from stuck hyperspace",
+          status: 500,
+        });
+        return errorResponse("failed to recover from stuck hyperspace", 500);
+      }
+    } else {
+      await emitErrorEvent(supabase, {
+        characterId,
+        method: "move",
+        requestId,
+        detail: "Character is already in hyperspace",
+        status: 409,
+      });
+      return errorResponse("character already in hyperspace", 409);
+    }
   }
 
   if (ship.current_sector === null) {

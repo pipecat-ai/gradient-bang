@@ -19,6 +19,8 @@ import {
   pgEmitCharacterEvent,
   pgEnsureActorAuthorization,
   pgLoadPortBySector,
+  pgLoadUniverseMeta,
+  pgIsMegaPortSector,
   pgExecuteTradeTransaction,
   pgRecordPortTransaction,
   pgListCharactersInSector,
@@ -320,6 +322,8 @@ async function handleTrade({
     shipDefinition,
   });
   mark("build_status");
+  const universeMeta = await pgLoadUniverseMeta(pgClient);
+  const isMega = pgIsMegaPortSector(universeMeta, sectorId);
   const priceMap = getPortPrices(execution.portDataAfter);
   const stockMap = getPortStock(execution.portDataAfter);
   const portUpdatePayload = {
@@ -327,6 +331,7 @@ async function handleTrade({
       id: sectorId,
       port: {
         code: execution.updatedPort.port_code,
+        mega: isMega,
         prices: priceMap,
         stock: stockMap,
       },

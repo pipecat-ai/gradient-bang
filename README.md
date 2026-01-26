@@ -75,13 +75,25 @@ Run the universe bang script with number of sectors to chart and random seed
 uv run universe-bang 5000 1234
 ```
 
-This will create a `world-data` folder in the root of your project
+This creates `world-data/universe.json` containing:
+- Sector positions and warp connections (hex grid with Delaunay triangulation)
+- **Federation Space (fedspace)**: ~200 safe sectors in the graph center where combat is disabled
+- **4 Mega-ports**: Special stations in fedspace offering warp recharge, banking, and fighter purchase
+- Ports with trade goods (quantum foam, retro-organics, neuro-symbolics)
+
+#### Generate universe map visualization
+
+```bash
+uv run -m gradientbang.scripts.universe_svg
+```
+
+This creates `artifacts/universe-map.svg` showing sectors, warps, fedspace (highlighted), and mega-ports.
 
 ### Copy world data to local Supabase database
 
 ```bash
-# Load .env.supabsae to env (if not done already)
-set -a && source .env.supabase
+# Load .env.supabase to env (if not done already)
+set -a && source .env.supabase && set +a
 
 uv run -m gradientbang.scripts.load_universe_to_supabase --from-json world-data/
 ```

@@ -81,12 +81,26 @@ export async function loadPortBySector(
   supabase: SupabaseClient,
   sectorId: number,
 ): Promise<PortRow | null> {
+  const { data: contents, error: contentsError } = await supabase
+    .from("sector_contents")
+    .select("port_id")
+    .eq("sector_id", sectorId)
+    .maybeSingle();
+  if (contentsError) {
+    throw new Error(
+      `failed to load sector contents for ${sectorId}: ${contentsError.message}`,
+    );
+  }
+  if (!contents?.port_id) {
+    return null;
+  }
+
   const { data, error } = await supabase
     .from("ports")
     .select(
       "port_id, sector_id, port_code, port_class, max_qf, max_ro, max_ns, stock_qf, stock_ro, stock_ns, version, last_updated",
     )
-    .eq("sector_id", sectorId)
+    .eq("port_id", contents.port_id)
     .maybeSingle();
   if (error) {
     throw new Error(
