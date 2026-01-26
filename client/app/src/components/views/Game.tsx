@@ -1,4 +1,5 @@
 import { Group, Panel, Separator } from "react-resizable-panels"
+import { PipecatClientAudio } from "@pipecat-ai/client-react"
 
 import { Settings } from "@/components/dialogs/Settings"
 import { ConversationPanel } from "@/components/panels/ConversationPanel"
@@ -51,6 +52,7 @@ export const Game = () => {
       <Starfield />
       <ShipVisor />
       <Settings />
+      <PipecatClientAudio />
     </>
   )
 }

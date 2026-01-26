@@ -1,9 +1,9 @@
 import {
   type OptionalMediaDeviceInfo,
   usePipecatClientMediaDevices,
-} from "@pipecat-ai/client-react";
+} from "@pipecat-ai/client-react"
 
-import { cn } from "@/utils/tailwind";
+import { cn } from "@/utils/tailwind"
 
 import {
   DropdownMenu,
@@ -12,7 +12,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "./primitives/DropdownMenu";
+} from "./primitives/DropdownMenu"
 
 /**
  * Props for the headless DeviceDropDown component that accepts device data and callbacks as props.
@@ -20,28 +20,28 @@ import {
  */
 export interface DeviceDropDownComponentProps {
   /** The trigger element that opens the dropdown menu. Can be any React element. */
-  children: React.ReactNode;
+  children: React.ReactNode
   /** Whether to hide the menu label at the top of the dropdown. */
-  noMenuLabel?: boolean;
+  noMenuLabel?: boolean
   /** Whether to hide the separator below the menu label. */
-  noMenuSeparator?: boolean;
+  noMenuSeparator?: boolean
   /** Text label displayed at the top of the dropdown menu. */
-  menuLabel?: string;
+  menuLabel?: string
   /** Array of available microphone devices from the MediaDevices API. */
-  availableDevices?: MediaDeviceInfo[];
+  availableDevices?: MediaDeviceInfo[]
   /** Currently selected microphone device. */
-  selectedDevice?: OptionalMediaDeviceInfo;
+  selectedDevice?: OptionalMediaDeviceInfo
   /** Callback function called when a device is selected. */
-  updateDevice?: (deviceId: string) => void;
+  updateDevice?: (deviceId: string) => void
   /** Custom CSS classes for different parts of the component. */
   classNames?: {
     /** CSS classes for the dropdown menu content container. */
-    dropdownMenuContent?: string;
+    dropdownMenuContent?: string
     /** CSS classes for individual dropdown menu checkbox items. */
-    dropdownMenuCheckboxItem?: string;
+    dropdownMenuCheckboxItem?: string
     /** CSS classes for the dropdown menu label. */
-    dropdownMenuLabel?: string;
-  };
+    dropdownMenuLabel?: string
+  }
 }
 
 /**
@@ -51,7 +51,7 @@ export interface DeviceDropDownComponentProps {
 export type DeviceDropDownProps = Omit<
   DeviceDropDownComponentProps,
   "availableDevices" | "selectedDevice" | "updateDevice"
->;
+>
 
 /**
  * Headless dropdown menu component for selecting microphone input devices.
@@ -61,7 +61,6 @@ export type DeviceDropDownProps = Omit<
  *
  * @example
  * ```tsx
- * import { DeviceDropDownComponent, Button } from "@pipecat-ai/voice-ui-kit";
  *
  * <DeviceDropDownComponent
  *   availableDevices={microphones}
@@ -86,10 +85,7 @@ export const DeviceDropDownComponent = ({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        className={cn(classNames?.dropdownMenuContent)}
-      >
+      <DropdownMenuContent align="end" className={cn(classNames?.dropdownMenuContent)}>
         {!noMenuLabel && (
           <DropdownMenuLabel className={cn(classNames?.dropdownMenuLabel)}>
             {menuLabel}
@@ -108,8 +104,8 @@ export const DeviceDropDownComponent = ({
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
-  );
-};
+  )
+}
 
 /**
  * Connected dropdown menu component for selecting microphone input devices.
@@ -125,7 +121,6 @@ export const DeviceDropDownComponent = ({
  *
  * @example
  * ```tsx
- * import { DeviceDropDown, Button } from "@pipecat-ai/voice-ui-kit";
  *
  * <DeviceDropDown menuLabel="Select Microphone">
  *   <Button variant="outline">Choose Device</Button>
@@ -133,8 +128,7 @@ export const DeviceDropDownComponent = ({
  * ```
  */
 export const DeviceDropDown: React.FC<DeviceDropDownProps> = (props) => {
-  const { availableMics, selectedMic, updateMic } =
-    usePipecatClientMediaDevices();
+  const { availableMics, selectedMic, updateMic } = usePipecatClientMediaDevices()
 
   return (
     <DeviceDropDownComponent
@@ -143,7 +137,7 @@ export const DeviceDropDown: React.FC<DeviceDropDownProps> = (props) => {
       updateDevice={updateMic}
       {...props}
     />
-  );
-};
+  )
+}
 
-export default DeviceDropDown;
+export default DeviceDropDown

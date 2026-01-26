@@ -1,31 +1,33 @@
-import React, { useCallback } from "react";
+import React, { useCallback } from "react"
 
-import { MicrophoneIcon, MicrophoneSlashIcon } from "@phosphor-icons/react";
+import { MicrophoneIcon, MicrophoneSlashIcon } from "@phosphor-icons/react"
 import {
   usePipecatClientMicControl,
   usePipecatClientTransportState,
-} from "@pipecat-ai/client-react";
-import { cn, VoiceVisualizer } from "@pipecat-ai/voice-ui-kit";
+} from "@pipecat-ai/client-react"
 
-import { Button } from "./primitives/Button";
+import { cn } from "@/utils/tailwind"
+
+import { Button } from "./primitives/Button"
+import { VoiceVisualizer } from "./VoiceVisualizer"
 
 export interface PipecatClientMicToggleProps {
   /**
    * Callback fired when microphone state changes
    */
-  onMicEnabledChanged?: (enabled: boolean) => void;
+  onMicEnabledChanged?: (enabled: boolean) => void
 
   /**
    * Optional prop to disable the mic toggle.
    * When disabled, changes are not applied to the client.
    * @default false
    */
-  disabled?: boolean;
+  disabled?: boolean
 
   /**
    * Optional class name to apply to the component.
    */
-  className?: string;
+  className?: string
 }
 
 /**
@@ -36,29 +38,27 @@ export const UserMicControl: React.FC<PipecatClientMicToggleProps> = ({
   disabled = false,
   className,
 }) => {
-  const { enableMic, isMicEnabled } = usePipecatClientMicControl();
-  const transportState = usePipecatClientTransportState();
+  const { enableMic, isMicEnabled } = usePipecatClientMicControl()
+  const transportState = usePipecatClientTransportState()
 
-  const initializing =
-    transportState === "disconnected" || transportState === "initializing";
+  const initializing = transportState === "disconnected" || transportState === "initializing"
 
   const handleToggleMic = useCallback(() => {
-    if (disabled) return;
+    if (disabled) return
 
-    const newEnabledState = !isMicEnabled;
-    enableMic(newEnabledState);
-    onMicEnabledChanged?.(newEnabledState);
-  }, [disabled, enableMic, isMicEnabled, onMicEnabledChanged]);
+    const newEnabledState = !isMicEnabled
+    enableMic(newEnabledState)
+    onMicEnabledChanged?.(newEnabledState)
+  }, [disabled, enableMic, isMicEnabled, onMicEnabledChanged])
 
   return (
     <>
       <Button
         variant={
-          initializing
-            ? "secondary"
-            : isMicEnabled
-            ? "micEnabled"
-            : "micDisabled"
+          initializing ? "secondary"
+          : isMicEnabled ?
+            "micEnabled"
+          : "micDisabled"
         }
         onClick={handleToggleMic}
         disabled={disabled || initializing}
@@ -66,19 +66,14 @@ export const UserMicControl: React.FC<PipecatClientMicToggleProps> = ({
         isLoading={initializing && !disabled}
         className={cn("flex flex-row gap-2 items-center shrink-0", className)}
       >
-        {initializing || disabled ? (
-          disabled ? (
+        {initializing || disabled ?
+          disabled ?
             <MicrophoneSlashIcon weight="bold" />
-          ) : (
-            <></>
-          )
-        ) : (
-          <>
-            {isMicEnabled ? (
+          : <></>
+        : <>
+            {isMicEnabled ?
               <MicrophoneIcon weight="bold" />
-            ) : (
-              <MicrophoneSlashIcon weight="bold" />
-            )}
+            : <MicrophoneSlashIcon weight="bold" />}
             <VoiceVisualizer
               participantType="local"
               backgroundColor="transparent"
@@ -87,14 +82,12 @@ export const UserMicControl: React.FC<PipecatClientMicToggleProps> = ({
               barMaxHeight={28}
               barOrigin="center"
               barWidth={3}
-              barColor={
-                isMicEnabled ? "--color-success" : "--color-destructive"
-              }
+              barColor={isMicEnabled ? "--color-success" : "--color-destructive"}
               className="mx-auto"
             />
           </>
-        )}
+        }
       </Button>
     </>
-  );
-};
+  )
+}

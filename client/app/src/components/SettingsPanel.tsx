@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react"
 
-import { CardContent, CardFooter } from "@pipecat-ai/voice-ui-kit"
-
 import { Button } from "@/components/primitives/Button"
+import { CardContent, CardFooter } from "@/components/primitives/Card"
 import { ScrollArea } from "@/components/primitives/ScrollArea"
 import {
   Select,
@@ -132,8 +131,7 @@ interface SettingsPanelProps {
 export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
   const storeSettings = useGameStore.use.settings()
 
-  const [formSettings, setFormSettings] =
-    useState<SettingsSlice["settings"]>(storeSettings)
+  const [formSettings, setFormSettings] = useState<SettingsSlice["settings"]>(storeSettings)
 
   useEffect(() => {
     setFormSettings(storeSettings)
@@ -286,8 +284,7 @@ export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
                   onChange={(value) =>
                     setFormSettings((prev) => ({
                       ...prev,
-                      qualityPreset:
-                        value as SettingsSlice["settings"]["qualityPreset"],
+                      qualityPreset: value as SettingsSlice["settings"]["qualityPreset"],
                     }))
                   }
                 />
