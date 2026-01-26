@@ -20,6 +20,10 @@ import {
   respondWithError,
   RequestValidationError,
 } from "../_shared/request.ts";
+import {
+  loadUniverseMeta,
+  pickRandomFedspaceSector,
+} from "../_shared/fedspace.ts";
 
 const DEFAULT_START_SECTOR = 0;
 const DEFAULT_SHIP_TYPE = "kestrel_courier";
@@ -188,6 +192,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const characterId = character.character_id;
 
+    const universeMeta = await loadUniverseMeta(supabase);
+    const startSector = pickRandomFedspaceSector(
+      universeMeta,
+      DEFAULT_START_SECTOR,
+    );
+
     // Create ship for character
     const { data: ship, error: shipError } = await supabase
       .from("ship_instances")
@@ -197,7 +207,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         owner_character_id: characterId,
         ship_type: shipType,
         ship_name: shipName,
-        current_sector: DEFAULT_START_SECTOR,
+        current_sector: startSector,
         credits,
         cargo_qf: cargoQf,
         cargo_ro: cargoRo,
@@ -260,7 +270,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         ship_id: ship.ship_id,
         ship_type: shipType,
         ship_name: shipName,
-        current_sector: DEFAULT_START_SECTOR,
+        current_sector: startSector,
         current_warp_power: currentWarpPower,
         current_shields: currentShields,
         current_fighters: currentFighters,

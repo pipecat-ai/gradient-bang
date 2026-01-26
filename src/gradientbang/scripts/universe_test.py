@@ -15,8 +15,8 @@ Checks for:
 - One-way traps
 
 Usage:
-  ./test_universe.py [path_to_universe_structure.json]
-  
+  ./test_universe.py [path_to_universe.json]
+
   Or with default path:
   ./test_universe.py
 """
@@ -31,7 +31,7 @@ from gradientbang.utils.config import get_world_data_path
 
 def load_universe_data():
     """Load universe structure from JSON file."""
-    filepath = get_world_data_path() / "universe_structure.json"
+    filepath = get_world_data_path() / "universe.json"
     
     path = Path(filepath)
     if not path.exists():
@@ -228,10 +228,24 @@ def analyze_universe():
     print("UNIVERSE CONNECTIVITY ANALYSIS")
     print(f"{'='*60}\n")
 
-    # Load data from the standard universe_structure.json path
-    filepath = get_world_data_path() / "universe_structure.json"
+    # Load data from the standard universe.json path
+    filepath = get_world_data_path() / "universe.json"
     print(f"Loading universe data from: {filepath}")
     universe_data = load_universe_data()
+
+    # Load universe meta to identify a start sector
+    start_sector = 0
+    meta = universe_data.get("meta", {})
+    mega_ports = meta.get("mega_port_sectors")
+    if not mega_ports:
+        mega_ports = (
+            [meta.get("mega_port_sector")]
+            if meta.get("mega_port_sector") is not None
+            else []
+        )
+    mega_ports = [s for s in mega_ports if isinstance(s, int)]
+    if mega_ports:
+        start_sector = mega_ports[0]
     
     # Build graph
     G = build_graph(universe_data)
@@ -262,14 +276,14 @@ def analyze_universe():
         print(f"   Smallest components: {[len(scc) for scc in sorted(sccs, key=len)[:5]]}")
         all_good = False
     
-    # Test 3: Unreachable from sector 0
-    print("\n3. Checking for sectors unreachable from sector 0...")
-    unreachable = find_unreachable_from_start(G, 0)
+    # Test 3: Unreachable from a mega-port (or fallback sector)
+    print(f"\n3. Checking for sectors unreachable from sector {start_sector}...")
+    unreachable = find_unreachable_from_start(G, start_sector)
     if unreachable:
         print(f"   ❌ Found {len(unreachable)} unreachable sector(s): {unreachable[:10]}{'...' if len(unreachable) > 10 else ''}")
         all_good = False
     else:
-        print("   ✅ All sectors reachable from sector 0")
+        print(f"   ✅ All sectors reachable from sector {start_sector}")
     
     # Test 4: Trap clusters
     print("\n4. Checking for trap clusters (can enter but not leave)...")

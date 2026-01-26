@@ -38,6 +38,94 @@ function convertBigInts<T>(obj: T): T {
 }
 
 // ============================================================================
+// Universe Meta Helpers
+// ============================================================================
+
+interface UniverseMeta {
+  mega_port_sectors?: number[] | null;
+  mega_port_sector?: number | null;
+  fedspace_sectors?: number[] | null;
+  fedspace_region_name?: string | null;
+}
+
+const META_CACHE_TTL_MS = 30_000;
+let cachedUniverseMeta: UniverseMeta | null = null;
+let cachedUniverseMetaExpiresAt = 0;
+
+function normalizeSectorList(raw: unknown): number[] {
+  const values: number[] = [];
+  const pushValue = (entry: unknown) => {
+    if (typeof entry === "number" && Number.isFinite(entry)) {
+      values.push(Math.floor(entry));
+      return;
+    }
+    if (typeof entry === "string") {
+      const parsed = Number(entry);
+      if (Number.isFinite(parsed)) {
+        values.push(Math.floor(parsed));
+      }
+    }
+  };
+
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      pushValue(entry);
+    }
+  } else if (raw !== null && raw !== undefined) {
+    pushValue(raw);
+  }
+
+  return Array.from(new Set(values));
+}
+
+export function pgIsMegaPortSector(meta: UniverseMeta, sectorId: number): boolean {
+  const list = normalizeSectorList(meta.mega_port_sectors);
+  if (list.length > 0) {
+    return list.includes(sectorId);
+  }
+  const fallback = normalizeSectorList(meta.mega_port_sector);
+  if (fallback.length > 0) {
+    return fallback.includes(sectorId);
+  }
+  return sectorId === 0;
+}
+
+export async function pgLoadUniverseMeta(pg: Client): Promise<UniverseMeta> {
+  if (cachedUniverseMeta && cachedUniverseMetaExpiresAt > Date.now()) {
+    return cachedUniverseMeta;
+  }
+  const result = await pg.queryObject<{ meta: unknown }>(
+    `SELECT meta FROM universe_config WHERE id = 1`,
+  );
+  cachedUniverseMeta = (result.rows[0]?.meta ?? {}) as UniverseMeta;
+  cachedUniverseMetaExpiresAt = Date.now() + META_CACHE_TTL_MS;
+  return cachedUniverseMeta;
+}
+
+async function pgIsFedspaceSector(
+  pg: Client,
+  sectorId: number,
+  meta?: UniverseMeta,
+): Promise<boolean> {
+  const resolvedMeta = meta ?? (await pgLoadUniverseMeta(pg));
+  const fedspace = normalizeSectorList(resolvedMeta.fedspace_sectors);
+  if (fedspace.length > 0) {
+    return fedspace.includes(sectorId);
+  }
+
+  const regionName =
+    typeof resolvedMeta.fedspace_region_name === "string" &&
+      resolvedMeta.fedspace_region_name.trim()
+      ? resolvedMeta.fedspace_region_name.trim()
+      : "Federation Space";
+  const result = await pg.queryObject<{ region: string | null }>(
+    `SELECT region FROM universe_structure WHERE sector_id = $1`,
+    [sectorId],
+  );
+  return result.rows[0]?.region === regionName;
+}
+
+// ============================================================================
 // Rate Limiting
 // ============================================================================
 
@@ -243,6 +331,65 @@ export async function pgGetAdjacentSectors(
 ): Promise<number[]> {
   const row = await pgFetchSectorRow(pg, sectorId);
   return parseWarpEdges(row?.warps ?? []).map((edge) => edge.to);
+}
+
+export interface ShortestPathResult {
+  path: number[];
+  distance: number;
+}
+
+export async function pgFindShortestPath(
+  pg: Client,
+  params: { fromSector: number; toSector: number }
+): Promise<ShortestPathResult | null> {
+  const { fromSector, toSector } = params;
+  if (fromSector === toSector) {
+    return { path: [fromSector], distance: 0 };
+  }
+
+  const adjacencyCache = new Map<number, number[]>();
+
+  const getNeighbors = async (sectorId: number): Promise<number[]> => {
+    if (adjacencyCache.has(sectorId)) {
+      return adjacencyCache.get(sectorId)!;
+    }
+    const neighbors = await pgGetAdjacentSectors(pg, sectorId);
+    adjacencyCache.set(sectorId, neighbors);
+    return neighbors;
+  };
+
+  const visited = new Set<number>([fromSector]);
+  const parents = new Map<number, number | null>([[fromSector, null]]);
+  const queue: number[] = [fromSector];
+
+  const buildPath = (target: number): number[] => {
+    const path: number[] = [];
+    let current: number | null | undefined = target;
+    while (current !== null && current !== undefined) {
+      path.unshift(current);
+      current = parents.get(current) ?? null;
+    }
+    return path;
+  };
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const neighbors = await getNeighbors(current);
+    for (const neighbor of neighbors) {
+      if (!visited.has(neighbor)) {
+        visited.add(neighbor);
+        parents.set(neighbor, current);
+        if (neighbor === toSector) {
+          const path = buildPath(neighbor);
+          return { path, distance: path.length - 1 };
+        }
+        queue.push(neighbor);
+      }
+    }
+  }
+
+  // No path found
+  return null;
 }
 
 // ============================================================================
@@ -536,6 +683,7 @@ export async function pgBuildSectorSnapshot(
     warps: unknown;
     position_x: number;
     position_y: number;
+    region: string | null;
     salvage: unknown[] | null;
     port_json: string | null;
     ships_json: string | null;
@@ -545,7 +693,7 @@ export async function pgBuildSectorSnapshot(
   }>(
     `WITH
     sector_base AS (
-      SELECT sector_id, warps, position_x, position_y
+      SELECT sector_id, warps, position_x, position_y, region
       FROM universe_structure
       WHERE sector_id = $1
     ),
@@ -559,8 +707,9 @@ export async function pgBuildSectorSnapshot(
              p.max_qf::int, p.max_ro::int, p.max_ns::int,
              p.stock_qf::int, p.stock_ro::int, p.stock_ns::int,
              p.last_updated
-      FROM ports p
-      WHERE p.sector_id = $1
+      FROM sector_contents sc
+      JOIN ports p ON p.port_id = sc.port_id
+      WHERE sc.sector_id = $1
     ),
     ships_data AS (
       SELECT ship_id, ship_type, ship_name, owner_id, owner_character_id, owner_type,
@@ -609,6 +758,7 @@ export async function pgBuildSectorSnapshot(
       sb.warps,
       sb.position_x::int,
       sb.position_y::int,
+      sb.region,
       sc.salvage,
       (SELECT row_to_json(p) FROM port_data p) as port_json,
       (SELECT COALESCE(json_agg(s), '[]'::json) FROM ships_data s) as ships_json,
@@ -720,6 +870,8 @@ export async function pgBuildSectorSnapshot(
   // Build port object with calculated prices
   let port: Record<string, unknown> | null = null;
   if (portData) {
+    const universeMeta = await pgLoadUniverseMeta(pg);
+    const isMega = pgIsMegaPortSector(universeMeta, sectorId);
     // Build PortData structure for price calculation
     const portDataForPricing: PortData = {
       code: portData.port_code,
@@ -756,6 +908,7 @@ export async function pgBuildSectorSnapshot(
       id: portData.port_id,
       code: portData.port_code,
       port_class: portData.port_class,
+      mega: isMega,
       prices,
       stock,
       observed_at: portData.last_updated,
@@ -913,6 +1066,7 @@ export async function pgBuildSectorSnapshot(
 
   return convertBigInts({
     id: sectorId,
+    region: row.region ?? null,
     adjacent_sectors: adjacent,
     position: [row.position_x ?? 0, row.position_y ?? 0],
     port,
@@ -1085,19 +1239,22 @@ interface UniverseRow {
   sector_id: number;
   position_x: number;
   position_y: number;
+  region: string | null;
   warps: unknown;
 }
 
 async function pgFetchUniverseRows(
   pg: Client,
   sectorIds: number[]
-): Promise<Map<number, { position: [number, number]; warps: WarpEdge[] }>> {
+): Promise<
+  Map<number, { position: [number, number]; region: string | null; warps: WarpEdge[] }>
+> {
   if (sectorIds.length === 0) {
     return new Map();
   }
   const uniqueIds = Array.from(new Set(sectorIds));
   const result = await pg.queryObject<UniverseRow>(
-    `SELECT sector_id::int, position_x::int, position_y::int, warps
+    `SELECT sector_id::int, position_x::int, position_y::int, region, warps
     FROM universe_structure
     WHERE sector_id = ANY($1::int[])`,
     [uniqueIds]
@@ -1105,11 +1262,12 @@ async function pgFetchUniverseRows(
 
   const map = new Map<
     number,
-    { position: [number, number]; warps: WarpEdge[] }
+    { position: [number, number]; region: string | null; warps: WarpEdge[] }
   >();
   for (const row of result.rows) {
     map.set(row.sector_id, {
       position: [row.position_x ?? 0, row.position_y ?? 0],
+      region: row.region ?? null,
       warps: parseWarpEdges(row.warps),
     });
   }
@@ -1125,10 +1283,11 @@ async function pgLoadPortCodes(
   }
   const uniqueIds = Array.from(new Set(sectorIds));
   const result = await pg.queryObject<{ sector_id: number; port_code: string }>(
-    `SELECT sector_id::int, port_code
-    FROM ports
-    WHERE sector_id = ANY($1::int[])`,
-    [uniqueIds]
+    `SELECT sc.sector_id::int, p.port_code
+    FROM sector_contents sc
+    JOIN ports p ON p.port_id = sc.port_id
+    WHERE sc.sector_id = ANY($1::int[])`,
+    [uniqueIds],
   );
 
   const portCodes: Record<number, string> = {};
@@ -1143,6 +1302,7 @@ interface LocalMapSector {
   visited: boolean;
   hops_from_center: number;
   position: [number, number];
+  region?: string | null;
   port: string;
   lanes: WarpEdge[];
   adjacent_sectors?: number[];
@@ -1186,68 +1346,195 @@ export async function pgBuildLocalMapRegion(
   }
 
   const distanceMap = new Map<number, number>([[centerSector, 0]]);
-  const queue: Array<{ sector: number; hops: number }> = [
-    { sector: centerSector, hops: 0 },
-  ];
   const explored = new Set<number>([centerSector]);
   const unvisitedSeen = new Map<number, Set<number>>();
   const adjacencyCache = new Map<number, number[]>();
+  const universeAdjacencyCache = new Map<number, number[]>();
+  const universeRowCache = new Map<
+    number,
+    { position: [number, number]; region: string | null; warps: WarpEdge[] }
+  >();
 
-  const getAdjacency = async (sectorId: number): Promise<number[]> => {
-    if (adjacencyCache.has(sectorId)) {
-      return adjacencyCache.get(sectorId)!;
+  const hydrateUniverseRows = async (sectorIds: number[]): Promise<void> => {
+    const missing = sectorIds.filter((id) => !universeRowCache.has(id));
+    if (missing.length === 0) {
+      return;
     }
-    const knowledgeEntry = knowledge!.sectors_visited[String(sectorId)];
-    let neighbors: number[] | undefined;
-    if (knowledgeEntry?.adjacent_sectors) {
-      neighbors = knowledgeEntry.adjacent_sectors;
+    const rows = await pgFetchUniverseRows(pg, missing);
+    for (const [id, row] of rows) {
+      universeRowCache.set(id, row);
     }
-    if (!neighbors) {
-      const row = await pgFetchSectorRow(pg, sectorId);
-      neighbors = parseWarpEdges(row?.warps ?? []).map((edge) => edge.to);
-    }
-    adjacencyCache.set(sectorId, neighbors ?? []);
-    return neighbors ?? [];
   };
 
-  while (queue.length > 0 && distanceMap.size < maxSectors) {
-    const current = queue.shift()!;
-    if (current.hops >= maxHops) {
-      continue;
+  const ensureAdjacency = async (sectorIds: number[]): Promise<void> => {
+    const toFetch: number[] = [];
+    for (const sectorId of sectorIds) {
+      if (adjacencyCache.has(sectorId)) {
+        continue;
+      }
+      const knowledgeEntry = knowledge!.sectors_visited[String(sectorId)];
+      if (knowledgeEntry?.adjacent_sectors) {
+        adjacencyCache.set(sectorId, knowledgeEntry.adjacent_sectors);
+        continue;
+      }
+      toFetch.push(sectorId);
     }
-    const neighbors = await getAdjacency(current.sector);
-    for (const neighbor of neighbors) {
-      if (!distanceMap.has(neighbor)) {
-        distanceMap.set(neighbor, current.hops + 1);
+    if (toFetch.length === 0) {
+      return;
+    }
+    await hydrateUniverseRows(toFetch);
+    for (const sectorId of toFetch) {
+      const row = universeRowCache.get(sectorId);
+      const neighbors = row?.warps.map((edge) => edge.to) ?? [];
+      adjacencyCache.set(sectorId, neighbors);
+      universeAdjacencyCache.set(sectorId, neighbors);
+    }
+  };
+
+  const ensureUniverseAdjacency = async (sectorIds: number[]): Promise<void> => {
+    const toFetch: number[] = [];
+    for (const sectorId of sectorIds) {
+      if (universeAdjacencyCache.has(sectorId)) {
+        continue;
       }
-      if (!explored.has(neighbor) && visitedSet.has(neighbor)) {
-        explored.add(neighbor);
-        queue.push({ sector: neighbor, hops: current.hops + 1 });
-      } else if (!visitedSet.has(neighbor)) {
-        if (!unvisitedSeen.has(neighbor)) {
-          unvisitedSeen.set(neighbor, new Set());
+      const row = universeRowCache.get(sectorId);
+      if (row) {
+        universeAdjacencyCache.set(
+          sectorId,
+          row.warps.map((edge) => edge.to)
+        );
+      } else {
+        toFetch.push(sectorId);
+      }
+    }
+    if (toFetch.length === 0) {
+      return;
+    }
+    await hydrateUniverseRows(toFetch);
+    for (const sectorId of toFetch) {
+      const row = universeRowCache.get(sectorId);
+      const neighbors = row?.warps.map((edge) => edge.to) ?? [];
+      universeAdjacencyCache.set(sectorId, neighbors);
+    }
+  };
+
+  let frontier: number[] = [centerSector];
+  let hops = 0;
+  let capacityReached = false;
+  while (
+    frontier.length > 0 &&
+    hops < maxHops &&
+    distanceMap.size < maxSectors &&
+    !capacityReached
+  ) {
+    await ensureAdjacency(frontier);
+    const next: number[] = [];
+    for (const sectorId of frontier) {
+      const neighbors = adjacencyCache.get(sectorId) ?? [];
+      for (const neighbor of neighbors) {
+        if (!distanceMap.has(neighbor)) {
+          distanceMap.set(neighbor, hops + 1);
         }
-        unvisitedSeen.get(neighbor)!.add(current.sector);
+        // Traverse through all sectors (not just visited) to find reachable visited sectors
+        if (!explored.has(neighbor)) {
+          explored.add(neighbor);
+          next.push(neighbor);
+        }
+        // Track unvisited neighbors for fog-of-war rendering
+        if (!visitedSet.has(neighbor)) {
+          if (!unvisitedSeen.has(neighbor)) {
+            unvisitedSeen.set(neighbor, new Set());
+          }
+          unvisitedSeen.get(neighbor)!.add(sectorId);
+        }
+        if (distanceMap.size >= maxSectors) {
+          capacityReached = true;
+          break;
+        }
       }
-      if (distanceMap.size >= maxSectors) {
+      if (capacityReached) {
         break;
+      }
+    }
+    frontier = next;
+    hops += 1;
+  }
+
+  // Calculate bounding box from BFS results to find disconnected visited sectors
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const [sectorId] of distanceMap) {
+    if (visitedSet.has(sectorId)) {
+      const entry = knowledge.sectors_visited[String(sectorId)];
+      if (entry?.position) {
+        minX = Math.min(minX, entry.position[0]);
+        maxX = Math.max(maxX, entry.position[0]);
+        minY = Math.min(minY, entry.position[1]);
+        maxY = Math.max(maxY, entry.position[1]);
       }
     }
   }
 
-  const sectorIds = Array.from(distanceMap.keys());
-  const [universeRows, portCodes] = await Promise.all([
-    pgFetchUniverseRows(pg, sectorIds),
-    pgLoadPortCodes(
-      pg,
-      sectorIds.filter((id) => visitedSet.has(id))
-    ),
-  ]);
+  // Find visited sectors within the bounding box that weren't found by BFS
+  const disconnectedSectors: number[] = [];
+  if (minX !== Infinity) {
+    for (const [sectorIdStr, entry] of Object.entries(knowledge.sectors_visited)) {
+      const sectorId = Number(sectorIdStr);
+      if (distanceMap.has(sectorId)) continue; // Already found by BFS
+      const pos = entry.position;
+      if (pos && pos[0] >= minX && pos[0] <= maxX && pos[1] >= minY && pos[1] <= maxY) {
+        disconnectedSectors.push(sectorId);
+      }
+    }
+  }
+
+  // Calculate hop distances for disconnected sectors with a single BFS
+  const disconnectedDistances = new Map<number, number>();
+  if (disconnectedSectors.length > 0) {
+    const targetSet = new Set(disconnectedSectors);
+    const seen = new Set<number>([centerSector]);
+    let bfsFrontier: number[] = [centerSector];
+    let bfsHops = 0;
+    while (bfsFrontier.length > 0 && disconnectedDistances.size < targetSet.size) {
+      await ensureUniverseAdjacency(bfsFrontier);
+      const next: number[] = [];
+      for (const sectorId of bfsFrontier) {
+        const neighbors = universeAdjacencyCache.get(sectorId) ?? [];
+        for (const neighbor of neighbors) {
+          if (seen.has(neighbor)) {
+            continue;
+          }
+          seen.add(neighbor);
+          if (targetSet.has(neighbor)) {
+            disconnectedDistances.set(neighbor, bfsHops + 1);
+          }
+          next.push(neighbor);
+        }
+      }
+      bfsFrontier = next;
+      bfsHops += 1;
+    }
+    for (const sectorId of targetSet) {
+      if (!disconnectedDistances.has(sectorId)) {
+        // Unreachable (shouldn't happen in connected universe, but handle gracefully)
+        disconnectedDistances.set(sectorId, -1);
+      }
+    }
+  }
+
+  // Combine all sector IDs
+  const sectorIds = Array.from(distanceMap.keys()).concat(disconnectedSectors);
+  const visitedSectorIds = sectorIds.filter((id) => visitedSet.has(id));
+  await hydrateUniverseRows(sectorIds);
+  const portCodes = await pgLoadPortCodes(pg, visitedSectorIds);
 
   const resultSectors: LocalMapSector[] = [];
+  const disconnectedSet = new Set(disconnectedSectors);
   for (const sectorId of sectorIds.sort((a, b) => a - b)) {
-    const hops = distanceMap.get(sectorId) ?? 0;
-    const universeRow = universeRows.get(sectorId);
+    const isDisconnected = disconnectedSet.has(sectorId);
+    const hops = isDisconnected
+      ? (disconnectedDistances.get(sectorId) ?? -1)
+      : (distanceMap.get(sectorId) ?? 0);
+    const universeRow = universeRowCache.get(sectorId);
     const position = universeRow?.position ?? [0, 0];
     const warps = universeRow?.warps ?? [];
 
@@ -1258,6 +1545,7 @@ export async function pgBuildLocalMapRegion(
         visited: true,
         hops_from_center: hops,
         position,
+        region: universeRow?.region ?? null,
         port: portCodes[sectorId] ?? "",
         lanes: warps,
         adjacent_sectors: adjacencyCache.get(sectorId) ?? [],
@@ -1268,7 +1556,7 @@ export async function pgBuildLocalMapRegion(
       const seenFrom = Array.from(unvisitedSeen.get(sectorId) ?? []);
       const derivedLanes: WarpEdge[] = [];
       for (const source of seenFrom) {
-        const sourceRow = universeRows.get(source);
+        const sourceRow = universeRowCache.get(source);
         const match = sourceRow?.warps.find((warp) => warp.to === sectorId);
         if (match) {
           derivedLanes.push({
@@ -1995,6 +2283,10 @@ export async function pgCheckGarrisonAutoEngage(
   options: PgCheckGarrisonAutoEngageOptions
 ): Promise<boolean> {
   const { pg, characterId, sectorId } = options;
+  const meta = await pgLoadUniverseMeta(pg);
+  if (await pgIsFedspaceSector(pg, sectorId, meta)) {
+    return false;
+  }
 
   // Check if character's ship is in hyperspace
   const charResult = await pg.queryObject<{ current_ship_id: string }>(
@@ -2183,12 +2475,13 @@ export async function pgLoadPortBySector(
   sectorId: number
 ): Promise<PortRow | null> {
   const result = await pg.queryObject<PortRow>(
-    `SELECT port_id::int, sector_id::int, port_code, port_class::int,
-            max_qf::int, max_ro::int, max_ns::int,
-            stock_qf::int, stock_ro::int, stock_ns::int,
-            version::int, last_updated
-    FROM ports
-    WHERE sector_id = $1`,
+    `SELECT p.port_id::int, sc.sector_id::int, p.port_code, p.port_class::int,
+            p.max_qf::int, p.max_ro::int, p.max_ns::int,
+            p.stock_qf::int, p.stock_ro::int, p.stock_ns::int,
+            p.version::int, p.last_updated
+    FROM sector_contents sc
+    JOIN ports p ON p.port_id = sc.port_id
+    WHERE sc.sector_id = $1`,
     [sectorId]
   );
   return convertBigInts(result.rows[0]) ?? null;

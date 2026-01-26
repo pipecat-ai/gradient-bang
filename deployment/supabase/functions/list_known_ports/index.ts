@@ -12,6 +12,7 @@ import {
   emitErrorEvent,
   buildEventSource,
 } from "../_shared/events.ts";
+import { isMegaPortSector, loadUniverseMeta } from "../_shared/fedspace.ts";
 import { enforceRateLimit, RateLimitError } from "../_shared/rate_limiting.ts";
 import { getAdjacentSectors, loadMapKnowledge } from "../_shared/map.ts";
 import type { MapKnowledge } from "../_shared/map.ts";
@@ -283,6 +284,7 @@ async function handleListKnownPorts(
     targetCharacterId: characterId,
   });
   const knowledge = await loadMapKnowledge(supabase, characterId);
+  const universeMeta = await loadUniverseMeta(supabase);
 
   const requestedFromSector = optionalNumber(payload, "from_sector");
   let fromSector: number | null = null;
@@ -347,6 +349,7 @@ async function handleListKnownPorts(
   const tradeTypeFilter = tradeTypeFilterRaw
     ? tradeTypeFilterRaw.toLowerCase()
     : null;
+  const megaFilter = optionalBoolean(payload, "mega");
 
   if (
     (commodityFilter && !tradeTypeFilter) ||
@@ -388,30 +391,35 @@ async function handleListKnownPorts(
     sectorsSearched += 1;
 
     const portRow = portMap.get(current.sector);
-    if (
-      portRow &&
-      portMatchesFilters(
-        portRow,
-        portTypeFilter,
-        commodityFilter,
-        tradeTypeFilter,
-      )
-    ) {
-      const knowledgeEntry = knowledge.sectors_visited[String(current.sector)];
-      const inSector =
-        typeof ship.current_sector === "number" &&
-        ship.current_sector === current.sector &&
-        !ship.in_hyperspace;
-      results.push(
-        buildPortResult(
-          current,
-          current.hops,
+    if (portRow) {
+      const isMega = isMegaPortSector(universeMeta, current.sector);
+      if (
+        portMatchesFilters(
           portRow,
-          knowledgeEntry,
-          inSector,
-          rpcTimestamp,
-        ),
-      );
+          portTypeFilter,
+          commodityFilter,
+          tradeTypeFilter,
+          megaFilter,
+          isMega,
+        )
+      ) {
+        const knowledgeEntry = knowledge.sectors_visited[String(current.sector)];
+        const inSector =
+          typeof ship.current_sector === "number" &&
+          ship.current_sector === current.sector &&
+          !ship.in_hyperspace;
+        results.push(
+          buildPortResult(
+            current,
+            current.hops,
+            portRow,
+            knowledgeEntry,
+            inSector,
+            rpcTimestamp,
+            isMega,
+          ),
+        );
+      }
     }
 
     if (current.hops >= maxHops) {
@@ -424,10 +432,7 @@ async function handleListKnownPorts(
       current.sector,
     );
     for (const neighbor of adjacency) {
-      if (
-        !visitedBfs.has(neighbor) &&
-        knowledge.sectors_visited[String(neighbor)]
-      ) {
+      if (!visitedBfs.has(neighbor)) {
         visitedBfs.add(neighbor);
         queue.push({ sector: neighbor, hops: current.hops + 1 });
       }
@@ -494,17 +499,91 @@ async function fetchPortRows(
   if (sectorIds.length === 0) {
     return [];
   }
-  const { data, error } = await supabase
+  const uniqueIds = Array.from(new Set(sectorIds));
+  const { data: contents, error: contentsError } = await supabase
+    .from("sector_contents")
+    .select("sector_id, port_id")
+    .in("sector_id", uniqueIds);
+  if (contentsError) {
+    console.error("list_known_ports.sector_contents", contentsError);
+    throw new ListKnownPortsError("failed to load sector contents", 500);
+  }
+
+  const sectorPortPairs: Array<{ sector_id: number; port_id: number }> = [];
+  const portIds = new Set<number>();
+  for (const row of contents ?? []) {
+    if (typeof row.sector_id !== "number") {
+      continue;
+    }
+    const rawPortId = row.port_id;
+    const parsedPortId =
+      typeof rawPortId === "number"
+        ? rawPortId
+        : typeof rawPortId === "string"
+          ? Number(rawPortId)
+          : null;
+    if (parsedPortId === null || !Number.isFinite(parsedPortId)) {
+      continue;
+    }
+    sectorPortPairs.push({ sector_id: row.sector_id, port_id: parsedPortId });
+    portIds.add(parsedPortId);
+  }
+
+  if (portIds.size === 0) {
+    return [];
+  }
+
+  const { data: ports, error: portsError } = await supabase
     .from("ports")
     .select(
-      "sector_id, port_code, port_class, max_qf, max_ro, max_ns, stock_qf, stock_ro, stock_ns, last_updated",
+      "port_id, port_code, port_class, max_qf, max_ro, max_ns, stock_qf, stock_ro, stock_ns, last_updated",
     )
-    .in("sector_id", Array.from(new Set(sectorIds)));
-  if (error) {
-    console.error("list_known_ports.ports", error);
+    .in("port_id", Array.from(portIds));
+  if (portsError) {
+    console.error("list_known_ports.ports", portsError);
     throw new ListKnownPortsError("failed to load ports", 500);
   }
-  return data ?? [];
+
+  const portById = new Map<
+    number,
+    Omit<PortRow, "sector_id">
+  >();
+  for (const port of ports ?? []) {
+    const rawPortId = port.port_id;
+    const portId =
+      typeof rawPortId === "number"
+        ? rawPortId
+        : typeof rawPortId === "string"
+          ? Number(rawPortId)
+          : null;
+    if (portId === null || !Number.isFinite(portId)) {
+      continue;
+    }
+    portById.set(portId, {
+      port_code: port.port_code,
+      port_class: port.port_class,
+      max_qf: port.max_qf,
+      max_ro: port.max_ro,
+      max_ns: port.max_ns,
+      stock_qf: port.stock_qf,
+      stock_ro: port.stock_ro,
+      stock_ns: port.stock_ns,
+      last_updated: port.last_updated ?? null,
+    });
+  }
+
+  const results: PortRow[] = [];
+  for (const pair of sectorPortPairs) {
+    const portData = portById.get(pair.port_id);
+    if (!portData) {
+      continue;
+    }
+    results.push({
+      sector_id: pair.sector_id,
+      ...portData,
+    });
+  }
+  return results;
 }
 
 async function resolveAdjacency(
@@ -524,9 +603,14 @@ function portMatchesFilters(
   portTypeFilter: string | null,
   commodity: string | null,
   tradeType: string | null,
+  megaFilter: boolean | null,
+  isMega: boolean,
 ): boolean {
   const code = portRow.port_code?.toUpperCase() ?? "";
   if (portTypeFilter && code !== portTypeFilter) {
+    return false;
+  }
+  if (megaFilter !== null && megaFilter !== isMega) {
     return false;
   }
   if (commodity && tradeType) {
@@ -552,6 +636,7 @@ function buildPortResult(
     | undefined,
   inSector: boolean,
   rpcTimestamp: string,
+  isMega: boolean,
 ): PortResult {
   const position = knowledgeEntry?.position ?? [0, 0];
 
@@ -568,6 +653,7 @@ function buildPortResult(
 
   const portPayload = {
     code: portRow.port_code,
+    mega: isMega,
     stock: {
       quantum_foam: portRow.stock_qf,
       retro_organics: portRow.stock_ro,

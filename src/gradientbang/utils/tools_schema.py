@@ -299,6 +299,7 @@ class ListKnownPorts(GameClientTool):
         port_type=None,
         commodity=None,
         trade_type=None,
+        mega=None,
     ):
         return self.game_client.list_known_ports(
             character_id=self.game_client.character_id,
@@ -307,13 +308,14 @@ class ListKnownPorts(GameClientTool):
             port_type=port_type,
             commodity=commodity,
             trade_type=trade_type,
+            mega=mega,
         )
 
     @classmethod
     def schema(cls):
         return FunctionSchema(
             name="list_known_ports",
-            description="Find all known ports within travel range for trading/planning. Useful for finding nearest port of specific type or ports that buy/sell specific commodities.",
+            description="Find all known ports within travel range for trading/planning. Useful for finding nearest port of specific type, mega-ports for services, or ports that buy/sell specific commodities.",
             properties={
                 "from_sector": {
                     "type": "integer",
@@ -340,6 +342,10 @@ class ListKnownPorts(GameClientTool):
                     "type": "string",
                     "enum": ["buy", "sell"],
                     "description": "Optional 'buy' or 'sell' (requires commodity). 'buy' finds ports that sell to you, 'sell' finds ports that buy from you.",
+                },
+                "mega": {
+                    "type": "boolean",
+                    "description": "Filter by mega-port status. Set true to find only mega-ports (warp recharge, banking, armory). Set false for regular ports only.",
                 },
             },
             required=[],
@@ -542,7 +548,7 @@ class RechargeWarpPower(GameClientTool):
     def schema(cls):
         return FunctionSchema(
             name="recharge_warp_power",
-            description="Recharge warp power at the special depot in sector 0 (2 credits per unit)",
+            description="Recharge warp power at a mega-port in Federation Space (2 credits per unit)",
             properties={
                 "units": {
                     "type": "integer",
@@ -565,7 +571,7 @@ class PurchaseFighters(GameClientTool):
     def schema(cls):
         return FunctionSchema(
             name="purchase_fighters",
-            description="Buy fighters at the sector 0 armory (50 credits each; requires available fighter capacity).",
+            description="Buy fighters at a mega-port armory in Federation Space (50 credits each; requires available fighter capacity).",
             properties={
                 "units": {
                     "type": "integer",
@@ -1153,7 +1159,7 @@ class BankDeposit(GameClientTool):
         return FunctionSchema(
             name="bank_deposit",
             description=(
-                "Deposit ship credits into a megaport bank account. "
+                "Deposit ship credits into a mega-port bank account in Federation Space. "
                 "Provide your active ship automatically or specify a corporation ship. "
                 "You may only deposit to yourself or (when in the same corporation) to another member."
             ),
@@ -1198,7 +1204,7 @@ class BankWithdraw(GameClientTool):
     def schema(cls):
         return FunctionSchema(
             name="bank_withdraw",
-            description="Withdraw credits from your own megaport bank account back onto your ship.",
+            description="Withdraw credits from your own mega-port bank account in Federation Space back onto your ship.",
             properties={
                 "amount": {
                     "type": "integer",

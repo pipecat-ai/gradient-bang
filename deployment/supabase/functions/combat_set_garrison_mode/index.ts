@@ -29,6 +29,7 @@ import {
 } from "../_shared/actors.ts";
 import { computeSectorVisibilityRecipients } from "../_shared/visibility.ts";
 import { recordEventWithRecipients } from "../_shared/events.ts";
+import { loadUniverseMeta, isFedspaceSector } from "../_shared/fedspace.ts";
 
 Deno.serve(async (req: Request): Promise<Response> => {
   if (!validateApiToken(req)) {
@@ -164,6 +165,15 @@ async function handleCombatSetGarrisonMode(params: {
     adminOverride,
     targetCharacterId: characterId,
   });
+
+  const universeMeta = await loadUniverseMeta(supabase);
+  if (await isFedspaceSector(supabase, sector, universeMeta)) {
+    const err = new Error(
+      "Garrisons cannot be configured in Federation Space",
+    ) as Error & { status?: number };
+    err.status = 400;
+    throw err;
+  }
 
   // Find garrison owned by character in this sector
   const { data: existingGarrisons, error: garrisonFetchError } = await supabase

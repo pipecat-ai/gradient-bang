@@ -35,6 +35,10 @@ import {
   resolveRequestId,
   respondWithError,
 } from "../_shared/request.ts";
+import {
+  loadUniverseMeta,
+  isMegaPortSector,
+} from "../_shared/fedspace.ts";
 
 class PurchaseFightersError extends Error {
   status: number;
@@ -179,15 +183,20 @@ async function handlePurchase(
     adminOverride,
     targetCharacterId: characterId,
   });
+  const universeMeta = await loadUniverseMeta(supabase);
   if (ship.in_hyperspace) {
     throw new PurchaseFightersError(
       "Cannot purchase fighters while in hyperspace",
       409,
     );
   }
-  if ((ship.current_sector ?? -1) !== 0) {
+  if (
+    ship.current_sector === null ||
+    ship.current_sector === undefined ||
+    !isMegaPortSector(universeMeta, ship.current_sector)
+  ) {
     throw new PurchaseFightersError(
-      `Fighter armory is only available in sector 0. You are in sector ${ship.current_sector ?? "unknown"}`,
+      `Fighter armory is only available at a mega-port. You are in sector ${ship.current_sector ?? "unknown"}`,
       400,
     );
   }

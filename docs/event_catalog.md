@@ -952,7 +952,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 ## Fighter Events
 
 ### fighter.purchase
-**When emitted:** When a character buys fighters at the sector 0 armory via `/api/purchase_fighters`.
+**When emitted:** When a character buys fighters at a Federation Space mega-port armory via `/api/purchase_fighters`.
 **Who receives it:** Only the purchasing character (character_filter).
 **Source:** `/game-server/api/purchase_fighters.py`
 
@@ -967,7 +967,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
   },
   "character_id": "pilot-alpha",
   "timestamp": "2025-11-06T02:10:00.000Z",
-  "sector": {"id": 0},
+  "sector": {"id": 312},
   "units": 75,
   "price_per_unit": 50,
   "total_cost": 3750,
@@ -982,13 +982,13 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 ```
 
 **Notes:**
-- Purchase succeeds only in sector 0, outside hyperspace, and when hangar capacity and credits permit.
+- Purchase succeeds only at mega-ports in Federation Space, outside hyperspace, and when hangar capacity and credits permit.
 - A `status.update` event follows immediately with refreshed ship stats/credits.
 
 ## Warp Power Events
 
 ### warp.purchase
-**When emitted:** When a character purchases warp power at sector 0 depot
+**When emitted:** When a character purchases warp power at a Federation Space mega-port depot
 **Who receives it:** The character who purchased warp power (character_filter)
 **Source:** `/game-server/api/recharge_warp_power.py:70`
 
@@ -1002,7 +1002,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "timestamp": "2025-10-16T14:27:00.000Z"
   },
   "character_id": "trader",
-  "sector": {"id": 0},
+  "sector": {"id": 312},
   "units": 25,
   "price_per_unit": 2,
   "total_cost": 50,
@@ -1140,7 +1140,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 ```
 
 ### bank.transaction
-**When emitted:** Whenever a deposit or withdrawal completes at the sector 0 bank via `/api/bank_transfer`.
+**When emitted:** Whenever a deposit or withdrawal completes at a Federation Space mega-port bank via `/api/bank_transfer`.
 **Who receives it:** Only the initiating character.
 **Source:** `/game-server/api/bank_transfer.py`
 
@@ -1153,8 +1153,8 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
     "request_id": "req-bank-02",
     "timestamp": "2025-10-19T05:44:00.000Z"
   },
-  "character_id": "sector0_runner",
-  "sector": {"id": 0},
+  "character_id": "fedspace_runner",
+  "sector": {"id": 312},
   "direction": "deposit",
   "amount": 2000,
   "timestamp": "2025-10-19T05:44:00.000Z",
@@ -1169,7 +1169,7 @@ This document catalogs all WebSocket events emitted by the Gradient Bang game se
 ## Ship Purchase Events
 
 ### ship.traded_in
-**When emitted:** When a character trades in their current ship for a new one at sector 0
+**When emitted:** When a character trades in their current ship for a new one at a mega-port
 **Who receives it:** Only the character making the purchase (character_filter - private)
 **Source:** `/game-server/api/ship_purchase.py`
 
