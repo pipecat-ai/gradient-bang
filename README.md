@@ -76,6 +76,7 @@ uv run universe-bang 5000 1234
 ```
 
 This creates `world-data/universe.json` containing:
+
 - Sector positions and warp connections (hex grid with Delaunay triangulation)
 - **Federation Space (fedspace)**: ~200 safe sectors in the graph center where combat is disabled
 - **4 Mega-ports**: Special stations in fedspace offering warp recharge, banking, and fighter purchase
@@ -290,6 +291,14 @@ set -a && source .env.cloud && set +a
 
 ### Push database structure
 
+#### Optional: reset remote database
+
+```bash
+npx supabase link --workdir deployment
+npx supabase db reset --linked --workdir deployment
+npx supabase db push --workdir deployment
+```
+
 Apply all SQL migrations to the linked project
 
 ```bash
@@ -315,7 +324,7 @@ psql "$POSTGRES_POOLER_URL" -c "SELECT key, updated_at FROM app_runtime_config W
 Deploy edge functions to your Supabase project. You will see warnings about decorator flags. You can ignore them.
 
 ```bash
-npx supabase functions deploy --workdir deployment/
+npx supabase functions deploy --workdir deployment/ --no-verify-jwt
 ```
 
 Add required secrets. Ignore the warnings about the SUPABASE\_ variables. They are set automatically in the project.

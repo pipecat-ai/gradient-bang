@@ -1,52 +1,50 @@
-from loguru import logger
-from dotenv import load_dotenv
 import asyncio
-from datetime import datetime, timedelta, timezone
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 
-
-
-from pipecat.utils.time import time_now_iso8601
-from pipecat.runner.utils import create_transport
-from pipecat.runner.types import RunnerArguments
-from pipecat.transports.daily.transport import DailyParams
-from pipecat.transports.base_transport import TransportParams
-from pipecat.services.google.llm import GoogleLLMService
-from pipecat.services.deepgram.stt import DeepgramSTTService
-from pipecat.processors.frame_processor import FrameProcessor, FrameDirection
+from dotenv import load_dotenv
+from loguru import logger
+from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
+from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.audio.vad.vad_analyzer import VADParams
+from pipecat.frames.frames import (
+    BotSpeakingFrame,
+    Frame,
+    InterruptionFrame,
+    LLMContextFrame,
+    LLMRunFrame,
+    StartFrame,
+    StopFrame,
+    TranscriptionFrame,
+    UserStartedSpeakingFrame,
+    UserStoppedSpeakingFrame,
+)
+from pipecat.pipeline.parallel_pipeline import ParallelPipeline
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.runner import PipelineRunner
+from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContextAggregatorPair,
+)
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi import (
     RTVIConfig,
     RTVIObserver,
     RTVIProcessor,
     RTVIServerMessageFrame,
 )
-from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.parallel_pipeline import ParallelPipeline
-from pipecat.frames.frames import (
-    Frame,
-    LLMContextFrame,
-    InterruptionFrame,
-    LLMMessagesAppendFrame,
-    UserStartedSpeakingFrame,
-    UserStoppedSpeakingFrame,
-    BotSpeakingFrame,
-    TranscriptionFrame,
-    StartFrame,
-    StopFrame,
-    LLMRunFrame,
-)
+from pipecat.runner.types import RunnerArguments
+from pipecat.runner.utils import create_transport
 from pipecat.services.cartesia.tts import CartesiaTTSService
-from pipecat.processors.aggregators.llm_response_universal import (
-    LLMContextAggregatorPair,
-)
-from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
-from pipecat.audio.vad.vad_analyzer import VADParams
-from gradientbang.utils.prompts import GAME_DESCRIPTION, CHAT_INSTRUCTIONS, VOICE_INSTRUCTIONS
+from pipecat.services.deepgram.stt import DeepgramSTTService
+from pipecat.services.google.llm import GoogleLLMService
+from pipecat.transports.base_transport import TransportParams
+from pipecat.transports.daily.transport import DailyParams
+from pipecat.utils.time import time_now_iso8601
+
+from gradientbang.utils.prompts import CHAT_INSTRUCTIONS, GAME_DESCRIPTION, VOICE_INSTRUCTIONS
 
 load_dotenv(dotenv_path=".env.bot")
 
@@ -59,15 +57,13 @@ if os.getenv("SUPABASE_URL"):
     from gradientbang.utils.supabase_client import AsyncGameClient
 else:
     from gradientbang.utils.api_client import AsyncGameClient
-from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
-
-from gradientbang.pipecat_server.voice_task_manager import VoiceTaskManager
 from gradientbang.pipecat_server.context_compression import (
-    ContextCompressionProducer,
     ContextCompressionConsumer,
+    ContextCompressionProducer,
 )
 from gradientbang.pipecat_server.frames import TaskActivityFrame
-
+from gradientbang.pipecat_server.voice_task_manager import VoiceTaskManager
+from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
 
 # Configure loguru
 logger.remove()
@@ -86,9 +82,7 @@ async def _lookup_character_display_name(character_id: str, server_url: str) -> 
     """
     try:
         async with AsyncGameClient(
-            base_url=server_url,
-            character_id=character_id,
-            transport="websocket"
+            base_url=server_url, character_id=character_id, transport="websocket"
         ) as client:
             result = await client.character_info(character_id=character_id)
             return result.get("name")
@@ -111,7 +105,9 @@ async def _resolve_character_identity(character_id: str | None, server_url: str)
         logger.info(f"Resolving character identity for character_id: {character_id}")
     else:
         logger.info("No character_id provided, using environment variables")
-        character_id = os.getenv("BOT_TEST_CHARACTER_ID") or os.getenv("BOT_TEST_NPC_CHARACTER_NAME")
+        character_id = os.getenv("BOT_TEST_CHARACTER_ID") or os.getenv(
+            "BOT_TEST_NPC_CHARACTER_NAME"
+        )
 
     if not character_id:
         raise RuntimeError(
@@ -158,7 +154,7 @@ def create_chat_system_prompt() -> str:
 
 async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     """Main bot function that creates and runs the pipeline."""
-    
+
     # Create RTVI processor with config
     rtvi = RTVIProcessor(config=RTVIConfig(config=[]))
 
@@ -168,8 +164,9 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     logger.info(f"Using server URL: {server_url}")
 
     character_id, character_display_name = await _resolve_character_identity(
-        os.getenv("BOT_TEST_CHARACTER_ID") or runner_args.body.get("character_id", None),
-        server_url
+        (getattr(runner_args, "body", None) or {}).get("character_id", None)
+        or os.getenv("BOT_TEST_CHARACTER_ID"),
+        server_url,
     )
     logger.info(
         f"Initializing VoiceTaskManager with character_id={character_id} display_name={character_display_name}"
@@ -193,9 +190,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     cartesia_key = os.getenv("CARTESIA_API_KEY", "")
     if not cartesia_key:
         logger.warning("CARTESIA_API_KEY is not set; TTS may fail.")
-    tts = CartesiaTTSService(
-        api_key=cartesia_key, voice_id="ec1e269e-9ca0-402f-8a18-58e0e022355a"
-    )
+    tts = CartesiaTTSService(api_key=cartesia_key, voice_id="ec1e269e-9ca0-402f-8a18-58e0e022355a")
 
     # Initialize LLM service
     logger.info("Init LLM…")
@@ -307,9 +302,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             # Prefer transport-native mute to avoid tearing down the pipeline
             try:
                 transport.set_input_muted(mute)
-                logger.info(
-                    f"Microphone {'muted' if mute else 'unmuted'} (transport flag)"
-                )
+                logger.info(f"Microphone {'muted' if mute else 'unmuted'} (transport flag)")
             except Exception:
                 # Fallback to control frames
                 if mute:
@@ -330,9 +323,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
         if msg_type == "get-known-ports":
             # Call list_known_ports to trigger server-side ports.list event
             # The client will receive the port data via the ports.list event
-            await task_manager.game_client.list_known_ports(
-                task_manager.character_id
-            )
+            await task_manager.game_client.list_known_ports(task_manager.character_id)
             return
 
         # Client requested task history
@@ -396,20 +387,24 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                             or finish_payload.get("result")
                         )
                         end_status = finish_payload.get("task_status")
-                    tasks.append({
-                        "task_id": task_id,
-                        "started": start_event.get("timestamp"),
-                        "ended": finish_event.get("timestamp") if finish_event else None,
-                        "start_instructions": start_payload.get("task_description") or start_payload.get("instructions") or "",
-                        "end_summary": end_summary,
-                        "end_status": end_status,
-                        "actor_character_id": start_payload.get("actor_character_id"),
-                        "actor_character_name": start_payload.get("actor_character_name"),
-                        "task_scope": start_payload.get("task_scope"),
-                        "ship_id": start_payload.get("ship_id"),
-                        "ship_name": start_payload.get("ship_name"),
-                        "ship_type": start_payload.get("ship_type"),
-                    })
+                    tasks.append(
+                        {
+                            "task_id": task_id,
+                            "started": start_event.get("timestamp"),
+                            "ended": finish_event.get("timestamp") if finish_event else None,
+                            "start_instructions": start_payload.get("task_description")
+                            or start_payload.get("instructions")
+                            or "",
+                            "end_summary": end_summary,
+                            "end_status": end_status,
+                            "actor_character_id": start_payload.get("actor_character_id"),
+                            "actor_character_name": start_payload.get("actor_character_name"),
+                            "task_scope": start_payload.get("task_scope"),
+                            "ship_id": start_payload.get("ship_id"),
+                            "ship_name": start_payload.get("ship_name"),
+                            "ship_type": start_payload.get("ship_type"),
+                        }
+                    )
 
                 # Sort by start time descending and limit
                 tasks.sort(key=lambda t: t["started"] or "", reverse=True)
@@ -524,9 +519,7 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
                 if max_hops < 0 or max_hops > 100:
                     raise ValueError("max_hops must be between 0 and 100")
 
-                max_sectors = (
-                    int(max_sectors_raw) if max_sectors_raw is not None else 1000
-                )
+                max_sectors = int(max_sectors_raw) if max_sectors_raw is not None else 1000
                 if max_sectors <= 0:
                     raise ValueError("max_sectors must be positive")
 
@@ -644,4 +637,5 @@ async def bot(runner_args: RunnerArguments):
 
 if __name__ == "__main__":
     from pipecat.runner.run import main
+
     main()

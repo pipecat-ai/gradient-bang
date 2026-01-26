@@ -238,7 +238,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     } catch (err) {
       console.error("start.bot_request_error", err);
       return corsResponse(
-        { success: false, error: "Failed to communicate with bot service" },
+        {
+          success: false,
+          error: "Failed to communicate with bot service" + botStartUrl,
+        },
         502,
       );
     }
