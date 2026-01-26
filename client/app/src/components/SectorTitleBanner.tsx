@@ -1,169 +1,181 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
-import { AnimatePresence, motion, useAnimate } from "motion/react"
+import { AnimatePresence, motion } from "motion/react"
 
 import { ScrambleText, type ScrambleTextRef } from "@/fx/ScrambleText"
 import { usePlaySound } from "@/hooks/usePlaySound"
 import useGameStore from "@/stores/game"
 
-const useDelayedVisibility = (value: boolean, delay: number) => {
-  const [delayedValue, setDelayedValue] = useState(value)
-  const timeoutRef = useRef<number | null>(null)
+/** Delay before showing banner when entering a new sector */
+const DELAY_BEFORE_SHOW = 1500
+/** How long the banner stays visible */
+const DISPLAY_DURATION = 3000
 
-  useEffect(() => {
-    if (value) {
-      if (timeoutRef.current !== null) {
-        window.clearTimeout(timeoutRef.current)
-      }
+const ANIMATE_IN = { opacity: 1, transition: { duration: 0.4, ease: "easeOut" } } as const
+const ANIMATE_OUT = { opacity: 0, transition: { duration: 2, ease: "easeOut" } } as const
 
-      timeoutRef.current = window.setTimeout(() => {
-        setDelayedValue(true)
-        timeoutRef.current = null
-      }, delay)
-    } else {
-      if (timeoutRef.current !== null) {
-        window.clearTimeout(timeoutRef.current)
-        timeoutRef.current = null
-      }
-
-      setDelayedValue(false)
-    }
-
-    return () => {
-      if (timeoutRef.current !== null) {
-        window.clearTimeout(timeoutRef.current)
-        timeoutRef.current = null
-      }
-    }
-  }, [value, delay])
-
-  return delayedValue
-}
+type Phase = "idle" | "delaying" | "showing" | "exiting"
 
 export const SectorTitleBanner = () => {
   const { playSound } = usePlaySound()
-  const taskInProgress = useGameStore.use.taskInProgress?.()
-  const starfieldInstance = useGameStore.use.starfieldInstance?.()
+  const activeTasks = useGameStore.use.activeTasks?.()
   const sector = useGameStore.use.sector?.()
-  const [isVisible, setIsVisible] = useState(false)
-  const [skipExit, setSkipExit] = useState(false)
+
+  // UI state
+  const [isShowing, setIsShowing] = useState(false)
   const scrambleRef = useRef<ScrambleTextRef>(null)
-  const debouncedVisible = useDelayedVisibility(isVisible, 2000)
-  const [scope, animate] = useAnimate()
-  const hideTimerRef = useRef<number | null>(null)
-  const clearHideTimer = useCallback(() => {
-    if (hideTimerRef.current !== null) {
-      window.clearTimeout(hideTimerRef.current)
-      hideTimerRef.current = null
+
+  // State machine & timers
+  const phaseRef = useRef<Phase>("idle")
+  const timersRef = useRef<{ delay: number | null; show: number | null }>({
+    delay: null,
+    show: null,
+  })
+
+  // Sector tracking
+  const prevSectorIdRef = useRef<number | undefined>(undefined)
+  const sectorBeforeTaskRef = useRef<number | undefined>(undefined)
+  const wasTaskActiveRef = useRef(false)
+
+  // Derived state
+  const hasActiveTask = useMemo(
+    () => Object.values(activeTasks ?? {}).some((task) => task?.task_scope === "player_ship"),
+    [activeTasks]
+  )
+
+  const shouldDisplay = sector?.id !== undefined && !hasActiveTask
+  const sectorText = `SECTOR ${sector?.id ?? "unknown"}`
+
+  // Timer management
+  const clearTimers = useCallback(() => {
+    if (timersRef.current.delay !== null) {
+      clearTimeout(timersRef.current.delay)
+      timersRef.current.delay = null
+    }
+    if (timersRef.current.show !== null) {
+      clearTimeout(timersRef.current.show)
+      timersRef.current.show = null
     }
   }, [])
 
-  const sectorText = `SECTOR ${sector?.id.toString() || "unknown"}`
+  // Phase transitions
+  const startExit = useCallback(() => {
+    phaseRef.current = "exiting"
+    scrambleRef.current?.scrambleOut()
+    setIsShowing(false)
+  }, [])
 
+  const resetShowTimer = useCallback(() => {
+    if (timersRef.current.show !== null) {
+      clearTimeout(timersRef.current.show)
+    }
+    timersRef.current.show = window.setTimeout(startExit, DISPLAY_DURATION)
+  }, [startExit])
+
+  const show = useCallback(() => {
+    clearTimers()
+    phaseRef.current = "showing"
+    setIsShowing(true)
+    timersRef.current.show = window.setTimeout(startExit, DISPLAY_DURATION)
+  }, [clearTimers, startExit])
+
+  const startDelay = useCallback(() => {
+    clearTimers()
+    phaseRef.current = "delaying"
+    timersRef.current.delay = window.setTimeout(show, DELAY_BEFORE_SHOW)
+  }, [clearTimers, show])
+
+  const hide = useCallback(() => {
+    clearTimers()
+    phaseRef.current = "idle"
+    scrambleRef.current?.scrambleOut()
+    setIsShowing(false)
+  }, [clearTimers])
+
+  const onExitComplete = useCallback(() => {
+    // Only transition to idle if still in exiting phase (might have been interrupted)
+    if (phaseRef.current === "exiting") {
+      phaseRef.current = "idle"
+    }
+  }, [])
+
+  // Play sound when banner first appears
   useEffect(() => {
-    if (!debouncedVisible) {
-      clearHideTimer()
-      scrambleRef.current?.scrambleOut()
+    if (isShowing) {
+      playSound("text", { volume: 0.1 })
+    }
+  }, [isShowing, playSound])
+
+  // Track task transitions - show banner when task ends if sector changed
+  useEffect(() => {
+    const wasTaskActive = wasTaskActiveRef.current
+    wasTaskActiveRef.current = hasActiveTask
+
+    if (hasActiveTask && !wasTaskActive) {
+      // Task started - record current sector
+      sectorBeforeTaskRef.current = sector?.id
+    } else if (!hasActiveTask && wasTaskActive) {
+      // Task ended - show banner if sector changed during task
+      const sectorChanged = sector?.id !== sectorBeforeTaskRef.current
+      sectorBeforeTaskRef.current = undefined
+
+      if (sectorChanged && sector?.id !== undefined && phaseRef.current === "idle") {
+        queueMicrotask(startDelay)
+      }
+    }
+  }, [hasActiveTask, sector?.id, startDelay])
+
+  // Hide banner when shouldDisplay becomes false
+  useEffect(() => {
+    if (!shouldDisplay) {
+      queueMicrotask(hide)
+    }
+  }, [shouldDisplay, hide])
+
+  // Handle sector changes while no task is active (including initial load)
+  useEffect(() => {
+    const prevSectorId = prevSectorIdRef.current
+    const isInitialLoad = prevSectorId === undefined
+    prevSectorIdRef.current = sector?.id
+
+    // Skip if unchanged, task is active, or task just ended (handled by task effect)
+    if (prevSectorId === sector?.id || hasActiveTask || sectorBeforeTaskRef.current !== undefined) {
       return
     }
 
-    // Ensure skip flag is reset whenever we show again
-    setSkipExit(false)
+    if (!shouldDisplay) return
 
-    clearHideTimer()
-
-    hideTimerRef.current = window.setTimeout(() => {
-      setIsVisible(false)
-      hideTimerRef.current = null
-    }, 3000)
-
-    return clearHideTimer
-  }, [debouncedVisible, clearHideTimer])
-
-  const onSceneChange = useCallback(() => {
-    setSkipExit(false)
-
-    const shouldDisplay =
-      (starfieldInstance?.getWarpQueueLength() ?? 0) === 0 && !taskInProgress
-    setIsVisible(shouldDisplay)
-  }, [starfieldInstance, taskInProgress])
-
-  useEffect(() => {
-    if (!debouncedVisible) return
-    playSound("text", { volume: 0.1 })
-  }, [playSound, debouncedVisible])
-
-  useEffect(() => {
-    if (sector) {
-      return
+    if (phaseRef.current === "showing") {
+      // Already showing - reset timer, text auto-scrambles
+      resetShowTimer()
+    } else if (isInitialLoad) {
+      // First load - show with delay
+      queueMicrotask(startDelay)
+    } else {
+      // Sector change while not showing - show immediately
+      queueMicrotask(show)
     }
+  }, [sector?.id, hasActiveTask, shouldDisplay, show, startDelay, resetShowTimer])
 
-    clearHideTimer()
-    setIsVisible(false)
-  }, [sector, clearHideTimer])
-
-  useEffect(() => {
-    if (taskInProgress) {
-      clearHideTimer()
-      setIsVisible(false)
-    }
-  }, [taskInProgress, clearHideTimer])
-
-  const onWarpStart = useCallback(async () => {
-    clearHideTimer()
-
-    if (!debouncedVisible) {
-      setSkipExit(false)
-      setIsVisible(false)
-      return
-    }
-
-    scrambleRef.current?.scrambleOut(250)
-    setSkipExit(true)
-    await animate(
-      scope.current,
-      { opacity: 0 },
-      { duration: 0.25, ease: "easeOut" }
-    )
-    setIsVisible(false)
-  }, [animate, clearHideTimer, debouncedVisible, scope])
-
-  useEffect(() => {
-    if (!starfieldInstance) return
-
-    starfieldInstance.on("sceneReady", onSceneChange)
-    starfieldInstance.on("warpStart", onWarpStart)
-
-    return () => {
-      starfieldInstance.off("sceneReady", onSceneChange)
-      starfieldInstance.off("warpStart", onWarpStart)
-    }
-  }, [starfieldInstance, onSceneChange, onWarpStart])
+  // Cleanup on unmount
+  useEffect(() => clearTimers, [clearTimers])
 
   return (
-    <AnimatePresence>
-      {debouncedVisible && (
+    <AnimatePresence onExitComplete={onExitComplete}>
+      {isShowing && (
         <motion.div
-          ref={scope}
-          key={`sector-${sector?.id}`}
+          key="sector-banner"
           initial={{ opacity: 0 }}
-          animate={{
-            opacity: 1,
-            transition: { duration: 0.4, ease: "easeOut" },
-          }}
-          exit={
-            skipExit
-              ? undefined
-              : { opacity: 0, transition: { duration: 2, ease: "easeOut" } }
-          }
+          animate={ANIMATE_IN}
+          exit={ANIMATE_OUT}
           className="w-full absolute left-0 top-1/2 -translate-y-1/2 z-20"
         >
-          <div className="flex flex-row gap-5 text-center justify-center items-center mx-auto w-max bg-background/30 p-2">
-            <div className="bg-dotted-sm self-stretch w-[160px]" />
+          <div className="flex flex-row gap-5 text-center justify-center items-center mx-auto w-max bg-background/80 p-2">
+            <div className="dotted-bg-sm dotted-bg-subtle self-stretch w-[160px]" />
             <p className="text-white text-xl font-bold uppercase tracking-wider leading-tight">
               <ScrambleText ref={scrambleRef}>{sectorText}</ScrambleText>
             </p>
-            <div className="bg-dotted-sm self-stretch w-[160px]" />
+            <div className="dotted-bg-sm dotted-bg-subtle self-stretch w-[160px]" />
           </div>
         </motion.div>
       )}

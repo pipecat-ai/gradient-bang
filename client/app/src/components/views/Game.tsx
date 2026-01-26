@@ -8,11 +8,11 @@ import { PlayerShipPanel } from "@/components/panels/PlayerShipPanel"
 import { TaskEnginesPanel } from "@/components/panels/TaskEnginesPanel"
 import { Divider } from "@/components/primitives/Divider"
 import { ScreenContainer } from "@/components/screens/ScreenContainer"
+import { SectorTitleBanner } from "@/components/SectorTitleBanner"
 import { Starfield } from "@/components/Starfield"
+import { ToastContainer } from "@/components/toasts/ToastContainer"
 import { TopBar } from "@/components/TopBar"
 import { useNotificationSound } from "@/hooks/useNotificationSound"
-
-import { ToastContainer } from "../toasts/ToastContainer"
 
 export const Game = () => {
   useNotificationSound()
@@ -23,6 +23,8 @@ export const Game = () => {
         <Panel className="flex flex-col">
           <TopBar />
           <main className="flex-1 flex flex-col gap-0">
+            <SectorTitleBanner />
+
             <div className="p-ui-xs flex-1">
               <TaskEnginesPanel />
             </div>

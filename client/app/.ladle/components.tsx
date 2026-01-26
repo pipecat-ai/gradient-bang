@@ -15,6 +15,9 @@ import usePipecatClientStore from "@/stores/client"
 import useGameStore from "@/stores/game"
 
 import { BasicDevTools } from "./BasicDevTools"
+import { useTaskControls } from "./useTaskControls"
+
+import { SECTOR_MOCK } from "@/mocks/sector.mock"
 
 import "./global.css"
 
@@ -33,6 +36,7 @@ const StoryWrapper = ({
   const setGameState = useGameStore.use.setGameState()
   const dispatchAction = useGameStore.use.dispatchAction()
   const addToast = useGameStore.use.addToast()
+  const setSector = useGameStore.use.setSector()
 
   useEffect(() => {
     if (storyMeta?.enableMic && client) {
@@ -53,6 +57,9 @@ const StoryWrapper = ({
         ["Disconnect"]: () => client.disconnect(),
       },
     }),
+    ["Set Sector"]: button(() =>
+      setSector({ ...SECTOR_MOCK, id: Math.floor(Math.random() * 100) })
+    ),
     Messages: folder(
       {
         ["Get My Status"]: button(() => dispatchAction({ type: "get-my-status" })),
@@ -77,6 +84,8 @@ const StoryWrapper = ({
       { collapsed: true, order: 1 }
     ),
   }))
+
+  useTaskControls()
 
   return (
     <>
