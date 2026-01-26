@@ -138,10 +138,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // Parse and validate request
     const name = requireString(payload, "name");
 
-    // Validate name format (alphanumeric, underscores, 3-20 chars)
-    if (!/^[a-zA-Z0-9_]{3,20}$/.test(name)) {
+    // Validate name format (alphanumeric, underscores, spaces, 3-20 chars)
+    if (!/^[a-zA-Z0-9_ ]{3,20}$/.test(name)) {
       throw new CharacterCreateError(
-        "Character name must be 3-20 characters, alphanumeric and underscores only",
+        "Character name must be 3-20 characters, alphanumeric, underscores, and spaces only",
         400,
       );
     }
