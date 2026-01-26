@@ -3,12 +3,12 @@ import { Fragment, useMemo } from "react"
 import { button, useControls } from "leva"
 import { faker } from "@faker-js/faker"
 import { PlugsIcon } from "@phosphor-icons/react"
-import { CardContent, usePipecatConnectionState } from "@pipecat-ai/voice-ui-kit"
 
 import { useChat } from "@/hooks/useChat"
+import { usePipecatConnectionState } from "@/hooks/usePipecatConnectionState"
 import useGameStore from "@/stores/game"
 
-import { Card } from "./primitives/Card"
+import { Card, CardContent } from "./primitives/Card"
 import { ScrollArea } from "./primitives/ScrollArea"
 
 const ChatMessageRow = ({ message }: { message: ConversationMessage }) => {

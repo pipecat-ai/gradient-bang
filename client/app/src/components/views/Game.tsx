@@ -1,16 +1,18 @@
 import { Group, Panel, Separator } from "react-resizable-panels"
+import { PipecatClientAudio } from "@pipecat-ai/client-react"
 
 import { Settings } from "@/components/dialogs/Settings"
 import { ConversationPanel } from "@/components/panels/ConversationPanel"
+import { MiniMapPanel } from "@/components/panels/MiniMapPanel"
 import { PlayerShipPanel } from "@/components/panels/PlayerShipPanel"
 import { TaskEnginesPanel } from "@/components/panels/TaskEnginesPanel"
 import { Divider } from "@/components/primitives/Divider"
-import { ShipVisor } from "@/components/ShipVisor"
+import { ScreenContainer } from "@/components/screens/ScreenContainer"
+import { SectorTitleBanner } from "@/components/SectorTitleBanner"
 import { Starfield } from "@/components/Starfield"
+import { ToastContainer } from "@/components/toasts/ToastContainer"
 import { TopBar } from "@/components/TopBar"
 import { useNotificationSound } from "@/hooks/useNotificationSound"
-
-import { MiniMapPanel } from "../panels/MiniMapPanel"
 
 export const Game = () => {
   useNotificationSound()
@@ -21,12 +23,14 @@ export const Game = () => {
         <Panel className="flex flex-col">
           <TopBar />
           <main className="flex-1 flex flex-col gap-0">
+            <SectorTitleBanner />
+
             <div className="p-ui-xs flex-1">
               <TaskEnginesPanel />
             </div>
-            <footer className="p-ui-xs pt-0 h-[380px] flex flex-row gap-ui-sm">
-              <ConversationPanel className="min-w-1/2 flex-1" />
-              <MiniMapPanel />
+            <footer className="p-ui-xs pt-0 h-[380px] flex flex-row gap-ui-sm justify-between">
+              <ConversationPanel className="flex-1 max-w-xl" />
+              <MiniMapPanel className="min-w-[380px]" />
             </footer>
           </main>
         </Panel>
@@ -44,10 +48,14 @@ export const Game = () => {
         </Panel>
       </Group>
 
+      {/* Sub-screens (trading, ship, messaging, etc..) */}
+      <ScreenContainer />
+
       {/* Other Renderables */}
+      <ToastContainer />
       <Starfield />
-      <ShipVisor />
       <Settings />
+      <PipecatClientAudio />
     </>
   )
 }

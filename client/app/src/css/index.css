@@ -132,9 +132,10 @@
   --z-toasts: var(--z-toasts);
   --z-screens: var(--z-screens);
 
+  --spacing-ui-xxs: calc(var(--spacing) * 1);
   --spacing-ui-xs: calc(var(--spacing) * 2);
   --spacing-ui-sm: calc(var(--spacing) * 3);
-  --spacing-ui-md: calc(var(--spacing) * 6);
+  --spacing-ui-md: calc(var(--spacing) * 5);
   --spacing-ui-lg: calc(var(--spacing) * 10);
   --spacing-ui-xl: calc(var(--spacing) * 12);
   --spacing-scrollbar: calc(var(--spacing) * 3);
@@ -143,15 +144,8 @@
   --spacing-screen-border-y: calc(var(--spacing) * 10);
   --spacing-screen-border-x: calc(var(--spacing) * 4);
 
-  --height-ui-hud: 460px;
-  --width-ui-hud-center: 500px;
-  --width-ui-hud-lhs: 400px;
-  --width-ui-hud-rhs: 400px;
-  --grid-cols-hud: minmax(var(--width-ui-hud-lhs), 700px) minmax(240px, var(--width-ui-hud-center))
-    minmax(var(--width-ui-hud-rhs), 700px);
-
   --height-toast: 160px;
-  --width-toast: 600px;
+  --width-toast: 620px;
 
   --shadow-glow-sm: 0 0 10px 1px var(--color-primary);
   --text-shadow-hud: 0 0 12px rgba(0, 0, 0, 0.6);
@@ -186,6 +180,7 @@
 
   /* Outline Pulse Animation */
   --animate-outline-pulse: outline-pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-blink: blink 0.2s step-end infinite;
 
   @keyframes outline-pulse {
     0%,
@@ -194,6 +189,17 @@
     }
     50% {
       outline-color: rgba(255, 255, 255, 1);
+    }
+  }
+
+  @keyframes blink {
+    0%,
+    49% {
+      opacity: 1;
+    }
+    50%,
+    100% {
+      opacity: 0;
     }
   }
 
@@ -747,6 +753,12 @@ button {
     --color-elbow: white;
   }
 }
+
+.DialogContent-NoPadding {
+  padding-block: 0;
+  padding-inline: 0;
+}
+
 .DialogContent:focus {
   outline: none;
 }

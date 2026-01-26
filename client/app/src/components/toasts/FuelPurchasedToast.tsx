@@ -1,21 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState } from "react"
 
-import { CoinVerticalIcon } from "@phosphor-icons/react";
+import { CoinVerticalIcon } from "@phosphor-icons/react"
 
-import { wait } from "@/utils/animation";
+import { wait } from "@/utils/animation"
 
-import { CurrencyCounter } from "../CurrencyCounter";
-import { Card, CardContent } from "../primitives/Card";
-import { Progress } from "../primitives/Progress";
-import { ToastBase, ToastTitle, ToastValue } from "./ToastBase";
+import { CurrencyCounter } from "../CurrencyCounter"
+import { Card, CardContent } from "../primitives/Card"
+import { Progress } from "../primitives/Progress"
+import { ToastBase, ToastTitle, ToastValue } from "./ToastBase"
 
-import type { Toast } from "@/types/toasts";
+import type { Toast } from "@/types/toasts"
 
 interface FuelPurchasedToastProps {
-  toast: Toast & { type: "warp.purchase" };
-  onAnimateIn?: () => void;
-  onAnimationComplete?: () => void;
-  onDismiss?: () => void;
+  toast: Toast & { type: "warp.purchase" }
+  onAnimateIn?: () => void
+  onAnimationComplete?: () => void
+  onDismiss?: () => void
 }
 export const FuelPurchasedToast = ({
   toast,
@@ -23,17 +23,16 @@ export const FuelPurchasedToast = ({
   onAnimationComplete,
   onDismiss,
 }: FuelPurchasedToastProps) => {
-  const { meta } = toast;
-  const [newCredits, setNewCredits] = useState(meta?.prev_credits ?? 0);
-
-  const [warpAmount, setWarpAmount] = useState(meta?.prev_amount ?? 0);
+  const { meta } = toast
+  const [newCredits, setNewCredits] = useState(meta?.prev_credits ?? 0)
+  const [warpAmount, setWarpAmount] = useState(meta?.prev_amount ?? 0)
 
   useEffect(() => {
     wait(500).then(() => {
-      setNewCredits(meta?.new_credits ?? 0);
-      setWarpAmount(meta?.new_amount ?? 0);
-    });
-  }, [meta]);
+      setNewCredits(meta?.new_credits ?? 0)
+      setWarpAmount(meta?.new_amount ?? 0)
+    })
+  }, [meta])
 
   return (
     <ToastBase
@@ -49,7 +48,7 @@ export const FuelPurchasedToast = ({
         <CardContent className="flex flex-col h-full justify-between items-center">
           <ToastTitle>Warp Fuel Purchased</ToastTitle>
 
-          <div className="elbow elbow-1 elbow-size-10 elbow-border elbow-offset-0 p-2 w-full">
+          <div className="elbow elbow-1 elbow-size-4 elbow-fuel elbow-offset-0 p-1 w-full">
             <Progress
               color="fuel"
               value={warpAmount}
@@ -57,18 +56,18 @@ export const FuelPurchasedToast = ({
               classNames={{
                 indicator: "duration-1000",
               }}
-              max={meta?.capacity ?? 0}
+              max={meta?.capacity ?? 100}
             />
           </div>
           <div className="flex flex-row gap-3 w-full justify-center">
             <ToastValue>
               <CurrencyCounter value={warpAmount} className="" />{" "}
-              <span className="opacity-30">/</span> {meta?.capacity}
+              <span className="opacity-30">/</span> {meta?.capacity ?? 0}
             </ToastValue>
             <ToastValue>
               <CoinVerticalIcon weight="duotone" className="size-4" />
               <CurrencyCounter value={newCredits} />
-              <span className="text-xs font-medium text-warning animate-in fade-in-0 duration-1000">
+              <span className="text-xxs font-medium text-warning animate-in fade-in-0 duration-1000">
                 -{meta?.cost ?? 0}
               </span>
             </ToastValue>
@@ -76,5 +75,5 @@ export const FuelPurchasedToast = ({
         </CardContent>
       </Card>
     </ToastBase>
-  );
-};
+  )
+}

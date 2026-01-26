@@ -1,28 +1,22 @@
 import { useEffect, useState } from "react"
 
-import { button, useControls } from "leva"
 import { AnimatePresence, motion } from "motion/react"
 
+import { BankTransactionToast } from "@/components/toasts/BankTransactionToast"
+import { FuelPurchasedToast } from "@/components/toasts/FuelPurchasedToast"
+import { SalvageCollectedToast } from "@/components/toasts/SalvageCollectedToast"
+import { SalvageCreatedToast } from "@/components/toasts/SalvageCreatedToast"
+import { TradeExecutedToast } from "@/components/toasts/TradeExecutedToast"
+import { TransferToast } from "@/components/toasts/TransferToast"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
-import { BankTransactionToast } from "./BankTransactionToast"
-import { FuelPurchasedToast } from "./FuelPurchasedToast"
-import { SalvageCollectedToast } from "./SalvageCollectedToast"
-import { SalvageCreatedToast } from "./SalvageCreatedToast"
-import { TradeExecutedToast } from "./TradeExecutedToast"
-import { TransferToast } from "./TransferToast"
-
 import type { Toast } from "@/types/toasts"
-// #if DEV
-import mockToasts from "@/mocks/toasts.mock"
-// #endif
 
 const TOAST_DURATION_MS = 3500
 
 export const ToastContainer = () => {
   const toasts = useGameStore.use.toasts()
-  const addToast = useGameStore.use.addToast()
   const getNextToast = useGameStore.use.getNextToast()
   const lockToast = useGameStore.use.lockToast()
   const displayingToastId = useGameStore.use.displayingToastId()
@@ -30,20 +24,6 @@ export const ToastContainer = () => {
   const [isExiting, setIsExiting] = useState(false)
 
   const currentToast = getNextToast()
-
-  // #if DEV
-  useControls(
-    "Toasts",
-    {
-      bankTransaction: button(() => {
-        addToast({
-          ...mockToasts.bankTransaction,
-        })
-      }),
-    },
-    { collapsed: true }
-  )
-  // #endif
 
   // Lock the toast when it becomes current
   useEffect(() => {
@@ -102,20 +82,17 @@ export const ToastContainer = () => {
   const toastActive = toasts.length > 0 && !isExiting
 
   const containerClasses = cn(
-    "relative h-toast w-full items-center justify-center bracket bracket-2 transition-all duration-300",
+    "relative h-toast w-full items-center justify-center transition-all duration-300",
     {
-      "opacity-10 bg-background/70 bracket-white": !toastActive,
-      "opacity-100 bg-background/80 bracket-white motion-safe:bg-background/70 motion-safe:backdrop-blur-sm":
+      "bg-transparent": !toastActive,
+      "opacity-100 bracket bracket-2 bg-background/80 bracket-white motion-safe:bg-background/60 motion-safe:backdrop-blur-sm":
         toastActive,
     }
   )
 
   return (
-    <div className="relative -mt-10 pointer-events-none w-toast z-(--z-toasts) mb-auto flex flex-col gap-2">
-      <div
-        className={containerClasses}
-        style={{ transformOrigin: "top center" }}
-      >
+    <div className="absolute top-ui-sm left-1/2 -translate-x-1/2 pointer-events-none w-toast z-(--z-toasts) mb-auto flex flex-col">
+      <div className={containerClasses} style={{ transformOrigin: "top center" }}>
         <AnimatePresence mode="wait" onExitComplete={handleAnimationComplete}>
           {currentToast && !isExiting && (
             <div key={currentToast.id} className="w-full h-full p-ui-xs">
@@ -128,9 +105,9 @@ export const ToastContainer = () => {
         {toasts.length > 1 && (
           <motion.div
             key="toast-indicators"
-            initial={{ opacity: 0, y: -10 }}
+            initial={{ opacity: 0, y: -5 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
+            exit={{ opacity: 0, y: -5 }}
             transition={{ duration: 0.3, ease: "easeInOut" }}
             className="flex gap-1.5 pointer-events-none mx-auto grow-0 items-center justify-center bg-background/30 px-2 py-2"
           >
@@ -138,9 +115,9 @@ export const ToastContainer = () => {
               <div
                 key={index}
                 className={`w-2 h-2 transition-all duration-30 ${
-                  index === 0
-                    ? "bg-foreground animate-pulse"
-                    : "bg-muted-foreground/30 border border-muted-foreground/50"
+                  index === 0 ?
+                    "bg-foreground animate-pulse"
+                  : "bg-muted-foreground/30 border border-muted-foreground/50"
                 }`}
               />
             ))}

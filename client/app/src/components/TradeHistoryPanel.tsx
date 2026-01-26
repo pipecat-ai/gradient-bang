@@ -1,9 +1,4 @@
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  PanelTitle,
-} from "@pipecat-ai/voice-ui-kit";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/primitives/Card"
 /*
 const IconMap = {
   retro_organics: <PlantIcon size={18} weight="duotone" />,
@@ -66,5 +61,5 @@ export const TradeHistoryPanel = () => {
         </table>
       </CardContent>
     </Card>
-  );
-};
+  )
+}

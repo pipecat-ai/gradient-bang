@@ -3,7 +3,7 @@ import { useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 
 import TitleVideo from "@/assets/videos/title.mp4"
-import { CharacterSelect } from "@/components/dialogs/CharacterSelect"
+import { CharacterSelectDialog } from "@/components/dialogs/CharacterSelect"
 import { Leaderboard } from "@/components/dialogs/Leaderboard"
 import { Settings } from "@/components/dialogs/Settings"
 import { Signup } from "@/components/dialogs/Signup"
@@ -20,12 +20,10 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
   const setActiveModal = useGameStore.use.setActiveModal()
   const setCharacterId = useGameStore.use.setCharacterId()
   const setAccessToken = useGameStore.use.setAccessToken()
+  const setCharacters = useGameStore.use.setCharacters()
   const [username, setUsername] = useState<string>("")
   const [password, setPassword] = useState<string>("")
   const [isLoading, setIsLoading] = useState<boolean>(false)
-  const [characters, setCharacters] = useState<
-    { character_id: string; name: string }[]
-  >([])
   const [state, setState] = useState<"idle" | "join">("idle")
   const [error, setError] = useState<boolean>(false)
 
@@ -99,11 +97,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
                   transition={{ duration: 0.2, ease: "easeInOut" }}
                   className="w-full flex flex-col gap-5"
                 >
-                  <Button
-                    onClick={() => setState("join")}
-                    className="w-full"
-                    size="xl"
-                  >
+                  <Button onClick={() => setState("join")} className="w-full" size="xl">
                     Sign In
                   </Button>
                   <Button
@@ -213,8 +207,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
       <Settings />
       <Leaderboard />
       <Signup />
-      <CharacterSelect
-        characters={characters}
+      <CharacterSelectDialog
         onCharacterSelect={(characterId) => {
           setCharacterId(characterId)
           onViewNext()
@@ -224,9 +217,7 @@ export const Title = ({ onViewNext }: { onViewNext: () => void }) => {
         className="absolute bottom-0 right-0 p-4 z-99 flex flex-row items-center gap-2 bg-background select-none"
         onClick={() => setActiveModal("signup")}
       >
-        <span className="text-xs text-muted-foreground uppercase tracking-wider">
-          Built by
-        </span>
+        <span className="text-xs text-muted-foreground uppercase tracking-wider">Built by</span>
         <PipecatSVG className="h-[16px] text-white" />
       </div>
     </div>

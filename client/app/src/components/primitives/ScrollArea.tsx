@@ -11,10 +11,12 @@ function ScrollArea({
   children,
   fullHeight = false,
   classNames,
+  onScroll,
   ...props
 }: React.ComponentProps<typeof ScrollAreaPrimitive.Root> & {
   fullHeight?: boolean;
   classNames?: { scrollbar?: string };
+  onScroll?: React.UIEventHandler<HTMLDivElement>;
 }) {
   return (
     <ScrollAreaPrimitive.Root
@@ -28,6 +30,7 @@ function ScrollArea({
           "focus-visible:ring-ring/50 size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:outline-1",
           fullHeight && "h-full *:first:h-full"
         )}
+        onScroll={onScroll}
       >
         {children}
       </ScrollAreaPrimitive.Viewport>

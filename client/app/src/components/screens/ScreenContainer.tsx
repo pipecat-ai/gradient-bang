@@ -17,8 +17,8 @@ const variants = {
 
 const ScreenBase = ({ children }: { children: React.ReactNode }) => {
   return (
-    <div className="screen focus:outline-none pointer-events-auto">
-      <div className="relative z-1 p-4">{children}</div>
+    <div className="screen focus:outline-none pointer-events-auto w-full h-full">
+      <div className="relative z-1 p-4 w-full h-full">{children}</div>
     </div>
   )
 }
@@ -35,26 +35,12 @@ export const ScreenContainer = () => {
   const screenRef = useClickAway<HTMLDivElement>((e) => {
     const target = e.target as HTMLElement
     const isMenuClick =
-      target.closest('[role="tab"]') ||
-      target.closest('button[aria-controls="#screen-container"]')
+      target.closest('[role="tab"]') || target.closest('button[aria-controls="#screen-container"]')
 
     if (!isMenuClick && activeScreen) {
       setActiveScreen(undefined)
     }
   })
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    switch (e.key) {
-      case "Home":
-      case "End":
-      case "Escape":
-        e.preventDefault()
-        setActiveScreen(undefined)
-        break
-      default:
-        return
-    }
-  }
 
   useEffect(() => {
     if (prevActiveScreenRef.current && !activeScreen) {
@@ -73,9 +59,8 @@ export const ScreenContainer = () => {
     <div className="absolute inset-ui-lg z-(--z-screens) flex items-center justify-center pointer-events-none">
       <div
         id="screen-container"
-        className="relative max-h-min max-w-min focus:outline-none"
+        className="relative w-full h-full focus:outline-none"
         tabIndex={0}
-        onKeyDown={handleKeyDown}
         ref={containerRef}
       >
         <AnimatePresence
@@ -95,6 +80,7 @@ export const ScreenContainer = () => {
             animate="enter"
             exit="exit"
             ref={screenRef}
+            className="w-full h-full"
           >
             {activeScreen === "self" && <ScreenBase>Self</ScreenBase>}
             {activeScreen === "messaging" && <ScreenBase>Messaging</ScreenBase>}

@@ -156,8 +156,6 @@ export const BigMapStory: Story = () => {
               current_sector_id={current_sector}
               config={mapConfig as MapConfig}
               map_data={mapData ?? []}
-              width={1100}
-              height={780}
               maxDistance={mapConfig.max_bounds_distance}
               showLegend={show_legend}
               onNodeClick={updateCenterSector}

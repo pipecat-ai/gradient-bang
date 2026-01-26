@@ -1,6 +1,6 @@
 import React, { memo, useEffect, useMemo } from "react"
 
-import { button, folder, Leva, useControls } from "leva"
+import { button, buttonGroup, folder, Leva, useControls } from "leva"
 import type { GlobalProvider, Meta } from "@ladle/react"
 import { PipecatClient } from "@pipecat-ai/client-js"
 import { PipecatClientProvider } from "@pipecat-ai/client-react"
@@ -15,6 +15,9 @@ import usePipecatClientStore from "@/stores/client"
 import useGameStore from "@/stores/game"
 
 import { BasicDevTools } from "./BasicDevTools"
+import { useTaskControls } from "./useTaskControls"
+
+import { SECTOR_MOCK } from "@/mocks/sector.mock"
 
 import "./global.css"
 
@@ -32,6 +35,9 @@ const StoryWrapper = ({
   const { isConnected, isConnecting } = usePipecatConnectionState()
   const setGameState = useGameStore.use.setGameState()
   const dispatchAction = useGameStore.use.dispatchAction()
+  const addToast = useGameStore.use.addToast()
+  const setSector = useGameStore.use.setSector()
+
   useEffect(() => {
     if (storyMeta?.enableMic && client) {
       client.initDevices()
@@ -44,16 +50,42 @@ const StoryWrapper = ({
   }, [isConnected, setGameState])
 
   useControls(() => ({
-    General: folder(
+    ["Connect"]: buttonGroup({
+      label: "Connection",
+      opts: {
+        ["Connect"]: () => client.startBotAndConnect({ endpoint }),
+        ["Disconnect"]: () => client.disconnect(),
+      },
+    }),
+    ["Set Sector"]: button(() =>
+      setSector({ ...SECTOR_MOCK, id: Math.floor(Math.random() * 100) })
+    ),
+    Messages: folder(
       {
-        ["Connect"]: button(() => client.startBotAndConnect({ endpoint })),
-        ["Disconnect"]: button(() => client.disconnect()),
         ["Get My Status"]: button(() => dispatchAction({ type: "get-my-status" })),
         ["Get Known Port List"]: button(() => dispatchAction({ type: "get-known-ports" })),
       },
-      { collapsed: true, order: -1 }
+      { collapsed: true, order: 0 }
+    ),
+    Toasts: folder(
+      {
+        ["Add Bank Withdrawal Toast"]: button(() =>
+          addToast({ type: "bank.transaction", meta: { direction: "withdraw", amount: 1000 } })
+        ),
+        ["Add Bank Deposit Toast"]: button(() =>
+          addToast({ type: "bank.transaction", meta: { direction: "deposit", amount: 1000 } })
+        ),
+        ["Add Fuel Purchased Toast"]: button(() => addToast({ type: "warp.purchase" })),
+        ["Add Salvage Collected Toast"]: button(() => addToast({ type: "salvage.collected" })),
+        ["Add Salvage Created Toast"]: button(() => addToast({ type: "salvage.created" })),
+        ["Add Trade Executed Toast"]: button(() => addToast({ type: "trade.executed" })),
+        ["Add Transfer Toast"]: button(() => addToast({ type: "transfer" })),
+      },
+      { collapsed: true, order: 1 }
     ),
   }))
+
+  useTaskControls()
 
   return (
     <>
@@ -88,7 +120,7 @@ const StoryWrapper = ({
 
       {storyMeta?.useDevTools && storyMeta?.useChatControls && <BasicDevTools />}
 
-      <Leva oneLineLabels hidden={!storyMeta?.useDevTools} />
+      <Leva hidden={!storyMeta?.useDevTools} />
 
       {children}
     </>

@@ -49,6 +49,7 @@ interface ActiveProperty<T> {
 }
 
 export interface GameState {
+  characters: CharacterSelectResponse[]
   player: PlayerSelf
   corporation?: Corporation
   character_id?: string
@@ -77,6 +78,7 @@ export interface GameState {
 }
 
 export interface GameSlice extends GameState {
+  setCharacters: (characters: CharacterSelectResponse[]) => void
   setState: (newState: Partial<GameState>) => void
   setCharacterId: (characterId: string) => void
   setAccessToken: (accessToken: string) => void
@@ -116,6 +118,7 @@ const createGameSlice: StateCreator<
   [],
   GameSlice
 > = (set, get) => ({
+  characters: [],
   player: {} as PlayerSelf,
   corporation: undefined,
   character_id: undefined,
@@ -157,6 +160,12 @@ const createGameSlice: StateCreator<
     return pendingPromise
   },
 
+  setCharacters: (characters: CharacterSelectResponse[]) =>
+    set(
+      produce((state) => {
+        state.characters = characters
+      })
+    ),
   setCharacterId: (characterId: string) => set({ character_id: characterId }),
   setAccessToken: (accessToken: string) => set({ access_token: accessToken }),
   setCharacterAndToken: (characterId: string, accessToken: string) =>

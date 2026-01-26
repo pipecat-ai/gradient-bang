@@ -1,46 +1,41 @@
-import { useState } from "react";
+import { useState } from "react"
 
-import { PaperPlaneRightIcon } from "@phosphor-icons/react";
-import { usePipecatClientTransportState } from "@pipecat-ai/client-react";
-import { cn } from "@pipecat-ai/voice-ui-kit";
+import { PaperPlaneRightIcon } from "@phosphor-icons/react"
+import { usePipecatClientTransportState } from "@pipecat-ai/client-react"
 
-import { wait } from "@/utils/animation";
+import { wait } from "@/utils/animation"
+import { cn } from "@/utils/tailwind"
 
-import { Button } from "./primitives/Button";
-import { Input } from "./primitives/Input";
+import { Button } from "./primitives/Button"
+import { Input } from "./primitives/Input"
 
-const THROTTLE_DELAY_MS = 2000;
+const THROTTLE_DELAY_MS = 2000
 
 export const TextInputControl = ({
   onSend,
   className,
 }: {
-  className?: string;
-  onSend: (text: string) => void;
+  className?: string
+  onSend: (text: string) => void
 }) => {
-  const transportState = usePipecatClientTransportState();
+  const transportState = usePipecatClientTransportState()
 
-  const [command, setCommand] = useState("");
-  const [isDispatching, setIsDispatching] = useState(false);
+  const [command, setCommand] = useState("")
+  const [isDispatching, setIsDispatching] = useState(false)
 
   const handleSend = async (text: string) => {
-    if (isDispatching) return;
-    setIsDispatching(true);
-    onSend(text);
-    setCommand("");
-    await wait(THROTTLE_DELAY_MS);
-    setIsDispatching(false);
-  };
+    if (isDispatching) return
+    setIsDispatching(true)
+    onSend(text)
+    setCommand("")
+    await wait(THROTTLE_DELAY_MS)
+    setIsDispatching(false)
+  }
 
-  const isDisabled = isDispatching || transportState !== "ready";
+  const isDisabled = isDispatching || transportState !== "ready"
 
   return (
-    <div
-      className={cn(
-        "relative flex-1 flex flex-row items-center min-w-2/3",
-        className
-      )}
-    >
+    <div className={cn("relative flex-1 flex flex-row items-center min-w-2/3", className)}>
       <Input
         variant="default"
         placeholder="Enter command"
@@ -49,7 +44,7 @@ export const TextInputControl = ({
         onChange={(e) => setCommand(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && command) {
-            handleSend(command);
+            handleSend(command)
           }
         }}
         className="flex-1 pr-11"
@@ -69,5 +64,5 @@ export const TextInputControl = ({
         <PaperPlaneRightIcon weight="bold" />
       </Button>
     </div>
-  );
-};
+  )
+}
