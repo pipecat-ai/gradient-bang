@@ -3,7 +3,7 @@ import { type ColumnDef } from "@tanstack/react-table"
 
 import { DataTable } from "@/components/DataTable"
 import useGameStore from "@/stores/game"
-import { formatDate, formatTimeAgoOrDate } from "@/utils/date"
+import { formatDateTime24, formatTimeAgoOrDate } from "@/utils/date"
 import { cn } from "@/utils/tailwind"
 
 import { Card, CardContent } from "../primitives/Card"
@@ -12,20 +12,23 @@ const columns: ColumnDef<MovementHistory>[] = [
   {
     accessorKey: "timestamp",
     header: "Arrival",
-    size: 9999, // Flexible - takes remaining space
-    cell: ({ getValue }) => formatDate(getValue() as string),
+    cell: ({ getValue }) => formatDateTime24(getValue() as string),
   },
-  { accessorKey: "from", header: "From" },
-  { accessorKey: "to", header: "To" },
+  { accessorKey: "from", header: "From", size: 55, meta: { align: "center" } },
+  { accessorKey: "to", header: "To", size: 55, meta: { align: "center" } },
   {
     accessorKey: "port",
     header: "Port",
+    size: 40,
+    meta: { align: "center" },
     cell: ({ getValue }) =>
       getValue() ? <CheckIcon size={16} className="mx-auto text-fuel" /> : null,
   },
   {
     accessorKey: "last_visited",
-    header: "Previous Visit",
+    header: "Last Visit",
+    size: 125,
+    meta: { align: "center" },
     cell: ({ getValue }) => {
       const value = getValue() as string | null
       return value ? formatTimeAgoOrDate(value) : "Discovered"
@@ -39,7 +42,7 @@ export const MovementHistoryPanel = ({ className }: { className?: string }) => {
   return (
     <Card className={cn("flex h-full bg-black", className)} size="none">
       <CardContent className="flex flex-col h-full min-h-0 gap-2 relative overflow-hidden">
-        <DataTable data={movementHistory} columns={columns} striped fixedLayout={false} />
+        <DataTable data={movementHistory} columns={columns} striped />
       </CardContent>
     </Card>
   )

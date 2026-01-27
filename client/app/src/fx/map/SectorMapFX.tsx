@@ -2099,7 +2099,7 @@ export interface SectorMapController {
   updateProps: (newProps: Partial<SectorMapProps>) => void
   startCourseAnimation: () => void
   stopCourseAnimation: () => void
-  setOnNodeClick: (callback: ((node: MapSectorNode) => void) | null) => void
+  setOnNodeClick: (callback: ((node: MapSectorNode | null) => void) | null) => void
   cleanup: () => void
 }
 
@@ -2117,7 +2117,7 @@ export function createSectorMapController(
 
   // Click interaction state
   let hoveredSectorId: number | null = null
-  let onNodeClickCallback: ((node: MapSectorNode) => void) | null = null
+  let onNodeClickCallback: ((node: MapSectorNode | null) => void) | null = null
 
   // Hover animation state
   // animatingSectorId tracks which sector is being animated (for smooth out-animation)
@@ -2290,9 +2290,9 @@ export function createSectorMapController(
     const pos = getCanvasMousePosition(event)
     const sector = findSectorAtMouse(pos.x, pos.y)
 
-    // Call the callback if a sector was clicked
+    // Call the callback with sector (or null if clicking empty space to deselect)
     // The parent component is responsible for updating center_sector_id
-    if (sector && onNodeClickCallback) {
+    if (onNodeClickCallback) {
       onNodeClickCallback(sector)
     }
   }
@@ -2545,7 +2545,7 @@ export function createSectorMapController(
   }
 
   // New controller methods for click interaction
-  const setOnNodeClick = (callback: ((node: MapSectorNode) => void) | null) => {
+  const setOnNodeClick = (callback: ((node: MapSectorNode | null) => void) | null) => {
     onNodeClickCallback = callback
   }
 

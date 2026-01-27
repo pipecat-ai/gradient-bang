@@ -57,7 +57,7 @@ interface MapProps {
   debug?: boolean
   coursePlot?: CoursePlot | null
   ships?: number[]
-  onNodeClick?: (node: MapSectorNode) => void
+  onNodeClick?: (node: MapSectorNode | null) => void
 }
 
 const RESIZE_DELAY = 300

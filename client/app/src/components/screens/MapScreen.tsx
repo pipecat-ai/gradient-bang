@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 import PlanetLoader from "@/assets/videos/planet-loader.mp4"
 import { CoursePlotPanel } from "@/components/CoursePlotPanel"
-import { MovementHistoryPanel } from "@/components/MovementHistoryPanel"
+import { MovementHistoryPanel } from "@/components/panels/DataTablePanels"
 import { Badge } from "@/components/primitives/Badge"
 import { Separator } from "@/components/primitives/Separator"
 import useGameStore from "@/stores/game"
@@ -64,10 +64,11 @@ export const MapScreen = () => {
   }, [sector, dispatchAction])
 
   const updateCenterSector = useCallback(
-    (node: MapSectorNode) => {
-      setCenterSector(node.id)
+    (node: MapSectorNode | null) => {
+      // Click on empty space deselects (resets to current sector)
+      setCenterSector(node?.id ?? sector?.id)
     },
-    [setCenterSector]
+    [setCenterSector, sector?.id]
   )
 
   return (
@@ -108,7 +109,7 @@ export const MapScreen = () => {
         }
       </div>
 
-      <aside className="flex flex-col gap-6 min-w-md">
+      <aside className="flex flex-col gap-6 w-md min-h-0">
         <CardContent className="flex flex-col gap-3">
           <Badge border="bracket" className="w-full -bracket-offset-3">
             Current Sector:
@@ -138,7 +139,7 @@ export const MapScreen = () => {
           </Badge>
         </CardContent>
         <CoursePlotPanel />
-        <MovementHistoryPanel />
+        <MovementHistoryPanel className="flex-1 min-h-0" />
         <Button variant="default" className="w-full" onClick={() => setActiveScreen(undefined)}>
           Close
         </Button>
