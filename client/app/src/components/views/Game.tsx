@@ -5,6 +5,8 @@ import { Settings } from "@/components/dialogs/Settings"
 import { ConversationPanel } from "@/components/panels/ConversationPanel"
 import { MiniMapPanel } from "@/components/panels/MiniMapPanel"
 import { PlayerShipPanel } from "@/components/panels/PlayerShipPanel"
+import { RHSPanelContainer } from "@/components/panels/RHSPanelContainer"
+import { RHSPanelNav } from "@/components/panels/RHSPanelNav"
 import { TaskEnginesPanel } from "@/components/panels/TaskEnginesPanel"
 import { Divider } from "@/components/primitives/Divider"
 import { ScreenContainer } from "@/components/screens/ScreenContainer"
@@ -35,15 +37,16 @@ export const Game = () => {
           </main>
         </Panel>
         <Separator className="w-px bg-border outline-white data-[separator=active]:bg-white data-[separator=active]:outline-1 data-[separator=hover]:bg-subtle z-90" />
-        <Panel collapsible maxSize="50%" defaultSize="480px" minSize="400px">
+        <Panel collapsible defaultSize="480px" minSize="400px">
           <aside className="h-full border-background border-l-(length:--seperator) flex flex-col">
             <header className="pb-(--seperator) flex flex-col gap-(--seperator) bg-black">
               <PlayerShipPanel />
-              <Divider className="bg-accent-background" />
+              <Divider className="bg-accent" />
             </header>
-            <div className="border-l border-t flex-1 bg-black/40 flex flex-col items-center justify-center">
-              WIP
+            <div className="h-full border-l border-t flex-1 flex flex-col items-center justify-center overflow-hidden">
+              <RHSPanelContainer />
             </div>
+            <RHSPanelNav />
           </aside>
         </Panel>
       </Group>

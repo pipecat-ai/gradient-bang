@@ -99,13 +99,9 @@ export const ChatPanel = () => {
           </div>
         </CardContent>
       )}
-      <CardContent className="flex-1 mb-0 ">
-        <ScrollArea
-          className="relative w-full h-full"
-          fullHeight={true}
-          classNames={{ scrollbar: "*:first:bg-white/30" }}
-        >
-          <div className="absolute inset-0 overflow-y-auto flex flex-col gap-2">
+      <CardContent className="flex-1 mb-0 min-h-0">
+        <ScrollArea className="relative w-full h-full pointer-events-auto">
+          <div className="flex flex-col gap-2">
             {messages?.toReversed().map((message) => (
               <ChatMessageRow key={message.createdAt} message={message} />
             ))}

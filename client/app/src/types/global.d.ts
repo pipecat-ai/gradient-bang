@@ -194,7 +194,8 @@ declare global {
   // --- UI
 
   type UIState = "idle" | "moving" | "combat" | "paused"
-  type UIScreen = "self" | "messaging" | "trading" | "map" | "tasks" | "combat"
+  type UIScreen = "map"
+  type UIPanel = "sector" | "player" | "trade" | "tasks" | "corp" | "logs"
   type UIModal = "settings" | "leaderboard" | "signup" | "character_select" | undefined
 
   // --- COMBAT

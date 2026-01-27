@@ -6,7 +6,6 @@ import type { Story } from "@ladle/react"
 
 import { CharacterSelect } from "@/components/CharacterSelect"
 import { CoursePlotPanel } from "@/components/CoursePlotPanel"
-import { MovementHistoryPanel } from "@/components/MovementHistoryPanel"
 import { Divider } from "@/components/primitives/Divider"
 import { SectorMap } from "@/components/SectorMap"
 import { SettingsPanel } from "@/components/SettingsPanel"
@@ -119,8 +118,6 @@ export const Init: Story = () => {
           )}
           <Divider />
           <CoursePlotPanel />
-          <Divider />
-          <MovementHistoryPanel />
         </div>
 
         <div className="story-card bg-card">

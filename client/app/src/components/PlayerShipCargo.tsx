@@ -32,7 +32,7 @@ export const PlayerShipCargo = () => {
 
   return (
     <div className="border-l border-b bg-background p-ui-sm">
-      <div className="flex flex-col gap-ui-sm">
+      <div className="flex flex-col gap-ui-sm overflow-hidden">
         <Badge variant="ghost" border="bracket" className="flex-1 w-full flex flex-col gap-2">
           <LabelValueText
             label="Hold Capacity"

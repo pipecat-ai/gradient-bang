@@ -1,10 +1,10 @@
-"use client";
+"use client"
 
-import * as React from "react";
+import * as React from "react"
 
-import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area";
+import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area"
 
-import { cn } from "@/utils/tailwind";
+import { cn } from "@/utils/tailwind"
 
 function ScrollArea({
   className,
@@ -14,9 +14,9 @@ function ScrollArea({
   onScroll,
   ...props
 }: React.ComponentProps<typeof ScrollAreaPrimitive.Root> & {
-  fullHeight?: boolean;
-  classNames?: { scrollbar?: string };
-  onScroll?: React.UIEventHandler<HTMLDivElement>;
+  fullHeight?: boolean
+  classNames?: { scrollbar?: string }
+  onScroll?: React.UIEventHandler<HTMLDivElement>
 }) {
   return (
     <ScrollAreaPrimitive.Root
@@ -37,7 +37,7 @@ function ScrollArea({
       <ScrollBar className={classNames?.scrollbar} />
       <ScrollAreaPrimitive.Corner />
     </ScrollAreaPrimitive.Root>
-  );
+  )
 }
 
 function ScrollBar({
@@ -50,11 +50,9 @@ function ScrollBar({
       data-slot="scroll-area-scrollbar"
       orientation={orientation}
       className={cn(
-        "flex touch-none p-(--scrollbar-offset) transition-colors select-none z-20",
-        orientation === "vertical" &&
-          "h-full w-scrollbar border-l border-l-transparent",
-        orientation === "horizontal" &&
-          "h-scrollbar flex-col border-t border-t-transparent",
+        "flex touch-none p-(--scrollbar-offset) transition-colors select-none z-20 *:first:bg-white/30",
+        orientation === "vertical" && "h-full w-scrollbar border-l border-l-transparent",
+        orientation === "horizontal" && "h-scrollbar flex-col border-t border-t-transparent",
         className
       )}
       {...props}
@@ -64,7 +62,7 @@ function ScrollBar({
         className="bg-border relative flex-1 hover:bg-white"
       />
     </ScrollAreaPrimitive.ScrollAreaScrollbar>
-  );
+  )
 }
 
-export { ScrollArea, ScrollBar };
+export { ScrollArea, ScrollBar }
