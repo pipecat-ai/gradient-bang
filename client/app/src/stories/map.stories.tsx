@@ -147,17 +147,18 @@ export const BigMapStory: Story = () => {
   }, [setMapConfig, mapZoomLevel])
 
   const updateCenterSector = useCallback(
-    (node: MapSectorNode) => {
-      set({ center_sector: node.id ?? 0 })
+    (node: MapSectorNode | null) => {
+      // Click on empty space deselects (resets to current sector)
+      set({ center_sector: node?.id ?? current_sector ?? 0 })
     },
-    [set]
+    [set, current_sector]
   )
 
   return (
     <>
       <div className="flex flex-row gap-3 h-full relative bg-black">
         <CardTitle className="heading-1 absolute top-0 left-0">Universe Map</CardTitle>
-        <div className="w-[1100px] h-[780px] relative">
+        <div className="flex-1 relative">
           <MapZoomControls />
           {mapConfig && (
             <SectorMap
@@ -166,14 +167,14 @@ export const BigMapStory: Story = () => {
               config={mapConfig as MapConfig}
               map_data={mapData ?? []}
               maxDistance={mapConfig.max_bounds_distance}
-              showLegend={show_legend}
+              showLegend={false}
               onNodeClick={updateCenterSector}
               coursePlot={coursePlot ?? null}
               ships={shipSectors}
             />
           )}
         </div>
-        <aside className="flex flex-col gap-6 w-lg min-h-0 overflow-hidden">
+        <aside className="flex flex-col gap-6 w-md min-h-0 overflow-hidden">
           <CardContent className="flex flex-col gap-3">
             <Badge border="bracket" className="w-full -bracket-offset-3">
               Current Sector:
