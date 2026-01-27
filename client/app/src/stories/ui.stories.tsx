@@ -3,6 +3,8 @@ import { CheckIcon } from "@phosphor-icons/react"
 import { type ColumnDef } from "@tanstack/react-table"
 
 import { DataTable } from "@/components/DataTable"
+import { PlayerShipFuelBadge } from "@/components/PlayerShipBadges"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/primitives/Tabs"
 import useGameStore from "@/stores/game"
 import { formatDate, formatTimeAgoOrDate } from "@/utils/date"
 
@@ -64,6 +66,56 @@ export const DataTableStory: Story = () => {
 }
 
 DataTableStory.meta = {
+  useDevTools: true,
+  useChatControls: false,
+  disconnectedStory: true,
+  enableMic: false,
+  disableAudioOutput: true,
+}
+
+export const TabsStory: Story = () => {
+  return (
+    <div className="bg-background p-4">
+      <Tabs defaultValue="overview" className="w-[400px]">
+        <TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="settings">Settings</TabsTrigger>
+          <TabsTrigger value="help">Help</TabsTrigger>
+        </TabsList>
+        <TabsContent value="overview">Overview</TabsContent>
+        <TabsContent value="settings">Settings</TabsContent>
+        <TabsContent value="help">Help</TabsContent>
+      </Tabs>
+
+      <Tabs defaultValue="overview" className="w-[400px]" orientation="vertical">
+        <TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="settings">Settings</TabsTrigger>
+          <TabsTrigger value="help">Help</TabsTrigger>
+        </TabsList>
+        <TabsContent value="overview">Overview</TabsContent>
+        <TabsContent value="settings">Settings</TabsContent>
+        <TabsContent value="help">Help</TabsContent>
+      </Tabs>
+    </div>
+  )
+}
+TabsStory.meta = {
+  useDevTools: true,
+  useChatControls: false,
+  disconnectedStory: true,
+  enableMic: false,
+  disableAudioOutput: true,
+}
+
+export const ProgressIndicatorStory: Story = () => {
+  return (
+    <div className="w-[400px]">
+      <PlayerShipFuelBadge className="w-full" />
+    </div>
+  )
+}
+ProgressIndicatorStory.meta = {
   useDevTools: true,
   useChatControls: false,
   disconnectedStory: true,

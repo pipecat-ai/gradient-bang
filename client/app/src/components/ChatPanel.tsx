@@ -68,7 +68,7 @@ export const ChatPanel = () => {
           role: "system",
           parts: [
             {
-              text: faker.lorem.words({ min: 2, max: 5 }),
+              text: faker.lorem.words({ min: 2, max: 25 }),
               final: true,
               createdAt: new Date().toISOString(),
             },

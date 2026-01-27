@@ -377,8 +377,8 @@ export const SettingsPanel = ({ onSave, onCancel }: SettingsPanelProps) => {
         </ScrollArea>
       </div>
       <CardFooter className="flex flex-col gap-6">
-        <Divider decoration="plus" />
-        <div className="flex flex-row gap-3">
+        <Divider decoration="plus" color="accent" />
+        <div className="flex flex-row gap-3 w-full">
           <Button onClick={onCancel} variant="secondary" className="flex-1">
             Cancel
           </Button>
