@@ -53,7 +53,7 @@ SHIP_REGISTRY = {
         fighters=300,
         shields=150,
         turns_per_warp=3,
-        warp_power_capacity=300,
+        warp_power_capacity=500,
         equipment_slots=2,
         built_in_features=[]
     ),

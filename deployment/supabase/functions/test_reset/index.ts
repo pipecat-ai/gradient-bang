@@ -64,7 +64,7 @@ const DEFAULT_SHIELDS = Number(
   Deno.env.get("SUPABASE_TEST_DEFAULT_SHIELDS") ?? "150",
 );
 const DEFAULT_WARP = Number(
-  Deno.env.get("SUPABASE_TEST_DEFAULT_WARP") ?? "300",
+  Deno.env.get("SUPABASE_TEST_DEFAULT_WARP") ?? "500",
 );
 
 const PINNED_SECTORS: Record<string, number> = {
