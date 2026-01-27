@@ -6,9 +6,9 @@ import { Badge } from "./primitives/Badge"
 import { RESOURCE_VERBOSE_NAMES } from "@/types/constants"
 
 const ICON_MAP = {
-  quantum_foam: <QuantumFoamIcon size={24} weight="duotone" />,
-  retro_organics: <RetroOrganicsIcon size={24} weight="duotone" />,
-  neuro_symbolics: <NeuroSymbolicsIcon size={24} weight="duotone" />,
+  quantum_foam: <QuantumFoamIcon size={20} weight="duotone" />,
+  retro_organics: <RetroOrganicsIcon size={20} weight="duotone" />,
+  neuro_symbolics: <NeuroSymbolicsIcon size={20} weight="duotone" />,
 }
 export const ResourceTitle = ({
   resource,

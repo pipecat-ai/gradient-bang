@@ -38,7 +38,7 @@ export const Game = () => {
         </Panel>
         <Separator className="w-px bg-border outline-white data-[separator=active]:bg-white data-[separator=active]:outline-1 data-[separator=hover]:bg-subtle z-90" />
         <Panel collapsible defaultSize="480px" minSize="400px">
-          <aside className="h-full border-background border-l-(length:--seperator) flex flex-col">
+          <aside className="@container/aside h-full border-background border-l-(length:--seperator) flex flex-col">
             <header className="pb-(--seperator) flex flex-col gap-(--seperator) bg-black">
               <PlayerShipPanel />
               <Divider className="bg-accent" />

@@ -31,8 +31,8 @@ export const PlayerShipCargo = () => {
     : "bg-terminal-background stripe-bar stripe-bar-terminal stripe-bar-8 stripe-bar-animate-1"
 
   return (
-    <div className="border-l border-b bg-background p-ui-sm">
-      <div className="flex flex-col gap-ui-sm overflow-hidden">
+    <div className="border-l border-b bg-background p-ui-sm select-none">
+      <div className="flex flex-col gap-ui-sm">
         <Badge variant="ghost" border="bracket" className="flex-1 w-full flex flex-col gap-2">
           <LabelValueText
             label="Hold Capacity"
@@ -85,7 +85,7 @@ export const PlayerShipCargo = () => {
               value: "text-sm",
             }}
           >
-            <CreditsIcon weight="duotone" className="size-5" size={20} />
+            <CreditsIcon weight="duotone" className="size-4" size={20} />
           </NumericalBadge>
           <div className="border-l pl-ui-xs flex flex-col gap-1">
             <Button variant="outline" size="sm" className="flex-1 text-xxs" disabled>
