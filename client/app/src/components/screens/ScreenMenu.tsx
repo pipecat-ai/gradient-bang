@@ -1,6 +1,6 @@
-import * as React from "react";
+import * as React from "react"
 
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react"
 import {
   ChatTeardropDotsIcon,
   CheckSquareOffsetIcon,
@@ -8,13 +8,13 @@ import {
   PlanetIcon,
   RocketLaunchIcon,
   SwapIcon,
-} from "@phosphor-icons/react";
+} from "@phosphor-icons/react"
 
-import { Button } from "@/components/primitives/Button";
-import { ButtonGroup } from "@/components/primitives/ButtonGroup";
-import { Separator } from "@/components/primitives/Separator";
-import useGameStore from "@/stores/game";
-import { cn } from "@/utils/tailwind";
+import { Button } from "@/components/primitives/Button"
+import { ButtonGroup } from "@/components/primitives/ButtonGroup"
+import { Separator } from "@/components/primitives/Separator"
+import useGameStore from "@/stores/game"
+import { cn } from "@/utils/tailwind"
 
 export const ScreenMenuItem = ({
   children,
@@ -23,11 +23,11 @@ export const ScreenMenuItem = ({
   onClick,
   onMouseEnter,
 }: {
-  children: React.ReactNode;
-  active: boolean;
-  label: string;
-  onClick: () => void;
-  onMouseEnter: () => void;
+  children: React.ReactNode
+  active: boolean
+  label: string
+  onClick: () => void
+  onMouseEnter: () => void
 }) => {
   return (
     <Button
@@ -49,41 +49,41 @@ export const ScreenMenuItem = ({
         aria-hidden="true"
       />
 
-      {React.isValidElement(children)
-        ? React.cloneElement(children, {
-            weight: active ? "fill" : "regular",
-          } as React.ComponentProps<React.ElementType>)
-        : (children satisfies React.ReactNode)}
+      {React.isValidElement(children) ?
+        React.cloneElement(children, {
+          weight: active ? "fill" : "regular",
+        } as React.ComponentProps<React.ElementType>)
+      : (children satisfies React.ReactNode)}
     </Button>
-  );
-};
+  )
+}
 
 export const ScreenMenu = () => {
-  const activeScreen = useGameStore.use.activeScreen?.();
-  const setActiveScreen = useGameStore.use.setActiveScreen?.();
-  const [hoveredTab, setHoveredTab] = React.useState<UIScreen | null>(null);
-  const timerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const activeScreen = useGameStore.use.activeScreen?.()
+  const setActiveScreen = useGameStore.use.setActiveScreen?.()
+  const [hoveredTab, setHoveredTab] = React.useState<UIScreen | null>(null)
+  const timerRef = React.useRef<NodeJS.Timeout | null>(null)
 
   const startFadeOutTimer = () => {
     if (timerRef.current) {
-      clearTimeout(timerRef.current);
+      clearTimeout(timerRef.current)
     }
     timerRef.current = setTimeout(() => {
-      setHoveredTab(null);
-    }, 1000);
-  };
+      setHoveredTab(null)
+    }, 1000)
+  }
 
   const clearFadeOutTimer = () => {
     if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
+      clearTimeout(timerRef.current)
+      timerRef.current = null
     }
-  };
+  }
 
   const handleTabMouseEnter = (tabId: UIScreen) => {
-    clearFadeOutTimer();
-    setHoveredTab(tabId);
-  };
+    clearFadeOutTimer()
+    setHoveredTab(tabId)
+  }
 
   const tabs = [
     { id: "self", label: "Status", icon: <RocketLaunchIcon /> },
@@ -92,9 +92,9 @@ export const ScreenMenu = () => {
     { id: "tasks", label: "Tasks", icon: <CheckSquareOffsetIcon /> },
     { id: "combat", label: "Combat", icon: <CrosshairSimpleIcon /> },
     { id: "messaging", label: "Messaging", icon: <ChatTeardropDotsIcon /> },
-  ];
+  ]
   return (
-    <div className="flex flex-col gap-1 items-center user-select-none relative">
+    <div className="flex flex-col gap-1 items-center select-none relative">
       <div
         className="mask-[linear-gradient(to_bottom,transparent_1px,black_20px)] px-1 pb-2"
         onMouseLeave={startFadeOutTimer}
@@ -108,10 +108,10 @@ export const ScreenMenu = () => {
               onMouseEnter={() => handleTabMouseEnter(tab.label as UIScreen)}
               onClick={() => {
                 if (activeScreen === tab.id) {
-                  setActiveScreen(undefined);
-                  return;
+                  setActiveScreen(undefined)
+                  return
                 }
-                setActiveScreen(tab.id as UIScreen);
+                setActiveScreen(tab.id as UIScreen)
               }}
             >
               {tab.icon}
@@ -138,5 +138,5 @@ export const ScreenMenu = () => {
         </AnimatePresence>
       </div>
     </div>
-  );
-};
+  )
+}

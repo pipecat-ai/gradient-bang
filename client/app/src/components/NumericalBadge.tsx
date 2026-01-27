@@ -90,9 +90,14 @@ export const NumericalBadge = ({
         className
       )}
     >
-      <div className={cn("flex flex-col gap-2 items-center", classNames?.inner)}>
-        {label && <LabelText label={label} />}
-        <div className={cn("flex flex-row gap-2 items-center", classNames?.valueContainer)}>
+      <div className={cn("flex flex-col gap-1 items-center", classNames?.inner)}>
+        {label && <LabelText label={label} className="leading-5" />}
+        <div
+          className={cn(
+            "flex flex-row gap-2 items-center leading-none",
+            classNames?.valueContainer
+          )}
+        >
           {children}
           <AnimatedValue
             value={value}

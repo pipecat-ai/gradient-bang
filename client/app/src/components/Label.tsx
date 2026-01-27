@@ -1,3 +1,5 @@
+import { cn } from "@/utils/tailwind"
+
 export const LabelValueText = ({
   label,
   value,
@@ -25,6 +27,6 @@ export const LabelValueText = ({
   )
 }
 
-export const LabelText = ({ label }: { label: string }) => {
-  return <span className="text-xs font-bold leading-none">{label}</span>
+export const LabelText = ({ label, className }: { label: string; className?: string }) => {
+  return <span className={cn("text-xs font-bold leading-none", className)}>{label}</span>
 }

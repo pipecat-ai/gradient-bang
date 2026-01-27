@@ -1,4 +1,5 @@
-import { Group, Panel, Separator } from "react-resizable-panels"
+import { Group, Panel, Separator, usePanelRef } from "react-resizable-panels"
+import { ArrowLeftIcon } from "@phosphor-icons/react"
 import { PipecatClientAudio } from "@pipecat-ai/client-react"
 
 import { Settings } from "@/components/dialogs/Settings"
@@ -16,8 +17,11 @@ import { ToastContainer } from "@/components/toasts/ToastContainer"
 import { TopBar } from "@/components/TopBar"
 import { useNotificationSound } from "@/hooks/useNotificationSound"
 
+import { Button } from "../primitives/Button"
+
 export const Game = () => {
   useNotificationSound()
+  const asidePanelRef = usePanelRef()
 
   return (
     <>
@@ -30,15 +34,22 @@ export const Game = () => {
             <div className="p-ui-xs flex-1">
               <TaskEnginesPanel />
             </div>
-            <footer className="p-ui-xs pt-0 h-[380px] flex flex-row gap-ui-sm justify-between">
+            <footer className="p-ui-xs pt-0 h-[330px] flex flex-row gap-ui-sm justify-between">
               <ConversationPanel className="flex-1 max-w-xl" />
-              <MiniMapPanel className="min-w-[380px]" />
+              <MiniMapPanel className="min-w-[330px]" />
             </footer>
           </main>
         </Panel>
         <Separator className="w-px bg-border outline-white data-[separator=active]:bg-white data-[separator=active]:outline-1 data-[separator=hover]:bg-subtle z-90" />
-        <Panel collapsible defaultSize="480px" minSize="400px">
-          <aside className="@container/aside h-full border-background border-l-(length:--seperator) flex flex-col">
+        <Panel
+          collapsible
+          defaultSize="480px"
+          minSize="400px"
+          collapsedSize="60px"
+          className="@container/aside"
+          panelRef={asidePanelRef}
+        >
+          <aside className="h-full border-background border-l-(length:--seperator) flex-col hidden @sm/aside:flex">
             <header className="pb-(--seperator) flex flex-col gap-(--seperator) bg-black">
               <PlayerShipPanel />
               <Divider className="bg-accent" />
@@ -48,6 +59,16 @@ export const Game = () => {
             </div>
             <RHSPanelNav />
           </aside>
+          <div className="h-full flex-col items-center justify-center hidden @max-sm/aside:flex">
+            <Button
+              variant="secondary"
+              size="icon"
+              className=""
+              onClick={() => asidePanelRef?.current?.expand()}
+            >
+              <ArrowLeftIcon size={16} />
+            </Button>
+          </div>
         </Panel>
       </Group>
 

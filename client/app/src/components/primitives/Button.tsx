@@ -20,7 +20,7 @@ const buttonVariants = cva(
 
         ghost: "hover:bg-accent hover:bg-accent/50 focus-hover hover:animate-outline-pulse",
         link: "text-primary underline-offset-4 hover:underline focus-visible:outline-0",
-        tab: "relative bg-gradient-to-t from-transparent via-muted/40 via-50% to-muted/40 text-primary hover:text-muted-foreground hover:via-subtle/20 hover:to-subtle/20 hover:text-primary border border-b-0 [border-image:linear-gradient(to_top,transparent_0%,var(--color-border)_50%)_1] before:content-[''] before:absolute before:inset-x-px before:h-0 before:top-px before:bg-white/30 hover:before:h-1 before:transition-all before:duration-200 before:ease-in-out focus-outline",
+        tab: "relative bg-gradient-to-t from-transparent via-muted/40 via-50% to-muted/40 text-primary hover:text-muted-foreground hover:via-subtle/20 hover:to-subtle/20 hover:text-primary border border-b-0 [border-image:linear-gradient(to_top,transparent_0%,var(--color-border)_50%)_1] before:content-[''] before:absolute before:inset-x-px before:h-0 before:top-px before:bg-white/30 hover:before:h-1 @max-md/aside:hover:before:h-0.5 before:transition-colors before:duration-200 before:ease-in-out focus-outline",
         micEnabled:
           "bg-primary/[.05] text-secondary-foreground hover:bg-primary/10 border-1 border-border outline-primary hover:outline-solid transition-[background,color] focus-hover",
         micDisabled:
@@ -44,7 +44,7 @@ const buttonVariants = cva(
         "icon-xs": "size-3",
         "icon-sm": "size-8",
         "icon-lg": "size-10",
-        tab: "px-ui-xxs py-ui-sm [&_svg:not([class*='size-'])]:size-6 [&_svg:not([class*='z-'])]:z-20",
+        tab: "px-ui-xxs py-ui-sm [&_svg:not([class*='size-'])]:size-6 [&_svg:not([class*='z-'])]:z-20 @max-md/aside:py-ui-xs @max-md/aside:[&_svg:not([class*='size-'])]:size-5",
       },
     },
     compoundVariants: [
@@ -52,7 +52,7 @@ const buttonVariants = cva(
         variant: "tab",
         active: true,
         class:
-          "via-terminal/30 to-terminal/30 hover:via-terminal/20 hover:to-terminal/20 [border-image:linear-gradient(to_top,transparent_0%,var(--color-terminal)_50%)_1] text-terminal-foreground/20 hover:text-terminal-foreground/40 before:bg-terminal-foreground before:shadow-glow-sm before:shadow-terminal-foreground before:h-1",
+          "via-terminal/30 to-terminal/30 hover:via-terminal/20 hover:to-terminal/20 [border-image:linear-gradient(to_top,transparent_0%,var(--color-terminal)_50%)_1] text-terminal-foreground/20 hover:text-terminal-foreground/40 before:bg-terminal-foreground before:shadow-glow-sm before:shadow-terminal-foreground before:h-1 @max-md/aside:before:h-0.5",
       },
     ],
     defaultVariants: {

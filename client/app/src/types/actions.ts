@@ -35,6 +35,10 @@ export interface CancelTaskAction {
   payload: { task_id: string }
 }
 
+export interface RenameShipAction {
+  type: "rename-ship"
+  payload: { ship_id: string; ship_name: string }
+}
 type ActionMeta = { async?: boolean }
 
 export type GameAction = (
@@ -44,6 +48,7 @@ export type GameAction = (
   | GetMapRegionAction
   | GetMyShipsAction
   | CancelTaskAction
+  | RenameShipAction
 ) &
   ActionMeta
 

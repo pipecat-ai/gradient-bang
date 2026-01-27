@@ -18,7 +18,7 @@ export const ConversationPanel = ({ className }: { className?: string }) => {
             sendUserTextInput?.(text)
           }}
         />
-        <UserMicControl className="min-w-28" />
+        <UserMicControl className="min-w-30" />
       </div>
     </div>
   )
