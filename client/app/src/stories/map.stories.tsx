@@ -1,11 +1,12 @@
 import { useCallback, useEffect } from "react"
 
 import { button, folder, useControls } from "leva"
+import { faker } from "@faker-js/faker"
 import { Story } from "@ladle/react"
 
 import { CoursePlotPanel } from "@/components/CoursePlotPanel"
 import { MapZoomControls } from "@/components/MapZoomControls"
-import { MovementHistoryPanel } from "@/components/MovementHistoryPanel"
+import { MovementHistoryPanel } from "@/components/panels/DataTablePanels"
 import { Badge } from "@/components/primitives/Badge"
 import { CardContent, CardTitle } from "@/components/primitives/Card"
 import { Progress } from "@/components/primitives/Progress"
@@ -25,6 +26,7 @@ export const BigMapStory: Story = () => {
   const coursePlot = useGameStore.use.course_plot?.()
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
   const setRegionalMapData = useGameStore.use.setRegionalMapData?.()
+  const addMovementHistory = useGameStore.use.addMovementHistory?.()
 
   const shipSectors = ships?.data
     ?.filter((s: ShipSelf) => s.owner_type !== "personal")
@@ -56,6 +58,13 @@ export const BigMapStory: Story = () => {
         }),
         ["Load Large Mock"]: button(() => {
           setRegionalMapData(LARGE_MAP_DATA_MOCK)
+        }),
+        ["Add Mock Movement History"]: button(() => {
+          addMovementHistory({
+            from: 0,
+            to: faker.number.int(5000),
+            port: faker.datatype.boolean(),
+          })
         }),
         center_sector: {
           value: sector?.id ?? 0,
@@ -164,7 +173,7 @@ export const BigMapStory: Story = () => {
             />
           )}
         </div>
-        <aside className="flex flex-col gap-6 min-w-100">
+        <aside className="flex flex-col gap-6 w-lg min-h-0 overflow-hidden">
           <CardContent className="flex flex-col gap-3">
             <Badge border="bracket" className="w-full -bracket-offset-3">
               Current Sector:
@@ -194,7 +203,7 @@ export const BigMapStory: Story = () => {
             </Badge>
           </CardContent>
           <CoursePlotPanel />
-          <MovementHistoryPanel />
+          <MovementHistoryPanel className="flex-1 min-h-0" />
         </aside>
       </div>
     </>
@@ -202,8 +211,9 @@ export const BigMapStory: Story = () => {
 }
 
 BigMapStory.meta = {
-  connectOnMount: false,
-  enableMic: false,
-  disableAudioOutput: false,
   useDevTools: true,
+  useChatControls: false,
+  disconnectedStory: true,
+  enableMic: false,
+  disableAudioOutput: true,
 }

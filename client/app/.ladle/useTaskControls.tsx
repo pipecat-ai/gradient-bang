@@ -48,6 +48,7 @@ export const useTaskControls = () => {
   const addActiveTask = useGameStore.use.addActiveTask()
   const setLocalTaskId = useGameStore.use.setLocalTaskId()
   const assignTaskToCorpSlot = useGameStore.use.assignTaskToCorpSlot()
+  const addMovementHistory = useGameStore.use.addMovementHistory()
 
   return useControls(
     () => ({
@@ -139,28 +140,40 @@ export const useTaskControls = () => {
             },
             { collapsed: false }
           ),
-          Ships: folder(
-            {
-              ["Add Corp Ship"]: button(() => {
-                const s = useGameStore.getState().ships ?? []
-                setShips([
-                  ...(s.data ?? []),
-                  {
-                    ...SHIP_MOCK,
-                    ship_id: faker.string.uuid(),
-                    ship_name: faker.vehicle.vehicle(),
-                    ship_type: faker.vehicle.type(),
-                    owner_type: "corporation",
-                    sector: faker.number.int(5000),
-                  } as ShipSelf,
-                ])
-              }),
-              ["Reset Ships"]: button(() => {
-                setShips([])
-              }),
-            },
-            { collapsed: true }
-          ),
+        },
+        { collapsed: true }
+      ),
+      Map: folder(
+        {
+          ["Add Mock Movement History"]: button(() => {
+            addMovementHistory({
+              from: 0,
+              to: faker.number.int(5000),
+              port: faker.datatype.boolean(),
+            })
+          }),
+        },
+        { collapsed: true }
+      ),
+      Ships: folder(
+        {
+          ["Add Corp Ship"]: button(() => {
+            const s = useGameStore.getState().ships ?? []
+            setShips([
+              ...(s.data ?? []),
+              {
+                ...SHIP_MOCK,
+                ship_id: faker.string.uuid(),
+                ship_name: faker.vehicle.vehicle(),
+                ship_type: faker.vehicle.type(),
+                owner_type: "corporation",
+                sector: faker.number.int(5000),
+              } as ShipSelf,
+            ])
+          }),
+          ["Reset Ships"]: button(() => {
+            setShips([])
+          }),
         },
         { collapsed: true }
       ),
