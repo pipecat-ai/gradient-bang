@@ -45,7 +45,7 @@ const CharacterCard = ({
           }
         }}
       >
-        <Card className="h-full text-accent-background bg-dither-mask-md border-0 group-hover:text-accent group-focus-visible:text-accent">
+        <Card className="h-full text-accent-background dither-mask-md border-0 group-hover:text-accent group-focus-visible:text-accent">
           <CardContent className="flex-1 flex flex-col justify-between h-full">
             <div className="text-accent-foreground group-hover:text-terminal group-focus-visible:text-terminal mb-2 aspect-square flex items-center justify-center bg-background/50 cross-lines-accent-background cross-lines-offset-8">
               <UserIcon

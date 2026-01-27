@@ -3,7 +3,7 @@ import { useMemo } from "react"
 import { CheckIcon } from "@phosphor-icons/react"
 import { type ColumnDef } from "@tanstack/react-table"
 
-import { DataTable } from "@/components/DataTable"
+import { DataTableScrollArea } from "@/components/DataTable"
 import useGameStore from "@/stores/game"
 import { formatDateTime24, formatTimeAgoOrDate } from "@/utils/date"
 import { cn } from "@/utils/tailwind"
@@ -43,9 +43,14 @@ export const MovementHistoryPanel = ({ className }: { className?: string }) => {
   const reversedMovementHistory = useMemo(() => [...movementHistory].reverse(), [movementHistory])
 
   return (
-    <Card className={cn("flex h-full bg-black", className)} size="none">
-      <CardContent className="flex flex-col h-full min-h-0 gap-2 relative overflow-hidden">
-        <DataTable data={reversedMovementHistory} columns={columns} striped />
+    <Card className={cn("flex h-full bg-background", className)} size="none">
+      <CardContent className="flex flex-col h-full min-h-0 gap-2 relative">
+        <DataTableScrollArea
+          data={reversedMovementHistory}
+          columns={columns}
+          striped
+          className="text-background dither-mask-sm dither-mask-invert h-full"
+        />
       </CardContent>
     </Card>
   )
