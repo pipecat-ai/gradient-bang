@@ -21,6 +21,11 @@ Most important code in this repo:
 - Start the bot:
   - `set -a && source .env.supabase && set +a && uv run bot --host 0.0.0.0`
 
+## Testing the web client
+- Open a browser and load http://localhost:5173/
+- Sign in as kwindla@gmail.com with password secret123
+- Use the player JOETRADER
+
 ## Important notes
 - Legacy code in `game_server/` is OUT OF SCOPE. Assume that code will be removed from the repo soon.
 - You can look directly at Supabase tables and Supabase logs for Supabase running locally. Config is `.env.supabase`.

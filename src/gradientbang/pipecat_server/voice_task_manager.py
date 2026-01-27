@@ -509,6 +509,12 @@ class VoiceTaskManager:
         if not task_id:
             task_id = self._get_task_id_for_character(self.character_id)
 
+        if event_name == "status.snapshot":
+            logger.debug(
+                f"status.snapshot received request_id={event_request_id} payload_task_id={payload_task_id} "
+                f"resolved_task_id={task_id} is_our_task={is_our_task}"
+            )
+
         # Build event XML with optional task_id
         if task_id:
             event_xml = f"<event name=\"{event_name}\" task_id=\"{task_id}\">\n{summary}\n</event>"
@@ -1156,6 +1162,10 @@ class VoiceTaskManager:
                     entity_type="corporation_ship",
                     transport="websocket",
                 )
+                await task_game_client.pause_event_delivery()
+                logger.debug(
+                    f"Paused event delivery for corp task {short_task_id} (ship_id={target_character_id})"
+                )
                 # Corp ships don't need to "join" - they already exist in the game.
                 # Skip the join call and proceed directly to my_status below.
             else:
@@ -1178,7 +1188,15 @@ class VoiceTaskManager:
 
             # call my_status so the first thing the task gets is a status.snapshot event
             try:
+                if ship_id:
+                    logger.debug(
+                        f"Corp task {short_task_id} requesting initial status.snapshot (ship_id={target_character_id})"
+                    )
                 await task_game_client.my_status(character_id=target_character_id)
+                if ship_id:
+                    logger.debug(
+                        f"Corp task {short_task_id} initial status.snapshot request completed (ship_id={target_character_id})"
+                    )
             except Exception:
                 if task_game_client != self.game_client:
                     await task_game_client.close()
