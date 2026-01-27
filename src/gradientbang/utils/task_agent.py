@@ -676,6 +676,9 @@ class TaskAgent:
         self._last_logged_message_count = len(context.get_messages())
 
         try:
+            logger.debug(
+                f"TaskAgent {self._task_id} resuming event delivery after context setup"
+            )
             await self.game_client.resume_event_delivery()
 
             success = False
