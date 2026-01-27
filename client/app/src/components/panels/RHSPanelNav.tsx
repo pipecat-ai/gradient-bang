@@ -67,7 +67,7 @@ export const RHSPanelNav = () => {
   ]
 
   return (
-    <div className="flex flex-col border-l gap-1 items-center select-none relative flex-1 max-h-min px-panel-gap">
+    <div className="flex flex-col gap-1 items-center select-none relative flex-1 max-h-min pr-panel-gap">
       <ButtonGroup className="relative flex flex-row gap-panel-gap w-full">
         {tabs.map((tab) => (
           <RHSPanelNavItem

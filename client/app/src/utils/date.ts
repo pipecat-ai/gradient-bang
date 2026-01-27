@@ -37,3 +37,13 @@ export function combatRoundTimeRemaining(deadline: string, currentTime: string):
   const timeDiff = differenceInSeconds(deadlineDate, currentTimeDate)
   return timeDiff > 0 ? timeDiff : 0
 }
+
+export function formatDuration(started: string | Date, ended: string | Date): string {
+  const startDate = started instanceof Date ? started : new Date(started)
+  const endDate = ended instanceof Date ? ended : new Date(ended)
+  const seconds = differenceInSeconds(endDate, startDate)
+  if (seconds < 60) return `${seconds}s`
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`
+}

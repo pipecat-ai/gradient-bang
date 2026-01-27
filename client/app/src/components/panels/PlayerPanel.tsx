@@ -36,7 +36,7 @@ export const PlayerPanel = () => {
 
   return (
     <RHSPanelContent>
-      <Card size="sm" className="">
+      <Card size="sm" className="border-r-0">
         <CardHeader>
           <CardTitle>Rename {ship?.ship_name ?? "ship"}</CardTitle>
         </CardHeader>

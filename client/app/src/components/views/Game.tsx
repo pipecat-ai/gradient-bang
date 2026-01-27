@@ -36,7 +36,7 @@ export const Game = () => {
             </div>
             <footer className="p-ui-xs pt-0 h-[330px] flex flex-row gap-ui-sm justify-between">
               <ConversationPanel className="flex-1 max-w-xl" />
-              <MiniMapPanel className="min-w-[330px]" />
+              <MiniMapPanel className="max-w-[330px]" />
             </footer>
           </main>
         </Panel>
@@ -49,12 +49,12 @@ export const Game = () => {
           className="@container/aside"
           panelRef={asidePanelRef}
         >
-          <aside className="h-full border-background border-l-(length:--seperator) flex-col hidden @sm/aside:flex">
+          <aside className="h-full border-transparent border-l-(length:--seperator) flex-col hidden @sm/aside:flex">
             <header className="pb-(--seperator) flex flex-col gap-(--seperator) bg-black">
               <PlayerShipPanel />
               <Divider className="bg-accent" />
             </header>
-            <div className="h-full border-l border-t flex-1 flex flex-col items-center justify-center overflow-hidden">
+            <div className="h-full flex-1 flex flex-col items-center justify-center overflow-hidden">
               <RHSPanelContainer />
             </div>
             <RHSPanelNav />

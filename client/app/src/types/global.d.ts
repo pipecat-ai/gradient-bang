@@ -277,6 +277,21 @@ declare global {
     task_message_type: TaskType
   }
 
+  export interface TaskHistoryEntry {
+    task_id: string
+    started: string // ISO8601
+    ended: string | null // null if running
+    start_instructions: string
+    end_summary: string | null
+    end_status?: string | null
+    actor_character_id?: string
+    actor_character_name?: string
+    task_scope?: "player_ship" | "corp_ship"
+    ship_id?: string
+    ship_name?: string | null
+    ship_type?: string | null
+  }
+
   interface LogEntry {
     type: string
     message: string

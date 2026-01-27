@@ -253,21 +253,6 @@ export interface ShipDestroyedMessage extends ServerMessagePayload {
 
 // --- Task History Messages
 
-export interface TaskHistoryEntry {
-  task_id: string
-  started: string // ISO8601
-  ended: string | null // null if running
-  start_instructions: string
-  end_summary: string | null
-  end_status?: string | null
-  actor_character_id?: string
-  actor_character_name?: string
-  task_scope?: "player_ship" | "corp_ship"
-  ship_id?: string
-  ship_name?: string | null
-  ship_type?: string | null
-}
-
 export interface TaskHistoryMessage extends ServerMessagePayload {
   tasks: TaskHistoryEntry[]
   total_count: number

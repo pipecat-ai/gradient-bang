@@ -3,6 +3,8 @@ import { ScrollArea } from "@/components/primitives/ScrollArea"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
+import { TaskPanel } from "./TaskPanel"
+
 export const RHSPanelContent = ({
   children,
   className,
@@ -10,7 +12,7 @@ export const RHSPanelContent = ({
   children: React.ReactNode
   className?: string
 }) => {
-  return <div className={cn("flex flex-col gap-ui-sm p-ui-sm", className)}>{children}</div>
+  return <div className={cn("flex flex-col gap-ui-sm w-full overflow-hidden", className)}>{children}</div>
 }
 export const RHSPanelContainer = () => {
   const activePanel = useGameStore.use.activePanel?.()
@@ -23,7 +25,7 @@ export const RHSPanelContainer = () => {
         {activePanel === "sector" && <div className=""></div>}
         {activePanel === "player" && <PlayerPanel />}
         {activePanel === "trade" && <div className=""></div>}
-        {activePanel === "tasks" && <div className=""></div>}
+        {activePanel === "tasks" && <TaskPanel />}
         {activePanel === "corp" && <div className=""></div>}
         {activePanel === "logs" && <div className=""></div>}
       </ScrollArea>
