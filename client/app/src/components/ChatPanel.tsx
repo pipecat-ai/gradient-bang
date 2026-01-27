@@ -55,7 +55,7 @@ const ChatMessageRow = ({ message }: { message: ConversationMessage }) => {
 
 export const ChatPanel = () => {
   const { isConnected } = usePipecatConnectionState()
-  const { messages } = useChat({ textMode: "tts" })
+  const { messages } = useChat({ textMode: "llm" })
 
   // #if DEV
   const addChatMessage = useGameStore.use.addChatMessage()

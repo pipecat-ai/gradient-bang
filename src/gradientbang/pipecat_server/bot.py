@@ -62,6 +62,11 @@ from gradientbang.pipecat_server.context_compression import (
     ContextCompressionProducer,
 )
 from gradientbang.pipecat_server.frames import TaskActivityFrame
+from gradientbang.pipecat_server.inference_gate import (
+    InferenceGateState,
+    PostLLMInferenceGate,
+    PreLLMInferenceGate,
+)
 from gradientbang.pipecat_server.voice_task_manager import VoiceTaskManager
 from gradientbang.utils.token_usage_logging import TokenUsageMetricsProcessor
 
@@ -219,6 +224,10 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
     context = LLMContext(messages, tools=task_manager.get_tools_schema())
     context_aggregator = LLMContextAggregatorPair(context)
 
+    inference_gate_state = InferenceGateState(cooldown_seconds=2.0)
+    pre_llm_gate = PreLLMInferenceGate(inference_gate_state)
+    post_llm_gate = PostLLMInferenceGate(inference_gate_state)
+
     # Create compression producer and consumer for context management
     google_api_key = os.getenv("GOOGLE_API_KEY")
     compression_producer = ContextCompressionProducer(
@@ -234,16 +243,18 @@ async def run_bot(transport, runner_args: RunnerArguments, **kwargs):
             transport.input(),
             stt,
             rtvi,  # Add RTVI processor for transcription events
+            pre_llm_gate,
             context_aggregator.user(),
             ParallelPipeline(
                 # Main branch
                 [
                     task_progress,
                     llm,
+                    post_llm_gate,
                     token_usage_metrics,
                     tts,
-                    transport.output(),
                     context_aggregator.assistant(),
+                    transport.output(),
                     compression_consumer,  # Receives compression results
                 ],
                 # Compression monitoring branch (sink)
