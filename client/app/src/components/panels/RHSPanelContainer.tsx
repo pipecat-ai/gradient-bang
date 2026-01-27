@@ -5,7 +5,7 @@ export const RHSPanelContainer = () => {
   const activePanel = useGameStore.use.activePanel?.()
   return (
     <div
-      className="relative flex-1 w-full min-h-0 text-background dither-mask-md bg-background/20"
+      className="relative flex-1 w-full min-h-0 text-background dither-mask-md bg-background/20 @sm/aside:hidden"
       id="panel-container"
     >
       <ScrollArea className="w-full h-full pointer-events-auto">

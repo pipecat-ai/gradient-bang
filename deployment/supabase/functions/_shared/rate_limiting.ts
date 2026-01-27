@@ -29,7 +29,9 @@ export async function enforceRateLimit(
   });
 
   if (error) {
-    throw new Error(`rate limit RPC failed: ${error.message}`);
+    throw new Error(
+      `Rate limit RPC failed for character ${characterId}: ${error.message}`,
+    );
   }
 
   if (data !== true) {
