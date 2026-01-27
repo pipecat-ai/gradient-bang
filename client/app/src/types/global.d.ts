@@ -28,7 +28,11 @@ declare global {
     corp_id: string
     name: string
     member_count: number
-    joined_at: string
+    joined_at?: string
+    timestamp?: string
+    founder_id?: string
+    invite_code?: string
+    member_count?: number
   }
 
   // --- RESOURCE

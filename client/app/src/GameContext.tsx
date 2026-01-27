@@ -21,6 +21,8 @@ import {
   type CombatActionResponseMessage,
   type CombatRoundResolvedMessage,
   type CombatRoundWaitingMessage,
+  type CorporationCreatedMessage,
+  type CorporationShipPurchaseMessage,
   type CoursePlotMessage,
   type CreditsTransferMessage,
   type ErrorMessage,
@@ -365,6 +367,35 @@ export function GameProvider({ children }: GameProviderProps) {
                   credits_in_bank_before: data.credits_in_bank_before,
                   credits_in_bank_after: data.credits_in_bank_after,
                 },
+              })
+              break
+            }
+
+            // ----- CORPORATION
+
+            case "corporation.created": {
+              console.debug("[GAME EVENT] Corporation created", e.payload)
+              const data = e.payload as CorporationCreatedMessage
+              gameStore.setCorporation(data)
+              break
+            }
+
+            case "corporation.disbanded": {
+              console.debug("[GAME EVENT] Corporation disbanded", e.payload)
+              //const data = e.payload as CorporationDisbandedMessage
+              gameStore.setCorporation(undefined)
+              break
+            }
+
+            case "corporation.ship_purchased": {
+              console.debug("[GAME EVENT] Ship purchased", e.payload)
+              const data = e.payload as CorporationShipPurchaseMessage
+              gameStore.addShip({
+                ship_id: data.ship_id,
+                ship_name: data.ship_name,
+                ship_type: data.ship_type,
+                owner_type: "corporation",
+                sector: data.sector,
               })
               break
             }

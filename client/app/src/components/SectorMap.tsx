@@ -66,24 +66,16 @@ const mapTopologyChanged = (previous: MapData | null, next: MapData): boolean =>
   if (!previous) return true
   if (previous.length !== next.length) return true
 
-  const previousHops = new Map<number, number | null>()
-  previous.forEach((sector) => {
-    previousHops.set(sector.id, sector.hops_from_center ?? null)
-  })
+  // Only check if the set of sector IDs changed, not view-relative properties like hops_from_center
+  const previousIds = new Set(previous.map((sector) => sector.id))
 
   for (const sector of next) {
-    if (!previousHops.has(sector.id)) {
+    if (!previousIds.has(sector.id)) {
       return true
     }
-    const previousHop = previousHops.get(sector.id)
-    const nextHop = sector.hops_from_center ?? null
-    if (previousHop !== nextHop) {
-      return true
-    }
-    previousHops.delete(sector.id)
   }
 
-  return previousHops.size > 0
+  return false
 }
 
 const courseplotsEqual = (
@@ -296,6 +288,8 @@ const MapComponent = ({
       configChanged,
       coursePlotChanged,
       shipsChanged,
+      "old map": previousMapRef.current,
+      "new map": normalizedMapData,
     })
 
     // Update config when config, center_sector_id, or current_sector_id changes
@@ -309,14 +303,14 @@ const MapComponent = ({
       ships: shipsMap,
     })
 
-    if (centerSectorChanged || maxDistanceChanged || coursePlotChanged) {
-      // Camera needs to move - use animated transition
+    if (centerSectorChanged || maxDistanceChanged || coursePlotChanged || topologyChanged) {
+      // Camera needs to move or topology changed - use moveToSector to ensure new data is used
       console.debug("[GAME SECTOR MAP] Moving to sector", center_sector_id)
       controller.moveToSector(center_sector_id, normalizedMapData)
       prevCenterSectorIdRef.current = center_sector_id
-    } else if (topologyChanged || needsConfigUpdate || shipsChanged) {
-      // Data changed but camera stays put - just re-render
-      console.debug("[GAME SECTOR MAP] Rendering SectorMap (topology/config/ships changed)")
+    } else if (needsConfigUpdate || shipsChanged) {
+      // Config/ships changed but topology and camera stay the same - just re-render
+      console.debug("[GAME SECTOR MAP] Rendering SectorMap (config/ships changed)")
       controller.render()
     }
 

@@ -87,10 +87,11 @@ export interface GameSlice extends GameState {
   setPlayer: (player: Partial<PlayerSelf>) => void
   setShip: (ship: Partial<ShipSelf>) => void
   setShips: (ships: ShipSelf[]) => void
+  addShip: (ship: Partial<ShipSelf>) => void
   updateShip: (ship: Partial<ShipSelf> & { ship_id: string }) => void
   getShipSectors: (includeSelf: boolean) => number[]
   setSector: (sector: Sector) => void
-  setCorporation: (corporation: Corporation) => void
+  setCorporation: (corporation: Corporation | undefined) => void
   updateSector: (sector: Partial<Sector>) => void
   addSectorPlayer: (player: Player) => void
   removeSectorPlayer: (player: Player) => void
@@ -235,6 +236,17 @@ const createGameSlice: StateCreator<
       })
     ),
 
+  addShip: (ship: Partial<ShipSelf>) =>
+    set(
+      produce((state) => {
+        const existingShips = state.ships.data ?? []
+        state.ships = {
+          data: [...existingShips, ship as ShipSelf],
+          last_updated: new Date().toISOString(),
+        }
+      })
+    ),
+
   updateShip: (ship: Partial<ShipSelf> & { ship_id: string }) =>
     set(
       produce((state) => {
@@ -334,18 +346,31 @@ const createGameSlice: StateCreator<
     set(
       produce((state) => {
         // Helper to process updates for a given map
-        const processMapUpdates = (mapData: MapSectorNode[] | undefined): void => {
+        const processMapUpdates = (
+          mapData: MapSectorNode[] | undefined,
+          ignoreLocal: boolean = false
+        ): void => {
           if (!mapData) return
+
+          // Filter out player-sourced sectors if ignoreLocal is true
+          // If this update was triggered by a player move, we'll wait for map.local to
+          // prevent a double render
+          const updates =
+            ignoreLocal ?
+              sectorUpdates.filter((s) => (s as MapSectorNode).source !== "player")
+            : sectorUpdates
+
+          if (updates.length === 0) return
 
           // Build index of existing sectors
           const existingIndex = new Map<number, number>()
           mapData.forEach((s: MapSectorNode, idx: number) => existingIndex.set(s.id, idx))
 
           // Check if any of the update sectors exist in this map
-          const hasMatch = sectorUpdates.some((s) => existingIndex.has(s.id))
+          const hasMatch = updates.some((s) => existingIndex.has(s.id))
           if (!hasMatch) return
 
-          for (const sectorUpdate of sectorUpdates) {
+          for (const sectorUpdate of updates) {
             const existingIdx = existingIndex.get(sectorUpdate.id)
             if (existingIdx !== undefined) {
               // Update existing sector
@@ -357,7 +382,7 @@ const createGameSlice: StateCreator<
           }
         }
 
-        processMapUpdates(state.local_map_data)
+        processMapUpdates(state.local_map_data, true)
         processMapUpdates(state.regional_map_data)
       })
     ),
@@ -373,7 +398,7 @@ const createGameSlice: StateCreator<
       })
     ),
 
-  setCorporation: (corporation: Corporation) =>
+  setCorporation: (corporation: Corporation | undefined) =>
     set(
       produce((state) => {
         state.corporation = corporation

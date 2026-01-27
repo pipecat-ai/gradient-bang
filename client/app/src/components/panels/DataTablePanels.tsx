@@ -1,3 +1,5 @@
+import { useMemo } from "react"
+
 import { CheckIcon } from "@phosphor-icons/react"
 import { type ColumnDef } from "@tanstack/react-table"
 
@@ -38,11 +40,12 @@ const columns: ColumnDef<MovementHistory>[] = [
 
 export const MovementHistoryPanel = ({ className }: { className?: string }) => {
   const movementHistory = useGameStore((state) => state.movement_history)
+  const reversedMovementHistory = useMemo(() => [...movementHistory].reverse(), [movementHistory])
 
   return (
     <Card className={cn("flex h-full bg-black", className)} size="none">
       <CardContent className="flex flex-col h-full min-h-0 gap-2 relative overflow-hidden">
-        <DataTable data={movementHistory} columns={columns} striped />
+        <DataTable data={reversedMovementHistory} columns={columns} striped />
       </CardContent>
     </Card>
   )
