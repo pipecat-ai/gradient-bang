@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
 import { Dialog } from "radix-ui"
+import { XIcon } from "@phosphor-icons/react"
 
 import { MapScreen } from "@/components/screens/MapScreen"
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
 
+import { Button } from "../primitives/Button"
 import { ShipDetails } from "./ShipDetails"
 
 const variants = {
@@ -88,6 +90,16 @@ export const ScreenContainer = () => {
           onCloseAutoFocus={(e) => e.preventDefault()}
           className="DialogContent DialogContent-NoPadding w-[calc(100vw-var(--spacing-ui-lg)*2)] h-[calc(100dvh-var(--spacing-ui-lg)*2)] pointer-events-none"
         >
+          <Dialog.Close asChild>
+            <Button
+              variant="secondary"
+              size="icon-lg"
+              onClick={handleClose}
+              className="fixed top-ui-md right-ui-md"
+            >
+              <XIcon weight="bold" className="size-4" />
+            </Button>
+          </Dialog.Close>
           <div className="hidden">
             <Dialog.Title>{activeScreen?.screen}</Dialog.Title>
           </div>
