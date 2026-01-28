@@ -67,6 +67,43 @@ export const TaskHistoryRow = ({
   )
 }
 
+export const TaskInProgressRow = ({
+  task,
+  onTaskClick,
+}: {
+  task: ActiveTask
+  onTaskClick: (task: ActiveTask) => void
+}) => {
+  return (
+    <div className="flex flex-row items-center w-full min-w-0 gap-4 border-b border-accent pb-3">
+      <div className="flex flex-col gap-1 w-full min-w-0 flex-1">
+        <div className="flex flex-row gap-2 items-center">
+          <span className="text-xxs font-bold text-foreground leading-none">
+            {formatTaskDate(task.started_at)}
+          </span>
+          <ArrowRightIcon size={16} weight="bold" className="text-accent" />
+          <span className="text-xxs text-terminal uppercase leading-none animate-pulse">
+            In Progress
+          </span>
+        </div>
+        <div className="w-full">
+          <span className="block text-xxs text-subtle leading-none truncate max-w-32 @md/aside:max-w-64 @lg/aside:max-w-86">
+            {task.task_description}
+          </span>
+        </div>
+      </div>
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        className="bg-accent-background/50 text-foreground hover:bg-accent-background"
+        onClick={() => onTaskClick(task)}
+      >
+        <ArrowDownRightIcon size={16} weight="bold" />
+      </Button>
+    </div>
+  )
+}
+
 export const TaskPanel = () => {
   const activeTasks = useGameStore.use.activeTasks?.()
   const ships = useGameStore.use.ships?.()
@@ -75,14 +112,16 @@ export const TaskPanel = () => {
   const activeSubPanel = useGameStore.use.activeSubPanel?.()
   const setActiveSubPanel = useGameStore.use.setActiveSubPanel?.()
 
-  const [selectedTask, setSelectedTask] = useState<TaskHistoryEntry | null>(null)
+  const [selectedTask, setSelectedTask] = useState<TaskHistoryEntry | ActiveTask | null>(null)
 
   const numTaskEngines = Math.min(Math.max((ships.data?.length ?? 0) - 1, 0), 4)
   const numActiveTasks = Object.keys(activeTasks ?? {}).length
 
   useEffect(() => {
-    dispatchAction({ type: "get-task-history", payload: { max_rows: 20 } })
-  }, [dispatchAction])
+    if (!taskHistory) {
+      dispatchAction({ type: "get-task-history", payload: { max_rows: 20 } })
+    }
+  }, [dispatchAction, taskHistory])
 
   return (
     <RHSPanelContent>
@@ -102,7 +141,7 @@ export const TaskPanel = () => {
         <div className="p-2 bg-accent-background/60 bracket-subtle text-foreground flex-1 bracket bracket-offset-0 flex flex-col gap-1.5 items-center justify-center">
           <span className="text-xs font-semibold uppercase">Engines free</span>
           <span className="text-base leading-none uppercase text-terminal">
-            {numTaskEngines - numActiveTasks}
+            {Math.max(numTaskEngines - numActiveTasks, 0)}
           </span>
         </div>
       </header>
@@ -137,9 +176,23 @@ export const TaskPanel = () => {
             </span>
             <div className="flex-1 dotted-bg-xs text-accent h-3"></div>
           </div>
-          <div className="w-full bg-subtle-background items-center justify-center py-2 text-xs uppercase text-subtle text-center">
-            No active tasks
-          </div>
+          {Object.values(activeTasks ?? {}).length > 0 ?
+            <div className="flex flex-col gap-3 w-full min-w-0">
+              {Object.values(activeTasks ?? {}).map((task) => (
+                <TaskInProgressRow
+                  key={task.task_id}
+                  task={task}
+                  onTaskClick={(task) => {
+                    setSelectedTask(task)
+                    setActiveSubPanel("task-in-progress")
+                  }}
+                />
+              ))}
+            </div>
+          : <div className="w-full bg-subtle-background items-center justify-center py-2 text-xs uppercase text-subtle text-center">
+              No active tasks
+            </div>
+          }
           <div className="flex flex-row gap-ui-sm items-center justify-center leading-none">
             <div className="flex-1 dotted-bg-xs text-accent h-3"></div>
             <span className="text-xs font-semibold uppercase text-subtle leading-none pb-px">

@@ -39,7 +39,9 @@ export const RHSSubPanel = ({ children }: { children: React.ReactNode }) => {
                 Go Back
               </Button>
             </header>
-            <div className="p-ui-xs">{children}</div>
+            <ScrollArea className="p-ui-xs w-full h-full pointer-events-auto pb-24">
+              {children}
+            </ScrollArea>
           </div>
         </motion.div>
       )}
