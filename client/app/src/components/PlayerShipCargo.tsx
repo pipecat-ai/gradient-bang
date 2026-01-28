@@ -32,7 +32,34 @@ export const PlayerShipCargo = () => {
 
   return (
     <div className="border-l border-b bg-background p-ui-sm select-none">
-      <div className="flex flex-col gap-ui-sm">
+      <div className="flex flex-col gap-ui-xs">
+        <div className="flex flex-row gap-ui-xs items-stretch">
+          <NumericalBadge
+            value={ship?.credits}
+            label="credits on hand"
+            variant="secondary"
+            border="bracket"
+            className="p-ui-xs flex-1 bg-subtle-background"
+            formatAsCurrency={true}
+            classNames={{
+              value: "text-sm",
+            }}
+          >
+            <CreditsIcon weight="duotone" className="size-4" size={20} />
+          </NumericalBadge>
+
+          <div className="border-l pl-ui-xs flex flex-col gap-1">
+            <Button variant="outline" size="sm" className="flex-1 text-xxs" disabled>
+              Deposit to bank
+            </Button>
+            <Button variant="outline" size="sm" className="flex-1 text-xxs" disabled>
+              Withdraw from bank
+            </Button>
+          </div>
+        </div>
+
+        <Divider variant="dashed" color="accent" className="h-[8px]" />
+
         <Badge variant="ghost" border="bracket" className="flex-1 w-full flex flex-col gap-2">
           <LabelValueText
             label="Hold Capacity"
@@ -52,7 +79,7 @@ export const PlayerShipCargo = () => {
             }}
           />
         </Badge>
-        <Divider variant="dashed" color="accent" className="h-[2px]" />
+
         <div className="flex flex-row gap-1 items-center">
           <ResourceTitle
             resource="quantum_foam"
@@ -71,30 +98,6 @@ export const PlayerShipCargo = () => {
             className="flex-1"
             value={ship?.cargo?.neuro_symbolics}
           />
-        </div>
-        <Divider variant="dashed" color="accent" className="h-[8px]" />
-        <div className="flex flex-row gap-ui-xs items-stretch">
-          <NumericalBadge
-            value={ship?.credits}
-            label="credits on hand"
-            variant="secondary"
-            border="bracket"
-            className="p-ui-xs flex-1"
-            formatAsCurrency={true}
-            classNames={{
-              value: "text-sm",
-            }}
-          >
-            <CreditsIcon weight="duotone" className="size-4" size={20} />
-          </NumericalBadge>
-          <div className="border-l pl-ui-xs flex flex-col gap-1">
-            <Button variant="outline" size="sm" className="flex-1 text-xxs" disabled>
-              Deposit to bank
-            </Button>
-            <Button variant="outline" size="sm" className="flex-1 text-xxs" disabled>
-              Withdraw from bank
-            </Button>
-          </div>
         </div>
       </div>
     </div>

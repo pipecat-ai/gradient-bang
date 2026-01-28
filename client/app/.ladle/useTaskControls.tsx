@@ -48,7 +48,6 @@ export const useTaskControls = () => {
   const addActiveTask = useGameStore.use.addActiveTask()
   const setLocalTaskId = useGameStore.use.setLocalTaskId()
   const assignTaskToCorpSlot = useGameStore.use.assignTaskToCorpSlot()
-  const addMovementHistory = useGameStore.use.addMovementHistory()
   const setTaskHistory = useGameStore.use.setTaskHistory()
 
   return useControls(
@@ -143,18 +142,6 @@ export const useTaskControls = () => {
           ),
           ["Add Task History"]: button(() => {
             setTaskHistory(TASK_HISTORY_MOCK)
-          }),
-        },
-        { collapsed: true }
-      ),
-      Map: folder(
-        {
-          ["Add Mock Movement History"]: button(() => {
-            addMovementHistory({
-              from: 0,
-              to: faker.number.int(5000),
-              port: faker.datatype.boolean(),
-            })
           }),
         },
         { collapsed: true }

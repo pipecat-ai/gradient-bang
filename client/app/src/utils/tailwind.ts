@@ -19,6 +19,16 @@ const customTwMerge = extendTailwindMerge({
           "elbow-offset": [(value: string) => !isNaN(Number(value))],
         },
       ],
+      "elbow-size": [
+        {
+          "elbow-size": [(value: string) => !isNaN(Number(value))],
+        },
+      ],
+      elbow: [
+        {
+          elbow: [(value: string) => isNaN(Number(value))],
+        },
+      ],
       "bracket-offset": [
         {
           "bracket-offset": [(value: string) => !isNaN(Number(value))],
@@ -27,6 +37,11 @@ const customTwMerge = extendTailwindMerge({
       "bracket-size": [
         {
           "bracket-size": [(value: string) => !isNaN(Number(value))],
+        },
+      ],
+      bracket: [
+        {
+          bracket: [(value: string) => isNaN(Number(value))],
         },
       ],
     },

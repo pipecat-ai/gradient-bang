@@ -62,6 +62,7 @@ function TabsTrigger({
       data-slot="tabs-trigger"
       className={cn(
         "group overflow-hidden font-medium bg-subtle-background py-2 text-xs group-data-[variant=default]/tabs-list:data-active:shadow-sm group-data-[variant=line]/tabs-list:data-active:shadow-none [&_svg:not([class*='size-'])]:size-4 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:outline-ring text-foreground hover:text-foreground relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center whitespace-nowrap group-data-[orientation=vertical]/tabs:w-full group-data-[orientation=vertical]/tabs:justify-start focus-visible:ring-[3px] focus-visible:outline-1 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+        "hover:bg-accent-background",
         "corner-dots",
         "group-data-[orientation=horizontal]/tabs:border-y group-data-[orientation=horizontal]/tabs:flex-1 group-data-[orientation=horizontal]/tabs:data-[state=active]:border-b-background",
         "group-data-[orientation=vertical]/tabs:px-2 group-data-[orientation=vertical]/tabs:border-x",

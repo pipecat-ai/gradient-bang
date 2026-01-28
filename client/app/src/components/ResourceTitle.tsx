@@ -26,7 +26,7 @@ export const ResourceTitle = ({
         className
       )}
     >
-      <span className="text-xxs uppercase text-foreground font-medium truncate">
+      <span className="text-xxs uppercase text-foreground font-medium truncate leading-none">
         {RESOURCE_VERBOSE_NAMES[resource]}
       </span>
       {ICON_MAP[resource]}

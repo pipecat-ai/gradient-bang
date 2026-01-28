@@ -39,7 +39,9 @@ export const RHSSubPanel = ({ children }: { children: React.ReactNode }) => {
                 Go Back
               </Button>
             </header>
-            <div className="p-ui-xs">{children}</div>
+            <ScrollArea className="p-ui-xs w-full h-full pointer-events-auto pb-24">
+              {children}
+            </ScrollArea>
           </div>
         </motion.div>
       )}
@@ -64,7 +66,7 @@ export const RHSPanelContainer = () => {
 
   return (
     <div
-      className="relative flex-1 w-full min-h-0 text-background dither-mask-md bg-background/20"
+      className="relative flex-1 w-full min-h-0 text-background dither-mask-md bg-background/20 border-t border-l"
       id="panel-container"
     >
       <div className="absolute inset-0 bottom-0 z-10 dither-mask-sm dither-mask-invert pointer-events-none" />

@@ -16,6 +16,7 @@ const cardVariants = cva("text-card-foreground flex flex-col", {
     },
     size: {
       none: "",
+      xxs: "gap-ui-xxs py-ui-xs [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-ui-xs",
       xs: "gap-ui-xs py-ui-xs [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-ui-xs",
       sm: "gap-ui-sm py-ui-sm [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-ui-sm",
       default: "gap-ui-md py-ui-md [&_*[data-slot^=card-]:not([data-slot^=card-title])]:px-ui-md",
@@ -34,6 +35,16 @@ const cardVariants = cva("text-card-foreground flex flex-col", {
     },
   },
   compoundVariants: [
+    {
+      variant: "stripes",
+      size: "xxs",
+      class: "stripe-frame-ui-xxs",
+    },
+    {
+      variant: "stripes",
+      size: "xs",
+      class: "stripe-frame-ui-xs",
+    },
     {
       variant: "stripes",
       size: "default",

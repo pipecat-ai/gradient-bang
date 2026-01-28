@@ -716,6 +716,9 @@ export function GameProvider({ children }: GameProviderProps) {
 
               // Add task summary to store
               gameStore.addTaskSummary(data as unknown as TaskSummary)
+
+              // Refetch task history
+              dispatchAction({ type: "get-task-history", payload: { max_rows: 20 } })
               break
             }
 

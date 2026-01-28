@@ -9,7 +9,6 @@ import { PlayerShipPanel } from "@/components/panels/PlayerShipPanel"
 import { RHSPanelContainer } from "@/components/panels/RHSPanelContainer"
 import { RHSPanelNav } from "@/components/panels/RHSPanelNav"
 import { TaskEnginesPanel } from "@/components/panels/TaskEnginesPanel"
-import { Divider } from "@/components/primitives/Divider"
 import { ScreenContainer } from "@/components/screens/ScreenContainer"
 import { SectorTitleBanner } from "@/components/SectorTitleBanner"
 import { Starfield } from "@/components/Starfield"
@@ -28,7 +27,7 @@ export const Game = () => {
       <Group orientation="horizontal" className="relative z-(--z-ui)">
         <Panel className="flex flex-col">
           <TopBar />
-          <main className="flex-1 flex flex-col gap-0">
+          <main className="flex-1 flex flex-col gap-0 @container/main">
             <SectorTitleBanner />
 
             <div className="p-ui-xs flex-1">
@@ -49,10 +48,9 @@ export const Game = () => {
           className="@container/aside"
           panelRef={asidePanelRef}
         >
-          <aside className="h-full border-transparent border-l-(length:--seperator) flex-col hidden @sm/aside:flex">
-            <header className="pb-(--seperator) flex flex-col gap-(--seperator) bg-black">
+          <aside className="h-full border-transparent border-l-(length:--separator) border-l-background flex-col hidden @sm/aside:flex">
+            <header className="pb-separator flex flex-col gap-separator bg-black">
               <PlayerShipPanel />
-              <Divider className="bg-accent" />
             </header>
             <div className="h-full flex-1 flex flex-col items-center justify-center overflow-hidden">
               <RHSPanelContainer />

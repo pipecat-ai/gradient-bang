@@ -1,12 +1,12 @@
 import { useCallback, useEffect } from "react"
 
 import { button, folder, useControls } from "leva"
-import { faker } from "@faker-js/faker"
 import { Story } from "@ladle/react"
 
 import { CoursePlotPanel } from "@/components/CoursePlotPanel"
 import { MapZoomControls } from "@/components/MapZoomControls"
 import { MovementHistoryPanel } from "@/components/panels/DataTablePanels"
+import { MiniMapPanel } from "@/components/panels/MiniMapPanel"
 import { Badge } from "@/components/primitives/Badge"
 import { CardContent, CardTitle } from "@/components/primitives/Card"
 import { Progress } from "@/components/primitives/Progress"
@@ -15,7 +15,6 @@ import SectorMap, { type MapConfig } from "@/components/SectorMap"
 import useGameStore from "@/stores/game"
 
 import type { GetMapRegionAction } from "@/types/actions"
-import { LARGE_MAP_DATA_MOCK, MEDIUM_MAP_DATA_MOCK, SMALL_MAP_DATA_MOCK } from "@/mocks/map.mock"
 
 export const BigMapStory: Story = () => {
   const dispatchAction = useGameStore.use.dispatchAction?.()
@@ -25,8 +24,6 @@ export const BigMapStory: Story = () => {
   const ships = useGameStore.use.ships?.()
   const coursePlot = useGameStore.use.course_plot?.()
   const mapZoomLevel = useGameStore((state) => state.mapZoomLevel)
-  const setRegionalMapData = useGameStore.use.setRegionalMapData?.()
-  const addMovementHistory = useGameStore.use.addMovementHistory?.()
 
   const shipSectors = ships?.data
     ?.filter((s: ShipSelf) => s.owner_type !== "personal")
@@ -50,22 +47,7 @@ export const BigMapStory: Story = () => {
             type: "get-my-ships",
           })
         }),
-        ["Load Small Mock"]: button(() => {
-          setRegionalMapData(SMALL_MAP_DATA_MOCK)
-        }),
-        ["Load Medium Mock"]: button(() => {
-          setRegionalMapData(MEDIUM_MAP_DATA_MOCK)
-        }),
-        ["Load Large Mock"]: button(() => {
-          setRegionalMapData(LARGE_MAP_DATA_MOCK)
-        }),
-        ["Add Mock Movement History"]: button(() => {
-          addMovementHistory({
-            from: 0,
-            to: faker.number.int(5000),
-            port: faker.datatype.boolean(),
-          })
-        }),
+
         center_sector: {
           value: sector?.id ?? 0,
           step: 1,
@@ -167,7 +149,7 @@ export const BigMapStory: Story = () => {
               config={mapConfig as MapConfig}
               map_data={mapData ?? []}
               maxDistance={mapConfig.max_bounds_distance}
-              showLegend={false}
+              showLegend={show_legend}
               onNodeClick={updateCenterSector}
               coursePlot={coursePlot ?? null}
               ships={shipSectors}
@@ -212,6 +194,21 @@ export const BigMapStory: Story = () => {
 }
 
 BigMapStory.meta = {
+  useDevTools: true,
+  useChatControls: false,
+  disconnectedStory: true,
+  enableMic: false,
+  disableAudioOutput: true,
+}
+
+export const MiniMapStory: Story = () => {
+  return (
+    <div className="flex flex-col items-center justify-center w-screen h-screen bg-muted">
+      <MiniMapPanel className="w-[330px] h-[330px] aspect-square border" />
+    </div>
+  )
+}
+MiniMapStory.meta = {
   useDevTools: true,
   useChatControls: false,
   disconnectedStory: true,

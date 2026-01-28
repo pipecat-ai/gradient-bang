@@ -1,3 +1,12 @@
+export const MOCK_COURSE_PLOT: CoursePlot = {
+  from_sector: 0,
+  to_sector: 1111,
+  path: [
+    0, 222, 333, 444, 555, 666, 777, 888, 999, 1111, 2222, 3333, 4444, 5555, 6666, 7777, 8888, 9999,
+  ],
+  distance: 11,
+}
+
 export const SMALL_MAP_DATA_MOCK: MapData = [
   {
     id: 0,
