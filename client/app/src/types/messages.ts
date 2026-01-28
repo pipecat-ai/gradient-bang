@@ -253,21 +253,6 @@ export interface ShipDestroyedMessage extends ServerMessagePayload {
 
 // --- Task History Messages
 
-export interface TaskHistoryEntry {
-  task_id: string
-  started: string // ISO8601
-  ended: string | null // null if running
-  start_instructions: string
-  end_summary: string | null
-  end_status?: string | null
-  actor_character_id?: string
-  actor_character_name?: string
-  task_scope?: "player_ship" | "corp_ship"
-  ship_id?: string
-  ship_name?: string | null
-  ship_type?: string | null
-}
-
 export interface TaskHistoryMessage extends ServerMessagePayload {
   tasks: TaskHistoryEntry[]
   total_count: number
@@ -299,4 +284,33 @@ export interface EventQueryMessage extends ServerMessagePayload {
   has_more: boolean
   next_cursor: number | null
   scope: "personal" | "corporation"
+}
+
+export interface CorporationCreatedMessage extends ServerMessagePayload {
+  name: string
+  corp_id: string
+  timestamp: string
+  founder_id: string
+  invite_code: string
+  member_count: number
+}
+
+export interface CorporationDisbandedMessage extends ServerMessagePayload {
+  reason: string
+  corp_id: string
+  corp_name: string
+  timestamp?: string
+}
+
+export interface CorporationShipPurchaseMessage extends ServerMessagePayload {
+  sector: number
+  corp_id: string
+  ship_id: string
+  buyer_id: string
+  corp_name: string
+  ship_name: string
+  ship_type: string
+  timestamp: string
+  buyer_name: string
+  purchase_price: number
 }

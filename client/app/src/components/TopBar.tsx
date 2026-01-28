@@ -7,11 +7,11 @@ import { Badge } from "./primitives/Badge"
 import { Button } from "./primitives/Button"
 import { DotDivider } from "./primitives/DotDivider"
 
-export const TopBarTextItem = ({ label, value }: { label: string; value: string }) => {
+export const TopBarTextItem = ({ label, value }: { label: string; value: string | undefined }) => {
   return (
-    <div className="flex flex-row gap-1.5 text-xs uppercase">
-      <span className="text-subtle-foreground">{label}</span>{" "}
-      <span className="text-white font-semibold">{value}</span>
+    <div className="flex flex-row gap-1.5 text-xs uppercase ">
+      <span className="text-subtle-foreground truncate">{label}</span>{" "}
+      <span className="text-white font-semibold truncate">{value ?? "---"}</span>
     </div>
   )
 }
@@ -19,6 +19,7 @@ export const TopBarTextItem = ({ label, value }: { label: string; value: string 
 export const TopBar = () => {
   const setActiveModal = useGameStore.use.setActiveModal()
   const player = useGameStore.use.player()
+  const ship = useGameStore.use.ship()
   const corporation = useGameStore.use.corporation?.()
 
   return (
@@ -34,12 +35,16 @@ export const TopBar = () => {
       <div className="flex-1 flex flex-row gap-3 text-sm items-center justify-center">
         <TopBarTextItem
           label="Credits in Bank"
-          value={formatCurrency(player?.credits_in_bank ?? 0)}
+          value={player?.credits_in_bank ? formatCurrency(player.credits_in_bank) : undefined}
+        />
+        <TopBarTextItem
+          label="on Hand"
+          value={ship?.credits ? formatCurrency(ship.credits) : undefined}
         />
         {corporation && (
           <>
             <DotDivider />
-            <TopBarTextItem label="Corporation" value={corporation.name} />
+            <TopBarTextItem label="Corp" value={corporation.name} />
           </>
         )}
       </div>

@@ -1,15 +1,15 @@
 import {
   AtomIcon,
   CoinVerticalIcon,
+  CpuIcon,
   GearSixIcon,
   GpsIcon,
-  LightningIcon,
   PlantIcon,
 } from "@phosphor-icons/react"
 
 export const QuantumFoamIcon = AtomIcon
 export const RetroOrganicsIcon = PlantIcon
-export const NeuroSymbolicsIcon = LightningIcon
+export const NeuroSymbolicsIcon = CpuIcon
 export const ScrapIcon = GearSixIcon
 export const CreditsIcon = CoinVerticalIcon
 export const CurrentSectorIcon = GpsIcon

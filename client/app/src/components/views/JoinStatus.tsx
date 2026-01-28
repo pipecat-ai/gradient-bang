@@ -1,41 +1,36 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef } from "react"
 
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react"
 
-import useGameStore from "@/stores/game";
+import useGameStore from "@/stores/game"
 
 export const JoinStatus = ({ handleStart }: { handleStart: () => void }) => {
-  const gameState = useGameStore.use.gameState();
-  const gameStateMessage = useGameStore.use.gameStateMessage?.();
-  const diamondFXInstance = useGameStore.use.diamondFXInstance?.();
-  const statusPanelRef = useRef<HTMLDivElement>(null);
+  const gameState = useGameStore.use.gameState()
+  const gameStateMessage = useGameStore.use.gameStateMessage?.()
+  const diamondFXInstance = useGameStore.use.diamondFXInstance?.()
+  const statusPanelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (
-      gameState !== "not_ready" ||
-      !diamondFXInstance ||
-      !statusPanelRef.current
-    )
-      return;
+    if (gameState !== "not_ready" || !diamondFXInstance || !statusPanelRef.current) return
 
-    diamondFXInstance.start(statusPanelRef.current.id);
-  }, [gameState, diamondFXInstance]);
+    diamondFXInstance.start(statusPanelRef.current.id)
+  }, [gameState, diamondFXInstance])
 
   useEffect(() => {
-    if (gameState !== "ready" || !diamondFXInstance) return;
+    if (gameState !== "ready" || !diamondFXInstance) return
 
-    diamondFXInstance?.clear(true);
-  }, [gameState, diamondFXInstance]);
+    diamondFXInstance?.clear(true)
+  }, [gameState, diamondFXInstance])
 
   return (
-    <div className="absolute inset-0 z-90 h-full w-full flex items-center justify-center bg-gray-800/20 backdrop-blur-lg bg-dotted-lg bg-dotted-white/10 bg-center pointer-events-none user-select-none">
+    <div className="absolute inset-0 z-90 h-full w-full flex items-center justify-center bg-gray-800/20 backdrop-blur-lg bg-dotted-lg bg-dotted-white/10 bg-center pointer-events-none select-none">
       <motion.div
         animate={{ opacity: 1 }}
         initial={{ opacity: 0 }}
         transition={{ duration: 1, delay: 1 }}
         onAnimationComplete={() => {
-          if (gameState !== "not_ready") return;
-          handleStart();
+          if (gameState !== "not_ready") return
+          handleStart()
         }}
       >
         <div id="status-panel" className="screen p-4" ref={statusPanelRef}>
@@ -56,7 +51,7 @@ export const JoinStatus = ({ handleStart }: { handleStart: () => void }) => {
         </div>
       </motion.div>
     </div>
-  );
-};
+  )
+}
 
-export default JoinStatus;
+export default JoinStatus

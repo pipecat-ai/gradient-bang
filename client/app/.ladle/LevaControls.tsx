@@ -6,6 +6,7 @@ import useGameStore from "@/stores/game"
 import { useTaskControls } from "./useTaskControls"
 
 import { SECTOR_MOCK } from "@/mocks/sector.mock"
+import { SHIP_MOCK } from "@/mocks/ship.mock"
 
 export const LevaControls = ({
   client,
@@ -53,6 +54,55 @@ export const LevaControls = ({
         ["Add Transfer Toast"]: button(() => addToast({ type: "transfer" })),
       },
       { collapsed: true, order: 1 }
+    ),
+    Player: folder(
+      {
+        ["Ship Mock"]: button(() => {
+          const setShip = useGameStore.getState().setShip
+          setShip({ ...SHIP_MOCK, owner_type: "corporation" })
+        }),
+        ["Increment Warp Power"]: button(() => {
+          const ship = useGameStore.getState().ship
+          const setShip = useGameStore.getState().setShip
+          const currentWarpPower = ship?.warp_power ?? 0
+          const newWarpPower = currentWarpPower + 1
+          setShip({ ...ship, warp_power: newWarpPower, warp_power_capacity: 100 })
+        }),
+        ["Decrement Warp Power"]: button(() => {
+          const ship = useGameStore.getState().ship
+          const setShip = useGameStore.getState().setShip
+          const currentWarpPower = ship?.warp_power ?? 0
+          const newWarpPower = currentWarpPower - 1
+          setShip({ ...ship, warp_power: newWarpPower, warp_power_capacity: 100 })
+        }),
+        ["Increment Cargo Capacity"]: button(() => {
+          const ship = useGameStore.getState().ship
+          const setShip = useGameStore.getState().setShip
+          const currentCargoCapacity = ship?.cargo_capacity ?? 100
+          const newEmptyHolds = Math.max(0, (ship?.empty_holds ?? currentCargoCapacity) - 10)
+          setShip({ ...ship, cargo_capacity: currentCargoCapacity, empty_holds: newEmptyHolds })
+        }),
+        ["Decrement Cargo Capacity"]: button(() => {
+          const ship = useGameStore.getState().ship
+          const setShip = useGameStore.getState().setShip
+          const currentCargoCapacity = ship?.cargo_capacity ?? 100
+          const newEmptyHolds = Math.max(0, (ship?.empty_holds ?? currentCargoCapacity) + 10)
+          setShip({ ...ship, cargo_capacity: currentCargoCapacity, empty_holds: newEmptyHolds })
+        }),
+        ["Increment Credits"]: button(() => {
+          const ship = useGameStore.getState().ship
+          const setShip = useGameStore.getState().setShip
+          const currentCredits = ship?.credits ?? 0
+          setShip({ ...ship, credits: currentCredits + 1000 })
+        }),
+        ["Decrement Credits"]: button(() => {
+          const ship = useGameStore.getState().ship
+          const setShip = useGameStore.getState().setShip
+          const currentCredits = ship?.credits ?? 0
+          setShip({ ...ship, credits: currentCredits - 1000 })
+        }),
+      },
+      { collapsed: true, order: 2 }
     ),
   }))
 

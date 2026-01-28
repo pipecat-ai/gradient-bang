@@ -17,6 +17,14 @@ export interface GetKnownPortListAction {
   type: "get-known-ports"
 }
 
+export interface GetTaskHistoryAction {
+  type: "get-task-history"
+  payload: {
+    ship_id?: string
+    max_rows?: number
+  }
+}
+
 export interface GetMapRegionAction {
   type: "get-my-map"
   payload: {
@@ -35,6 +43,10 @@ export interface CancelTaskAction {
   payload: { task_id: string }
 }
 
+export interface RenameShipAction {
+  type: "rename-ship"
+  payload: { ship_id: string; ship_name: string }
+}
 type ActionMeta = { async?: boolean }
 
 export type GameAction = (
@@ -42,8 +54,10 @@ export type GameAction = (
   | GetMyStatusAction
   | GetKnownPortListAction
   | GetMapRegionAction
+  | GetTaskHistoryAction
   | GetMyShipsAction
   | CancelTaskAction
+  | RenameShipAction
 ) &
   ActionMeta
 

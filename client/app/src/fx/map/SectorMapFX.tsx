@@ -134,7 +134,7 @@ export const DEFAULT_NODE_STYLES: NodeStyles = {
     outlineWidth: 0,
   },
   crossRegion: {
-    fill: "rgba(0,255,0,0.25)",
+    fill: "rgba(255,120,120,0.25)",
     border: "rgba(255,120,120,0.9)",
     borderWidth: 2,
     borderStyle: "solid",
@@ -361,7 +361,7 @@ export const DEFAULT_UI_STYLES: UIStyles = {
     color: "#000000",
   },
   edgeFeather: {
-    size: 220,
+    size: 100,
   },
 }
 

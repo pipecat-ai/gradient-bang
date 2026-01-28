@@ -1,14 +1,19 @@
+import { useState } from "react"
+
 import { AnimatePresence, motion } from "motion/react"
 import { CircleNotchIcon, UserIcon } from "@phosphor-icons/react"
 
-import { CurrentSectorIcon } from "@/icons"
+import { CreditsIcon, CurrentSectorIcon } from "@/icons"
 import useGameStore from "@/stores/game"
+import { formatCurrency } from "@/utils/formatting"
 import { cn } from "@/utils/tailwind"
 
 import { PlayerFightersBadge, PlayerShieldsBadge, PlayerShipFuelBadge } from "../PlayerShipBadges"
+import { PlayerShipCargo } from "../PlayerShipCargo"
 import { PopoverHelper } from "../PopoverHelper"
 import { Badge } from "../primitives/Badge"
 import { DotDivider } from "../primitives/DotDivider"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../primitives/Tabs"
 
 const ShipBlankSlate = ({
   fetching,
@@ -18,8 +23,8 @@ const ShipBlankSlate = ({
   children?: React.ReactNode
 }) => {
   return (
-    <div className="bg-[linear-gradient(to_right,transparent_0%,var(--subtle-background)_20%,var(--subtle-background)_80%,transparent_100%)] text-subtle text-xs uppercase font-medium leading-none py-2 select-none">
-      <div className="flex flex-row gap-3 items-center justify-center">
+    <div className="py-panel-gap text-subtle text-xs uppercase font-medium leading-none select-none">
+      <div className="flex flex-row gap-3 items-center justify-center p-1.5 bg-[linear-gradient(to_right,transparent_0%,var(--subtle-background)_20%,var(--subtle-background)_80%,transparent_100%)]">
         <div className="flex-1 dotted-bg-sm text-accent h-3"></div>
         <div className="flex flex-row gap-2 items-center justify-center">
           {fetching ?
@@ -49,15 +54,25 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
         <div className="text-sm text-subtle-foreground flex flex-row gap-2 items-center min-w-0">
           <Badge variant="secondary" border="elbow" size="sm" className="font-semibold">
             <CurrentSectorIcon weight="duotone" className="size-4" />
-            <span className="text-subtle-foreground">Sector</span>
-            <span className="min-w-6 text-right">{ship.sector}</span>
+            <span className="min-w-9 text-right text-muted-foreground">{ship.sector}</span>
+          </Badge>
+          <Badge variant="secondary" border="elbow" size="sm" className="font-semibold">
+            <CreditsIcon weight="duotone" className="size-4" />
+            <span
+              className={cn(
+                "min-w-9 text-right",
+                ship.credits ? " text-muted-foreground" : "text-subtle"
+              )}
+            >
+              {ship.credits ? formatCurrency(ship.credits) : "---"}
+            </span>
           </Badge>
           <DotDivider />
           <Badge
             variant={activeTask ? "success" : "secondary"}
             border="bracket"
             size="sm"
-            className="font-semibold w-24"
+            className="font-semibold w-20"
           >
             {activeTask ?
               <>
@@ -81,18 +96,17 @@ const ShipCard = ({ ship }: { ship: ShipSelf }) => {
   )
 }
 
-const PlayerShipsPanelContent = ({
-  ships,
-  className,
-}: {
-  ships: ShipSelf[] | undefined
-  className?: string
-}) => {
+const PlayerShipsPanelContent = ({ className }: { className?: string }) => {
+  const shipsState = useGameStore.use.ships()
+  const ships = shipsState.data
+
+  console.log("PEW", ships)
+
   return (
     <motion.div
       layout
       transition={{ duration: 0.3, ease: "easeInOut" }}
-      className={cn("bg-card border border-r-0", className)}
+      className={cn("bg-card border border-r-0 border-t-0", className)}
     >
       <AnimatePresence mode="wait">
         {!ships ?
@@ -101,7 +115,6 @@ const PlayerShipsPanelContent = ({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="px-2"
           >
             <ShipBlankSlate fetching={ships === undefined} />
           </motion.div>
@@ -111,7 +124,6 @@ const PlayerShipsPanelContent = ({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="px-2"
           >
             <ShipBlankSlate>
               <span className="flex flex-row gap-2 items-center justify-center">
@@ -177,17 +189,44 @@ const PlayerShip = () => {
   )
 }
 
-export const PlayerShipPanel = ({ className }: { className?: string }) => {
-  const shipsState = useGameStore((state) => state.ships)
+export const PlayerShipTabControls = () => {
+  const [activeTab, setActiveTab] = useState<string>("")
 
-  const ships = shipsState.data
+  const handleTabClick = (value: string) => {
+    setActiveTab((prev) => (prev === value ? "" : value))
+  }
 
   return (
-    <div className="bg-subtle-background">
-      <div className="border-l p-ui-sm pr-0">
+    <Tabs value={activeTab} activationMode="manual">
+      <TabsList className="border-l select-none">
+        <TabsTrigger value="ships" onClick={() => handleTabClick("ships")}>
+          Ships
+        </TabsTrigger>
+        <TabsTrigger value="cargo" onClick={() => handleTabClick("cargo")}>
+          Cargo
+        </TabsTrigger>
+        <TabsTrigger value="modules">Modules</TabsTrigger>
+        <TabsTrigger value="config" className="border-0">
+          Config
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent value="ships">
+        <PlayerShipsPanelContent />
+      </TabsContent>
+      <TabsContent value="cargo">
+        <PlayerShipCargo />
+      </TabsContent>
+    </Tabs>
+  )
+}
+
+export const PlayerShipPanel = ({ className }: { className?: string }) => {
+  return (
+    <div className={cn("bg-background", className)}>
+      <div className="border-l p-ui-sm bg-subtle-background">
         <PlayerShip />
       </div>
-      <PlayerShipsPanelContent ships={ships} className={className} />
+      <PlayerShipTabControls />
     </div>
   )
 }

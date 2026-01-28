@@ -1,40 +1,42 @@
-import { produce } from "immer";
-import { nanoid } from "nanoid";
-import type { StateCreator } from "zustand";
+import { produce } from "immer"
+import { nanoid } from "nanoid"
+import type { StateCreator } from "zustand"
 
-import type { Toast, ToastInput } from "@/types/toasts";
+import type { Toast, ToastInput } from "@/types/toasts"
 
 interface Notifications {
-  newChatMessage: boolean;
+  newChatMessage: boolean
 }
 
-const DEDUPE_TOAST_TYPES = ["trade.executed"];
+const DEDUPE_TOAST_TYPES = ["trade.executed"]
 
 export interface UISlice {
-  uiState: UIState;
-  activeScreen?: UIScreen;
-  activeModal?: UIModal;
-  activePanel?: string;
+  uiState: UIState
+  activeScreen?: UIScreen
+  activeModal?: UIModal
+  activePanel?: UIPanel
+  activeSubPanel?: string
 
-  notifications: Notifications;
-  setNotifications: (notifications: Partial<Notifications>) => void;
+  notifications: Notifications
+  setNotifications: (notifications: Partial<Notifications>) => void
 
-  toasts: Toast[];
-  displayingToastId: string | null;
-  setToasts: (toasts: Toast[]) => void;
-  addToast: (toast: ToastInput) => void;
-  clearToasts: () => void;
-  removeToast: (id: string) => void;
-  getNextToast: () => Toast | undefined;
-  lockToast: (id: string) => void;
+  toasts: Toast[]
+  displayingToastId: string | null
+  setToasts: (toasts: Toast[]) => void
+  addToast: (toast: ToastInput) => void
+  clearToasts: () => void
+  removeToast: (id: string) => void
+  getNextToast: () => Toast | undefined
+  lockToast: (id: string) => void
 
-  setUIState: (newState: UIState) => void;
-  setActiveScreen: (screen?: UIScreen) => void;
-  setActiveModal: (modal: UIModal) => void;
-  setActivePanel: (panel: string) => void;
+  setUIState: (newState: UIState) => void
+  setActiveScreen: (screen?: UIScreen) => void
+  setActiveModal: (modal: UIModal) => void
+  setActivePanel: (panel?: UIPanel) => void
+  setActiveSubPanel: (subPanel?: string) => void
 
-  mapZoomLevel: number;
-  setMapZoomLevel: (zoomLevel: number) => void;
+  mapZoomLevel: number
+  setMapZoomLevel: (zoomLevel: number) => void
 }
 
 export const createUISlice: StateCreator<UISlice> = (set, get) => ({
@@ -42,6 +44,7 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   activeScreen: undefined,
   activeModal: undefined,
   activePanel: undefined,
+  activeSubPanel: undefined,
   mapZoomLevel: 15,
   notifications: {
     newChatMessage: false,
@@ -52,9 +55,9 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   setToasts: (toasts: Toast[]) => {
     set(
       produce((state) => {
-        state.toasts = toasts;
+        state.toasts = toasts
       })
-    );
+    )
   },
   addToast: (toast: ToastInput) => {
     set(
@@ -63,9 +66,8 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
         if (DEDUPE_TOAST_TYPES.includes(toast.type)) {
           // Find existing toast, but skip the locked one
           const existingIndex = state.toasts.findIndex(
-            (t: Toast) =>
-              t.type === toast.type && t.id !== state.displayingToastId
-          );
+            (t: Toast) => t.type === toast.type && t.id !== state.displayingToastId
+          )
 
           if (existingIndex !== -1) {
             // Update the unlocked matching toast
@@ -73,8 +75,8 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
               ...state.toasts[existingIndex],
               meta: toast.meta,
               timestamp: new Date().toISOString(),
-            };
-            return;
+            }
+            return
           }
         }
 
@@ -83,38 +85,38 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
           ...toast,
           id: nanoid(),
           timestamp: new Date().toISOString(),
-        });
+        })
       })
-    );
+    )
   },
   clearToasts: () => {
     set(
       produce((state) => {
-        state.toasts = [];
+        state.toasts = []
       })
-    );
+    )
   },
   removeToast: (id: string) => {
     set(
       produce((state) => {
-        state.toasts = state.toasts.filter((toast: Toast) => toast?.id !== id);
+        state.toasts = state.toasts.filter((toast: Toast) => toast?.id !== id)
         // Clear lock if we're removing the locked toast
         if (state.displayingToastId === id) {
-          state.displayingToastId = null;
+          state.displayingToastId = null
         }
       })
-    );
+    )
   },
   getNextToast: () => {
-    const state = get();
-    return state.toasts[0];
+    const state = get()
+    return state.toasts[0]
   },
   lockToast: (id: string) => {
     set(
       produce((draft) => {
-        draft.displayingToastId = id;
+        draft.displayingToastId = id
       })
-    );
+    )
   },
 
   setNotifications: (notifications: Partial<Notifications>) => {
@@ -123,44 +125,51 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
         state.notifications = {
           ...state.notifications,
           ...notifications,
-        };
+        }
       })
-    );
+    )
   },
 
   setUIState: (newState: UIState) => {
     set(
       produce((state) => {
-        state.uiState = newState;
+        state.uiState = newState
       })
-    );
+    )
   },
   setActiveScreen: (screen?: UIScreen) => {
     set(
       produce((state) => {
-        state.activeScreen = screen;
+        state.activeScreen = screen
       })
-    );
+    )
   },
   setActiveModal: (modal: UIModal) => {
     set(
       produce((state) => {
-        state.activeModal = modal;
+        state.activeModal = modal
       })
-    );
+    )
   },
-  setActivePanel: (panel: string) => {
+  setActivePanel: (panel?: UIPanel) => {
     set(
       produce((state) => {
-        state.activePanel = panel;
+        state.activePanel = panel
       })
-    );
+    )
+  },
+  setActiveSubPanel: (subPanel?: string) => {
+    set(
+      produce((state) => {
+        state.activeSubPanel = subPanel
+      })
+    )
   },
   setMapZoomLevel: (zoomLevel: number) => {
     set(
       produce((state) => {
-        state.mapZoomLevel = zoomLevel;
+        state.mapZoomLevel = zoomLevel
       })
-    );
+    )
   },
-});
+})

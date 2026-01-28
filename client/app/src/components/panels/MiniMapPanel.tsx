@@ -20,7 +20,7 @@ export const MiniMapPanel = ({ className }: { className?: string }) => {
     .map((s: ShipSelf) => s.sector ?? 0)
 
   return (
-    <div className={cn("bg-card border relative", className)}>
+    <div className={cn("border relative", className)}>
       <Badge
         variant="secondary"
         border="elbow"

@@ -1,8 +1,15 @@
-import type { ComponentProps, ReactNode } from "react"
+import type { ReactNode } from "react"
 import { DroneIcon, LightningIcon, ShieldIcon } from "@phosphor-icons/react"
 
 import useGameStore from "@/stores/game"
 import { cn } from "@/utils/tailwind"
+import {
+  type ColorThreshold,
+  combatThresholds,
+  fuelThresholds,
+  getColorFromThresholds,
+  type ProgressColor,
+} from "@/utils/thresholds"
 
 import { Badge } from "./primitives/Badge"
 import { Progress } from "./primitives/Progress"
@@ -10,13 +17,6 @@ import { Progress } from "./primitives/Progress"
 const incrementCx =
   "bg-success-background stripe-bar stripe-bar-success stripe-bar-8 stripe-bar-animate-1"
 const decrementCx = "stripe-bar stripe-bar-8 stripe-bar-animate-1 stripe-bar-reverse"
-
-type ProgressColor = ComponentProps<typeof Progress>["color"]
-
-interface ColorThreshold {
-  threshold: number
-  color: ProgressColor
-}
 
 interface StatBadgeProps {
   label: string
@@ -40,7 +40,7 @@ const StatBadge = ({
 }: StatBadgeProps) => {
   const percentage = (value / maxValue) * 100
 
-  const color = colorThresholds.find((t) => percentage <= t.threshold)?.color ?? defaultColor
+  const color = getColorFromThresholds(percentage, colorThresholds, defaultColor)
 
   const dCX = `${decrementCx} ${
     color === "destructive" ?
@@ -69,7 +69,7 @@ const StatBadge = ({
           color={color}
           value={percentage}
           segmented={true}
-          className="h-[16px] w-full"
+          className="h-[16px]"
           classNames={{
             increment: incrementCx,
             decrement: dCX,
@@ -80,16 +80,6 @@ const StatBadge = ({
     </Badge>
   )
 }
-
-const combatThresholds: ColorThreshold[] = [
-  { threshold: 15, color: "destructive" },
-  { threshold: 25, color: "warning" },
-]
-
-const fuelThresholds: ColorThreshold[] = [
-  { threshold: 25, color: "destructive" },
-  { threshold: 50, color: "warning" },
-]
 
 export const PlayerFightersBadge = ({ className }: { className?: string }) => {
   const ship = useGameStore.use.ship()

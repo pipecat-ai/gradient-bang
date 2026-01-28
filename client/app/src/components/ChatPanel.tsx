@@ -68,7 +68,7 @@ export const ChatPanel = () => {
           role: "system",
           parts: [
             {
-              text: faker.lorem.words({ min: 2, max: 5 }),
+              text: faker.lorem.words({ min: 2, max: 25 }),
               final: true,
               createdAt: new Date().toISOString(),
             },
@@ -99,19 +99,17 @@ export const ChatPanel = () => {
           </div>
         </CardContent>
       )}
-      <CardContent className="flex-1 mb-0 ">
-        <ScrollArea
-          className="relative w-full h-full"
-          fullHeight={true}
-          classNames={{ scrollbar: "*:first:bg-white/30" }}
-        >
-          <div className="absolute inset-0 overflow-y-auto flex flex-col gap-2">
-            {messages?.toReversed().map((message) => (
-              <ChatMessageRow key={message.createdAt} message={message} />
-            ))}
-          </div>
-        </ScrollArea>
-      </CardContent>
+      <div className="relative flex-1 mb-0">
+        <CardContent className="absolute inset-0 min-h-0">
+          <ScrollArea className="relative w-full h-full pointer-events-auto">
+            <div className="flex flex-col gap-2">
+              {messages?.toReversed().map((message) => (
+                <ChatMessageRow key={message.createdAt} message={message} />
+              ))}
+            </div>
+          </ScrollArea>
+        </CardContent>
+      </div>
     </Card>
   )
 }

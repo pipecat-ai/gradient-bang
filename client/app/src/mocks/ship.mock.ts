@@ -1,7 +1,7 @@
 export const SHIP_MOCK = {
   ship_id: "123",
-  ship_name: "Test Ship",
-  ship_type: "test",
+  ship_name: "Kestrel Courier",
+  ship_type: "kestrel_courier",
   owner_type: "corporation",
   cargo: { quantum_foam: 0, retro_organics: 0, neuro_symbolics: 0 },
   cargo_capacity: 100,

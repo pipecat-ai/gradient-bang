@@ -16,7 +16,7 @@ const inputVariants = cva(
       },
       size: {
         default: "h-9 px-2.5 py-2",
-        sm: "h-8 px-2",
+        sm: "h-8 px-2 text-sm",
         lg: "h-10 px-3",
         xl: "h-12 px-4 py-3",
       },
@@ -34,8 +34,7 @@ function Input({
   variant,
   size,
   ...props
-}: Omit<React.ComponentProps<"input">, "size"> &
-  VariantProps<typeof inputVariants>) {
+}: Omit<React.ComponentProps<"input">, "size"> & VariantProps<typeof inputVariants>) {
   return (
     <input
       type={type}

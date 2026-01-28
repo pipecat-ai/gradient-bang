@@ -16,6 +16,7 @@ const dividerVariants = cva("relative items-center", {
       active: "bg-active",
       inactive: "bg-inactive",
       warning: "bg-warning",
+      accent: "bg-accent",
     },
     thickness: {
       thin: "h-[1px]",
@@ -26,8 +27,7 @@ const dividerVariants = cva("relative items-center", {
       solid: "",
       dotted:
         "bg-transparent bg-[repeating-linear-gradient(to_right,currentColor,currentColor_2px,transparent_2px,transparent_6px)] bg-[length:6px_100%]",
-      dashed:
-        "bg-transparent bg-[repeating-linear-gradient(to_right,currentColor,currentColor_10px,transparent_10px,transparent_20px)] bg-[length:20px_100%]",
+      dashed: "bg-transparent dashed-bg-horizontal",
     },
     size: {
       none: "my-0 mx-0",
@@ -63,8 +63,7 @@ const dividerVariants = cva("relative items-center", {
     {
       orientation: "vertical",
       variant: "dashed",
-      className:
-        "bg-[repeating-linear-gradient(to_bottom,currentColor,currentColor_20px,transparent_20px,transparent_40px)] bg-[length:100%_40px]",
+      className: "dashed-bg-vertical",
     },
     {
       orientation: "vertical",
@@ -76,6 +75,11 @@ const dividerVariants = cva("relative items-center", {
       variant: ["dotted", "dashed"],
       color: "primary",
       className: "text-primary",
+    },
+    {
+      variant: ["dotted", "dashed"],
+      color: "accent",
+      className: "text-accent",
     },
     {
       variant: ["dotted", "dashed"],
@@ -120,6 +124,7 @@ const dividerChildrenVariants = cva("", {
   variants: {
     color: {
       primary: "text-foreground",
+      accent: "text-accent",
       secondary: "text-foreground",
       destructive: "text-destructive",
       active: "text-active",
@@ -150,6 +155,7 @@ const dividerDecorationVariants = cva("flex", {
       active: "text-active [&_svg]:text-active",
       inactive: "text-inactive [&_svg]:text-inactive",
       warning: "text-warning [&_svg]:text-warning",
+      accent: "text-accent-foreground [&_svg]:text-accent-foreground",
     },
   },
 })

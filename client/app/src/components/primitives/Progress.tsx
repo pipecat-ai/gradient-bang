@@ -7,7 +7,7 @@ import * as ProgressPrimitive from "@radix-ui/react-progress"
 
 import { cn } from "@/utils/tailwind"
 
-const progressVariants = cva("relative min-w-10 h-2 w-full overflow-hidden", {
+const progressVariants = cva("relative min-w-10 h-2 overflow-hidden w-full", {
   variants: {
     color: {
       primary: "bg-primary/20",
@@ -214,16 +214,14 @@ function Progress({
       className={cn(progressVariants({ color }), className)}
       {...props}
     >
-      <ProgressPrimitive.Indicator
-        data-slot="progress-indicator"
-        ref={indicatorRef}
-        style={{ transform: `translateX(-${100 - indicatorValue}%)` }}
-        className={cn(
-          "h-full w-full flex-1 transition-all",
-          indicatorColorClass,
-          classNameIndicator
-        )}
-      />
+      {indicatorValue > 0 && (
+        <ProgressPrimitive.Indicator
+          data-slot="progress-indicator"
+          ref={indicatorRef}
+          style={{ transform: `translateX(-${100 - indicatorValue}%)` }}
+          className={cn("h-full flex-1 transition-all", indicatorColorClass, classNameIndicator)}
+        />
+      )}
       {pendingSegment ?
         <span
           aria-hidden="true"

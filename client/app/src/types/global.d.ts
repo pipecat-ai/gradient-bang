@@ -28,7 +28,11 @@ declare global {
     corp_id: string
     name: string
     member_count: number
-    joined_at: string
+    joined_at?: string
+    timestamp?: string
+    founder_id?: string
+    invite_code?: string
+    member_count?: number
   }
 
   // --- RESOURCE
@@ -190,7 +194,8 @@ declare global {
   // --- UI
 
   type UIState = "idle" | "moving" | "combat" | "paused"
-  type UIScreen = "self" | "messaging" | "trading" | "map" | "tasks" | "combat"
+  type UIScreen = "map"
+  type UIPanel = "sector" | "player" | "trade" | "tasks" | "corp" | "logs"
   type UIModal = "settings" | "leaderboard" | "signup" | "character_select" | undefined
 
   // --- COMBAT
@@ -270,6 +275,21 @@ declare global {
     task_id: string
     text: string
     task_message_type: TaskType
+  }
+
+  export interface TaskHistoryEntry {
+    task_id: string
+    started: string // ISO8601
+    ended: string | null // null if running
+    start_instructions: string
+    end_summary: string | null
+    end_status?: string | null
+    actor_character_id?: string
+    actor_character_name?: string
+    task_scope?: "player_ship" | "corp_ship"
+    ship_id?: string
+    ship_name?: string | null
+    ship_type?: string | null
   }
 
   interface LogEntry {

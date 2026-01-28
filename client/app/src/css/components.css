@@ -1,5 +1,6 @@
 @layer components {
-  .bg-dither-mask-md {
+  .dither-mask-md,
+  .dither-mask-sm {
     position: relative;
 
     &::before {
@@ -10,12 +11,19 @@
       user-select: none;
       pointer-events: none;
       background-color: currentColor;
-      -webkit-mask-image: url("../assets/images/dither-mask-md.png");
       mask-image: url("../assets/images/dither-mask-md.png");
-      -webkit-mask-size: 4px 128px;
       mask-size: 4px 128px;
-      -webkit-mask-repeat: repeat-x;
       mask-repeat: repeat-x;
+    }
+  }
+  .dither-mask-sm::before {
+    mask-image: url("../assets/images/dither-mask-sm.png");
+    mask-size: 4px 64px;
+  }
+
+  .dither-mask-invert {
+    &::before {
+      transform: scaleY(-1);
     }
   }
 
@@ -45,7 +53,6 @@
     /* Reset hover styles when another card is focused */
     pointer-events: none;
   }
-
 
   .mono-upper {
     font-family: var(--font-mono);

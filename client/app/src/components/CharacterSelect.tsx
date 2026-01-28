@@ -45,7 +45,7 @@ const CharacterCard = ({
           }
         }}
       >
-        <Card className="h-full text-accent-background bg-dither-mask-md border-0 group-hover:text-accent group-focus-visible:text-accent">
+        <Card className="h-full text-accent-background dither-mask-md border-0 group-hover:text-accent group-focus-visible:text-accent">
           <CardContent className="flex-1 flex flex-col justify-between h-full">
             <div className="text-accent-foreground group-hover:text-terminal group-focus-visible:text-terminal mb-2 aspect-square flex items-center justify-center bg-background/50 cross-lines-accent-background cross-lines-offset-8">
               <UserIcon
@@ -103,9 +103,7 @@ export const CharacterSelect = ({
           </div>
         )}
 
-        {characters?.length > 0 && (
-          <div className="flex-1 w-3 dashed-bg-vertical dashed-bg-muted" />
-        )}
+        {characters?.length > 0 && <div className="w-3 dashed-bg-vertical dashed-bg-muted" />}
         <div className="group bg-card focus-outline focus-hover relative py-0 border w-48 elbow select-none elbow-offset-1 elbow-subtle-foreground hover:elbow-foreground hover:-elbow-offset-3 focus-visible:-elbow-offset-3 hover:scale-105 focus-visible:scale-105 transition-transform duration-300 ease-in-out cursor-pointer">
           <Card className="w-full h-full border-0" onClick={onIsCreating}>
             <CardContent className="flex flex-col items-center justify-center w-full h-full gap-4">
