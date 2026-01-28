@@ -1,6 +1,6 @@
 import { useState } from "react"
 
-import { CircleNotchIcon } from "@phosphor-icons/react"
+import { CircleNotchIcon, ShieldIcon } from "@phosphor-icons/react"
 
 import ImageAegisCruiser from "@/assets/images/ships/aegis_cruiser.png"
 import ImageAegisCruiserLogo from "@/assets/images/ships/aegis_cruiser_logo.png"
@@ -27,8 +27,19 @@ import ImageSparrowScoutLogo from "@/assets/images/ships/sparrow_scout_logo.png"
 import ImageWayfarerFreighter from "@/assets/images/ships/wayfarer_freighter.png"
 import ImageWayfarerFreighterLogo from "@/assets/images/ships/wayfarer_freighter_logo.png"
 import { useGameContext } from "@/hooks/useGameContext"
+import {
+  CargoIcon,
+  CreditsIcon,
+  EquipmentSlotsIcon,
+  FighterIcon,
+  FuelIcon,
+  TurnsPerWarpIcon,
+} from "@/icons"
 import useGameStore from "@/stores/game"
+import { formatCurrency } from "@/utils/formatting"
 
+import { DottedTitle } from "../DottedTitle"
+import { Badge } from "../primitives/Badge"
 import { Button } from "../primitives/Button"
 import { Divider } from "../primitives/Divider"
 
@@ -60,6 +71,25 @@ const SHIP_LOGO_MAP = {
   aegis_cruiser: ImageAegisCruiserLogo,
   pike_frigate: ImagePikeFrigateLogo,
 }
+
+type ShipDetailsItemProps = {
+  label: string
+  icon: React.ReactNode
+  value: React.ReactNode
+  showBorder?: boolean
+}
+
+const ShipDetailsItem = ({ label, icon, value, showBorder = true }: ShipDetailsItemProps) => (
+  <li
+    className={`flex flex-row gap-2 items-center ${showBorder ? "border-b border-accent pb-ui-xs" : ""}`}
+  >
+    <div className="flex-1 text-sm uppercase">{label}</div>
+    <Badge size="sm" className="flex flex-row gap-2 items-center justify-between w-32 text-center">
+      {icon}
+      <span className="flex-1 text-terminal-foreground">{value}</span>
+    </Badge>
+  </li>
+)
 
 export const ShipDetails = ({ ship }: { ship: ShipDefinition }) => {
   const shipImage = SHIP_IMAGE_MAP[ship.ship_type as keyof typeof SHIP_IMAGE_MAP]
@@ -106,8 +136,54 @@ export const ShipDetails = ({ ship }: { ship: ShipDefinition }) => {
           </div>
         </div>
       </figure>
-      <aside className="flex flex-col gap-4 w-md justify-between">
-        <div>Data goes here</div>
+      <aside className="flex flex-col gap-ui-sm w-md justify-between">
+        <div>
+          <DottedTitle title="Ship Stats" className="py-ui-sm" />
+          <ul className="flex flex-col gap-ui-xs list-none">
+            <ShipDetailsItem
+              label="Warp Fuel Capacity"
+              icon={<FuelIcon weight="duotone" className="size-5" />}
+              value={ship.warp_power_capacity}
+            />
+            <ShipDetailsItem
+              label="Cargo Holds"
+              icon={<CargoIcon weight="duotone" className="size-5" />}
+              value={ship.cargo_holds}
+            />
+            <ShipDetailsItem
+              label="Shields"
+              icon={<ShieldIcon weight="duotone" className="size-5" />}
+              value={ship.cargo_holds}
+            />
+            <ShipDetailsItem
+              label="Fighters"
+              icon={<FighterIcon weight="duotone" className="size-5" />}
+              value={ship.fighters}
+            />
+            <ShipDetailsItem
+              label="Turns per warp"
+              icon={<TurnsPerWarpIcon weight="duotone" className="size-5" />}
+              value={ship.turns_per_warp}
+            />
+            <ShipDetailsItem
+              label="Equipment Slots"
+              icon={<EquipmentSlotsIcon weight="duotone" className="size-5" />}
+              value={(ship.stats as unknown as { equipment_slots: number }).equipment_slots}
+              showBorder={false}
+            />
+          </ul>
+          <DottedTitle title="Purchase Price" className="py-ui-sm" />
+          <Badge
+            variant="secondary"
+            border="bracket"
+            className="flex-1 bracket-offset-1 flex flex-row gap-2 items-center justify-between flex-1text-center"
+          >
+            <CreditsIcon weight="duotone" className="size-5" />
+            <span className=" text-terminal-foreground">
+              {formatCurrency(ship.purchase_price, "standard")}
+            </span>
+          </Badge>
+        </div>
         <footer className="flex flex-col gap-ui-sm">
           <Divider
             color="secondary"
@@ -124,6 +200,13 @@ export const ShipDetails = ({ ship }: { ship: ShipDefinition }) => {
             }}
           >
             Request to buy
+          </Button>
+          <Button
+            variant="secondary"
+            className="bg-accent-background/50 text-foreground hover:bg-accent-background"
+            onClick={() => setActiveScreen(undefined)}
+          >
+            Close
           </Button>
         </footer>
       </aside>
