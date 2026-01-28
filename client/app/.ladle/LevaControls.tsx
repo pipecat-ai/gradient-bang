@@ -33,7 +33,6 @@ export const LevaControls = ({
     ["Set Sector 0"]: button(() =>
       setSector({ ...SECTOR_MOCK, id: 0, position: [0, 0], port: MEGA_PORT_MOCK } as Sector)
     ),
-
     ["Set Random Sector"]: button(() =>
       setSector({
         ...SECTOR_MOCK,
@@ -41,6 +40,14 @@ export const LevaControls = ({
         port: Math.random() > 0.5 ? PORT_MOCK : undefined,
       })
     ),
+    ["Set ID"]: {
+      value: 1,
+      step: 1,
+      onChange: (value) => {
+        setSector({ ...SECTOR_MOCK, id: value, position: [0, 0], port: MEGA_PORT_MOCK } as Sector)
+      },
+    },
+
     Messages: folder(
       {
         ["Get My Status"]: button(() => dispatchAction({ type: "get-my-status" })),

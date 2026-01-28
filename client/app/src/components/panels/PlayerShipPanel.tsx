@@ -225,7 +225,7 @@ export const PlayerShipTabControls = () => {
           <Button
             variant="ghost"
             size="ui"
-            className="text-xs grow shrink-0 border-t-0 justify-between w-full hover:outline-0 focus-visible:outline-0 hover:bg-muted"
+            className="text-xs grow shrink-0 border-t-0 justify-between w-full hover:outline-0 focus-visible:outline-0 hover:bg-muted bg-accent-background"
             onClick={() => setActiveTab("")}
           >
             <XIcon className="shrink-0 my-auto text-subtle" />

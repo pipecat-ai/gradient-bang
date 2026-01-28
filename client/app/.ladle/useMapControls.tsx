@@ -3,14 +3,28 @@ import { faker } from "@faker-js/faker"
 
 import useGameStore from "@/stores/game"
 
-import { LARGE_MAP_DATA_MOCK, MEDIUM_MAP_DATA_MOCK, SMALL_MAP_DATA_MOCK } from "@/mocks/map.mock"
+import {
+  LARGE_MAP_DATA_MOCK,
+  MEDIUM_MAP_DATA_MOCK,
+  MOCK_COURSE_PLOT,
+  SMALL_MAP_DATA_MOCK,
+} from "@/mocks/map.mock"
 
 export const useMapControls = () => {
   const addMovementHistory = useGameStore.use.addMovementHistory()
   const setRegionalMapData = useGameStore.use.setRegionalMapData()
   const setLocalMapData = useGameStore.use.setLocalMapData()
+  const setCoursePlot = useGameStore.use.setCoursePlot()
+  const clearCoursePlot = useGameStore.use.clearCoursePlot()
+
   return useControls(() => ({
     Map: folder({
+      ["Set Course Plot"]: button(() => {
+        setCoursePlot(MOCK_COURSE_PLOT)
+      }),
+      ["Clear Course Plot"]: button(() => {
+        clearCoursePlot()
+      }),
       ["Add Mock Movement History"]: button(() => {
         addMovementHistory({
           from: 0,

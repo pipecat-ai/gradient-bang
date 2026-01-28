@@ -126,21 +126,21 @@ export const TaskPanel = () => {
   return (
     <RHSPanelContent>
       <header className="flex flex-row gap-ui-sm p-ui-sm pb-0">
-        <div className="p-2 bg-accent-background/60 bracket-subtle text-foreground flex-1 bracket bracket-offset-0 flex flex-col gap-1.5 items-center justify-center">
+        <div className="p-3 bg-accent-background/60 bracket-subtle text-foreground flex-1 bracket bracket-offset-0 flex flex-col gap-1 items-center justify-center">
           <span className="text-xs font-semibold uppercase">Active Tasks</span>
-          <span className="text-base leading-none uppercase text-terminal">{numActiveTasks}</span>
+          <span className="text-sm leading-none uppercase text-terminal">{numActiveTasks}</span>
         </div>
-        <div className="p-2 bg-accent-background/60 bracket-subtle text-foreground flex-1 bracket bracket-offset-0 flex flex-col gap-1.5 items-center justify-center">
+        <div className="p-3 bg-accent-background/60 bracket-subtle text-foreground flex-1 bracket bracket-offset-0 flex flex-col gap-1 items-center justify-center">
           <span className="text-xs font-semibold uppercase">Task Engines</span>
-          <div className="text-base leading-none uppercase text-terminal flex flex-row gap-2">
+          <div className="text-sm leading-none uppercase text-terminal flex flex-row gap-2">
             <span className="text-terminal">{numTaskEngines}</span>
             <span className="text-subtle">/</span>
             <span className="text-muted-foreground">4</span>
           </div>
         </div>
-        <div className="p-2 bg-accent-background/60 bracket-subtle text-foreground flex-1 bracket bracket-offset-0 flex flex-col gap-1.5 items-center justify-center">
+        <div className="p-3 bg-accent-background/60 bracket-subtle text-foreground flex-1 bracket bracket-offset-0 flex flex-col gap-1 items-center justify-center">
           <span className="text-xs font-semibold uppercase">Engines free</span>
-          <span className="text-base leading-none uppercase text-terminal">
+          <span className="text-sm leading-none uppercase text-terminal">
             {Math.max(numTaskEngines - numActiveTasks, 0)}
           </span>
         </div>

@@ -1,8 +1,5 @@
-import { RESOURCE_SHORT_NAMES } from "../types/constants";
-import {
-  type CreditsTransferMessage,
-  type WarpTransferMessage,
-} from "../types/messages";
+import { RESOURCE_SHORT_NAMES } from "../types/constants"
+import { type CreditsTransferMessage, type WarpTransferMessage } from "../types/messages"
 
 /**
  * Formats a transfer message (credits or warp) into a human-readable summary string.
@@ -21,31 +18,29 @@ import {
  * // Returns: "Received [credits: 1000] from [Alice]"
  * ```
  */
-export function transferSummaryString(
-  transfer: CreditsTransferMessage | WarpTransferMessage
-) {
-  const { transfer_direction, transfer_details, from, to } = transfer;
-  const { name: from_name } = from;
-  const { name: to_name } = to;
+export function transferSummaryString(transfer: CreditsTransferMessage | WarpTransferMessage) {
+  const { transfer_direction, transfer_details, from, to } = transfer
+  const { name: from_name } = from
+  const { name: to_name } = to
 
-  const payload: [string, number][] = [];
+  const payload: [string, number][] = []
 
   Object.entries(transfer_details).forEach(([key, value]) => {
-    payload.push([key, value]);
-  });
+    payload.push([key, value])
+  })
 
   const data = {
     direction_long: transfer_direction === "received" ? "received" : "sent",
     direction_short: transfer_direction === "received" ? "from" : "to",
     player_name: transfer_direction === "received" ? from_name : to_name,
     payload: payload,
-  };
+  }
 
   return `${
     data.direction_long.charAt(0).toUpperCase() + data.direction_long.slice(1)
   } [${data.payload.map(([key, value]) => `${key}: ${value}`).join(", ")}] ${
     data.direction_short
-  } [${data.player_name}]`;
+  } [${data.player_name}]`
 }
 
 /**
@@ -68,27 +63,27 @@ export function transferSummaryString(
  */
 export function salvageCollectedSummaryString(salvage: Salvage) {
   try {
-    const parts: string[] = [];
-    const collected = salvage.collected;
+    const parts: string[] = []
+    const collected = salvage.collected
 
     // Add cargo items that were collected
     if (collected?.cargo) {
       for (const [resource, amount] of Object.entries(collected.cargo)) {
         if (amount > 0) {
-          const shortName = RESOURCE_SHORT_NAMES[resource as Resource];
-          parts.push(`[${shortName}: ${amount}]`);
+          const shortName = RESOURCE_SHORT_NAMES[resource as Resource]
+          parts.push(`[${shortName}: ${amount}]`)
         }
       }
     }
 
     // Add credits if present and non-zero
     if (collected?.credits && collected.credits > 0) {
-      parts.push(`[Credits: ${collected.credits}]`);
+      parts.push(`[Credits: ${collected.credits}]`)
     }
 
-    return ` ${parts.join(" ")}`;
+    return ` ${parts.join(" ")}`
   } catch {
-    return " ";
+    return " "
   }
 }
 
@@ -110,33 +105,33 @@ export function salvageCollectedSummaryString(salvage: Salvage) {
  * ```
  */
 export function salvageCreatedSummaryString(salvage: {
-  cargo?: Record<string, number>;
-  scrap?: number;
-  credits?: number;
+  cargo?: Record<string, number>
+  scrap?: number
+  credits?: number
 }) {
   try {
-    const parts: string[] = [];
+    const parts: string[] = []
 
     if (salvage.cargo) {
       for (const [resource, amount] of Object.entries(salvage.cargo)) {
         if (typeof amount === "number" && amount > 0) {
-          const shortName = RESOURCE_SHORT_NAMES[resource as Resource];
-          parts.push(`[${shortName}: ${amount}]`);
+          const shortName = RESOURCE_SHORT_NAMES[resource as Resource]
+          parts.push(`[${shortName}: ${amount}]`)
         }
       }
     }
 
     if (salvage.scrap && salvage.scrap > 0) {
-      parts.push(`[Scrap: ${salvage.scrap}]`);
+      parts.push(`[Scrap: ${salvage.scrap}]`)
     }
 
     if (salvage.credits && salvage.credits > 0) {
-      parts.push(`[Credits: ${salvage.credits}]`);
+      parts.push(`[Credits: ${salvage.credits}]`)
     }
 
-    return ` ${parts.join(" ")}`;
+    return ` ${parts.join(" ")}`
   } catch {
-    return " ";
+    return " "
   }
 }
 
@@ -157,15 +152,12 @@ export function salvageCreatedSummaryString(salvage: {
  * const missing = getMetaValue<string>(meta, "nonexistent"); // undefined
  * ```
  */
-function getMetaValue<T>(
-  meta: Record<string, unknown> | undefined,
-  key: string
-) {
+function getMetaValue<T>(meta: Record<string, unknown> | undefined, key: string) {
   if (!meta) {
-    return undefined;
+    return undefined
   }
 
-  return meta[key] as T | undefined;
+  return meta[key] as T | undefined
 }
 
 /**
@@ -191,25 +183,25 @@ function getMetaValue<T>(
  */
 function normalizeSignaturePart(part: unknown) {
   if (part === undefined || part === null) {
-    return "";
+    return ""
   }
   if (typeof part === "string") {
-    return part.trim().toLowerCase();
+    return part.trim().toLowerCase()
   }
   if (typeof part === "number" || typeof part === "boolean") {
-    return String(part);
+    return String(part)
   }
   if (part instanceof Date) {
-    return part.toISOString();
+    return part.toISOString()
   }
   if (typeof part === "object") {
     try {
-      return JSON.stringify(part);
+      return JSON.stringify(part)
     } catch {
-      return "";
+      return ""
     }
   }
-  return String(part);
+  return String(part)
 }
 
 /**
@@ -246,39 +238,32 @@ function normalizeSignaturePart(part: unknown) {
 export function createLogEntrySignature(
   entry: Pick<LogEntry, "type" | "meta">
 ): string | undefined {
-  const signaturePrefix = getMetaValue<string>(entry.meta, "signature_prefix");
-  const signatureKeys = getMetaValue<unknown[]>(entry.meta, "signature_keys");
+  const signaturePrefix = getMetaValue<string>(entry.meta, "signature_prefix")
+  const signatureKeys = getMetaValue<unknown[]>(entry.meta, "signature_keys")
 
-  if (
-    typeof signaturePrefix === "string" &&
-    Array.isArray(signatureKeys) &&
-    signatureKeys.length
-  ) {
+  if (typeof signaturePrefix === "string" && Array.isArray(signatureKeys) && signatureKeys.length) {
     const normalizedParts = signatureKeys
       .map((part) => normalizeSignaturePart(part))
-      .filter((part) => part.length > 0);
+      .filter((part) => part.length > 0)
 
     if (normalizedParts.length) {
-      return `${signaturePrefix}${normalizedParts.join("|")}`;
+      return `${signaturePrefix}${normalizedParts.join("|")}`
     }
   }
 
   if (entry.type === "chat.direct") {
-    const chatMessage = getMetaValue<Partial<ChatMessage>>(
-      entry.meta,
-      "chat_message"
-    );
+    const chatMessage = getMetaValue<Partial<ChatMessage>>(entry.meta, "chat_message")
     const fromName =
       normalizeSignaturePart(
         getMetaValue<string>(entry.meta, "from_name") ?? chatMessage?.from_name
-      ) || undefined;
+      ) || undefined
 
     if (fromName) {
-      return `chat.direct:${fromName}`;
+      return `chat.direct:${fromName}`
     }
   }
 
-  return undefined;
+  return undefined
 }
 
 /**
@@ -311,13 +296,13 @@ export const hasDeviatedFromCoursePlot = (
   falseIfFinished: boolean = false
 ) => {
   if (!coursePlot) {
-    return false;
+    return false
   }
   if (falseIfFinished && coursePlot.to_sector === current_sector_id) {
-    return false;
+    return false
   }
-  return !coursePlot.path.includes(current_sector_id);
-};
+  return !coursePlot.path.includes(current_sector_id)
+}
 
 /**
  * Compares previous and new map data to find newly discovered sectors.
@@ -334,26 +319,40 @@ export const checkForNewSectors = (
 ): MapSectorNode[] => {
   // If there's no previous map data, no sectors can be "newly" discovered
   if (!prevMapData) {
-    return [];
+    return []
   }
 
-  const newlyDiscovered: MapSectorNode[] = [];
+  const newlyDiscovered: MapSectorNode[] = []
 
   // Check each sector in the new map data
   for (const newSector of newMapData) {
     // Find the corresponding sector in the previous map data
-    const prevSector = prevMapData.find((s) => s.id === newSector.id);
+    const prevSector = prevMapData.find((s) => s.id === newSector.id)
 
     // If the sector exists in both maps, check if visited changed from empty to timestamp
     if (prevSector) {
-      const wasUnvisited = !prevSector.visited; // falsy (undefined/null/empty)
-      const isNowVisited = !!newSector.visited; // truthy (timestamp string)
+      const wasUnvisited = !prevSector.visited // falsy (undefined/null/empty)
+      const isNowVisited = !!newSector.visited // truthy (timestamp string)
 
       if (wasUnvisited && isNowVisited) {
-        newlyDiscovered.push(newSector);
+        newlyDiscovered.push(newSector)
       }
     }
   }
 
-  return newlyDiscovered;
-};
+  return newlyDiscovered
+}
+
+export const calculateHopsRemaining = (
+  sector: Sector | null | undefined,
+  coursePlot: CoursePlot | null | undefined
+) => {
+  if (!sector || !coursePlot?.path) {
+    return 0
+  }
+  const currentIndex = coursePlot.path.indexOf(sector.id)
+  if (currentIndex === -1) {
+    return "???"
+  }
+  return coursePlot.path.length - 1 - currentIndex
+}
