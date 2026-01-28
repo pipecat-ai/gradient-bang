@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 
 import { format, parseISO } from "date-fns"
 import { ArrowDownRightIcon, ArrowRightIcon } from "@phosphor-icons/react"
@@ -12,11 +12,17 @@ import { Button } from "../primitives/Button"
 import { Card, CardContent, CardHeader, CardTitle } from "../primitives/Card"
 import { Select, SelectTrigger } from "../primitives/Select"
 import { ChevronSM } from "../svg/ChevronSM"
-import { RHSPanelContent } from "./RHSPanelContainer"
+import { RHSPanelContent, RHSSubPanel } from "./RHSPanelContainer"
 
 const formatTaskDate = (isoDate: string) => format(parseISO(isoDate), "yy.MM.dd HH:mm")
 
-export const TaskHistoryRow = ({ task }: { task: TaskHistoryEntry }) => {
+export const TaskHistoryRow = ({
+  task,
+  onTaskClick,
+}: {
+  task: TaskHistoryEntry
+  onTaskClick: (task: TaskHistoryEntry) => void
+}) => {
   const endStatusColor =
     task.end_status === "completed" ? "text-success"
     : task.end_status === "cancelled" ? "text-warning"
@@ -53,6 +59,7 @@ export const TaskHistoryRow = ({ task }: { task: TaskHistoryEntry }) => {
         size="icon-sm"
         variant="ghost"
         className="bg-accent-background/50 text-foreground hover:bg-accent-background"
+        onClick={() => onTaskClick(task)}
       >
         <ArrowDownRightIcon size={16} weight="bold" />
       </Button>
@@ -65,8 +72,12 @@ export const TaskPanel = () => {
   const ships = useGameStore.use.ships?.()
   const taskHistory = useGameStore.use.task_history?.()
   const dispatchAction = useGameStore.use.dispatchAction?.()
+  const activeSubPanel = useGameStore.use.activeSubPanel?.()
+  const setActiveSubPanel = useGameStore.use.setActiveSubPanel?.()
 
-  const numTaskEngines = (ships.data?.length ?? 0) + 1
+  const [selectedTask, setSelectedTask] = useState<TaskHistoryEntry | null>(null)
+
+  const numTaskEngines = Math.min(Math.max((ships.data?.length ?? 0) - 1, 0), 4)
   const numActiveTasks = Object.keys(activeTasks ?? {}).length
 
   useEffect(() => {
@@ -76,11 +87,11 @@ export const TaskPanel = () => {
   return (
     <RHSPanelContent>
       <header className="flex flex-row gap-ui-sm p-ui-sm pb-0">
-        <div className="p-ui-sm bg-accent-background/60 bracket-subtle text-foreground flex-1 bracket bracket-offset-0 flex flex-col gap-1.5 items-center justify-center">
+        <div className="p-2 bg-accent-background/60 bracket-subtle text-foreground flex-1 bracket bracket-offset-0 flex flex-col gap-1.5 items-center justify-center">
           <span className="text-xs font-semibold uppercase">Active Tasks</span>
           <span className="text-base leading-none uppercase text-terminal">{numActiveTasks}</span>
         </div>
-        <div className="p-ui-sm bg-accent-background/60 bracket-subtle text-foreground flex-1 bracket bracket-offset-0 flex flex-col gap-1.5 items-center justify-center">
+        <div className="p-2 bg-accent-background/60 bracket-subtle text-foreground flex-1 bracket bracket-offset-0 flex flex-col gap-1.5 items-center justify-center">
           <span className="text-xs font-semibold uppercase">Task Engines</span>
           <div className="text-base leading-none uppercase text-terminal flex flex-row gap-2">
             <span className="text-terminal">{numTaskEngines}</span>
@@ -88,18 +99,23 @@ export const TaskPanel = () => {
             <span className="text-muted-foreground">4</span>
           </div>
         </div>
-        <div className="p-ui-sm bg-accent-background/60 bracket-subtle text-foreground flex-1 bracket bracket-offset-0 flex flex-col gap-1.5 items-center justify-center">
+        <div className="p-2 bg-accent-background/60 bracket-subtle text-foreground flex-1 bracket bracket-offset-0 flex flex-col gap-1.5 items-center justify-center">
           <span className="text-xs font-semibold uppercase">Engines free</span>
           <span className="text-base leading-none uppercase text-terminal">
             {numTaskEngines - numActiveTasks}
           </span>
         </div>
       </header>
-      <Card size="sm" className="border-r-0">
+      <Card
+        size="sm"
+        className={`border-r-0 ${activeSubPanel ? "overflow-hidden opacity-50" : ""}`}
+      >
         <CardHeader>
           <CardTitle>Task History</CardTitle>
         </CardHeader>
-        <CardContent className="flex flex-col gap-ui-sm">
+        <CardContent
+          className={`flex flex-col gap-ui-sm ${activeSubPanel ? "overflow-hidden" : ""}`}
+        >
           <Select>
             <SelectTrigger variant="secondary" className="w-full">
               <div className="flex flex-row gap-2 items-center justify-center">
@@ -134,12 +150,30 @@ export const TaskPanel = () => {
           {taskHistory ?
             <div className="flex flex-col gap-3 w-full min-w-0">
               {taskHistory?.map((task) => (
-                <TaskHistoryRow key={task.task_id} task={task} />
+                <TaskHistoryRow
+                  key={task.task_id}
+                  task={task}
+                  onTaskClick={() => {
+                    setSelectedTask(task)
+                    setActiveSubPanel("task-history")
+                  }}
+                />
               ))}
             </div>
           : <PanelContentLoader className="mx-auto" />}
         </CardContent>
       </Card>
+
+      <RHSSubPanel>
+        <ul className="flex flex-col gap-2 text-xxs list-none">
+          {Object.entries(selectedTask ?? {}).map(([key, value]) => (
+            <li key={key} className="flex flex-col gap-0.5 border-b pb-2">
+              <span className="text-foreground font-bold uppercase">{key}</span>{" "}
+              <span className="text-subtle">{value?.toString()}</span>
+            </li>
+          ))}
+        </ul>
+      </RHSSubPanel>
     </RHSPanelContent>
   )
 }

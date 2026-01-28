@@ -4,7 +4,7 @@ import { faker } from "@faker-js/faker"
 import useGameStore from "@/stores/game"
 
 import { SHIP_MOCK } from "@/mocks/ship.mock"
-import { TASK_MOCK } from "@/mocks/task.mock"
+import { TASK_HISTORY_MOCK, TASK_MOCK } from "@/mocks/task.mock"
 
 // Helper to complete a task by ID
 const completeTask = (taskId: string | null, status: "completed" | "cancelled" | "failed") => {
@@ -49,6 +49,7 @@ export const useTaskControls = () => {
   const setLocalTaskId = useGameStore.use.setLocalTaskId()
   const assignTaskToCorpSlot = useGameStore.use.assignTaskToCorpSlot()
   const addMovementHistory = useGameStore.use.addMovementHistory()
+  const setTaskHistory = useGameStore.use.setTaskHistory()
 
   return useControls(
     () => ({
@@ -140,6 +141,9 @@ export const useTaskControls = () => {
             },
             { collapsed: false }
           ),
+          ["Add Task History"]: button(() => {
+            setTaskHistory(TASK_HISTORY_MOCK)
+          }),
         },
         { collapsed: true }
       ),

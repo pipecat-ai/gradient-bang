@@ -54,6 +54,11 @@ const buttonVariants = cva(
         class:
           "via-terminal/30 to-terminal/30 hover:via-terminal/20 hover:to-terminal/20 [border-image:linear-gradient(to_top,transparent_0%,var(--color-terminal)_50%)_1] text-terminal-foreground/20 hover:text-terminal-foreground/40 before:bg-terminal-foreground before:shadow-glow-sm before:shadow-terminal-foreground before:h-1 @max-md/aside:before:h-0.5",
       },
+      {
+        variant: "link",
+        size: "sm",
+        class: "text-xs",
+      },
     ],
     defaultVariants: {
       variant: "default",

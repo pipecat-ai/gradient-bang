@@ -241,6 +241,11 @@ body {
     @apply bg-background text-foreground;
   }
 
+  ::selection {
+    background: white;
+    color: black;
+  }
+
   .low-perf,
   .low-perf * {
     --tw-backdrop-blur: blur(0px) !important;

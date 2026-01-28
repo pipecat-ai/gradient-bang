@@ -15,6 +15,7 @@ export interface UISlice {
   activeScreen?: UIScreen
   activeModal?: UIModal
   activePanel?: UIPanel
+  activeSubPanel?: string
 
   notifications: Notifications
   setNotifications: (notifications: Partial<Notifications>) => void
@@ -32,6 +33,7 @@ export interface UISlice {
   setActiveScreen: (screen?: UIScreen) => void
   setActiveModal: (modal: UIModal) => void
   setActivePanel: (panel?: UIPanel) => void
+  setActiveSubPanel: (subPanel?: string) => void
 
   mapZoomLevel: number
   setMapZoomLevel: (zoomLevel: number) => void
@@ -42,6 +44,7 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
   activeScreen: undefined,
   activeModal: undefined,
   activePanel: undefined,
+  activeSubPanel: undefined,
   mapZoomLevel: 15,
   notifications: {
     newChatMessage: false,
@@ -152,6 +155,13 @@ export const createUISlice: StateCreator<UISlice> = (set, get) => ({
     set(
       produce((state) => {
         state.activePanel = panel
+      })
+    )
+  },
+  setActiveSubPanel: (subPanel?: string) => {
+    set(
+      produce((state) => {
+        state.activeSubPanel = subPanel
       })
     )
   },

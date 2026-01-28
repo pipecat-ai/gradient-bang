@@ -7,6 +7,7 @@ import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area"
 import { cn } from "@/utils/tailwind"
 
 function ScrollArea({
+  disabled = false,
   className,
   children,
   fullHeight = false,
@@ -15,6 +16,7 @@ function ScrollArea({
   ...props
 }: React.ComponentProps<typeof ScrollAreaPrimitive.Root> & {
   fullHeight?: boolean
+  disabled?: boolean
   classNames?: { scrollbar?: string }
   onScroll?: React.UIEventHandler<HTMLDivElement>
 }) {
@@ -34,7 +36,7 @@ function ScrollArea({
       >
         {children}
       </ScrollAreaPrimitive.Viewport>
-      <ScrollBar className={classNames?.scrollbar} />
+      {!disabled && <ScrollBar className={classNames?.scrollbar} />}
       <ScrollAreaPrimitive.Corner />
     </ScrollAreaPrimitive.Root>
   )
