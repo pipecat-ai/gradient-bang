@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 import uuid
 from collections import deque
 from typing import Optional, Callable, Dict, Any, Mapping
@@ -20,6 +21,7 @@ else:
 from gradientbang.utils.prompts import TaskOutputType
 from gradientbang.utils.task_agent import TaskAgent, DEFAULT_GOOGLE_MODEL
 from gradientbang.pipecat_server.frames import TaskActivityFrame
+from gradientbang.utils.api_client import RPCError
 from gradientbang.utils.base_llm_agent import LLMConfig
 from gradientbang.utils.weave_tracing import (
     init_weave,
@@ -1096,6 +1098,33 @@ class VoiceTaskManager:
 
         return None
 
+    async def _await_status_snapshot(
+        self,
+        client: AsyncGameClient,
+        character_id: str,
+        *,
+        retry_interval_seconds: float = 4.0,
+        max_wait_seconds: float = 20.0,
+    ) -> None:
+        """Wait for my_status to succeed, retrying when the ship is in hyperspace."""
+        deadline = time.monotonic() + max_wait_seconds
+        while True:
+            try:
+                await client.my_status(character_id=character_id)
+                return
+            except RPCError as exc:
+                if exc.status == 409 and "hyperspace" in str(exc).lower():
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError(
+                            "Timed out waiting for status snapshot; ship still in hyperspace."
+                        ) from exc
+                    logger.debug(
+                        f"my_status unavailable (hyperspace). Retrying in {retry_interval_seconds:.1f}s."
+                    )
+                    await asyncio.sleep(retry_interval_seconds)
+                    continue
+                raise
+
     @traced
     async def _handle_start_task(self, params: FunctionCallParams):
         task_game_client = None
@@ -1192,7 +1221,11 @@ class VoiceTaskManager:
                     logger.debug(
                         f"Corp task {short_task_id} requesting initial status.snapshot (ship_id={target_character_id})"
                     )
-                await task_game_client.my_status(character_id=target_character_id)
+                await self._await_status_snapshot(
+                    task_game_client,
+                    target_character_id,
+                    retry_interval_seconds=4.0,
+                )
                 if ship_id:
                     logger.debug(
                         f"Corp task {short_task_id} initial status.snapshot request completed (ship_id={target_character_id})"
