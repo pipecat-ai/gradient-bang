@@ -139,6 +139,7 @@ const createGameSlice: StateCreator<
   gameState: "not_ready",
   gameStateMessage: GameInitStateMessage.INIT,
   fetchPromises: {},
+
   dispatchAction: (action: GameAction) => {
     const client = usePipecatClientStore.getState().client
 

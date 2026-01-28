@@ -21,6 +21,7 @@ export const LevaControls = ({
   const dispatchAction = useGameStore.use.dispatchAction()
   const addToast = useGameStore.use.addToast()
   const setSector = useGameStore.use.setSector()
+  const addChatMessage = useGameStore.use.addChatMessage()
 
   useControls(() => ({
     ["Connect"]: buttonGroup({
@@ -48,6 +49,24 @@ export const LevaControls = ({
       },
     },
 
+    Chat: folder(
+      {
+        ["Add Chat Message"]: button(() => {
+          addChatMessage({
+            role: "system",
+            parts: [
+              {
+                text: faker.lorem.words({ min: 2, max: 25 }),
+                final: true,
+                createdAt: new Date().toISOString(),
+              },
+            ],
+          })
+        }),
+      },
+      { collapsed: true }
+    ),
+
     Messages: folder(
       {
         ["Get My Status"]: button(() => dispatchAction({ type: "get-my-status" })),
@@ -55,6 +74,7 @@ export const LevaControls = ({
       },
       { collapsed: true, order: 0 }
     ),
+
     Toasts: folder(
       {
         ["Add Bank Withdrawal Toast"]: button(() =>
@@ -71,6 +91,7 @@ export const LevaControls = ({
       },
       { collapsed: true, order: 1 }
     ),
+
     Player: folder(
       {
         ["Ship Mock"]: button(() => {

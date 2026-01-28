@@ -32,14 +32,14 @@ export const RHSSubPanel = ({ children }: { children: React.ReactNode }) => {
           }}
           className="h-full bg-background absolute z-9 left-6 right-0 inset-y-0 outline-none pointer-events-auto"
         >
-          <div className="w-full h-full bg-card border-l text-foreground">
+          <div className="w-full h-full bg-card border-l text-foreground overflow-hidden">
             <header className="p-ui-xs">
               <Button variant="link" onClick={() => setActiveSubPanel(undefined)} size="sm">
                 <ArrowLeftIcon size={16} weight="bold" />
                 Go Back
               </Button>
             </header>
-            <ScrollArea className="p-ui-xs w-full h-full pointer-events-auto pb-24">
+            <ScrollArea className="p-ui-xs w-full h-full pointer-events-auto *:pb-24">
               {children}
             </ScrollArea>
           </div>
@@ -56,7 +56,7 @@ export const RHSPanelContent = ({
   children: React.ReactNode
   className?: string
 }) => {
-  return <div className={cn("flex flex-col gap-ui-sm w-full", className)}>{children}</div>
+  return <div className={cn("flex flex-col gap-ui-sm w-full pb-12", className)}>{children}</div>
 }
 
 export const RHSPanelContainer = () => {

@@ -11,6 +11,7 @@ import { SectorMap } from "@/components/SectorMap"
 import { SettingsPanel } from "@/components/SettingsPanel"
 import { Game } from "@/components/views/Game"
 import { WarpBadge } from "@/components/WarpBadge"
+import { AnimatedFrame } from "@/fx/frame"
 import { useNotificationSound } from "@/hooks/useNotificationSound"
 import useGameStore from "@/stores/game"
 
@@ -178,6 +179,7 @@ export const GameViewStory: Story = () => {
   return (
     <div className="relative h-full w-full overflow-hidden">
       <Game />
+      <AnimatedFrame />
     </div>
   )
 }

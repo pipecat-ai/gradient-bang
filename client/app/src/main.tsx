@@ -1,7 +1,6 @@
 import { lazy, StrictMode, Suspense } from "react"
 import { createRoot } from "react-dom/client"
 
-import { Leva } from "leva"
 import { PipecatClient } from "@pipecat-ai/client-js"
 import { PipecatClientProvider } from "@pipecat-ai/client-react"
 
@@ -96,7 +95,5 @@ createRoot(document.getElementById("root")!).render(
     {/* HOC renderables */}
     <AnimatedFrame />
     {Settings.showMobileWarning && <TempMobileBlock />}
-
-    {import.meta.env.DEV && <Leva collapsed hidden={!Settings.useDevTools} />}
   </StrictMode>
 )

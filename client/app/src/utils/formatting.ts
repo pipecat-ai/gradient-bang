@@ -1,6 +1,6 @@
-export const formatCurrency = (value: number) => {
+export const formatCurrency = (value: number, notation: "compact" | "standard" = "compact") => {
   return new Intl.NumberFormat("en-US", {
-    notation: "compact",
+    notation,
     maximumFractionDigits: 1,
   }).format(value)
 }
