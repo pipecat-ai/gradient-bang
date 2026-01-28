@@ -52,7 +52,7 @@
   --fuel-subtle: oklch(52% 0.105 223.128);
 
   /** UI **/
-  --seperator: 3px;
+  --separator: 3px;
 
   --grid-opacity: 0.25;
   --screen-bg-feather: 20px;
@@ -143,6 +143,7 @@
   --spacing-ui-md: calc(var(--spacing) * 5);
   --spacing-ui-lg: calc(var(--spacing) * 10);
   --spacing-ui-xl: calc(var(--spacing) * 12);
+  --spacing-separator: var(--separator);
   --spacing-scrollbar: calc(var(--spacing) * 3);
   --spacing-panel: calc(var(--spacing) * 2);
   --spacing-panel-gap: 3px;
@@ -217,6 +218,12 @@
     }
   }
 }
+
+@custom-variant @tall-xs (@media (min-height: 500px)); /* Phones landscape */
+@custom-variant @tall-sm (@media (min-height: 640px)); /* Small tablets, phones portrait */
+@custom-variant @tall-md (@media (min-height: 768px)); /* Tablets, small laptops */
+@custom-variant @tall-lg (@media (min-height: 900px)); /* Laptops */
+@custom-variant @tall-xl (@media (min-height: 1080px)); /* Desktop monitors */
 
 @import "./components.css";
 @import "./utilities.css";

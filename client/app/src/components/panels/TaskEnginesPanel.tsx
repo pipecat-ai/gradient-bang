@@ -66,6 +66,7 @@ const TaskEngineHeader = ({ prefix, label }: { prefix?: string; label: string })
   )
 }
 
+/*
 const TaskEngineBlankSlate = () => {
   return (
     <Card
@@ -75,9 +76,9 @@ const TaskEngineBlankSlate = () => {
       <CardContent className="flex flex-col gap-2 h-full relative"></CardContent>
     </Card>
   )
-}
+}*/
 
-const LockedTaskEngineSlot = () => {
+const LockedTaskEngineSlot = ({ label }: { label?: string }) => {
   return (
     <motion.div
       initial={{ opacity: 0.4 }}
@@ -99,7 +100,7 @@ const LockedTaskEngineSlot = () => {
             <div className="flex flex-row items-center gap-1.5 text-subtle-foreground bg-black py-0.5 px-1">
               <LockSimpleIcon weight="bold" size={14} />
               <span className="text-xs uppercase text-muted-foreground font-bold">
-                additional corp ship required
+                {label || "additional corp ship required"}
               </span>
             </div>
           </div>
@@ -258,10 +259,10 @@ export const TaskEnginesPanel = () => {
   }, [corpShipTasks, assignTaskToCorpSlot, displayedCorpSlots])
 
   return (
-    <div className="grid grid-cols-2 auto-rows-[1fr] gap-ui-xs h-full">
+    <div className="grid grid-cols-2 auto-rows-[1fr] gap-ui-xs h-full @tall-md:*:max-h-72 @tall-lg:*:max-h-96 @tall-xl:*:max-h-120">
       <TaskEngine taskId={localTaskId} isLocal />
       {!ships.data ?
-        <TaskEngineBlankSlate />
+        <LockedTaskEngineSlot label="Create corporation to unlock" />
       : <>
           {Array.from({ length: displayedCorpSlots }, (_, index) => (
             <TaskEngine key={index} taskId={corpSlotAssignments?.[index]} />

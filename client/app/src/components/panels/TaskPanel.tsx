@@ -147,7 +147,7 @@ export const TaskPanel = () => {
       </header>
       <Card
         size="sm"
-        className={`border-r-0 ${activeSubPanel ? "overflow-hidden opacity-50" : ""}`}
+        className={`border-x-0 ${activeSubPanel ? "overflow-hidden opacity-50" : ""}`}
       >
         <CardHeader>
           <CardTitle>Task History</CardTitle>

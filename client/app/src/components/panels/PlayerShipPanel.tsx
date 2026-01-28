@@ -1,7 +1,7 @@
 import { useState } from "react"
 
 import { AnimatePresence, motion } from "motion/react"
-import { CircleNotchIcon, UserIcon } from "@phosphor-icons/react"
+import { CircleNotchIcon, UserIcon, XIcon } from "@phosphor-icons/react"
 
 import { CreditsIcon, CurrentSectorIcon } from "@/icons"
 import useGameStore from "@/stores/game"
@@ -12,6 +12,8 @@ import { PlayerFightersBadge, PlayerShieldsBadge, PlayerShipFuelBadge } from "..
 import { PlayerShipCargo } from "../PlayerShipCargo"
 import { PopoverHelper } from "../PopoverHelper"
 import { Badge } from "../primitives/Badge"
+import { Button } from "../primitives/Button"
+import { Divider } from "../primitives/Divider"
 import { DotDivider } from "../primitives/DotDivider"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../primitives/Tabs"
 
@@ -197,26 +199,44 @@ export const PlayerShipTabControls = () => {
   }
 
   return (
-    <Tabs value={activeTab} activationMode="manual">
-      <TabsList className="border-l select-none">
-        <TabsTrigger value="ships" onClick={() => handleTabClick("ships")}>
-          Ships
-        </TabsTrigger>
-        <TabsTrigger value="cargo" onClick={() => handleTabClick("cargo")}>
-          Cargo
-        </TabsTrigger>
-        <TabsTrigger value="modules">Modules</TabsTrigger>
-        <TabsTrigger value="config" className="border-0">
-          Config
-        </TabsTrigger>
-      </TabsList>
-      <TabsContent value="ships">
-        <PlayerShipsPanelContent />
-      </TabsContent>
-      <TabsContent value="cargo">
-        <PlayerShipCargo />
-      </TabsContent>
-    </Tabs>
+    <>
+      <Tabs value={activeTab} activationMode="manual">
+        <TabsList className="border-l select-none">
+          <TabsTrigger value="ships" onClick={() => handleTabClick("ships")}>
+            Ships
+          </TabsTrigger>
+          <TabsTrigger value="cargo" onClick={() => handleTabClick("cargo")}>
+            Cargo
+          </TabsTrigger>
+          <TabsTrigger value="modules">Modules</TabsTrigger>
+          <TabsTrigger value="config" className="border-0">
+            Config
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="ships">
+          <PlayerShipsPanelContent />
+        </TabsContent>
+        <TabsContent value="cargo">
+          <PlayerShipCargo />
+        </TabsContent>
+      </Tabs>
+      {activeTab && (
+        <div className="flex flex-col gap-separator mt-separator">
+          <Button
+            variant="ghost"
+            size="ui"
+            className="text-xs grow shrink-0 border-t-0 justify-between w-full hover:outline-0 focus-visible:outline-0 hover:bg-muted"
+            onClick={() => setActiveTab("")}
+          >
+            <XIcon className="shrink-0 my-auto text-subtle" />
+            Close
+            <XIcon className="shrink-0 my-auto text-subtle" />
+          </Button>
+          <Divider color="secondary" />
+          <Divider variant="dashed" className="h-ui-sm text-muted" />
+        </div>
+      )}
+    </>
   )
 }
 
