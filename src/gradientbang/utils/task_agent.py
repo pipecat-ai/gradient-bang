@@ -315,6 +315,7 @@ class TaskAgent:
         self._finish_emitted: bool = False
         # Counter for events to skip (supports concurrent tool calls)
         self._skip_context_events: Dict[str, int] = {}
+        self._event_handler_tokens: List[Tuple[str, Callable[[Dict[str, Any]], Awaitable[None]]]] = []
 
         tools = tools_list or [
             MyStatus,
@@ -392,7 +393,8 @@ class TaskAgent:
             "error",
         ]
         for event_name in self._event_names:
-            self.game_client.on(event_name)(self._handle_event)
+            token = self.game_client.add_event_handler(event_name, self._handle_event)
+            self._event_handler_tokens.append(token)
 
         # Initialize Weave tracing if available
         init_weave()
@@ -431,6 +433,9 @@ class TaskAgent:
 
         self._tools_schema = ToolsSchema(standard_tools=standard_tools)
 
+    def set_task_metadata(self, metadata: Optional[Dict[str, Any]]) -> None:
+        self._task_metadata = metadata or {}
+
     def add_message(self, message: Dict[str, Any]) -> None:
         msg = {k: v for k, v in message.items() if k != "token_usage"}
         self.messages.append(msg)
@@ -445,8 +450,62 @@ class TaskAgent:
     def reset_cancellation(self) -> None:
         self.cancelled = False
 
+    def _cancel_timers(self) -> None:
+        if self._inference_watchdog_handle:
+            self._inference_watchdog_handle.cancel()
+            self._inference_watchdog_handle = None
+        if self._completion_event_timeout:
+            self._completion_event_timeout.cancel()
+            self._completion_event_timeout = None
+        if self._no_tool_watchdog_handle:
+            self._no_tool_watchdog_handle.cancel()
+            self._no_tool_watchdog_handle = None
+
+    def reset_task_state(self) -> None:
+        """Clear task-scoped state for reuse without unregistering handlers."""
+        self.cancelled = False
+        self.finished = False
+        self.finished_message = None
+        self._task_id = None
+        self._task_description = None
+        self._finish_emitted = False
+        self._task_start_monotonic = None
+        self._step_counter = 0
+        self._no_tool_nudge_count = 0
+        self._tool_call_in_progress = False
+        self._llm_inflight = False
+        self._awaiting_completion_event = None
+        self._idle_wait_event = None
+        self._skip_context_events.clear()
+        self._inference_reasons.clear()
+        self._last_logged_message_count = 0
+        self._context = None
+        self.clear_messages()
+        self._cancel_timers()
+
+    async def close(self) -> None:
+        """Release resources and unregister event handlers."""
+        self._cancel_timers()
+
+        if self._active_pipeline_task:
+            try:
+                await self._active_pipeline_task.cancel()
+            except Exception:  # noqa: BLE001
+                logger.warning("Failed to cancel active pipeline task during close.")
+            self._active_pipeline_task = None
+
+        for token in list(self._event_handler_tokens):
+            try:
+                self.game_client.remove_event_handler(token)
+            except Exception:  # noqa: BLE001
+                logger.debug("Failed to remove event handler token during close.")
+        self._event_handler_tokens.clear()
+        self.reset_task_state()
+
     @traced
     async def _handle_event(self, event: Dict[str, Any]) -> None:
+        if not self._active_pipeline_task or self._active_pipeline_task.has_finished():
+            return
         event_name = event.get("event_name")
         summary = event.get("summary")
         response_data = summary or event.get("payload")
@@ -642,6 +701,8 @@ class TaskAgent:
         self._tool_call_in_progress = False
         self._llm_inflight = False
         self._awaiting_completion_event = None
+        self._skip_context_events.clear()
+        self._context = None
         if self._completion_event_timeout:
             self._completion_event_timeout.cancel()
         self._completion_event_timeout = None

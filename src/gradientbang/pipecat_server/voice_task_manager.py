@@ -51,6 +51,10 @@ from gradientbang.utils.tools_schema import (
 )
 
 MAX_CORP_SHIP_TASKS = 3  # Maximum concurrent corp ship tasks per player
+REQUEST_ID_CACHE_TTL_SECONDS = 15 * 60
+REQUEST_ID_CACHE_MAX_SIZE = 5000
+FINISHED_TASK_ID_CACHE_TTL_SECONDS = 15 * 60
+FINISHED_TASK_ID_CACHE_MAX_SIZE = 5000
 
 
 def _extract_display_name(payload: Mapping[str, Any]) -> Optional[str]:
@@ -177,9 +181,11 @@ class VoiceTaskManager:
         self.task_running = False  # Deprecated, kept for backwards compatibility
         self.cancelled_via_tool = False
         # Track request IDs from voice agent tool calls for inference triggering
-        self._voice_agent_request_ids: set[str] = set()
+        self._voice_agent_request_ids: Dict[str, float] = {}
+        self._voice_agent_request_queue: deque[tuple[str, float]] = deque()
         # Track task IDs that have finished but whose task.finish event hasn't arrived yet
-        self._finished_task_ids: set[str] = set()
+        self._finished_task_ids: Dict[str, float] = {}
+        self._finished_task_queue: deque[tuple[str, float]] = deque()
 
         # Build generic tool dispatch map for common game tools
         # Start/stop/ui_show_panel are handled inline in execute_tool_call
@@ -252,7 +258,21 @@ class VoiceTaskManager:
                 except Exception as e:
                     logger.error(f"Failed to close task {task_id} game client: {e}")
 
+        # Close any task agents to release handlers/context
+        for task_id, task_info in list(self._active_tasks.items()):
+            task_agent = task_info.get("task_agent")
+            if task_agent and task_agent is not self.task_agent:
+                try:
+                    await task_agent.close()
+                except Exception as e:
+                    logger.error(f"Failed to close task agent {task_id}: {e}")
+
         self._active_tasks.clear()
+
+        try:
+            await self.task_agent.close()
+        except Exception as e:
+            logger.error(f"Failed to close shared TaskAgent: {e}")
 
         # Close main game client
         try:
@@ -418,6 +438,79 @@ class VoiceTaskManager:
                 return None
         return None
 
+    def _prune_request_ids(self, now: Optional[float] = None) -> None:
+        if now is None:
+            now = time.monotonic()
+        cutoff = now - REQUEST_ID_CACHE_TTL_SECONDS
+        while self._voice_agent_request_queue:
+            req_id, ts = self._voice_agent_request_queue[0]
+            current = self._voice_agent_request_ids.get(req_id)
+            if current is not None and current != ts:
+                self._voice_agent_request_queue.popleft()
+                continue
+            if len(self._voice_agent_request_ids) > REQUEST_ID_CACHE_MAX_SIZE or ts < cutoff:
+                self._voice_agent_request_queue.popleft()
+                if current == ts:
+                    self._voice_agent_request_ids.pop(req_id, None)
+                continue
+            break
+
+    def _track_request_id(self, request_id: Optional[str]) -> None:
+        if not isinstance(request_id, str):
+            return
+        cleaned = request_id.strip()
+        if not cleaned:
+            return
+        now = time.monotonic()
+        self._voice_agent_request_ids[cleaned] = now
+        self._voice_agent_request_queue.append((cleaned, now))
+        self._prune_request_ids(now)
+
+    def _is_recent_request_id(self, request_id: Optional[str]) -> bool:
+        if not isinstance(request_id, str) or not request_id.strip():
+            return False
+        self._prune_request_ids()
+        return request_id in self._voice_agent_request_ids
+
+    def _prune_finished_task_ids(self, now: Optional[float] = None) -> None:
+        if now is None:
+            now = time.monotonic()
+        cutoff = now - FINISHED_TASK_ID_CACHE_TTL_SECONDS
+        while self._finished_task_queue:
+            task_id, ts = self._finished_task_queue[0]
+            current = self._finished_task_ids.get(task_id)
+            if current is not None and current != ts:
+                self._finished_task_queue.popleft()
+                continue
+            if len(self._finished_task_ids) > FINISHED_TASK_ID_CACHE_MAX_SIZE or ts < cutoff:
+                self._finished_task_queue.popleft()
+                if current == ts:
+                    self._finished_task_ids.pop(task_id, None)
+                continue
+            break
+
+    def _track_finished_task_id(self, task_id: Optional[str]) -> None:
+        if not isinstance(task_id, str):
+            return
+        cleaned = task_id.strip()
+        if not cleaned:
+            return
+        now = time.monotonic()
+        self._finished_task_ids[cleaned] = now
+        self._finished_task_queue.append((cleaned, now))
+        self._prune_finished_task_ids(now)
+
+    def _is_recent_finished_task_id(self, task_id: Optional[str]) -> bool:
+        if not isinstance(task_id, str) or not task_id.strip():
+            return False
+        self._prune_finished_task_ids()
+        return task_id in self._finished_task_ids
+
+    def _forget_finished_task_id(self, task_id: Optional[str]) -> None:
+        if not isinstance(task_id, str) or not task_id.strip():
+            return
+        self._finished_task_ids.pop(task_id, None)
+
 
     async def _relay_event(self, event: Dict[str, Any]) -> None:
         event_name = event.get("event_name")
@@ -502,11 +595,11 @@ class VoiceTaskManager:
             task_id = self._get_task_id_for_full(payload_task_id)
             is_our_task = task_id is not None
             # Also check finished tasks (task cleaned up before event arrived)
-            if not is_our_task and payload_task_id in self._finished_task_ids:
+            if not is_our_task and self._is_recent_finished_task_id(payload_task_id):
                 is_our_task = True
                 # Clean up once we've seen the event
                 if event_name == "task.finish":
-                    self._finished_task_ids.discard(payload_task_id)
+                    self._forget_finished_task_id(payload_task_id)
 
         if not task_id:
             task_id = self._get_task_id_for_character(self.character_id)
@@ -548,7 +641,7 @@ class VoiceTaskManager:
         }
 
         # Check if event came from voice agent's tool call
-        is_voice_agent_event = event_request_id in self._voice_agent_request_ids
+        is_voice_agent_event = self._is_recent_request_id(event_request_id)
 
         # Debug logging for request ID tracking
         logger.debug(f"Event arrived: {event_name}")
@@ -860,11 +953,18 @@ class VoiceTaskManager:
         finally:
             # Track full_task_id so we recognize task.finish event after cleanup
             if full_task_id:
-                self._finished_task_ids.add(full_task_id)
+                self._track_finished_task_id(full_task_id)
 
             # Clean up task tracking
             if task_id in self._active_tasks:
                 del self._active_tasks[task_id]
+
+            if is_corp_ship:
+                await task_agent.close()
+            else:
+                task_agent.reset_task_state()
+                task_agent.output_callback = self._handle_agent_output
+                task_agent.set_task_metadata({})
 
             # Clean up corp ship client
             if is_corp_ship and task_game_client != self.game_client:
@@ -983,7 +1083,7 @@ class VoiceTaskManager:
                 if not req_id and hasattr(self.game_client, 'last_request_id'):
                     req_id = self.game_client.last_request_id
                 if req_id:
-                    self._voice_agent_request_ids.add(req_id)
+                    self._track_request_id(req_id)
                     logger.debug(f"Tool {tool_name} tracking request_id={req_id}")
 
             if tool_name in event_generating_tools:
@@ -1128,6 +1228,7 @@ class VoiceTaskManager:
     @traced
     async def _handle_start_task(self, params: FunctionCallParams):
         task_game_client = None
+        task_agent: Optional[TaskAgent] = None
         try:
             logger.info(f"!!! start_task: {params.arguments}")
             task_desc = params.arguments.get("task_description", "")
@@ -1181,6 +1282,12 @@ class VoiceTaskManager:
             # full_task_id (full UUID) is stored in database for event correlation
             short_task_id, full_task_id = self._generate_task_id()
             task_type = self._get_task_type(ship_id)
+            task_metadata = {
+                "actor_character_id": self.character_id,
+                "actor_character_name": self.display_name,
+                "task_scope": task_type,
+                "ship_id": ship_id if ship_id else None,
+            }
 
             # Create a new game client for this task (if corp ship)
             if ship_id:
@@ -1202,18 +1309,19 @@ class VoiceTaskManager:
                 await task_game_client.pause_event_delivery()
 
             # Create task-specific agent with custom output callback
-            task_agent = TaskAgent(
-                config=LLMConfig(model=DEFAULT_GOOGLE_MODEL),
-                game_client=task_game_client,
-                character_id=target_character_id,
-                output_callback=self._create_agent_output_callback(short_task_id, task_type),
-                task_metadata={
-                    "actor_character_id": self.character_id,
-                    "actor_character_name": self.display_name,
-                    "task_scope": task_type,
-                    "ship_id": ship_id if ship_id else None,
-                },
-            )
+            if ship_id:
+                task_agent = TaskAgent(
+                    config=LLMConfig(model=DEFAULT_GOOGLE_MODEL),
+                    game_client=task_game_client,
+                    character_id=target_character_id,
+                    output_callback=self._create_agent_output_callback(short_task_id, task_type),
+                    task_metadata=task_metadata,
+                )
+            else:
+                task_agent = self.task_agent
+                task_agent.output_callback = self._create_agent_output_callback(short_task_id, task_type)
+                task_agent.set_task_metadata(task_metadata)
+                task_agent.reset_task_state()
 
             # call my_status so the first thing the task gets is a status.snapshot event
             try:
@@ -1277,6 +1385,11 @@ class VoiceTaskManager:
             }
         except Exception as e:
             logger.error(f"start_task failed: {e}")
+            if task_agent and ship_id:
+                await task_agent.close()
+            elif task_agent and not ship_id:
+                task_agent.output_callback = self._handle_agent_output
+                task_agent.set_task_metadata({})
             if task_game_client and task_game_client != self.game_client:
                 await task_game_client.close()
             elif task_game_client == self.game_client:
